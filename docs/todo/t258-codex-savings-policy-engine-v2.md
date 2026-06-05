@@ -1,6 +1,6 @@
 # TASK 258: Codex savings policy engine v2
 
-Status: [~] IN PROGRESS - central auto policy foundation active for route, risk,
+Status: [x] DONE - central auto policy active for route, risk,
 recovery, recency, workload, proof, and closed-candidate blocking
 Priority: P0 - turns aggressive mechanisms into safe automatic behavior
 Scope: Extend `internal/savingspolicy` from mechanism toggles into a full Codex
@@ -47,8 +47,8 @@ without manual toggles and without silently making the model worse.
 
 - [x] Define policy enums and decision structs for risk, recovery, recency, workload,
       and proof level.
-- [~] Add policy evidence inputs from T257 reports and current session telemetry.
-- [~] Move remaining route/mechanism ad-hoc gates into `internal/savingspolicy`.
+- [x] Add policy evidence inputs from T257 reports and current session telemetry.
+- [x] Move remaining route/mechanism ad-hoc gates into `internal/savingspolicy`.
 - [x] Add decision support for closed T253/T254 candidates: no default mutation, with
       server-state mirror retained as telemetry only.
 - [x] Surface policy reason counters in admin state, `wss-audit`, and workday reports
@@ -76,6 +76,22 @@ without manual toggles and without silently making the model worse.
   `wss-audit --admin-state-file` savings telemetry now include content-free
   `proxy_layer0_policy` counters keyed by route, mechanism, action, reason, block reason,
   and count.
+- 2026-06-04: Chunk-dedup proof evidence is now a real policy input instead of a
+  hard-coded assumption. `[compression.output_reduce] codex_chunk_dedup_proof_level`
+  defaults to `live` after the current CLI/Desktop release matrix, can be lowered to
+  `none|unit|replay`, and is passed through config -> proxy settings -> WSS/HTTP
+  Layer-0 reducer -> `internal/savingspolicy`. Auto policy now shadows archive-backed
+  chunk refs unless the route has archive recovery and `live` proof; max mode requires
+  at least replay proof for non-explicit recoverable refs. Generic future
+  recoverable/archive mechanisms use the same proof gate, so no later candidate can
+  bypass T258 by carrying only an archive URI.
+- 2026-06-04: Final T258 sweep found no remaining route/mechanism/default-auto
+  product gates that should live outside `internal/savingspolicy`. Command-shape
+  guards such as "do not chunk patch/diff outputs", local decode verification,
+  token-positive checks, and archive write failures remain inside reducers because
+  they are mechanical safety checks, not promotion policy. Additional tests now cover
+  auto requiring live proof and max requiring replay proof for implicit recoverable
+  chunk refs.
 
 ## Deviations
 

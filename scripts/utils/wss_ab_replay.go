@@ -198,13 +198,16 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		Elisions:               result.Report.Elisions,
 		GatePassed:             true,
 	}
+	if result.ExpectedInstructionExtras > 0 {
+		report.Notes = append(report.Notes, "known output-reduce instruction additions were audited as expected extras; unknown instruction changes still fail the lost-comprehension gate")
+	}
 	if flags.archiveRecoveryNote {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
 	}
-	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions)
+	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions) + result.ExpectedInstructionExtras
 	gateLost := report.Lost
 	allowExpectedExtras := flags.allowRecoveryNoteExtra || flags.codexChunkDedup || !flags.archiveRecoveryNote
 	if allowExpectedExtras {

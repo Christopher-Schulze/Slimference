@@ -116,19 +116,8 @@ func TestTryCompactGhList_manyRows(t *testing.T) {
 		sb.WriteString(fmt.Sprintf("%d\tFix issue #%d\tfix/issue-%d\t2024-01-01\tOPEN\n", i, i, i))
 	}
 	input := sb.String()
-	out, ok := TryCompactGhList([]string{"gh", "pr", "list"}, []byte(input))
-	if !ok {
-		t.Fatalf("expected truncation for 25 rows, got pass-through")
-	}
-	s := string(out)
-	if !strings.Contains(s, "[gh pr list] 25 items") {
-		t.Errorf("want item count, got: %q", s)
-	}
-	if !strings.Contains(s, "+10 more") {
-		t.Errorf("want +10 more notice, got: %q", s)
-	}
-	if len(s) >= len(input) {
-		t.Errorf("compact should be shorter: %d vs %d", len(s), len(input))
+	if _, ok := TryCompactGhList([]string{"gh", "pr", "list"}, []byte(input)); ok {
+		t.Fatalf("healthy non-empty gh lists must pass through")
 	}
 }
 

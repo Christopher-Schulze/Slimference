@@ -126,6 +126,9 @@ func TestSavingsSummaryProductSignalsSaving(t *testing.T) {
 		ProxyLayer0ReadDelta:     3,
 		ProxyLayer0Repeated:      2,
 		ProxyLayer0ChunkDedup:    1,
+		ToolPruneTokensSaved:     26,
+		ToolPrunePrunedTools:     1,
+		ToolPruneReattached:      1,
 		ProxyLayer0Cache: []ProxyLayer0CacheEntry{
 			{Action: "hit", Count: 4},
 			{Action: "miss", Count: 5},
@@ -147,6 +150,9 @@ func TestSavingsSummaryProductSignalsSaving(t *testing.T) {
 	}
 	if got.ReadDeltaHits != 3 || got.RepeatedOutputHits != 2 || got.ChunkDedupHits != 1 {
 		t.Fatalf("mechanism hits mismatch: %+v", got)
+	}
+	if got.ToolPruneTokensSaved != 26 || got.ToolPrunePrunedTools != 1 || got.ToolPruneReattached != 1 {
+		t.Fatalf("tool prune product signals mismatch: %+v", got)
 	}
 }
 
@@ -179,6 +185,22 @@ func TestSavingsSummaryProductSignalsStatusPriority(t *testing.T) {
 			name: "rollback is safety issue",
 			in:   SavingsSummary{QualityABRolledBack: true},
 			want: "attention",
+		},
+		{
+			name: "tool prune miss is attention",
+			in: SavingsSummary{
+				ToolPruneTokensSaved: 20,
+				ToolPruneMisses:      1,
+			},
+			want: "attention",
+		},
+		{
+			name: "output reduce injection without savings is active",
+			in: SavingsSummary{
+				OutputReduceInjectedTurns: 1,
+				OutputReduceInputOverhead: 9,
+			},
+			want: "active_no_savings",
 		},
 	}
 	for _, tt := range tests {

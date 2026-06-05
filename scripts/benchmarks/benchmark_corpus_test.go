@@ -28,6 +28,13 @@ func writeCategory(t *testing.T, root, name string, meta CategoryMetadata, sessi
 	return dir
 }
 
+func writeOutputReduceABReport(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, outputReduceABReportFilename), []byte(body), 0o644); err != nil {
+		t.Fatalf("write output-reduce A/B report: %v", err)
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"
@@ -41,10 +48,17 @@ func itoa(i int) string {
 }
 
 const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":600,"after_layer2":600,"final":600,"saved":400}}` + "\n"
+const sampleToolPruneRecord = `{"req_id":"req_tool_prune","provider":"codex_chatgpt","model":"gpt-5.5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":26},"tool_prune":{"applied":true,"pruned_tools":1,"saved_tokens":26}}` + "\n"
 
 const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"after_layer2":950,"final":950,"saved":50}}` + "\n"
 
-const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
+const sampleAbsoluteSavingsRecord = `{"req_id":"req_abs","provider":"openai","model":"gpt-5","tokens":{"original":400,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":400}}` + "\n"
+
+const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
+const sampleOutputReduceNoOutputTokensRecord = `{"req_id":"req_output_reduce_no_output","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":0},"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
+const sampleOutputReduceOverheadDominatesRecord = `{"req_id":"req_output_reduce_overhead","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":0},"output_tokens":12,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
+const sampleOutputReduceABReport = `{"pairs":[{"pair_id":"pair_ok","output_tokens_saved":219,"net_tokens_saved":196,"output_savings_pct":22.18,"gate_passed":true}],"pair_count":1,"gate_passed":true}` + "\n"
+const sampleOutputReduceABFailedReport = `{"pairs":[{"pair_id":"pair_bad","output_tokens_saved":-10,"net_tokens_saved":-33,"output_savings_pct":-1,"gate_passed":false,"gate_failures":["net negative"]}],"pair_count":1,"gate_passed":false,"gate_failures":["pair_bad: net negative"]}` + "\n"
 
 const sampleHostBudgetOKRecord = `{"req_id":"req_host_ok","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"host_budget":{"status":"ok","exceeded":false,"compression_ok":true,"degradation_ok":true},"proxy_latency_ms":42.5}` + "\n"
 
@@ -150,6 +164,41 @@ func TestEvaluateCategory_GateFailMaxOvercount(t *testing.T) {
 	}
 	if !strings.Contains(res.Failures[0], "suspicious overcount") {
 		t.Fatalf("expected overcount marker, got %v", res.Failures)
+	}
+}
+
+func TestEvaluateCategory_AbsoluteSavedTokensGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "absolute", CategoryMetadata{
+		Category:               "absolute",
+		ExpectedSavedTokensMin: 399,
+	}, []string{sampleAbsoluteSavingsRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) != 0 {
+		t.Fatalf("expected absolute saved-token gate to pass, got %v", res.Failures)
+	}
+	if !res.GateConfigured {
+		t.Fatal("absolute saved-token min must configure the gate")
+	}
+}
+
+func TestEvaluateCategory_AbsoluteSavedTokensGateFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "absolute_fail", CategoryMetadata{
+		Category:               "absolute_fail",
+		ExpectedSavedTokensMin: 401,
+	}, []string{sampleAbsoluteSavingsRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) == 0 || !strings.Contains(res.Failures[0], "saved_tokens=400") {
+		t.Fatalf("expected absolute saved-token failure, got %v", res.Failures)
 	}
 }
 
@@ -291,7 +340,7 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 			"layer_combo_diversity",
 			"l2_summary",
 		},
-	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord})
+	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord})
 	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -472,7 +521,7 @@ func promotionMeta(category, client, workload string) CategoryMetadata {
 		ExpectedMaxErrors:       0,
 		ExpectedLatencyP95MaxMs: 1000,
 		ExpectedReReadCountMax:  0,
-		ScenarioValidators:      []string{"tool_heavy", "low_error"},
+		ScenarioValidators:      []string{"low_error"},
 	}
 }
 
@@ -510,6 +559,7 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
 		"output_reduce_aggressive",
+		"output_reduce_ab",
 		"tool_heavy",
 		"provider_cache_long_session",
 		"host_resource_long_workday",
@@ -523,23 +573,44 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		switch workload {
 		case "output_reduce_aggressive":
 			meta.ExpectedOutputReduceAppliedMin = 1
+			meta.ExpectedOutputReduceOverheadMax = 1000
 			meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+		case "output_reduce_ab":
+			meta.ExpectedSavingsMin = 0
+			meta.ExpectedRequestCount = 0
+			meta.ExpectedOutputReduceABPairsMin = 1
+			meta.ExpectedOutputReduceABNetSavedMin = 1
+			meta.ExpectedOutputReduceABSavingsPctMin = 1
+			meta.ScenarioValidators = []string{"output_reduce_ab", "low_error"}
 		case "provider_cache_long_session":
 			meta.ExpectedProviderCacheReadMin = 100
 			meta.ScenarioValidators = []string{"cache_reuse", "low_error"}
 		case "host_resource_long_workday":
-			meta.ScenarioValidators = []string{"tool_heavy", "host_budget_ok", "low_error"}
-		default:
+			meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
+		case "tool_heavy":
+			meta.ExpectedSavingsMin = 0
+			meta.ExpectedSavedTokensMin = 1
 			meta.ScenarioValidators = []string{"tool_heavy", "low_error"}
+		default:
+			meta.ScenarioValidators = []string{"low_error"}
 		}
 		session := sampleHighSavingsRecord
 		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
 			session = sampleEvidenceRecord
+		} else if workload == "tool_heavy" {
+			session = sampleToolPruneRecord
 		}
 		if workload == "host_resource_long_workday" {
 			session = sampleHostBudgetOKRecord
 		}
-		dir := writeCategory(t, root, name, meta, []string{session})
+		sessions := []string{session}
+		if workload == "output_reduce_ab" {
+			sessions = nil
+		}
+		dir := writeCategory(t, root, name, meta, sessions)
+		if workload == "output_reduce_ab" {
+			writeOutputReduceABReport(t, dir, sampleOutputReduceABReport)
+		}
 		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
 		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
 	}
@@ -622,6 +693,90 @@ func TestEvaluatePromotionGate_FailsIncompleteRealMetadata(t *testing.T) {
 	}
 }
 
+func TestCategoryHasPromotionSavingsSignal_WorkloadSpecificEconomics(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		workload string
+		meta     *CategoryMetadata
+		want     bool
+	}{
+		{
+			name:     "ordinary workload needs billable input savings",
+			workload: "repeat_read",
+			meta:     &CategoryMetadata{ExpectedSavingsMin: 0.01},
+			want:     true,
+		},
+		{
+			name:     "ordinary workload accepts absolute saved token signal",
+			workload: "repeat_read",
+			meta:     &CategoryMetadata{ExpectedSavedTokensMin: 100},
+			want:     true,
+		},
+		{
+			name:     "ordinary workload rejects provider cache only",
+			workload: "repeat_read",
+			meta:     &CategoryMetadata{ExpectedProviderCacheReadMin: 100},
+			want:     false,
+		},
+		{
+			name:     "provider cache uses provider cache read signal",
+			workload: "provider_cache_long_session",
+			meta:     &CategoryMetadata{ExpectedProviderCacheReadMin: 100},
+			want:     true,
+		},
+		{
+			name:     "provider cache rejects plain input savings metadata",
+			workload: "provider_cache_long_session",
+			meta:     &CategoryMetadata{ExpectedSavingsMin: 0.01},
+			want:     false,
+		},
+		{
+			name:     "output reduce uses applied signal",
+			workload: "output_reduce_aggressive",
+			meta:     &CategoryMetadata{ExpectedOutputReduceAppliedMin: 1},
+			want:     true,
+		},
+		{
+			name:     "output reduce rejects plain input savings metadata",
+			workload: "output_reduce_aggressive",
+			meta:     &CategoryMetadata{ExpectedSavingsMin: 0.01},
+			want:     false,
+		},
+		{
+			name:     "output reduce ab uses net pair signal",
+			workload: "output_reduce_ab",
+			meta: &CategoryMetadata{
+				ExpectedOutputReduceABPairsMin:    1,
+				ExpectedOutputReduceABNetSavedMin: 1,
+			},
+			want: true,
+		},
+		{
+			name:     "output reduce ab rejects plain injected signal",
+			workload: "output_reduce_ab",
+			meta:     &CategoryMetadata{ExpectedOutputReduceAppliedMin: 1},
+			want:     false,
+		},
+		{
+			name:     "nil metadata fails",
+			workload: "repeat_read",
+			meta:     nil,
+			want:     false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := categoryHasPromotionSavingsSignal(tt.workload, tt.meta)
+			if got != tt.want {
+				t.Fatalf("categoryHasPromotionSavingsSignal(%q, %+v) = %v, want %v", tt.workload, tt.meta, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEvaluateMaxxGate_Pass(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -656,10 +811,139 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	for _, want := range []string{
 		"missing maxx workload_class chunk_dedup_similar_outputs",
 		"missing maxx workload_class output_reduce_aggressive",
+		"missing maxx workload_class output_reduce_ab",
 		"missing maxx workload_class tool_heavy",
 		"missing maxx workload_class provider_cache_long_session",
 		"missing maxx workload_class host_resource_long_workday",
 	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures:\n%s", want, got)
+		}
+	}
+}
+
+func TestEvaluateMaxxGate_FailsOutputReduceWithoutObservedOutputTokens(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMaxxCorpus(t, root)
+	meta := promotionMeta("codex_cli_output_reduce_aggressive", "codex_cli", "output_reduce_aggressive")
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedOutputReduceAppliedMin = 1
+	meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_aggressive", meta, []string{sampleOutputReduceNoOutputTokensRecord})
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluateMaxxGate(report)
+	if gate.Passed {
+		t.Fatalf("expected maxx failure without output-token evidence: %+v", gate)
+	}
+	if got := strings.Join(gate.Failures, "\n"); !strings.Contains(got, "output_reduce_aggressive missing observed output-token evidence") {
+		t.Fatalf("missing output-token evidence failure:\n%s", got)
+	}
+}
+
+func TestEvaluateCategory_FailsOutputReduceWhenInputOverheadExceedsCap(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	meta := promotionMeta("codex_cli_output_reduce_aggressive", "codex_cli", "output_reduce_aggressive")
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedOutputReduceAppliedMin = 1
+	meta.ExpectedOutputReduceOverheadMax = 11
+	meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_aggressive", meta, []string{sampleOutputReduceOverheadDominatesRecord})
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) == 0 {
+		t.Fatalf("expected output-reduce overhead cap failure: %+v", res)
+	}
+	got := strings.Join(res.Failures, "\n")
+	if !strings.Contains(got, "output_reduce_input_overhead_tokens=12 > max=11") {
+		t.Fatalf("missing overhead cap failure:\n%s", got)
+	}
+}
+
+func TestEvaluateCategory_FailsOutputReduceWhenNetObservedBelowFloor(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	meta := promotionMeta("codex_cli_output_reduce_aggressive", "codex_cli", "output_reduce_aggressive")
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedOutputReduceAppliedMin = 1
+	meta.ExpectedOutputReduceNetObservedMin = 1
+	meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_aggressive", meta, []string{sampleOutputReduceOverheadDominatesRecord})
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) == 0 {
+		t.Fatalf("expected output-reduce net-observed floor failure: %+v", res)
+	}
+	got := strings.Join(res.Failures, "\n")
+	if !strings.Contains(got, "output_reduce_net_observed_tokens=0 < min=1") {
+		t.Fatalf("missing net-observed floor failure:\n%s", got)
+	}
+}
+
+func TestEvaluateCategory_OutputReduceABGatePass(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	meta := promotionMeta("codex_cli_output_reduce_ab", "codex_cli", "output_reduce_ab")
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedRequestCount = 0
+	meta.ExpectedOutputReduceABPairsMin = 1
+	meta.ExpectedOutputReduceABNetSavedMin = 100
+	meta.ExpectedOutputReduceABSavingsPctMin = 20
+	meta.ScenarioValidators = []string{"output_reduce_ab", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_ab", meta, nil)
+	writeOutputReduceABReport(t, dir, sampleOutputReduceABReport)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) != 0 {
+		t.Fatalf("expected output-reduce A/B gate to pass, got %v", res.Failures)
+	}
+	if res.Sessions != 1 || res.OutputReduceABPairs != 1 || res.OutputReduceABNetSaved != 196 || res.OutputReduceABSavingsPctMin < 22 {
+		t.Fatalf("A/B metrics: %+v", res)
+	}
+}
+
+func TestEvaluateCategory_OutputReduceABGateFailsUnsafePair(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	meta := promotionMeta("codex_cli_output_reduce_ab", "codex_cli", "output_reduce_ab")
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedRequestCount = 0
+	meta.ExpectedOutputReduceABPairsMin = 1
+	meta.ExpectedOutputReduceABNetSavedMin = 1
+	meta.ScenarioValidators = []string{"output_reduce_ab", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_ab", meta, nil)
+	writeOutputReduceABReport(t, dir, sampleOutputReduceABFailedReport)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	got := strings.Join(res.Failures, "\n")
+	for _, want := range []string{"output_reduce_ab_net_tokens_saved=-33", "pair_bad: net negative", "passed_pairs=0"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures:\n%s", want, got)
 		}
@@ -743,10 +1027,10 @@ func TestFormatCorpusReport_RendersScenarioValidators(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeCategory(t, root, "validator_render", CategoryMetadata{
-		Category:           "validator_render",
-		ExpectedSavingsMin: 0.30,
-		ScenarioValidators: []string{"tool_heavy", "low_error"},
-	}, []string{sampleHighSavingsRecord})
+		Category:               "validator_render",
+		ExpectedSavedTokensMin: 1,
+		ScenarioValidators:     []string{"tool_heavy", "low_error"},
+	}, []string{sampleToolPruneRecord})
 	report, err := EvaluateCorpus(root, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)

@@ -166,12 +166,8 @@ func TestTryCompactContainerOutput_dockerPsTable(t *testing.T) {
 	}
 	input := sb.String()
 	out, ok := TryCompactContainerOutput([]string{"docker", "ps"}, []byte(input))
-	if !ok {
-		t.Fatalf("expected compact docker ps table, got pass-through")
-	}
-	s := string(out)
-	if !strings.Contains(s, "[docker ps] 10 item(s)") {
-		t.Errorf("want item count, got: %q", s)
+	if ok || string(out) != input {
+		t.Fatalf("healthy docker ps table must full-pass: ok=%v out=%q", ok, out)
 	}
 }
 
@@ -184,12 +180,8 @@ func TestTryCompactContainerOutput_kubectlGetMany(t *testing.T) {
 	}
 	input := sb.String()
 	out, ok := TryCompactContainerOutput([]string{"kubectl", "get", "pods"}, []byte(input))
-	if !ok {
-		t.Fatalf("expected compact kubectl get table, got pass-through")
-	}
-	s := string(out)
-	if !strings.Contains(s, "kubectl get pods") || !strings.Contains(s, "10 item(s)") {
-		t.Errorf("want item count with label, got: %q", s)
+	if ok || string(out) != input {
+		t.Fatalf("healthy kubectl get table must full-pass: ok=%v out=%q", ok, out)
 	}
 }
 

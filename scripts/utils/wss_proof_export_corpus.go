@@ -1,0 +1,507 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	dbg "github.com/slimference/slimference/internal/debug"
+)
+
+type wssProofCorpusExportReport struct {
+	MatrixPath        string            `json:"matrix_path"`
+	CorpusRoot        string            `json:"corpus_root"`
+	RowsRead          int               `json:"rows_read"`
+	RowsExported      int               `json:"rows_exported"`
+	RowsSkipped       int               `json:"rows_skipped"`
+	CategoriesWritten int               `json:"categories_written"`
+	SkippedReasons    map[string]int    `json:"skipped_reasons,omitempty"`
+	Categories        map[string]int    `json:"categories,omitempty"`
+	WorkloadMapping   map[string]string `json:"workload_mapping,omitempty"`
+}
+
+type wssProofCorpusExportCategory struct {
+	metadata CategoryMetadataLite
+	records  []wssProofCorpusSummary
+}
+
+type wssProofCorpusSummary struct {
+	dbg.RequestSummary
+	HostBudgetStatus        string   `json:"host_budget_status,omitempty"`
+	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
+	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
+	HostBudgetCompressionOK bool     `json:"host_budget_compression_ok,omitempty"`
+	HostBudgetDegradationOK bool     `json:"host_budget_degradation_ok,omitempty"`
+}
+
+type CategoryMetadataLite struct {
+	Category                           string   `json:"category"`
+	Description                        string   `json:"description"`
+	Synthetic                          bool     `json:"synthetic"`
+	EvidenceLevel                      string   `json:"evidence_level"`
+	ClientFamily                       string   `json:"client_family,omitempty"`
+	WorkloadClass                      string   `json:"workload_class,omitempty"`
+	Language                           string   `json:"language"`
+	ToolMix                            string   `json:"tool_mix"`
+	ExpectedSavingsMin                 float64  `json:"expected_savings_min"`
+	ExpectedSavingsMax                 float64  `json:"expected_savings_max"`
+	ExpectedSavedTokensMin             int64    `json:"expected_saved_tokens_min,omitempty"`
+	ExpectedRequestCount               int      `json:"expected_request_count"`
+	ExpectedMaxErrors                  int      `json:"expected_max_errors"`
+	ExpectedLatencyP95MaxMs            float64  `json:"expected_latency_p95_max_ms"`
+	ExpectedProviderCacheReadMin       int64    `json:"expected_provider_cache_read_min,omitempty"`
+	ExpectedOutputReduceAppliedMin     int      `json:"expected_output_reduce_applied_min,omitempty"`
+	ExpectedOutputReduceOverheadMax    int64    `json:"expected_output_reduce_input_overhead_max,omitempty"`
+	ExpectedOutputReduceNetObservedMin int64    `json:"expected_output_reduce_net_observed_min,omitempty"`
+	ExpectedReReadCountMax             int      `json:"expected_reread_count_max"`
+	ScenarioValidators                 []string `json:"scenario_validators,omitempty"`
+	Notes                              string   `json:"notes"`
+}
+
+const wssProofExportCorpusHelpText = `wss-proof-export-corpus: export content-free WSS proof rows into benchmark-corpus format
+
+Usage:
+  go run ./scripts/utils wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json]
+
+The exporter reads only proof-matrix JSONL rows and writes scrubbed
+RequestSummary-style JSONL plus metadata.json files. It never copies raw WSS
+frames, decisions logs, command output, file contents, prompts, paths, or auth.
+`
+
+func runWSSProofExportCorpus(args []string, stdout, stderr io.Writer) int {
+	jsonOut := false
+	var rest []string
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "--help", "-h":
+			fmt.Fprint(stdout, wssProofExportCorpusHelpText)
+			return 0
+		default:
+			rest = append(rest, arg)
+		}
+	}
+	if len(rest) != 2 {
+		fmt.Fprintln(stderr, "Usage: wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json]")
+		return 2
+	}
+	report, err := exportWSSProofCorpus(rest[0], rest[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "wss-proof-export-corpus: %v\n", err)
+		return 1
+	}
+	if jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(stderr, "wss-proof-export-corpus: encode report: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "wss-proof-export-corpus: exported %d/%d row(s) into %d categor(ies)\n",
+		report.RowsExported, report.RowsRead, report.CategoriesWritten)
+	if report.RowsSkipped > 0 {
+		fmt.Fprintf(stdout, "skipped: %v\n", report.SkippedReasons)
+	}
+	return 0
+}
+
+func exportWSSProofCorpus(matrixPath, corpusRoot string) (wssProofCorpusExportReport, error) {
+	rows, err := readWSSProofCorpusRows(matrixPath)
+	if err != nil {
+		return wssProofCorpusExportReport{}, err
+	}
+	report := wssProofCorpusExportReport{
+		MatrixPath:      matrixPath,
+		CorpusRoot:      corpusRoot,
+		RowsRead:        len(rows),
+		SkippedReasons:  map[string]int{},
+		Categories:      map[string]int{},
+		WorkloadMapping: map[string]string{},
+	}
+	categories := map[string]*wssProofCorpusExportCategory{}
+	for _, row := range rows {
+		workload, ok := corpusWorkloadFromWSS(row.WorkloadClass)
+		if !ok {
+			report.RowsSkipped++
+			report.SkippedReasons["unsupported_workload:"+row.WorkloadClass]++
+			continue
+		}
+		if strings.TrimSpace(row.Client) == "" {
+			report.RowsSkipped++
+			report.SkippedReasons["missing_client"]++
+			continue
+		}
+		if row.LiveDelta == nil {
+			report.RowsSkipped++
+			report.SkippedReasons["missing_live_delta"]++
+			continue
+		}
+		if hasWSSProofSafetyIssue(row.LiveDelta) {
+			report.RowsSkipped++
+			report.SkippedReasons["safety_issue"]++
+			continue
+		}
+		if !hasWSSProofCorpusEconomicSignal(row) {
+			report.RowsSkipped++
+			report.SkippedReasons["no_economic_signal"]++
+			continue
+		}
+		report.WorkloadMapping[row.WorkloadClass] = workload
+		key := sanitizeCorpusName(row.Client + "_" + workload)
+		cat := categories[key]
+		if cat == nil {
+			cat = &wssProofCorpusExportCategory{
+				metadata: CategoryMetadataLite{
+					Category:                key,
+					Description:             "Scrubbed content-free export from WSS proof matrix rows. Raw frames stay outside the corpus.",
+					Synthetic:               false,
+					EvidenceLevel:           "live_operator",
+					ClientFamily:            normalizeWSSClient(row.Client),
+					WorkloadClass:           workload,
+					Language:                "mixed",
+					ToolMix:                 "codex_wss",
+					ExpectedMaxErrors:       0,
+					ExpectedLatencyP95MaxMs: 2500,
+					ExpectedReReadCountMax:  0,
+					ScenarioValidators:      []string{"low_error"},
+					Notes:                   "Generated by wss-proof-export-corpus from proof-matrix live deltas; contains only counters and route metadata. Absolute saved-token gates are authoritative because proof rows do not preserve every original-token denominator.",
+				},
+			}
+			categories[key] = cat
+		}
+		rec := requestSummaryFromWSSProofRow(row)
+		cat.records = append(cat.records, rec)
+		report.RowsExported++
+		report.Categories[key]++
+	}
+	keys := make([]string, 0, len(categories))
+	for key := range categories {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		cat := categories[key]
+		cat.metadata.ExpectedRequestCount = len(cat.records)
+		tuneCorpusMetadataForWorkload(&cat.metadata, cat.records)
+		if err := writeWSSProofCorpusCategory(corpusRoot, key, *cat); err != nil {
+			return report, err
+		}
+		report.CategoriesWritten++
+	}
+	return report, nil
+}
+
+func readWSSProofCorpusRows(path string) ([]wssProofMatrixRecord, error) {
+	files, err := wssProofInventoryFiles(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []wssProofMatrixRecord
+	for _, file := range files {
+		rows, err := readWSSProofInventoryRows(file)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
+}
+
+func corpusWorkloadFromWSS(workload string) (string, bool) {
+	switch strings.TrimSpace(workload) {
+	case "repeat_full_read":
+		return "repeat_read", true
+	case "ranged_read":
+		return "ranged_read", true
+	case "search_loop":
+		return "search_loop", true
+	case "git_status_diff":
+		return "git_status", true
+	case "build_test_lint_failure":
+		return "test_failure", true
+	case "apply_patch_then_read":
+		return "apply_patch_edit_read", true
+	case "large_tool_output":
+		return "large_tool_output", true
+	case "long_mixed_workday":
+		return "long_workday", true
+	case "chunk_dedup_similar_outputs":
+		return "chunk_dedup_similar_outputs", true
+	case "chunk_dedup_log_output":
+		return "chunk_dedup_log_output", true
+	case "chunk_dedup_test_output":
+		return "chunk_dedup_test_output", true
+	case "output_reduce_aggressive":
+		return "output_reduce_aggressive", true
+	case "tool_heavy":
+		return "tool_heavy", true
+	case "provider_cache_long_session":
+		return "provider_cache_long_session", true
+	case "host_resource_long_workday":
+		return "host_resource_long_workday", true
+	default:
+		return "", false
+	}
+}
+
+func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSummary {
+	live := row.LiveDelta
+	saved := int(clampInt64ToInt(live.BillableInputTokensSaved))
+	if row.WorkloadClass == "tool_heavy" && live.ToolPruneTokensSaved > 0 {
+		saved = int(clampInt64ToInt(live.ToolPruneTokensSaved))
+	}
+	if saved == 0 && live.ProviderCacheReadTokens > 0 {
+		saved = int(clampInt64ToInt(live.ProviderCacheReadTokens))
+	}
+	original := 0
+	final := 0
+	if saved == 0 && final < 1 {
+		final = 1
+	}
+	ratio := 0.0
+	if original > 0 {
+		ratio = float64(final) / float64(original)
+	}
+	ts := parseWSSProofTime(row.StartedAt)
+	summary := wssProofCorpusSummary{RequestSummary: dbg.RequestSummary{
+		RequestID:            row.ID,
+		Timestamp:            ts,
+		Source:               "wss-proof-export",
+		Provider:             "codex_chatgpt",
+		ClientFamily:         normalizeWSSClient(row.Client),
+		RouteMode:            "wss_phasef",
+		Model:                row.Model,
+		TotalMessages:        1,
+		MessagesInWindow:     1,
+		MessagesCompressed:   1,
+		LayersApplied:        []int{0},
+		Layer1Breakdown:      map[string]dbg.SubLayerBreakdown{},
+		CacheHit:             live.ProviderCacheReadTokens > 0,
+		CacheReadTokens:      int(clampInt64ToInt(live.ProviderCacheReadTokens)),
+		CacheCreateTokens:    int(clampInt64ToInt(live.ProviderCacheCreateTokens)),
+		ProviderCachedTokens: int(clampInt64ToInt(live.ProviderCacheReadTokens)),
+		OutputTokens:         int(clampInt64ToInt(live.OutputReduceOutputTokensObserved)),
+		ProviderOutputTokens: int(clampInt64ToInt(live.OutputReduceOutputTokensObserved)),
+		ProxyLatencyMs:       1,
+		Tokens: dbg.TokenCounts{
+			Original:    original,
+			AfterLayer0: final,
+			AfterLayer1: final,
+			AfterLayer2: final,
+			Final:       final,
+			Saved:       saved,
+			Ratio:       ratio,
+		},
+	}}
+	summary.HostBudgetStatus = live.HostBudgetStatus
+	summary.HostBudgetExceeded = live.HostBudgetExceeded
+	summary.HostBudgetReasons = append([]string(nil), live.HostBudgetReasons...)
+	summary.HostBudgetCompressionOK = live.HostBudgetCompressionOK
+	summary.HostBudgetDegradationOK = live.HostBudgetDegradationOK
+	if live.OutputReduceInjected > 0 {
+		summary.OutputReduce = dbg.OutputReduceSummary{
+			Applied:     true,
+			Profile:     "codex_aggressive",
+			AddedTokens: int(clampInt64ToInt(live.OutputReduceInputOverheadTokens)),
+		}
+	}
+	if live.ToolPrunePruned > 0 || live.ToolPruneTokensSaved > 0 {
+		summary.ToolPrune = dbg.ToolPruneSummary{
+			Applied:     true,
+			PrunedTools: int(clampInt64ToInt(live.ToolPrunePruned)),
+			SavedTokens: int(clampInt64ToInt(live.ToolPruneTokensSaved)),
+		}
+	}
+	return summary
+}
+
+func tuneCorpusMetadataForWorkload(meta *CategoryMetadataLite, records []wssProofCorpusSummary) {
+	meta.ExpectedSavedTokensMin = sumSavedTokens(records)
+	switch meta.WorkloadClass {
+	case "provider_cache_long_session":
+		meta.ExpectedSavedTokensMin = 0
+		meta.ExpectedProviderCacheReadMin = sumCacheReadTokens(records)
+		meta.ScenarioValidators = []string{"cache_reuse", "host_budget_ok", "low_error"}
+	case "output_reduce_aggressive":
+		meta.ExpectedSavedTokensMin = 0
+		meta.ExpectedOutputReduceAppliedMin = 1
+		meta.ExpectedOutputReduceOverheadMax = sumOutputReduceInputOverheadTokens(records)
+		meta.ExpectedOutputReduceNetObservedMin = sumOutputReduceObservedTokens(records) - meta.ExpectedOutputReduceOverheadMax
+		meta.ScenarioValidators = []string{"output_reduce", "host_budget_ok", "low_error"}
+	case "tool_heavy":
+		meta.ScenarioValidators = []string{"tool_heavy", "host_budget_ok", "low_error"}
+	case "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday":
+		meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
+	default:
+		meta.ScenarioValidators = []string{"low_error"}
+	}
+}
+
+func writeWSSProofCorpusCategory(root, key string, cat wssProofCorpusExportCategory) error {
+	dir := filepath.Join(root, key)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create corpus category %s: %w", dir, err)
+	}
+	metaPath := filepath.Join(dir, "metadata.json")
+	metaData, err := json.MarshalIndent(cat.metadata, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode metadata %s: %w", metaPath, err)
+	}
+	metaData = append(metaData, '\n')
+	if err := os.WriteFile(metaPath, metaData, 0o644); err != nil {
+		return fmt.Errorf("write metadata %s: %w", metaPath, err)
+	}
+	if err := removeStaleWSSProofCorpusExports(dir); err != nil {
+		return err
+	}
+	for i, rec := range cat.records {
+		sessionPath := filepath.Join(dir, fmt.Sprintf("session_wss_proof_export_%03d.jsonl", i+1))
+		f, err := os.OpenFile(sessionPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return fmt.Errorf("open session export %s: %w", sessionPath, err)
+		}
+		enc := json.NewEncoder(f)
+		if err := enc.Encode(rec); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("write session export %s: %w", sessionPath, err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close session export %s: %w", sessionPath, err)
+		}
+	}
+	return nil
+}
+
+func removeStaleWSSProofCorpusExports(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read corpus category %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "session_wss_proof_export") || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove stale corpus export %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func hasWSSProofSafetyIssue(live *codexCaptureLiveDelta) bool {
+	if live == nil {
+		return true
+	}
+	return live.ParseFailures > 0 || live.DegradedSessions > 0 || live.CompressionErrors > 0 || live.HostBudgetExceeded
+}
+
+func hasWSSProofCorpusEconomicSignal(row wssProofMatrixRecord) bool {
+	if row.LiveDelta == nil {
+		return false
+	}
+	switch workload, _ := corpusWorkloadFromWSS(row.WorkloadClass); workload {
+	case "provider_cache_long_session":
+		return row.LiveDelta.ProviderCacheReadTokens > 0
+	case "output_reduce_aggressive":
+		return row.LiveDelta.OutputReduceInjected > 0 &&
+			row.LiveDelta.OutputReduceOutputTokensObserved > 0
+	case "tool_heavy":
+		return row.LiveDelta.ToolPruneTokensSaved > 0
+	default:
+		return row.LiveDelta.BillableInputTokensSaved > 0
+	}
+}
+
+func normalizeWSSClient(client string) string {
+	switch strings.TrimSpace(strings.ToLower(client)) {
+	case "cli", "codex_cli":
+		return "codex_cli"
+	case "desktop", "codex_desktop":
+		return "codex_desktop"
+	default:
+		return sanitizeCorpusName(client)
+	}
+}
+
+var nonCorpusNameChars = regexp.MustCompile(`[^a-z0-9_]+`)
+
+func sanitizeCorpusName(in string) string {
+	s := strings.ToLower(strings.TrimSpace(in))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = nonCorpusNameChars.ReplaceAllString(s, "_")
+	s = strings.Trim(s, "_")
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+func parseWSSProofTime(raw string) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw)); err == nil {
+		return t
+	}
+	return time.Unix(0, 0).UTC()
+}
+
+func clampInt64ToInt(v int64) int {
+	if v <= 0 {
+		return 0
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if v > maxInt {
+		return int(maxInt)
+	}
+	return int(v)
+}
+
+func sumCacheReadTokens(records []wssProofCorpusSummary) int64 {
+	var total int64
+	for _, rec := range records {
+		total += int64(rec.CacheReadTokens)
+	}
+	return total
+}
+
+func sumSavedTokens(records []wssProofCorpusSummary) int64 {
+	var total int64
+	for _, rec := range records {
+		total += int64(rec.Tokens.Saved)
+	}
+	return total
+}
+
+func sumOutputReduceInputOverheadTokens(records []wssProofCorpusSummary) int64 {
+	var total int64
+	for _, rec := range records {
+		if !rec.OutputReduce.Applied {
+			continue
+		}
+		total += int64(rec.OutputReduce.AddedTokens)
+	}
+	return total
+}
+
+func sumOutputReduceObservedTokens(records []wssProofCorpusSummary) int64 {
+	var total int64
+	for _, rec := range records {
+		if !rec.OutputReduce.Applied {
+			continue
+		}
+		total += int64(rec.OutputTokens)
+	}
+	return total
+}

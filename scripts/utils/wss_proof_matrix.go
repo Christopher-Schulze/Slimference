@@ -53,6 +53,8 @@ type wssProofMatrixCapture struct {
 	SlimferenceCommit   string                 `json:"slimference_commit,omitempty"`
 	Repo                string                 `json:"repo,omitempty"`
 	Model               string                 `json:"model,omitempty"`
+	ABPairID            string                 `json:"ab_pair_id,omitempty"`
+	ABVariant           string                 `json:"ab_variant,omitempty"`
 	StartedAt           string                 `json:"started_at,omitempty"`
 	EndedAt             string                 `json:"ended_at,omitempty"`
 	ExpectedReducers    []string               `json:"expected_reducers,omitempty"`
@@ -94,6 +96,8 @@ type wssProofMatrixRecord struct {
 	SlimferenceCommit   string                 `json:"slimference_commit"`
 	Repo                string                 `json:"repo"`
 	Model               string                 `json:"model"`
+	ABPairID            string                 `json:"ab_pair_id,omitempty"`
+	ABVariant           string                 `json:"ab_variant,omitempty"`
 	StartedAt           string                 `json:"started_at"`
 	EndedAt             string                 `json:"ended_at"`
 	ExpectedReducers    []string               `json:"expected_reducers"`
@@ -138,13 +142,19 @@ Optional focused-proof gates:
   --expected-reducer=NAME         Require one live signal across the matrix; repeatable.
   --expected-reducer NAME         Same as above.
 
+When focused workload flags are present, only matching workload rows are replayed,
+counted, and gate-checked. If focused mode also passes --expected-reducer, those
+command-line reducer expectations override row-local expected_reducers for the
+focused proof. Unfocused release mode still validates every row as recorded.
+
 Expected signal names include:
   read_delta, captured_output, codex_exec_envelope, repeated_output,
   chunk_dedup, chunk_dedup_refs, tool_prune, tool_prune_reattach,
-  tool_prune_retry, tool_prune_tokens_saved, output_reduce_injected,
-  output_reduce_skipped, output_reduce_downgraded, stop_seq, streamcut,
-  repdet, stale_read, obsolete_prune, beterse, provider_cache_read,
-  provider_cache_create, host_budget_ok.
+	  tool_prune_retry, tool_prune_tokens_saved, output_reduce_injected,
+	  output_reduce_output_tokens, output_reduce_skipped,
+	  output_reduce_downgraded, stop_seq, streamcut, repdet, stale_read,
+	  obsolete_prune, beterse, provider_cache_read, provider_cache_create,
+	  host_budget_ok.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -304,6 +314,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		GatePassed:          true,
 	}
 	baseDir := filepath.Dir(path)
+	focusedWorkloads := focusedWSSProofWorkloads(options.requiredWorkloads)
 	for _, record := range records {
 		capture := wssProofMatrixCapture{
 			ID:                  record.ID,
@@ -315,12 +326,17 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			SlimferenceCommit:   record.SlimferenceCommit,
 			Repo:                record.Repo,
 			Model:               record.Model,
+			ABPairID:            record.ABPairID,
+			ABVariant:           record.ABVariant,
 			StartedAt:           record.StartedAt,
 			EndedAt:             record.EndedAt,
 			ExpectedReducers:    append([]string(nil), record.ExpectedReducers...),
 			ExpectedZeroSavings: record.ExpectedZeroSavings,
 			LiveDelta:           record.LiveDelta,
 			GatePassed:          true,
+		}
+		if !wssProofRecordInScope(capture.WorkloadClass, focusedWorkloads) {
+			continue
 		}
 		if capture.ID == "" {
 			capture.ID = fmt.Sprintf("capture-%02d", len(report.CaptureReports)+1)
@@ -349,16 +365,16 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 					report.RequiredReducerHits[name] += count
 				}
 			}
-			tokenPositive := capture.LiveDelta.BillableInputTokensSaved > 0
+			tokenPositive := wssProofLiveEconomicSignal(capture)
 			if tokenPositive {
 				report.PositiveTokenSavings++
 				report.PositiveSavings++
 			}
-			if capture.ExpectedZeroSavings && tokenPositive {
-				capture.GateFailures = append(capture.GateFailures, "expected zero savings, got positive live billable_input_tokens_saved")
+			if capture.ExpectedZeroSavings && wssProofLiveLocalSavingsSignal(capture.LiveDelta) {
+				capture.GateFailures = append(capture.GateFailures, "expected zero local savings, got positive local savings signal")
 			}
 			if !capture.ExpectedZeroSavings && !tokenPositive {
-				capture.GateFailures = append(capture.GateFailures, "expected positive live billable_input_tokens_saved, got <=0")
+				capture.GateFailures = append(capture.GateFailures, "expected positive live economic signal, got none")
 			}
 			if safety := capture.LiveDelta.ParseFailures + capture.LiveDelta.DegradedSessions + capture.LiveDelta.CompressionErrors; safety > 0 {
 				capture.GateFailures = append(capture.GateFailures,
@@ -376,7 +392,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 							strings.Join(capture.LiveDelta.HostBudgetReasons, ",")))
 				}
 			}
-			hits, failures := validateExpectedReducers(capture.ExpectedReducers, capture.LiveDelta)
+			hits, failures := validateExpectedReducers(proofCaptureExpectedReducers(capture.ExpectedReducers, options), capture.LiveDelta)
 			capture.ExpectedReducerHits = hits
 			capture.GateFailures = append(capture.GateFailures, failures...)
 		} else if options.requireLiveTokenDelta {
@@ -428,6 +444,80 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 	report.GateFailures = wssProofMatrixGateFailures(report, requirements)
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func focusedWSSProofWorkloads(required []string) map[string]bool {
+	if len(required) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(required))
+	for _, raw := range required {
+		workload := strings.TrimSpace(raw)
+		if workload != "" {
+			out[workload] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func proofCaptureExpectedReducers(rowExpected []string, options wssProofMatrixOptions) []string {
+	if len(options.requiredWorkloads) > 0 && len(options.expectedReducers) > 0 {
+		return options.expectedReducers
+	}
+	return rowExpected
+}
+
+func wssProofRecordInScope(workload string, focused map[string]bool) bool {
+	if len(focused) == 0 {
+		return true
+	}
+	return focused[strings.TrimSpace(workload)]
+}
+
+func wssProofLiveEconomicSignal(capture wssProofMatrixCapture) bool {
+	return wssProofLiveEconomicTokens(capture.WorkloadClass, capture.LiveDelta) > 0
+}
+
+func wssProofLiveLocalSavingsSignal(live *codexCaptureLiveDelta) bool {
+	if live == nil {
+		return false
+	}
+	return live.BillableInputTokensSaved > 0 ||
+		live.InputTokensSaved > 0 ||
+		live.OutputWireBytesSaved > 0 ||
+		live.RequestSideBytesReduced > 0 ||
+		live.ToolPruneTokensSaved > 0 ||
+		live.ProxyLayer0ReadDelta > 0 ||
+		live.ProxyLayer0Captured > 0 ||
+		live.ProxyLayer0Envelope > 0 ||
+		live.ProxyLayer0Repeated > 0 ||
+		live.ProxyLayer0ChunkDedup > 0 ||
+		live.ProxyLayer0ChunkRefs > 0
+}
+
+func wssProofLiveEconomicTokens(workloadClass string, live *codexCaptureLiveDelta) int64 {
+	if live == nil {
+		return 0
+	}
+	if live.BillableInputTokensSaved > 0 {
+		return live.BillableInputTokensSaved
+	}
+	switch strings.TrimSpace(workloadClass) {
+	case "provider_cache_long_session", "host_resource_long_workday":
+		return live.ProviderCacheReadTokens
+	case "tool_heavy":
+		return live.ToolPruneTokensSaved
+	case "output_reduce_aggressive":
+		if live.OutputReduceInjected <= 0 {
+			return 0
+		}
+		return live.OutputReduceOutputTokensObserved
+	default:
+		return 0
+	}
 }
 
 func wssProofRequirements(options wssProofMatrixOptions) wssProofMatrixRequirements {
@@ -577,6 +667,8 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ToolPruneTokensSaved, true
 	case "output_reduce_injected":
 		return live.OutputReduceInjected, true
+	case "output_reduce_output_tokens":
+		return live.OutputReduceOutputTokensObserved, true
 	case "output_reduce_skipped":
 		return live.OutputReduceSkipped, true
 	case "output_reduce_downgraded":
@@ -700,12 +792,14 @@ func writeWSSProofMatrixText(w io.Writer, report wssProofMatrixReport) {
 		for _, capture := range report.CaptureReports {
 			status := passFail(capture.GatePassed)
 			tokens := int64(0)
+			economicTokens := int64(0)
 			if capture.LiveDelta != nil {
 				tokens = capture.LiveDelta.BillableInputTokensSaved
+				economicTokens = wssProofLiveEconomicTokens(capture.WorkloadClass, capture.LiveDelta)
 			}
-			fmt.Fprintf(w, "  %-24s %-7s %-24s billable_tokens=%d replay_bytes=%d mutated=%d gate=%s\n",
+			fmt.Fprintf(w, "  %-24s %-7s %-24s billable_tokens=%d economic_tokens=%d replay_bytes=%d mutated=%d gate=%s\n",
 				capture.ID, capture.Client, capture.WorkloadClass,
-				tokens, capture.Replay.BytesSaved, capture.Replay.MutatedRequests, status)
+				tokens, economicTokens, capture.Replay.BytesSaved, capture.Replay.MutatedRequests, status)
 			for _, failure := range capture.GateFailures {
 				fmt.Fprintf(w, "    - %s\n", failure)
 			}

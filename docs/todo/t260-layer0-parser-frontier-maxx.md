@@ -24,10 +24,14 @@ measured hit rate and no silent information loss in product defaults.
   counts.
 - Known default cap families now use priority/head-tail evidence retention
   instead of blind first-N positional truncation. This covers search, log/lint,
-  Tier-1 test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata, and
-  Terraform JSON.
-- Search and log reducers still need broader real-traffic proof and keying
-  hygiene before "maxxed out" is true.
+  Tier-1 test JSON, SARIF, ESLint JSON, cargo metadata, and Terraform JSON.
+  Healthy non-empty inventory/list surfaces such as Docker/Kubernetes tables,
+  GitHub/GitLab lists, and healthy kubectl JSON full-pass unless there is
+  diagnostic attention evidence.
+- Search keying hygiene is now hardened and both CLI/Desktop search proofs are
+  positive; remaining "maxxed out" work is broader real-traffic coverage for
+  rarer parser families and any parser shape not already represented by tests or
+  live corpus.
 
 ## Product target
 
@@ -175,6 +179,40 @@ These are promotion targets, not claims:
   remaining default cap-first surface below the handwritten Go reducers without
   changing user/project TOML semantics, which remain operator-owned literal
   configuration.
+- 2026-06-04: Tightened the Layer-0 registry safety taxonomy. The old
+  `count_summary` class is gone from the default registry because count-only
+  listing reduction is not product-safe for model context. `ls` and `tree` now
+  declare `empty_evidence`: they may only emit an empty marker and must declare
+  that non-empty listings/hierarchies full-pass. Registry tests fail closed if a
+  future reducer tries to reuse this class without the same full-pass contract.
+- 2026-06-04: Removed the remaining Terraform list/value cap risk from the
+  product default registry. `terraform state list` and human-readable
+  `terraform output` now full-pass even when long, because resource addresses,
+  output names, and output values are requested facts and the generic filter
+  package cannot guarantee archive recovery. Plan/init/validate/show and
+  structured JSON compaction stay active where they preserve diagnostic or
+  structural evidence.
+- 2026-06-04: Hardened the default cap evidence vocabulary for long logs and
+  bundled TOML reducers. Late operational failures such as permission/auth
+  denial, timeouts, refused connections, unhealthy/CrashLoop/OOM/segfault
+  signals, and Terraform/OpenTofu-style destructive or drift state changes now
+  survive evidence-first caps even when they sit behind large neutral output.
+  Focused tests prove both log truncation and builtin TOML truncation preserve
+  these late lines while staying within the configured line budget.
+- 2026-06-05: Removed the remaining non-empty container table count-only
+  shortcut from product defaults. `docker ps`, `docker images`, and
+  `kubectl get` tables now full-pass when all rows are healthy because names,
+  images, namespaces, and statuses are requested evidence. Large tables still
+  compact only when diagnostic attention rows are present, and those rows
+  remain verbatim with an omitted-count summary. Focused tests cover healthy
+  full-pass and CrashLoopBackOff retention.
+- 2026-06-05: Extended the same no-context-loss rule to non-empty GitHub/GitLab
+  lists and kubectl JSON. Healthy `gh ... list` / `glab ... list` outputs now
+  full-pass instead of becoming first-N previews, while large lists with
+  diagnostic attention rows still compact to retained attention evidence.
+  Healthy `kubectl -o json` lists also full-pass; only unhealthy attention
+  items are summarized. Focused tests fail if these healthy non-empty surfaces
+  become lossy again.
 
 ## Done
 

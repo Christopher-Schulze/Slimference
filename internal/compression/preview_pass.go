@@ -25,6 +25,7 @@ func (c *DeterministicCompressor) structurePreviewPass(messages []types.Message,
 			if !shouldPreviewBlock(block) {
 				continue
 			}
+			c.recordLayer1Attempt("preview_pass")
 			preview, ok := StructurePreview(block.Text)
 			if !ok {
 				continue

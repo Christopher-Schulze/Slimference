@@ -1,0 +1,21 @@
+{
+  "path": "proof-matrix-output-reduce-ab.jsonl",
+  "pairs": [
+    {
+      "pair_id": "output-status-20260604T231831Z",
+      "client": "cli",
+      "workload_class": "output_reduce_ab",
+      "baseline_row_id": "output-reduce-ab-20260604T231831Z-baseline",
+      "directive_row_id": "output-reduce-ab-20260604T231831Z-directive-tokenfix",
+      "baseline_output_tokens": 987,
+      "directive_output_tokens": 768,
+      "directive_input_overhead_tokens": 23,
+      "output_tokens_saved": 219,
+      "net_tokens_saved": 196,
+      "output_savings_pct": 22.188449848024316,
+      "gate_passed": true
+    }
+  ],
+  "pair_count": 1,
+  "gate_passed": true
+}

@@ -173,3 +173,18 @@ func TestFilterLogOutput_KeepsErrorPastHeadBudget(t *testing.T) {
 		t.Fatalf("expected truncation to shorten output")
 	}
 }
+
+func TestFilterLogOutput_KeepsOperationalFailurePastHeadBudget(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 130; i++ {
+		sb.WriteString("2024-01-01 INFO request processed\n")
+	}
+	sb.WriteString("2024-01-01 WARN upstream unhealthy: connection refused\n")
+	got := filterLogOutput(sb.String())
+	for _, want := range []string{"upstream unhealthy", "connection refused", "more log line(s)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("operational failure %q past head budget was dropped: %q", want, got[:min(len(got), 240)])
+		}
+	}
+}

@@ -48,6 +48,32 @@ func TestExtractToolNamesForPruningRejectsUnknownSchema(t *testing.T) {
 	}
 }
 
+func TestExtractToolNamesForPruningCodexDesktopSpecialTools(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"tools":[{"type":"function","name":"exec_command"},{"type":"custom","name":"apply_patch"},{"type":"tool_search","parameters":{"type":"object"}},{"type":"web_search","external_web_access":true},{"type":"image_generation","output_format":"png"}]}`)
+	names, safe := ExtractToolNamesForPruning(body, types.CodexChatGPT)
+	if !safe {
+		t.Fatalf("known Codex Desktop special tools should be schema-safe, names=%v", names)
+	}
+	want := []string{"exec_command", "apply_patch", "tool_search", "web_search", "image_generation"}
+	if len(names) != len(want) {
+		t.Fatalf("got names %v, want %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("names[%d]=%q, want %q; all=%v", i, names[i], want[i], names)
+		}
+	}
+}
+
+func TestExtractToolNamesForPruningCodexUnknownNamelessToolIsUnsafe(t *testing.T) {
+	t.Parallel()
+	names, safe := ExtractToolNamesForPruning([]byte(`{"tools":[{"type":"function","name":"exec_command"},{"type":"unknown_tool_family","parameters":{"type":"object"}}]}`), types.CodexChatGPT)
+	if safe || names != nil {
+		t.Fatalf("unknown nameless Codex tool must full-pass, safe=%v names=%v", safe, names)
+	}
+}
+
 func TestExtractToolNames_OpenAIBadEntry(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"tools":["bad",{"function":{"name":"good"}}]}`)

@@ -430,7 +430,7 @@ func TestAnchorCategoryString(t *testing.T) {
 	}
 }
 
-func TestApplyToMessages_LegacyWithAnchors(t *testing.T) {
+func TestApplyToMessages_LegacyWrapperRequiresSessionScope(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
 	cfg.Summary.AllowModelFacingReplacement = true
@@ -456,19 +456,11 @@ func TestApplyToMessages_LegacyWithAnchors(t *testing.T) {
 	})
 
 	out, saved, ok := l.ApplyToMessages(msgs)
-	if !ok || saved != 360 {
-		t.Fatalf("ok=%v saved=%d", ok, saved)
+	if ok || saved != 0 {
+		t.Fatalf("sessionless legacy wrapper must not apply: ok=%v saved=%d", ok, saved)
 	}
-
-	found := false
-	for _, m := range out {
-		if strings.Contains(fullText(m), "world") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("anchor message 'world' should be in output")
+	if len(out) != len(msgs) {
+		t.Fatalf("sessionless legacy wrapper must full-pass, got %d messages", len(out))
 	}
 }
 

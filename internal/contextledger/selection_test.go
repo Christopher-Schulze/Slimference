@@ -126,6 +126,45 @@ func TestSelectCapsulesHonorsBudget(t *testing.T) {
 	assertDecision(t, report.Decisions[1], SelectionVerbatim, SelectionReasonBudgetExhausted)
 }
 
+func TestSelectCapsulesKeepsActivePathsVerbatim(t *testing.T) {
+	t.Parallel()
+	capsules := []Capsule{
+		testCapsule(CapsuleFile, "s", "old-file", "arch-file"),
+		testCapsule(CapsuleSearch, "s", "old-search", "arch-search"),
+		testCapsule(CapsuleDecisionContext, "s", "old-decision", "arch-decision"),
+		testCapsule(CapsuleCommand, "s", "old-command", "arch-command"),
+	}
+	capsules[1].Facts["files_matched"] = "b.go,a.go"
+	capsules[2].Facts["active_files"] = "/repo/a.go"
+	report := SelectCapsules(capsules, SelectionPolicy{
+		SessionID:   "s",
+		ActivePaths: []string{"/repo/./a.go"},
+	})
+	if report.Capsules != 1 || report.Verbatim != 3 || report.Rejected != 0 {
+		t.Fatalf("summary mismatch: %+v", report)
+	}
+	assertDecision(t, report.Decisions[0], SelectionVerbatim, SelectionReasonActivePath)
+	assertDecision(t, report.Decisions[1], SelectionVerbatim, SelectionReasonActivePath)
+	assertDecision(t, report.Decisions[2], SelectionVerbatim, SelectionReasonActivePath)
+	assertDecision(t, report.Decisions[3], SelectionCapsule, SelectionReasonArchiveBackedOldContext)
+}
+
+func TestSelectCapsulesQualityPressureFullPasses(t *testing.T) {
+	t.Parallel()
+	report := SelectCapsules([]Capsule{
+		testCapsule(CapsuleFile, "s", "old-file", "arch-file"),
+		testCapsule(CapsuleCommand, "s", "old-command", "arch-command"),
+	}, SelectionPolicy{
+		SessionID:       "s",
+		QualityPressure: true,
+	})
+	if report.Capsules != 0 || report.Verbatim != 2 || report.Rejected != 0 {
+		t.Fatalf("summary mismatch: %+v", report)
+	}
+	assertDecision(t, report.Decisions[0], SelectionVerbatim, SelectionReasonQualityPressure)
+	assertDecision(t, report.Decisions[1], SelectionVerbatim, SelectionReasonQualityPressure)
+}
+
 func TestSelectCapsulesAcceptsArchiveBackedDecisionAndRecoveryCapsules(t *testing.T) {
 	t.Parallel()
 	report := SelectCapsules([]Capsule{

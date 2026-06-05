@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,37 +13,43 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/control"
+	"github.com/slimference/slimference/internal/outputreduce"
 )
 
 type codexCaptureRunFlags struct {
-	binary              string
-	capturePath         string
-	host                string
-	port                string
-	transport           string
-	healthTimeout       time.Duration
-	codexTimeout        time.Duration
-	matrixPath          string
-	id                  string
-	client              string
-	workloadClass       string
-	codexVersion        string
-	slimferenceCommit   string
-	repo                string
-	model               string
-	exitMarker          string
-	exitMarkerCount     int
-	quietCodexOutput    bool
-	expectedReducers    []string
-	expectedZeroSavings bool
-	help                bool
-	codexArgs           []string
+	binary               string
+	capturePath          string
+	host                 string
+	port                 string
+	transport            string
+	healthTimeout        time.Duration
+	codexTimeout         time.Duration
+	matrixPath           string
+	resourceProfileProof string
+	id                   string
+	client               string
+	workloadClass        string
+	codexVersion         string
+	slimferenceCommit    string
+	repo                 string
+	model                string
+	abPairID             string
+	abVariant            string
+	exitMarker           string
+	exitMarkerCount      int
+	quietCodexOutput     bool
+	expectedReducers     []string
+	expectedZeroSavings  bool
+	captureExplicit      bool
+	help                 bool
+	codexArgs            []string
 }
 
 type codexCaptureRunDeps struct {
@@ -54,12 +61,26 @@ type codexCaptureRunDeps struct {
 	runCodex       func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error
 	stopDaemon     func(context.Context, *codexCaptureDaemon) error
 	replay         func(wssABReplayFlags) (wssABReplayReport, error)
+	resourceBefore func(context.Context, codexCaptureRunFlags, *codexCaptureDaemon) (*codexCaptureResourceProof, error)
+	resourceAfter  func(context.Context, codexCaptureRunFlags, *codexCaptureDaemon, *codexCaptureResourceProof) error
 }
 
 type codexCaptureDaemon struct {
 	cmd  *exec.Cmd
 	done <-chan error
 }
+
+type codexCaptureResourceProof struct {
+	dir          string
+	baselineFile string
+	baseline     workdaySavingsBaseline
+	sampleDone   <-chan error
+}
+
+const (
+	codexCaptureResourceHostWindowWait     = 5 * time.Second
+	codexCaptureResourceHostWindowInterval = 250 * time.Millisecond
+)
 
 type codexCaptureRunResult struct {
 	CapturePath string                 `json:"capture_path"`
@@ -137,6 +158,7 @@ type codexCaptureLiveDelta struct {
 	RequestSideBytesReduced   int64 `json:"request_side_bytes_reduced"`
 	ProviderCacheReadTokens   int64 `json:"provider_cache_read_tokens"`
 	ProviderCacheCreateTokens int64 `json:"provider_cache_create_tokens"`
+	ProviderOutputTokens      int64 `json:"provider_output_tokens_observed,omitempty"`
 
 	PhasefBridged             int64 `json:"phasef_bridged"`
 	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
@@ -238,6 +260,10 @@ Flags:
   --health-timeout DURATION  Time to wait for daemon /health (default: 10s)
   --codex-timeout DURATION   Max runtime for the scoped Codex command (default: 5m)
   --matrix-row PATH          Append a wss-proof-matrix JSONL row after replay
+  --resource-profile-proof DIR
+                             Write a release resource bundle for this managed
+                             daemon run. Defaults --capture to DIR/frames.jsonl
+                             and --matrix-row to DIR/matrix.jsonl when omitted.
   --id ID                    Matrix row id
   --client cli|desktop       Matrix row client (default: cli)
   --workload-class CLASS     Matrix row workload class, required with --matrix-row
@@ -247,6 +273,8 @@ Flags:
   --slimference-commit VALUE Matrix row Slimference commit
   --repo VALUE               Matrix row repository label
   --model VALUE              Matrix row model label
+  --ab-pair-id VALUE         Optional A/B pair id for output-reduce proofs
+  --ab-variant VALUE         Optional A/B variant: baseline or directive
   --exit-marker TEXT         Interrupt Codex automatically once TEXT appears in output.
                              On macOS this uses script(1) so Codex still sees a TTY.
                              The marker is also watched in captured function_call_output
@@ -272,6 +300,8 @@ func runCodexCaptureRun(args []string, stdout, stderr io.Writer) int {
 		runCodex:       runCodexCaptureCLI,
 		stopDaemon:     stopCodexCaptureDaemon,
 		replay:         loadWSSABReplayReport,
+		resourceBefore: startCodexCaptureResourceProof,
+		resourceAfter:  finishCodexCaptureResourceProof,
 	}
 	return runCodexCaptureRunWithDeps(args, stdout, stderr, deps)
 }
@@ -325,6 +355,18 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		fmt.Fprintf(stderr, "read initial admin state: %v\n", err)
 		return 1
 	}
+	var resourceProof *codexCaptureResourceProof
+	if flags.resourceProfileProof != "" {
+		if deps.resourceBefore == nil || deps.resourceAfter == nil {
+			fmt.Fprintln(stderr, "resource proof dependencies are not configured")
+			return 1
+		}
+		resourceProof, err = deps.resourceBefore(ctx, flags, daemon)
+		if err != nil {
+			fmt.Fprintf(stderr, "start resource proof: %v\n", err)
+			return 1
+		}
+	}
 	runStdout := stdout
 	runStderr := stderr
 	if flags.quietCodexOutput {
@@ -342,6 +384,12 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	if err != nil {
 		fmt.Fprintf(stderr, "read final admin state: %v\n", err)
 		return 1
+	}
+	if resourceProof != nil {
+		if err := deps.resourceAfter(ctx, flags, daemon, resourceProof); err != nil {
+			fmt.Fprintf(stderr, "finish resource proof: %v\n", err)
+			return 1
+		}
 	}
 	if err := deps.stopDaemon(ctx, daemon); err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -363,17 +411,180 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		StartedAt:   startedAt.Format(time.RFC3339),
 		EndedAt:     endedAt.Format(time.RFC3339),
 	}
+	result.LiveDelta = augmentCodexCaptureLiveDeltaFromWire(flags.capturePath, result.LiveDelta)
 	if flags.matrixPath != "" {
 		if err := appendCodexCaptureMatrixRow(flags, result); err != nil {
 			fmt.Fprintf(stderr, "append matrix row: %v\n", err)
 			return 1
 		}
 	}
+	if failures := validateCodexCaptureExpectedReducers(flags.expectedReducers, result.LiveDelta); len(failures) > 0 {
+		fmt.Fprintf(stderr, "validate expected reducers: %s\n", strings.Join(failures, "; "))
+		writeCodexCaptureRunSummary(stdout, result)
+		return 3
+	}
 	writeCodexCaptureRunSummary(stdout, result)
 	if !replay.GatePassed {
 		return 3
 	}
 	return 0
+}
+
+func validateCodexCaptureExpectedReducers(expected []string, live *codexCaptureLiveDelta) []string {
+	expected = normalizeExpectedReducers(expected)
+	if len(expected) == 0 {
+		return nil
+	}
+	_, failures := validateExpectedReducers(expected, live)
+	return failures
+}
+
+func augmentCodexCaptureLiveDeltaFromWire(path string, live *codexCaptureLiveDelta) *codexCaptureLiveDelta {
+	if live == nil {
+		return live
+	}
+	if live.ProviderOutputTokens == 0 {
+		live.ProviderOutputTokens = codexCaptureWireOutputTokensObserved(path)
+	}
+	if live.OutputReduceInjected == 0 && codexCaptureWireHasOutputReduceMarker(path, outputreduce.DefaultMarker) {
+		live.OutputReduceInjected = 1
+	}
+	return live
+}
+
+func codexCaptureWireOutputTokensObserved(path string) int64 {
+	if strings.TrimSpace(path) == "" {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	var total int64
+	for {
+		var frame struct {
+			Direction string          `json:"direction"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := dec.Decode(&frame); err != nil {
+			if errors.Is(err, io.EOF) {
+				return total
+			}
+			return total
+		}
+		if !codexCaptureFrameFromServer(frame.Direction) {
+			continue
+		}
+		total += codexCapturePayloadOutputTokens(frame.Payload)
+	}
+}
+
+func codexCaptureFrameFromServer(direction string) bool {
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	return direction == "s2c" || direction == "server_to_client"
+}
+
+func codexCapturePayloadOutputTokens(payload json.RawMessage) int64 {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return 0
+	}
+	if payload[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload, &encoded); err != nil {
+			return 0
+		}
+		payload = []byte(encoded)
+	}
+	var env struct {
+		Usage    *codexCaptureUsageFields `json:"usage"`
+		Response *struct {
+			Usage *codexCaptureUsageFields `json:"usage"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return 0
+	}
+	var out int64
+	if env.Usage != nil {
+		out = maxInt64(out, env.Usage.outputTokens())
+	}
+	if env.Response != nil && env.Response.Usage != nil {
+		out = maxInt64(out, env.Response.Usage.outputTokens())
+	}
+	return out
+}
+
+type codexCaptureUsageFields struct {
+	OutputTokens     int64 `json:"output_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+}
+
+func (u codexCaptureUsageFields) outputTokens() int64 {
+	return maxInt64(u.OutputTokens, u.CompletionTokens)
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func codexCaptureWireHasOutputReduceMarker(path, marker string) bool {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(marker) == "" {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	for {
+		var frame struct {
+			Direction string          `json:"direction"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := dec.Decode(&frame); err != nil {
+			if errors.Is(err, io.EOF) {
+				return false
+			}
+			return false
+		}
+		if codexCaptureFrameFromServer(frame.Direction) && strings.Contains(codexCapturePayloadInstructions(frame.Payload), marker) {
+			return true
+		}
+	}
+}
+
+func codexCapturePayloadInstructions(payload json.RawMessage) string {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return ""
+	}
+	if payload[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload, &encoded); err != nil {
+			return ""
+		}
+		payload = []byte(encoded)
+	}
+	var env struct {
+		Instructions string `json:"instructions"`
+		Response     struct {
+			Instructions string `json:"instructions"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return ""
+	}
+	if env.Response.Instructions != "" {
+		return env.Response.Instructions
+	}
+	return env.Instructions
 }
 
 func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFlags, error) {
@@ -404,7 +615,8 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			arg == "--health-timeout", arg == "--codex-timeout", arg == "--matrix-row", arg == "--id",
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
-			arg == "--model", arg == "--exit-marker":
+			arg == "--model", arg == "--ab-pair-id", arg == "--ab-variant",
+			arg == "--exit-marker", arg == "--resource-profile-proof":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", arg)
 			}
@@ -446,10 +658,21 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			return flags, fmt.Errorf("unexpected argument before --: %s", arg)
 		}
 	}
-	if flags.capturePath == "" {
-		flags.capturePath = filepath.Join("~", ".slimference", "captures", "codex-capture-"+now.UTC().Format("20060102T150405Z")+".jsonl")
-	}
 	var err error
+	flags.resourceProfileProof, err = expandCodexCapturePath(flags.resourceProfileProof)
+	if err != nil {
+		return flags, err
+	}
+	if flags.capturePath == "" {
+		if flags.resourceProfileProof != "" {
+			flags.capturePath = filepath.Join(flags.resourceProfileProof, "frames.jsonl")
+		} else {
+			flags.capturePath = filepath.Join("~", ".slimference", "captures", "codex-capture-"+now.UTC().Format("20060102T150405Z")+".jsonl")
+		}
+	}
+	if flags.matrixPath == "" && flags.resourceProfileProof != "" {
+		flags.matrixPath = filepath.Join(flags.resourceProfileProof, "matrix.jsonl")
+	}
 	flags.capturePath, err = expandCodexCapturePath(flags.capturePath)
 	if err != nil {
 		return flags, err
@@ -461,6 +684,9 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	flags.client = strings.ToLower(strings.TrimSpace(flags.client))
 	if flags.client != "cli" && flags.client != "desktop" {
 		return flags, fmt.Errorf("--client must be cli or desktop")
+	}
+	if err := validateABProofFlags(flags.abPairID, flags.abVariant); err != nil {
+		return flags, err
 	}
 	flags.transport = strings.ToLower(strings.TrimSpace(flags.transport))
 	if !validCodexCaptureTransport(flags.transport) {
@@ -475,6 +701,7 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 	case "--binary":
 		flags.binary = value
 	case "--capture":
+		flags.captureExplicit = true
 		flags.capturePath = value
 	case "--host":
 		flags.host = value
@@ -496,6 +723,8 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 		flags.codexTimeout = d
 	case "--matrix-row":
 		flags.matrixPath = value
+	case "--resource-profile-proof":
+		flags.resourceProfileProof = value
 	case "--id":
 		flags.id = value
 	case "--client":
@@ -514,6 +743,10 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 		flags.repo = value
 	case "--model":
 		flags.model = value
+	case "--ab-pair-id":
+		flags.abPairID = value
+	case "--ab-variant":
+		flags.abVariant = strings.ToLower(value)
 	case "--exit-marker":
 		flags.exitMarker = value
 	default:
@@ -555,6 +788,195 @@ func ensureCodexCaptureDir(path string) error {
 		return fmt.Errorf("create capture dir %s: %w", dir, err)
 	}
 	return nil
+}
+
+func startCodexCaptureResourceProof(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon) (*codexCaptureResourceProof, error) {
+	if daemon == nil || daemon.cmd == nil || daemon.cmd.Process == nil {
+		return nil, errors.New("managed daemon PID is unavailable")
+	}
+	dir := flags.resourceProfileProof
+	if strings.TrimSpace(dir) == "" {
+		return nil, errors.New("resource proof directory is empty")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create resource proof dir %s: %w", dir, err)
+	}
+	report, err := waitCodexCaptureAggregateReportWithHostWindow(ctx, flags, codexCaptureResourceHostWindowWait, loadCodexCaptureAggregateReport)
+	if err != nil {
+		return nil, fmt.Errorf("load admin-before aggregate report: %w", err)
+	}
+	if err := writeCodexCaptureJSONFile(filepath.Join(dir, "admin-before.json"), report); err != nil {
+		return nil, err
+	}
+	baselineFile := filepath.Join(dir, "workday-baseline.json")
+	baseline := workdaySavingsBaseline{
+		SchemaVersion: 1,
+		StartedAt:     report.Generated,
+		Source:        report.Source,
+		Report:        report,
+	}
+	if err := writeWorkdayBaseline(baselineFile, baseline); err != nil {
+		return nil, err
+	}
+	pid := daemon.cmd.Process.Pid
+	if err := writeCodexCapturePSSnapshot(ctx, pid, filepath.Join(dir, "ps-before.txt")); err != nil {
+		return nil, err
+	}
+	sampleDone, err := startCodexCaptureSample(ctx, pid, filepath.Join(dir, "slimference.sample.txt"))
+	if err != nil {
+		return nil, err
+	}
+	return &codexCaptureResourceProof{
+		dir:          dir,
+		baselineFile: baselineFile,
+		baseline:     baseline,
+		sampleDone:   sampleDone,
+	}, nil
+}
+
+func finishCodexCaptureResourceProof(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, proof *codexCaptureResourceProof) error {
+	if proof == nil {
+		return nil
+	}
+	if proof.sampleDone != nil {
+		if err := <-proof.sampleDone; err != nil {
+			return err
+		}
+	}
+	if daemon == nil || daemon.cmd == nil || daemon.cmd.Process == nil {
+		return errors.New("managed daemon PID is unavailable")
+	}
+	report, err := waitCodexCaptureAggregateReportWithHostWindow(ctx, flags, codexCaptureResourceHostWindowWait, loadCodexCaptureAggregateReport)
+	if err != nil {
+		return fmt.Errorf("load admin-after aggregate report: %w", err)
+	}
+	if err := writeCodexCaptureJSONFile(filepath.Join(proof.dir, "admin-after.json"), report); err != nil {
+		return err
+	}
+	if err := writeCodexCapturePSSnapshot(ctx, daemon.cmd.Process.Pid, filepath.Join(proof.dir, "ps-after.txt")); err != nil {
+		return err
+	}
+	result := workdaySavingsResult{
+		SchemaVersion: 1,
+		BaselineFile:  proof.baselineFile,
+		StartedAt:     proof.baseline.StartedAt,
+		FinishedAt:    report.Generated,
+		Duration:      report.Generated.Sub(proof.baseline.StartedAt).Round(time.Second).String(),
+		Baseline:      proof.baseline.Report,
+		Current:       report,
+		Delta:         diffAggregateSavingsReports(proof.baseline.Report, report),
+	}
+	return writeCodexCaptureJSONFile(filepath.Join(proof.dir, "workday-finish.json"), result)
+}
+
+func loadCodexCaptureAggregateReport(flags codexCaptureRunFlags) (aggregateSavingsReport, string, error) {
+	return loadWorkdayAggregateReport(aggregateSavingsFlags{
+		adminStateURL: "http://" + flags.host + ":" + flags.port + "/_slimference/admin/state",
+		period:        "all",
+		outputFormat:  outputJSON,
+	})
+}
+
+func waitCodexCaptureAggregateReportWithHostWindow(ctx context.Context, flags codexCaptureRunFlags, timeout time.Duration, load func(codexCaptureRunFlags) (aggregateSavingsReport, string, error)) (aggregateSavingsReport, error) {
+	if timeout <= 0 {
+		timeout = codexCaptureResourceHostWindowWait
+	}
+	if load == nil {
+		return aggregateSavingsReport{}, errors.New("aggregate report loader is nil")
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(codexCaptureResourceHostWindowInterval)
+	defer ticker.Stop()
+
+	var last aggregateSavingsReport
+	var lastErr error
+	for {
+		report, _, err := load(flags)
+		if err == nil {
+			last = report
+			if report.HostBudget.CPUWindowSeconds > 0 {
+				return report, nil
+			}
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return aggregateSavingsReport{}, fmt.Errorf("%w after last report error: %v", ctx.Err(), lastErr)
+			}
+			return aggregateSavingsReport{}, ctx.Err()
+		case <-deadline.C:
+			if lastErr != nil {
+				return aggregateSavingsReport{}, lastErr
+			}
+			return aggregateSavingsReport{}, fmt.Errorf("host_budget cpu_window_seconds stayed %.2f for %s", last.HostBudget.CPUWindowSeconds, timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func writeCodexCaptureJSONFile(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", filepath.Base(path), err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create dir for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func writeCodexCapturePSSnapshot(ctx context.Context, pid int, path string) error {
+	cmd := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "pid,ppid,rss,vsz,pcpu,etime,command")
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("capture ps snapshot for pid %d: %w", pid, err)
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return fmt.Errorf("capture ps snapshot for pid %d: empty output", pid)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create dir for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func startCodexCaptureSample(ctx context.Context, pid int, path string) (<-chan error, error) {
+	if runtime.GOOS != "darwin" {
+		return nil, errors.New("resource proof sampling requires macOS sample(1)")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create dir for %s: %w", path, err)
+	}
+	cmd := exec.CommandContext(ctx, "/usr/bin/sample", strconv.Itoa(pid), "10", "1", "-file", path)
+	done := make(chan error, 1)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start sample for pid %d: %w", pid, err)
+	}
+	go func() {
+		err := cmd.Wait()
+		if err == nil {
+			if info, statErr := os.Stat(path); statErr != nil {
+				err = fmt.Errorf("sample output %s: %w", path, statErr)
+			} else if info.Size() == 0 {
+				err = fmt.Errorf("sample output %s is empty", path)
+			}
+		}
+		if err != nil {
+			err = fmt.Errorf("capture sample for pid %d: %w", pid, err)
+		}
+		done <- err
+		close(done)
+	}()
+	return done, nil
 }
 
 func ensureNoCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags) error {
@@ -625,28 +1047,41 @@ func waitCodexCaptureHealth(ctx context.Context, flags codexCaptureRunFlags, dae
 func loadCodexCaptureAdminSnapshot(ctx context.Context, flags codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	url := "http://" + flags.host + ":" + flags.port + "/_slimference/admin/state"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return codexCaptureAdminSnapshot{}, fmt.Errorf("build admin state request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return codexCaptureAdminSnapshot{}, fmt.Errorf("fetch %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return codexCaptureAdminSnapshot{}, fmt.Errorf("admin state returned HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return codexCaptureAdminSnapshot{}, fmt.Errorf("read admin state body: %w", err)
-	}
-	state, err := parseCodexCaptureAdminStateJSON(data)
+	baseURL := "http://" + flags.host + ":" + flags.port
+	stateData, err := fetchCodexCaptureAdminJSON(ctx, baseURL+"/_slimference/admin/state")
 	if err != nil {
 		return codexCaptureAdminSnapshot{}, err
 	}
+	state, err := parseCodexCaptureAdminStateJSON(stateData)
+	if err != nil {
+		return codexCaptureAdminSnapshot{}, err
+	}
+	if statusData, err := fetchCodexCaptureAdminJSON(ctx, baseURL+"/_slimference/admin/status"); err == nil {
+		if status, err := parseCodexCaptureAdminStatusJSON(statusData); err == nil {
+			mergeCodexCaptureAdminStatus(&state, status)
+		}
+	}
 	return codexCaptureAdminSnapshotFromState(state), nil
+}
+
+func fetchCodexCaptureAdminJSON(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build admin request %s: %w", url, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("admin endpoint %s returned HTTP %d", url, resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read admin endpoint %s body: %w", url, err)
+	}
+	return data, nil
 }
 
 func parseCodexCaptureAdminStateJSON(data []byte) (codexCaptureAdminState, error) {
@@ -655,6 +1090,31 @@ func parseCodexCaptureAdminStateJSON(data []byte) (codexCaptureAdminState, error
 		return codexCaptureAdminState{}, fmt.Errorf("parse admin state JSON: %w", err)
 	}
 	return state, nil
+}
+
+func parseCodexCaptureAdminStatusJSON(data []byte) (codexCaptureAdminState, error) {
+	var status codexCaptureAdminState
+	if err := json.Unmarshal(data, &status); err != nil {
+		return codexCaptureAdminState{}, fmt.Errorf("parse admin status JSON: %w", err)
+	}
+	return status, nil
+}
+
+func mergeCodexCaptureAdminStatus(state *codexCaptureAdminState, status codexCaptureAdminState) {
+	if state == nil {
+		return
+	}
+	state.ToolPrune = status.ToolPrune
+	if status.OutputReduce.InjectedTurns != 0 ||
+		status.OutputReduce.SkippedTurns != 0 ||
+		status.OutputReduce.InputOverheadTokens != 0 ||
+		status.OutputReduce.OutputTokensObserved != 0 ||
+		len(status.OutputReduce.Downgrades) != 0 {
+		state.OutputReduce = status.OutputReduce
+	}
+	if status.OutputReduceCounters != (codexCaptureOutputReduceCountersSnapshot{}) {
+		state.OutputReduceCounters = status.OutputReduceCounters
+	}
 }
 
 func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptureAdminSnapshot {
@@ -1088,6 +1548,8 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		SlimferenceCommit:   flags.slimferenceCommit,
 		Repo:                flags.repo,
 		Model:               flags.model,
+		ABPairID:            flags.abPairID,
+		ABVariant:           flags.abVariant,
 		StartedAt:           result.StartedAt,
 		EndedAt:             result.EndedAt,
 		ExpectedReducers:    append([]string(nil), flags.expectedReducers...),
@@ -1106,6 +1568,23 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 	return nil
 }
 
+func validateABProofFlags(pairID, variant string) error {
+	pairID = strings.TrimSpace(pairID)
+	variant = strings.TrimSpace(strings.ToLower(variant))
+	if pairID == "" && variant == "" {
+		return nil
+	}
+	if pairID == "" || variant == "" {
+		return fmt.Errorf("--ab-pair-id and --ab-variant must be set together")
+	}
+	switch variant {
+	case "baseline", "directive":
+		return nil
+	default:
+		return fmt.Errorf("--ab-variant must be baseline or directive")
+	}
+}
+
 func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Codex capture run complete")
@@ -1122,6 +1601,7 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
 		fmt.Fprintf(w, "  provider_cache_read/create:  %d / %d\n",
 			result.LiveDelta.ProviderCacheReadTokens, result.LiveDelta.ProviderCacheCreateTokens)
+		fmt.Fprintf(w, "  provider_output_tokens:      %d\n", result.LiveDelta.ProviderOutputTokens)
 		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
 			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,
 			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)

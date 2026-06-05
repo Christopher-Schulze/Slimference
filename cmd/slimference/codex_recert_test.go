@@ -693,18 +693,19 @@ func TestRunRecertCommandHelperProcess(t *testing.T) {
 		os.Exit(0)
 	}
 	t.Setenv("SLIMFERENCE_RECERT_HELPER", "1")
-	if err := runRecertCommand(time.Second, "-test.run=TestRunRecertCommandHelperProcess", "--", "ok"); err != nil {
+	helperTimeout := 10 * time.Second
+	if err := runRecertCommand(helperTimeout, "-test.run=TestRunRecertCommandHelperProcess", "--", "ok"); err != nil {
 		t.Fatalf("success command: %v", err)
 	}
-	err := runRecertCommand(time.Second, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail")
+	err := runRecertCommand(helperTimeout, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail")
 	if err == nil || !strings.Contains(err.Error(), "helper failed") {
 		t.Fatalf("failure error=%v", err)
 	}
-	err = runRecertCommand(time.Second, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail-stdout")
+	err = runRecertCommand(helperTimeout, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail-stdout")
 	if err == nil || !strings.Contains(err.Error(), "stdout failed") {
 		t.Fatalf("stdout fallback error=%v", err)
 	}
-	err = runRecertCommand(time.Second, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail-silent")
+	err = runRecertCommand(helperTimeout, "-test.run=TestRunRecertCommandHelperProcess", "--", "fail-silent")
 	if err == nil || err.Error() == "" {
 		t.Fatalf("silent fallback error=%v", err)
 	}

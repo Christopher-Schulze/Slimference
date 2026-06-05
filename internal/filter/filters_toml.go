@@ -434,6 +434,9 @@ func importantTOMLLine(line string) bool {
 		"cannot", "undefined", "unresolved", "invalid", "denied", "timeout",
 		"timed out", "not found", "no such file", "crash", "segfault", "oom",
 		"out of memory", "abort", "diagnostic", "violation", "problem", "issue",
+		"destroy", "destroyed", "delete", "deleted", "deleting", "replacement",
+		"replace", "tainted", "deposed", "drift", "crashloop", "unhealthy",
+		"forbidden", "unauthorized", "permission denied", "connection refused",
 	} {
 		if strings.Contains(tl, tok) {
 			return true

@@ -11,28 +11,30 @@ type Layer1DecisionRecord struct {
 	Reason          string           `json:"reason"`
 	SavedTokens     int              `json:"saved_tokens,omitempty"`
 	RequiresArchive bool             `json:"requires_archive,omitempty"`
+	ArchiveWrites   int              `json:"archive_writes,omitempty"`
 	Recovery        string           `json:"recovery,omitempty"`
 	DefaultEligible bool             `json:"default_eligible"`
 }
 
 // BuildLayer1DecisionRecords turns aggregate Layer1Result counters into a
-// stable per-sub-layer audit trail. It is intentionally conservative: zero
-// savings means "not applicable or no positive saving" unless the sub-layer
-// requires archive recovery, in which case the record makes the full-pass risk
-// control explicit.
+// stable per-sub-layer audit trail. It separates registered-but-unseen
+// sub-layers from sub-layers that were actually reached by the reducer, so
+// proofs do not overstate which mechanisms a workload exercised.
 func BuildLayer1DecisionRecords(result Layer1Result) []Layer1DecisionRecord {
 	registry := Layer1SubLayerRegistry()
 	out := make([]Layer1DecisionRecord, 0, len(registry))
 	for _, info := range registry {
 		saved := layer1SavedForSubLayer(result, info.ID)
+		attempted := layer1Attempted(result, info.ID, saved)
 		record := Layer1DecisionRecord{
 			SubLayer:        info.ID,
 			Tier:            info.Tier,
-			Attempted:       true,
+			Attempted:       attempted,
 			Applied:         saved > 0,
-			Reason:          layer1DecisionReason(info, saved),
+			Reason:          layer1DecisionReason(info, attempted, saved),
 			SavedTokens:     saved,
 			RequiresArchive: info.RequiresArchive,
+			ArchiveWrites:   result.ArchiveWrites[info.ID],
 			Recovery:        info.Recovery,
 			DefaultEligible: info.DefaultEligible,
 		}
@@ -41,7 +43,20 @@ func BuildLayer1DecisionRecords(result Layer1Result) []Layer1DecisionRecord {
 	return out
 }
 
-func layer1DecisionReason(info Layer1SubLayerInfo, saved int) string {
+func layer1Attempted(result Layer1Result, id string, saved int) bool {
+	if result.Attempts[id] > 0 {
+		return true
+	}
+	if saved > 0 {
+		return true
+	}
+	return result.ArchiveWrites[id] > 0
+}
+
+func layer1DecisionReason(info Layer1SubLayerInfo, attempted bool, saved int) string {
+	if !attempted {
+		return "not_attempted"
+	}
 	if saved > 0 {
 		return "applied_positive_savings"
 	}

@@ -68,15 +68,15 @@ Initial targets for Apple Silicon macOS:
    - [x] per-mechanism latency histogram
    - [x] disk write counters
    - [x] state sizes
-2. Add pprof/benchmark ceremony:
+2. Add resource/profile and benchmark ceremony:
    - [x] deterministic local benchmark harness covers WSS/Layer-0 mutation,
      chunking, readcache, content archive, and planner overhead
-   - [ ] live CLI pprof/resource run
-   - [ ] live Desktop pprof/resource run
-   - [ ] repeat read
-   - [ ] search loop
-   - [ ] chunk-dedup workload
-   - [ ] long workday
+   - [x] live CLI resource/profile run
+   - [x] live Desktop resource/profile run
+   - [x] repeat read
+   - [x] search loop
+   - [x] chunk-dedup workload
+   - [x] long workday
 3. Add auto-degradation:
    - skip expensive chunking when output is too small
    - [x] disable managed Codex reducers under repeated Layer-0 latency pressure
@@ -113,7 +113,7 @@ Initial targets for Apple Silicon macOS:
 ## Verification
 
 - Benchmarks for WSS mutation, chunking, readcache, archive write, planner.
-- Live pprof from CLI and Desktop sessions.
+- Live resource/profile bundles from CLI and Desktop sessions.
 - Resource budget tests where possible.
 - Long-session state bound tests.
 - `go run ./scripts/ci`
@@ -278,7 +278,57 @@ Initial targets for Apple Silicon macOS:
   bounded directory-size probe now reports whether it completed; the daemon
   treats an incomplete state-tree scan as host-budget pressure instead of
   accepting a partial byte total as healthy. This prevents too many tiny cache or
-  archive files from bypassing the product resource guard.
+  state files from being treated as free just because the scan hit its bound.
+- 2026-06-04: Re-ran the local host-cost benchmark surface after the live-corpus
+  and tool-prune proof updates. Short 100 ms benchmark run on Apple M1:
+  FastCDC chunking 256 KB about 135 us/op, chunk-store partial-overlap 64 KB
+  about 509 us/op, content-archive write 64 KB about 2.49 ms/op, archive read
+  about 131 us/op, planner Codex WSS large-tool decision about 259 ns/op, WSS
+  repeated git-status about 808 us/op, WSS repeated read 64 KB about 849 us/op,
+  readcache full-repeat 64 KB about 454 us/op, ranged-repeat 16 KB about
+  165 us/op. These numbers keep the local hot path under the 25 ms product
+  latency budget for the measured reducers; archive writes remain the expensive
+  bounded operation and should stay batched/fail-open. At that point the live
+  resource/profile proof was not yet closed; the final 2026-06-04 CLI/Desktop
+  bundles below close that proof.
+- 2026-06-04: Re-ran the same short local host-cost surface after the Layer-1
+  corpus round-trip guard. Current Apple M1 numbers: FastCDC chunking 256 KB
+  about 140 us/op, chunk-store partial-overlap 64 KB about 540 us/op,
+  content-archive write 64 KB about 2.54 ms/op, archive read about 129 us/op,
+  planner Codex WSS large-tool decision about 283 ns/op, WSS repeated
+  git-status about 856 us/op, WSS repeated read 64 KB about 837 us/op, readcache
+  full-repeat 64 KB about 463 us/op, ranged-repeat 16 KB about 170 us/op. This
+  keeps the measured local reducer path under budget after the latest safety
+  tests; live CLI/Desktop pprof/resource captures remain the only unclosed
+  T272 proof class.
+- 2026-06-04: Re-ran the full default benchmark surface after the Layer-2
+  active-path/quality-pressure selector hardening and proof-tooling updates.
+  Apple M1 numbers: FastCDC chunking 256 KB about 211 us/op, chunk-store
+  partial-overlap 64 KB about 2.03 ms/op, content-archive write 64 KB about
+  29.4 ms/op, archive read about 129 us/op, planner Codex WSS large-tool
+  decision about 267 ns/op, WSS repeated git-status about 788 us/op, WSS
+  repeated read 64 KB about 814 us/op, readcache full-repeat 64 KB about
+  446 us/op, ranged-repeat 16 KB about 167 us/op. The long 3 s benchmark run
+  confirms the reducer hot paths remain well under the 25 ms local budget;
+  archive writes remain the bounded expensive recovery path and must continue
+  to be batched, fail-open, and avoided for unrecoverable or low-ROI cases.
+- 2026-06-04: Ran a focused race pass over the critical savings/safety packages:
+  `go test -race ./internal/contextledger ./internal/filter ./internal/readcache
+  ./internal/chunkdedup ./internal/toolprune ./internal/outputreduce
+  ./internal/proxy/wsmitm ./internal/quality ./internal/hostmetrics -count=1`.
+  It passed, covering the currently touched selector, reducer, cache, chunk,
+  tool-prune, output-reduce, WSS, quality, and host-budget packages under the
+  race detector. This is local concurrency evidence; it still does not replace
+  the final live CLI/Desktop pprof/resource capture.
+- 2026-06-04: Promoted the race evidence from focused packages to the full repo
+  gate. The first `go test -race ./...` failed only because
+  `TestRunRecertCommandHelperProcess` used a 1 s helper-process timeout that
+  was too tight under race instrumentation; no product data race was reported.
+  The test now uses a 10 s helper timeout, matching the heavier race-runtime
+  cost without weakening production behavior. Verification passed:
+  `go test -race ./cmd/slimference -run TestRunRecertCommandHelperProcess -count=1`,
+  `go test -race ./cmd/slimference -count=1`, and finally
+  `go test -race ./...`.
 - 2026-06-03: Hardened missing-resource handling. If the daemon RSS probe is
   unavailable while WSS is otherwise active, `/admin/state.host_budget` now stays
   `unknown` instead of reporting `ok`; WSS parse/compression/degrade errors still
@@ -293,15 +343,105 @@ Initial targets for Apple Silicon macOS:
   from normal request handling without changing any model-facing bytes, reducer
   decisions, or planner semantics.
 - 2026-06-03: Hardened release inventory semantics for host-resource proof. A
-  `host_resource_long_workday` row must now show positive live billable
-  input-token savings plus `host_budget_ok`; host telemetry alone cannot close
-  the maxx gate. This keeps resource proof tied to the product goal: saving
-  tokens while staying cheap and stable.
+  `host_resource_long_workday` row must now show a positive live economic token
+  signal plus `host_budget_ok`; host telemetry alone cannot close the maxx gate.
+  Local billable-input deletion, provider-cache read tokens, and output-side
+  evidence remain separately reported so the resource proof cannot blur what
+  kind of savings made the row positive.
 - 2026-06-03: Wired host-budget evidence into the live-corpus benchmark gate.
   Corpus session records can now carry either nested `host_budget` snapshots or
   flat `host_budget_*` fields, and `benchmark-corpus --maxx-check` can require
   `host_budget_ok` as a scenario validator. This gives the long-workday resource
   proof a second strict gate beside WSS proof-matrix inventory.
+- 2026-06-04: Current proof inventory over `~/.slimference/captures` reports the
+  full maxx workload matrix present and complete: chunk-similar, chunk-log,
+  chunk-test, output-reduce-aggressive, tool-heavy, provider-cache-long-session,
+  and host-resource-long-workday all have zero safety issues and host-budget-ok
+  evidence where required. The inventory now contains 85 matrix rows, 23
+  host-budget-ok rows, 57 positive economic-token rows, and complete maxx
+  workload status. This closes the
+  repeat/search/chunk/long-workday workload proof checkboxes for T272; the only
+  remaining closeout is real CLI and Desktop pprof/resource capture, because
+  host-budget snapshots prove product health but do not replace CPU/profile
+  flamegraph evidence.
+- 2026-06-04: Added `go run ./scripts/verify -mode host-resource-plan` as the
+  content-free T272 live proof ceremony. It prints exact CLI/Desktop commands to
+  capture aggregate-savings host snapshots, `ps` RSS/CPU rows, `workday-savings
+  finish --json`, a macOS `sample` CPU profile, and a WSS proof row requiring
+  `host_budget_ok`. This keeps the remaining pprof/resource work reproducible
+  without opening a daemon pprof HTTP listener or adding a new runtime surface.
+- 2026-06-04: Hardened focused `wss-proof-matrix` semantics for T272 and other
+  single-mechanism closeouts. Focused runs now evaluate only requested workload
+  classes and, when `--expected-reducer` is passed, use those explicit reducer
+  expectations instead of stale row-local expectations. Unfocused release mode
+  remains strict across every recorded row. The existing host-resource row now
+  passes the hard focused gate with positive live billable input-token savings
+  in that row, `host_budget_ok`, and replay `lost=0`.
+- 2026-06-04: Found and fixed a real WSS host-resource regression during an
+  autonomous CLI sanity run. A no-savings WSS/Codex request loaded heavy exact
+  o200k token accounting in two non-claim paths: Layer-0 counted every
+  tool-result block before any mutation existed, and planner/output-reduce
+  telemetry counted prompt bodies exactly before any product saving was known.
+  Layer-0 now lazy-counts exact Codex tokens only after a candidate mutation
+  exists and still uses exact before/after counts for every real token-savings
+  claim. WSS planner no-op rows and output-reduce low-ROI gating use cheap
+  byte/4 estimates because those paths do not claim local billable savings.
+  Focused tests pin the estimate-only planner path and the existing
+  output-reduce behavior. A follow-up scoped CLI sanity capture
+  `/Users/christopher/.slimference/captures/host-resource-sanity-20260604T201638Z`
+  stayed `host_budget_status=ok` with RSS 77,414,400 bytes, replay `lost=0`,
+  and zero parse/degrade/compression errors. It is intentionally not counted as
+  a savings proof because the prompt produced no positive token savings.
+- 2026-06-04: Hardened proof evidence retention. `codex-capture-run` now writes
+  the matrix row before failing an expected-reducer gate, so missing reducer
+  hits and host-budget attention remain reviewable evidence. The exit code
+  still fails closed. Added a regression test proving the negative host-budget
+  row is persisted before returning code 3.
+- 2026-06-04: Corrected the T272 runbook endpoint from `/admin/state` to the
+  actual scoped admin endpoint `/_slimference/admin/state`. The old path could
+  return a proxied 404 and invalidate otherwise correct resource proof steps.
+- 2026-06-04: Hardened the final release resource gate. `release-proof-report`
+  now rejects a loose profile text file and requires both CLI and Desktop proof
+  bundle directories
+  with `admin-before.json`, `admin-after.json`, `ps-before.txt`,
+  `ps-after.txt`, `workday-finish.json`, `slimference.sample.txt`, and
+  `matrix.jsonl`.
+  Both aggregate-savings snapshots and the workday current/delta host-budget JSON must be
+  `ok`, compression/degradation-safe, RSS-measured, CPU-window-measured, and
+  the workday WSS parse/degrade/compression deltas must stay zero. Each local
+  `matrix.jsonl` must contain a positive `host_resource_long_workday` row with
+  `host_budget_ok` for the matching client. The `host-resource-plan` runbook
+  now prints the final two-bundle `release-proof-report` shape, so the live
+  proof cannot accidentally pass on a placeholder file or on only one product
+  surface.
+- 2026-06-04: Removed the remaining manual CLI-resource ceremony. `codex-capture-run`
+  now accepts `--resource-profile-proof <bundle-dir>` and, while it owns the
+  managed daemon, writes the release bundle files itself: `frames.jsonl`,
+  `matrix.jsonl`, aggregate admin snapshots before/after, `ps` before/after,
+  macOS `sample`, and `workday-finish.json`. `host-resource-plan -client
+  codex_cli` now prints this single automated command. Desktop remains manual
+  only because the App prompts are operator-driven, not because the verifier is
+  loose.
+- 2026-06-04: Closed the final live resource/profile proof. The validated CLI
+  bundle is
+  `/Users/christopher/.slimference/captures/host-resource-codex_cli-auto-20260604T212018Z`;
+  the validated Desktop bundle is
+  `/Users/christopher/.slimference/captures/host-resource-codex_desktop-20260604T212111Z`.
+  The resource proof validator passes both bundles (`resource_profile_proof_ok`
+  with clients `cli` and `desktop`). After the 2026-06-05 honesty hardening,
+  `release-proof-report ~/.slimference/captures --resource-profile-proof <cli>
+  --resource-profile-proof <desktop> --json` intentionally fails over the
+  historical capture archive because it still includes old diagnostic rows.
+  Release claims must therefore run `wss-proof-clean-matrix
+  ~/.slimference/captures <clean-release-matrix.jsonl> --json` first, then run
+  `release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof
+  <cli> --resource-profile-proof <desktop> --json`.
+- 2026-06-04: Hardened replay semantics for output-reduce instruction injection.
+  `wss-ab-replay --fail-on-lost` now treats a known output-reduce marker suffix
+  in top-level Codex `instructions` as an expected instruction extra while still
+  reporting it. The Desktop resource capture therefore passes with `lost=1`,
+  `expected_extras=1`, and `gate_passed=true`; unknown instruction rewrites
+  still fail as lost context.
 
 ## Done
 
@@ -310,3 +450,5 @@ cheap, bounded, observable, and automatically demoted before they hurt the
 operator's machine or Codex workflow. Lossless exact cache-hit reducers remain
 available under host-budget attention because they are the safest high-value
 savings path; heavier recoverable mechanisms full-pass until the host is healthy.
+The final CLI and Desktop resource/profile bundles are now validated by the
+release proof report, so T272 is closed for the current maxx/release scope.

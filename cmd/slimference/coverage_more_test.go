@@ -402,13 +402,23 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 		CodexRoute: control.CodexRouteState{Transport: "wss"},
 		Savings: control.SavingsSummary{
 			Product: control.ProductSavingsSummary{
-				Status:                   "saving",
-				BillableInputTokensSaved: 42,
-				CacheHits:                2,
+				Status:                     "saving",
+				BillableInputTokensSaved:   42,
+				CacheHits:                  2,
+				ToolPruneTokensSaved:       26,
+				ToolPrunePrunedTools:       1,
+				OutputReduceInjectedTurns:  1,
+				OutputReduceObservedTokens: 42,
 			},
 		},
 		WSS: control.WSSState{CompressedMessagesMutated: 1},
-	}); got.RouteStatus != "WSS savings active" || got.BillableInputTokensSaved != 42 || got.CacheHits != 2 {
+	}); got.RouteStatus != "WSS savings active" ||
+		got.BillableInputTokensSaved != 42 ||
+		got.CacheHits != 2 ||
+		got.ToolPruneTokensSaved != 26 ||
+		got.ToolPrunePrunedTools != 1 ||
+		got.OutputReduceInjectedTurns != 1 ||
+		got.OutputReduceObservedTokens != 42 {
 		t.Fatalf("product status=%+v", got)
 	}
 	if got := productStatusFromSetupState(control.SetupState{

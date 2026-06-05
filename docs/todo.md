@@ -105,12 +105,12 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] F10: Search Results — `TryCompactSearchOutput`: empty → `no matches`; non-empty grep-style (rg/grep/ag/ack/ugrep/git grep) → `groupSearchResults` gruppiert nach Datei mit Match-Counts + Limits (max 5 Dateien, 3 matches/Datei, nur wenn kuerzer)
 - [x] F11: Directory Listing — `TryCompactLs`: empty / total-only → `[ls] empty`; non-empty listings full-pass because filenames are model evidence. `TryCompactTree`: empty → `[tree] empty`; non-empty hierarchies full-pass because paths and structure are model evidence.
 - [x] F12: Package Manager — `TryCompactPackageOutput`: 16+ Package-Manager erkannt (npm/pnpm/yarn/pip/cargo/go mod/bun/uv/etc.); empty → `[tool] ok`
-- [x] F13: Docker/K8s — `TryCompactContainerOutput`: docker/nerdctl/podman/kubectl/helm; empty ps/images/list → `[tool] empty`; helm search → `no matches`
+- [x] F13: Docker/K8s — `TryCompactContainerOutput`: docker/nerdctl/podman/kubectl/helm; empty ps/images/list → `[tool] empty`; helm search → `no matches`; non-empty healthy tables full-pass, diagnostic attention rows can compact
 - [x] F14: JSON — `TryCompactJSONMinify`: gueltiges JSON → `json.Compact` (nur wenn kuerzer)
 - [x] F15: Log Output — `TryCompactLogDedup`: aufeinanderfolgende gleiche Zeilen bei docker/podman/kubectl logs → `Zeile [xN]`
 - [x] F16: AWS CLI — `TryCompactAwsJSON`: rekursiv ResponseMetadata/ResultMetadata/SdkHttpMetadata entfernt (nur wenn kuerzer)
 - [x] F17: ANSI/Progress — `RunPipeline` wendet `compression.StripANSICodes` vor Built-ins an; abgedeckt
-- [x] F18: GitHub/GitLab CLI — `TryCompactGhList`: 20+ gh-Subkommandos; `TryCompactGlabList`: 16+ glab-Subkommandos; empty → `[tool] empty`
+- [x] F18: GitHub/GitLab CLI — `TryCompactGhList`: 20+ gh-Subkommandos; `TryCompactGlabList`: 16+ glab-Subkommandos; empty → `[tool] empty`; healthy non-empty lists full-pass, diagnostic attention rows can compact
 - [x] F19: PostgreSQL — `TryCompactPsql`: empty → `[psql] ok`
 - [x] F20: .NET — `TryCompactDotnet`: dotnet build/test/publish/pack; empty → ok; `extractBuildErrors`/`extractTestFailures` fuer non-empty (ueber buildToolLabel/testToolLabel)
 - [x] F21: Ruby — `TryCompactRubyOutput`: rake/rspec (leer → ok); rubocop → via TryCompactLintOutput
@@ -1616,13 +1616,14 @@ only and promotes the per-process Codex CLI runner for T209.
   `workday-savings start|finish` windows passed for CLI and Desktop with positive
   WSS savings and zero parse/degrade/compression errors.
   Detail: `docs/todo/t257-codex-real-workload-proof-matrix.md`
-- [~] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
+- [x] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
   toggles into a full route/workload/risk/recovery/recency/proof autopilot. Foundation
   is active: typed mechanism decisions, WSS/HTTP route and workload inputs,
-  closed-candidate blocking/telemetry for T253/T254, HTTP archive refs blocked, and
+  closed-candidate blocking/telemetry for T253/T254, HTTP archive refs blocked,
+  chunk-dedup proof evidence wired from config into the hotpath policy, and
   content-free policy counters in `/admin/state`, `aggregate-savings`, `workday-savings`,
-  and optional `wss-audit --admin-state-file`. Remaining work: feed broader proof
-  evidence only into already default-safe cache-hit promotion rules.
+  and optional `wss-audit --admin-state-file`. Final sweep keeps only mechanical
+  reducer-safety checks outside policy, not route/mechanism promotion decisions.
   Detail: `docs/todo/t258-codex-savings-policy-engine-v2.md`
 - [x] **T259** Codex HTTP recovery and policy promotion — closed as a conservative
   route lock. HTTP remains fallback/legacy and keeps safe Layer-0 reducers, but it
@@ -1668,7 +1669,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
 | 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (14 strict live-token captures, 9 CLI + 5 Desktop, all workloads, 43,113 live billable/input tokens saved, lost=0, captures_with_issues=0) |
-| 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | in progress (foundation + policy telemetry active; proof-fed promotion remaining) |
+| 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | DONE (proof-fed promotion active; policy telemetry closed) |
 | 27 | HTTP recovery/promotion decision | 0% by design | Safety | T259 | CLOSED: HTTP fallback is conservative; no archive refs |
 
 Combined-leverage order: T249 first (safety net + recovery unlock the gated items),
@@ -1900,18 +1901,31 @@ be called complete, default-safe, and production-grade.
   search, log/lint, test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata,
   and Terraform JSON. 2026-06-02 automatic scoped CLI proof now covers real
   WSS `rg`, changed `rg`, `git grep`, `grep -R`, and large `git status --short`
-  reductions with `lost=0`; remaining work is Desktop breadth and any still
-  uncovered corpus fixtures. Detail:
+  reductions with `lost=0`; remaining work is broader live-corpus breadth for
+  rare parser families, not a known offline reducer bug. The last generic
+  Terraform list/value cap risk was removed from default-auto: `terraform state
+  list` and plain `terraform output` full-pass unless a future route-specific
+  archive-backed reducer owns exact recovery. Non-empty healthy container
+  tables now full-pass too; only diagnostic attention rows are compacted.
+  Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
-- [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
+- [x] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
   recovery paths; archive-required executor enforcement, archive-failure
   full-pass behavior, unknown or unattributed mutation fail-closed archive
   gating, `structure_in_window` and `success_short_circuit` archive enforcement,
   content-free per-sublayer decision records, and archive-required `dedup_near`
   separation from exact reversible `dedup`, plus request-scoped coordinator
-  options and serialized receiver-local call state, are implemented, while
-  prompt-cache economics and round-trip/live proof remain.
+  options, serialized receiver-local call state, prompt-cache boundary
+  protection, an executable default-eligibility safety guard, and per-sub-layer
+  archive write counts for recoverability audit are implemented. DiskRecorder
+  offline guards now prove both the most dangerous `dedup_near` case and a
+  multi-message Layer-1 corpus: every emitted archive id expands through
+  `contentarchive.Get` to the exact original block bytes with matching
+  session/message/block metadata, applied archive-required decisions carry
+  positive archive-write counts, and decision telemetry now reports
+  `not_attempted` for registered sub-layers that a workload never reached
+  instead of marking the whole registry attempted.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
@@ -1923,11 +1937,12 @@ be called complete, default-safe, and production-grade.
   required recoverability facts are missing, including full-pass turn provenance
   and explicit repo/workdir scope for file capsules, explicit execution scope
   for search capsules, explicit decision/recovery facts, archive ids, and a
-  policy session id to prevent
-  cross-session context selection; quality inputs and proof-gated ledger
-  insertion remain. Detail:
+  policy session id to prevent cross-session context selection. Active-file and
+  quality-pressure selection inputs now fail closed as tested primitives; only
+  proof-gated model-facing ledger insertion and live A/B promotion remain.
+  Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
-- [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
+- [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
   full-passes tool-capable request shapes and includes HTTP method plus route
   path/query in cache keys plus request-affecting policy partitions to avoid
   workflow replay, cross-endpoint aliasing, method aliasing, and cross-policy
@@ -1943,7 +1958,9 @@ be called complete, default-safe, and production-grade.
   HTTP debug accounting now separates Anthropic `cache_read_input_tokens` from
   OpenAI/Codex `cached_tokens`, preventing decision/report mechanisms from
   double-counting one provider-cache signal.
-  Provider-accounting alignment and long-session proof remain. Detail:
+  Provider-accounting alignment is live-proven for WSS terminal usage frames;
+  local response-cache and prompt-cache accounting remain separated from local
+  token-deletion claims. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
 ### Codex savings mechanism max-out tasks
@@ -1975,7 +1992,7 @@ be called complete, default-safe, and production-grade.
   search-grouping row with 35,402 live billable input tokens saved, `lost=0`,
   zero safety counters, and `host_budget_ok`. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
-- [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
+- [x] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,
   recency, integrity budget, and proof gates make drawdowns practically
   excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
@@ -1999,7 +2016,9 @@ be called complete, default-safe, and production-grade.
   tokens saved. Live Desktop log workload is handled earlier by the safer
   captured-output reducer with 16192 billable input tokens saved, so chunk dedup
   remains the guarded fallback for large similar outputs that survive stricter
-  parsers. Remaining: broader workload breadth before default-safety claim.
+  parsers. Local proof inventory and the exported live corpus now cover the
+  chunk-similar, chunk-log, and chunk-test maxx workloads with zero safety
+  issues.
   Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
@@ -2025,10 +2044,34 @@ be called complete, default-safe, and production-grade.
   now calls the same guarded output-reduce injector on prompt/user-turn request
   bodies and explicitly skips `function_call_output` deltas, so output-reduce is
   code-reachable on Codex WSS without touching read/search/git/test tool-output
-  context. Focused live `output_reduce_aggressive` proof is still pending.
+  context. Task-shape detection now also ignores static AGENTS/system exact-reply
+  text and classifies from the current user request first, so normal WSS prompt
+  turns are no longer falsely skipped as `exact_reply`. Focused live
+  `output_reduce_aggressive` rows now prove WSS injection, observed output-token
+  accounting, host budget `ok`, and zero safety errors. The saved-token field in
+  the exported corpus still comes from provider-cache evidence and must not be
+  claimed as output-reduce savings; the output-reduce product claim is safe
+  injection plus observed output-token measurement until a separate
+  counterfactual A/B proves a concrete output-token reduction percentage.
+  `codex-capture-run`/`wss-proof-live-row` can now stamp baseline/directive
+  A/B matrix rows, and `wss-output-reduce-ab-report` fails closed unless the
+  directive row has positive provider-output token reduction after subtracting
+  input overhead, zero safety errors, zero output-reduce downgrades, and
+  host-budget OK. A focused CLI direct-answer/status A/B now passes with
+  baseline `987`, directive `768`, overhead `23`, net saved `196`, `22.19%`
+  output-token reduction, `lost=0`, host-budget OK, and zero WSS safety errors
+  after fixing provider-output baseline extraction and directive-overhead
+  accounting. That pair is now committed as a content-free live-corpus
+  `output_reduce_ab` artifact, and `benchmark-corpus --maxx-check` requires
+  positive paired net output-token savings instead of accepting output-reduce
+  injection alone. The remaining T267 gap is broader CLI/Desktop task-shape A/B
+  breadth, not offline proof tooling. The central planner and hot path now
+  mirror the same stricter output-reduce guard: exact/relay/repair/low-ROI
+  direct-answer shapes and all unproven detail-sensitive shapes bypass Layer 4
+  by default instead of injecting a standard directive without paired A/B proof.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
-- [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
+- [x] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
   default-safe savings lever through core-tool retention, mention reattach,
   missing-tool retry, cooldowns, and proof gates. Offline hardening now makes
   unknown/mixed tool schema shapes full-pass before pruning and keeps
@@ -2044,9 +2087,15 @@ be called complete, default-safe, and production-grade.
   mention detection now reads current user/system/developer instruction text
   only, so historical assistant/tool output cannot reattach idle tools by
   accident. Codex WSS Phase-F now uses the same strict pruner on prompt/user
-  turns, observes WSS tool-call names for session activity, and full-passes
-  unknown tool schemas. The `tool_heavy` maxx gap is now live proof, not missing
-  WSS wiring. Detail:
+  turns, resolves real Codex `function_call_output` frames through the persisted
+  call_id -> tool metadata map for session activity, full-passes unknown tool
+  schemas, and recognizes current Codex Desktop special tool definitions without
+  weakening strict-schema safety. A focused Desktop proof on Codex 0.137.0 used
+  a real non-core tool, then idle turns, and proved `tool_prune_pruned_total=1`,
+  `tool_prune_tokens_saved_sum=26`, zero parse/degrade/compression errors,
+  no missing-tool retry/miss, and host budget `ok`. The exported
+  `desktop_tool_heavy` live-corpus category now passes the `tool_heavy`,
+  `host_budget_ok`, and `low_error` validators. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay
@@ -2062,19 +2111,20 @@ be called complete, default-safe, and production-grade.
   capped strike debt and automatic cheap-frame recovery across proxy restarts.
   Live signal feeding remains a later proof/wiring task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
-- [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
+- [x] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default
   product panel consumes it; provider-cache read/create tokens now stay separate
   from local input and output-wire savings, and WSS parse/degrade/compression
   failures force product attention with concrete TUI safety details. The base
   CLI+Desktop WSS release matrix now passes with 15 captures and live token
   deltas; mechanism-specific chunk/tool-prune/output-reduce and host-resource
-  proof gates are now represented by an explicit `benchmark-corpus --maxx-check`
-  gate that fails closed until the chunk-dedup, output-reduce, tool-heavy,
-  provider-cache long-session, and host-resource workday categories exist as
-  live operator evidence.
+  proof gates are represented by `benchmark-corpus --maxx-check`. The current
+  exported corpus has 51 real live rows across the release and maxx workload
+  classes, and both `--promotion-check` and `--maxx-check` pass. The
+  visual/product surface includes tool-prune input-token savings and
+  output-reduce injection/observed-output status without debug-counter leakage.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
-- [~] **T272** Host resource and latency budget max-out - `/admin/state` now
+- [x] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard, policy has a demotion input, and
   daemon RSS/CPU/state-size now come from real local probes; the latest host
   budget snapshot plus repeated Layer-0 latency breaches now feed Codex Layer-0
@@ -2092,10 +2142,15 @@ be called complete, default-safe, and production-grade.
   persisted with TTL and capped strike debt. WSS Phase-F request metadata now
   reuses the raw request map already parsed for message extraction, removing
   repeated hot-path JSON unmarshalling for session/model/previous-response
-  fields without changing model-facing bytes. Proof-matrix rows now fail closed
-  on reported host-budget attention/degradation and can require `host_budget_ok`.
-  Focused CLI and Desktop chunk proofs now pass with `host_budget_ok`; broader
-  workday, search-loop, tool-heavy, and pprof/resource proof remains. Detail:
+  fields without changing model-facing bytes. No-op WSS planner/output-reduce
+  paths now avoid exact o200k loading unless a real mutation/savings claim needs
+  exact before/after token accounting; a scoped CLI sanity capture stayed under
+  budget at RSS 77,414,400 bytes with zero safety errors. Proof-matrix rows now
+  fail closed on reported host-budget attention/degradation and can require
+  `host_budget_ok`. Focused CLI and Desktop chunk/tool-heavy/output-reduce
+  host-budget proof is present, and the final CLI plus Desktop resource/profile
+  bundles now pass the release proof gate.
+  Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria
@@ -2120,40 +2175,68 @@ the program is not yet "1009% maxxed, verified, tested, finished, and
 optimized". Development work, captures, and proof effort are not product
 drawdowns; only runtime model/workflow degradation counts as drawdown.
 
-- [ ] **Live corpus proof breadth** - base CLI + Desktop WSS release matrix
+- [x] **Live corpus proof breadth** - base CLI + Desktop WSS release matrix
   passes for repeat reads, ranged reads, search loops, git status,
   test-failure output, apply/edit/read, long workday sessions, and no-savings
-  control. Remaining breadth: chunk-dedup workloads, tool-heavy workflows,
-  output-reduce workflows, and any mechanism-specific Desktop variants called
-  out below. `benchmark-corpus --maxx-check` now makes those mechanism-specific
-  categories a hard corpus gate instead of a prose-only reminder. Gate every
+  control. Mechanism-specific chunk-dedup, tool-heavy, output-reduce,
+  provider-cache, and host-resource workloads are now represented by
+  `benchmark-corpus --maxx-check` instead of prose-only reminders. Gate every
   window on positive net billable-input savings where a saving mechanism is
   expected, `lost=0`, zero parse/degrade/compression errors, no quality-canary
   spike, no unexpected recovery loop, and no visible workflow degradation.
   `wss-proof-inventory ~/.slimference/captures --json` now inventories local
   proof-matrix rows without scanning raw WSS payloads; the current local
-  inventory has all base release workloads, 65 proof rows, 49 positive-token
-  rows, zero safety-issue rows, and still lacks the maxx classes
-  `chunk_dedup_log_output`, `chunk_dedup_test_output`,
-  `output_reduce_aggressive`, `tool_heavy`, `provider_cache_long_session`, and
-  `host_resource_long_workday`.
-- [ ] **T260 Layer 0 max-out closeout** - finish Desktop breadth and any
-  uncovered corpus fixtures for parser families beyond the automatic scoped CLI
-  proof. Large/late evidence must stay preserved, and any unproven parser shape
-  must full-pass instead of compressing by assumption. Git diff/show compaction
-  now preserves rename/copy, mode, new/deleted-file, similarity, and binary-file
-  metadata before stripping context lines.
-- [ ] **T261 Layer 1 max-out closeout** - complete prompt-cache economics,
-  round-trip proof, and live-corpus proof for exact/reversible sublayers.
-  Unknown or archive-required sublayers must continue to fail closed to
-  full-pass unless recovery is proven. The reversible path dictionary now uses
-  neutral product-name-free marker text.
-- [ ] **T262 Layer 2 max-out closeout** - keep classical summary replacement
-  outside the product path unless explicitly legacy-gated; finish archive
-  provenance, quality inputs, A/B replay, and proof-gated deterministic
-  context-ledger insertion. Model-facing Layer 2 is not product-ready until it
-  proves preserved task decisions with recoverable raw context.
-- [ ] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
+  inventory has all base release workloads, zero safety-issue rows,
+  complete provider-cache long-session evidence, complete
+  chunk/log/test/host-resource maxx evidence through the safest productive
+  reducer signal, plus focused `output_reduce_aggressive` and `tool_heavy`
+  evidence.
+  `wss-proof-export-corpus` now exports those proof-matrix rows into scrubbed
+  `benchmark-corpus` categories without raw WSS frames or prompt/tool payloads.
+  Exported rows gate on absolute live saved-token counters or
+  mechanism-specific counters because the proof matrix does not retain every
+  original-token denominator needed for a real ratio claim.
+  The current exported corpus contains 51 real live rows across the release and
+  maxx workload classes; `benchmark-corpus --promotion-check` and the stricter
+  `benchmark-corpus --maxx-check` both pass. Matrix, inventory, and export
+  tooling now enforce observed output-token evidence for
+  `output_reduce_aggressive`, so provider-cache evidence cannot be re-exported
+  as an output-reduce proof. `wss-proof-inventory ~/.slimference/captures
+  --json` now reports all maxx workload statuses complete with zero safety
+  issues after the content-free output-reduce proof row was copied into the
+  local capture index.
+  `codex-capture-run --expected-reducer` now enforces live reducer hits before
+  appending proof rows, so future focused proof commands cannot report PASS when
+  the requested mechanism did not actually fire.
+- [ ] **T260 Layer 0 max-out closeout** - offline hardening is complete for the
+  current parser frontier: large/late evidence is priority-preserved, unproven
+  parser shapes full-pass instead of compressing by assumption, git diff/show
+  preserves rename/copy/mode/new/deleted-file/similarity/binary metadata, and
+  default TOML/log caps retain late operational failures, auth/permission
+  refusals, unhealthy/crash/OOM signals, and destructive infra-state evidence.
+  Healthy non-empty Docker/Kubernetes tables full-pass because names/statuses
+  are requested evidence. Remaining closeout is live-only breadth: Desktop and
+  real-workload rows for parser families not yet represented in the corpus.
+- [x] **T261 Layer 1 max-out closeout** - dedicated Layer-1/full-history corpus
+  round-trip proof is implemented. The corpus exercises archive-backed
+  comment-strip plus near-dedup across historical messages, reads every emitted
+  archive id back from disk, verifies exact original bytes and
+  session/message/block metadata, and asserts that applied archive-required
+  decisions carry positive archive-write counters. Prompt-cache boundary
+  protection, unknown/unattributed fail-closed archive gating, and neutral
+  product-name-free reversible marker text remain enforced by tests.
+- [ ] **T262 Layer 2 max-out closeout** - classical summary replacement stays
+  outside the product path unless explicitly legacy-gated; archive provenance,
+  quality-pressure fail-closed selection, and A/B archive expansion are
+  implemented offline. The legacy replacement path fail-closes without a
+  trusted session id, non-empty summary text, matching cached prefix, and
+  positive token savings. Ledger selection full-passes active-file capsules and
+  all capsules under quality/re-read pressure. Remaining closeout is live-only
+  and intentionally not default-on: proof-gated deterministic context-ledger
+  insertion plus live A/B proof that model-facing ledger context preserves task
+  decisions with recoverable raw context. Until that proof exists, Layer 2 is a
+  telemetry/recovery primitive, not a model-facing savings layer.
+- [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility
   now fail-closes for server-state side effects, and HTTP debug records split
@@ -2161,8 +2244,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   provider-cache savings as local token deletion. Codex WSS proof rows now carry
   `provider_cache_read_tokens` and `provider_cache_create_tokens`, and
   `wss-proof-matrix`/`wss-proof-inventory` can gate
-  `provider_cache_read`/`provider_cache_create`; the remaining work is the real
-  long-session capture that makes those counters positive.
+  `provider_cache_read`/`provider_cache_create`; the fixed long-session capture
+  reports positive `provider_cache_read` with `host_budget_ok` and zero safety
+  counters.
 - [x] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
   live-token proof for read, ranged-read, repeated-command, repeated-search,
   and repeated non-file output hits. First reads stay full-pass; only
@@ -2173,46 +2257,71 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   one larger 340-match search-grouping row. Ambiguous cwd, context-rich,
   custom-separator, multiline, or heading searches full-pass or stay outside
   same-match-set collapse.
-- [ ] **T266 chunk-dedup closeout** - run the live CLI + Desktop matrix before
-  treating chunk references as a default-safe production claim. Chunk refs must
-  remain cross-send only, never patch/diff/edit, never first-observation, density
-  bounded, archive-backed, canary-governed, and host-budget aware. The offline
-  guard now blocks broader diff-producing commands across direct diff tools,
-  Git/GitHub CLI/Jujutsu/Mercurial/Subversion, and `.patch`/`.diff` reads while
-  preserving normal search/status savings. Latest focused CLI WSS proof passes
-  live under corrected host-budget gating with
-  `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; focused Desktop
-  Codex.app proof now passes the same gate with live billable-token savings.
-  Similar-log replay now hits chunk refs, while live log proof saves through the
-  safer captured-output reducer first. The product proof gate now accepts
-  either captured-output or recoverable chunk refs for large log/test output
-  workloads, because forcing chunk refs over a stricter deterministic reducer
-  would be less safe, not more maxxed. Remaining closeout is broader real
-  workload coverage beyond focused similar-file/log cases.
-- [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
-  direct-answer/status/read-only/planning/edit workflows with repair/re-ask
-  rollback active. The offline classifier now uses instruction text only and
-  ignores historical tool output/arguments. WSS streamcut remains disabled until
-  terminal-safe proof exists; exact reply, patch, code, and user-requested detail
-  must not be shortened in a way that degrades workflow or model usefulness.
-- [ ] **T268 tool-schema pruning closeout** - run tool-heavy live proof and net
-  prompt-cache economics. Pruning must never remove core tools, unknown or mixed
-  provider schema shapes must full-pass, mention reattach must happen in the
-  same prune pass from current instruction text only, and missing-tool
-  retry/cooldown must be visible in product evidence.
-- [ ] **T271 product-status closeout** - finish live-corpus proof gates in the
-  product rollup. The TUI must show product signals only by default: active
-  route/fallback, billable input saved, output-wire saved, provider-cache
-  read/create tokens, read/search/repeated/chunk hit families, and safety/host
-  attention. Debug-only counters must stay out of the default product view.
-- [ ] **T272 host-resource closeout** - run live CLI + Desktop RSS/CPU/latency,
-  disk-write, state-size, and pprof/resource proof for normal workday,
-  search-loop, chunk-dedup, and tool-heavy workloads. Host-budget demotion must
-  prove that local overhead stays below user-visible workflow impact. Focused
-  CLI and Desktop chunk proofs now pass with `host_budget_ok`; broad workday and
-  pprof/resource runs remain.
-- [ ] **Release proof report** - after all task-specific gates pass, produce one
+- [x] **T266 chunk-dedup closeout** - chunk refs remain cross-send only, never
+  patch/diff/edit, never first-observation, density bounded, archive-backed,
+  canary-governed, and host-budget aware. CLI and Desktop focused proofs pass
+  with real `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok` on similar
+  outputs. Large log/test workloads are now treated correctly: the product gate
+  accepts either captured-output or recoverable chunk refs, because forcing chunk
+  refs over a stricter deterministic reducer would be less safe, not more
+  maxxed. The current local proof inventory and exported live corpus include
+  complete maxx workload coverage for chunk-similar, chunk-log, and chunk-test
+  with zero safety issues.
+- [~] **T267 output-reduce closeout** - guarded WSS injection and observed
+  output-token accounting are live-proven with `host_budget_ok`, zero safety
+  errors, bounded input-overhead accounting, explicit
+  `output_reduce_net_observed_tokens` diagnostics, and a passing maxx corpus
+  gate. A committed content-free direct-answer/status A/B artifact now proves a
+  concrete paired output-token reduction (`987` baseline vs `768` directive,
+  `23` directive-overhead tokens, `196` net tokens saved, `22.19%` output-token
+  reduction). That percentage is limited to the proven direct-answer/status
+  shape; explanation/deep-analysis A/B stayed net-negative even after directive
+  compaction and is intentionally not promoted. Remaining closeout is broader
+  CLI/Desktop task-shape A/B breadth plus repair/re-ask rollback evidence before
+  claiming a broad product-default output-reduction magnitude. WSS streamcut
+  stays disabled until terminal-safe proof exists; exact reply, patch, code, and
+  user-requested detail must not be shortened in a way that degrades workflow or
+  model usefulness.
+- [x] **T268 tool-schema pruning closeout** - focused Desktop tool-heavy proof
+  is complete with a real non-core tool use, idle prune, positive
+  `tool_prune_tokens_saved`, zero miss/retry, zero parse/degrade/compression
+  errors, and host budget `ok`. Pruning keeps the product guardrails: core tools
+  stay attached, unknown or mixed provider schema shapes full-pass, mention
+  reattach uses current instruction text only, and missing-tool retry/cooldown
+  remains visible in product evidence. Proof inventory now counts tool-prune
+  saved tokens as positive economic token evidence, matching
+  `wss-proof-matrix` instead of hiding them behind a `tool_heavy` special case.
+- [x] **T271 product-status closeout** - live-corpus promotion and the stricter
+  maxx gate now pass on the exported real corpus. Product surface verification
+  is done for active route/fallback, billable input saved, output-wire saved,
+  provider-cache read/create tokens, tool-prune saved tokens, output-reduce
+  injection/observed-output status, read/search/repeated/chunk hit families, and
+  safety/host attention. Debug-only counters stay out of the default product
+  view.
+- [x] **T272 host-resource closeout** - live CLI + Desktop RSS/CPU/latency,
+  disk-write, state-size, and resource/profile proof are complete. Host-budget
+  demotion proves local overhead stays below user-visible workflow impact, and
+  the final bundles include aggregate-savings host snapshots before/after, `ps`
+  RSS/CPU, macOS `sample`, workday finish JSON, frames, and local matrix rows.
+  The final release report validates both surfaces with `host_budget_ok`,
+  positive live economic token evidence, zero WSS parse/degrade/compression
+  deltas, and satisfied row-local expected reducers.
+  The full race gate
+  (`go test -race ./...`) and the full local benchmark surface are green after
+  the latest Layer-2, proof-tooling, Codex recert test hardening, and WSS
+  no-op token-accounting resource fix.
+- [x] **Release proof report** - after all task-specific gates pass, produce one
   coherent release proof that separates local billable-input savings,
   output-wire savings, provider-cache savings, local overhead, fallback events,
   recovery events, and quality canary signals. No single headline number may
   mix billing-relevant input savings with non-billing output-wire savings.
+  `scripts/utils wss-proof-clean-matrix` now writes an explicit clean release
+  matrix from proof rows only, skipping historical diagnostic rows, host-budget
+  attention rows, expected-zero local-savings violations, safety rows, and rows
+  without an economic signal. `scripts/utils release-proof-report` then produces
+  the content-free separated proof summary from that clean matrix and fails
+  closed without validated CLI and Desktop resource/profile proof bundles, each
+  with aggregate-savings host snapshots and a local positive
+  `host_resource_long_workday` `matrix.jsonl` row. Local input,
+  provider-cache, output-reduce, tool-prune, host, and safety evidence stay
+  separate.

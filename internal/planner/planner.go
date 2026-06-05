@@ -183,8 +183,8 @@ func decideL4(f RequestFacts) LayerDecision {
 	if disabled(f, Layer4) {
 		return decision(Layer4, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
-	if strings.EqualFold(f.TaskShape, "exact_reply") {
-		return decision(Layer4, ActionBypass, "exact_reply", 0, "none", "high")
+	if d, guarded := decideL4ShapeGuard(f); guarded {
+		return d
 	}
 	if f.OutputReduceCooldown || f.ToolPruneCooldown {
 		return decision(Layer4, ActionCheapOnly, "quality_cooldown_soften_layer4", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
@@ -193,6 +193,31 @@ func decideL4(f RequestFacts) LayerDecision {
 		return decision(Layer4, ActionRun, "output_tokens_or_task_size_justify_directive", maxInt(f.ExpectedOutputTokens/5, 20), "medium", confidenceFromCorpus(f))
 	}
 	return decision(Layer4, ActionBypass, "output_too_small", 0, "none", "high")
+}
+
+func decideL4ShapeGuard(f RequestFacts) (LayerDecision, bool) {
+	shape := strings.ToLower(strings.TrimSpace(f.TaskShape))
+	switch shape {
+	case "exact_reply":
+		return decision(Layer4, ActionBypass, "exact_reply", 0, "none", "high"), true
+	case "command_output_relay":
+		return decision(Layer4, ActionBypass, "command_output_relay_exact_output", 0, "none", "high"), true
+	case "repair_followup":
+		return decision(Layer4, ActionBypass, "repair_followup_low_roi", 0, "none", "high"), true
+	case "read_only_analysis":
+		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+	case "planning":
+		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+	case "direct_answer":
+		if f.EstimatedInputTokens > 0 && f.EstimatedInputTokens < 12000 {
+			return decision(Layer4, ActionBypass, "direct_answer_low_roi", 0, "none", "high"), true
+		}
+	case "code_edit", "debugging", "explanation_deep_analysis", "review", "tool_result_reasoning", "new_file_generation", "final_summary":
+		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+	case "unknown":
+		return decision(Layer4, ActionBypass, "unknown_task_shape", 0, "none", "high"), true
+	}
+	return LayerDecision{}, false
 }
 
 func decideWebSocket(f RequestFacts) LayerDecision {

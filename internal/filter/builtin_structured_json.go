@@ -38,18 +38,26 @@ func TryCompactKubectlJSON(argv []string, stdout []byte) ([]byte, bool) {
 	if err := json.Unmarshal(itemsRaw, &items); err != nil || len(items) == 0 {
 		return stdout, false
 	}
+	var attentionItems []map[string]json.RawMessage
+	for _, item := range items {
+		if kubectlItemAttention(item) {
+			attentionItems = append(attentionItems, item)
+		}
+	}
+	if len(attentionItems) == 0 {
+		return stdout, false
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[kubectl -o json] %d item(s)\n", len(items))
+	fmt.Fprintf(&b, "[kubectl -o json] %d item(s), %d attention item(s)\n", len(items), len(attentionItems))
 	const maxRows = 24
 	rows := 0
-	prioritizedItems := kubectlPrioritizedItems(items)
-	for _, idx := range cappedEvidenceIndexes(len(prioritizedItems), maxRows, 6) {
-		item := prioritizedItems[idx]
+	for _, idx := range cappedEvidenceIndexes(len(attentionItems), maxRows, 6) {
+		item := attentionItems[idx]
 		fmt.Fprintf(&b, "  %s\n", compactKubectlJSONItem(item))
 		rows++
 	}
-	if len(items) > rows {
-		fmt.Fprintf(&b, "  ... +%d more item(s)\n", len(items)-rows)
+	if len(attentionItems) > rows {
+		fmt.Fprintf(&b, "  ... +%d more attention item(s)\n", len(attentionItems)-rows)
 	}
 	out := b.String()
 	if len(out) >= len(stdout) {
@@ -206,14 +214,6 @@ func containsArg(args []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func kubectlPrioritizedItems(items []map[string]json.RawMessage) []map[string]json.RawMessage {
-	out := append([]map[string]json.RawMessage(nil), items...)
-	sort.SliceStable(out, func(i, j int) bool {
-		return kubectlItemAttention(out[i]) && !kubectlItemAttention(out[j])
-	})
-	return out
 }
 
 func kubectlItemAttention(item map[string]json.RawMessage) bool {

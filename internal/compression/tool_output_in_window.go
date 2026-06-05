@@ -32,6 +32,7 @@ func (c *DeterministicCompressor) toolOutputInWindowPass(messages []types.Messag
 			if !toolOutputInWindowTypeAllowed(toolType) {
 				continue
 			}
+			c.recordLayer1Attempt("tool_output_in_window")
 			compressed := compressToolOutput(toolType, block.Text, minTokens*3, c.cfg.SlidingWindow)
 			if len(compressed) >= len(block.Text) {
 				continue

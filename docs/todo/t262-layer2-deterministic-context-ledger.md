@@ -94,6 +94,8 @@ The ledger stores deterministic capsules:
      background work is enabled
    - [x] default-off while shadowing
    - [x] shadow produces ledger sidecar and compares against direct context
+   - [x] quality-pressure, active-path, wrong-session, missing-fact, and
+     missing-archive candidates fail closed before any future promotion
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -104,6 +106,8 @@ The ledger stores deterministic capsules:
 
 - The ledger cannot replace active files, active failures, active user
   instructions, active patches, or recent tool outputs.
+- If the quality/re-read canary or another product-quality signal reports
+  pressure, all ledger candidates must full-pass for that session.
 - A capsule cannot stand in for raw details unless the raw details are
   recoverable through archive.
 - If capsule provenance is missing, full-pass.
@@ -186,6 +190,41 @@ summary remains opt-in, not default.
   `SelectCapsules` now keeps all capsules verbatim when `SelectionPolicy`
   lacks a session id, so a future model-facing insertion path cannot silently
   select archive-backed context across session namespaces.
+- 2026-06-04: Hardened the remaining legacy summary replacement function. Even
+  with the explicit `allow_model_facing_replacement` override, Layer 2 now
+  refuses model-facing replacement when the caller lacks a trusted session id,
+  falls back to `empty` / `fh:*` content-hash IDs, has empty cached summary
+  text, or lacks positive cached token savings. This keeps the legacy path
+  fail-closed and prevents cross-conversation or useless summary-as-truth
+  rewrites from ever counting as product work. The old sessionless
+  `ApplyToMessages` wrapper is therefore full-pass only; callers must use the
+  session-keyed API before any replacement can be considered.
+- 2026-06-04: Added two fail-closed selector inputs for future ledger promotion.
+  `SelectionPolicy.ActivePaths` keeps file, search, and decision capsules
+  verbatim when they touch an actively worked file, even if the capsule is old
+  and archive-backed. Search capsule matching is repo-root aware, so a
+  repo-relative match such as `a.go` is protected when the active path is
+  `/repo/a.go`. `SelectionPolicy.QualityPressure` keeps every capsule verbatim
+  when quality/re-read/recovery canaries report pressure. This turns the "no
+  active-file or comprehension-pressure replacement" rule into tested code, not
+  only operator policy.
+- 2026-06-04: Verified the selector hardening with the focused race gate:
+  `go test -race ./internal/contextledger ./internal/filter ./internal/readcache
+  ./internal/chunkdedup ./internal/toolprune ./internal/outputreduce
+  ./internal/proxy/wsmitm ./internal/quality ./internal/hostmetrics -count=1`
+  passed. This does not promote Layer 2 into model-facing context; it proves the
+  fail-closed safety primitives stay concurrency-clean across the critical
+  savings packages.
+- 2026-06-05: Hardened the remaining background summariser input path for huge
+  Unicode/CJK histories. Layer 2 now caps oversized message text before outbound
+  redaction/rendering, caps the formatted summariser body again, keeps both caps
+  UTF-8 valid, respects the same CJK-heavy token heuristic used by
+  `estimateTokens`, and does not mutate the original message slice used for
+  hashes, anchors, and covered range validation. The focused package race gate
+  `go test -race ./internal/summarization -count=1` and full repository race
+  gate `go test -race ./...` both passed after the fix. This is still
+  background-only hardening; it does not promote classical summaries into the
+  model-facing product path.
 - 2026-06-03: Hardened search capsule scope. `BuildSearchCapsule` now requires
   an explicit repo/workdir scope and `SelectCapsules` requires the `repo_root`
   fact before any search capsule can become promotable old context. The Codex

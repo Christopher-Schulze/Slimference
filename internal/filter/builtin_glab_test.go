@@ -86,16 +86,8 @@ func TestTryCompactGlabList_manyRows(t *testing.T) {
 	for i := 1; i <= 25; i++ {
 		sb.WriteString(fmt.Sprintf("!%d  MR title %d  feature/branch-%d  OPEN  2024-01-01\n", i, i, i))
 	}
-	out, ok := TryCompactGlabList([]string{"glab", "mr", "list"}, []byte(sb.String()))
-	if !ok {
-		t.Fatalf("expected compact for 25 rows, got pass-through")
-	}
-	s := string(out)
-	if !strings.Contains(s, "[glab mr list] 25 items") {
-		t.Errorf("want item count header, got: %q", s)
-	}
-	if !strings.Contains(s, "+10 more") {
-		t.Errorf("want +10 more suffix, got: %q", s)
+	if _, ok := TryCompactGlabList([]string{"glab", "mr", "list"}, []byte(sb.String())); ok {
+		t.Fatalf("healthy non-empty glab lists must pass through")
 	}
 }
 

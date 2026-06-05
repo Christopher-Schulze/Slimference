@@ -30,6 +30,17 @@ func TestLayer1SubLayerRegistryContracts(t *testing.T) {
 		if info.RequiresArchive && info.Tier != Layer1SafetyRecoverableWithArchive && info.Tier != Layer1SafetyTaskPreservingSummary {
 			t.Fatalf("%s requires archive with incompatible tier %q", info.ID, info.Tier)
 		}
+		if info.DefaultEligible {
+			switch info.Tier {
+			case Layer1SafetyExact, Layer1SafetyReversible:
+			case Layer1SafetyRecoverableWithArchive, Layer1SafetyTaskPreservingSummary:
+				if !info.RequiresArchive {
+					t.Fatalf("%s is default-eligible with tier %q but does not require archive recovery", info.ID, info.Tier)
+				}
+			default:
+				t.Fatalf("%s is default-eligible with unsupported tier %q", info.ID, info.Tier)
+			}
+		}
 	}
 
 	for _, id := range []string{

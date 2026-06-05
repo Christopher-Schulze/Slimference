@@ -110,8 +110,77 @@ func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
 	if report.GatePassed || report.CapturesWithIssues != 1 {
 		t.Fatalf("expected live-token gate failure, got %+v", report)
 	}
-	if len(report.CaptureReports) != 1 || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "live billable_input_tokens_saved") {
+	if len(report.CaptureReports) != 1 || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "positive live economic signal") {
 		t.Fatalf("missing token gate failure: %+v", report.CaptureReports)
+	}
+}
+
+func TestWSSProofMatrixExpectedZeroAllowsProviderCacheEvidence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "provider-cache")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:                  "provider-cache",
+		Client:              "cli",
+		WorkloadClass:       "provider_cache_long_session",
+		FramesPath:          framesPath,
+		ExpectedReducers:    []string{"provider_cache_read", "host_budget_ok"},
+		ExpectedZeroSavings: true,
+		LiveDelta: &codexCaptureLiveDelta{
+			ProviderCacheReadTokens: 3456,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"provider_cache_long_session"},
+		expectedReducers:      []string{"provider_cache_read", "host_budget_ok"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.PositiveTokenSavings != 1 || report.ExpectedZero != 1 {
+		t.Fatalf("provider-cache evidence should be economic-positive while local-zero: %+v", report)
+	}
+}
+
+func TestWSSProofMatrixExpectedZeroRejectsLocalSavings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "expected-zero-local")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:                  "expected-zero-local",
+		Client:              "cli",
+		WorkloadClass:       "no_savings_control",
+		FramesPath:          framesPath,
+		ExpectedZeroSavings: true,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"no_savings_control"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "expected zero local savings") {
+		t.Fatalf("local savings must fail expected-zero rows: %+v", report)
 	}
 }
 
@@ -192,6 +261,68 @@ func TestWSSProofMatrixFocusedGate(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixFocusedGateIgnoresOutOfScopeRows(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	goodFramesPath := filepath.Join(dir, "good-frames.jsonl")
+	badFramesPath := filepath.Join(dir, "bad-frames.jsonl")
+	writeProofRepeatReadFrames(t, goodFramesPath, "focused-good")
+	writeProofRepeatReadFrames(t, badFramesPath, "focused-bad")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath,
+		wssProofMatrixRecord{
+			ID:               "old-exploratory-failure",
+			Client:           "cli",
+			WorkloadClass:    "build_test_lint_failure",
+			FramesPath:       badFramesPath,
+			ExpectedReducers: []string{"not_a_reducer"},
+			LiveDelta:        &codexCaptureLiveDelta{},
+		},
+		wssProofMatrixRecord{
+			ID:               "focused-host-resource",
+			Client:           "cli",
+			WorkloadClass:    "host_resource_long_workday",
+			FramesPath:       goodFramesPath,
+			ExpectedReducers: []string{"read_delta", "codex_exec_envelope"},
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 100,
+				ProviderCacheReadTokens:  1000,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+	)
+
+	releaseReport, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if releaseReport.GatePassed {
+		t.Fatalf("unfocused release report must still fail on the exploratory row: %+v", releaseReport)
+	}
+
+	focusedReport, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"host_resource_long_workday"},
+		expectedReducers:      []string{"host_budget_ok"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !focusedReport.GatePassed || focusedReport.Captures != 1 || len(focusedReport.CaptureReports) != 1 {
+		t.Fatalf("focused proof should ignore out-of-scope rows: %+v", focusedReport)
+	}
+	if focusedReport.CaptureReports[0].ID != "focused-host-resource" {
+		t.Fatalf("unexpected focused capture: %+v", focusedReport.CaptureReports)
+	}
+}
+
 func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
 	flags, err := parseWSSProofMatrixFlags([]string{
 		"matrix.jsonl",
@@ -262,6 +393,128 @@ func TestWSSProofMatrixRequiredReducerAggregateGate(t *testing.T) {
 	}
 	if report.RequiredReducerHits["chunk_dedup_refs"] != 2 || report.RequiredReducerHits["host_budget_ok"] != 1 {
 		t.Fatalf("required reducer hits not recorded: %+v", report.RequiredReducerHits)
+	}
+}
+
+func TestWSSProofMatrixToolPruneTokensCountAsEconomicSignal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "tool-heavy")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "tool-heavy",
+		Client:        "desktop",
+		WorkloadClass: "tool_heavy",
+		FramesPath:    framesPath,
+		ExpectedReducers: []string{
+			"tool_prune",
+			"tool_prune_tokens_saved",
+			"host_budget_ok",
+		},
+		LiveDelta: &codexCaptureLiveDelta{
+			ToolPrunePruned:         1,
+			ToolPruneTokensSaved:    26,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"tool_heavy"},
+		minCaptures:           1,
+		minDesktop:            1,
+		minCLI:                0,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.PositiveTokenSavings != 1 || len(report.CaptureReports) != 1 || !report.CaptureReports[0].GatePassed {
+		t.Fatalf("tool-prune live signal should pass: %+v", report)
+	}
+}
+
+func TestWSSProofMatrixOutputReduceRequiresObservedOutputTokens(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "output-reduce")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "output-reduce-no-output-tokens",
+		Client:        "cli",
+		WorkloadClass: "output_reduce_aggressive",
+		FramesPath:    framesPath,
+		ExpectedReducers: []string{
+			"output_reduce_injected",
+			"host_budget_ok",
+		},
+		LiveDelta: &codexCaptureLiveDelta{
+			OutputReduceInjected:    1,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"output_reduce_aggressive"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.PositiveTokenSavings != 0 {
+		t.Fatalf("output-reduce proof without output tokens must fail: %+v", report)
+	}
+	if got := strings.Join(report.CaptureReports[0].GateFailures, "\n"); !strings.Contains(got, "positive live economic signal") {
+		t.Fatalf("missing economic-signal failure:\n%s", got)
+	}
+
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "output-reduce-with-output-tokens",
+		Client:        "cli",
+		WorkloadClass: "output_reduce_aggressive",
+		FramesPath:    framesPath,
+		ExpectedReducers: []string{
+			"output_reduce_injected",
+			"output_reduce_output_tokens",
+			"host_budget_ok",
+		},
+		LiveDelta: &codexCaptureLiveDelta{
+			OutputReduceInjected:             1,
+			OutputReduceOutputTokensObserved: 42,
+			HostBudgetStatus:                 "ok",
+			HostBudgetCompressionOK:          true,
+			HostBudgetDegradationOK:          true,
+		},
+	})
+	report, err = loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"output_reduce_aggressive"},
+		expectedReducers: []string{
+			"output_reduce_injected",
+			"output_reduce_output_tokens",
+			"host_budget_ok",
+		},
+		minCaptures: 1,
+		minCLI:      1,
+		minPositive: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.PositiveTokenSavings != 1 {
+		t.Fatalf("output-reduce proof with observed output tokens should pass: %+v", report)
+	}
+	if got := report.RequiredReducerHits["output_reduce_output_tokens"]; got != 42 {
+		t.Fatalf("output_reduce_output_tokens hit = %d", got)
 	}
 }
 

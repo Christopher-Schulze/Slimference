@@ -33,7 +33,7 @@ func TestServeHTTP_OutputReduceInjectsBeforeUpstream(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"` + strings.Repeat("please edit tersely ", 40) + `"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"` + strings.Repeat("what is the current status? ", 2200) + `"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -154,7 +154,7 @@ func TestServeHTTP_OutputReduceInjectionErrorFallsBackToOriginal(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"` + strings.Repeat("please edit tersely ", 40) + `"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"` + strings.Repeat("what is the current status? ", 2200) + `"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

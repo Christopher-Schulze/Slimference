@@ -12,6 +12,8 @@
 //   - release-proof-plan: T271 - print the complete operator ceremony for
 //     default-on promotion evidence across CLI, Desktop, workday, WSS proof,
 //     and the live-corpus promotion gate.
+//   - host-resource-plan: T272 - print the live RSS/CPU/disk/state/profile
+//     evidence ceremony for one CLI or Desktop product workload.
 //
 // All flows are READ-ONLY against the operator's secrets: the tool
 // never reads ANTHROPIC_API_KEY or chatgpt cookies itself; it only
@@ -24,6 +26,7 @@
 //	go run ./scripts/verify -mode codex-smoke -url http://127.0.0.1:8990
 //	go run ./scripts/verify -mode live-corpus-plan -category codex_cli_tool_heavy
 //	go run ./scripts/verify -mode release-proof-plan
+//	go run ./scripts/verify -mode host-resource-plan -client codex_desktop
 //
 // Exit code 0 = verdict PASS; 1 = verdict FAIL; 2 = invocation error.
 package main
@@ -42,7 +45,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke | live-corpus-plan | release-proof-plan")
+	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke | live-corpus-plan | release-proof-plan | host-resource-plan")
 	url := flag.String("url", "http://127.0.0.1:8990", "Slimference proxy base URL")
 	count := flag.Int("count", 10, "number of identical requests to send (prompt-cache mode)")
 	model := flag.String("model", "claude-3-5-sonnet-20241022", "model id for prompt-cache mode")
@@ -61,6 +64,8 @@ func main() {
 		os.Exit(runLiveCorpusPlan(*corpusRoot, *category, *client, time.Now().UTC()))
 	case "release-proof-plan":
 		os.Exit(runReleaseProofPlan(*corpusRoot, time.Now().UTC()))
+	case "host-resource-plan":
+		os.Exit(runHostResourcePlan(*client, *corpusRoot, time.Now().UTC()))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown -mode %q\n", *mode)
 		os.Exit(2)
@@ -333,6 +338,91 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check --json\n", root)
 	fmt.Println("")
 	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday savings, host-resource budget, promotion corpus, and maxx mechanism corpus all pass with zero error/canary/latency regressions.")
+	return 0
+}
+
+func runHostResourcePlan(client, root string, now time.Time) int {
+	client = safePlanName(client)
+	root = strings.TrimSpace(root)
+	if client == "" {
+		fmt.Fprintln(os.Stderr, "host-resource-plan: -client is required")
+		return 2
+	}
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "host-resource-plan: -corpus-root is required")
+		return 2
+	}
+	stamp := now.Format("20060102_150405")
+	bundleDir := fmt.Sprintf("~/.slimference/captures/host-resource-%s-%s", client, stamp)
+	matrixPath := fmt.Sprintf("%s/matrix.jsonl", bundleDir)
+	framesPath := fmt.Sprintf("%s/frames.jsonl", bundleDir)
+	adminBefore := fmt.Sprintf("%s/admin-before.json", bundleDir)
+	adminAfter := fmt.Sprintf("%s/admin-after.json", bundleDir)
+	psBefore := fmt.Sprintf("%s/ps-before.txt", bundleDir)
+	psAfter := fmt.Sprintf("%s/ps-after.txt", bundleDir)
+	cpuSample := fmt.Sprintf("%s/slimference.sample.txt", bundleDir)
+	workdayJSON := fmt.Sprintf("%s/workday-finish.json", bundleDir)
+
+	fmt.Println("Slimference T272 host-resource proof plan")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println("Purpose: prove the product stays cheap while saving tokens on a real CLI/Desktop workload.")
+	fmt.Println("Privacy: content-free. Capture admin/resource counters and process profiles, not prompts or tool payloads.")
+	fmt.Printf("Client:       %s\n", client)
+	fmt.Printf("Bundle dir:   %s\n", bundleDir)
+	fmt.Printf("Matrix file:  %s\n", matrixPath)
+	fmt.Println("")
+	fmt.Println("0. Clean local baseline:")
+	fmt.Println("   go run ./scripts/ci")
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check\n", root)
+	fmt.Println("")
+	if client != "codex_desktop" {
+		fmt.Println("1. Run the automated CLI resource bundle:")
+		fmt.Printf("   go run ./scripts/utils codex-capture-run --resource-profile-proof %s --workload-class host_resource_long_workday --expected-reducer host_budget_ok --codex-timeout=180s --exit-marker HOST_RESOURCE_DONE --quiet-codex-output -- exec \"<real repeat/search/tool-heavy host-resource workload, then print HOST_RESOURCE_DONE>\"\n", bundleDir)
+		fmt.Println("")
+		fmt.Println("2. Gates:")
+		fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --required-workload=host_resource_long_workday --expected-reducer host_budget_ok --require-live-token-delta --min-positive=1 --json\n", matrixPath)
+		fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check\n", root)
+		fmt.Println("   # Final release gate after BOTH codex_cli and codex_desktop host-resource bundles exist:")
+		fmt.Printf("   go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json\n")
+		fmt.Printf("   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex_cli_bundle> --resource-profile-proof <codex_desktop_bundle> --json\n")
+		fmt.Println("")
+		fmt.Println("3. Pass criteria: generated bundle contains admin-before/after, ps-before/after, workday-finish, slimference.sample, and matrix.jsonl; host_budget status ok; RSS <= 200 MB; CPU window <= 0.5% outside active work; no disk/state growth outside configured bounds; no parse/degrade/compression errors; and profile sample shows no hot Slimference loop dominating the operator workload.")
+		return 0
+	}
+	fmt.Println("1. Start a bounded workday/resource window:")
+	fmt.Printf("   mkdir -p %s\n", bundleDir)
+	fmt.Println("   go run ./scripts/utils workday-savings start")
+	fmt.Println("   pid=$(pgrep -n slimference)")
+	fmt.Printf("   go run ./scripts/utils aggregate-savings --json > %s\n", adminBefore)
+	fmt.Printf("   ps -p \"$pid\" -o pid,ppid,rss,vsz,pcpu,etime,command > %s\n", psBefore)
+	fmt.Println("")
+	fmt.Println("2. Run one real product workload through the selected client while Slimference is active:")
+	fmt.Println("   # codex_cli:     slimference codex run --transport=auto -- <real repeat/search/tool-heavy task>")
+	fmt.Printf("   # codex_desktop: SLIMFERENCE_WSS_AB_CAPTURE=%s slimference codex launch-desktop --transport=app-server --replace-existing, then run the operator prompts\n", framesPath)
+	fmt.Println("")
+	fmt.Println("3. Capture a CPU profile sample during the workload:")
+	fmt.Printf("   /usr/bin/sample \"$pid\" 10 1 -file %s\n", cpuSample)
+	fmt.Println("")
+	fmt.Println("4. Close the workload and capture final resource state:")
+	fmt.Printf("   go run ./scripts/utils aggregate-savings --json > %s\n", adminAfter)
+	fmt.Printf("   ps -p \"$pid\" -o pid,ppid,rss,vsz,pcpu,etime,command > %s\n", psAfter)
+	fmt.Printf("   go run ./scripts/utils workday-savings finish --json > %s\n", workdayJSON)
+	fmt.Println("")
+	fmt.Println("5. Append or collect the matching WSS proof row with host_budget_ok:")
+	if client == "codex_desktop" {
+		fmt.Printf("   go run ./scripts/utils wss-proof-live-row --matrix-row %s --frames %s --client desktop --workload-class host_resource_long_workday --expected-reducer host_budget_ok\n", matrixPath, framesPath)
+	} else {
+		fmt.Printf("   go run ./scripts/utils codex-capture-run --transport=wss --matrix-row %s --workload-class host_resource_long_workday --expected-reducer host_budget_ok -- exec <real host-resource workload prompt>\n", matrixPath)
+	}
+	fmt.Println("")
+	fmt.Println("6. Gates:")
+	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --required-workload=host_resource_long_workday --expected-reducer host_budget_ok --require-live-token-delta --min-positive=1 --json\n", matrixPath)
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check\n", root)
+	fmt.Println("   # Final release gate after BOTH codex_cli and codex_desktop host-resource bundles exist:")
+	fmt.Printf("   go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json\n")
+	fmt.Printf("   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex_cli_bundle> --resource-profile-proof <codex_desktop_bundle> --json\n")
+	fmt.Println("")
+	fmt.Println("7. Pass criteria: admin/workday host_budget status ok, RSS <= 200 MB, CPU window <= 0.5% outside active work, no disk/state growth outside configured bounds, no parse/degrade/compression errors, and profile sample shows no hot Slimference loop dominating the operator workload.")
 	return 0
 }
 

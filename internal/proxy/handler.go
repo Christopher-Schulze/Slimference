@@ -405,18 +405,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// history through the proxied Responses request, run the same
 	// deterministic captured-output filters here.
 	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
-		chunkStore, chunkEnabled, chunkMinBytes, chunkMaxRefPct, explicitChunk, policyMode, archiveRecovery := p.codexHTTPChunkDedupSettings()
+		chunkSettings := p.codexHTTPChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                 codexLayer0RouteHTTP,
 			Messages:              compressedMessages,
 			SessionID:             sessionID,
-			ChunkDedupEnabled:     chunkEnabled,
-			ExplicitChunkDedup:    explicitChunk,
-			ChunkDedupMinBytes:    chunkMinBytes,
-			ChunkDedupMaxRefPct:   chunkMaxRefPct,
-			ChunkStore:            chunkStore,
-			PolicyMode:            policyMode,
-			ArchiveRecovery:       archiveRecovery,
+			ChunkDedupEnabled:     chunkSettings.Enabled,
+			ExplicitChunkDedup:    chunkSettings.Explicit,
+			ChunkDedupProof:       chunkSettings.Proof,
+			ChunkDedupMinBytes:    chunkSettings.MinBytes,
+			ChunkDedupMaxRefPct:   chunkSettings.MaxRefPct,
+			ChunkStore:            chunkSettings.Store,
+			PolicyMode:            chunkSettings.PolicyMode,
+			ArchiveRecovery:       chunkSettings.ArchiveRecovery,
 			HostBudgetExceeded:    p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded: p.codexLayer0LatencyExceeded.Load(),
 		})
@@ -1355,6 +1356,7 @@ func buildLayer1Decisions(r compression.Layer1Result) []dbg.Layer1DecisionSummar
 			Reason:          decision.Reason,
 			SavedTokens:     decision.SavedTokens,
 			RequiresArchive: decision.RequiresArchive,
+			ArchiveWrites:   decision.ArchiveWrites,
 			Recovery:        decision.Recovery,
 			DefaultEligible: decision.DefaultEligible,
 		})
@@ -2092,16 +2094,28 @@ func messageMentionsAnyPrunedTool(messages []types.Message, tracker *toolprune.U
 // extractUsedToolNames returns the distinct tool names from tool_use
 // blocks in the message list. Used by T103 to feed the usage tracker.
 func extractUsedToolNames(messages []types.Message) []string {
+	return extractUsedToolNamesWithResolved(messages, nil)
+}
+
+func extractUsedToolNamesWithResolved(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {
 	seen := make(map[string]bool)
 	var names []string
 	for _, msg := range messages {
 		for _, block := range msg.Content {
-			if block.Type == "tool_use" && block.ToolName != "" {
-				if !seen[block.ToolName] {
-					seen[block.ToolName] = true
-					names = append(names, block.ToolName)
+			toolName := ""
+			switch block.Type {
+			case "tool_use":
+				toolName = block.ToolName
+			case "tool_result":
+				if use, ok := proxyResolveToolUseDetailed(block, rememberedToolUses); ok {
+					toolName = use.ToolName
 				}
 			}
+			if toolName == "" || seen[toolName] {
+				continue
+			}
+			seen[toolName] = true
+			names = append(names, toolName)
 		}
 	}
 	return names

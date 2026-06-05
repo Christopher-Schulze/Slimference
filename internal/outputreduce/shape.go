@@ -113,13 +113,52 @@ func DetectRepairSignalText(text string) RepairSignal {
 }
 
 func requestText(provider types.Provider, body []byte) string {
+	_ = provider
 	var root any
 	if err := json.Unmarshal(body, &root); err != nil {
 		return string(body)
 	}
+	if text := latestUserRequestText(root); strings.TrimSpace(text) != "" {
+		return text
+	}
 	var out strings.Builder
 	walkInstructionText(root, &out, false)
 	return out.String()
+}
+
+func latestUserRequestText(v any) string {
+	root, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"input", "messages"} {
+		value, ok := root[key]
+		if !ok {
+			continue
+		}
+		if text, ok := value.(string); ok {
+			return text
+		}
+		if items, ok := value.([]any); ok {
+			for i := len(items) - 1; i >= 0; i-- {
+				item, ok := items[i].(map[string]any)
+				if !ok {
+					continue
+				}
+				role := strings.ToLower(strings.TrimSpace(stringValue(item["role"])))
+				if role != "user" {
+					continue
+				}
+				var out strings.Builder
+				walkInstructionText(item["content"], &out, true)
+				walkInstructionText(item["text"], &out, true)
+				if text := strings.TrimSpace(out.String()); text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func walkInstructionText(v any, out *strings.Builder, allowContent bool) {

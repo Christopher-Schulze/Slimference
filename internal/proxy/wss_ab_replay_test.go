@@ -177,6 +177,39 @@ func TestRunWSSPhaseFABReplayInstructionsAreModelFacing(t *testing.T) {
 	}
 }
 
+func TestWSSReplayExpectedInstructionExtraOnlyAllowsOutputReduceSuffix(t *testing.T) {
+	base := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions",
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+	withOutputReduce := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n\n#slimference-output-rules\nAnswer directly.",
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+	unknownExtra := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n\nunknown extra",
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+	changedPrefix := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "changed instructions\n\n#slimference-output-rules\nAnswer directly.",
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+
+	if !wssReplayExpectedInstructionExtra(base, withOutputReduce) {
+		t.Fatal("output-reduce suffix should be a known expected instruction extra")
+	}
+	if wssReplayExpectedInstructionExtra(base, unknownExtra) {
+		t.Fatal("unknown instruction additions must not be expected extras")
+	}
+	if wssReplayExpectedInstructionExtra(base, changedPrefix) {
+		t.Fatal("changed instruction prefixes must not be expected extras")
+	}
+}
+
 func TestRunWSSPhaseFABReplayRejectsBadFrames(t *testing.T) {
 	if _, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{{
 		Direction: wsmitm.DirClientToServer,

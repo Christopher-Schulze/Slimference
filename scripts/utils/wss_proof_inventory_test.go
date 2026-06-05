@@ -82,7 +82,7 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 		report.Clients["desktop"] != 1 || report.WorkloadClasses["search_loop"] != 1 {
 		t.Fatalf("bad inventory aggregate: %+v", report)
 	}
-	if report.PositiveTokenRows != 3 || report.LiveReducerHits["captured_output"] != 2 ||
+	if report.PositiveTokenRows != 4 || report.LiveReducerHits["captured_output"] != 2 ||
 		report.LiveReducerHits["provider_cache_read"] != 4765 ||
 		report.LiveReducerHits["tool_prune_tokens_saved"] != 1200 || report.HostBudgetOKRows != 4 {
 		t.Fatalf("missing live signals: %+v", report)
@@ -99,8 +99,8 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 		t.Fatalf("log output workload should complete through captured-output or chunk fallback signals: %+v", logStatus)
 	}
 	toolStatus := findInventoryWorkloadStatus(t, report, "tool_heavy")
-	if !toolStatus.Complete || toolStatus.PositiveTokenRows != 0 {
-		t.Fatalf("tool-heavy should complete through tool-prune token savings, not local layer-0 savings: %+v", toolStatus)
+	if !toolStatus.Complete || toolStatus.PositiveTokenRows != 1 {
+		t.Fatalf("tool-heavy should complete through tool-prune token savings: %+v", toolStatus)
 	}
 }
 
@@ -122,12 +122,12 @@ func TestWSSProofInventoryRequiresLogOrTestReducerSignal(t *testing.T) {
 		status.HostBudgetOKRows > 0 &&
 		len(status.MissingSignals) == 0
 
-	if status.Complete || !strings.Contains(strings.Join(status.MissingSignals, ","), "captured_output_or_chunk_dedup_refs") {
+	if status.Complete || !strings.Contains(strings.Join(status.MissingSignals, ","), "captured_output_or_codex_exec_envelope_or_chunk_dedup_refs") {
 		t.Fatalf("test output workload without product reducer signal should stay incomplete: %+v", status)
 	}
 
 	status.Present = true
-	status.LiveReducerHits["chunk_dedup_refs"] = 1
+	status.LiveReducerHits["codex_exec_envelope"] = 1
 	status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[status.WorkloadClass])
 	status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[status.WorkloadClass])...)
 	status.Complete = status.Present &&
@@ -136,7 +136,7 @@ func TestWSSProofInventoryRequiresLogOrTestReducerSignal(t *testing.T) {
 		status.HostBudgetOKRows > 0 &&
 		len(status.MissingSignals) == 0
 	if !status.Complete {
-		t.Fatalf("test output workload should complete with recoverable chunk fallback signal: %+v", status)
+		t.Fatalf("test output workload should complete with Codex envelope reducer signal: %+v", status)
 	}
 }
 
@@ -157,6 +157,30 @@ func TestWSSProofInventoryHostResourceLongWorkdayRequiresSavings(t *testing.T) {
 	status.PositiveTokenRows = 1
 	if !maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) {
 		t.Fatalf("host-resource long-workday should complete its economic signal with savings plus host budget: %+v", status)
+	}
+}
+
+func TestWSSProofInventoryOutputReduceRequiresObservedOutputTokens(t *testing.T) {
+	status := &wssProofInventoryWorkloadStatus{
+		WorkloadClass:    "output_reduce_aggressive",
+		Rows:             1,
+		HostBudgetOKRows: 1,
+		LiveReducerHits: map[string]int64{
+			"output_reduce_injected": 1,
+			"host_budget_ok":         1,
+		},
+	}
+	status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[status.WorkloadClass])
+	status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[status.WorkloadClass])...)
+	if maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) || len(status.MissingSignals) == 0 {
+		t.Fatalf("output-reduce without observed output tokens must stay incomplete: %+v", status)
+	}
+
+	status.LiveReducerHits["output_reduce_output_tokens"] = 42
+	status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[status.WorkloadClass])
+	status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[status.WorkloadClass])...)
+	if !maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) || len(status.MissingSignals) != 0 {
+		t.Fatalf("output-reduce with observed output tokens should complete economic signal: %+v", status)
 	}
 }
 

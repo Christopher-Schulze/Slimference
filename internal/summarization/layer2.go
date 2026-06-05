@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
@@ -187,9 +188,10 @@ func (l *Layer2) AddFallbackProvider(s Summarizer) {
 	l.chain.SetProviders(append(l.chain.Providers(), s)...)
 }
 
-// ApplyToMessages injects a cached summary in place of the messages it covers.
-// Returns (newMessages, tokensSaved, applied).
-// If no valid summary exists the original slice is returned unchanged.
+// ApplyToMessages is the old sessionless compatibility wrapper. It now
+// fail-closes for model-facing replacement because T262 requires an explicit
+// session namespace before any summary can replace conversation history.
+// Session-aware callers must use ApplyToMessagesSession.
 func (l *Layer2) ApplyToMessages(messages []types.Message) ([]types.Message, int, bool) {
 	return l.ApplyToMessagesSession(legacySessionID, messages)
 }
@@ -263,13 +265,15 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 		return
 	}
 
+	toSummarizeForInput := capMessageTextsForSummarization(toSummarize, maxLayer2InputTokens)
+
 	// T109: outbound redaction. Sanitise the slice before any of the
 	// downstream rendering or chain calls can read it. The receiver's
 	// counters accumulate across calls so /admin/status and
 	// `slimference doctor` can surface what's been stripped over time.
-	toSummarize = l.applyOutboundRedaction(toSummarize)
+	toSummarizeForInput = l.applyOutboundRedaction(toSummarizeForInput)
 
-	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
+	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarizeForInput)
 	inputText = capSummarizationInput(inputText, maxLayer2InputTokens)
 	inputText = preprocessInput(inputText)
 	origTokens := estimateTokens(inputText)
@@ -677,19 +681,97 @@ func computeAdaptiveTargetWithDensity(origTokens int, msgCount int, baseRatio fl
 
 const maxLayer2InputTokens = 120000
 
+func capMessageTextsForSummarization(messages []types.Message, maxTokens int) []types.Message {
+	if maxTokens <= 0 {
+		return messages
+	}
+	maxBytes := maxTokens * 4
+	var capped []types.Message
+	for i := range messages {
+		for j := range messages[i].Content {
+			text := messages[i].Content[j].Text
+			if text == "" || (len(text) <= maxBytes && estimateTokens(text) <= maxTokens) {
+				continue
+			}
+			if capped == nil {
+				capped = make([]types.Message, len(messages))
+				for k := range messages {
+					capped[k] = deepCopyMessage(messages[k])
+				}
+			}
+			capped[i].Content[j].Text = capSummarizationInput(text, maxTokens)
+		}
+	}
+	if capped == nil {
+		return messages
+	}
+	return capped
+}
+
 func capSummarizationInput(input string, maxTokens int) string {
 	if maxTokens <= 0 {
 		return input
 	}
 	maxBytes := maxTokens * 4
-	if len(input) <= maxBytes {
+	if len(input) <= maxBytes && estimateTokens(input) <= maxTokens {
 		return input
 	}
-	input = input[len(input)-maxBytes:]
-	if idx := strings.IndexByte(input, '\n'); idx >= 0 {
-		return input[idx+1:]
+	if len(input) > maxBytes {
+		input = tailUTF8Bytes(input, maxBytes)
 	}
-	return input
+	if idx := strings.IndexByte(input, '\n'); idx >= 0 {
+		input = input[idx+1:]
+	}
+	if estimateTokens(input) <= maxTokens {
+		return input
+	}
+	return tailEstimatedTokens(input, maxTokens)
+}
+
+func tailUTF8Bytes(input string, maxBytes int) string {
+	if maxBytes <= 0 || len(input) <= maxBytes {
+		return input
+	}
+	start := len(input) - maxBytes
+	for start < len(input) && !utf8.RuneStart(input[start]) {
+		start++
+	}
+	return input[start:]
+}
+
+func tailEstimatedTokens(input string, maxTokens int) string {
+	if maxTokens <= 0 || input == "" {
+		return ""
+	}
+	starts := make([]int, 0, 4096)
+	inWord := false
+	for i, r := range input {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			inWord = false
+		case r >= 0x4E00 && r <= 0x9FFF:
+			starts = append(starts, i)
+			inWord = false
+		case r >= 0x3040 && r <= 0x309F:
+			starts = append(starts, i)
+			inWord = false
+		case r >= 0x30A0 && r <= 0x30FF:
+			starts = append(starts, i)
+			inWord = false
+		default:
+			if !inWord {
+				starts = append(starts, i)
+				inWord = true
+			}
+		}
+	}
+	if len(starts) == 0 {
+		return ""
+	}
+	if len(starts) < maxTokens {
+		return input
+	}
+	return input[starts[len(starts)-maxTokens]:]
 }
 
 // splitLines splits text into lines without allocating a new slice per line.
@@ -958,8 +1040,18 @@ func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Messa
 	if l == nil || l.cfg == nil || !l.cfg.Summary.AllowModelFacingReplacement {
 		return messages, 0, false
 	}
+	if !modelFacingSessionIDTrusted(sessionID) {
+		return messages, 0, false
+	}
 	cached, coveredRange := l.sessions.GetCurrentMatchingPrefix(sessionID, messages)
 	if cached == nil {
+		return messages, 0, false
+	}
+	if strings.TrimSpace(cached.Summary) == "" {
+		return messages, 0, false
+	}
+	tokensSaved := cached.OriginalTokens - cached.CompressedTokens
+	if tokensSaved <= 0 {
 		return messages, 0, false
 	}
 	end := coveredRange[1]
@@ -1021,8 +1113,12 @@ func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Messa
 		}
 	}
 
-	tokensSaved := cached.OriginalTokens - cached.CompressedTokens
 	return result, tokensSaved, true
+}
+
+func modelFacingSessionIDTrusted(sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	return sessionID != "" && sessionID != "empty" && !strings.HasPrefix(sessionID, "fh:")
 }
 
 func buildSummaryText(end int, anchorIndices []int, summary string) string {

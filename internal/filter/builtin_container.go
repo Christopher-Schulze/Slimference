@@ -235,14 +235,16 @@ func containerTableRows(argv []string, stdout []byte) (string, int) {
 	return "", 0
 }
 
-// compactContainerTable returns a summary of table output if it's shorter.
+// compactContainerTable returns a summary only when the table contains
+// diagnostic attention rows. Healthy non-empty tables are model evidence
+// (resource names, images, statuses) and must full-pass.
 func compactContainerTable(s, label string, rows int) string {
 	if rows <= 5 {
 		return "" // short tables are fine as-is
 	}
 	attention := containerAttentionRows(s)
 	if len(attention) == 0 {
-		return fmt.Sprintf("[%s] %d item(s)\n", label, rows)
+		return ""
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[%s] %d item(s), %d attention row(s)\n", label, rows, len(attention))

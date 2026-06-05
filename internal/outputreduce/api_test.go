@@ -105,7 +105,7 @@ func TestInjectBody_OpenAIAppendsExistingSystem(t *testing.T) {
 
 func TestInjectBody_CodexInputStringUsesInstructions(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"model":"codex","input":"inspect repo","stream":false}`)
+	body := []byte(`{"model":"codex","input":"what is the current status?","stream":false}`)
 	out, stats, err := InjectBody(types.CodexChatGPT, body, Options{Enabled: true, Profile: "codex", SignatureMarker: DefaultMarker})
 	if err != nil {
 		t.Fatal(err)
@@ -120,8 +120,11 @@ func TestInjectBody_CodexInputStringUsesInstructions(t *testing.T) {
 	if err := json.Unmarshal(out, &root); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(root.Instructions, DefaultMarker) || root.Input != "inspect repo" {
+	if !strings.Contains(root.Instructions, DefaultMarker) || root.Input != "what is the current status?" {
 		t.Fatalf("codex output-reduce should use top-level instructions and preserve input: %#v", root)
+	}
+	if want := len(DirectiveForShape(ProfileCodex, ShapeDirectAnswer, DefaultMarker)); stats.AddedBytes != want {
+		t.Fatalf("AddedBytes = %d, want model-facing directive bytes %d", stats.AddedBytes, want)
 	}
 	if strings.Contains(string(out), `"role":"system"`) {
 		t.Fatalf("codex output-reduce must not inject input system items: %s", out)
@@ -217,19 +220,22 @@ func TestInjectBody_SkipBranches(t *testing.T) {
 func TestInjectBody_LowROIGates(t *testing.T) {
 	t.Parallel()
 	readOnly := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"Read-only inspect and report. Do not edit."}]}]}`)
-	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "read_only_low_roi" || string(out) != string(readOnly) {
+	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "unproven_task_shape_ab_required" || string(out) != string(readOnly) {
 		t.Fatalf("read-only out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 70000}); err != nil || !stats.Applied || stats.Profile != string(ProfileStandard) || !strings.Contains(string(out), "For read-only analysis") {
+	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 70000}); err != nil || stats.Applied || stats.Reason != "unproven_task_shape_ab_required" || string(out) != string(readOnly) {
 		t.Fatalf("large read-only out=%s stats=%+v err=%v", out, stats, err)
 	}
 	planning := []byte(`{"messages":[{"role":"user","content":"plan next steps"}]}`)
-	if _, stats, err := InjectBody(types.OpenAI, planning, Options{Enabled: true, Profile: "openai", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "planning_low_roi" {
+	if _, stats, err := InjectBody(types.OpenAI, planning, Options{Enabled: true, Profile: "openai", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "unproven_task_shape_ab_required" {
 		t.Fatalf("planning stats=%+v err=%v", stats, err)
 	}
 	direct := []byte(`{"messages":[{"role":"user","content":"what is this"}]}`)
 	if _, stats, err := InjectBody(types.OpenAI, direct, Options{Enabled: true, Profile: "openai", InputTokens: 8000}); err != nil || stats.Applied || stats.Reason != "direct_answer_low_roi" {
 		t.Fatalf("direct stats=%+v err=%v", stats, err)
+	}
+	if _, stats, err := InjectBody(types.OpenAI, direct, Options{Enabled: true, Profile: "openai", InputTokens: 90000}); err != nil || !stats.Applied || stats.TaskShape != ShapeDirectAnswer {
+		t.Fatalf("large direct stats=%+v err=%v", stats, err)
 	}
 	repair := []byte(`{"messages":[{"role":"user","content":"you skipped the failing test output, explain more"}]}`)
 	if out, stats, err := InjectBody(types.OpenAI, repair, Options{Enabled: true, Profile: "openai", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "repair_followup_low_roi" || string(out) != string(repair) {
@@ -284,6 +290,9 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	if text := DirectiveForShape(ProfileCodexAggressive, ShapeReadOnly, DefaultMarker); strings.Contains(text, "Codex output rules") || !strings.Contains(text, "do not mention hooks") {
 		t.Fatalf("read-only codex directive should be compact and meta-suppressing: %q", text)
 	}
+	if text := DirectiveForShape(ProfileStandard, ShapeExplanation, DefaultMarker); strings.Contains(text, "Output rules:") || len(text) > 190 || !strings.Contains(text, "keep requested detail") || !strings.Contains(text, "evidence") {
+		t.Fatalf("standard explanation directive should be compact but preservation-safe: %q", text)
+	}
 	for _, profile := range []Profile{ProfileMild, ProfileStandard, ProfileAggressive, ProfileCustom, ProfileOff} {
 		_ = DirectiveForShape(profile, ShapeDirectAnswer, "")
 	}
@@ -307,18 +316,15 @@ func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	}
 }
 
-func TestInjectBody_CapsAggressiveForSafetySensitiveShapes(t *testing.T) {
+func TestInjectBody_SkipsUnprovenSafetySensitiveShapes(t *testing.T) {
 	t.Parallel()
 	codeEdit := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"apply_patch this bug and preserve exact paths"}]}]}`)
 	out, stats, err := InjectBody(types.CodexChatGPT, codeEdit, Options{Enabled: true, Profile: "codex_aggressive", InputTokens: 90000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeCodeEdit {
+	if stats.Applied || stats.Reason != "unproven_task_shape_ab_required" || stats.TaskShape != ShapeCodeEdit || string(out) != string(codeEdit) {
 		t.Fatalf("code edit stats=%+v out=%s", stats, out)
-	}
-	if strings.Contains(string(out), "fewest complete words") || !strings.Contains(string(out), "For code-edit tasks") {
-		t.Fatalf("code edit received aggressive or missing safety directive: %s", out)
 	}
 
 	finalSummary := []byte(`{"messages":[{"role":"user","content":"final summary with verification and unresolved risks"}]}`)
@@ -326,11 +332,8 @@ func TestInjectBody_CapsAggressiveForSafetySensitiveShapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeFinalSummary {
+	if stats.Applied || stats.Reason != "unproven_task_shape_ab_required" || stats.TaskShape != ShapeFinalSummary || string(out) != string(finalSummary) {
 		t.Fatalf("final summary stats=%+v out=%s", stats, out)
-	}
-	if strings.Contains(string(out), "Aggressive output rules") || !strings.Contains(string(out), "preserve requested files") {
-		t.Fatalf("final summary received aggressive or missing preservation directive: %s", out)
 	}
 
 	readOnly := []byte(`{"messages":[{"role":"user","content":"read-only deep audit, do not edit, report evidence and risks"}]}`)
@@ -338,11 +341,8 @@ func TestInjectBody_CapsAggressiveForSafetySensitiveShapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeReadOnly {
+	if stats.Applied || stats.Reason != "unproven_task_shape_ab_required" || stats.TaskShape != ShapeReadOnly || string(out) != string(readOnly) {
 		t.Fatalf("read-only stats=%+v out=%s", stats, out)
-	}
-	if strings.Contains(string(out), "Read-only: concise verdict") || !strings.Contains(string(out), "For read-only analysis") {
-		t.Fatalf("read-only received compact aggressive directive or missing preservation directive: %s", out)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
@@ -161,15 +162,177 @@ func TestCompress_ArchiveRequiredMutationFullPassesOnRecorderError(t *testing.T)
 	}
 }
 
+func TestCompress_NearDedupArchiveRoundTripsOriginalBytes(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.DedupSimilarityThreshold = 0.45
+	archiveDir := filepath.Join(t.TempDir(), "content-archive")
+	c := NewDeterministicCompressor(cfg).WithRecorder(NewDiskRecorder(archiveDir, contentarchive.Limits{}))
+
+	prefix := repeatString("alpha beta gamma delta ", 25)
+	body1 := prefix + "suffixaaaa"
+	body2 := prefix + "suffixaaab"
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", toolResultBlock(body1)),
+		buildMessage(t, 1, "assistant", textBlock("x")),
+		buildMessage(t, 2, "user", toolResultBlock(body2)),
+		buildMessage(t, 3, "assistant", textBlock("y")),
+		buildMessage(t, 4, "user", textBlock("z")),
+	}
+
+	result := c.CompressWithSession("sess-roundtrip", msgs)
+	block := result.Messages[2].Content[0]
+	if result.NearDedupSaved <= 0 || block.ArchiveID == "" {
+		t.Fatalf("near-dedup did not archive: saved=%d block=%+v", result.NearDedupSaved, block)
+	}
+	meta, body, err := contentarchive.Get(archiveDir, block.ArchiveID)
+	if err != nil {
+		t.Fatalf("expand archive %q: %v", block.ArchiveID, err)
+	}
+	if string(body) != body2 {
+		t.Fatalf("archive body mismatch\ngot:  %q\nwant: %q", string(body), body2)
+	}
+	if meta.SessionID != "sess-roundtrip" || meta.SubLayer != "dedup_near" || meta.MessageIndex != 2 || meta.BlockIndex != 0 {
+		t.Fatalf("archive metadata mismatch: %+v", meta)
+	}
+	if got := result.ArchiveWrites["dedup_near"]; got != 1 {
+		t.Fatalf("near-dedup archive writes=%d want 1", got)
+	}
+	decision := findLayer1Decision(t, result.Decisions, "dedup_near")
+	if !decision.Applied || !decision.RequiresArchive || decision.ArchiveWrites != 1 {
+		t.Fatalf("near-dedup decision missing archive roundtrip proof: %+v", decision)
+	}
+}
+
+func TestCompress_Layer1CorpusArchiveRoundTripsEveryRecoverableMutation(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.DedupSimilarityThreshold = 0.45
+	cfg.StructureMinTokens = 10000
+	cfg.StructureLanguages = []string{}
+	archiveDir := filepath.Join(t.TempDir(), "content-archive")
+	c := NewDeterministicCompressor(cfg).WithRecorder(NewDiskRecorder(archiveDir, contentarchive.Limits{}))
+
+	var commented strings.Builder
+	commented.WriteString("package main\n\n")
+	for i := 0; i < 24; i++ {
+		commented.WriteString("// noisy implementation note that must be recoverable from archive\n")
+	}
+	commented.WriteString("func important() string {\n\treturn \"archive me\"\n}\n")
+
+	prefix := repeatString("alpha beta gamma delta ", 25)
+	body1 := prefix + "suffixaaaa"
+	body2 := prefix + "suffixaaab"
+	successOutput := strings.Join([]string{
+		"Running test suite...",
+		"Initializing runner",
+		"Loading fixtures",
+		"Preparing deterministic archive proof",
+		"Executing package tests",
+		"All tests passed",
+		"Elapsed: 1.2s",
+		"Done.",
+	}, "\n")
+
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", types.ContentBlock{
+			Type:      "tool_result",
+			Text:      commented.String(),
+			ToolInput: `{"path":"pkg/commented.go"}`,
+		}),
+		buildMessage(t, 1, "assistant", textBlock("comment strip observed")),
+		buildMessage(t, 2, "user", toolResultBlock(body1)),
+		buildMessage(t, 3, "assistant", textBlock("first similar block observed")),
+		buildMessage(t, 4, "user", toolResultBlock(body2)),
+		buildMessage(t, 5, "assistant", textBlock("second similar block observed")),
+		buildMessage(t, 6, "user", types.ContentBlock{
+			Type:      "tool_result",
+			Text:      successOutput,
+			ToolInput: `{"command":"go test ./..."}`,
+		}),
+		buildMessage(t, 7, "assistant", textBlock("success output observed")),
+		buildMessage(t, 8, "user", textBlock("latest exchange stays in window")),
+	}
+
+	result := c.CompressWithSession("sess-layer1-corpus", msgs)
+	if result.CommentSaved <= 0 {
+		t.Fatalf("CommentSaved=%d want > 0", result.CommentSaved)
+	}
+	if result.NearDedupSaved <= 0 {
+		t.Fatalf("NearDedupSaved=%d want > 0", result.NearDedupSaved)
+	}
+
+	wantSublayers := map[string]bool{
+		"comment_strip": false,
+		"dedup_near":    false,
+	}
+	archiveBackedBlocks := 0
+	for msgIdx, msg := range result.Messages {
+		for blockIdx, block := range msg.Content {
+			if block.ArchiveID == "" {
+				continue
+			}
+			archiveBackedBlocks++
+			meta, body, err := contentarchive.Get(archiveDir, block.ArchiveID)
+			if err != nil {
+				t.Fatalf("expand archive %q at result[%d].content[%d]: %v", block.ArchiveID, msgIdx, blockIdx, err)
+			}
+			if meta.SessionID != "sess-layer1-corpus" {
+				t.Fatalf("archive %q session=%q want sess-layer1-corpus", block.ArchiveID, meta.SessionID)
+			}
+			if meta.MessageIndex != msgIdx || meta.BlockIndex != blockIdx {
+				t.Fatalf("archive %q metadata position=(%d,%d) want (%d,%d)", block.ArchiveID, meta.MessageIndex, meta.BlockIndex, msgIdx, blockIdx)
+			}
+			original := msgs[meta.MessageIndex].Content[meta.BlockIndex].Text
+			if string(body) != original {
+				t.Fatalf("archive %q body mismatch\ngot:  %q\nwant: %q", block.ArchiveID, string(body), original)
+			}
+			for subLayer := range wantSublayers {
+				if archiveTagContains(meta.SubLayer, subLayer) {
+					wantSublayers[subLayer] = true
+				}
+			}
+		}
+	}
+	if archiveBackedBlocks < len(wantSublayers) {
+		t.Fatalf("archive-backed blocks=%d want at least %d", archiveBackedBlocks, len(wantSublayers))
+	}
+	for subLayer, seen := range wantSublayers {
+		if !seen {
+			t.Fatalf("missing archive-backed mutation for %s", subLayer)
+		}
+		decision := findLayer1Decision(t, result.Decisions, subLayer)
+		if !decision.Applied || !decision.RequiresArchive || decision.ArchiveWrites <= 0 {
+			t.Fatalf("%s decision lacks archive-backed applied proof: %+v", subLayer, decision)
+		}
+		if got := result.ArchiveWrites[subLayer]; got <= 0 {
+			t.Fatalf("%s archive writes=%d want >0", subLayer, got)
+		}
+	}
+}
+
+func archiveTagContains(tag string, subLayer string) bool {
+	for _, part := range strings.Split(tag, ",") {
+		if strings.TrimSpace(part) == subLayer {
+			return true
+		}
+	}
+	return false
+}
+
 func TestArchiveOriginal_HappyPath(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
 	stub := &stubRecorder{id: "stub-id"}
 	c := NewDeterministicCompressor(&cfg).WithRecorder(stub)
 	c.activeSessionID = "sess-A"
+	c.activeArchiveWrites = make(map[string]int)
 	id := c.archiveOriginal(7, 3, "comment_strip", "real content here")
 	if id != "stub-id" {
 		t.Fatalf("expected stub-id, got %q", id)
+	}
+	if got := c.snapshotArchiveWrites()["comment_strip"]; got != 1 {
+		t.Fatalf("archive writes for comment_strip=%d want 1", got)
 	}
 	if len(stub.calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(stub.calls))

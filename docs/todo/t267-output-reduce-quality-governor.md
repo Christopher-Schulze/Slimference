@@ -107,8 +107,9 @@ Output reduction becomes a runtime-governed layer:
   note proof and keeps output-reduce from mutating task/tool context.
 - Offline verification covered profile selection, injection, task-shape
   detection, proxy hot-path profile capping, immediate repair-signal cooldown,
-  and repair lifecycle. Live corpus proof for aggressive direct-answer/status
-  workloads remains deferred until the capture phase.
+  and repair lifecycle. Live corpus proof now covers guarded WSS injection and
+  observed provider output-token accounting; provider-cache read tokens remain
+  separate and must not be counted as output-reduce savings.
 - 2026-06-02: `codex-capture-run` now preserves output-reduce live counters in
   proof-matrix rows: injected/skipped turns, input overhead, observed output
   tokens, downgrade count, stop-sequence modifications, streamcut fires,
@@ -173,8 +174,117 @@ Output reduction becomes a runtime-governed layer:
   any request body containing `function_call_output`, so output-reduce cannot
   mutate read/search/git/test/tool-output deltas or corrupt first-read seeding.
   New WSS tests prove both the positive instruction injection path and the
-  exact/tool-output full-pass guards. Live `output_reduce_aggressive` proof is
-  now code-reachable but still pending a focused CLI/Desktop capture.
+  exact/tool-output full-pass guards. This made `output_reduce_aggressive`
+  code-reachable for the later focused live proof.
+- 2026-06-03: Fixed the remaining WSS output-reduce false skip. Task-shape
+  detection now derives the shape from the current user request before falling
+  back to broader request text, so static AGENTS/system instructions containing
+  phrases like "reply only" or "exactly" cannot misclassify a normal prompt as
+  `exact_reply`. Tests cover Codex and OpenAI system-instruction contamination.
+- An earlier live capture attempt was blocked externally because Codex produced
+  no WSS frames while reconnecting. That isolated the gap to live output-token
+  evidence rather than offline wiring; a later focused proof closed that
+  evidence gap below.
+- 2026-06-04: Existing local proof inventory now contains focused
+  `output_reduce_aggressive` rows with `output_reduce_injected`,
+  `output_reduce_output_tokens`, `host_budget_ok`, zero safety errors, and an
+  exported live-corpus row. This proves the guarded WSS injection path is
+  reachable and provider output tokens are observed on the same product route.
+  It is still not a counterfactual output-savings percentage claim: the
+  exported row's saved-token field comes from provider-cache evidence, while the
+  output-reduce claim is "injected and measured without safety regression."
+- 2026-06-04: Tightened `benchmark-corpus --maxx-check` to enforce that split.
+  `output_reduce_aggressive` now fails the maxx gate unless the live corpus row
+  carries observed output-token evidence in addition to output-reduce injection.
+  A fresh focused CLI proof with the current binary now satisfies that gate with
+  `output_reduce_injected`, 154 observed output tokens, `host_budget_ok`, and
+  zero parse/degrade/compression errors. This prevents provider-cache tokens from
+  accidentally closing an output-reduce savings claim while still requiring real
+  output-token observability.
+- 2026-06-04: Tightened the upstream proof surfaces to the same standard.
+  `wss-proof-matrix` now treats `output_reduce_aggressive` as economically
+  positive only when both `output_reduce_injected` and observed output tokens are
+  present; `wss-proof-inventory` requires the new
+  `output_reduce_output_tokens` signal; and `wss-proof-export-corpus` skips
+  output-reduce rows that have injection without output-token evidence. This
+  prevents a bad future export from recreating the stale positive-looking row.
+- 2026-06-04: Fixed WSS output-token accounting for output-reduce. The WSS
+  `response.completed` usage path already fed provider-cache analytics; it now
+  also feeds the existing output-reduce tracker with provider-reported
+  `output_tokens`, matching the HTTP path. The regression test proves WSS usage
+  frames increment `OutputTokensObserved` without mutating the response.
+- 2026-06-04: Aligned the central planner with the runtime output-reduce safety
+  contract. `exact_reply`, `command_output_relay`, `repair_followup`, and
+  low-ROI direct-answer shapes report Layer 4 bypasses in planner summaries.
+  As of the stricter 2026-06-05 safety pass, unproven detail-sensitive shapes
+  also bypass output-reduce injection by default instead of receiving a
+  standard directive: code-edit/debugging/review/explanation/tool-reasoning/
+  read-only/planning/new-file/final-summary. This prevents prompt-side
+  directive drift on tasks where missing detail is a product drawdown. Focused
+  planner and injector tests cover every guarded shape.
+- 2026-06-05: Tightened output-reduce proof accounting again. Release reports,
+  corpus export, and `benchmark-corpus` now carry output-reduce input overhead
+  separately from observed provider output tokens and expose
+  `output_reduce_net_observed_tokens` only as a diagnostic, not as a
+  counterfactual savings claim. `output_reduce_aggressive` corpus metadata now
+  records `expected_output_reduce_input_overhead_max` and
+  `expected_output_reduce_net_observed_min`, and the gate enforces both when
+  present. The clean release proof passed with `output_reduce_injected_turns=2`,
+  `output_reduce_input_overhead_tokens=752`,
+  `output_reduce_observed_tokens=1072`, and
+  `output_reduce_net_observed_tokens=320`. The focused
+  `cli_output_reduce_aggressive` live row remains intentionally honest:
+  `observed=154`, `overhead=328`, `net_observed=-174`; it proves guarded WSS
+  injection, accounting, host-budget OK, and zero safety errors, not a positive
+  output-token reduction percentage. A real direct-answer/status A/B baseline is
+  still required before claiming concrete output-token savings magnitude.
+- 2026-06-05: Added the missing counterfactual proof surface.
+  `codex-capture-run` and `wss-proof-live-row` can now stamp matrix rows with
+  `ab_pair_id` and `ab_variant` (`baseline` or `directive`), and
+  `wss-output-reduce-ab-report` pairs those rows content-free. The gate requires
+  matching client/workload, observed provider output tokens on both sides,
+  output-reduce injection only on the directive side, zero safety errors, zero
+  output-reduce downgrades, host-budget OK when reported, positive output-token
+  reduction, and positive net tokens after subtracting directive input overhead.
+  This closes the tooling gap for real output-reduce savings proof. The
+  remaining gap is live evidence: capture paired baseline/directive rows before
+  promoting any concrete output-token savings percentage.
+- 2026-06-05: Closed the first focused CLI output-reduce A/B proof. The first
+  baseline row exposed a proof-tooling gap: no-directive rows had provider
+  output tokens on the WSS wire but not in the output-reduce tracker. Matrix
+  rows now carry content-free `provider_output_tokens_observed` parsed from
+  provider usage frames, and `wss-output-reduce-ab-report` uses it before
+  falling back to legacy output-reduce-specific rows. The same run exposed an
+  accounting bug: input overhead was estimated from JSON body re-marshal byte
+  churn instead of the model-facing directive text. `InjectBody` now records
+  directive bytes only, and a regression test locks that behavior. After also
+  shortening the safe Codex direct-answer directive, the focused CLI A/B gate
+  passed: baseline `987` provider output tokens, directive `768`, directive
+  overhead `23`, output saved `219`, net saved `196`, output savings `22.19%`,
+  `lost=0`, host budget `ok`, and zero parse/degrade/compression errors. This
+  proves positive net output-reduce on one direct-answer/status workload. More
+  CLI/Desktop task-shape breadth is still required before treating the exact
+  percentage as a broad product-default claim.
+- 2026-06-05: Promoted that A/B proof from `/tmp` evidence into the durable
+  live-corpus contract. Added
+  `tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/` with a
+  content-free `output_reduce_ab_report.json` and metadata gates for at least
+  one pair, positive net saved tokens, and at least 20% output-token reduction.
+  `benchmark-corpus --maxx-check` now requires the `output_reduce_ab` workload
+  in addition to `output_reduce_aggressive`, and the corpus evaluator fails
+  unsafe, missing, or net-negative pairs. This makes the output-reduce Maxx
+  claim counterfactual, not merely "directive injected".
+- 2026-06-05: Reality-checked a second autonomous CLI A/B pair for an
+  explanation/deep-analysis shape. The original standard safety directive was
+  too expensive for this shape (`111` input-overhead tokens) and stayed net
+  negative even though it reduced output. The standard safety directives are now
+  shape-specific and compact while preserving exact detail/evidence/caveat/path
+  requirements; the same explanation pair then had only `46` overhead tokens but
+  still failed net-positive (`baseline=222`, `directive=248`, `net=-72`). This is
+  intentionally not promoted. Current evidence says output-reduce is a real win
+  for direct-answer/status shape. Explanation/deep-analysis and other
+  detail-sensitive shapes now full-pass by default until paired A/B evidence
+  proves positive net savings without repair/re-ask signals.
 
 ## Done
 

@@ -44,6 +44,56 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    It does not start capture or read private content; the operator still drives
    every live session and reviews every exported JSONL before commit.
 
+   Existing content-free WSS proof-matrix rows can be converted into
+   `benchmark-corpus` categories without copying raw frames, prompts, command
+   output, auth, file paths, or decisions logs:
+
+   ```
+   go run ./scripts/utils wss-proof-inventory ~/.slimference/captures --json
+   go run ./scripts/utils wss-proof-export-corpus ~/.slimference/captures tests/fixtures/live_corpus --json
+   go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json
+   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex-cli-resource-proof-bundle-dir> --resource-profile-proof <codex-desktop-resource-proof-bundle-dir> --json
+   ```
+
+   The exporter writes only scrubbed `RequestSummary` counters and
+   `metadata.json` files. Rows with safety issues, unsupported workload classes,
+   or no economic signal are skipped rather than being turned into fake proof.
+   Exported proof rows gate on absolute live saved-token counters or
+   mechanism-specific counters because proof-matrix rows do not preserve every
+   original-token denominator needed for a real percentage claim.
+   `wss-proof-clean-matrix` is the release-claim exporter. It reads proof rows
+   only, normalizes stale expected-reducer labels only when the same row has
+   current live reducer evidence, and writes only rows with host budget OK, zero
+   safety counters, no expected-zero local-savings violation, and a positive
+   economic signal unless the row is an expected-zero control.
+   `release-proof-report` is the final content-free proof summary. Run it on
+   that clean release matrix file or a focused release bundle, not on the whole
+   historical capture archive. The archive intentionally contains old
+   diagnostic and superseded rows, and those rows fail the strict gate by id.
+   The report keeps
+   local billable-input savings, output-wire savings, provider-cache economics,
+   tool-prune schema-token savings, host-resource status, and safety counters
+   separate, and it fails closed unless both CLI and Desktop resource/profile
+   proof bundles are supplied. Each bundle must contain `admin-before.json`,
+   `admin-after.json`, `ps-before.txt`, `ps-after.txt`,
+   `workday-finish.json`, `slimference.sample.txt`, and `matrix.jsonl`; the
+   JSON files must show host-budget OK plus zero WSS parse/degrade/compression
+   deltas, and the local `matrix.jsonl` must contain a positive
+   `host_resource_long_workday` row with `host_budget_ok` for that client. If a
+   row records expected reducers, those expectations must be satisfied inside
+   the same bundle; a positive savings row is not allowed to hide a missed
+   mechanism-specific proof.
+   CLI bundles should be generated with
+   `codex-capture-run --resource-profile-proof <bundle-dir>` so the managed
+   daemon writes all required files in one content-free run. Desktop bundles
+   remain operator-driven because Codex.app prompts cannot be owned by the CLI
+   runner.
+   Host-budget rows are product-health evidence, not a substitute for the final
+   CLI/Desktop resource/profile bundle proof. Historical host-budget attention
+   rows or `expected_zero_savings` rows that still show local savings fail the
+   release report by row id; use a clean matrix or focused release bundle for a
+   release claim instead of relying on aggregate counts.
+
 1. Run a real coding session through Slimference with the debug decision log enabled:
 
    ```
@@ -64,7 +114,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    - `debug_session`
    - `code_review`
    - `large_test_run`
-   - `cli_tool_heavy`
+   - `desktop_tool_heavy`
    - `mixed_lang`
    - `cjk_session`
    - `large_response_streaming`
@@ -77,12 +127,13 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "description": "<what kind of work this session represents>",
      "synthetic": false,
      "evidence_level": "live_operator",
-     "client_family": "codex_cli",
+     "client_family": "<codex_cli|codex_desktop>",
      "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday>",
      "language": "<primary language>",
      "tool_mix": "<short summary>",
      "expected_savings_min": 0.30,
      "expected_savings_max": 0.80,
+     "expected_saved_tokens_min": 0,
      "expected_request_count": <int>,
      "expected_max_errors": 0,
      "expected_latency_p95_max_ms": 1000,
@@ -104,7 +155,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --maxx-check
    ```
 
-   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
+   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, falls below `expected_saved_tokens_min`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
 
    `--promotion-check` is stricter and is only for release/default-on decisions.
    It ignores synthetic categories and requires at least five `codex_cli`
@@ -112,23 +163,29 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    `repeat_read`, `ranged_read`, `search_loop`, `git_status`, `test_failure`,
    `apply_patch_edit_read`, `large_tool_output`, and `long_workday`. Each real
    category must declare `client_family`, `workload_class`, explicit zero error
-   budget, explicit re-read canary budget, explicit latency budget, and a
-   positive savings floor. Missing metadata fails closed so no mechanism can be
-   promoted from vague evidence.
+   budget, explicit re-read canary budget, explicit latency budget, and either a
+   ratio floor, an absolute saved-token floor, or a workload-specific economic
+   signal such as provider-cache read tokens, tool-prune schema-token savings,
+   or a positive output-reduce A/B pair. Missing metadata fails closed so no
+   mechanism can be promoted from vague evidence.
 
    `--maxx-check` includes the promotion gate and then requires the
    mechanism-specific live workload classes that close the max-out program:
    `chunk_dedup_similar_outputs`, `chunk_dedup_log_output`,
-   `chunk_dedup_test_output`, `output_reduce_aggressive`, `tool_heavy`,
-   `provider_cache_long_session`, and `host_resource_long_workday`. It is the
-   gate for "all currently planned savings mechanisms are broadly proven", not
-   just "the base release matrix is healthy".
+   `chunk_dedup_test_output`, `output_reduce_aggressive`, `output_reduce_ab`,
+   `tool_heavy`, `provider_cache_long_session`, and
+   `host_resource_long_workday`. `output_reduce_aggressive` proves guarded
+   injection and observed provider-output accounting; `output_reduce_ab` proves
+   a counterfactual baseline/directive pair with positive net tokens after
+   directive overhead. It is the gate for "all currently planned savings
+   mechanisms are broadly proven", not just "the base release matrix is
+   healthy".
 
 6. Commit. The fixture is now part of the CI regression contract.
 
 ## Tightening the gate as the corpus grows (T118b)
 
-The shipping seed (`synthetic_smoke/`) accepts a wide ratio band (0.30 to 0.85) by design - it is not real-session data. Real captures should set tighter `expected_savings_min` / `expected_savings_max` brackets so a regression is caught quickly. T118b in `docs/todo.md` tracks the operator-driven expansion to >=10 real-session categories.
+The shipping seed (`synthetic_smoke/`) accepts a wide ratio band (0.30 to 0.85) by design - it is not real-session data. Real captures with known denominators should set tighter `expected_savings_min` / `expected_savings_max` brackets so a regression is caught quickly. Proof-matrix exports without known denominators should use `expected_saved_tokens_min` plus mechanism-specific validators instead. T118b in `docs/todo.md` tracks the operator-driven expansion to >=10 real-session categories.
 
 ## Removal
 

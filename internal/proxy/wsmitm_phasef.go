@@ -195,7 +195,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
 		if !wssBodyHasUserPromptInput(out) {
-			a.observeWSSToolPruneUsage(sessionID, messages)
+			a.observeWSSToolPruneUsage(sessionID, messages, rememberedToolUses)
 		}
 		reReadKeys, count := a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
 		reReadCount = count
@@ -223,7 +223,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
-		chunkStore, chunkEnabled, chunkMinBytes, chunkMaxRefPct, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
+		chunkSettings := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                 codexLayer0RouteWSSPhaseF,
 			Messages:              messages,
@@ -232,13 +232,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			RememberedToolUse:     rememberedToolUses,
 			SuppressedToolKey:     suppressedKeys,
 			RecentFullPassTurns:   a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:     chunkEnabled,
-			ExplicitChunkDedup:    explicitChunk,
-			ChunkDedupMinBytes:    chunkMinBytes,
-			ChunkDedupMaxRefPct:   chunkMaxRefPct,
-			ChunkStore:            chunkStore,
-			PolicyMode:            policyMode,
-			ArchiveRecovery:       archiveRecovery,
+			ChunkDedupEnabled:     chunkSettings.Enabled,
+			ExplicitChunkDedup:    chunkSettings.Explicit,
+			ChunkDedupProof:       chunkSettings.Proof,
+			ChunkDedupMinBytes:    chunkSettings.MinBytes,
+			ChunkDedupMaxRefPct:   chunkSettings.MaxRefPct,
+			ChunkStore:            chunkSettings.Store,
+			PolicyMode:            chunkSettings.PolicyMode,
+			ArchiveRecovery:       chunkSettings.ArchiveRecovery,
 			HostBudgetExceeded:    a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded: a.p.codexLayer0LatencyExceeded.Load(),
 		})
@@ -303,11 +304,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta
 }
 
-func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message) {
+func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
 	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
 		return
 	}
-	used := extractUsedToolNames(messages)
+	used := extractUsedToolNamesWithResolved(messages, rememberedToolUses)
 	if len(used) == 0 {
 		return
 	}
@@ -381,7 +382,7 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduc
 	if !wssBodyHasUserPromptInput(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
-	inputTokens := tokens.ForProvider(types.CodexChatGPT).CountString(string(body))
+	inputTokens := wssOutputReduceInputTokens(body)
 	minTokens := a.p.config.Compression.OutputReduce.MinInputTokens
 	if inputTokens < minTokens {
 		return body, outputreduce.Stats{Reason: "below_min_tokens"}
@@ -651,9 +652,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if a == nil || a.p == nil || a.p.debugRecorder == nil {
 		return
 	}
-	originalMessages, _, _ := extractMessages(types.CodexChatGPT, body)
-	originalTokens := wssPlannerTokenCount(body, originalMessages)
-	finalTokens := wssPlannerTokenCount(mutated, messages)
+	originalTokens, finalTokens := wssPlannerTokenCounts(body, mutated, messages, l0Stats, replaced)
 	saved := originalTokens - finalTokens
 	ratio := 0.0
 	if originalTokens > 0 {
@@ -740,6 +739,26 @@ func wssPlannerTokenCount(body []byte, messages []types.Message) int {
 	return tok.CountString(string(body))
 }
 
+func wssPlannerTokenCounts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool) (int, int) {
+	if replaced || l0Stats.TokensSaved > 0 {
+		originalMessages, _, _ := extractMessages(types.CodexChatGPT, body)
+		return wssPlannerTokenCount(body, originalMessages), wssPlannerTokenCount(mutated, messages)
+	}
+	// No local mutation means this debug/planner row cannot claim savings.
+	// Use a cheap estimate so a no-op WSS request does not load the heavy
+	// o200k encoder only to write "saved=0" telemetry.
+	estimated := tokens.Estimate(len(body))
+	return estimated, estimated
+}
+
+func wssOutputReduceInputTokens(body []byte) int {
+	// Output-reduce gating only needs a conservative workload-size signal. Exact
+	// o200k accounting is still used for real Layer-0 savings claims; here the
+	// estimate keeps default WSS user turns from loading the BPE tables before
+	// any mutation is known to be useful.
+	return tokens.Estimate(len(body))
+}
+
 func wssPlannerModel(body []byte) string {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -815,6 +834,9 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	usage := extractOpenAICacheUsageFromBody(env.Response)
 	if usage.InputTokens <= 0 && usage.OutputTokens <= 0 && usage.ReadTokens <= 0 && usage.CreateTokens <= 0 {
 		return
+	}
+	if a.p.outputReduce != nil {
+		a.p.outputReduce.ObserveOutput(usage.OutputTokens)
 	}
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,

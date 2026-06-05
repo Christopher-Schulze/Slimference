@@ -14,19 +14,29 @@ Terraform output is one of the larger Layer 0 levers in IaC sessions. A typical 
 
 - `TryCompactTerraformInit`: parses `init` output, keeps the success footer / error blocks, collapses per-provider install chatter into `- N provider(s) installed` and per-module download chatter into `- M module(s) downloaded`.
 - `TryCompactTerraformValidate`: keeps `Success!` / `The configuration is valid` lines + every `│ Error:` block; drops decorative banners.
-- `TryCompactTerraformStateList`: keeps the first 30 and last 5 resource addresses with a `... <N> more resources omitted ...` marker for the middle.
-- `TryCompactTerraformOutput`: budgets 30 top-level `name = value` entries (multi-line objects/lists count as one entry, kept whole inside the budget); emits `... <N> more outputs omitted ...` for the rest. Skipped when `-json` / `--json` is in argv so downstream JSON consumers see byte-for-byte output.
+- `TryCompactTerraformStateList`: now full-passes by design. Resource addresses
+  are the requested evidence and the default filter package has no guaranteed
+  archive recovery path.
+- `TryCompactTerraformOutput`: now full-passes by design. Human-readable output
+  names and values are requested facts; structured `terraform show -json`
+  remains covered by the safer JSON parser path.
 - `TryCompactTerraformShow`: delegates to the same plan/apply compactor (same structural shape); `-json` passthrough; falls through cleanly when the body matches no plan shape.
 - `TryCompactTerraformPlan`: extended to accept `refresh` alongside `plan/apply/destroy`.
-- `pipeline.go`: five new dispatch entries (`terraform_init`, `terraform_validate`, `terraform_state_list`, `terraform_output`, `terraform_show`) ordered after `terraform_plan` so the most-specific match wins.
+- `pipeline.go`: default dispatch keeps `terraform_init`, `terraform_validate`,
+  and `terraform_show` after `terraform_plan` so the most-specific match wins.
+  `terraform_state_list` and plain `terraform_output` were removed from the
+  default registry in T260 because count/list caps can drop requested facts
+  without route-guaranteed recovery.
 - 17 new tests covering each shape's success / failure / passthrough / non-terraform / unrecognised-body / JSON-flag paths plus a dispatcher integration test.
 
 ## Acceptance Criteria
 
 - [x] `terraform init` provider/module install chatter collapses to count lines.
 - [x] `terraform validate` keeps verdict + error blocks, drops banners.
-- [x] `terraform state list` head/tail with omission marker for >35 resources.
-- [x] `terraform output` 30-entry budget honouring multi-line object values; `-json` passthrough.
+- [x] `terraform state list` full-passes even for long states unless a future
+  route-specific archive-backed reducer owns exact recovery.
+- [x] plain `terraform output` full-passes even for long outputs; JSON variants
+  remain passthrough to structured parsers.
 - [x] `terraform show` delegates to plan compactor; `-json` passthrough.
 - [x] `terraform refresh` recognised as a plan/apply alias.
 - [x] Coverage 100% in `internal/filter`; race-clean; 8-step CI gate green.

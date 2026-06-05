@@ -42,6 +42,7 @@ func (c *DeterministicCompressor) structureInWindowPass(messages []types.Message
 			if lang == "" || !c.structureLangAllowed(lang) {
 				continue
 			}
+			c.recordLayer1Attempt("structure_extract")
 			summary, changed := c.structExtractor.Extract(block.Text, lang)
 			if !changed || len(summary) >= len(block.Text) {
 				continue

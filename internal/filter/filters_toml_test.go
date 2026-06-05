@@ -3,6 +3,7 @@ package filter
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,27 @@ func TestApplyTOMLRule_keepLinesTruncateHeadTail(t *testing.T) {
 	out2 := ApplyTOMLRule([]byte("a\nb\nc\nd"), r2)
 	if string(out2) != "c" {
 		t.Fatalf("tail then max: %q", out2)
+	}
+}
+
+func TestApplyBuiltinTOMLRulePreservesLateInfraEvidence(t *testing.T) {
+	t.Parallel()
+	r := &FilterRule{MaxLines: 5}
+	input := ""
+	for i := 0; i < 30; i++ {
+		input += "info neutral line\n"
+	}
+	input += "module.db.aws_instance.main will be destroyed and replaced\n"
+	input += "module.cache.aws_elasticache_replication_group.primary is tainted\n"
+	input += "connection refused while checking provider plugin\n"
+	out := string(ApplyBuiltinTOMLRule([]byte(input), r))
+	for _, want := range []string{"destroyed", "tainted", "connection refused", "evidence-first cap"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("late infra evidence %q was not preserved: %q", want, out)
+		}
+	}
+	if len(strings.Split(out, "\n")) > 5 {
+		t.Fatalf("builtin cap exceeded max lines: %q", out)
 	}
 }
 

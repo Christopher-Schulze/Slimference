@@ -203,6 +203,26 @@ func TestExtractUsedToolNames(t *testing.T) {
 	}
 }
 
+func TestExtractUsedToolNamesWithResolvedToolResults(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{
+			{Type: "tool_result", ToolResultID: "call-1", Text: "ok"},
+			{Type: "tool_result", ToolUseID: "call-2", Text: "ok"},
+			{Type: "tool_result", ToolResultID: "missing", Text: "ok"},
+			{Type: "tool_use", ToolName: "Read"},
+		}},
+	}
+	remembered := map[string]types.ContentBlock{
+		"call-1": {Type: "tool_use", ToolUseID: "call-1", ToolName: "exec_command"},
+		"call-2": {Type: "tool_use", ToolUseID: "call-2", ToolName: "apply_patch"},
+	}
+	names := extractUsedToolNamesWithResolved(msgs, remembered)
+	if len(names) != 3 || names[0] != "exec_command" || names[1] != "apply_patch" || names[2] != "Read" {
+		t.Fatalf("got %v", names)
+	}
+}
+
 func TestExtractUsedToolNames_Empty(t *testing.T) {
 	t.Parallel()
 	names := extractUsedToolNames(nil)

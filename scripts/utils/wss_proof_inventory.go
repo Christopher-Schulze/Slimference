@@ -62,15 +62,15 @@ var maxxWSSProofRequiredSignals = map[string][]string{
 	"chunk_dedup_similar_outputs": {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
 	"chunk_dedup_log_output":      {"host_budget_ok"},
 	"chunk_dedup_test_output":     {"host_budget_ok"},
-	"output_reduce_aggressive":    {"output_reduce_injected", "host_budget_ok"},
+	"output_reduce_aggressive":    {"output_reduce_injected", "output_reduce_output_tokens", "host_budget_ok"},
 	"tool_heavy":                  {"tool_prune", "tool_prune_tokens_saved", "host_budget_ok"},
 	"provider_cache_long_session": {"provider_cache_read", "host_budget_ok"},
 	"host_resource_long_workday":  {"host_budget_ok"},
 }
 
 var maxxWSSProofAlternativeSignals = map[string][][]string{
-	"chunk_dedup_log_output":  {{"captured_output", "chunk_dedup_refs"}},
-	"chunk_dedup_test_output": {{"captured_output", "chunk_dedup_refs"}},
+	"chunk_dedup_log_output":  {{"captured_output", "codex_exec_envelope", "chunk_dedup_refs"}},
+	"chunk_dedup_test_output": {{"captured_output", "codex_exec_envelope", "chunk_dedup_refs"}},
 }
 
 var inventoryReducerNames = []string{
@@ -85,6 +85,7 @@ var inventoryReducerNames = []string{
 	"tool_prune_retry",
 	"tool_prune_tokens_saved",
 	"output_reduce_injected",
+	"output_reduce_output_tokens",
 	"output_reduce_skipped",
 	"output_reduce_downgraded",
 	"stop_seq",
@@ -214,7 +215,7 @@ func loadWSSProofInventory(path string) (wssProofInventoryReport, error) {
 			if row.LiveDelta == nil {
 				continue
 			}
-			if row.LiveDelta.BillableInputTokensSaved > 0 {
+			if wssProofLiveEconomicTokens(row.WorkloadClass, row.LiveDelta) > 0 {
 				report.PositiveTokenRows++
 				if status != nil {
 					status.PositiveTokenRows++
@@ -301,9 +302,12 @@ func maxxWorkloadHasPositiveEconomicSignal(status *wssProofInventoryWorkloadStat
 	switch workload {
 	case "chunk_dedup_log_output", "chunk_dedup_test_output":
 		return status.PositiveTokenRows > 0 &&
-			(status.LiveReducerHits["captured_output"] > 0 || status.LiveReducerHits["chunk_dedup_refs"] > 0)
+			(status.LiveReducerHits["captured_output"] > 0 ||
+				status.LiveReducerHits["codex_exec_envelope"] > 0 ||
+				status.LiveReducerHits["chunk_dedup_refs"] > 0)
 	case "output_reduce_aggressive":
-		return status.LiveReducerHits["output_reduce_injected"] > 0
+		return status.LiveReducerHits["output_reduce_injected"] > 0 &&
+			status.LiveReducerHits["output_reduce_output_tokens"] > 0
 	case "provider_cache_long_session":
 		return status.LiveReducerHits["provider_cache_read"] > 0
 	case "tool_heavy":

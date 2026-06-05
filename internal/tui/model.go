@@ -178,33 +178,41 @@ type QualityStatus struct {
 }
 
 type ProductStatus struct {
-	RouteStatus               string
-	FallbackReason            string
-	RecertStatus              string
-	SavingsStatus             string
-	BillableInputTokensSaved  int64
-	ProviderCacheReadTokens   int64
-	ProviderCacheCreateTokens int64
-	OutputWireBytesSaved      int64
-	RequestSideBytesReduced   int64
-	CostUSD                   float64
-	CacheHits                 int64
-	CacheMisses               int64
-	ReadDeltaHits             int64
-	RepeatedOutputHits        int64
-	ChunkDedupHits            int64
-	ToolResolutionMisses      int64
-	SafetyIssues              int64
-	HostBudgetStatus          string
-	HostBudgetExceeded        bool
-	HostBudgetReasons         []string
-	WSSParseFailures          int64
-	WSSDegradedSessions       int64
-	WSSCompressionErrors      int64
-	WSSCompressedMutated      int64
-	WSSCompressedInspected    int64
-	WSSByteBridgeOnly         bool
-	WSSMutationActive         bool
+	RouteStatus                string
+	FallbackReason             string
+	RecertStatus               string
+	SavingsStatus              string
+	BillableInputTokensSaved   int64
+	ProviderCacheReadTokens    int64
+	ProviderCacheCreateTokens  int64
+	OutputWireBytesSaved       int64
+	RequestSideBytesReduced    int64
+	ToolPruneTokensSaved       int64
+	ToolPrunePrunedTools       int64
+	ToolPruneReattached        int64
+	ToolPruneMisses            int64
+	ToolPruneRetries           int64
+	OutputReduceInjectedTurns  int64
+	OutputReduceObservedTokens int64
+	OutputReduceInputOverhead  int64
+	CostUSD                    float64
+	CacheHits                  int64
+	CacheMisses                int64
+	ReadDeltaHits              int64
+	RepeatedOutputHits         int64
+	ChunkDedupHits             int64
+	ToolResolutionMisses       int64
+	SafetyIssues               int64
+	HostBudgetStatus           string
+	HostBudgetExceeded         bool
+	HostBudgetReasons          []string
+	WSSParseFailures           int64
+	WSSDegradedSessions        int64
+	WSSCompressionErrors       int64
+	WSSCompressedMutated       int64
+	WSSCompressedInspected     int64
+	WSSByteBridgeOnly          bool
+	WSSMutationActive          bool
 }
 
 // SessionLoggerInterface exposes minimal session logger methods needed by the TUI.

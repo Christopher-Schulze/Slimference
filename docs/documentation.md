@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-05-17
+Last updated: 2026-06-04
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -17,7 +17,7 @@ source in one hop.
 3. [Request Lifecycle](#3-request-lifecycle)
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
-6. [Layer 2 - Background Semantic Summarisation](#6-layer-2-background-semantic-summarisation)
+6. [Layer 2 - Context Ledger and Background Summarisation](#6-layer-2-context-ledger-and-background-summarisation)
 7. [Layer 3 - Response Cache](#7-layer-3-response-cache)
 8. [Provider Support](#8-provider-support)
 9. [Install and integration](#9-install-and-integration)
@@ -55,8 +55,8 @@ payload is shorter and schema-safe.
 
 | Problem                                          | Slimference answer                          |
 |--------------------------------------------------|---------------------------------------------|
-| Large tool outputs repeated across turns         | Exact + MinHash dedup (Layer 1)             |
-| Long sessions exceed the context window          | Background semantic summarisation (L2)      |
+| Large tool outputs repeated across turns         | Exact dedup plus archive-backed near-dedup  |
+| Long sessions exceed the context window          | Context ledger shadowing; summary replacement is legacy opt-in |
 | Identical requests re-cost tokens                | Response cache + prompt-cache breakpoints   |
 | Verbose shell / git / test output                | 24 built-in filters + TOML DSL (Layer 0)    |
 | Compression costs latency on small requests      | Thresholds + latency-budget guard (T54)     |
@@ -233,7 +233,11 @@ public install path writes `~/.claude`.
    dispatch. The default order covers git-status, git-diff, git-log, git-show,
    build-output, test-output, dotnet, ruby, search, ls, tree, lint, log,
    format, psql, package-manager, container, gh list, glab list, AWS JSON,
-   python traceback, terraform outputs, and JSON minify.
+   python traceback, Terraform plan/init/validate/show, structured JSON, and
+   JSON minify. Long `terraform state list` and plain human-readable
+   `terraform output` full-pass in the default package because resource
+   addresses, output names, and output values are requested facts unless a
+   future route-specific reducer owns exact archive recovery.
    `build-output` includes the shared diagnostic parser for Go, Cargo,
    GCC/Clang, TypeScript, Svelte, frontend tools (Next/Vite/Vitest/Jest/
    Playwright/ESLint/Biome/Oxlint/Turbo/Nx/Lerna/Bun), Python diagnostics
@@ -295,17 +299,23 @@ rewritten after the model emits it.
 The output directive injector is task-shape aware. Exact replies and repair
 follow-ups skip injection; exact replies include `reply only`/`respond only`/
 `return only`/`json only` style prompts and the German `gib/antworte/sage nur`
-variants, not only `reply exactly`. Aggressive profiles are statically capped to
-`standard` for safety-sensitive tasks: code edits, new-file generation,
-debugging, reviews, tool-result reasoning, command-output relay, final
-summaries, read-only analysis, deep explanations, and planning. Explicit
-command-output relay turns such as "show the output", "full terminal output", or
+variants, not only `reply exactly`. Detail-sensitive task shapes full-pass
+output-reduce injection by default until each shape has positive paired A/B
+evidence: code edits, new-file generation, debugging, reviews, tool-result
+reasoning, final summaries, read-only analysis, deep explanations, and
+planning. This is stricter than the earlier standard-only cap and prevents
+unproven directive text from changing model behavior on tasks where missing
+detail is a product drawdown. Explicit command-output relay turns such as "show
+the output", "full terminal output", or
 German `gib die komplette Terminal-Ausgabe` skip output-reduce injection entirely
 with `command_output_relay_exact_output`, preserving requested output, paths,
-errors, exit codes, and line order. The safety cap runs before runtime cooldown
-selection in the proxy and again inside the injector as defense in depth. Repair
-signals such as "you
-skipped", "too short", missing detail, malformed patches, failed apply-patch
+errors, exit codes, and line order. The proof gate runs before runtime cooldown
+selection in the proxy and again inside the injector as defense in depth. The
+central planner mirrors the same contract for product/audit output: exact
+reply, command-output relay, repair follow-up, unproven detail shapes, and
+low-ROI direct-answer turns are reported as bypassed. Repair signals such as
+"you skipped", "too short",
+missing detail, malformed patches, failed apply-patch
 feedback, and German `fehlt`/`nochmal ausführlicher` style re-asks are stored by
 session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
@@ -370,7 +380,7 @@ Current product status:
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; 2026-06-02 automatic CLI replay covered Codex exec-envelope repeated-output recovery with `lost=0`; 2026-06-02 Desktop search-delta proof recorded a live repeated-output hit with 14,973 billable input tokens saved | Low risk: exact same command/output only, archive-backed, fail-open on changes; search uses a stricter match-set delta when visible evidence changes |
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 strict release matrix covered CLI + Desktop search loops plus a mixed Desktop workday; 2026-06-02 Desktop search-delta proof passed live counters and replay `lost=0` | Low to medium: grouped first search keeps representative matches, changed repeated searches emit added/removed match evidence plus archive recovery, and ambiguous cwd full-passes for reusable keys |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
-| Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
+| Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255/T266 live CLI+Desktop proof, T256 policy wiring, T258 route/risk/proof gate | Medium but guarded: archive recovery and `live` proof required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
 | Predictive post-edit file state | Closed | T253 closed | Rejected for default-auto: first post-edit read full-passes to preserve recency/context; later repeats dedup normally |
@@ -391,8 +401,9 @@ Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
 point and a central policy engine with route labels (`http`, `wss_phasef`),
 workload classes, mechanism risk, recovery level, and proof level. Current policy
 actions are `allow`, `shadow`, `full_pass`, and `block`: proven lossless reducers
-are allowed, recoverable WSS chunk dedup is allowed only with archive recovery,
-and recent/edit and post-collapse re-read signals full-pass. First-read elision,
+are allowed, recoverable WSS chunk dedup is allowed only with archive recovery and
+`codex_chunk_dedup_proof_level="live"` evidence, and recent/edit and
+post-collapse re-read signals full-pass. First-read elision,
 predictive post-edit synthesis, apply_patch context dedup, reasoning compaction,
 and generalized server-state-mirror mutation are closed as non-product-default
 surfaces. The server-state mirror remains telemetry/policy infrastructure only.
@@ -585,11 +596,12 @@ for audits/control surfaces only; it does not add model-facing text.
 Layer-0 cap handling is evidence-first, not first-N. Known default reducers that
 truncate large outputs keep actionable rows before noise and sample the tail
 inside important groups: test JSON keeps late failures, SARIF/ESLint JSON keep
-late same-priority errors, kubectl JSON keeps late unhealthy rows, cargo metadata
-keeps late workspace members, Terraform JSON keeps late destructive or state
-resource evidence, search grouping keeps head/tail matches per file and file
-set, and the embedded default TOML catalog keeps late diagnostic evidence when
-`max_lines`, `head_lines`, or `tail_lines` would otherwise cut it away.
+late same-priority errors, kubectl JSON full-passes healthy lists and only
+compacts unhealthy attention items, cargo metadata keeps late workspace members,
+Terraform JSON keeps late destructive or state resource evidence, search grouping
+keeps head/tail matches per file and file set, and the embedded default TOML
+catalog keeps late diagnostic evidence when `max_lines`, `head_lines`, or
+`tail_lines` would otherwise cut it away.
 Omitted-count markers remain explicit, and malformed or non-shorter outputs
 full-pass where the reducer owns that gate; operator-authored TOML rules remain
 literal user configuration.
@@ -649,6 +661,13 @@ only when the output is large enough and no recency/context-risk signal asks for
 full text. The legacy
 `codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
 conservative policy, not as the normal product path.
+`codex_chunk_dedup_proof_level` records the content-free proof level that policy
+may trust for automatic promotion (`none`, `unit`, `replay`, or `live`). The
+current default is `live` because the release proof corpus contains positive CLI
+and Desktop chunk-dedup evidence with zero safety issues. If an operator lowers
+that value, `auto` shadows chunk dedup instead of emitting archive-backed
+references; `max` still requires at least replay proof unless the explicit
+operator override is set.
 Runtime demotion inputs also cover quality spikes, archive recovery loops,
 missing-tool retries, degraded routes, host-budget pressure, chunk
 session-integrity budget pressure, and negative-savings history. Any supplied
@@ -803,6 +822,10 @@ The replay extractor includes Codex Responses top-level `instructions` as
 model-facing system context, so recovery-note or output-reduce hint injection
 cannot bypass the no-drawdown comparison just because it does not live in
 `input`.
+Known output-reduce directive suffixes are audited separately as expected
+instruction extras: the direct instructions must remain a prefix, the suffix
+must contain the output-reduce marker, and unknown instruction rewrites still
+count as lost context under `--fail-on-lost`.
 The harness aligns inserted recovery-note/system blocks before comparing changed
 tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
@@ -885,11 +908,25 @@ archived, so the marker never becomes an unrecoverable source of truth.
 
 Every Layer 1 compression call also emits content-free `layer1_decisions`
 telemetry in the proxy decisions log. Each record names the sub-layer, safety
-tier, applied flag, reason, saved-token count, archive requirement, recovery
-path, and default eligibility. This is an audit/control surface only: it does
-not add model-facing text and does not change compression output. It lets proofs
-separate "not applicable", "full-passed because archive recovery was unavailable",
-and "applied with positive savings" per sub-layer.
+tier, attempted flag, applied flag, reason, saved-token count, archive
+requirement, recovery path, archive-write count, and default eligibility.
+`attempted=false` means the workload never reached that sub-layer's reducer,
+not merely that it saved zero tokens. Archive-write count is incremented only
+after the recorder returns a non-empty archive id, so an archive-required
+positive decision can prove that recovery material was actually written. This is
+an audit/control surface only: it does not add model-facing text and does not
+change compression output. It lets proofs separate "not attempted",
+"attempted but not applicable", "full-passed because archive recovery was
+unavailable", and "applied with positive savings and a concrete recovery
+record" per sub-layer.
+The near-dedup regression fixture uses `DiskRecorder` plus
+`contentarchive.Get` to prove that a similar-but-changed omitted block expands
+back to exact original bytes. A broader Layer-1 corpus guard exercises multiple
+historical messages and archive-backed mutations, then expands every emitted
+archive id and verifies exact original block bytes plus session, message, block,
+and sub-layer metadata. This is the reconstruction boundary for default Layer 1:
+future archive-required sub-layers must pass the same proof shape before they
+can run default-auto.
 
 Layer 1 also respects provider-cache boundaries. Any content block that already
 carries `cache_control` is skipped by the Layer-1 block mutators, even if a
@@ -985,14 +1022,29 @@ original body locally retrievable.
 
 ---
 
-## 6. Layer 2 - Background Semantic Summarisation
+## 6. Layer 2 - Context Ledger and Background Summarisation
 
-`internal/summarization/layer2.go` runs as a background-only semantic
-optimizer. Its default local fallback is deterministic extractive
-summarisation; an OpenAI-compatible `/v1/chat/completions` endpoint can still
-be configured for higher semantic compression. `[compression.minimax]` is now a
-historical section name: `base_url`, `model`, and `api_key_env` can point at
-another compatible provider without code changes.
+Layer 2 is no longer treated as "summary as truth" for product defaults.
+`internal/contextledger` builds deterministic command, file, search, failure,
+decision, and recovery capsules as compact provenance facts with hashes and
+archive ids. The Codex WSS hot path feeds those builders as content-free
+telemetry only; it does not insert ledger capsules into model-facing context.
+`internal/summarization/layer2.go` still exists as a background optimizer. Its
+local fallback is deterministic extractive summarisation, and an
+OpenAI-compatible `/v1/chat/completions` endpoint can still be configured for
+higher semantic compression. `[compression.minimax]` is now a historical
+section name: `base_url`, `model`, and `api_key_env` can point at another
+compatible provider without code changes.
+
+Ledger capsule selection is fail-closed. A future model-facing insertion path
+may select only archive-backed old context from the current session. Active
+turns, recent turns, high-risk failures, missing provenance, missing facts,
+wrong-session capsules, missing archives, and budget-overflow candidates stay
+verbatim or rejected. `SelectionPolicy.ActivePaths` also keeps any file, search,
+or decision capsule touching an actively worked file verbatim, including
+repo-relative search hits resolved against the capsule `repo_root`.
+`SelectionPolicy.QualityPressure` full-passes every capsule when re-read,
+recovery, or comprehension canaries report pressure.
 
 ### Decision rule (T54)
 
@@ -1012,14 +1064,21 @@ disables it.
 
 Current default state: fresh configs keep Layer 2 disabled. Operators opt in
 with `slimference layer2 enable --acknowledge-data-policy` or an explicit
-`layer2_enabled = true` config. The first interactive startup with Layer 2
-enabled records an explicit acknowledgement under
+`layer2_enabled = true` config. Even when Layer 2 is enabled, model-facing
+classical summary replacement stays blocked unless the explicit legacy override
+`[compression.summary].allow_model_facing_replacement = true` is configured.
+The first interactive startup with Layer 2 enabled records an explicit acknowledgement under
 `~/.slimference/policy/layer2-default-on-ack.json`; non-interactive startup
 warns without blocking. `slimference layer2 acknowledge` records the marker
-manually, and `slimference layer2 status` prints the ack state. Model-facing
-summary replacement stays blocked unless
-`[compression.summary].allow_model_facing_replacement = true` is explicitly
-configured; this is a legacy override, not the product direction.
+manually, and `slimference layer2 status` prints the ack state. The legacy
+override is not the product direction; default-safe Layer 2 requires
+proof-gated ledger insertion with archive expansion, current-session scope, and
+no unresolved archive ids. Even under the explicit legacy replacement override,
+cached summaries are applied only when the caller has a non-empty session id,
+the summary text is non-empty, the cached prefix hash still matches the live
+conversation prefix, and the cached token accounting is a positive saving. The
+old sessionless `ApplyToMessages` compatibility wrapper therefore full-passes;
+model-facing replacement requires `ApplyToMessagesSession`.
 
 T152 hardens Layer 2 as a background-only optimizer. After the active
 request completes, `ScoreBackgroundCandidateSession` checks provider
@@ -1033,11 +1092,15 @@ hash mismatch, stale worker job, provider failure, timeout, validation failure,
 and anchor-loss validation all fail open to the original context. Telemetry is exposed at
 `/admin/status.layer2.cache_stats`.
 
-Layer 2 caps formatted summariser input before preprocessing or density
-scoring. The cap keeps the newest text inside the 120k-token quality window
-and computes adaptive target tokens from the actually submitted text, not the
-pre-cap message slice. This prevents huge historical reads from burning CPU
-or timing out before the provider call.
+Layer 2 caps oversized message text before outbound redaction/rendering, then
+caps the formatted summariser input again before preprocessing or density
+scoring. Both caps keep the newest text inside the 120k-token quality window,
+respect the same CJK-heavy token heuristic used by `estimateTokens`, and trim
+only on UTF-8 rune boundaries. Adaptive target tokens are computed from the
+actually submitted text, not the pre-cap message slice. This prevents huge
+historical reads from burning CPU or timing out before the provider call while
+leaving the original message slice intact for hashing, anchors, and covered
+range validation.
 
 Provider/runtime knobs:
 
@@ -1355,7 +1418,7 @@ MiniMax-driven content path is tracked as T99b. Default off.
 
 `[compression.tuning] tool_prune_enabled` activates the per-session
 tool-usage tracker + body-rewrite pass. Tool definitions idle
-beyond the threshold are removed from `tools[]` for Anthropic
+beyond `tool_prune_idle_threshold_turns` (default 20) are removed from `tools[]` for Anthropic
 (`tools[].name`) and OpenAI / CodexChatGPT (`tools[].function.name`
 or top-level `tools[].name`). Telemetry at
 `/admin/status.tool_prune.{sessions,pruned_total,reattach_total,
@@ -1367,8 +1430,9 @@ edit, read, safety, browser, and MCP tool classes are always kept, and
 `tool_prune_always_keep = []` can add project-specific exact tool names with
 case-insensitive matching.
 Focused tool-heavy proof runs can enable the pruner without editing the config
-file via `SLIMFERENCE_TOOL_PRUNE_ENABLED=1` and can provide comma-separated
-project keeps via `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`.
+file via `SLIMFERENCE_TOOL_PRUNE_ENABLED=1`, shorten the proof-only idle window
+via `SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS=1`, and provide
+comma-separated project keeps via `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`.
 The Codex WSS Phase-F path uses the same strict pruner for prompt/user-turn
 request bodies. WSS tool-call frames feed tool-name usage into the session
 tracker, but actual `tools[]` mutation only happens on prompt/user turns with a
@@ -2251,13 +2315,14 @@ Layer 4 cooldown is sourced from the T141 output-reduce tracker and the T151
 tool-prune session bucket; the planner marks it as a `cheap_only`
 `quality_cooldown_soften_layer4` decision because the runtime softens Layer 4
 rather than blindly continuing aggressive behavior. Output-reduce task-shape
-selection also caps aggressive/Codex-aggressive profiles to `standard` for
-code edits, new-file generation, debugging, reviews, tool-result reasoning,
-command-output relay, final summaries, read-only analysis, deep explanations,
-and planning; those shapes need complete evidence or exact workflow content more
-than maximal terse output. Command-output relay is stricter than the cap: it
-skips output-reduce injection entirely so requested terminal output is not
-shortened by policy text. Tool-schema
+selection now bypasses unproven detail-sensitive shapes instead of merely
+capping them to `standard`: code edits, new-file generation, debugging, reviews,
+tool-result reasoning, command-output relay, final summaries, read-only
+analysis, deep explanations, and planning. Those shapes need complete evidence
+or exact workflow content more than maximal terse output. The planner mirrors
+the runtime output-reduce guard for its own summaries: exact replies,
+command-output relay, repair follow-ups, unproven detail shapes, and low-ROI
+direct-answer tasks bypass Layer 4 in the plan. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.
@@ -2356,10 +2421,112 @@ provider-cache read tokens as separate product signals; replay bytes are
 retained only as a model-facing regression/safety proxy. The runner supports
 `--codex-timeout` for bounded proof runs, `--exit-marker` /
 `--exit-marker-count` for unattended shutdown, and `--quiet-codex-output` for
-machine-readable runs without Codex TUI noise. This is the preferred
-release-proof path for CLI workloads because it avoids
-detached background daemons that do not inherit the capture environment
-reliably.
+machine-readable runs without Codex TUI noise. Passing
+`--resource-profile-proof <bundle-dir>` turns the same managed run into the
+automated CLI host-resource proof: the runner defaults `--capture` to
+`<bundle-dir>/frames.jsonl` and `--matrix-row` to
+`<bundle-dir>/matrix.jsonl`, writes aggregate admin snapshots before/after,
+`ps` snapshots before/after, a macOS `sample` file, and
+`workday-finish.json`, then appends the content-free matrix row. This is the
+preferred release-proof path for CLI workloads because it avoids detached
+background daemons that do not inherit the capture environment reliably.
+Expected-reducer validation is evidence-first: when a focused run misses an
+expected reducer, the tool appends the matrix row and then exits non-zero. This
+keeps negative live evidence such as missing hits or host-budget attention
+auditable while still preventing a failed focused proof from passing.
+Interactive Desktop proofs use `go run ./scripts/utils wss-proof-live-row`
+after the operator-driven Codex.app prompts finish. The tool reads the current
+content-free admin state/status snapshots, enforces the requested reducer
+signals such as `tool_prune`, `tool_prune_tokens_saved`, or `host_budget_ok`,
+and appends a matrix row without reading raw WSS frame payloads. This closes
+Desktop cases where `codex-capture-run` cannot own the app process but the proof
+still needs reducer-specific live counters before export into
+`tests/fixtures/live_corpus`.
+Focused `wss-proof-matrix` runs with `--required-workload` evaluate only rows
+matching the requested workload classes. When `--expected-reducer` is also
+passed, those command-line reducer expectations are authoritative for the
+focused proof, so older exploratory rows in the same matrix cannot pollute a
+single-mechanism closeout. Unfocused release-proof mode still validates every
+row exactly as recorded.
+`go run ./scripts/verify -mode host-resource-plan -client codex_cli|codex_desktop`
+prints the T272 resource/profile ceremony for the only remaining host-budget
+proof class. For CLI, the plan now prints the single automated
+`codex-capture-run --resource-profile-proof` command. For Desktop, where the
+app prompts remain operator-driven, the plan still prints the manual
+admin-state snapshots before and after the workload via `aggregate-savings
+--json`, `ps` RSS/CPU rows, `workday-savings finish --json`, a macOS `sample`
+CPU profile for the Slimference process, and a WSS matrix row requiring
+`host_budget_ok` plus a positive live economic token signal. Local
+billable-input deletion, provider-cache read tokens, and output-side evidence
+stay separate in the proof row. It deliberately does not enable a pprof HTTP
+listener or open a new runtime surface; profiling stays operator-triggered and
+file-based.
+`go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures
+<clean-release-matrix.jsonl> --json` writes the explicit release-claim matrix.
+It reads proof rows only, never raw WSS frames, and skips historical diagnostic
+rows, host-budget issue rows, expected-zero rows with local savings, safety
+issue rows, and rows without an economic signal. It may normalize stale
+expected-reducer labels only when the same row has current live reducer
+evidence, so a release report cannot pass by aggregate count alone.
+`go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl>
+--resource-profile-proof <codex-cli-resource-proof-bundle-dir>
+--resource-profile-proof <codex-desktop-resource-proof-bundle-dir>` produces the final content-free release proof
+summary. It reads proof-matrix rows only and never raw WSS frames. The report
+keeps local billable-input token deletion, request-side bytes, output-wire
+bytes, provider-cache read/create tokens, tool-prune schema tokens,
+output-reduce input overhead, output-reduce observed provider-output tokens,
+output-reduce net-observed diagnostics, host-budget rows, and safety rows as
+separate fields. Output-reduce net-observed is deliberately not a
+counterfactual savings percentage: a focused output-reduce proof must show
+guarded injection, observed output-token accounting, bounded input overhead,
+host-budget OK, and zero safety errors, while a concrete output-token savings
+claim still requires a matching no-directive A/B baseline. It fails closed
+without validated CLI and Desktop resource/profile proof bundles
+containing `admin-before.json`, `admin-after.json`, `ps-before.txt`,
+`ps-after.txt`, `workday-finish.json`, `slimference.sample.txt`, and
+`matrix.jsonl`; the JSON files must prove host-budget OK and zero WSS
+parse/degrade/compression deltas, and each local `matrix.jsonl` must contain a
+positive `host_resource_long_workday` row with `host_budget_ok` for the matching
+client. Rows with their own expected reducers must satisfy those reducer
+expectations inside the bundle; a positive provider-cache or local-savings
+delta cannot mask a missed mechanism-specific proof.
+This keeps a green host-budget snapshot from being mistaken for final resource
+certification.
+`go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>
+--min-net-tokens=1 --json` is the content-free output-reduce counterfactual
+gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or
+`directive`), requires the same client and workload class, requires provider
+output-token observations in both rows, requires guarded output-reduce injection
+only in the directive row, subtracts directive input overhead, and fails on
+safety errors, output-reduce downgrades, host-budget violations, non-positive
+output-token reduction, or net tokens below the configured floor. `codex-capture-run`
+and `wss-proof-live-row` can stamp those A/B fields into matrix rows; the report
+still reads only content-free proof counters, never raw prompts, model text, or
+tool output.
+The first focused CLI direct-answer/status A/B passed on 2026-06-05 after
+fixing proof accounting to record general provider output tokens from WSS usage
+frames and model-facing directive overhead instead of JSON re-marshal byte
+churn: baseline `987` provider output tokens, directive `768`, directive input
+overhead `23`, output saved `219`, net saved `196`, `22.19%` output-token
+reduction, `lost=0`, host budget `ok`, and zero WSS safety errors. That is a
+real positive pair for the tested workload, not a universal output-reduce
+percentage. The content-free pair is committed as
+`tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/output_reduce_ab_report.json`;
+`benchmark-corpus --maxx-check` now requires an `output_reduce_ab` workload with
+positive net A/B tokens, so a plain output-reduce injection row can no longer
+satisfy the max-out gate by itself. Broader CLI/Desktop task-shape pairs are
+still required before promoting a cross-workload output-reduce savings claim.
+An autonomous CLI explanation-shape A/B did not generalize the win: after
+compacting the standard preservation directive from `111` to `46` overhead
+tokens, the pair still failed net-positive (`baseline=222`, `directive=248`,
+`net=-72`). Explanation/deep-analysis and other detail-sensitive shapes now
+bypass output-reduce injection by default until future paired A/B evidence proves
+positive net savings without repair/re-ask signals; the current positive product
+evidence is the direct-answer/status shape.
+Historical host-budget attention rows or superseded expected-zero anomalies stay
+visible in the report and now fail the release gate by row id. Current readiness
+must be proven from a clean matrix or a focused release bundle instead of
+letting stale diagnostic rows hide behind aggregate counts.
 The WSS dispatcher includes active in-flight Phase-F sessions in `/admin/state`
 snapshots, so capture deltas can see `frames_reencoded`,
 `compressed_messages_mutated`, and `phasef_mutations` before the WebSocket
@@ -2374,6 +2541,13 @@ against local host cost without logging payloads or charging the hot path with a
 new per-frame disk probe. The hot path also uses the total Layer-0 duration as a
 bounded runtime safety signal: repeated frames over the 25 ms budget demote
 managed Codex reducers to full-pass until fast frames recover the gate.
+Exact o200k token counts are reserved for real before/after savings guards and
+positive savings claims. WSS no-op planner rows and output-reduce size gating
+use cheap byte/4 estimates because those paths do not claim local billable
+savings. Output-reduce proof gates use exact provider-reported output-token
+usage when available and separately count injected instruction overhead. This
+avoids loading the heavy BPE encoder for no-mutation frames while keeping every
+reported token saving exact.
 
 ### Global flags
 
@@ -2546,19 +2720,39 @@ branches, or always-green assertions.
 large git status compaction and repeated read-delta. T272 profiling found
 repeated exact o200k tokenization as the dominant pre-cache cost for 64 KB
 repeat-read frames; the bounded token-count cache keeps that path in the
-low-millisecond range on Apple M1 benchmark runs.
+sub-millisecond to low-millisecond range on Apple M1 benchmark runs. The
+2026-06-04 full benchmark surface measured WSS repeated git-status at about
+788 us/op and WSS repeated read 64 KB at about 814 us/op after the latest
+safety hardening.
 
 `internal/readcache/bench_test.go`: full-file and ranged read repeat-cache
-hot paths, including archive-backed unchanged decisions.
+hot paths, including archive-backed unchanged decisions. The same 2026-06-04
+run measured full-repeat 64 KB at about 446 us/op and ranged-repeat 16 KB at
+about 167 us/op.
 
 `internal/chunkdedup/bench_test.go`: FastCDC chunking and partial-overlap
-chunk-reference encoding.
+chunk-reference encoding. The same 2026-06-04 run measured FastCDC chunking
+256 KB at about 211 us/op and partial-overlap 64 KB store/encode at about
+2.03 ms/op.
 
 `internal/contentarchive/bench_test.go`: archive write and archive expansion
-for 64 KB-class payloads.
+for 64 KB-class payloads. Archive reads stay cheap for recovery, while 64 KB
+archive writes measured about 29.4 ms/op on the full 3 s run; archive writes
+therefore remain a bounded recovery path, not a blind default mutation tax.
 
 `internal/planner/bench_test.go`: runtime planner decision overhead for a
-large Codex WSS tool-output shape.
+large Codex WSS tool-output shape. The 2026-06-04 run measured the Codex WSS
+large-tool decision at about 267 ns/op.
+
+Race coverage is part of the host-resource closeout evidence. The focused
+savings/safety race pass covers `internal/contextledger`, `filter`,
+`readcache`, `chunkdedup`, `toolprune`, `outputreduce`, `proxy/wsmitm`,
+`quality`, and `hostmetrics`, and the full repository gate
+`go test -race ./...` is green after the Codex recert helper-process timeout was widened for
+race instrumentation. Full live CLI/Desktop resource/profile bundles are now
+the release proof: the final CLI and Desktop bundles pass `release-proof-report`
+with host-budget OK, zero WSS safety deltas, positive economic token evidence,
+and the required local matrix rows.
 
 `internal/analytics/phase_hist_test.go::BenchmarkPhaseHistogram_Record`:
 phase recorder overhead (~15 ns/op on M1).

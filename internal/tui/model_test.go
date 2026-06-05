@@ -1252,30 +1252,60 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.productStatus = ProductStatus{
-		RouteStatus:               "WSS savings active",
-		FallbackReason:            "bridge while repair runs",
-		RecertStatus:              "running",
-		SavingsStatus:             "saving",
-		BillableInputTokensSaved:  12000,
-		ProviderCacheReadTokens:   5000,
-		ProviderCacheCreateTokens: 700,
-		OutputWireBytesSaved:      2048,
-		RequestSideBytesReduced:   1536,
-		CacheHits:                 3,
-		CacheMisses:               1,
-		ReadDeltaHits:             2,
-		RepeatedOutputHits:        1,
-		ChunkDedupHits:            1,
+		RouteStatus:                "WSS savings active",
+		FallbackReason:             "bridge while repair runs",
+		RecertStatus:               "running",
+		SavingsStatus:              "saving",
+		BillableInputTokensSaved:   12000,
+		ProviderCacheReadTokens:    5000,
+		ProviderCacheCreateTokens:  700,
+		OutputWireBytesSaved:       2048,
+		RequestSideBytesReduced:    1536,
+		ToolPruneTokensSaved:       26,
+		ToolPrunePrunedTools:       1,
+		ToolPruneReattached:        1,
+		OutputReduceInjectedTurns:  1,
+		OutputReduceObservedTokens: 42,
+		OutputReduceInputOverhead:  9,
+		CacheHits:                  3,
+		CacheMisses:                1,
+		ReadDeltaHits:              2,
+		RepeatedOutputHits:         1,
+		ChunkDedupHits:             1,
 	}
 	m := NewModel(p)
 	m.width = 100
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"PRODUCT", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "1.5K request", "2.0K output-wire saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
+	for _, want := range []string{"PRODUCT", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "1.5K request", "2.0K output-wire saved", "5.0K provider-cache read", "cache 3/4", "tool-prune 26 input saved", "1 pruned", "1 reattach", "output-reduce 1 inj", "42 out", "+9 input", "safety ok"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
+	}
+}
+
+func TestView_MainRender_OutputReducePendingDoesNotClaimSavings(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.productStatus = ProductStatus{
+		RouteStatus:               "WSS savings active",
+		SavingsStatus:             "active_no_savings",
+		OutputReduceInjectedTurns: 1,
+		OutputReduceInputOverhead: 9,
+	}
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{"ACTIVE", "output-reduce 1 inj", "proof pending", "+9 input"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("main view missing %q in:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "output-reduce saved") {
+		t.Fatalf("output-reduce pending must not claim savings:\n%s", output)
 	}
 }
 

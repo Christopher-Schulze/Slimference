@@ -284,7 +284,7 @@ func New(cfg *config.Config) *Proxy {
 		qualityReRead:       quality.NewReReadDetector(10),
 		qualityCacheSpike:   quality.NewCacheMissSpikeDetector(50, 0.25),
 		qualityNetSavings:   quality.NewNetSavings(),
-		toolPrune:           toolprune.NewUsageTracker(20),
+		toolPrune:           toolprune.NewUsageTracker(cfg.Compression.Tuning.ToolPruneIdleThresholdTurns),
 		serverState:         sessions.NewResponseStateStore(1024),
 		outputReduceRepair:  make(map[string]pendingOutputReduceSignal),
 		archiveRecoveryNote: make(map[string]struct{}),

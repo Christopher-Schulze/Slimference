@@ -410,6 +410,99 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 	}
 }
 
+func TestRunHostResourcePlan_RendersProfileCeremony(t *testing.T) {
+	var stdout bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdout, r)
+		close(done)
+	}()
+	now := time.Date(2026, 6, 4, 8, 9, 10, 0, time.UTC)
+	rc := runHostResourcePlan("codex_desktop", "tests/fixtures/live_corpus", now)
+	_ = w.Close()
+	<-done
+	if rc != 0 {
+		t.Fatalf("expected 0, got %d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"T272 host-resource proof plan",
+		"host-resource-codex_desktop-20260604_080910",
+		"workday-savings start",
+		"aggregate-savings --json",
+		"ps -p \"$pid\"",
+		"/usr/bin/sample \"$pid\" 10 1",
+		"workday-savings finish --json",
+		"wss-proof-live-row",
+		"--frames ~/.slimference/captures/host-resource-codex_desktop-20260604_080910/frames.jsonl",
+		"host_resource_long_workday",
+		"host_budget_ok",
+		"--require-live-token-delta --min-positive=1",
+		"benchmark-corpus tests/fixtures/live_corpus --maxx-check",
+		"--resource-profile-proof <codex_cli_bundle> --resource-profile-proof <codex_desktop_bundle>",
+		"RSS <= 200 MB",
+		"CPU window <= 0.5%",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("host-resource runbook missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunHostResourcePlan_RendersCLIProofCommand(t *testing.T) {
+	var stdout bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdout, r)
+		close(done)
+	}()
+	now := time.Date(2026, 6, 4, 8, 9, 10, 0, time.UTC)
+	rc := runHostResourcePlan("codex_cli", "tests/fixtures/live_corpus", now)
+	_ = w.Close()
+	<-done
+	if rc != 0 {
+		t.Fatalf("expected 0, got %d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"codex-capture-run --resource-profile-proof",
+		"host-resource-codex_cli-20260604_080910",
+		"--workload-class host_resource_long_workday",
+		"--expected-reducer host_budget_ok",
+		"--exit-marker HOST_RESOURCE_DONE",
+		"generated bundle contains admin-before/after",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("host-resource CLI runbook missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunHostResourcePlan_RejectsMissingArgs(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 4, 8, 9, 10, 0, time.UTC)
+	if rc := runHostResourcePlan("", "tests/fixtures/live_corpus", now); rc != 2 {
+		t.Fatalf("expected client error 2, got %d", rc)
+	}
+	if rc := runHostResourcePlan("codex_cli", "", now); rc != 2 {
+		t.Fatalf("expected root error 2, got %d", rc)
+	}
+}
+
 func TestRunReleaseProofPlan_RejectsMissingRoot(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 31, 8, 9, 10, 0, time.UTC)

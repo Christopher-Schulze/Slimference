@@ -49,6 +49,17 @@ func testCompressorWithArchive(cfg *config.CompressionConfig) *DeterministicComp
 	return NewDeterministicCompressor(cfg).WithRecorder(&stubRecorder{id: "archive-id"})
 }
 
+func findLayer1Decision(t *testing.T, records []Layer1DecisionRecord, subLayer string) Layer1DecisionRecord {
+	t.Helper()
+	for _, record := range records {
+		if record.SubLayer == subLayer {
+			return record
+		}
+	}
+	t.Fatalf("missing Layer 1 decision for %s", subLayer)
+	return Layer1DecisionRecord{}
+}
+
 // TestCompress_BelowWindow verifies that messages below the sliding window pass through unchanged.
 func TestCompress_BelowWindow(t *testing.T) {
 	t.Parallel()
@@ -426,6 +437,13 @@ func TestCompress_NearDupeToolResult(t *testing.T) {
 	}
 	if result.Messages[2].Content[0].ArchiveID != "near-dedup-archive" {
 		t.Fatalf("near-dedup must stamp archive id, got %q", result.Messages[2].Content[0].ArchiveID)
+	}
+	if got := result.ArchiveWrites["dedup_near"]; got != 1 {
+		t.Fatalf("near-dedup archive writes=%d want 1", got)
+	}
+	decision := findLayer1Decision(t, result.Decisions, "dedup_near")
+	if !decision.Applied || !decision.RequiresArchive || decision.ArchiveWrites != 1 {
+		t.Fatalf("near-dedup decision missing archive proof: %+v", decision)
 	}
 	if len(rec.calls) == 0 || rec.calls[0].SubLayer != "dedup_near" || rec.calls[0].Original != body2 {
 		t.Fatalf("near-dedup archive call mismatch: %+v", rec.calls)

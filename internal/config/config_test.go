@@ -72,6 +72,9 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.CodexChunkDedupEnabled {
 		t.Fatal("explicit Codex chunk dedup override must stay default-off")
 	}
+	if cfg.Compression.OutputReduce.CodexChunkDedupProofLevel != "live" {
+		t.Fatalf("Codex chunk dedup proof level default = %q, want live", cfg.Compression.OutputReduce.CodexChunkDedupProofLevel)
+	}
 	if cfg.Compression.OutputReduce.CodexChunkDedupMinBytes != 4096 ||
 		cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions != 256 ||
 		cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession != 8192 ||
@@ -124,6 +127,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS", "2")
 	t.Setenv("SLIMFERENCE_CODEX_SAVINGS_POLICY", "max")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP", "true")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_PROOF_LEVEL", "replay")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MIN_BYTES", "4096")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSIONS", "12")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_CHUNKS_PER_SESSION", "34")
@@ -131,6 +135,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_REFERENCE_PERCENT", "78")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSION_REFERENCE_PERCENT", "67")
 	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ENABLED", "true")
+	t.Setenv("SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS", "3")
 	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP", "shell, read_file,  write_file ")
 
 	cfg := Defaults()
@@ -151,6 +156,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
 		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
 		or.ReadDeltaRecentFullPassTurns != 2 || or.CodexSavingsPolicyMode != "max" || !or.CodexChunkDedupEnabled ||
+		or.CodexChunkDedupProofLevel != "replay" ||
 		or.CodexChunkDedupMinBytes != 4096 || or.CodexChunkDedupMaxSessions != 12 ||
 		or.CodexChunkDedupMaxChunksPerSession != 34 || or.CodexChunkDedupTTLSeconds != 56 ||
 		or.CodexChunkDedupMaxReferencePercent != 78 ||
@@ -158,6 +164,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 	if !cfg.Compression.Tuning.ToolPruneEnabled ||
+		cfg.Compression.Tuning.ToolPruneIdleThresholdTurns != 3 ||
 		len(cfg.Compression.Tuning.ToolPruneAlwaysKeep) != 3 ||
 		cfg.Compression.Tuning.ToolPruneAlwaysKeep[1] != "read_file" {
 		t.Fatalf("tool-prune env not applied: %+v", cfg.Compression.Tuning)
@@ -470,6 +477,7 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"archive_note_text", func(c *Config) { c.Compression.OutputReduce.ArchiveRecoveryNoteText = strings.Repeat("x", 1001) }},
 		{"read_delta_recency", func(c *Config) { c.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = -1 }},
 		{"codex_policy", func(c *Config) { c.Compression.OutputReduce.CodexSavingsPolicyMode = "reckless" }},
+		{"chunk_proof_level", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupProofLevel = "rumor" }},
 		{"chunk_min", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMinBytes = -1 }},
 		{"chunk_sessions", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessions = -1 }},
 		{"chunk_per_session", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession = -1 }},

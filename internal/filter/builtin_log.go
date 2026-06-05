@@ -88,7 +88,12 @@ func filterLogOutput(s string) string {
 // it survives truncation even when it sits past the positional head budget.
 func importantLogLine(line string) bool {
 	tl := strings.ToLower(line)
-	for _, tok := range []string{"error", "fatal", "panic", "fail", "exception", "traceback", "warn"} {
+	for _, tok := range []string{
+		"error", "fatal", "panic", "fail", "exception", "traceback", "warn",
+		"critical", "severe", "denied", "forbidden", "unauthorized",
+		"permission denied", "refused", "timeout", "timed out", "unhealthy",
+		"crashloop", "oom", "out of memory", "segfault", "abort",
+	} {
 		if strings.Contains(tl, tok) {
 			return true
 		}

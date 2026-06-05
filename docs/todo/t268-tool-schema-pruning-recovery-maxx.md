@@ -13,8 +13,9 @@ default is pruning with automatic reattach and full-schema retry.
 - Unknown or mixed provider tool schema shapes full-pass before pruning, core
   tools stay attached, intent reattach runs before pruning, missing-tool 4xx
   responses retry once with the full pre-prune schema, and affected sessions
-  enter cooldown. The remaining gate is live proof on tool-heavy workflows, not
-  an offline code gap.
+  enter cooldown. Focused Desktop live proof now covers the product path with a
+  real non-core tool use, an idle prune, positive schema-token savings, zero
+  misses/retries, and host budget `ok`.
 
 ## Product target
 
@@ -112,13 +113,14 @@ Tool pruning should be default-safe only when:
   tool classes always stay attached, missing-tool 4xx responses retry once with
   the full pre-prune schema, and the affected session enters quality cooldown.
 - Offline verification covered toolprune unit tests and proxy tool-prune retry /
-  always-keep / same-pass reattach preservation paths. Live corpus proof for
-  tool-heavy workflows remains deferred until the capture phase.
+  always-keep / same-pass reattach preservation paths. Focused Desktop live
+  corpus proof now closes the tool-heavy product path; broader release proof
+  continues to use the exported corpus gate instead of prose claims.
 - 2026-06-01: Re-read the tool-prune implementation after the safety pass.
   `ExtractToolNamesForPruning` is strict for Anthropic/OpenAI/Codex shapes,
   proxy pruning full-passes on unknown schema, reattach is deterministic, and
   retry/cooldown are covered by offline tests. No additional offline code gap
-  found; tool-heavy live corpus remains the blocker.
+  found; at that point tool-heavy live corpus was the remaining blocker.
 - 2026-06-02: Proof-matrix live deltas now include tool-prune pruned,
   reattached, miss, retry, always-keep, disabled-session, and token-saved
   counters. Focused tool-heavy proof rows can require `tool_prune`,
@@ -159,8 +161,52 @@ Tool pruning should be default-safe only when:
   request bodies with a known Codex tool schema. Unknown schemas full-pass,
   core/always-keep tools survive, reattached tools stay active in the same
   pass, and tests cover idle pruning, unknown-schema full-pass, and current
-  user-intent reattach. The remaining `tool_heavy` gap is now live proof,
-  not missing WSS wiring.
+  user-intent reattach.
+- 2026-06-03: Fixed the real Codex WSS learning gap for tool pruning. Many
+  Codex follow-up frames carry only `function_call_output` plus `call_id`, so
+  the previous WSS usage observer could not learn which tool was just used even
+  though the adapter already persisted call_id -> tool metadata for read-delta.
+  The observer now resolves tool-result blocks through that map and feeds the
+  same usage tracker. Tests prove a resolved WSS tool-result becomes active and
+  later idle-prunable.
+- 2026-06-04: Removed the proof blocker where `tool_prune_idle_threshold_turns`
+  was documented but the proxy still hard-coded 20 turns. The proxy now builds
+  its usage tracker from config, and `SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS`
+  can scope a focused proof daemon to threshold 1 without changing default
+  product behavior. Default remains 20.
+- 2026-06-04: After updating Codex CLI to 0.137.0, WSS recertification was
+  refreshed successfully (`slimference codex recertify wss`). A focused
+  Desktop live proof used a real non-core `get_goal` tool call followed by idle
+  turns under a threshold-1 proof daemon. Codex Desktop special tool shapes
+  (`tool_search`, `web_search`, `image_generation`) are now schema-safe for the
+  pruner while unknown nameless shapes still full-pass, and image generation is
+  always-kept. Live counters proved `tool_prune_pruned_total=1`,
+  `tool_prune_tokens_saved_sum=26`, `miss_total=0`, `retry_total=0`,
+  parse/degrade/compression errors all zero, and host budget `ok`.
+  `wss-proof-live-row` recorded the Desktop admin-state/status counters into a
+  content-free matrix row, and `wss-proof-export-corpus` exported
+  `desktop_tool_heavy`. The exported `desktop_tool_heavy` category now passes
+  the `tool_heavy`, `host_budget_ok`, and `low_error` validators. The global
+  `benchmark-corpus --maxx-check` is intentionally held open only by T267
+  output-token evidence.
+  Follow-up verification ran the focused matrix gate directly:
+  `wss-proof-matrix desktop-tool-heavy-fixed-20260604T170258Z.matrix.jsonl
+  --required-workload=tool_heavy --expected-reducer=tool_prune
+  --expected-reducer=tool_prune_tokens_saved --expected-reducer=host_budget_ok`.
+  It passed with one Desktop row, `tool_prune=1`,
+  `tool_prune_tokens_saved=26`, `host_budget_ok=1`, `lost=0`, and zero
+  parse/degrade/compression errors. A second idle Desktop marker did not change
+  the proof row; it remains no-regression evidence, not an additional savings
+  claim.
+  Follow-up proof-tooling hardening unified `wss-proof-matrix` and
+  `wss-proof-inventory` economic-token semantics: tool-prune saved tokens now
+  count as a positive token row in the global inventory, not only as a
+  `tool_heavy` special-case completion signal.
+  The earlier autonomous CLI attempt remains documented as a diagnostic
+  limitation: `codex exec` exposed the tool schema but did not honor explicit
+  non-core tool-use prompts, so it could not prove pruning. The Desktop proof
+  closes the product path without weakening the no-drawdown policy: pruning
+  still refuses never-seen tools and only removes known idle non-core tools.
 
 ## Done
 

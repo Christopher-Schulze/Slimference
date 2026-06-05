@@ -86,15 +86,30 @@ func extractToolName(entry json.RawMessage, provider types.Provider) string {
 				Name string `json:"name"`
 			} `json:"function"`
 			Name string `json:"name"`
+			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(entry, &v); err == nil {
 			if v.Function.Name != "" {
 				return v.Function.Name
 			}
-			return v.Name
+			if v.Name != "" {
+				return v.Name
+			}
+			if provider == types.CodexChatGPT {
+				return codexSpecialToolName(v.Type)
+			}
 		}
 	}
 	return ""
+}
+
+func codexSpecialToolName(toolType string) string {
+	switch strings.TrimSpace(toolType) {
+	case "tool_search", "web_search", "image_generation":
+		return toolType
+	default:
+		return ""
+	}
 }
 
 // PruneToolDefinitions removes tool definitions whose names appear in

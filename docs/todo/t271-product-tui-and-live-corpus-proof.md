@@ -12,6 +12,7 @@ fallbacks, cache hits, recovery, and quality signals.
 - Admin state and audit tools expose many counters.
 - `/admin/state` now exposes `savings.product`, a product-facing rollup for
   status, billable input savings, output-wire savings, request-side reductions,
+  tool-prune input-token savings, output-reduce observed-output proof status,
   cache hit/miss counts, read/repeated/chunk hits, tool-resolution misses, and
   safety issues.
 - The TUI normal view now consumes the product rollup instead of rebuilding a
@@ -20,8 +21,8 @@ fallbacks, cache hits, recovery, and quality signals.
 - WSS parse failures, degraded sessions, compression errors, and host-budget
   attention now force product `attention` status and render concrete WSS safety
   details in the normal TUI product panel.
-- Real proof matrix and workday windows exist, but promotion criteria need to
-  be explicit for every max-out feature.
+- Real proof matrix, workday windows, promotion criteria, and maxx corpus gates
+  exist for the current product feature set.
 
 ## Product target
 
@@ -63,6 +64,11 @@ Debug/audit view:
    - provider-cache read/create tokens now flow through `/admin/state.savings`
      into the product panel as a separate savings class, not mixed into local
      Layer-0 input savings
+   - tool-prune saved tokens are counted into billable input savings and shown as
+     their own mechanism line; missing-tool retry/miss events force product
+     attention
+   - output-reduce is shown only as injection/observed-output status and input
+     overhead; it is not rendered as a billable-input savings claim
 4. [x] Define live-corpus promotion gates:
    - `benchmark-corpus --promotion-check` is the release/default-on gate, kept
      separate from the normal synthetic CI corpus gate
@@ -187,10 +193,10 @@ gate is done when default promotions require live corpus evidence.
 - 2026-06-03: Added `wss-proof-inventory`, a content-free inventory command for
   local proof-matrix rows. It ignores raw WSS frame payloads, aggregates clients,
   workload classes, expected reducers, live reducer hits, host-budget-ok rows,
-  positive-token rows, and missing release/maxx workload classes. Current local
-  capture inventory reports 13 matrix files, 65 rows, 48 CLI rows, 17 Desktop
-  rows, 49 positive-token rows, zero safety-issue rows, complete base release
-  workload coverage, and the exact remaining maxx gaps:
+  positive-token rows, and missing release/maxx workload classes. The earlier
+  local capture inventory reported 13 matrix files, 65 rows, 48 CLI rows,
+  17 Desktop rows, 49 positive-token rows, zero safety-issue rows, complete base
+  release workload coverage, and these maxx gaps:
   `chunk_dedup_log_output`, `chunk_dedup_test_output`,
   `output_reduce_aggressive`, `tool_heavy`, `provider_cache_long_session`, and
   `host_resource_long_workday`.
@@ -204,8 +210,9 @@ gate is done when default promotions require live corpus evidence.
 - 2026-06-03: Extended `wss-proof-inventory` from a presence checklist into a
   maxx workload status gate. It now reports, for each maxx workload, row count,
   positive-token rows, host-budget-ok rows, safety issues, live reducer hits,
-  missing required signals, and a `complete` boolean. Current local captures show
-  `chunk_dedup_similar_outputs` complete and the remaining maxx gaps precisely:
+  missing required signals, and a `complete` boolean. At that point, local
+  captures showed `chunk_dedup_similar_outputs` complete and the remaining maxx
+  gaps precisely:
   `chunk_dedup_log_output` and `chunk_dedup_test_output` have no live chunk-ref
   rows yet, `output_reduce_aggressive` has no `output_reduce_injected` row,
   `tool_heavy` has no `tool_prune` row, `provider_cache_long_session` has no
@@ -218,6 +225,14 @@ gate is done when default promotions require live corpus evidence.
   tool-heavy workloads require `tool_prune_tokens_saved`, output-reduce
   aggressive rows require `output_reduce_injected`, and host-resource workdays
   require `host_budget_ok`.
+- 2026-06-03: Refreshed the inventory after the WSS provider-cache accounting
+  fix. At that point, local captures reported 15 matrix files, 67 rows, 50 CLI rows,
+  17 Desktop rows, 49 positive-token rows, zero safety-issue rows,
+  `provider_cache_long_session` complete with `provider_cache_read=3456` and
+  `host_budget_ok`, and the remaining maxx gaps are now exactly:
+  `chunk_dedup_log_output`, `chunk_dedup_test_output`,
+  `output_reduce_aggressive`, `tool_heavy`, and
+  `host_resource_long_workday`.
 - 2026-06-03: Provider-cache long-session CLI proof is now complete in the local
   inventory. After WSS `response.completed` usage accounting was wired into
   analytics, the fixed capture matrix row reports `provider_cache_read=3456`,
@@ -248,9 +263,67 @@ gate is done when default promotions require live corpus evidence.
   `host_budget_ok` alone; it must also carry positive live billable input-token
   savings. A host that stays green while nothing is saved is useful telemetry,
   but it is not a max-out proof.
+- 2026-06-03: Added `wss-proof-export-corpus`, which converts local
+  proof-matrix rows into content-free `benchmark-corpus` categories. The export
+  path now maps `large_tool_output`, chunk log/test, provider-cache, and
+  host-resource rows into scrubbed live-corpus categories without raw WSS frames,
+  auth, prompts, command output, or file paths.
+- 2026-06-03: Refreshed the local proof inventory and exported corpus after the
+  WSS command-inference, log/test inventory, and large-output export fixes.
+  At that point, inventory reported 16 matrix files, 81 rows, 64 CLI rows,
+  17 Desktop rows, 54 positive-token rows, 0 safety-issue rows. The exported corpus had
+  49 real rows across 17 categories. `benchmark-corpus --promotion-check`
+  passed. `benchmark-corpus --maxx-check` still failed only on
+  `output_reduce_aggressive` and `tool_heavy`, both of which are now code-ready
+  but still require fresh live captures.
+- 2026-06-03: Hardened the focused proof tooling. `codex-capture-run
+  --expected-reducer` validates the requested reducer against the live
+  admin-state delta before returning PASS. Failed expected-reducer runs now
+  still append the matrix row first, so negative evidence such as host-budget
+  attention or a missing reducer hit remains auditable instead of disappearing.
+  This closes the previous honesty hole where a focused proof could carry an
+  expected reducer in metadata without proving that it fired.
 - 2026-06-03: Extended `benchmark-corpus --maxx-check` with host-budget
   evidence. Session reports now aggregate `host_budget` / flat
   `host_budget_*` fields, render ok/issue counts, and support a
   `host_budget_ok` scenario validator. The `host_resource_long_workday`
   category therefore requires both real savings and a green resource guard in
   the corpus gate, not just workload presence.
+- 2026-06-04: Refreshed the exported live corpus after the focused Desktop
+  tool-heavy proof. `benchmark-corpus --promotion-check` passes on
+  `tests/fixtures/live_corpus` with 54 total requests, 51 real live operator
+  rows, 34 Codex CLI rows, 17 Codex Desktop rows, all release/maxx workload
+  classes present, zero error rows, and `desktop_tool_heavy` proving
+  `tool_prune.applied=true`, one pruned tool, 26 saved tokens, and host budget
+  `ok`. Then hardened `benchmark-corpus --maxx-check` so
+  `output_reduce_aggressive` must carry observed output-token evidence, not just
+  WSS instruction injection plus provider-cache tokens. At that point the
+  stricter gate correctly failed only on the missing observed output-token row;
+  the later focused proof below closed that gap.
+- 2026-06-04: Unified proof inventory token-evidence semantics with
+  `wss-proof-matrix`: tool-prune saved tokens, provider-cache read tokens, and
+  guarded output-reduce observed-output evidence now all count as positive
+  economic token rows for inventory visibility. The current local inventory has
+  57 positive token rows, `tool_heavy.positive_token_rows=1`, and zero safety
+  issue rows.
+- 2026-06-04: Hardened matrix, inventory, and export semantics so that
+  `output_reduce_aggressive` requires observed output tokens, not only WSS
+  instruction injection. Existing stale corpus rows still fail the maxx gate,
+  while future `wss-proof-export-corpus` runs will not export such rows as
+  economic evidence.
+- 2026-06-04: Product TUI rollup now includes the maxx mechanism signals that
+  were previously missing from the default surface. Tool-prune saved tokens are
+  counted into `/admin/state.savings.product.billable_input_tokens_saved`, shown
+  as a short product mechanism line, and miss/retry recovery events force product
+  attention. Output-reduce appears only as `inj`, observed output tokens, and
+  added input overhead; injection-only sessions render as proof-pending instead
+  of a savings claim. Focused tests cover the control rollup, proxy probe,
+  TUI adapter, and main-view rendering.
+- 2026-06-04: Closed the remaining maxx corpus blocker. WSS
+  `response.completed` usage now feeds the output-reduce tracker with observed
+  output tokens, and a fresh focused CLI proof exported into
+  `cli_output_reduce_aggressive` carries `output_reduce_injected`, 154 observed
+  output tokens, `host_budget_ok`, zero safety errors, and no re-read signal.
+  `benchmark-corpus --promotion-check` and `benchmark-corpus --maxx-check` now
+  both pass on `tests/fixtures/live_corpus` with 51 real live operator rows
+  across the release and maxx workload classes.

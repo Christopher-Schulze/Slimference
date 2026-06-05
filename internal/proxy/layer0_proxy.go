@@ -63,6 +63,7 @@ type codexLayer0Request struct {
 	RecentFullPassTurns     int
 	ChunkDedupEnabled       bool
 	ExplicitChunkDedup      bool
+	ChunkDedupProof         savingspolicy.CodexProof
 	ChunkDedupMinBytes      int
 	ChunkDedupMaxRefPct     int
 	ChunkStore              *chunkdedup.Store
@@ -77,6 +78,17 @@ type codexLayer0Request struct {
 type codexLayer0Result struct {
 	Messages []types.Message
 	Stats    proxyLayer0Stats
+}
+
+type codexChunkDedupSettings struct {
+	Store           *chunkdedup.Store
+	Enabled         bool
+	MinBytes        int
+	MaxRefPct       int
+	Explicit        bool
+	PolicyMode      string
+	ArchiveRecovery bool
+	Proof           savingspolicy.CodexProof
 }
 
 type proxyLayer0Stats struct {
@@ -284,27 +296,53 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 	return result.Messages, result.Stats
 }
 
-func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int, int, bool, string, bool) {
+func (p *Proxy) codexChunkDedupSettings() codexChunkDedupSettings {
 	if p == nil || p.config == nil || p.codexChunkDedup == nil {
-		return nil, false, 0, 0, false, "", false
+		return codexChunkDedupSettings{}
 	}
 	or := p.config.Compression.OutputReduce
 	mode := or.CodexSavingsPolicyMode
 	policyMode := savingspolicy.NormalizeCodexMode(mode)
+	proof := savingspolicy.NormalizeCodexProof(or.CodexChunkDedupProofLevel)
 	archiveRecovery := or.ArchiveRecoveryNoteEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
 	if !archiveRecovery {
-		return nil, false, 0, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, false
+		return codexChunkDedupSettings{
+			MaxRefPct:       or.CodexChunkDedupMaxReferencePercent,
+			Explicit:        or.CodexChunkDedupEnabled,
+			PolicyMode:      mode,
+			ArchiveRecovery: false,
+			Proof:           proof,
+		}
 	}
 	chunkAvailable := or.CodexChunkDedupEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
 	if !chunkAvailable {
-		return nil, false, 0, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, archiveRecovery
+		return codexChunkDedupSettings{
+			MaxRefPct:       or.CodexChunkDedupMaxReferencePercent,
+			Explicit:        or.CodexChunkDedupEnabled,
+			PolicyMode:      mode,
+			ArchiveRecovery: archiveRecovery,
+			Proof:           proof,
+		}
 	}
-	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, archiveRecovery
+	return codexChunkDedupSettings{
+		Store:           p.codexChunkDedup,
+		Enabled:         true,
+		MinBytes:        or.CodexChunkDedupMinBytes,
+		MaxRefPct:       or.CodexChunkDedupMaxReferencePercent,
+		Explicit:        or.CodexChunkDedupEnabled,
+		PolicyMode:      mode,
+		ArchiveRecovery: archiveRecovery,
+		Proof:           proof,
+	}
 }
 
-func (p *Proxy) codexHTTPChunkDedupSettings() (*chunkdedup.Store, bool, int, int, bool, string, bool) {
-	_, _, minBytes, maxRefPct, _, mode, _ := p.codexChunkDedupSettings()
-	return nil, false, minBytes, maxRefPct, false, mode, false
+func (p *Proxy) codexHTTPChunkDedupSettings() codexChunkDedupSettings {
+	settings := p.codexChunkDedupSettings()
+	settings.Store = nil
+	settings.Enabled = false
+	settings.Explicit = false
+	settings.ArchiveRecovery = false
+	return settings
 }
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
@@ -317,9 +355,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	}
 	var out []types.Message
 	stats := proxyLayer0Stats{Route: req.Route}
-	// Codex (GPT-4o / GPT-5-codex) bills in o200k_base; count the savings guard
-	// with the matching encoding so before/after token math reflects real cost.
-	tok := tokens.ForProvider(types.CodexChatGPT)
 	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessages(req.Messages, req.RememberedToolUse)) > 0
 
 	for msgIdx, msg := range req.Messages {
@@ -331,16 +366,31 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			use, toolUseResolved := proxyResolveToolUseDetailed(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
 			if commandLine == "" {
-				stats.CommandUnresolvedBlocks++
-				if !toolUseResolved {
-					stats.ToolUseUnresolvedBlocks++
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+				if commandLine == "" {
+					stats.CommandUnresolvedBlocks++
+					if !toolUseResolved {
+						stats.ToolUseUnresolvedBlocks++
+					}
+					continue
 				}
-				continue
 			}
 			stats.CommandResolvedBlocks++
 			stats.recordLedgerObservation(use, req.SessionID, req.TurnID, commandLine, block.Text)
 			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
-			beforeTokens := tok.CountString(block.Text)
+			beforeTokens := -1
+			countBeforeTokens := func() int {
+				if beforeTokens < 0 {
+					// Codex bills in o200k_base. Keep exact counting on the
+					// real mutation/savings path, but do not load the heavy
+					// encoder for no-op cache misses.
+					beforeTokens = tokens.ForProvider(types.CodexChatGPT).CountString(block.Text)
+				}
+				return beforeTokens
+			}
+			countCandidateTokens := func(text string) int {
+				return tokens.ForProvider(types.CodexChatGPT).CountString(text)
+			}
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
 			readReq := readRequestFromCommandLine(commandLine)
 			readCommand := readReq.FilePath != ""
@@ -361,6 +411,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				Workload:                 workload,
 				ArchiveRecoveryAvailable: req.ArchiveRecovery && req.ChunkDedupEnabled && req.ChunkStore != nil,
 				ExplicitChunkDedup:       req.ExplicitChunkDedup,
+				ChunkProof:               req.ChunkDedupProof,
 				OutputBytes:              len(block.Text),
 				ChunkMinBytes:            req.ChunkDedupMinBytes,
 				IsRead:                   readCommand,
@@ -454,7 +505,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			candidateEligible := true
 			if changed {
 				candidateText = afterText
-				candidateEligible = tok.CountString(candidateText) < beforeTokens
+				candidateEligible = countCandidateTokens(candidateText) < countBeforeTokens()
 			}
 			if !readCommand && !preFilterRepeated && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
@@ -483,13 +534,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if !changed {
 				continue
 			}
-			afterTokens := tok.CountString(afterText)
-			if afterTokens < beforeTokens {
+			before := countBeforeTokens()
+			afterTokens := countCandidateTokens(afterText)
+			if afterTokens < before {
 				if out == nil {
 					out = cloneMessages(req.Messages)
 				}
 				out[msgIdx].Content[blockIdx].Text = afterText
-				stats.TokensSaved += beforeTokens - afterTokens
+				stats.TokensSaved += before - afterTokens
 				stats.BlocksModified++
 				switch mechanism {
 				case proxyLayer0MechanismReadDelta:
@@ -839,15 +891,126 @@ func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext
 }
 
 func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileReadContext) (string, bool, proxyLayer0Mechanism) {
-	compacted, changed := filter.CompactCapturedOutputWithContext("", commandLine, text, 0, ctx)
-	if changed {
-		return string(compacted), true, proxyLayer0MechanismCapturedOut
-	}
 	out, changed := compactCodexExecEnvelope(commandLine, text, ctx)
 	if changed {
 		return out, true, proxyLayer0MechanismCodexEnvelope
 	}
+	if inferred := proxyInferCommandLineFromToolResult(text); inferred != "" && inferred != commandLine {
+		out, changed = compactCodexExecEnvelope(inferred, text, ctx)
+		if changed {
+			return out, true, proxyLayer0MechanismCodexEnvelope
+		}
+	}
+	compacted, changed := filter.CompactCapturedOutputWithContext("", commandLine, text, 0, ctx)
+	if changed {
+		return string(compacted), true, proxyLayer0MechanismCapturedOut
+	}
+	if inferred := proxyInferCommandLineFromToolResult(text); inferred != "" && inferred != commandLine {
+		compacted, changed = filter.CompactCapturedOutputWithContext("", inferred, text, 0, ctx)
+		if changed {
+			return string(compacted), true, proxyLayer0MechanismCapturedOut
+		}
+	}
 	return "", false, ""
+}
+
+func proxyInferCommandLineFromToolResult(text string) string {
+	_, payload, ok := splitCodexExecEnvelope(text)
+	if !ok {
+		return ""
+	}
+	if strings.TrimSpace(payload) == "" {
+		return ""
+	}
+	if proxyLooksLikeGoTestOutput(payload) {
+		return "go test"
+	}
+	if proxyLooksLikeSearchOutput(payload) {
+		return "rg"
+	}
+	if proxyLooksLikeGitStatusOutput(payload) {
+		return "git status --short"
+	}
+	return ""
+}
+
+func proxyLooksLikeGoTestOutput(payload string) bool {
+	if !strings.Contains(payload, "=== RUN") {
+		return false
+	}
+	for _, marker := range []string{"\n--- PASS:", "\n--- FAIL:", "\nFAIL\t", "\nPASS\n", "\nFAIL\n"} {
+		if strings.Contains(payload, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func proxyLooksLikeSearchOutput(payload string) bool {
+	nonEmpty := 0
+	matches := 0
+	for _, line := range strings.Split(payload, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Total output lines:") {
+			continue
+		}
+		nonEmpty++
+		if proxyLooksLikeSearchResultLine(line) {
+			matches++
+		}
+		if nonEmpty >= 12 {
+			break
+		}
+	}
+	return matches >= 3 && matches*2 >= nonEmpty
+}
+
+func proxyLooksLikeSearchResultLine(line string) bool {
+	first := strings.IndexByte(line, ':')
+	if first <= 0 {
+		return false
+	}
+	second := strings.IndexByte(line[first+1:], ':')
+	if second <= 0 {
+		return false
+	}
+	lineNo := line[first+1 : first+1+second]
+	if lineNo == "" {
+		return false
+	}
+	for _, ch := range lineNo {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	path := line[:first]
+	return strings.Contains(path, "/") || strings.Contains(path, ".")
+}
+
+func proxyLooksLikeGitStatusOutput(payload string) bool {
+	nonEmpty := 0
+	statusLines := 0
+	for _, line := range strings.Split(payload, "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "Total output lines:") {
+			continue
+		}
+		nonEmpty++
+		if len(line) >= 3 && proxyLooksLikeGitStatusCode(line[:2]) && (line[2] == ' ' || line[2] == '\t') {
+			statusLines++
+		}
+		if nonEmpty >= 12 {
+			break
+		}
+	}
+	return statusLines >= 3 && statusLines*2 >= nonEmpty
+}
+
+func proxyLooksLikeGitStatusCode(code string) bool {
+	if len(code) != 2 {
+		return false
+	}
+	valid := " MADRCU?!"
+	return strings.ContainsRune(valid, rune(code[0])) && strings.ContainsRune(valid, rune(code[1]))
 }
 
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {

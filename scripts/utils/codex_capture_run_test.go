@@ -27,6 +27,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--health-timeout=2s",
 		"--codex-timeout=3s",
 		"--matrix-row", "~/matrix.jsonl",
+		"--resource-profile-proof", "~/resource-proof",
 		"--id", "cli-git",
 		"--client", "cli",
 		"--workload-class", "git_status_diff",
@@ -53,6 +54,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 	if !strings.HasSuffix(flags.matrixPath, "matrix.jsonl") {
 		t.Fatalf("matrixPath = %q", flags.matrixPath)
+	}
+	if !strings.HasSuffix(flags.resourceProfileProof, "resource-proof") {
+		t.Fatalf("resourceProfileProof = %q", flags.resourceProfileProof)
 	}
 	if flags.healthTimeout != 2*time.Second {
 		t.Fatalf("healthTimeout = %s", flags.healthTimeout)
@@ -86,6 +90,22 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	if !strings.Contains(defaults.capturePath, "codex-capture-20260602T120000Z.jsonl") {
 		t.Fatalf("default capturePath = %q", defaults.capturePath)
 	}
+
+	resourceDir := filepath.Join(t.TempDir(), "bundle")
+	resourceDefaults, err := parseCodexCaptureRunFlags([]string{
+		"--resource-profile-proof", resourceDir,
+		"--workload-class", "host_resource_long_workday",
+		"--", "Run host resource workload",
+	}, now)
+	if err != nil {
+		t.Fatalf("parse resource defaults: %v", err)
+	}
+	if resourceDefaults.capturePath != filepath.Join(resourceDir, "frames.jsonl") {
+		t.Fatalf("resource capturePath = %q", resourceDefaults.capturePath)
+	}
+	if resourceDefaults.matrixPath != filepath.Join(resourceDir, "matrix.jsonl") {
+		t.Fatalf("resource matrixPath = %q", resourceDefaults.matrixPath)
+	}
 }
 
 func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
@@ -93,6 +113,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	dir := t.TempDir()
 	capturePath := filepath.Join(dir, "capture.jsonl")
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	resourceDir := filepath.Join(dir, "resource")
 	var calls []string
 	done := make(chan error)
 	deps := codexCaptureRunDeps{
@@ -168,6 +189,14 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				GatePassed:      true,
 			}, nil
 		},
+		resourceBefore: func(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon) (*codexCaptureResourceProof, error) {
+			calls = append(calls, "resource-before:"+flags.resourceProfileProof)
+			return &codexCaptureResourceProof{dir: flags.resourceProfileProof}, nil
+		},
+		resourceAfter: func(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, proof *codexCaptureResourceProof) error {
+			calls = append(calls, "resource-after:"+proof.dir)
+			return nil
+		},
 	}
 	var stdout, stderr bytes.Buffer
 	code := runCodexCaptureRunWithDeps([]string{
@@ -175,6 +204,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"--capture", capturePath,
 		"--transport", "wss",
 		"--matrix-row", matrixPath,
+		"--resource-profile-proof", resourceDir,
 		"--id", "cli-repeat",
 		"--workload-class", "repeat_full_read",
 		"--expected-reducer", "read_delta",
@@ -188,8 +218,10 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"start:" + capturePath,
 		"health:127.0.0.1:8990",
 		"admin",
+		"resource-before:" + resourceDir,
 		"codex:wss:Read AGENTS.md twice",
 		"admin",
+		"resource-after:" + resourceDir,
 		"stop",
 		"replay:" + capturePath,
 	}
@@ -238,6 +270,61 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		records[0].LiveDelta.ProxyLayer0Cache[0].Mechanism != "read_delta" ||
 		records[0].LiveDelta.ProxyLayer0Cache[0].Count != 1 {
 		t.Fatalf("matrix row missing cache delta: %+v", records[0].LiveDelta.ProxyLayer0Cache)
+	}
+}
+
+func TestRunCodexCaptureRunWritesMatrixBeforeExpectedReducerFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	deps := codexCaptureRunDeps{
+		now: func() time.Time {
+			return time.Date(2026, 6, 4, 20, 30, 0, 0, time.UTC)
+		},
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error { return nil },
+		startDaemon: func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error) {
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error { return nil },
+		adminSnapshot: func(ctx context.Context, flags codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			return codexCaptureAdminSnapshot{
+				HostBudgetStatus:        "attention",
+				HostBudgetExceeded:      true,
+				HostBudgetReasons:       []string{"rss_budget_exceeded"},
+				HostBudgetRSSBytes:      227590144,
+				HostBudgetCompressionOK: true,
+				HostBudgetDegradationOK: true,
+			}, nil
+		},
+		runCodex:   func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error { return nil },
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
+		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
+			return wssABReplayReport{Path: flags.path, Frames: 3, RequestTurns: 1, GatePassed: true}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--matrix-row", matrixPath,
+		"--id", "host-resource-negative",
+		"--workload-class", "host_resource_long_workday",
+		"--expected-reducer", "host_budget_ok",
+		"--", "Run host resource workload",
+	}, &stdout, &stderr, deps)
+	if code != 3 || !strings.Contains(stderr.String(), "expected reducer host_budget_ok did not fire") {
+		t.Fatalf("expected reducer failure after matrix write, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	records, err := readWSSProofMatrixRecords(matrixPath)
+	if err != nil {
+		t.Fatalf("read matrix row: %v", err)
+	}
+	if len(records) != 1 || records[0].ID != "host-resource-negative" {
+		t.Fatalf("matrix row missing after expected reducer failure: %+v", records)
+	}
+	if records[0].LiveDelta == nil || !records[0].LiveDelta.HostBudgetExceeded ||
+		records[0].LiveDelta.HostBudgetReasons[0] != "rss_budget_exceeded" {
+		t.Fatalf("negative host-budget evidence not persisted: %+v", records[0].LiveDelta)
 	}
 }
 
@@ -336,6 +423,133 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	}
 	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || snapshot.HostBudgetCPUWindowSec != 2.5 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
 		t.Fatalf("host budget fields missing: %+v", snapshot)
+	}
+}
+
+func TestMergeCodexCaptureAdminStatusAddsToolPrune(t *testing.T) {
+	state, err := parseCodexCaptureAdminStateJSON([]byte(`{
+	  "savings": {"billable_input_tokens_saved": 99},
+	  "host_budget": {"status": "ok", "compression_ok": true, "degradation_ok": true}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := parseCodexCaptureAdminStatusJSON([]byte(`{
+	  "tool_prune": {
+	    "pruned_total": 2,
+	    "reattach_total": 1,
+	    "miss_total": 0,
+	    "retry_total": 0,
+	    "always_keep_total": 17,
+	    "disabled_sessions": 0,
+	    "tokens_saved_sum": 42
+	  },
+	  "output_reduce": {
+	    "injected_turns": 1,
+	    "input_overhead_tokens": 5
+	  },
+	  "output_reduce_counters": {
+	    "stop_seq_requests_modified": 3
+	  }
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeCodexCaptureAdminStatus(&state, status)
+	snapshot := codexCaptureAdminSnapshotFromState(state)
+	if snapshot.BillableInputTokensSaved != 99 {
+		t.Fatalf("state savings lost during merge: %+v", snapshot)
+	}
+	if snapshot.ToolPrunePruned != 2 || snapshot.ToolPruneReattach != 1 || snapshot.ToolPruneAlwaysKeep != 17 || snapshot.ToolPruneTokensSaved != 42 {
+		t.Fatalf("status tool-prune fields missing after merge: %+v", snapshot)
+	}
+	if snapshot.OutputReduceInjected != 1 || snapshot.OutputReduceInputOverheadTokens != 5 || snapshot.StopSeqRequestsModified != 3 {
+		t.Fatalf("status output-reduce fields missing after merge: %+v", snapshot)
+	}
+	if snapshot.HostBudgetStatus != "ok" || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
+		t.Fatalf("state host budget lost during merge: %+v", snapshot)
+	}
+}
+
+func TestValidateCodexCaptureExpectedReducers(t *testing.T) {
+	failures := validateCodexCaptureExpectedReducers([]string{"read_delta", "none", "read_delta"}, &codexCaptureLiveDelta{
+		ProxyLayer0ReadDelta: 1,
+	})
+	if len(failures) != 0 {
+		t.Fatalf("unexpected failures: %v", failures)
+	}
+
+	failures = validateCodexCaptureExpectedReducers([]string{"output_reduce_injected"}, &codexCaptureLiveDelta{})
+	if len(failures) != 1 || !strings.Contains(failures[0], "output_reduce_injected did not fire") {
+		t.Fatalf("expected missing reducer failure, got %v", failures)
+	}
+
+	failures = validateCodexCaptureExpectedReducers([]string{"does_not_exist"}, &codexCaptureLiveDelta{})
+	if len(failures) != 1 || !strings.Contains(failures[0], "unknown expected reducer") {
+		t.Fatalf("expected unknown reducer failure, got %v", failures)
+	}
+}
+
+func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.jsonl")
+	data := strings.Join([]string{
+		`{"direction":"c2s","payload":{"type":"response.create","instructions":"base"}}`,
+		`{"direction":"s2c","payload":{"type":"response.completed","response":{"usage":{"output_tokens":42}}}}`,
+		`{"direction":"server_to_client","payload":"{\"usage\":{\"completion_tokens\":7}}"}`,
+		`{"direction":"s2c","payload":{"type":"response.created","response":{"instructions":"base\n\n#slimference-output-rules\nAnswer directly."}}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{})
+	if live.OutputReduceInjected != 1 {
+		t.Fatalf("OutputReduceInjected = %d, want wire evidence hit", live.OutputReduceInjected)
+	}
+	if live.ProviderOutputTokens != 49 {
+		t.Fatalf("ProviderOutputTokens = %d, want wire usage total", live.ProviderOutputTokens)
+	}
+	if failures := validateCodexCaptureExpectedReducers([]string{"output_reduce_injected"}, live); len(failures) != 0 {
+		t.Fatalf("wire evidence should satisfy output reduce reducer: %v", failures)
+	}
+
+	live = augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{OutputReduceInjected: 3, ProviderOutputTokens: 11})
+	if live.OutputReduceInjected != 3 || live.ProviderOutputTokens != 11 {
+		t.Fatalf("existing live counters overwritten: %+v", live)
+	}
+}
+
+func TestWaitCodexCaptureAggregateReportWithHostWindow(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	got, err := waitCodexCaptureAggregateReportWithHostWindow(context.Background(), codexCaptureRunFlags{}, time.Second, func(codexCaptureRunFlags) (aggregateSavingsReport, string, error) {
+		calls++
+		report := aggregateSavingsReport{Generated: time.Date(2026, 6, 4, 21, 0, calls, 0, time.UTC)}
+		if calls >= 2 {
+			report.HostBudget.CPUWindowSeconds = 1.25
+			report.HostBudget.Status = "ok"
+		}
+		return report, "", nil
+	})
+	if err != nil {
+		t.Fatalf("waitCodexCaptureAggregateReportWithHostWindow: %v", err)
+	}
+	if calls < 2 || got.HostBudget.CPUWindowSeconds != 1.25 {
+		t.Fatalf("did not wait for measured host window: calls=%d report=%+v", calls, got.HostBudget)
+	}
+}
+
+func TestWaitCodexCaptureAggregateReportWithHostWindowFailsClosed(t *testing.T) {
+	t.Parallel()
+	_, err := waitCodexCaptureAggregateReportWithHostWindow(context.Background(), codexCaptureRunFlags{}, time.Nanosecond, func(codexCaptureRunFlags) (aggregateSavingsReport, string, error) {
+		return aggregateSavingsReport{HostBudget: aggregateHostBudgetBlock{Status: "ok"}}, "", nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "host_budget cpu_window_seconds stayed") {
+		t.Fatalf("expected fail-closed missing host window error, got %v", err)
+	}
+	_, err = waitCodexCaptureAggregateReportWithHostWindow(context.Background(), codexCaptureRunFlags{}, time.Second, nil)
+	if err == nil || !strings.Contains(err.Error(), "loader is nil") {
+		t.Fatalf("expected nil loader error, got %v", err)
 	}
 }
 
@@ -493,6 +707,8 @@ func TestAppendCodexCaptureMatrixRowWritesJSONL(t *testing.T) {
 		slimferenceCommit:   "abc123",
 		repo:                "Slimference",
 		model:               "gpt-5.5",
+		abPairID:            "output-ab-1",
+		abVariant:           "directive",
 		expectedReducers:    []string{"none"},
 		expectedZeroSavings: true,
 	}
@@ -509,6 +725,32 @@ func TestAppendCodexCaptureMatrixRowWritesJSONL(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"expected_zero_savings":true`) {
 		t.Fatalf("matrix row missing expected_zero_savings: %s", string(data))
+	}
+	if !strings.Contains(string(data), `"ab_pair_id":"output-ab-1"`) ||
+		!strings.Contains(string(data), `"ab_variant":"directive"`) {
+		t.Fatalf("matrix row missing A/B metadata: %s", string(data))
+	}
+}
+
+func TestValidateABProofFlags(t *testing.T) {
+	t.Parallel()
+	if err := validateABProofFlags("pair", "baseline"); err != nil {
+		t.Fatalf("baseline should pass: %v", err)
+	}
+	if err := validateABProofFlags("pair", "directive"); err != nil {
+		t.Fatalf("directive should pass: %v", err)
+	}
+	for _, tc := range []struct {
+		pair    string
+		variant string
+	}{
+		{pair: "pair"},
+		{variant: "baseline"},
+		{pair: "pair", variant: "other"},
+	} {
+		if err := validateABProofFlags(tc.pair, tc.variant); err == nil {
+			t.Fatalf("expected invalid A/B flags to fail: %+v", tc)
+		}
 	}
 }
 

@@ -1074,6 +1074,12 @@ func (m *Model) buildRightPanel(width int) []string {
 	add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
 		product.CacheHits, product.CacheHits+product.CacheMisses,
 		product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
+	if line := productToolPruneLine(product); line != "" {
+		add(" " + s.Muted.Render(line))
+	}
+	if line := productOutputReduceLine(product); line != "" {
+		add(" " + s.Muted.Render(line))
+	}
 	if product.SafetyIssues > 0 || product.HostBudgetExceeded || product.HostBudgetStatus == "unknown" {
 		add(" " + s.Warning.Render(productSafetyLine(product)))
 	} else {
@@ -1172,6 +1178,48 @@ func productRouteDetail(product ProductStatus) string {
 		route += " · recert " + product.RecertStatus
 	}
 	return route
+}
+
+func productToolPruneLine(product ProductStatus) string {
+	if product.ToolPruneTokensSaved <= 0 &&
+		product.ToolPrunePrunedTools <= 0 &&
+		product.ToolPruneReattached <= 0 &&
+		product.ToolPruneMisses <= 0 &&
+		product.ToolPruneRetries <= 0 {
+		return ""
+	}
+	parts := []string{"tool-prune " + formatTokens(int(product.ToolPruneTokensSaved)) + " input saved"}
+	if product.ToolPrunePrunedTools > 0 {
+		parts = append(parts, fmt.Sprintf("%d pruned", product.ToolPrunePrunedTools))
+	}
+	if product.ToolPruneReattached > 0 {
+		parts = append(parts, fmt.Sprintf("%d reattach", product.ToolPruneReattached))
+	}
+	if product.ToolPruneMisses > 0 {
+		parts = append(parts, fmt.Sprintf("%d miss", product.ToolPruneMisses))
+	}
+	if product.ToolPruneRetries > 0 {
+		parts = append(parts, fmt.Sprintf("%d retry", product.ToolPruneRetries))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func productOutputReduceLine(product ProductStatus) string {
+	if product.OutputReduceInjectedTurns <= 0 &&
+		product.OutputReduceObservedTokens <= 0 &&
+		product.OutputReduceInputOverhead <= 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("output-reduce %d inj", product.OutputReduceInjectedTurns)}
+	if product.OutputReduceObservedTokens > 0 {
+		parts = append(parts, formatTokens(int(product.OutputReduceObservedTokens))+" out")
+	} else if product.OutputReduceInjectedTurns > 0 {
+		parts = append(parts, "proof pending")
+	}
+	if product.OutputReduceInputOverhead > 0 {
+		parts = append(parts, "+"+formatTokens(int(product.OutputReduceInputOverhead))+" input")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func productSafetyLine(product ProductStatus) string {

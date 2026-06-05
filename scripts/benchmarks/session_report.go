@@ -25,30 +25,33 @@ import (
 
 // sessionReportAggregate holds the running totals we care about.
 type sessionReportAggregate struct {
-	requests            int
-	origTokens          int64
-	finalTokens         int64
-	savedTokens         int64
-	layer0Saved         int64
-	layer1Saved         int64
-	layer2Saved         int64
-	layer3Saved         int64
-	cacheHits           int
-	perSubLayer         map[string]int64 // tokens saved by sub-layer name
-	perProvider         map[string]int
-	perCodexRoute       map[string]int
-	cacheReadSum        int64
-	cacheCreateSum      int64
-	providerCachedSum   int64
-	outputTokenSum      int64
-	outputReduceApplied int
-	errorCount          int
-	reReadCount         int
-	hostBudgetOK        int
-	hostBudgetIssues    int
-	latenciesMs         []float64
-	planReplay          planReplayAggregate
-	layerCombinations   map[string]layerCombinationAggregate
+	requests                  int
+	origTokens                int64
+	finalTokens               int64
+	savedTokens               int64
+	layer0Saved               int64
+	layer1Saved               int64
+	layer2Saved               int64
+	layer3Saved               int64
+	cacheHits                 int
+	perSubLayer               map[string]int64 // tokens saved by sub-layer name
+	perProvider               map[string]int
+	perCodexRoute             map[string]int
+	cacheReadSum              int64
+	cacheCreateSum            int64
+	providerCachedSum         int64
+	outputTokenSum            int64
+	outputReduceApplied       int
+	outputReduceInputOverhead int64
+	toolPruneApplied          int
+	toolPruneSaved            int64
+	errorCount                int
+	reReadCount               int
+	hostBudgetOK              int
+	hostBudgetIssues          int
+	latenciesMs               []float64
+	planReplay                planReplayAggregate
+	layerCombinations         map[string]layerCombinationAggregate
 }
 
 func newSessionReportAggregate() *sessionReportAggregate {
@@ -128,6 +131,11 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		if rec.OutputReduce.Applied {
 			agg.outputReduceApplied++
 		}
+		agg.outputReduceInputOverhead += int64(outputReduceAddedTokensFromSummary(rec, raw))
+		if rec.ToolPrune.Applied || rec.ToolPrune.SavedTokens > 0 {
+			agg.toolPruneApplied++
+			agg.toolPruneSaved += int64(rec.ToolPrune.SavedTokens)
+		}
 		agg.errorCount += len(rec.Errors)
 		agg.reReadCount += rec.ReReadCount
 		switch hostBudgetStateFromRaw(raw) {
@@ -155,6 +163,37 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		return nil, err
 	}
 	return agg, nil
+}
+
+func outputReduceAddedTokensFromSummary(rec dbg.RequestSummary, raw map[string]json.RawMessage) int {
+	if rec.OutputReduce.AddedTokens > 0 {
+		return rec.OutputReduce.AddedTokens
+	}
+	if added := rawOutputReduceAddedTokens(raw["output_reduce"]); added > 0 {
+		return added
+	}
+	var flight map[string]json.RawMessage
+	if err := json.Unmarshal(raw["flight"], &flight); err == nil {
+		return rawOutputReduceAddedTokens(flight["output_reduce"])
+	}
+	return 0
+}
+
+func rawOutputReduceAddedTokens(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return 0
+	}
+	for _, key := range []string{"added_tokens", "input_overhead_tokens", "output_reduce_input_overhead_tokens"} {
+		var n int
+		if err := json.Unmarshal(m[key], &n); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func positiveDelta(before, after int) int64 {
@@ -227,6 +266,9 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.providerCachedSum += src.providerCachedSum
 	dst.outputTokenSum += src.outputTokenSum
 	dst.outputReduceApplied += src.outputReduceApplied
+	dst.outputReduceInputOverhead += src.outputReduceInputOverhead
+	dst.toolPruneApplied += src.toolPruneApplied
+	dst.toolPruneSaved += src.toolPruneSaved
 	dst.errorCount += src.errorCount
 	dst.reReadCount += src.reReadCount
 	dst.hostBudgetOK += src.hostBudgetOK

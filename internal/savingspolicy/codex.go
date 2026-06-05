@@ -130,6 +130,7 @@ type CodexToolOutputInput struct {
 	Workload                 CodexWorkload
 	ArchiveRecoveryAvailable bool
 	ExplicitChunkDedup       bool
+	ChunkProof               CodexProof
 	OutputBytes              int
 	ChunkMinBytes            int
 	IsRead                   bool
@@ -178,6 +179,25 @@ func NormalizeCodexMode(mode string) CodexMode {
 		return CodexModeMax
 	default:
 		return CodexMode("")
+	}
+}
+
+func ValidCodexProof(proof string) bool {
+	return NormalizeCodexProof(proof) != ""
+}
+
+func NormalizeCodexProof(proof string) CodexProof {
+	switch strings.ToLower(strings.TrimSpace(proof)) {
+	case "", string(CodexProofNone), "off", "disabled":
+		return CodexProofNone
+	case string(CodexProofUnit):
+		return CodexProofUnit
+	case string(CodexProofReplay):
+		return CodexProofReplay
+	case string(CodexProofLive):
+		return CodexProofLive
+	default:
+		return CodexProof("")
 	}
 }
 
@@ -277,6 +297,12 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 		if mode == CodexModeConservative && !in.Explicit {
 			return block(base, "conservative_requires_explicit_recovery")
 		}
+		if mode == CodexModeAuto && !in.Explicit && !proofAtLeast(in.Proof, CodexProofLive) {
+			return shadow(base, "live_proof_required")
+		}
+		if mode == CodexModeMax && !in.Explicit && !proofAtLeast(in.Proof, CodexProofReplay) {
+			return shadow(base, "replay_or_live_proof_required")
+		}
 		return allow(base, "recoverable_with_archive", true)
 	}
 	if in.Risk == CodexRiskReconstructive || in.Risk == CodexRiskSemantic {
@@ -294,7 +320,7 @@ func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanism
 		Mechanism:                 CodexMechanismChunkDedup,
 		Risk:                      CodexRiskRecoverable,
 		Recovery:                  CodexRecoveryArchive,
-		Proof:                     CodexProofLive,
+		Proof:                     NormalizeCodexProof(string(in.ChunkProof)),
 		ArchiveRecoveryAvailable:  in.ArchiveRecoveryAvailable,
 		Explicit:                  in.ExplicitChunkDedup,
 		OutputBytes:               in.OutputBytes,
@@ -328,6 +354,12 @@ func decideChunkDedup(base CodexMechanismDecision, in CodexMechanismInput, mode 
 	}
 	if mode == CodexModeConservative && !in.Explicit {
 		return block(base, "conservative_requires_explicit_recovery")
+	}
+	if mode == CodexModeAuto && !in.Explicit && !proofAtLeast(in.Proof, CodexProofLive) {
+		return shadow(base, "live_proof_required")
+	}
+	if mode == CodexModeMax && !in.Explicit && !proofAtLeast(in.Proof, CodexProofReplay) {
+		return shadow(base, "replay_or_live_proof_required")
 	}
 	return allow(base, "recoverable_chunk_dedup", true)
 }
@@ -373,7 +405,7 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 	} else if workload == CodexWorkloadSearch {
 		decisions = append(decisions, DecideCodexMechanism(withMechanism(common, CodexMechanismSearchDelta, CodexRiskLossless, CodexRecoveryExact, CodexProofReplay, false)))
 	}
-	decisions = append(decisions, DecideCodexMechanism(withMechanism(common, CodexMechanismChunkDedup, CodexRiskRecoverable, CodexRecoveryArchive, CodexProofLive, in.ExplicitChunkDedup)))
+	decisions = append(decisions, DecideCodexMechanism(withMechanism(common, CodexMechanismChunkDedup, CodexRiskRecoverable, CodexRecoveryArchive, in.ChunkProof, in.ExplicitChunkDedup)))
 	for _, mechanism := range []CodexMechanism{
 		CodexMechanismServerStateMirror,
 		CodexMechanismPredictivePostEdit,
@@ -383,6 +415,23 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 		decisions = append(decisions, DecideCodexMechanism(withMechanism(common, mechanism, CodexRiskReconstructive, CodexRecoveryArchive, CodexProofNone, false)))
 	}
 	return decisions
+}
+
+func proofAtLeast(got, want CodexProof) bool {
+	return proofRank(NormalizeCodexProof(string(got))) >= proofRank(want)
+}
+
+func proofRank(proof CodexProof) int {
+	switch proof {
+	case CodexProofUnit:
+		return 1
+	case CodexProofReplay:
+		return 2
+	case CodexProofLive:
+		return 3
+	default:
+		return 0
+	}
 }
 
 func withMechanism(in CodexMechanismInput, mechanism CodexMechanism, risk CodexRisk, recovery CodexRecovery, proof CodexProof, explicit bool) CodexMechanismInput {

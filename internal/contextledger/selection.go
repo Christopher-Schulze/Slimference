@@ -2,6 +2,7 @@ package contextledger
 
 import (
 	"errors"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -26,15 +27,19 @@ const (
 	SelectionReasonMissingProvenance       SelectionReason = "missing_provenance"
 	SelectionReasonMissingFacts            SelectionReason = "missing_facts"
 	SelectionReasonWrongSession            SelectionReason = "wrong_session"
+	SelectionReasonActivePath              SelectionReason = "active_path"
+	SelectionReasonQualityPressure         SelectionReason = "quality_pressure"
 	SelectionReasonBudgetExhausted         SelectionReason = "budget_exhausted"
 	SelectionReasonUnknownKind             SelectionReason = "unknown_kind"
 )
 
 type SelectionPolicy struct {
-	SessionID     string
-	ActiveTurnID  string
-	RecentTurnIDs []string
-	MaxCapsules   int
+	SessionID       string
+	ActiveTurnID    string
+	RecentTurnIDs   []string
+	ActivePaths     []string
+	QualityPressure bool
+	MaxCapsules     int
 }
 
 type CapsuleDecision struct {
@@ -52,9 +57,10 @@ type SelectionReport struct {
 
 func SelectCapsules(capsules []Capsule, policy SelectionPolicy) SelectionReport {
 	recentTurns := stringSet(policy.RecentTurnIDs)
+	activePaths := pathSet(policy.ActivePaths)
 	report := SelectionReport{Decisions: make([]CapsuleDecision, 0, len(capsules))}
 	for _, capsule := range capsules {
-		action, reason := selectCapsule(capsule, policy, recentTurns, report.Capsules)
+		action, reason := selectCapsule(capsule, policy, recentTurns, activePaths, report.Capsules)
 		decision := CapsuleDecision{Capsule: capsule, Action: action, Reason: reason}
 		report.Decisions = append(report.Decisions, decision)
 		switch action {
@@ -69,9 +75,12 @@ func SelectCapsules(capsules []Capsule, policy SelectionPolicy) SelectionReport 
 	return report
 }
 
-func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns map[string]struct{}, selected int) (SelectionAction, SelectionReason) {
+func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns, activePaths map[string]struct{}, selected int) (SelectionAction, SelectionReason) {
 	if !knownKind(capsule.Kind) {
 		return SelectionReject, SelectionReasonUnknownKind
+	}
+	if policy.QualityPressure {
+		return SelectionVerbatim, SelectionReasonQualityPressure
 	}
 	wantSession := strings.TrimSpace(policy.SessionID)
 	if wantSession == "" {
@@ -94,6 +103,9 @@ func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns map[stri
 	}
 	if !capsuleHasRequiredFacts(capsule) {
 		return SelectionVerbatim, SelectionReasonMissingFacts
+	}
+	if capsuleTouchesActivePath(capsule, activePaths) {
+		return SelectionVerbatim, SelectionReasonActivePath
 	}
 	if capsule.Kind == CapsuleFailure {
 		return SelectionVerbatim, SelectionReasonHighRiskFailure
@@ -158,6 +170,58 @@ func stringSet(values []string) map[string]struct{} {
 		out[value] = struct{}{}
 	}
 	return out
+}
+
+func pathSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = cleanPathFact(value)
+		if value == "" {
+			continue
+		}
+		out[value] = struct{}{}
+	}
+	return out
+}
+
+func capsuleTouchesActivePath(capsule Capsule, activePaths map[string]struct{}) bool {
+	if len(activePaths) == 0 {
+		return false
+	}
+	switch capsule.Kind {
+	case CapsuleFile:
+		return pathMatchesActive(capsule.Facts["path"], capsule.Facts["repo_root"], activePaths)
+	case CapsuleSearch:
+		repoRoot := capsule.Facts["repo_root"]
+		for _, file := range strings.Split(capsule.Facts["files_matched"], ",") {
+			if pathMatchesActive(file, repoRoot, activePaths) {
+				return true
+			}
+		}
+	case CapsuleDecisionContext:
+		for _, file := range strings.Split(capsule.Facts["active_files"], ",") {
+			if _, ok := activePaths[cleanPathFact(file)]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pathMatchesActive(path, repoRoot string, activePaths map[string]struct{}) bool {
+	path = cleanPathFact(path)
+	if path == "" {
+		return false
+	}
+	if _, ok := activePaths[path]; ok {
+		return true
+	}
+	repoRoot = cleanPathFact(repoRoot)
+	if repoRoot == "" || filepath.IsAbs(path) {
+		return false
+	}
+	_, ok := activePaths[cleanPathFact(filepath.Join(repoRoot, path))]
+	return ok
 }
 
 type ArchiveLoader func(id string) ([]byte, error)

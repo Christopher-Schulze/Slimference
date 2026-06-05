@@ -1,6 +1,9 @@
 package filter
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLayer0ReducerRegistryContracts(t *testing.T) {
 	t.Parallel()
@@ -36,6 +39,14 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 		if reducer.RecoveryPath == "" {
 			t.Fatalf("%s has no recovery path contract", reducer.ID)
 		}
+		if reducer.SafetyClass == Layer0ReducerSafetyEmptyEvidence {
+			if reducer.ID != "ls" && reducer.ID != "tree" {
+				t.Fatalf("%s uses empty-evidence safety class; only empty filesystem probes may use it", reducer.ID)
+			}
+			if !containsPreservedEvidence(reducer.PreservedEvidence, "full-pass") {
+				t.Fatalf("%s empty-evidence reducer must declare non-empty full-pass behavior: %+v", reducer.ID, reducer.PreservedEvidence)
+			}
+		}
 	}
 
 	for _, id := range []string{
@@ -53,6 +64,15 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 	}
 }
 
+func containsPreservedEvidence(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLayer0ReducerRegistryOrder(t *testing.T) {
 	t.Parallel()
 	registry := Layer0ReducerRegistry()
@@ -63,6 +83,9 @@ func TestLayer0ReducerRegistryOrder(t *testing.T) {
 
 	if position["tier1_sarif"] > position["git_status"] {
 		t.Fatal("tier1 reducers must run before heuristic reducers")
+	}
+	if position["test_output"] > position["build_output"] {
+		t.Fatal("dedicated test reducer must run before build reducer fallback")
 	}
 	if position["build_output"] > position["log_output"] {
 		t.Fatal("dedicated build reducer must run before generic log reducer")

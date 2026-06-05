@@ -19,7 +19,9 @@ var ghListSubcommands = map[string]bool{
 
 const ghListMaxRows = 15
 
-// TryCompactGhList summarizes `gh … list` output (F18): empty → "empty"; many rows → count + first N rows.
+// TryCompactGhList summarizes `gh … list` output (F18): empty → "empty"; many
+// rows compact only when diagnostic attention rows are present. Healthy
+// non-empty lists are model evidence and must full-pass.
 func TryCompactGhList(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 3 {
 		return stdout, false
@@ -38,7 +40,8 @@ func TryCompactGhList(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte(fmt.Sprintf("[gh %s list] empty\n", sub)), true
 	}
-	// Non-empty: count rows and truncate if large.
+	// Non-empty: preserve healthy lists. For large diagnostic lists, keep the
+	// attention rows and a count.
 	lines := strings.Split(s, "\n")
 	var rows []string
 	for _, l := range lines {
@@ -50,6 +53,9 @@ func TryCompactGhList(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false // short enough
 	}
 	out := compactCLIListRows(fmt.Sprintf("gh %s list", sub), rows, ghListMaxRows)
+	if out == "" {
+		return stdout, false
+	}
 	if len(out) >= len(s) {
 		return stdout, false
 	}
@@ -58,7 +64,7 @@ func TryCompactGhList(argv []string, stdout []byte) ([]byte, bool) {
 
 func compactCLIListRows(label string, rows []string, maxRows int) string {
 	if maxRows <= 0 || len(rows) <= maxRows {
-		return strings.Join(rows, "\n")
+		return ""
 	}
 	selected := make(map[int]struct{}, maxRows)
 	attention := 0
@@ -70,6 +76,9 @@ func compactCLIListRows(label string, rows []string, maxRows int) string {
 		if len(selected) < maxRows {
 			selected[i] = struct{}{}
 		}
+	}
+	if attention == 0 {
+		return ""
 	}
 	for i := 0; i < len(rows) && len(selected) < maxRows; i++ {
 		selected[i] = struct{}{}

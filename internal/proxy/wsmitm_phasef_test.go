@@ -17,6 +17,7 @@ import (
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
+	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 	"github.com/slimference/slimference/internal/wscompact"
@@ -60,6 +61,15 @@ func TestWSPhaseFRequestSkipsStopOnResponsesShape(t *testing.T) {
 	}
 	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 0 {
 		t.Fatalf("stop counter=%d, want 0", got)
+	}
+}
+
+func TestWSSPlannerTokenCountsNoMutationUsesCheapEstimate(t *testing.T) {
+	body := []byte(`{"model":"gpt-5-codex","input":"hello","stream":true}`)
+	original, final := wssPlannerTokenCounts(body, []byte(`{"different":true}`), nil, proxyLayer0Stats{}, false)
+	want := tokens.Estimate(len(body))
+	if original != want || final != want {
+		t.Fatalf("no-mutation planner counts = %d/%d, want cheap estimate %d/%d", original, final, want, want)
 	}
 }
 
@@ -181,6 +191,9 @@ func TestWSPhaseFRecordsProviderCacheUsageFromCompletedResponse(t *testing.T) {
 	}
 	if got.Product.Status != "saving" {
 		t.Fatalf("product status=%q, want saving", got.Product.Status)
+	}
+	if snap := p.outputReduce.Snapshot(); snap.OutputTokensObserved != 12 {
+		t.Fatalf("output-reduce WSS output tokens=%d, want 12", snap.OutputTokensObserved)
 	}
 }
 
@@ -375,7 +388,7 @@ func TestWSPhaseFOutputReduceInjectsIntoCodexInstructions(t *testing.T) {
 			"input": []map[string]any{{
 				"type":    "message",
 				"role":    "user",
-				"content": "Explain the implementation strategy and include tradeoffs.",
+				"content": "What is the current status?",
 			}},
 			"stream": true,
 		},
@@ -573,6 +586,95 @@ func TestWSPhaseFToolPrunePrunesIdleCodexTools(t *testing.T) {
 	snap := p.toolPrune.Snapshot()
 	if snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 || snap.AlwaysKeepTotal == 0 {
 		t.Fatalf("tool-prune snapshot = %+v, want one pruned tool with savings and always-keep", snap)
+	}
+}
+
+func TestWSPhaseFToolPruneAcceptsCodexDesktopSpecialToolShapes(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-desktop-special"
+	p.toolPrune.ObserveTurn(sessionID, []string{"ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, nil)
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-desktop-special",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue with the available tools.",
+			}},
+			"tools": []map[string]any{
+				{"type": "function", "name": "exec_command", "description": "Run shell commands", "parameters": map[string]any{"type": "object"}},
+				{"type": "custom", "name": "apply_patch", "description": "Patch files"},
+				{"type": "tool_search", "parameters": map[string]any{"type": "object"}},
+				{"type": "web_search", "external_web_access": true},
+				{"type": "image_generation", "output_format": "png"},
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected WSS tool-prune mutation")
+	}
+	body := string(env.Body)
+	if strings.Contains(body, "ColdTool") {
+		t.Fatalf("idle tool still present after prune: %s", body)
+	}
+	for _, kept := range []string{"exec_command", "apply_patch", "tool_search", "web_search", "image_generation"} {
+		if !strings.Contains(body, kept) {
+			t.Fatalf("desktop special tool %q was removed: %s", kept, body)
+		}
+	}
+}
+
+func TestWSPhaseFToolPruneUsageObservesResolvedToolResults(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:resolved-tool-prune"
+
+	adapter.observeWSSToolPruneUsage(sessionID, []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_exec",
+			Text:         "ok",
+		}},
+	}}, map[string]types.ContentBlock{
+		"call_exec": {Type: "tool_use", ToolUseID: "call_exec", ToolName: "ColdTool"},
+	})
+	p.toolPrune.ObserveTurn(sessionID, nil)
+	if !p.toolPrune.Active(sessionID, "ColdTool") {
+		t.Fatal("resolved tool result was not observed as active")
+	}
+	p.toolPrune.ObserveTurn(sessionID, nil)
+	decision := p.toolPrune.DecideWithOptions(sessionID, []string{"ColdTool"}, toolprune.DecisionOptions{MinKeep: 0})
+	if len(decision.Pruned) != 1 || decision.Pruned[0] != "ColdTool" {
+		t.Fatalf("expected resolved tool to become idle-prunable, got %+v", decision)
 	}
 }
 
@@ -1315,6 +1417,58 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	snap := p.OutputReduceCountersSnapshot()
 	if snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFResponseCreateInfersUnresolvedToolOutput(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+	payload.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: inferred\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	turnMeta := `{"session_id":"sess-response-create","thread_id":"sess-response-create","turn_id":"turn-1"}`
+	body := mustMarshal(map[string]any{
+		"type":                   "response.create",
+		"model":                  "gpt-5.5",
+		"instructions":           strings.Repeat("stable instruction prefix ", 200),
+		"prompt_cache_key":       "sess-response-create",
+		"prompt_cache_retention": "24h",
+		"generate":               false,
+		"include":                []string{"reasoning.encrypted_content"},
+		"tools": []map[string]any{{
+			"type":        "function",
+			"name":        "exec_command",
+			"description": strings.Repeat("stable exec tool schema ", 80),
+		}},
+		"client_metadata": map[string]any{
+			"x-codex-turn-metadata": turnMeta,
+		},
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": "call_missing", "output": envelope},
+		},
+	})
+
+	mutated, _, changed, stats, _ := adapter.applyInputPipeline(body)
+	if !changed || stats.CodexExecEnvelopeBlocks != 1 || stats.TokensSaved <= 0 {
+		t.Fatalf("expected response.create tool-output inference, changed=%v stats=%+v body=%s", changed, stats, mutated)
+	}
+	if !strings.Contains(string(mutated), "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		strings.Contains(string(mutated), "TestPassing089") ||
+		!strings.Contains(string(mutated), "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("mutated response.create lost failure detail or archive: %s", mutated)
 	}
 }
 

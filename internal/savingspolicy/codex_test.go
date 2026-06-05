@@ -8,6 +8,7 @@ func TestDecideCodexToolOutputAutoEnablesRecoverableChunkDedup(t *testing.T) {
 		Mode:                     "auto",
 		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
 		OutputBytes:              9000,
 		ChunkMinBytes:            8192,
 	})
@@ -36,6 +37,50 @@ func TestDecideCodexToolOutputLoosensForContextRisk(t *testing.T) {
 				t.Fatalf("context-risk signal should full-pass managed reducers: %+v", got)
 			}
 		})
+	}
+}
+
+func TestDecideCodexToolOutputRequiresLiveProofForAutoChunkDedup(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     "auto",
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofReplay,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+	})
+	if got.ChunkDedup || got.NeedsRecoveryNote || got.Reason != "safe_lossless_reducers" {
+		t.Fatalf("auto policy must not emit recoverable chunk refs without live proof: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyShadow {
+		t.Fatalf("chunk mechanism should shadow without live proof: %+v", got.Mechanisms)
+	}
+}
+
+func TestDecideCodexToolOutputMaxRequiresReplayProofForImplicitChunkDedup(t *testing.T) {
+	t.Parallel()
+	blocked := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     "max",
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofUnit,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+	})
+	if blocked.ChunkDedup || actionForMechanism(blocked.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyShadow {
+		t.Fatalf("implicit max chunk dedup should need replay proof: %+v", blocked)
+	}
+	allowed := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     "max",
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofReplay,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+	})
+	if !allowed.ChunkDedup || !allowed.NeedsRecoveryNote || allowed.Reason != "max_recoverable_chunk_dedup" {
+		t.Fatalf("max chunk dedup should allow replay-proven recoverable refs: %+v", allowed)
 	}
 }
 
@@ -108,6 +153,18 @@ func TestValidCodexMode(t *testing.T) {
 	}
 }
 
+func TestValidCodexProof(t *testing.T) {
+	t.Parallel()
+	for _, proof := range []string{"", "none", "off", "unit", "replay", "live"} {
+		if !ValidCodexProof(proof) {
+			t.Fatalf("proof %q should be valid", proof)
+		}
+	}
+	if ValidCodexProof("rumor") {
+		t.Fatal("unknown proof must be invalid")
+	}
+}
+
 func TestDecideCodexMechanismMatrix(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -130,9 +187,18 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
 				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
-				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MinBytes: 4096,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofLive, OutputBytes: 9000, MinBytes: 4096,
 			},
 			action: CodexPolicyAllow, reason: "recoverable_chunk_dedup", note: true,
+		},
+		{
+			name: "wss recoverable chunk shadows without live proof",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofReplay, OutputBytes: 9000, MinBytes: 4096,
+			},
+			action: CodexPolicyShadow, reason: "live_proof_required",
 		},
 		{
 			name: "http archive refs blocked even in max",
@@ -193,7 +259,7 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
 				Mechanism: "future_recoverable", Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
-				ArchiveRecoveryAvailable: true, OutputBytes: 9000,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofLive, OutputBytes: 9000,
 			},
 			action: CodexPolicyAllow, reason: "recoverable_with_archive", note: true,
 		},
@@ -330,6 +396,7 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 				Mode:                     string(CodexModeAuto),
 				Route:                    CodexRouteWSSPhaseF,
 				ArchiveRecoveryAvailable: true,
+				ChunkProof:               CodexProofLive,
 				OutputBytes:              9000,
 				ChunkMinBytes:            1,
 			}
@@ -348,6 +415,7 @@ func TestDecideCodexToolOutputHostBudgetKeepsLosslessReducers(t *testing.T) {
 		Mode:                     string(CodexModeAuto),
 		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
 		OutputBytes:              9000,
 		ChunkMinBytes:            1,
 		HostBudgetExceeded:       true,
@@ -368,6 +436,7 @@ func TestDecideCodexToolOutputRecentEditUncertaintyOnlyDemotesChunk(t *testing.T
 		Mode:                     string(CodexModeAuto),
 		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
 		OutputBytes:              9000,
 		ChunkMinBytes:            1,
 		RecentEditUncertainty:    true,
@@ -391,6 +460,7 @@ func TestDecideCodexToolOutputChunkIntegrityBudgetOnlyDemotesChunk(t *testing.T)
 		Mode:                     string(CodexModeAuto),
 		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
 		OutputBytes:              9000,
 		ChunkMinBytes:            1,
 		ChunkIntegrityBudgetHit:  true,
@@ -409,7 +479,7 @@ func TestDecideCodexToolOutputIncludesShadowTelemetryForFutureCandidates(t *test
 	t.Parallel()
 	got := DecideCodexToolOutput(CodexToolOutputInput{
 		Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
-		IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000, ChunkMinBytes: 1,
+		IsRead: true, ArchiveRecoveryAvailable: true, ChunkProof: CodexProofLive, OutputBytes: 9000, ChunkMinBytes: 1,
 	})
 	if got.ChunkDedup != true || len(got.Mechanisms) == 0 {
 		t.Fatalf("expected chunk dedup plus mechanism telemetry: %+v", got)

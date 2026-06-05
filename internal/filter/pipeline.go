@@ -15,7 +15,7 @@ const (
 	Layer0ReducerSafetyExact              Layer0ReducerSafetyClass = "exact"
 	Layer0ReducerSafetyStructuredEvidence Layer0ReducerSafetyClass = "structured_evidence"
 	Layer0ReducerSafetyDiagnosticPriority Layer0ReducerSafetyClass = "diagnostic_priority"
-	Layer0ReducerSafetyCountSummary       Layer0ReducerSafetyClass = "count_summary"
+	Layer0ReducerSafetyEmptyEvidence      Layer0ReducerSafetyClass = "empty_evidence"
 )
 
 // Layer0ReducerInfo is metadata only. It is safe for admin/TUI/reporting paths:
@@ -211,13 +211,13 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("git_log", "git", []string{"commit hash", "subject", "file count", "insertions", "deletions"}, TryCompactGitLog),
 		evidenceReducer("git_show", "git", []string{"commit hash", "subject", "file path", "hunk header", "added line", "removed line"}, TryCompactGitShow),
 		evidenceReducer("git_f05", "git", []string{"ref update", "changed count", "success marker", "failure line"}, TryCompactGitF05),
-		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
 		diagnosticReducer("test_output", "test", []string{"tool", "failed test", "failure line", "summary", "file", "line"}, TryCompactTestOutput),
+		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
 		diagnosticReducer("dotnet", "build", []string{"tool", "error code", "file", "line", "message"}, TryCompactDotnet),
 		diagnosticReducer("ruby_output", "test", []string{"tool", "failed example", "file", "line", "message"}, TryCompactRubyOutput),
 		evidenceReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}, TryCompactSearchOutput),
-		countReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
-		countReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
+		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
+		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
 		diagnosticReducer("lint_output", "lint", []string{"tool", "rule id", "severity", "file", "line", "message"}, TryCompactLintOutput),
 		diagnosticReducer("log_output", "log", []string{"severity", "timestamp", "error line", "count marker"}, TryCompactLogOutput),
 		evidenceReducer("format_output", "format", []string{"tool", "changed file", "failure line", "success marker"}, TryCompactFormatOutput),
@@ -231,8 +231,6 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("terraform_plan", "terraform", []string{"resource address", "action", "change summary", "warning", "error"}, TryCompactTerraformPlan),
 		evidenceReducer("terraform_init", "terraform", []string{"backend status", "provider status", "warning", "error"}, TryCompactTerraformInit),
 		evidenceReducer("terraform_validate", "terraform", []string{"valid marker", "diagnostic severity", "message", "range"}, TryCompactTerraformValidate),
-		evidenceReducer("terraform_state_list", "terraform", []string{"resource address", "count marker"}, TryCompactTerraformStateList),
-		evidenceReducer("terraform_output", "terraform", []string{"output name", "sensitive marker", "value summary"}, TryCompactTerraformOutput),
 		evidenceReducer("terraform_show", "terraform", []string{"resource address", "attribute", "value summary", "sensitive marker"}, TryCompactTerraformShow),
 		stdoutReducer("json_minify", "json", Layer0ReducerSafetyExact, []string{"all JSON fields", "all scalar values", "array order"}, TryCompactJSONMinify),
 	}
@@ -250,8 +248,8 @@ func evidenceReducer(id, family string, preserved []string, fn func([]string, []
 	return argvReducer(id, family, Layer0ReducerSafetyStructuredEvidence, preserved, fn)
 }
 
-func countReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
-	return argvReducer(id, family, Layer0ReducerSafetyCountSummary, preserved, fn)
+func emptyEvidenceReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return argvReducer(id, family, Layer0ReducerSafetyEmptyEvidence, preserved, fn)
 }
 
 func argvReducer(id, family string, safety Layer0ReducerSafetyClass, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {

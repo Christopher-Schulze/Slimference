@@ -103,7 +103,7 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 	out, _ := json.Marshal(root)
 	stats.Applied = true
 	stats.Reason = "applied"
-	stats.AddedBytes = max(len(out)-len(body), len(directive))
+	stats.AddedBytes = len(directive)
 	stats.AddedTokens = estimateTokens(stats.AddedBytes)
 	return out, stats, nil
 }

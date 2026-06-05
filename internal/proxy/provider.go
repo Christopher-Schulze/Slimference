@@ -808,19 +808,31 @@ func reconstructBody(provider types.Provider, originalBody []byte, compressed []
 
 	switch provider {
 	case types.Anthropic:
-		msgs, _ := messagesToAnthropicJSON(compressed)
+		msgs, err := messagesToAnthropicJSON(compressed)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct anthropic messages: %w", err)
+		}
 		raw["messages"] = msgs
 	case types.OpenAI:
-		msgs, _ := messagesToOpenAIJSON(compressed)
+		msgs, err := messagesToOpenAIJSON(compressed)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct openai messages: %w", err)
+		}
 		raw["messages"] = msgs
 	case types.CodexChatGPT:
 		if _, ok := raw["messages"]; ok {
-			msgs, _ := messagesToOpenAIJSON(compressed)
+			msgs, err := messagesToOpenAIJSON(compressed)
+			if err != nil {
+				return nil, fmt.Errorf("reconstruct codex messages: %w", err)
+			}
 			raw["messages"] = msgs
 			break
 		}
 		if _, ok := raw["input"]; ok {
-			input, _ := messagesToCodexInputJSON(raw["input"], compressed)
+			input, err := messagesToCodexInputJSON(raw["input"], compressed)
+			if err != nil {
+				return nil, fmt.Errorf("reconstruct codex input: %w", err)
+			}
 			raw["input"] = input
 		}
 	}

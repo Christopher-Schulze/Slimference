@@ -214,7 +214,8 @@ func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 	cfg.Compression.Summary.AllowModelFacingReplacement = true
 	p := New(cfg)
 	// Seed an existing Layer 2 summary that covers indices 0..1.
-	p.layer2.GetCache().Store(&summarization.CachedSummary{
+	const sessionID = "session-trusted"
+	p.layer2.GetCache().GetInner().Store(sessionID, &summarization.CachedSummary{
 		Summary:          "stashed summary",
 		CoveredRange:     [2]int{0, 1},
 		OriginalTokens:   20,
@@ -236,9 +237,10 @@ func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
-		messages: msgs,
-		origBody: body,
-		provider: types.Anthropic,
+		messages:  msgs,
+		origBody:  body,
+		provider:  types.Anthropic,
+		sessionID: sessionID,
 	})
 	if err != nil {
 		t.Fatal(err)

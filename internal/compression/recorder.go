@@ -1,6 +1,8 @@
 package compression
 
 import (
+	"strings"
+
 	"github.com/slimference/slimference/internal/contentarchive"
 )
 
@@ -73,11 +75,64 @@ func (c *DeterministicCompressor) archiveOriginal(msgIdx, blockIdx int, subLayer
 		SubLayer:     subLayer,
 		Original:     original,
 	})
+	if err == nil && id != "" {
+		c.recordArchiveWriteLocked(subLayer)
+	}
 	c.recordMu.Unlock()
 	if err != nil {
 		return ""
 	}
 	return id
+}
+
+func (c *DeterministicCompressor) recordArchiveWriteLocked(subLayer string) {
+	if c.activeArchiveWrites == nil {
+		return
+	}
+	for _, part := range strings.Split(subLayer, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		c.activeArchiveWrites[id]++
+	}
+}
+
+func (c *DeterministicCompressor) recordLayer1Attempt(subLayer string) {
+	if subLayer == "" {
+		return
+	}
+	c.recordMu.Lock()
+	if c.activeAttempts != nil {
+		c.activeAttempts[subLayer]++
+	}
+	c.recordMu.Unlock()
+}
+
+func (c *DeterministicCompressor) snapshotArchiveWrites() map[string]int {
+	c.recordMu.Lock()
+	defer c.recordMu.Unlock()
+	if len(c.activeArchiveWrites) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(c.activeArchiveWrites))
+	for id, count := range c.activeArchiveWrites {
+		out[id] = count
+	}
+	return out
+}
+
+func (c *DeterministicCompressor) snapshotLayer1Attempts() map[string]int {
+	c.recordMu.Lock()
+	defer c.recordMu.Unlock()
+	if len(c.activeAttempts) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(c.activeAttempts))
+	for id, count := range c.activeAttempts {
+		out[id] = count
+	}
+	return out
 }
 
 // WithRecorder returns the receiver after wiring an archive recorder. The

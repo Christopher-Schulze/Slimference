@@ -51,6 +51,7 @@ type Layer1DecisionSummary struct {
 	Reason          string `json:"reason"`
 	SavedTokens     int    `json:"saved_tokens,omitempty"`
 	RequiresArchive bool   `json:"requires_archive,omitempty"`
+	ArchiveWrites   int    `json:"archive_writes,omitempty"`
 	Recovery        string `json:"recovery,omitempty"`
 	DefaultEligible bool   `json:"default_eligible"`
 }

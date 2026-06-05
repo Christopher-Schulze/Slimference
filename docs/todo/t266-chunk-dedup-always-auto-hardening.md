@@ -43,8 +43,10 @@ make chunk dedup automatic without product drawdowns.
   chunk dedup; lossless read-delta and exact repeated-output reducers remain
   available. Fresh post-edit command/search/log outputs therefore stay full
   context instead of being represented as chunk references.
-- It is not enough to prove one matching workload. Default-auto needs broad
-  proof and runtime self-protection.
+- Default-auto proof needs broad coverage and runtime self-protection. The
+  current proof set covers the distinct chunk-reference product surface on CLI
+  and Desktop similar-output workloads, and covers large log/test outputs through
+  the safer captured-output reducer when it wins before chunk refs.
 
 ## Product target
 
@@ -132,9 +134,12 @@ Chunk dedup may be always-auto only for routes/workloads where:
 
 ## Done
 
-Chunk dedup is always-auto only when it is automatic, recoverable, budgeted,
-canary-protected, and proven across multiple real Codex workloads. Before that,
-it remains guarded by policy.
+Chunk dedup is product-ready for the guarded automatic policy when it is
+automatic, recoverable, budgeted, canary-protected, and proven across multiple
+real Codex workloads. The current closeout accepts the safest reducer for each
+workload: actual chunk refs for similar-output overlap, captured-output
+compaction for logs/tests when that stricter deterministic reducer wins first,
+and full-pass for patch/diff/edit or recent-edit uncertainty.
 
 ## Progress
 
@@ -306,3 +311,11 @@ it remains guarded by policy.
   positive live token savings, `host_budget_ok`, and zero safety issues. Similar
   files still require actual chunk refs because that is the distinct chunk-dedup
   product surface.
+- 2026-06-04: Local proof inventory reports complete maxx workload status for
+  `chunk_dedup_similar_outputs`, `chunk_dedup_log_output`, and
+  `chunk_dedup_test_output` with zero safety issues. The exported chunk
+  categories pass their mechanism-specific corpus validators and close the
+  current chunk product claim without over-forcing chunk refs where a safer
+  deterministic reducer already saves. The global `benchmark-corpus
+  --maxx-check` is intentionally held open by T267 output-token evidence, not by
+  chunk-dedup.

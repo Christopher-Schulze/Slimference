@@ -10,6 +10,7 @@ var defaultAlwaysKeepTokens = []string{
 	"exec",
 	"glob",
 	"grep",
+	"image",
 	"list",
 	"ls",
 	"mcp__",

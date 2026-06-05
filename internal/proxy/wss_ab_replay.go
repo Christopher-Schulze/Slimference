@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/slimference/slimference/internal/abharness"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -24,10 +26,11 @@ type WSSABReplayFrame struct {
 // WSSABReplayResult is the offline comprehension report plus basic reducer
 // activity counters for the replay.
 type WSSABReplayResult struct {
-	Report          abharness.Report
-	RequestTurns    int
-	MutatedRequests int
-	ReducerStats    WSSABReplayReducerStats
+	Report                    abharness.Report
+	RequestTurns              int
+	MutatedRequests           int
+	ExpectedInstructionExtras int
+	ReducerStats              WSSABReplayReducerStats
 }
 
 // WSSABReplayReducerStats is the content-free reducer activity observed while
@@ -108,6 +111,9 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if changed && !bytes.Equal(frame.Payload, mutatedBody) {
 				out.MutatedRequests++
 			}
+			if wssReplayExpectedInstructionExtra(frame.Payload, mutatedBody) {
+				out.ExpectedInstructionExtras++
+			}
 			rememberReplayRequestState(adapter, runtimeMessages)
 		default:
 			return WSSABReplayResult{}, fmt.Errorf("frame %d has unsupported direction %q", i, frame.Direction)
@@ -118,6 +124,19 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		return body, err
 	})
 	return out, nil
+}
+
+func wssReplayExpectedInstructionExtra(before, after []byte) bool {
+	beforeInstructions, beforeOK := codexReplayInstructions(before)
+	afterInstructions, afterOK := codexReplayInstructions(after)
+	if !beforeOK || !afterOK || beforeInstructions == afterInstructions {
+		return false
+	}
+	if strings.Contains(beforeInstructions, outputreduce.DefaultMarker) {
+		return false
+	}
+	return strings.HasPrefix(afterInstructions, beforeInstructions) &&
+		strings.Contains(afterInstructions, outputreduce.DefaultMarker)
 }
 
 func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {

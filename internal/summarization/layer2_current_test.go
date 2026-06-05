@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
@@ -406,9 +407,9 @@ func TestLayer2RunCompressionJobAdditionalCurrentBranches(t *testing.T) {
 	}
 
 	l = testLayer2ForCurrentTests()
-	l.chain.SetProviders(&stubSummarizer{name: "huge", configured: true, result: "- kept summary now\n"})
+	l.chain.SetProviders(&stubSummarizer{name: "huge", configured: true, result: "- kept summary now.\n- cap stayed bounded.\n"})
 	huge := longLayer2Messages(3)
-	huge[0].Content[0].Text = strings.Repeat("界", 500_000)
+	huge[0].Content[0].Text = strings.Repeat("界", maxLayer2InputTokens+10_000)
 	l.RunCompressionJobContext(context.Background(), huge)
 	if cached, _ := l.sessions.GetCurrent(legacySessionID); cached == nil {
 		t.Fatal("huge CJK input should still summarize after input capping")
@@ -533,6 +534,28 @@ func TestLayer2TriggerAndFormattingHelpers(t *testing.T) {
 	}
 	if got := capSummarizationInput(strings.Repeat("x", 100), 5); strings.Contains(got, "\n") || len(got) != 20 {
 		t.Fatalf("cap without newline should return raw tail: len=%d %q", len(got), got)
+	}
+	if got := capSummarizationInput(strings.Repeat("界", 100), 10); estimateTokens(got) > 10 || !utf8.ValidString(got) {
+		t.Fatalf("CJK cap should respect estimated tokens and UTF-8: tokens=%d valid=%v len=%d", estimateTokens(got), utf8.ValidString(got), len(got))
+	}
+	if got := capSummarizationInput("a"+strings.Repeat("界", 20), 5); !utf8.ValidString(got) {
+		t.Fatalf("byte cap should keep UTF-8 valid: %q", got)
+	}
+	originalHuge := strings.Repeat("界", 100)
+	msgsForCap := []types.Message{{
+		Index: 0,
+		Role:  "user",
+		Content: []types.ContentBlock{{
+			Type: "text",
+			Text: originalHuge,
+		}},
+	}}
+	cappedMsgs := capMessageTextsForSummarization(msgsForCap, 10)
+	if estimateTokens(cappedMsgs[0].Content[0].Text) > 10 || !utf8.ValidString(cappedMsgs[0].Content[0].Text) {
+		t.Fatalf("message cap should respect estimated tokens and UTF-8: tokens=%d valid=%v", estimateTokens(cappedMsgs[0].Content[0].Text), utf8.ValidString(cappedMsgs[0].Content[0].Text))
+	}
+	if msgsForCap[0].Content[0].Text != originalHuge {
+		t.Fatal("message cap mutated original message")
 	}
 	if computeAdaptiveTarget(1000, denseMsgs, 0.9) != 600 {
 		t.Fatal("adaptive target cap branch failed")

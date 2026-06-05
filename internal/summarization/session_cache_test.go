@@ -284,6 +284,43 @@ func TestLayer2_ApplyToMessagesSession(t *testing.T) {
 	if applied {
 		t.Fatal("missing session should not apply")
 	}
+	if _, _, applied = l.ApplyToMessagesSession("", msgs); applied {
+		t.Fatal("empty session should not apply")
+	}
+	for _, weakSession := range []string{"empty", "fh:0123456789abcdef"} {
+		l.sessions.Store(weakSession, &CachedSummary{
+			Summary:          "weak session summary",
+			CoveredRange:     [2]int{0, 5},
+			OriginalTokens:   100,
+			CompressedTokens: 20,
+			CreatedAt:        time.Now(),
+		})
+		if _, _, applied = l.ApplyToMessagesSession(weakSession, msgs); applied {
+			t.Fatalf("weak fallback session %q should not apply", weakSession)
+		}
+	}
+
+	l.sessions.Store("s-empty-summary", &CachedSummary{
+		Summary:          "   ",
+		CoveredRange:     [2]int{0, 5},
+		OriginalTokens:   100,
+		CompressedTokens: 20,
+		CreatedAt:        time.Now(),
+	})
+	if _, _, applied = l.ApplyToMessagesSession("s-empty-summary", msgs); applied {
+		t.Fatal("empty summary should not apply")
+	}
+
+	l.sessions.Store("s-negative-savings", &CachedSummary{
+		Summary:          "larger summary",
+		CoveredRange:     [2]int{0, 5},
+		OriginalTokens:   20,
+		CompressedTokens: 100,
+		CreatedAt:        time.Now(),
+	})
+	if _, _, applied = l.ApplyToMessagesSession("s-negative-savings", msgs); applied {
+		t.Fatal("non-positive summary savings should not apply")
+	}
 
 	l.sessions.Store("s-end0", &CachedSummary{
 		Summary:      "zero end",

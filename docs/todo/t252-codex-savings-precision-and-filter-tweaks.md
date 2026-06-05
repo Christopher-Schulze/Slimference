@@ -74,8 +74,10 @@ Several small, verified issues each cost a few percent or add drawdown:
 - 2026-05-30: delta output emits one newline per diff line.
 - 2026-05-30: log and lint truncation now preserve late error/failure lines ahead of
   benign positional caps. Search grouping now preserves both head and tail matches/files
-  under cap pressure, and terraform output compaction keeps late diagnostic/error
-  outputs before benign positional entries. Broader parser-specific caps remain open.
+  under cap pressure. The later T260 safety pass changed plain Terraform output
+  to full-pass instead of cap-based compaction because output names and values are
+  requested facts without generic archive recovery. Broader parser-specific caps
+  remain open.
 - 2026-05-30: `gh ... list` and `glab ... list` previews now preserve late
   attention rows (failed/cancelled/error/security/etc.) ahead of benign positional
   rows. Regression tests put failed CI/pipeline rows past the old 15-row cap and

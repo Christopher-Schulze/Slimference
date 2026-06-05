@@ -60,6 +60,9 @@ func TestExtractTestFailures(t *testing.T) {
 	if !strings.Contains(out4, "[go test] FAILED") {
 		t.Errorf("failure: want FAILED header, got %q", out4)
 	}
+	if !strings.Contains(out4, "Error: assertion failed at line 42") {
+		t.Errorf("failure: want assertion detail preserved, got %q", out4)
+	}
 
 	// Failure: "FAILED tests/test_foo.py::test_bar" (pytest style)
 	pytestFail := strings.Repeat("FAILED tests/test_foo.py::test_bar\nsome long error context here\n", 5)

@@ -15,7 +15,9 @@ var glabListSubcommands = map[string]bool{
 
 const glabListMaxRows = 15
 
-// TryCompactGlabList summarizes `glab … list` output (F18-style): empty → "empty"; many rows → count + preview.
+// TryCompactGlabList summarizes `glab … list` output (F18-style): empty →
+// "empty"; many rows compact only when diagnostic attention rows are present.
+// Healthy non-empty lists are model evidence and must full-pass.
 func TryCompactGlabList(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 3 {
 		return stdout, false
@@ -34,7 +36,8 @@ func TryCompactGlabList(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte(fmt.Sprintf("[glab %s list] empty\n", sub)), true
 	}
-	// Non-empty: count rows and truncate if large.
+	// Non-empty: preserve healthy lists. For large diagnostic lists, keep the
+	// attention rows and a count.
 	lines := strings.Split(s, "\n")
 	var rows []string
 	for _, l := range lines {
@@ -46,6 +49,9 @@ func TryCompactGlabList(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	out := compactCLIListRows(fmt.Sprintf("glab %s list", sub), rows, glabListMaxRows)
+	if out == "" {
+		return stdout, false
+	}
 	if len(out) >= len(s) {
 		return stdout, false
 	}

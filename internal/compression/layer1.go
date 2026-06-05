@@ -38,6 +38,14 @@ type Layer1Result struct {
 	// ToolOutputInWindowSaved is attributed separately for safety decisions.
 	// ToolCompressorSaved keeps including it for legacy aggregate accounting.
 	ToolOutputInWindowSaved int
+	// ArchiveWrites counts successful original-content archive writes per
+	// Layer 1 sub-layer tag. It is content-free and used to prove
+	// archive-required mutations stayed recoverable.
+	ArchiveWrites map[string]int
+	// Attempts counts sub-layer eligibility checks that actually reached the
+	// corresponding reducer. It is content-free and keeps decision telemetry
+	// honest: registered-but-unseen sub-layers are not reported as attempted.
+	Attempts map[string]int
 	// Decisions is a content-free per-sub-layer audit record for the call.
 	Decisions []Layer1DecisionRecord
 }
@@ -65,6 +73,14 @@ type DeterministicCompressor struct {
 	// the current Compress call. Protected by callMu for cross-request safety;
 	// parallel fan-out workers within one call only read it.
 	activeCoordinatorSubsume bool
+	// activeArchiveWrites is request-scoped audit state for successful
+	// archive writes. Protected by callMu for request lifetime and recordMu
+	// for concurrent fan-out updates.
+	activeArchiveWrites map[string]int
+	// activeAttempts is request-scoped audit state for sub-layer execution
+	// attempts. Protected by callMu for request lifetime and recordMu for
+	// concurrent fan-out updates.
+	activeAttempts map[string]int
 	// recorder archives original block content before lossy sub-layers
 	// mutate it. Optional; nil means "no archiving" and every helper
 	// short-circuits cheaply. T76.
@@ -170,9 +186,13 @@ func (c *DeterministicCompressor) CompressWithSessionOptions(sessionID string, m
 func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, messages []types.Message, opts Layer1CompressOptions) Layer1Result {
 	c.activeSessionID = sessionID
 	c.activeCoordinatorSubsume = opts.CoordinatorSubsume
+	c.activeArchiveWrites = make(map[string]int)
+	c.activeAttempts = make(map[string]int)
 	defer func() {
 		c.activeSessionID = ""
 		c.activeCoordinatorSubsume = false
+		c.activeArchiveWrites = nil
+		c.activeAttempts = nil
 	}()
 
 	result := Layer1Result{
@@ -180,6 +200,8 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 	}
 
 	if len(messages) == 0 {
+		result.ArchiveWrites = c.snapshotArchiveWrites()
+		result.Attempts = c.snapshotLayer1Attempts()
 		result.Decisions = BuildLayer1DecisionRecords(result)
 		return result
 	}
@@ -193,6 +215,7 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 	// T37 loop nudge runs first so any downstream compression sees the
 	// nudged text. Opt-in via [compression.tuning] loop_detection.
 	if c.cfg.Tuning.LoopDetection {
+		c.recordLayer1Attempt("loop_nudge")
 		strategy := ResolveLoopStrategy(StrategyConfig{
 			LoopDetection: c.cfg.Tuning.LoopDetection,
 			LoopStrategy:  c.cfg.Tuning.LoopStrategy,
@@ -230,6 +253,8 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 				result.Messages = out
 			}
 		}
+		result.ArchiveWrites = c.snapshotArchiveWrites()
+		result.Attempts = c.snapshotLayer1Attempts()
 		result.Decisions = BuildLayer1DecisionRecords(result)
 		return result
 	}
@@ -299,7 +324,9 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 	}
 
 	// Cross-message optimizations (L1.12 and L1.13)
+	c.recordLayer1Attempt("repeated_collapse")
 	result.RepeatedCollapseSaved = c.toolCallIndex.CollapseRepeated(out, prefixEnd)
+	c.recordLayer1Attempt("graph_pruning")
 	result.GraphPruningSaved = c.fileOpGraph.PruneRedundantWithArchive(out, prefixEnd, func(msgIdx, blockIdx int, original string) string {
 		return c.archiveOriginal(msgIdx, blockIdx, "graph_pruning", original)
 	})
@@ -333,6 +360,8 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 		result.RepeatedCollapseSaved + result.GraphPruningSaved +
 		result.DictionarySaved + result.PreviewSaved + result.LoopNudgeSaved
 	result.Messages = out
+	result.ArchiveWrites = c.snapshotArchiveWrites()
+	result.Attempts = c.snapshotLayer1Attempts()
 	result.Decisions = BuildLayer1DecisionRecords(result)
 
 	if result.TokensSaved > 0 {
@@ -376,6 +405,7 @@ func (c *DeterministicCompressor) compressMessage(
 
 		// L1.11: Image replacement (applies to explicit image-type blocks)
 		if block.Type == "image" {
+			c.recordLayer1Attempt("image_replace")
 			updated, saved := replaceImageBase64(block, msgIdx, prefixEnd)
 			if saved > 0 {
 				id := c.archiveOriginal(msgIdx, bi, "image_replace", block.ImageData)
@@ -418,6 +448,7 @@ func (c *DeterministicCompressor) compressMessage(
 		preFiltered := isPreFiltered(origText)
 
 		// L1.7: ANSI strip
+		c.recordLayer1Attempt("ansi_strip")
 		text := StripANSICodes(origText)
 		if len(text) < len(origText) {
 			ansiSaved += len(origText) - len(text)
@@ -433,6 +464,7 @@ func (c *DeterministicCompressor) compressMessage(
 		// stage's appliedSubLayers slice via this temporary list.
 		var earlySubLayers []string
 		if !preFiltered {
+			c.recordLayer1Attempt("json_compact")
 			if compacted, saved := compactJSONContent(text); saved > 0 {
 				text = compacted
 				jsonSaved += saved
@@ -441,6 +473,7 @@ func (c *DeterministicCompressor) compressMessage(
 			} else {
 				lang := c.detectLanguage(block, text)
 				if lang != "" {
+					c.recordLayer1Attempt("comment_strip")
 					if stripped := StripComments(text, lang); len(stripped) < len(text) {
 						commentSaved += len(text) - len(stripped)
 						text = stripped
@@ -504,6 +537,8 @@ func (c *DeterministicCompressor) compressMessage(
 		// positive duplicate references. activeSessionID is empty when
 		// callers use the legacy Compress() entry point; in that case
 		// the global namespace is used, preserving historical behaviour.
+		c.recordLayer1Attempt("dedup")
+		c.recordLayer1Attempt("dedup_near")
 		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecordForSession(c.activeSessionID, text, msgIdx, threshold)
 		textTransformed := false // tracks whether delta/structure already rewrote text
 		// T76b: track which sub-layers actually mutated this block so the
@@ -527,6 +562,7 @@ func (c *DeterministicCompressor) compressMessage(
 			lang := c.detectLanguage(block, text)
 			if lang != "" && c.structureLangAllowed(lang) {
 				if shouldRunStructureExtraction(text, c.cfg.StructureMinTokens) {
+					c.recordLayer1Attempt("structure_extract")
 					if summary, changed := c.structExtractor.Extract(text, lang); changed {
 						structSaved += len(text) - len(summary)
 						text = summary
@@ -548,6 +584,7 @@ func (c *DeterministicCompressor) compressMessage(
 			deltaSource := text
 			toolKey := ExtractToolCallKeyWithIndex(block, toolUses)
 			if toolKey != "" {
+				c.recordLayer1Attempt("delta")
 				if delta, prevIdx, hasDelta := c.fileTracker.GetDelta(toolKey, deltaSource); hasDelta {
 					deltaSaved += len(deltaSource) - len(delta)
 					header := formatDeltaHeader(toolKey, prevIdx, msgIdx)
@@ -576,6 +613,7 @@ func (c *DeterministicCompressor) compressMessage(
 			toolType := classifyToolResultWithInput(resolvedBlock.ToolName, resolvedBlock.ToolInput, text)
 			if toolType != types.ToolTypeUnknown && toolType != types.ToolTypeFileRead &&
 				toolType != types.ToolTypeJSONData {
+				c.recordLayer1Attempt("tool_compressor")
 				if compressed := compressToolOutput(toolType, text, messageAge, c.cfg.SlidingWindow); len(compressed) < len(text) {
 					toolSaved += len(text) - len(compressed)
 					text = compressed
@@ -590,6 +628,7 @@ func (c *DeterministicCompressor) compressMessage(
 		}
 
 		// L1.10: Success short-circuit
+		c.recordLayer1Attempt("success_short_circuit")
 		if t2, ok := MaybeSuccessShortCircuit(text); ok {
 			successShortSaved += len(text) - len(t2)
 			text = t2
@@ -598,6 +637,7 @@ func (c *DeterministicCompressor) compressMessage(
 
 		// L1.11: Inline base64 image data in tool_result text
 		if len(text) > 500 {
+			c.recordLayer1Attempt("image_replace")
 			syntheticBlock := types.ContentBlock{
 				Type:         "tool_result",
 				Text:         text,
@@ -613,6 +653,7 @@ func (c *DeterministicCompressor) compressMessage(
 			}
 		}
 
+		c.recordLayer1Attempt("semantic_dictionary")
 		if dictText, saved, ok := applySemanticDictionary(text); ok {
 			text = dictText
 			dictionarySaved += saved

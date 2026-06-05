@@ -39,6 +39,18 @@ func TestTryCompactKubectlJSONKeepsAttentionRows(t *testing.T) {
 	}
 }
 
+func TestTryCompactKubectlJSONHealthyListPassesThrough(t *testing.T) {
+	t.Parallel()
+	var items []string
+	for i := 0; i < 35; i++ {
+		items = append(items, fmt.Sprintf(`{"kind":"Pod","metadata":{"namespace":"default","name":"ok-%02d"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true,"restartCount":0}]}}`, i))
+	}
+	input := `{"kind":"List","items":[` + strings.Join(items, ",") + `]}`
+	if _, ok := TryCompactKubectlJSON([]string{"kubectl", "get", "pods", "-o", "json"}, []byte(input)); ok {
+		t.Fatal("healthy non-empty kubectl json lists must pass through")
+	}
+}
+
 func TestTryCompactKubectlJSONKeepsLateAttentionRowsWithinCap(t *testing.T) {
 	t.Parallel()
 	var items []string

@@ -17,72 +17,92 @@ import (
 	"strings"
 )
 
-const corpusCategoryMetadataFilename = "metadata.json"
+const (
+	corpusCategoryMetadataFilename = "metadata.json"
+	outputReduceABReportFilename   = "output_reduce_ab_report.json"
+)
 
 // CategoryMetadata is the minimal description a maintainer commits next
 // to a corpus category so the gate has expectations to measure against.
-// Only ExpectedSavingsMin is mandatory for the gate; everything else is
-// human context that gets rendered in reports.
+// Categories can gate either on a measured savings ratio or on an absolute
+// saved-token counter when the proof source does not preserve the denominator.
 type CategoryMetadata struct {
-	Category                        string   `json:"category"`
-	Description                     string   `json:"description"`
-	Synthetic                       bool     `json:"synthetic"`
-	EvidenceLevel                   string   `json:"evidence_level"`
-	ClientFamily                    string   `json:"client_family,omitempty"`
-	WorkloadClass                   string   `json:"workload_class,omitempty"`
-	Language                        string   `json:"language"`
-	ToolMix                         string   `json:"tool_mix"`
-	ExpectedSavingsMin              float64  `json:"expected_savings_min"`
-	ExpectedSavingsMax              float64  `json:"expected_savings_max"`
-	ExpectedRequestCount            int      `json:"expected_request_count"`
-	ExpectedLayer2Optional          bool     `json:"expected_layer2_optional"`
-	ExpectedMaxErrors               int      `json:"expected_max_errors,omitempty"`
-	ExpectedLatencyP95MaxMs         float64  `json:"expected_latency_p95_max_ms,omitempty"`
-	ExpectedProviderCacheReadMin    int64    `json:"expected_provider_cache_read_min,omitempty"`
-	ExpectedOutputReduceAppliedMin  int      `json:"expected_output_reduce_applied_min,omitempty"`
-	ExpectedReReadCountMax          int      `json:"expected_reread_count_max,omitempty"`
-	ExpectedPlannerMissedMax        int      `json:"expected_planner_missed_max,omitempty"`
-	ExpectedPlannerBypassAppliedMax int      `json:"expected_planner_bypass_applied_max,omitempty"`
-	ScenarioValidators              []string `json:"scenario_validators,omitempty"`
-	Notes                           string   `json:"notes"`
+	Category                            string   `json:"category"`
+	Description                         string   `json:"description"`
+	Synthetic                           bool     `json:"synthetic"`
+	EvidenceLevel                       string   `json:"evidence_level"`
+	ClientFamily                        string   `json:"client_family,omitempty"`
+	WorkloadClass                       string   `json:"workload_class,omitempty"`
+	Language                            string   `json:"language"`
+	ToolMix                             string   `json:"tool_mix"`
+	ExpectedSavingsMin                  float64  `json:"expected_savings_min"`
+	ExpectedSavingsMax                  float64  `json:"expected_savings_max"`
+	ExpectedSavedTokensMin              int64    `json:"expected_saved_tokens_min,omitempty"`
+	ExpectedRequestCount                int      `json:"expected_request_count"`
+	ExpectedLayer2Optional              bool     `json:"expected_layer2_optional"`
+	ExpectedMaxErrors                   int      `json:"expected_max_errors,omitempty"`
+	ExpectedLatencyP95MaxMs             float64  `json:"expected_latency_p95_max_ms,omitempty"`
+	ExpectedProviderCacheReadMin        int64    `json:"expected_provider_cache_read_min,omitempty"`
+	ExpectedOutputReduceAppliedMin      int      `json:"expected_output_reduce_applied_min,omitempty"`
+	ExpectedOutputReduceOverheadMax     int64    `json:"expected_output_reduce_input_overhead_max,omitempty"`
+	ExpectedOutputReduceNetObservedMin  int64    `json:"expected_output_reduce_net_observed_min,omitempty"`
+	ExpectedOutputReduceABPairsMin      int      `json:"expected_output_reduce_ab_pairs_min,omitempty"`
+	ExpectedOutputReduceABNetSavedMin   int64    `json:"expected_output_reduce_ab_net_saved_min,omitempty"`
+	ExpectedOutputReduceABSavingsPctMin float64  `json:"expected_output_reduce_ab_savings_pct_min,omitempty"`
+	ExpectedReReadCountMax              int      `json:"expected_reread_count_max,omitempty"`
+	ExpectedPlannerMissedMax            int      `json:"expected_planner_missed_max,omitempty"`
+	ExpectedPlannerBypassAppliedMax     int      `json:"expected_planner_bypass_applied_max,omitempty"`
+	ScenarioValidators                  []string `json:"scenario_validators,omitempty"`
+	Notes                               string   `json:"notes"`
 
-	expectedMaxErrorsSet      bool
-	expectedReReadCountMaxSet bool
-	expectedLatencyP95MaxSet  bool
+	expectedMaxErrorsSet                  bool
+	expectedReReadCountMaxSet             bool
+	expectedLatencyP95MaxSet              bool
+	expectedOutputReduceNetObservedMinSet bool
 }
 
 // CategoryResult is the per-category outcome of one gate evaluation.
 type CategoryResult struct {
-	Category                  string                               `json:"category"`
-	Path                      string                               `json:"path"`
-	Sessions                  int                                  `json:"sessions"`
-	Requests                  int                                  `json:"requests"`
-	OrigTokens                int64                                `json:"orig_tokens"`
-	SavedTokens               int64                                `json:"saved_tokens"`
-	SavingsRatio              float64                              `json:"savings_ratio"`
-	Layer0Saved               int64                                `json:"layer0_saved"`
-	Layer1Saved               int64                                `json:"layer1_saved"`
-	Layer2Saved               int64                                `json:"layer2_saved"`
-	Layer3Saved               int64                                `json:"layer3_saved"`
-	OutputTokens              int64                                `json:"output_tokens"`
-	ProviderCacheReadTokens   int64                                `json:"provider_cache_read_tokens"`
-	ProviderCacheCreateTokens int64                                `json:"provider_cache_create_tokens"`
-	ProviderCachedTokens      int64                                `json:"provider_cached_tokens"`
-	OutputReduceApplied       int                                  `json:"output_reduce_applied"`
-	ErrorCount                int                                  `json:"error_count"`
-	ReReadCount               int                                  `json:"reread_count"`
-	HostBudgetOKRows          int                                  `json:"host_budget_ok_rows"`
-	HostBudgetIssueRows       int                                  `json:"host_budget_issue_rows"`
-	LatencyP95Ms              float64                              `json:"latency_p95_ms"`
-	PlanReplay                planReplayAggregate                  `json:"plan_replay"`
-	LayerCombinations         map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
-	EvidenceLevel             string                               `json:"evidence_level"`
-	Synthetic                 bool                                 `json:"synthetic"`
-	ClientFamily              string                               `json:"client_family,omitempty"`
-	WorkloadClass             string                               `json:"workload_class,omitempty"`
-	Failures                  []string                             `json:"failures,omitempty"`
-	GateConfigured            bool                                 `json:"gate_configured"`
-	Metadata                  *CategoryMetadata                    `json:"metadata,omitempty"`
+	Category                    string                               `json:"category"`
+	Path                        string                               `json:"path"`
+	Sessions                    int                                  `json:"sessions"`
+	Requests                    int                                  `json:"requests"`
+	OrigTokens                  int64                                `json:"orig_tokens"`
+	SavedTokens                 int64                                `json:"saved_tokens"`
+	SavingsRatio                float64                              `json:"savings_ratio"`
+	Layer0Saved                 int64                                `json:"layer0_saved"`
+	Layer1Saved                 int64                                `json:"layer1_saved"`
+	Layer2Saved                 int64                                `json:"layer2_saved"`
+	Layer3Saved                 int64                                `json:"layer3_saved"`
+	OutputTokens                int64                                `json:"output_tokens"`
+	ProviderCacheReadTokens     int64                                `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens   int64                                `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens        int64                                `json:"provider_cached_tokens"`
+	OutputReduceApplied         int                                  `json:"output_reduce_applied"`
+	OutputReduceInputOverhead   int64                                `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceNetObserved     int64                                `json:"output_reduce_net_observed_tokens"`
+	OutputReduceABPairs         int                                  `json:"output_reduce_ab_pairs"`
+	OutputReduceABPassedPairs   int                                  `json:"output_reduce_ab_passed_pairs"`
+	OutputReduceABOutputSaved   int64                                `json:"output_reduce_ab_output_tokens_saved"`
+	OutputReduceABNetSaved      int64                                `json:"output_reduce_ab_net_tokens_saved"`
+	OutputReduceABSavingsPctMin float64                              `json:"output_reduce_ab_savings_pct_min,omitempty"`
+	OutputReduceABFailures      []string                             `json:"output_reduce_ab_failures,omitempty"`
+	ToolPruneApplied            int                                  `json:"tool_prune_applied"`
+	ToolPruneSavedTokens        int64                                `json:"tool_prune_saved_tokens"`
+	ErrorCount                  int                                  `json:"error_count"`
+	ReReadCount                 int                                  `json:"reread_count"`
+	HostBudgetOKRows            int                                  `json:"host_budget_ok_rows"`
+	HostBudgetIssueRows         int                                  `json:"host_budget_issue_rows"`
+	LatencyP95Ms                float64                              `json:"latency_p95_ms"`
+	PlanReplay                  planReplayAggregate                  `json:"plan_replay"`
+	LayerCombinations           map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
+	EvidenceLevel               string                               `json:"evidence_level"`
+	Synthetic                   bool                                 `json:"synthetic"`
+	ClientFamily                string                               `json:"client_family,omitempty"`
+	WorkloadClass               string                               `json:"workload_class,omitempty"`
+	Failures                    []string                             `json:"failures,omitempty"`
+	GateConfigured              bool                                 `json:"gate_configured"`
+	Metadata                    *CategoryMetadata                    `json:"metadata,omitempty"`
 }
 
 // CorpusReport is the aggregate of all categories.
@@ -155,6 +175,9 @@ func LoadCategoryMetadata(dir string) (*CategoryMetadata, error) {
 	if _, ok := raw["expected_latency_p95_max_ms"]; ok {
 		meta.expectedLatencyP95MaxSet = true
 	}
+	if _, ok := raw["expected_output_reduce_net_observed_min"]; ok {
+		meta.expectedOutputReduceNetObservedMinSet = true
+	}
 	if _, ok := raw["expected_planner_missed_max"]; !ok {
 		meta.ExpectedPlannerMissedMax = -1
 	}
@@ -174,6 +197,10 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	if err != nil {
 		return CategoryResult{}, err
 	}
+	abSummary, err := loadCategoryOutputReduceABReport(dir)
+	if err != nil {
+		return CategoryResult{}, err
+	}
 	agg, err := AggregateSessionsFromPath(dir, errOut)
 	if err != nil {
 		return CategoryResult{}, fmt.Errorf("aggregate %s: %w", dir, err)
@@ -182,43 +209,61 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	if err != nil {
 		return CategoryResult{}, err
 	}
+	if sessions == 0 && abSummary.Pairs > 0 {
+		sessions = abSummary.Pairs
+	}
 	ratio := 0.0
 	if agg.origTokens > 0 {
 		ratio = float64(agg.savedTokens) / float64(agg.origTokens)
 	}
 	res := CategoryResult{
-		Category:                  meta.Category,
-		Path:                      dir,
-		Sessions:                  sessions,
-		Requests:                  agg.requests,
-		OrigTokens:                agg.origTokens,
-		SavedTokens:               agg.savedTokens,
-		SavingsRatio:              ratio,
-		Layer0Saved:               agg.layer0Saved,
-		Layer1Saved:               agg.layer1Saved,
-		Layer2Saved:               agg.layer2Saved,
-		Layer3Saved:               agg.layer3Saved,
-		OutputTokens:              agg.outputTokenSum,
-		ProviderCacheReadTokens:   agg.cacheReadSum,
-		ProviderCacheCreateTokens: agg.cacheCreateSum,
-		ProviderCachedTokens:      agg.providerCachedSum,
-		OutputReduceApplied:       agg.outputReduceApplied,
-		ErrorCount:                agg.errorCount,
-		ReReadCount:               agg.reReadCount,
-		HostBudgetOKRows:          agg.hostBudgetOK,
-		HostBudgetIssueRows:       agg.hostBudgetIssues,
-		LatencyP95Ms:              percentileFloat64(agg.latenciesMs, 0.95),
-		PlanReplay:                clonePlanReplayAggregate(agg.planReplay),
-		LayerCombinations:         cloneLayerCombinations(agg.layerCombinations),
-		EvidenceLevel:             normalizeEvidenceLevel(meta),
-		Synthetic:                 meta.Synthetic,
-		ClientFamily:              strings.TrimSpace(meta.ClientFamily),
-		WorkloadClass:             strings.TrimSpace(meta.WorkloadClass),
+		Category:                    meta.Category,
+		Path:                        dir,
+		Sessions:                    sessions,
+		Requests:                    agg.requests,
+		OrigTokens:                  agg.origTokens,
+		SavedTokens:                 agg.savedTokens,
+		SavingsRatio:                ratio,
+		Layer0Saved:                 agg.layer0Saved,
+		Layer1Saved:                 agg.layer1Saved,
+		Layer2Saved:                 agg.layer2Saved,
+		Layer3Saved:                 agg.layer3Saved,
+		OutputTokens:                agg.outputTokenSum,
+		ProviderCacheReadTokens:     agg.cacheReadSum,
+		ProviderCacheCreateTokens:   agg.cacheCreateSum,
+		ProviderCachedTokens:        agg.providerCachedSum,
+		OutputReduceApplied:         agg.outputReduceApplied,
+		OutputReduceInputOverhead:   agg.outputReduceInputOverhead,
+		OutputReduceNetObserved:     agg.outputTokenSum - agg.outputReduceInputOverhead,
+		OutputReduceABPairs:         abSummary.Pairs,
+		OutputReduceABPassedPairs:   abSummary.PassedPairs,
+		OutputReduceABOutputSaved:   abSummary.OutputSaved,
+		OutputReduceABNetSaved:      abSummary.NetSaved,
+		OutputReduceABSavingsPctMin: abSummary.SavingsPctMin,
+		OutputReduceABFailures:      append([]string(nil), abSummary.Failures...),
+		ToolPruneApplied:            agg.toolPruneApplied,
+		ToolPruneSavedTokens:        agg.toolPruneSaved,
+		ErrorCount:                  agg.errorCount,
+		ReReadCount:                 agg.reReadCount,
+		HostBudgetOKRows:            agg.hostBudgetOK,
+		HostBudgetIssueRows:         agg.hostBudgetIssues,
+		LatencyP95Ms:                percentileFloat64(agg.latenciesMs, 0.95),
+		PlanReplay:                  clonePlanReplayAggregate(agg.planReplay),
+		LayerCombinations:           cloneLayerCombinations(agg.layerCombinations),
+		EvidenceLevel:               normalizeEvidenceLevel(meta),
+		Synthetic:                   meta.Synthetic,
+		ClientFamily:                strings.TrimSpace(meta.ClientFamily),
+		WorkloadClass:               strings.TrimSpace(meta.WorkloadClass),
 		GateConfigured: meta.ExpectedSavingsMin > 0 ||
 			meta.ExpectedRequestCount > 0 ||
 			meta.ExpectedLatencyP95MaxMs > 0 ||
 			meta.ExpectedProviderCacheReadMin > 0 ||
 			meta.ExpectedOutputReduceAppliedMin > 0 ||
+			meta.ExpectedOutputReduceOverheadMax > 0 ||
+			meta.ExpectedOutputReduceABPairsMin > 0 ||
+			meta.ExpectedOutputReduceABNetSavedMin > 0 ||
+			meta.ExpectedOutputReduceABSavingsPctMin > 0 ||
+			meta.ExpectedSavedTokensMin > 0 ||
 			meta.expectedReReadCountMaxSet ||
 			meta.expectedMaxErrorsSet ||
 			meta.ExpectedPlannerMissedMax >= 0 ||
@@ -228,6 +273,86 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	}
 	res.Failures = evaluateCategoryGate(res, meta)
 	return res, nil
+}
+
+type categoryOutputReduceABSummary struct {
+	Pairs         int
+	PassedPairs   int
+	OutputSaved   int64
+	NetSaved      int64
+	SavingsPctMin float64
+	Failures      []string
+}
+
+type categoryOutputReduceABReport struct {
+	Pairs        []categoryOutputReduceABPair `json:"pairs"`
+	PairCount    int                          `json:"pair_count"`
+	GatePassed   bool                         `json:"gate_passed"`
+	GateFailures []string                     `json:"gate_failures,omitempty"`
+}
+
+type categoryOutputReduceABPair struct {
+	PairID            string   `json:"pair_id"`
+	OutputTokensSaved int64    `json:"output_tokens_saved"`
+	NetTokensSaved    int64    `json:"net_tokens_saved"`
+	OutputSavingsPct  float64  `json:"output_savings_pct"`
+	GatePassed        bool     `json:"gate_passed"`
+	GateFailures      []string `json:"gate_failures,omitempty"`
+}
+
+func loadCategoryOutputReduceABReport(dir string) (categoryOutputReduceABSummary, error) {
+	path := filepath.Join(dir, outputReduceABReportFilename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return categoryOutputReduceABSummary{}, nil
+		}
+		return categoryOutputReduceABSummary{}, err
+	}
+	var report categoryOutputReduceABReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return categoryOutputReduceABSummary{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	summary := categoryOutputReduceABSummary{Pairs: report.PairCount}
+	if summary.Pairs == 0 {
+		summary.Pairs = len(report.Pairs)
+	}
+	if summary.Pairs == 0 {
+		summary.Failures = append(summary.Failures, "output-reduce A/B report has no pairs")
+	}
+	if !report.GatePassed {
+		if len(report.GateFailures) == 0 {
+			summary.Failures = append(summary.Failures, "output-reduce A/B report gate failed")
+		}
+		for _, failure := range report.GateFailures {
+			summary.Failures = append(summary.Failures, "output-reduce A/B report: "+failure)
+		}
+	}
+	for _, pair := range report.Pairs {
+		if pair.GatePassed {
+			summary.PassedPairs++
+		} else {
+			id := strings.TrimSpace(pair.PairID)
+			if id == "" {
+				id = "unnamed-pair"
+			}
+			if len(pair.GateFailures) == 0 {
+				summary.Failures = append(summary.Failures, id+": pair gate failed")
+			}
+			for _, failure := range pair.GateFailures {
+				summary.Failures = append(summary.Failures, id+": "+failure)
+			}
+		}
+		summary.OutputSaved += pair.OutputTokensSaved
+		summary.NetSaved += pair.NetTokensSaved
+		if pair.OutputSavingsPct > 0 && (summary.SavingsPctMin == 0 || pair.OutputSavingsPct < summary.SavingsPctMin) {
+			summary.SavingsPctMin = pair.OutputSavingsPct
+		}
+	}
+	if summary.PassedPairs != summary.Pairs {
+		summary.Failures = append(summary.Failures, fmt.Sprintf("output-reduce A/B passed_pairs=%d != pairs=%d", summary.PassedPairs, summary.Pairs))
+	}
+	return summary, nil
 }
 
 func countSessionFiles(dir string) (int, error) {
@@ -260,6 +385,9 @@ func evaluateCategoryGate(res CategoryResult, meta *CategoryMetadata) []string {
 	if meta.ExpectedSavingsMax > 0 && res.SavingsRatio > meta.ExpectedSavingsMax+1e-9 {
 		failures = append(failures, fmt.Sprintf("savings_ratio=%.4f > max=%.4f (suspicious overcount)", res.SavingsRatio, meta.ExpectedSavingsMax))
 	}
+	if meta.ExpectedSavedTokensMin > 0 && res.SavedTokens < meta.ExpectedSavedTokensMin {
+		failures = append(failures, fmt.Sprintf("saved_tokens=%d < min=%d", res.SavedTokens, meta.ExpectedSavedTokensMin))
+	}
 	if meta.ExpectedMaxErrors >= 0 && res.ErrorCount > meta.ExpectedMaxErrors {
 		failures = append(failures, fmt.Sprintf("errors=%d > max=%d", res.ErrorCount, meta.ExpectedMaxErrors))
 	}
@@ -272,6 +400,22 @@ func evaluateCategoryGate(res CategoryResult, meta *CategoryMetadata) []string {
 	if meta.ExpectedOutputReduceAppliedMin > 0 && res.OutputReduceApplied < meta.ExpectedOutputReduceAppliedMin {
 		failures = append(failures, fmt.Sprintf("output_reduce_applied=%d < min=%d", res.OutputReduceApplied, meta.ExpectedOutputReduceAppliedMin))
 	}
+	if meta.ExpectedOutputReduceOverheadMax > 0 && res.OutputReduceInputOverhead > meta.ExpectedOutputReduceOverheadMax {
+		failures = append(failures, fmt.Sprintf("output_reduce_input_overhead_tokens=%d > max=%d", res.OutputReduceInputOverhead, meta.ExpectedOutputReduceOverheadMax))
+	}
+	if meta.expectedOutputReduceNetObservedMinSet && res.OutputReduceNetObserved < meta.ExpectedOutputReduceNetObservedMin {
+		failures = append(failures, fmt.Sprintf("output_reduce_net_observed_tokens=%d < min=%d", res.OutputReduceNetObserved, meta.ExpectedOutputReduceNetObservedMin))
+	}
+	if meta.ExpectedOutputReduceABPairsMin > 0 && res.OutputReduceABPairs < meta.ExpectedOutputReduceABPairsMin {
+		failures = append(failures, fmt.Sprintf("output_reduce_ab_pairs=%d < min=%d", res.OutputReduceABPairs, meta.ExpectedOutputReduceABPairsMin))
+	}
+	if meta.ExpectedOutputReduceABNetSavedMin > 0 && res.OutputReduceABNetSaved < meta.ExpectedOutputReduceABNetSavedMin {
+		failures = append(failures, fmt.Sprintf("output_reduce_ab_net_tokens_saved=%d < min=%d", res.OutputReduceABNetSaved, meta.ExpectedOutputReduceABNetSavedMin))
+	}
+	if meta.ExpectedOutputReduceABSavingsPctMin > 0 && res.OutputReduceABSavingsPctMin+1e-9 < meta.ExpectedOutputReduceABSavingsPctMin {
+		failures = append(failures, fmt.Sprintf("output_reduce_ab_savings_pct_min=%.2f < min=%.2f", res.OutputReduceABSavingsPctMin, meta.ExpectedOutputReduceABSavingsPctMin))
+	}
+	failures = append(failures, res.OutputReduceABFailures...)
 	if meta.ExpectedReReadCountMax >= 0 && res.ReReadCount > meta.ExpectedReReadCountMax {
 		failures = append(failures, fmt.Sprintf("reread_count=%d > max=%d", res.ReReadCount, meta.ExpectedReReadCountMax))
 	}
@@ -294,8 +438,8 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 		}
 		switch name {
 		case "tool_heavy":
-			if res.Layer0Saved <= 0 && res.Layer1Saved <= 0 {
-				failures = append(failures, "scenario tool_heavy: expected Layer 0 or Layer 1 savings")
+			if res.ToolPruneApplied <= 0 || res.ToolPruneSavedTokens <= 0 {
+				failures = append(failures, "scenario tool_heavy: expected tool-prune application with saved tokens")
 			}
 		case "cache_reuse":
 			if res.Layer3Saved <= 0 && res.ProviderCacheReadTokens <= 0 && res.ProviderCachedTokens <= 0 {
@@ -304,6 +448,16 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 		case "output_reduce":
 			if res.OutputReduceApplied <= 0 {
 				failures = append(failures, "scenario output_reduce: expected output-reduce application")
+			} else if res.OutputTokens <= 0 {
+				failures = append(failures, "scenario output_reduce: expected observed output-token evidence")
+			}
+		case "output_reduce_ab":
+			if res.OutputReduceABPairs <= 0 {
+				failures = append(failures, "scenario output_reduce_ab: expected paired A/B evidence")
+			} else if res.OutputReduceABPassedPairs != res.OutputReduceABPairs {
+				failures = append(failures, fmt.Sprintf("scenario output_reduce_ab: passed_pairs=%d pairs=%d", res.OutputReduceABPassedPairs, res.OutputReduceABPairs))
+			} else if res.OutputReduceABNetSaved <= 0 {
+				failures = append(failures, fmt.Sprintf("scenario output_reduce_ab: net_saved=%d", res.OutputReduceABNetSaved))
 			}
 		case "planner_alignment":
 			if res.PlanReplay.RequestsWithPlan <= 0 {
@@ -381,6 +535,7 @@ var requiredMaxxWorkloads = []string{
 	"chunk_dedup_log_output",
 	"chunk_dedup_test_output",
 	"output_reduce_aggressive",
+	"output_reduce_ab",
 	"tool_heavy",
 	"provider_cache_long_session",
 	"host_resource_long_workday",
@@ -426,8 +581,8 @@ func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
 		if c.Metadata == nil || !c.Metadata.expectedLatencyP95MaxSet || c.Metadata.ExpectedLatencyP95MaxMs <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_latency_p95_max_ms must be explicit", c.Category))
 		}
-		if c.Metadata == nil || c.Metadata.ExpectedSavingsMin <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_savings_min must be explicit and positive", c.Category))
+		if c.Metadata == nil || !categoryHasPromotionSavingsSignal(c.WorkloadClass, c.Metadata) {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: missing explicit positive savings signal for workload_class %s", c.Category, c.WorkloadClass))
 		}
 		for _, failure := range c.Failures {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: %s", c.Category, failure))
@@ -450,6 +605,22 @@ func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
 	return gate
 }
 
+func categoryHasPromotionSavingsSignal(workload string, meta *CategoryMetadata) bool {
+	if meta == nil {
+		return false
+	}
+	switch strings.TrimSpace(workload) {
+	case "provider_cache_long_session":
+		return meta.ExpectedProviderCacheReadMin > 0
+	case "output_reduce_aggressive":
+		return meta.ExpectedOutputReduceAppliedMin > 0
+	case "output_reduce_ab":
+		return meta.ExpectedOutputReduceABPairsMin > 0 && meta.ExpectedOutputReduceABNetSavedMin > 0
+	default:
+		return meta.ExpectedSavingsMin > 0 || meta.ExpectedSavedTokensMin > 0
+	}
+}
+
 // EvaluateMaxxGate applies the stricter whole-program max-out gate. It includes
 // the release/default-promotion gate and then requires the mechanism-specific
 // live workloads for chunk dedup, output-reduce, tool pruning, provider cache,
@@ -468,6 +639,28 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 	for _, workload := range requiredMaxxWorkloads {
 		if got := gate.SessionsByWorkload[workload]; got <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("missing maxx workload_class %s", workload))
+		}
+	}
+	for _, category := range report.Categories {
+		if category.Synthetic || category.WorkloadClass != "output_reduce_aggressive" {
+			continue
+		}
+		if category.OutputReduceApplied <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_applied=%d", category.Category, category.OutputReduceApplied))
+		}
+		if category.OutputTokens <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_aggressive missing observed output-token evidence", category.Category))
+		}
+	}
+	for _, category := range report.Categories {
+		if category.Synthetic || category.WorkloadClass != "output_reduce_ab" {
+			continue
+		}
+		if category.OutputReduceABPairs <= 0 || category.OutputReduceABPassedPairs != category.OutputReduceABPairs {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_ab pairs=%d passed=%d", category.Category, category.OutputReduceABPairs, category.OutputReduceABPassedPairs))
+		}
+		if category.OutputReduceABNetSaved <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_ab net_saved=%d", category.Category, category.OutputReduceABNetSaved))
 		}
 	}
 	gate.Passed = len(gate.Failures) == 0
@@ -523,8 +716,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		}
 		report.Categories = append(report.Categories, res)
 		report.TotalRequests += res.Requests
-		totalOrig += res.OrigTokens
-		totalSaved += res.SavedTokens
+		if res.OrigTokens > 0 {
+			totalOrig += res.OrigTokens
+			totalSaved += res.SavedTokens
+		}
 		if res.Synthetic {
 			report.HasSynthetic = true
 		} else {
@@ -563,11 +758,29 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  requests:     %d\n", c.Requests))
 		sb.WriteString(fmt.Sprintf("  orig tokens:  %d\n", c.OrigTokens))
 		sb.WriteString(fmt.Sprintf("  saved tokens: %d\n", c.SavedTokens))
-		sb.WriteString(fmt.Sprintf("  ratio:        %.2f%%\n", c.SavingsRatio*100))
+		if c.OrigTokens > 0 {
+			sb.WriteString(fmt.Sprintf("  ratio:        %.2f%%\n", c.SavingsRatio*100))
+		} else if c.SavedTokens > 0 {
+			sb.WriteString("  ratio:        n/a (absolute saved-token gate)\n")
+		} else {
+			sb.WriteString("  ratio:        n/a\n")
+		}
 		sb.WriteString(fmt.Sprintf("  L0/L1/L2/L3:  %d / %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer2Saved, c.Layer3Saved))
 		sb.WriteString(fmt.Sprintf("  output tokens:%d\n", c.OutputTokens))
 		sb.WriteString(fmt.Sprintf("  provider cache read/create/cached: %d / %d / %d\n", c.ProviderCacheReadTokens, c.ProviderCacheCreateTokens, c.ProviderCachedTokens))
-		sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
+		if c.OutputReduceApplied > 0 || c.OutputReduceInputOverhead > 0 {
+			sb.WriteString(fmt.Sprintf("  output-reduce:%d observed=%d overhead=%d net_observed=%d\n",
+				c.OutputReduceApplied, c.OutputTokens, c.OutputReduceInputOverhead, c.OutputReduceNetObserved))
+		} else {
+			sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
+		}
+		if c.OutputReduceABPairs > 0 || len(c.OutputReduceABFailures) > 0 {
+			sb.WriteString(fmt.Sprintf("  output-reduce A/B: pairs=%d passed=%d output_saved=%d net=%d savings_min=%.2f%%\n",
+				c.OutputReduceABPairs, c.OutputReduceABPassedPairs, c.OutputReduceABOutputSaved, c.OutputReduceABNetSaved, c.OutputReduceABSavingsPctMin))
+		}
+		if c.ToolPruneApplied > 0 || c.ToolPruneSavedTokens > 0 {
+			sb.WriteString(fmt.Sprintf("  tool-prune:   applied=%d saved=%d\n", c.ToolPruneApplied, c.ToolPruneSavedTokens))
+		}
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))
 		if c.HostBudgetOKRows > 0 || c.HostBudgetIssueRows > 0 {
@@ -596,12 +809,13 @@ func FormatCorpusReport(report CorpusReport) string {
 			sb.WriteString("  combos:\n")
 			for _, key := range sortedLayerCombinationKeys(c.LayerCombinations) {
 				combo := c.LayerCombinations[key]
-				ratio := 0.0
+				ratioText := "n/a"
 				if combo.OrigTokens > 0 {
-					ratio = float64(combo.SavedTokens) / float64(combo.OrigTokens) * 100
+					ratio := float64(combo.SavedTokens) / float64(combo.OrigTokens) * 100
+					ratioText = fmt.Sprintf("%.2f%%", ratio)
 				}
-				sb.WriteString(fmt.Sprintf("    %-18s requests=%d saved=%d ratio=%.2f%% output=%d errors=%d\n",
-					key, combo.Requests, combo.SavedTokens, ratio, combo.OutputTokens, combo.Errors))
+				sb.WriteString(fmt.Sprintf("    %-18s requests=%d saved=%d ratio=%s output=%d errors=%d\n",
+					key, combo.Requests, combo.SavedTokens, ratioText, combo.OutputTokens, combo.Errors))
 			}
 		}
 		sb.WriteString(fmt.Sprintf("  evidence:     %s\n", c.EvidenceLevel))
@@ -622,7 +836,7 @@ func FormatCorpusReport(report CorpusReport) string {
 	sb.WriteString(strings.Repeat("-", 60))
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Total requests: %d\n", report.TotalRequests))
-	sb.WriteString(fmt.Sprintf("Overall ratio:  %.2f%%\n", report.OverallRatio*100))
+	sb.WriteString(fmt.Sprintf("Overall ratio:  %.2f%% (known denominators only)\n", report.OverallRatio*100))
 	if report.PromotionGate != nil {
 		sb.WriteString("\nPromotion gate\n")
 		if report.PromotionGate.Passed {

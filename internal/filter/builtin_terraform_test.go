@@ -392,8 +392,8 @@ func TestTryCompactTerraformValidate_emptyPassthrough(t *testing.T) {
 	}
 }
 
-// TestTryCompactTerraformStateList_long keeps head + tail with a marker.
-func TestTryCompactTerraformStateList_long(t *testing.T) {
+// TestTryCompactTerraformStateList_longPassthrough keeps every resource address.
+func TestTryCompactTerraformStateList_longPassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	for i := 0; i < 200; i++ {
@@ -403,21 +403,8 @@ func TestTryCompactTerraformStateList_long(t *testing.T) {
 	}
 	in := []byte(b.String())
 	out, ok := TryCompactTerraformStateList([]string{"terraform", "state", "list"}, in)
-	if !ok {
-		t.Fatal("expected state list compaction")
-	}
-	s := string(out)
-	if !strings.Contains(s, "more resources omitted") {
-		t.Fatalf("missing marker: %q", s)
-	}
-	if !strings.Contains(s, "aws_s3_bucket.bucket_0") {
-		t.Fatalf("missing head: %q", s)
-	}
-	if !strings.Contains(s, "aws_s3_bucket.bucket_199") {
-		t.Fatalf("missing tail: %q", s)
-	}
-	if len(out) >= len(in) {
-		t.Fatalf("output must be shorter: in=%d out=%d", len(in), len(out))
+	if ok || string(out) != string(in) {
+		t.Fatalf("long state list must full-pass without archive recovery, ok=%v out=%q", ok, out)
 	}
 }
 
@@ -450,8 +437,8 @@ func TestTryCompactTerraformStateList_nonStateListPassthrough(t *testing.T) {
 	}
 }
 
-// TestTryCompactTerraformOutput_long collapses the tail past the budget.
-func TestTryCompactTerraformOutput_long(t *testing.T) {
+// TestTryCompactTerraformOutput_longPassthrough keeps every output fact.
+func TestTryCompactTerraformOutput_longPassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	for i := 0; i < 50; i++ {
@@ -463,22 +450,12 @@ func TestTryCompactTerraformOutput_long(t *testing.T) {
 	}
 	in := []byte(b.String())
 	out, ok := TryCompactTerraformOutput([]string{"terraform", "output"}, in)
-	if !ok {
-		t.Fatal("expected output compaction")
-	}
-	s := string(out)
-	if !strings.Contains(s, "more outputs omitted") {
-		t.Fatalf("missing marker: %q", s)
-	}
-	if !strings.Contains(s, "output_0 = ") {
-		t.Fatalf("missing first entry: %q", s)
-	}
-	if strings.Contains(s, "output_49 = ") {
-		t.Fatalf("over-budget tail leaked: %q", s)
+	if ok || string(out) != string(in) {
+		t.Fatalf("long terraform output must full-pass without archive recovery, ok=%v out=%q", ok, out)
 	}
 }
 
-func TestTryCompactTerraformOutputKeepsLateDiagnosticOutputs(t *testing.T) {
+func TestTryCompactTerraformOutputKeepsLateDiagnosticOutputsByFullPass(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	for i := 0; i < 45; i++ {
@@ -498,18 +475,15 @@ func TestTryCompactTerraformOutputKeepsLateDiagnosticOutputs(t *testing.T) {
 	}
 	in := []byte(b.String())
 	out, ok := TryCompactTerraformOutput([]string{"terraform", "output"}, in)
-	if !ok {
-		t.Fatal("expected output compaction")
+	if ok || string(out) != string(in) {
+		t.Fatalf("terraform output with late diagnostic must full-pass, ok=%v out=%q", ok, out)
 	}
 	s := string(out)
 	if !strings.Contains(s, "diagnostic_error_message") || !strings.Contains(s, "E42 subnet missing route table") {
 		t.Fatalf("late diagnostic output was dropped: %q", s)
 	}
-	if strings.Contains(s, "output_64 = ") {
-		t.Fatalf("ordinary late output leaked: %q", s)
-	}
-	if len(out) >= len(in) {
-		t.Fatalf("output must remain shorter: in=%d out=%d", len(in), len(out))
+	if !strings.Contains(s, "output_64 = ") {
+		t.Fatalf("ordinary late output must be preserved by full-pass: %q", s)
 	}
 }
 
@@ -522,9 +496,8 @@ func TestTryCompactTerraformOutput_shortPassthrough(t *testing.T) {
 	}
 }
 
-// TestTryCompactTerraformOutput_objectValue keeps multi-line object values
-// inside the budget intact.
-func TestTryCompactTerraformOutput_objectValue(t *testing.T) {
+// TestTryCompactTerraformOutput_objectValuePassthrough keeps multi-line object values intact.
+func TestTryCompactTerraformOutput_objectValuePassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	b.WriteString("config = {\n")
@@ -538,8 +511,8 @@ func TestTryCompactTerraformOutput_objectValue(t *testing.T) {
 	}
 	in := []byte(b.String())
 	out, ok := TryCompactTerraformOutput([]string{"terraform", "output"}, in)
-	if !ok {
-		t.Fatal("expected compaction")
+	if ok || string(out) != string(in) {
+		t.Fatalf("terraform output object must full-pass, ok=%v out=%q", ok, out)
 	}
 	if !strings.Contains(string(out), "config = {") {
 		t.Fatalf("multi-line object lost: %q", out)
@@ -614,17 +587,6 @@ func TestTryCompactTerraformShow_unrecognisedBodyPassthrough(t *testing.T) {
 	out, ok := TryCompactTerraformShow([]string{"terraform", "show"}, in)
 	if ok {
 		t.Fatalf("expected passthrough for unrecognised body, got compaction: %s", out)
-	}
-}
-
-// TestCompressTerraformOutputCmd_emptyInputPassthrough exercises the
-// trim-trailing-newline-then-empty-input branch.
-func TestCompressTerraformOutputCmd_emptyInputPassthrough(t *testing.T) {
-	t.Parallel()
-	in := []byte("")
-	out := compressTerraformOutputCmd(in)
-	if string(out) != string(in) {
-		t.Fatalf("empty input must round-trip, got %q", out)
 	}
 }
 

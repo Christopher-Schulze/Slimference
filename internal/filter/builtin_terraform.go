@@ -57,38 +57,20 @@ func TryCompactTerraformValidate(argv []string, stdout []byte) ([]byte, bool) {
 	return compressed, true
 }
 
-// TryCompactTerraformStateList compresses `terraform state list` output.
-// The output is one resource address per line; long state files routinely
-// emit hundreds of them. Compaction keeps the first 30 and the last 5
-// lines plus a `... <N> more ...` marker so the model still sees the
-// shape and the most-recently-added resources without paying the full
-// token tax.
+// TryCompactTerraformStateList deliberately full-passes `terraform state list`.
+// Resource addresses are the evidence the model requested; dropping middle
+// addresses is a product drawdown unless the route guarantees exact archive
+// recovery. Keep this disabled in the default filter package.
 func TryCompactTerraformStateList(argv []string, stdout []byte) ([]byte, bool) {
-	if !isTerraformStateList(argv) {
-		return stdout, false
-	}
-	compressed := compressTerraformStateList(stdout)
-	if len(compressed) >= len(stdout) {
-		return stdout, false
-	}
-	return compressed, true
+	return stdout, false
 }
 
-// TryCompactTerraformOutput compresses `terraform output` (without `-json`)
-// when the result is a long sequence of `name = value` lines. Compaction
-// keeps the first 30 lines and emits a `... <N> more outputs ...` marker.
+// TryCompactTerraformOutput deliberately full-passes human-readable
+// `terraform output`. Output names and values are user-requested facts and may
+// include exactly the value the model needs. Structured `terraform show -json`
+// remains covered by the safer JSON parser path.
 func TryCompactTerraformOutput(argv []string, stdout []byte) ([]byte, bool) {
-	if !isTerraformSubcommand(argv, "output") {
-		return stdout, false
-	}
-	if hasTerraformJSONFlag(argv) {
-		return stdout, false
-	}
-	compressed := compressTerraformOutputCmd(stdout)
-	if len(compressed) >= len(stdout) {
-		return stdout, false
-	}
-	return compressed, true
+	return stdout, false
 }
 
 // TryCompactTerraformShow compresses `terraform show` output (the human-
@@ -314,100 +296,4 @@ func compressTerraformValidate(stdout []byte) []byte {
 		return stdout
 	}
 	return []byte(strings.Join(kept, "\n"))
-}
-
-// compressTerraformStateList keeps the first 30 and last 5 lines of a
-// `terraform state list` body and emits a `... <N> more ...` marker
-// between them. Empty / short outputs (<= 35 lines) pass through.
-func compressTerraformStateList(stdout []byte) []byte {
-	lines := strings.Split(strings.TrimRight(string(stdout), "\n"), "\n")
-	const headN = 30
-	const tailN = 5
-	if len(lines) <= headN+tailN {
-		return stdout
-	}
-	out := make([]string, 0, headN+tailN+1)
-	out = append(out, lines[:headN]...)
-	out = append(out, fmt.Sprintf("... %d more resources omitted ...", len(lines)-headN-tailN))
-	out = append(out, lines[len(lines)-tailN:]...)
-	return []byte(strings.Join(out, "\n") + "\n")
-}
-
-// compressTerraformOutputCmd keeps the first 30 `name = value` output
-// lines and emits a marker for the rest. Multi-line output values
-// (objects, lists) are kept whole when they fall inside the first 30
-// logical entries; lines past the 30-entry budget are counted and
-// omitted.
-func compressTerraformOutputCmd(stdout []byte) []byte {
-	lines := strings.Split(strings.TrimRight(string(stdout), "\n"), "\n")
-	const budget = 30
-	kept := make([]string, 0, budget+1)
-	entries := 0
-	depth := 0
-	dropped := 0
-	keepingOverBudgetEntry := false
-	for _, line := range lines {
-		trimmed := strings.TrimLeft(line, " \t")
-		isTopLevelEntry := depth == 0 && reTerraformOutputEntry.MatchString(trimmed)
-		if isTopLevelEntry {
-			entries++
-		}
-		if entries > budget && isTopLevelEntry {
-			if terraformImportantOutputEntry(trimmed) {
-				keepingOverBudgetEntry = true
-			} else {
-				dropped++
-				keepingOverBudgetEntry = false
-				depth = adjustTerraformOutputDepth(depth, trimmed)
-				continue
-			}
-		} else if entries > budget && !keepingOverBudgetEntry {
-			depth = adjustTerraformOutputDepth(depth, trimmed)
-			continue
-		}
-		kept = append(kept, line)
-		depth = adjustTerraformOutputDepth(depth, trimmed)
-		if depth == 0 {
-			keepingOverBudgetEntry = false
-		}
-	}
-	if dropped == 0 {
-		return stdout
-	}
-	kept = append(kept, fmt.Sprintf("... %d more outputs omitted ...", dropped))
-	return []byte(strings.Join(kept, "\n") + "\n")
-}
-
-// reTerraformOutputEntry matches a top-level output entry (`name = ...`)
-// at the start of a logical line.
-var reTerraformOutputEntry = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*=`)
-
-func terraformImportantOutputEntry(trimmed string) bool {
-	name, _, ok := strings.Cut(trimmed, "=")
-	if !ok {
-		return false
-	}
-	name = strings.ToLower(strings.TrimSpace(name))
-	for _, tok := range []string{"error", "failure", "failed", "status", "message", "reason", "warning", "diagnostic"} {
-		if strings.Contains(name, tok) {
-			return true
-		}
-	}
-	return false
-}
-
-// adjustTerraformOutputDepth tracks brace nesting so multi-line object /
-// list values can be kept or skipped as one unit.
-func adjustTerraformOutputDepth(depth int, trimmed string) int {
-	for _, r := range trimmed {
-		switch r {
-		case '{', '[':
-			depth++
-		case '}', ']':
-			if depth > 0 {
-				depth--
-			}
-		}
-	}
-	return depth
 }

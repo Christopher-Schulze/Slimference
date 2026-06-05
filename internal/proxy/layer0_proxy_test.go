@@ -338,6 +338,122 @@ func TestCompactProxyLayer0TextCodexExecEnvelope(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0InfersCodexEnvelopeCommandWhenToolUseMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+	payload.WriteString("    live_proof_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: inferred\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  []types.Message{{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "missing-call", Text: envelope}}}},
+		SessionID: "sess-inferred-go-test",
+	})
+	text := result.Messages[0].Content[0].Text
+	if result.Stats.CommandResolvedBlocks != 1 || result.Stats.CommandUnresolvedBlocks != 0 ||
+		result.Stats.CodexExecEnvelopeBlocks != 1 || result.Stats.TokensSaved <= 0 {
+		t.Fatalf("expected inferred go-test envelope savings, stats=%+v text=%q", result.Stats, text)
+	}
+	if !strings.Contains(text, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		strings.Contains(text, "TestPassing089") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("inferred compaction must preserve failure and archive original payload: %q", text)
+	}
+}
+
+func TestReduceCodexLayer0InfersCodexEnvelopeCommandForResolvedWrapper(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceWrapperFailure\n")
+	payload.WriteString("    wrapper_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceWrapperFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/wrapper\t0.015s\n")
+	envelope := "Chunk ID: wrapper\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route: codexLayer0RouteWSSPhaseF,
+		Messages: []types.Message{{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call-wrapper",
+			Text:         envelope,
+		}}}},
+		SessionID: "sess-wrapper-go-test",
+		RememberedToolUse: map[string]types.ContentBlock{
+			"call-wrapper": {
+				Type:      "tool_use",
+				ToolUseID: "call-wrapper",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"/tmp/slimference-wrapper/run.sh"}`,
+			},
+		},
+	})
+	text := result.Messages[0].Content[0].Text
+	if result.Stats.CommandResolvedBlocks != 1 || result.Stats.CommandUnresolvedBlocks != 0 ||
+		result.Stats.CodexExecEnvelopeBlocks != 1 || result.Stats.TokensSaved <= 0 {
+		t.Fatalf("expected wrapper go-test envelope savings, stats=%+v text=%q", result.Stats, text)
+	}
+	if !strings.Contains(text, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		strings.Contains(text, "TestPassing089") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("wrapper compaction must preserve failure and archive original payload: %q", text)
+	}
+}
+
+func TestProxyInferCommandLineFromToolResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "go_test",
+			text: "Process exited with code 1\nOutput:\n=== RUN   TestThing\n--- FAIL: TestThing (0.00s)\nFAIL\texample.test/pkg\t0.01s\n",
+			want: "go test",
+		},
+		{
+			name: "search",
+			text: "Process exited with code 0\nOutput:\ninternal/a.go:10:needle\ninternal/b.go:20:needle\npkg/c.go:30:needle\n",
+			want: "rg",
+		},
+		{
+			name: "git_status",
+			text: "Process exited with code 0\nOutput:\n M a.go\n?? b.go\nA  c.go\n",
+			want: "git status --short",
+		},
+		{
+			name: "ambiguous",
+			text: "Process exited with code 0\nOutput:\nthis is just prose with a:colon\nand another line\n",
+			want: "",
+		},
+		{
+			name: "not_envelope",
+			text: "=== RUN   TestThing\n--- FAIL: TestThing\n",
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyInferCommandLineFromToolResult(tc.text); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -646,6 +762,7 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 		Messages:           first,
 		SessionID:          "sess-chunks",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -657,6 +774,7 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 		Messages:           second,
 		SessionID:          "sess-chunks",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -694,6 +812,7 @@ func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
 		Messages:           first,
 		SessionID:          "sess-envelope-chunks",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -705,6 +824,7 @@ func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
 		Messages:           second,
 		SessionID:          "sess-envelope-chunks",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -743,6 +863,7 @@ func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
 		Messages:           first,
 		SessionID:          "sess-truncated-envelope",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -751,6 +872,7 @@ func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
 		Messages:           second,
 		SessionID:          "sess-truncated-envelope",
 		ChunkDedupEnabled:  true,
+		ChunkDedupProof:    savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
 		ArchiveRecovery:    true,
@@ -786,6 +908,7 @@ func TestReduceCodexLayer0ChunkDedupReferenceDensityGuard(t *testing.T) {
 		Messages:            first,
 		SessionID:           "sess-density-guard",
 		ChunkDedupEnabled:   true,
+		ChunkDedupProof:     savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes:  0,
 		ChunkDedupMaxRefPct: 10,
 		ChunkStore:          store,
@@ -795,6 +918,7 @@ func TestReduceCodexLayer0ChunkDedupReferenceDensityGuard(t *testing.T) {
 		Messages:            second,
 		SessionID:           "sess-density-guard",
 		ChunkDedupEnabled:   true,
+		ChunkDedupProof:     savingspolicy.CodexProofLive,
 		ChunkDedupMinBytes:  0,
 		ChunkDedupMaxRefPct: 10,
 		ChunkStore:          store,
@@ -829,6 +953,7 @@ func TestReduceCodexLayer0ChunkDedupSessionBudgetPreDemotesChunk(t *testing.T) {
 			ChunkStore:          store,
 			ArchiveRecovery:     true,
 			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
 			ChunkDedupMinBytes:  1,
 			ChunkDedupMaxRefPct: 100,
 			PolicyMode:          "auto",
@@ -875,6 +1000,7 @@ func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
 			ChunkStore:          store,
 			ArchiveRecovery:     true,
 			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
 			ChunkDedupMinBytes:  0,
 			ChunkDedupMaxRefPct: 100,
 			PolicyMode:          "max",
@@ -934,6 +1060,7 @@ func TestReduceCodexLayer0ChunkDedupFullPassesAfterRecentEditUncertainty(t *test
 			ChunkStore:          store,
 			ArchiveRecovery:     true,
 			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
 			ChunkDedupMinBytes:  0,
 			ChunkDedupMaxRefPct: 100,
 			PolicyMode:          "auto",
@@ -968,7 +1095,7 @@ func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "cmd", ToolName: "exec_command", ToolInput: `{"cmd":"python report.py"}`}}},
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "cmd", Text: body}}},
 	}
-	reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: true, ChunkDedupMinBytes: 0, ChunkStore: store, ArchiveRecovery: true})
+	reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: true, ChunkDedupProof: savingspolicy.CodexProofLive, ChunkDedupMinBytes: 0, ChunkStore: store, ArchiveRecovery: true})
 	out := reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: false, ChunkDedupMinBytes: 0, ChunkStore: store, ArchiveRecovery: false})
 	if out.Stats.ChunkDedupBlocks != 0 || strings.Contains(out.Messages[1].Content[0].Text, "context-chunk") {
 		t.Fatalf("disabled chunk dedup must stay byte-equal: %+v", out.Stats)
@@ -980,19 +1107,28 @@ func TestCodexChunkDedupSettingsAutoPolicyEnablesRecoverableChunks(t *testing.T)
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
 	p := New(cfg)
-	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || explicit || mode != "auto" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
-		t.Fatalf("auto policy should make recoverable chunk dedup available: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
+	settings := p.codexChunkDedupSettings()
+	if !settings.Enabled || settings.Store == nil || settings.Explicit || settings.PolicyMode != "auto" ||
+		!settings.ArchiveRecovery || settings.Proof != savingspolicy.CodexProofLive ||
+		settings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
+		settings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("auto policy should make recoverable chunk dedup available: %+v", settings)
 	}
 	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "conservative"
 	p = New(cfg)
-	if store, enabled, _, _, _, _, archive := p.codexChunkDedupSettings(); enabled || store != nil || archive {
-		t.Fatalf("conservative policy without explicit recovery should not enable chunk dedup: enabled=%v store=%v archive=%v", enabled, store, archive)
+	settings = p.codexChunkDedupSettings()
+	if settings.Enabled || settings.Store != nil || settings.ArchiveRecovery {
+		t.Fatalf("conservative policy without explicit recovery should not enable chunk dedup: %+v", settings)
 	}
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p = New(cfg)
-	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || !explicit || mode != "conservative" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
-		t.Fatalf("explicit chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
+	settings = p.codexChunkDedupSettings()
+	if !settings.Enabled || settings.Store == nil || !settings.Explicit || settings.PolicyMode != "conservative" ||
+		!settings.ArchiveRecovery || settings.Proof != savingspolicy.CodexProofLive ||
+		settings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
+		settings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("explicit chunk dedup settings not enabled with recovery note: %+v", settings)
 	}
 }
 
@@ -1003,8 +1139,12 @@ func TestCodexHTTPChunkDedupSettingsStayConservative(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p := New(cfg)
-	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexHTTPChunkDedupSettings(); enabled || store != nil || explicit || archive || mode != "max" || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
-		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
+	settings := p.codexHTTPChunkDedupSettings()
+	if settings.Enabled || settings.Store != nil || settings.Explicit || settings.ArchiveRecovery ||
+		settings.PolicyMode != "max" || settings.Proof != savingspolicy.CodexProofLive ||
+		settings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
+		settings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: %+v", settings)
 	}
 }
 

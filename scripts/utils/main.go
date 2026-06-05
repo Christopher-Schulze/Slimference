@@ -13,6 +13,11 @@
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 //	go run ./scripts/utils wss-proof-inventory <dir-or-matrix.jsonl> [--json]
+//	go run ./scripts/utils wss-proof-export-corpus <matrix.jsonl> <live-corpus-root>
+//	go run ./scripts/utils wss-proof-clean-matrix <dir-or-matrix.jsonl> <out.jsonl> [--json]
+//	go run ./scripts/utils wss-proof-live-row --matrix-row PATH --frames PATH --workload-class CLASS
+//	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
+//	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 
@@ -34,7 +39,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, release-proof-report, tls-probe")
 		os.Exit(1)
 	}
 
@@ -113,6 +118,16 @@ func main() {
 		os.Exit(runWSSProofMatrix(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-inventory":
 		os.Exit(runWSSProofInventory(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-proof-export-corpus":
+		os.Exit(runWSSProofExportCorpus(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-proof-clean-matrix":
+		os.Exit(runWSSProofCleanMatrix(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-proof-live-row":
+		os.Exit(runWSSProofLiveRow(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-output-reduce-ab-report":
+		os.Exit(runOutputReduceABReport(os.Args[2:], os.Stdout, os.Stderr))
+	case "release-proof-report":
+		os.Exit(runReleaseProofReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:

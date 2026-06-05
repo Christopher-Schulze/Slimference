@@ -136,19 +136,24 @@ func extractTestFailures(s, label string) (string, bool) {
 
 	// Failure: collect FAIL/FAILED lines
 	var failLines []string
-	for _, line := range strings.Split(s, "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" {
-			continue
-		}
-		// go test: "--- FAIL: TestName", "FAIL\t<pkg>"
-		// cargo test: "test name ... FAILED"
-		// pytest: "FAILED tests/test_foo.py::test_bar"
-		// jest: "● description"
-		if strings.HasPrefix(t, "--- FAIL") || strings.HasPrefix(t, "FAIL\t") ||
-			strings.HasSuffix(t, " FAILED") || strings.HasPrefix(t, "FAILED ") ||
-			strings.HasPrefix(t, "● ") {
-			failLines = append(failLines, t)
+	if strings.Contains(label, "go test") {
+		failLines = extractGoTestFailureLines(s)
+	}
+	if len(failLines) == 0 {
+		for _, line := range strings.Split(s, "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" {
+				continue
+			}
+			// go test: "--- FAIL: TestName", "FAIL\t<pkg>"
+			// cargo test: "test name ... FAILED"
+			// pytest: "FAILED tests/test_foo.py::test_bar"
+			// jest: "● description"
+			if strings.HasPrefix(t, "--- FAIL") || strings.HasPrefix(t, "FAIL\t") ||
+				strings.HasSuffix(t, " FAILED") || strings.HasPrefix(t, "FAILED ") ||
+				strings.HasPrefix(t, "● ") {
+				failLines = append(failLines, t)
+			}
 		}
 	}
 	if len(failLines) == 0 {
@@ -159,6 +164,57 @@ func extractTestFailures(s, label string) (string, bool) {
 		return "", false
 	}
 	return out, true
+}
+
+func extractGoTestFailureLines(s string) []string {
+	var failLines []string
+	var currentTest []string
+	inFailedBlock := false
+	add := func(line string) {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			failLines = append(failLines, line)
+		}
+	}
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(t, "=== RUN"):
+			currentTest = []string{t}
+			inFailedBlock = false
+		case strings.HasPrefix(t, "--- PASS:"):
+			currentTest = nil
+			inFailedBlock = false
+		case strings.HasPrefix(t, "--- FAIL:"):
+			start := 0
+			if len(currentTest) > 12 {
+				start = len(currentTest) - 12
+			}
+			for _, kept := range currentTest[start:] {
+				add(kept)
+			}
+			add(t)
+			currentTest = nil
+			inFailedBlock = true
+		case strings.HasPrefix(t, "FAIL\t"):
+			add(t)
+			inFailedBlock = false
+		case inFailedBlock:
+			add(t)
+		case currentTest != nil:
+			currentTest = append(currentTest, t)
+		}
+	}
+	if len(failLines) <= 80 {
+		return failLines
+	}
+	out := append([]string(nil), failLines[:60]...)
+	out = append(out, fmt.Sprintf("... +%d more go-test failure line(s) omitted", len(failLines)-80))
+	out = append(out, failLines[len(failLines)-20:]...)
+	return out
 }
 
 const maxLintLines = 60

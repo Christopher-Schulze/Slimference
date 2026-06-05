@@ -3346,9 +3346,11 @@ Changes:
 - T251: added an explicit WSS regression test proving huge `instructions` and
   `tools` prompt-cache prefix blocks remain byte-equal and are not counted as
   savings.
-- T252: search grouping now preserves head and tail matches/files under cap
-  pressure, terraform output compaction keeps late diagnostic/error outputs, and
-  reports split billable input-token savings from output-wire byte reductions.
+- T252/T260: search grouping now preserves head and tail matches/files under cap
+  pressure, Terraform plan/init/validate/show retain late diagnostics, and long
+  `terraform state list` plus plain human-readable `terraform output` full-pass
+  unless a future route-specific archive-backed reducer owns exact recovery.
+  Reports split billable input-token savings from output-wire byte reductions.
 
 Safety:
 - The only new model-facing instruction is default-off. This keeps recovery
@@ -4310,3 +4312,316 @@ Validation:
   compression errors.
 - Replay gate: `frames=151`, `request_turns=4`, `mutated_requests=2`,
   `bytes_saved=15095`, `lost=0`, and `gate_passed=true`.
+
+## 2026-06-04 - T272 automated CLI host-resource bundle
+
+Goal: remove manual ceremony from the CLI half of the final resource proof
+without weakening the release gate.
+
+Changes:
+- `codex-capture-run` gained `--resource-profile-proof <bundle-dir>`.
+- When enabled, the managed daemon run writes the release bundle files itself:
+  `frames.jsonl`, `matrix.jsonl`, `admin-before.json`, `admin-after.json`,
+  `ps-before.txt`, `ps-after.txt`, `slimference.sample.txt`, and
+  `workday-finish.json`.
+- The bundle uses the same aggregate/workday report types already validated by
+  `release-proof-report`; it does not copy raw prompts, raw tool payloads, or
+  auth material.
+- `host-resource-plan -client codex_cli` now prints the single automated CLI
+  command. `codex_desktop` stays manual because Codex.app prompts are
+  operator-driven, but the final report still requires the same files and
+  host-budget gates for both surfaces.
+
+Validation:
+- Added parser and lifecycle coverage for the new bundle flag.
+- Existing release proof validation continues to reject missing or partial
+  bundles and still requires both CLI and Desktop directories.
+
+## 2026-06-04 - T272 final resource/profile release proof PASS
+
+Goal: close the final host-resource proof with real CLI and Desktop evidence
+and keep the release claim separated by economics source.
+
+Evidence:
+- CLI bundle:
+  `/Users/christopher/.slimference/captures/host-resource-codex_cli-auto-20260604T212018Z`.
+- Desktop bundle:
+  `/Users/christopher/.slimference/captures/host-resource-codex_desktop-20260604T212111Z`.
+- Release commands:
+  `go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json`,
+  then `go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <cli> --resource-profile-proof <desktop> --json`.
+- Result over the clean release matrix: `gate_passed=true`,
+  `resource_profile_proof_ok=true`,
+  `resource_profile_proof_clients=["cli","desktop"]`,
+  `local_billable_input_tokens_saved=330518`,
+  `provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
+  `output_reduce_injected_turns=2`, `output_reduce_observed_tokens=1072`,
+  `host_budget_ok_rows=15`, and `safety_issue_rows=0`.
+
+Changes:
+- `release-proof-report` now rejects resource bundle rows whose own
+  `expected_reducers` are not satisfied, so a positive provider-cache or local
+  savings delta cannot hide a missed mechanism-specific proof.
+- `wss-proof-clean-matrix` now exports the release-claim matrix from proof rows
+  only. On the current historical archive it wrote 70 clean rows from 89,
+  normalized 9 stale expected-reducer labels from row-local live reducer
+  evidence, and skipped historical diagnostic rows, host-budget attention rows,
+  expected-zero local-savings violations, safety rows, and rows without an
+  economic signal.
+- `wss-ab-replay --fail-on-lost` now audits known output-reduce instruction
+  suffixes as expected extras while unknown instruction rewrites remain lost
+  context. This keeps top-level Codex `instructions` in the model-facing A/B
+  comparison without falsely treating the guarded output-reduce directive as
+  context loss.
+- The proof inventory and exported live corpus remain green: 89 historical
+  local matrix rows, 70 strict clean release rows, zero safety issues, complete
+  maxx workload status, and `benchmark-corpus --maxx-check` passing.
+
+Honesty notes:
+- Historical host-budget issue rows and expected-zero anomalies remain visible
+  in the archive. They are superseded evidence, not hidden failures, and the
+  strict release report intentionally rejects them unless a clean matrix is used.
+- The output-reduce claim is still safe injection plus observed output-token
+  measurement, not a standalone counterfactual output-savings percentage.
+
+## 2026-06-04 - T258 chunk-dedup proof level wired into policy
+
+Goal: make default-auto chunk dedup evidence-driven in the hot path instead of
+implicitly trusting a hard-coded live-proof assumption.
+
+Changes:
+- `[compression.output_reduce] codex_chunk_dedup_proof_level` now records the
+  local content-free proof level (`none`, `unit`, `replay`, or `live`).
+- The default is `live` because the current CLI/Desktop release corpus includes
+  positive chunk-dedup evidence with zero safety issues.
+- The value flows through config -> proxy chunk settings -> WSS/HTTP Layer-0
+  reducer -> `internal/savingspolicy`.
+- `auto` now shadows recoverable archive-backed chunk refs unless archive
+  recovery is available and the proof level is `live`.
+- `max` requires at least replay proof for non-explicit recoverable refs, and
+  generic future archive-backed recoverable mechanisms use the same proof gate.
+- The old explicit `codex_chunk_dedup_enabled` override remains available for
+  conservative/operator use, but it is no longer confused with product
+  default-auto evidence.
+
+Validation:
+- Added policy tests for missing-live-proof shadow decisions.
+- Added config default/env/validation coverage for the proof-level field.
+- Refactored chunk settings from a positional tuple to a named struct so
+  proof, archive recovery, explicit override, and policy mode cannot be
+  accidentally swapped at call sites.
+
+## 2026-06-04 - Maxx proof inventory refresh after T258/T261 hardening
+
+Goal: re-check the local proof index after the policy and Layer-1 telemetry
+hardening so stale TODO entries do not imply missing maxx coverage.
+
+Command:
+- `go run ./scripts/utils wss-proof-inventory ~/.slimference/captures --json`.
+
+Result:
+- `matrix_files=24`, `rows=89`, `clients.cli=70`, `clients.desktop=19`.
+- `positive_token_rows=60`, `expected_zero_rows=14`,
+  `host_budget_ok_rows=27`, `safety_issue_rows=0`.
+- All maxx workload statuses are `complete`: chunk similar outputs, chunk log
+  output, chunk test output, output-reduce aggressive, tool-heavy,
+  provider-cache long session, and host-resource long workday.
+- Live reducer evidence includes `read_delta=25`, `repeated_output=13`,
+  `chunk_dedup=2`, `chunk_dedup_refs=2`, `captured_output=28`,
+  `provider_cache_read=594304`, `tool_prune_tokens_saved=26`,
+  `output_reduce_injected=3`, and `output_reduce_output_tokens=1072`.
+
+Honesty notes:
+- Output-reduce remains a guarded injection plus observed-output-token proof,
+  not a standalone counterfactual output-savings percentage.
+- T260 remains the broad live-breadth parser frontier for rare parser families;
+  no concrete default reducer bug was found in this refresh.
+
+## 2026-06-05 - Release proof honesty and Layer-0 container hardening
+
+Goal: remove the last "green with caveats" release-proof ambiguity and close a
+small Layer-0 count-only context-loss surface.
+
+Changes:
+- `release-proof-report` now fails the release gate when any scanned row has a
+  host-budget issue or an `expected_zero_savings` row still shows local savings.
+  The report emits content-free row ids for both cases.
+- Running the stricter report over the historical local capture archive now
+  correctly fails because it finds two old host-budget attention rows
+  (`cli-chunk-policy-cat`, `cli-test-failure-script-20260603T173503Z`) and one
+  superseded expected-zero anomaly (`cli-release-apply-patch-then-read`).
+  This is honest: the archive contains diagnostic history, so release claims
+  must use a clean matrix or focused release bundles.
+- Non-empty healthy `docker ps`, `docker images`, and `kubectl get` tables now
+  full-pass. The reducer only compacts large container tables when diagnostic
+  attention rows exist, preserving those rows verbatim.
+- Extended the same product-safe inventory rule to non-empty `gh ... list`,
+  `glab ... list`, and `kubectl -o json`: healthy lists full-pass because their
+  rows are requested evidence; only diagnostic attention rows compact.
+
+Validation:
+- Focused gates passed:
+  `go test ./internal/filter ./scripts/utils ./docs -count=1`,
+  `git diff --check`, and
+  `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check`.
+- Full CI passed: `go run ./scripts/ci` completed all 8 steps with total
+  coverage 97.1%, codex smoke PASS, live corpus PASS, and leaf-audit PASS.
+
+## 2026-06-05 - Layer 2 CJK input-cap hardening
+
+Goal: keep the legacy background summariser bounded and deterministic under
+huge Unicode/CJK histories without promoting summaries into the product path.
+
+Changes:
+- Layer 2 now caps oversized message text before outbound redaction/rendering
+  and caps the formatted summariser body again before preprocessing or density
+  scoring.
+- Both caps preserve UTF-8 validity and respect the same CJK-heavy token
+  heuristic used by `estimateTokens`, so a CJK-heavy tail cannot exceed the
+  intended summariser budget just because byte length is small relative to token
+  estimate.
+- The cap works on a deep-copied message slice, leaving original messages intact
+  for cached-prefix hashes, anchor validation, and covered-range validation.
+
+Validation:
+- `go test ./internal/summarization -count=1` passed.
+- `go test -race ./internal/summarization -count=1` passed.
+- `go test -race ./...` passed.
+- Full CI passed again with `go run ./scripts/ci`: all 8 steps, total coverage
+  97.1%, codex smoke PASS, live corpus PASS, and leaf-audit PASS.
+
+## 2026-06-05 - Output-reduce proof accounting split
+
+Goal: make the output-reduce proof impossible to overclaim while preserving the
+guarded WSS injection evidence.
+
+Changes:
+- `release-proof-report`, `wss-proof-export-corpus`, and `benchmark-corpus`
+  now keep output-reduce input overhead separate from provider-observed output
+  tokens.
+- Corpus metadata for `output_reduce_aggressive` now carries both
+  `expected_output_reduce_input_overhead_max` and
+  `expected_output_reduce_net_observed_min`; the benchmark gate enforces both
+  when present.
+- Text/JSON reports expose `output_reduce_net_observed_tokens` as a diagnostic
+  only. It is not a counterfactual output-token savings percentage.
+
+Evidence:
+- Clean release proof passed with `output_reduce_injected_turns=2`,
+  `output_reduce_input_overhead_tokens=752`,
+  `output_reduce_observed_tokens=1072`, and
+  `output_reduce_net_observed_tokens=320`.
+- The focused `cli_output_reduce_aggressive` live-corpus row is intentionally
+  stricter: `observed=154`, `overhead=328`, `net_observed=-174`. That row proves
+  guarded WSS injection, provider output-token observability, host-budget OK,
+  and zero safety errors, but not positive output-token savings magnitude.
+- The focused Desktop tool-prune gate was re-run after the second idle marker
+  and still passed with one Desktop `tool_heavy` row, `tool_prune=1`,
+  `tool_prune_tokens_saved=26`, `host_budget_ok=1`, `lost=0`, and zero
+  parse/degrade/compression errors. The second idle marker is no-regression
+  evidence, not an additional savings row.
+
+## 2026-06-05 - Output-reduce A/B proof gate
+
+Goal: give output-reduce a real counterfactual savings gate instead of relying
+on single-run injection and output-token observability.
+
+Changes:
+- `codex-capture-run` and `wss-proof-live-row` can now stamp proof-matrix rows
+  with `ab_pair_id` and `ab_variant` (`baseline` or `directive`).
+- Added `go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>`.
+  It pairs baseline/directive rows content-free, requires matching client and
+  workload class, requires provider output-token observations on both sides,
+  requires guarded output-reduce injection only on the directive side, subtracts
+  directive input overhead, and fails on safety errors, output-reduce
+  downgrades, host-budget violations, non-positive output-token reduction, or
+  net tokens below the configured floor.
+- The report reads proof-matrix counters only. It does not read prompts, model
+  text, tool output, or raw WSS frames.
+
+Evidence:
+- `go test ./scripts/utils -count=1` passed after the new A/B command and flag
+  plumbing.
+- Live paired rows are still required before claiming a concrete output-token
+  savings percentage for aggressive output-reduce.
+
+## 2026-06-05 - Output-reduce CLI A/B PASS and overhead fix
+
+Goal: turn the A/B proof gate into a real positive output-reduce savings proof
+for at least one focused workload, without hiding input overhead or model-facing
+risk.
+
+Changes:
+- Added general `provider_output_tokens_observed` to proof-matrix live deltas by
+  parsing provider usage counters from WSS capture frames. This lets no-directive
+  baseline rows participate in output-reduce A/B without pretending they have
+  output-reduce tracker counters.
+- `wss-output-reduce-ab-report` now prefers `provider_output_tokens_observed`
+  and falls back to legacy `output_reduce_output_tokens_observed` for existing
+  rows.
+- Fixed `outputreduce.InjectBody` overhead accounting. `AddedBytes` now measures
+  the model-facing directive text, not JSON body re-marshal byte churn.
+- Shortened the Codex direct-answer directive while preserving the same safety
+  gates and the no-Slimference-meta constraint.
+
+Evidence:
+- Focused CLI A/B matrix
+  `/tmp/output-reduce-ab-20260604T231831Z.matrix.jsonl` passed
+  `wss-output-reduce-ab-report --min-net-tokens=1 --json`.
+- Pair `output-status-20260604T231831Z`: baseline `987` provider output tokens,
+  directive `768`, directive input overhead `23`, output tokens saved `219`,
+  net tokens saved `196`, output savings `22.19%`, `lost=0`, host budget `ok`,
+  and zero parse/degrade/compression errors.
+- The failed prior run with the installed stale binary had no
+  `output_reduce_injected` signal. The passing proof used a temporary binary
+  built from the current tree at `/tmp/slimference-current-output-ab`.
+- Remaining proof gap: broaden A/B to Desktop and additional safe task shapes
+  before claiming a general output-reduce savings percentage.
+
+## 2026-06-05 - Output-reduce A/B live-corpus Maxx gate
+
+Goal: make the positive A/B proof durable and impossible to bypass with a plain
+injection row.
+
+Changes:
+- Added `tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/` with a
+  content-free `output_reduce_ab_report.json` for the passing CLI
+  direct-answer/status pair. No raw frames, prompts, model text, tool output, or
+  auth data are committed.
+- `benchmark-corpus` now loads `output_reduce_ab_report.json`, surfaces pair
+  count, passed pairs, output tokens saved, net tokens saved, and minimum output
+  savings percent, and fails the category gate on missing, unsafe, or
+  net-negative pairs.
+- `--maxx-check` now requires workload `output_reduce_ab` in addition to
+  `output_reduce_aggressive`. `output_reduce_aggressive` proves guarded
+  injection and observed provider-output accounting; `output_reduce_ab` proves
+  counterfactual savings against a no-directive baseline.
+
+Evidence:
+- `go test ./scripts/benchmarks -count=1` passed.
+- `go test -race ./scripts/benchmarks ./scripts/utils -count=1` passed.
+- `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus
+  --maxx-check` passed with `output_reduce_ab=1`, `pairs=1`, `passed=1`,
+  `output_saved=219`, `net=196`, and `savings_min=22.19%`.
+
+## 2026-06-05 - Output-reduce explanation-shape A/B reality check
+
+Goal: see whether output-reduce generalizes beyond the direct-answer/status
+shape without hiding directive overhead.
+
+Findings:
+- A clean CLI explanation-shape A/B with output-reduce disabled on baseline and
+  `codex_aggressive` on directive did not pass the counterfactual gate. Before
+  directive compaction, the pair saved `19` output tokens but had `111`
+  directive-overhead tokens, net `-92`.
+- The standard safety directive was then compacted by task shape while keeping
+  exact detail, evidence, caveat, path, error, and verification preservation
+  requirements. The same explanation workload reduced directive overhead to
+  `46`, but the model produced more output (`baseline=222`, `directive=248`),
+  so net remained negative (`-72`).
+
+Decision:
+- Do not promote explanation-shape output-reduce savings. Keep the compact
+  safety directives because they lower product overhead without weakening the
+  preservation contract, but only the direct-answer/status A/B pair is currently
+  positive live evidence.

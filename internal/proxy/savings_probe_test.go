@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -49,6 +50,10 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
 	})
+	p.toolPrune.MarkPruned(26)
+	p.toolPrune.MarkReattached()
+	p.outputReduce.ObserveInjection(outputreduce.Stats{Applied: true, AddedTokens: 9, Reason: "applied"})
+	p.outputReduce.ObserveOutput(42)
 	p.analytics.Record(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
@@ -79,18 +84,28 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if got.OutputTokensSaved != 3456 {
 		t.Errorf("OutputTokensSaved=%d want 3456", got.OutputTokensSaved)
 	}
-	if got.BillableInputTokensSaved != 2000 {
-		t.Errorf("BillableInputTokensSaved=%d want 2000", got.BillableInputTokensSaved)
+	if got.BillableInputTokensSaved != 2026 {
+		t.Errorf("BillableInputTokensSaved=%d want 2026", got.BillableInputTokensSaved)
 	}
 	if got.Product.Status != "saving" {
 		t.Errorf("Product.Status=%q want saving", got.Product.Status)
 	}
-	if got.Product.BillableInputTokensSaved != 2000 ||
+	if got.Product.BillableInputTokensSaved != 2026 ||
 		got.Product.ProviderCacheReadTokens != 700 ||
 		got.Product.ProviderCacheCreateTokens != 120 ||
 		got.Product.OutputWireBytesSaved != 3072 ||
 		got.Product.RequestSideBytesReduced != 384 {
 		t.Errorf("Product savings mismatch: %+v", got.Product)
+	}
+	if got.Product.ToolPruneTokensSaved != 26 ||
+		got.Product.ToolPrunePrunedTools != 1 ||
+		got.Product.ToolPruneReattached != 1 {
+		t.Errorf("Product tool-prune mismatch: %+v", got.Product)
+	}
+	if got.Product.OutputReduceInjectedTurns != 1 ||
+		got.Product.OutputReduceObservedTokens != 42 ||
+		got.Product.OutputReduceInputOverhead != 9 {
+		t.Errorf("Product output-reduce mismatch: %+v", got.Product)
 	}
 	if got.Product.CacheMisses != 1 || got.Product.CacheHits != 0 {
 		t.Errorf("Product cache mismatch: %+v", got.Product)
@@ -105,8 +120,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		t.Errorf("RequestSideBytesReduced=%d want 384", got.RequestSideBytesReduced)
 	}
 	// CostUSD is based on billable input tokens, not output-wire bytes.
-	if got.InputTokensSaved != 2000 {
-		t.Errorf("InputTokensSaved=%d want 2000", got.InputTokensSaved)
+	if got.InputTokensSaved != 2026 {
+		t.Errorf("InputTokensSaved=%d want 2026", got.InputTokensSaved)
 	}
 	if got.ProxyLayer0Repeated != 1 {
 		t.Errorf("ProxyLayer0Repeated=%d want 1", got.ProxyLayer0Repeated)
@@ -128,8 +143,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if len(got.ProxyLayer0Latency) != 2 || got.ProxyLayer0Latency[0].Count != 1 {
 		t.Errorf("ProxyLayer0Latency mismatch: %+v", got.ProxyLayer0Latency)
 	}
-	// CostUSD = 2000 / 1_000_000 * 6.0 = 0.012
-	if got.CostUSD < 0.0119 || got.CostUSD > 0.0121 {
+	// CostUSD = 2026 / 1_000_000 * 6.0 = 0.012156
+	if got.CostUSD < 0.0121 || got.CostUSD > 0.0122 {
 		t.Errorf("CostUSD=%v out of range", got.CostUSD)
 	}
 }

@@ -56,8 +56,10 @@ compression shortcut.
    - [x] unknown sublayer tags require archive recovery until classified
    - [x] default exact/reversible sublayers can run without archive only when
      their registry contract says recovery is not needed
-   - [ ] mode-specific default/auto/max enforcement needs a final corpus proof
-     pass before any broader policy change
+   - [x] mode-specific default/auto/max enforcement is covered by the current
+     safety registry, prompt-cache boundary protection, and Layer-1 corpus
+     round-trip guard; broader policy changes still require their own evidence
+     before they can mutate model-facing text
 3. Add a per-sublayer decision record:
    - [x] attempted
    - [x] applied
@@ -67,7 +69,7 @@ compression shortcut.
    - [x] archive requirement
    - [x] recovery path
    - [x] default eligibility
-   - [ ] per-sub-layer archive id counts if live proof shows this is needed
+   - [x] per-sub-layer archive write counts for recoverability audit
 4. Convert context-risky sublayers to archive-backed form where feasible:
    - structure extraction must preserve anchors and archive full original
    - comment strip must keep critical comments and archive original if applied
@@ -76,8 +78,11 @@ compression shortcut.
 5. Add "no hidden loss" tests:
    - exact sublayers are byte-equivalent after decode/reconstruct
    - reversible sublayers expand to original
-   - recoverable sublayers include valid archive ids
-   - risky sublayers full-pass when archive is unavailable
+   - [x] recoverable near-dedup includes a valid archive id and expands to exact
+     original bytes
+   - [x] a multi-message Layer-1 corpus loads every emitted archive id and
+     verifies exact original block bytes plus session/message/block metadata
+   - [x] risky sublayers full-pass when archive is unavailable
 6. Add prompt-cache-aware mutation checks:
    - [x] never mutate stable provider-cached prefixes when the token economics
      are net negative
@@ -131,6 +136,12 @@ compression shortcut.
   archive requirement, application state, reason, and saved-token count. The
   mapping separates `tool_compressor` from `tool_output_in_window` attribution
   while preserving legacy aggregate accounting.
+- 2026-06-04: Tightened Layer 1 decision honesty. The compressor now records
+  content-free per-sub-layer attempt counts only when a reducer is actually
+  reached, and `layer1_decisions` reports `not_attempted` for registered
+  sub-layers the workload never exercised. Proxy decision summaries now also
+  carry `archive_writes`, so an archive-required applied decision remains
+  auditable outside the compression package.
 - 2026-06-02: Hardened the Layer 1 registry guard to fail closed for unknown
   sub-layer tags. Any future unclassified mutation now requires archive recovery
   before model-facing text can change, preventing accidental unrecoverable
@@ -172,9 +183,43 @@ compression shortcut.
   provider prompt-cache economics. Regression coverage proves large
   cache-controlled tool outputs remain byte-identical, unarchived, and
   savings-neutral.
+- 2026-06-04: Hardened the registry contract for default eligibility. Tests now
+  fail if a future default-eligible Layer 1 sublayer is neither exact nor
+  reversible and also lacks archive recovery. This turns the product
+  zero-drawdown rule into an executable guard instead of relying on prose.
+  Focused `go test ./internal/compression` coverage is green, and the current
+  exported live corpus passes both `benchmark-corpus --promotion-check` and
+  `--maxx-check`. Remaining closeout is not WSS product safety, but a dedicated
+  Layer-1/full-history corpus round-trip proof for the historical HTTP path and
+  exact/reversible reconstruction claims.
+- 2026-06-04: Added content-free per-sub-layer archive write accounting to
+  `Layer1Result` and `Layer1DecisionRecord`. The count is incremented only after
+  the recorder returns a non-empty archive id, so archive-required applied
+  decisions can now prove that recovery material was actually written instead of
+  merely intended. Focused and full `go test ./internal/compression -count=1`
+  are green.
+- 2026-06-04: Added a DiskRecorder-backed offline round-trip guard for
+  archive-backed `dedup_near`. The fixture compresses a similar-but-changed
+  block, reads the resulting archive id through `contentarchive.Get`, and asserts
+  exact original bytes plus session/sub-layer/message/block metadata. This proves
+  the most dangerous Layer 1 dedup shape is recoverable locally without relying
+  on live traffic.
+- 2026-06-04: Closed the dedicated Layer-1/full-history offline proof. The
+  corpus exercises multiple historical messages, archive-backed comment stripping
+  and archive-backed near-dedup, then loads every emitted archive id through
+  `contentarchive.Get` and compares the stored bytes against the original
+  `types.ContentBlock` text at the recorded message/block position. Applied
+  archive-required decisions must also carry positive archive-write counts. This
+  proves the default Layer-1 safety contract at the reconstruction boundary
+  without relying on WSS captures or model-facing archive instructions.
 
 ## Done
 
-Layer 1 is maxxed only when every sublayer has a declared safety tier, the
-executor enforces that tier, risky transformations are archive-backed or
-non-default, and proof shows savings without model-facing context loss.
+Layer 1 is maxxed for the current product contract: every sublayer has a
+declared safety tier, the executor enforces that tier, risky transformations are
+archive-backed or non-default, archive failure full-passes, and focused plus
+corpus tests prove exact local recovery for emitted archive ids. Decision
+telemetry now distinguishes unattempted, attempted-zero, applied, and
+archive-backed-applied states without payload logging. Any future new sublayer
+or broader model-facing policy must meet the same gates before it can run
+default-auto.

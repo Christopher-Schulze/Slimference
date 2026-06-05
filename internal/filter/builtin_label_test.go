@@ -269,12 +269,12 @@ func TestCompactContainerTable_fewRows(t *testing.T) {
 	}
 }
 
-// TestCompactContainerTable_manyRows verifies compaction for >5 rows.
+// TestCompactContainerTable_manyRows verifies healthy non-empty tables full-pass.
 func TestCompactContainerTable_manyRows(t *testing.T) {
 	t.Parallel()
 	result := compactContainerTable("label", "docker ps", 8)
-	if result != "[docker ps] 8 item(s)\n" {
-		t.Errorf("want item count, got %q", result)
+	if result != "" {
+		t.Errorf("healthy non-empty table should full-pass, got %q", result)
 	}
 }
 

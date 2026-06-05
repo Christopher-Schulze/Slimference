@@ -18,6 +18,7 @@ func TestBuildLayer1DecisionsMapsCompressionRecords(t *testing.T) {
 				Reason:          "applied_positive_savings",
 				SavedTokens:     42,
 				RequiresArchive: true,
+				ArchiveWrites:   1,
 				Recovery:        "content archive",
 				DefaultEligible: true,
 			},
@@ -34,6 +35,7 @@ func TestBuildLayer1DecisionsMapsCompressionRecords(t *testing.T) {
 		!got[0].Applied ||
 		got[0].SavedTokens != 42 ||
 		!got[0].RequiresArchive ||
+		got[0].ArchiveWrites != 1 ||
 		got[0].Recovery != "content archive" ||
 		!got[0].DefaultEligible {
 		t.Fatalf("bad decision mapping: %+v", got[0])

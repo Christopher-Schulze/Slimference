@@ -287,6 +287,10 @@ type OutputReduceConfig struct {
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
 	CodexChunkDedupEnabled bool `toml:"codex_chunk_dedup_enabled"`
+	// CodexChunkDedupProofLevel is the highest content-free proof level for
+	// chunk dedup on the current installation: none, unit, replay, or live.
+	// Auto policy requires live before it emits archive-backed chunk refs.
+	CodexChunkDedupProofLevel string `toml:"codex_chunk_dedup_proof_level"`
 	// CodexChunkDedupMinBytes is the minimum model-facing tool output size
 	// eligible for chunk dedup. Smaller blocks are not worth reference
 	// overhead. Default 4096 bytes, below Codex's observed ~8 KiB
@@ -383,6 +387,9 @@ type TuningConfig struct {
 	// ToolPruneIdleThresholdTurns are removed from the request body
 	// and archived for transparent reattachment. Default off.
 	ToolPruneEnabled bool `toml:"tool_prune_enabled"`
+	// ToolPruneIdleThresholdTurns is the number of observed session turns a
+	// tool can remain unused before it becomes prune-eligible. Default 20.
+	ToolPruneIdleThresholdTurns int `toml:"tool_prune_idle_threshold_turns"`
 	// ToolPruneAlwaysKeep extends the built-in always-keep class for
 	// project-specific safety tools. Entries are exact tool names.
 	ToolPruneAlwaysKeep []string `toml:"tool_prune_always_keep"`
@@ -833,6 +840,9 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Compression.OutputReduce.CodexChunkDedupEnabled = b
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_PROOF_LEVEL")); v != "" {
+		cfg.Compression.OutputReduce.CodexChunkDedupProofLevel = v
+	}
 	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MIN_BYTES"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = n
 	}
@@ -855,6 +865,9 @@ func applyEnvOverrides(cfg *Config) {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.Tuning.ToolPruneEnabled = b
 		}
+	}
+	if n, ok := envIntOK("SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS"); ok && n > 0 {
+		cfg.Compression.Tuning.ToolPruneIdleThresholdTurns = n
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP")); v != "" {
 		cfg.Compression.Tuning.ToolPruneAlwaysKeep = splitCommaEnv(v)
@@ -991,6 +1004,11 @@ func validate(cfg *Config) error {
 	}
 	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
 		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)
+	}
+	switch strings.ToLower(strings.TrimSpace(or.CodexChunkDedupProofLevel)) {
+	case "", "none", "unit", "replay", "live":
+	default:
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_proof_level must be none/unit/replay/live, got %q", or.CodexChunkDedupProofLevel)
 	}
 	if or.CodexChunkDedupMinBytes < 0 {
 		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_min_bytes must be >= 0, got %d", or.CodexChunkDedupMinBytes)
