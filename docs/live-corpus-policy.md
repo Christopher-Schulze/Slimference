@@ -131,7 +131,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "synthetic": false,
      "evidence_level": "live_operator",
      "client_family": "<codex_cli|codex_desktop>",
-     "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday>",
+     "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday|chunk_dedup_similar_outputs|chunk_dedup_log_output|chunk_dedup_test_output|ocrl_full_history|output_reduce_aggressive|output_reduce_ab|tool_heavy|provider_cache_long_session|host_resource_long_workday>",
      "language": "<primary language>",
      "tool_mix": "<short summary>",
      "expected_savings_min": 0.30,
@@ -158,7 +158,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --maxx-check
    ```
 
-   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, falls below `expected_saved_tokens_min`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, `l2_summary`, and `ocrl_full_history`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
+   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, falls below `expected_saved_tokens_min`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `output_reduce_ab`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, `l2_summary`, and `ocrl_full_history`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
 
    `--promotion-check` is stricter and is only for release/default-on decisions.
    It ignores synthetic categories and requires at least five `codex_cli`

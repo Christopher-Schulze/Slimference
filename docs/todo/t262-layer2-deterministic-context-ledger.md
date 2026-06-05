@@ -451,3 +451,7 @@ summary remains opt-in, not default.
   validator plus positive saved-token evidence instead of generic low-error
   metadata. This closes the offline runbook gap while keeping the real live
   proof itself as the remaining promotion blocker.
+- 2026-06-05: Reconciled live-corpus documentation with the actual max-out
+  gate. The metadata example now lists OCRL and all current maxx workload
+  classes, and the supported validator list includes `output_reduce_ab` so the
+  documented corpus contract matches the benchmark validator implementation.
