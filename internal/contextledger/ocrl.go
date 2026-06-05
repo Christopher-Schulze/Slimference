@@ -204,18 +204,20 @@ func selectedCapsules(report SelectionReport) []Capsule {
 }
 
 func normalizedOCRLMode(mode OCRLMode) OCRLMode {
-	switch mode {
+	normalized := OCRLMode(strings.ToLower(strings.TrimSpace(string(mode))))
+	switch normalized {
 	case OCRLModeShadow, OCRLModeAuto, OCRLModeMax:
-		return mode
+		return normalized
 	default:
 		return OCRLModeOff
 	}
 }
 
 func normalizedOCRLRoute(route OCRLRoute) OCRLRoute {
-	switch route {
+	normalized := OCRLRoute(strings.ToLower(strings.TrimSpace(string(route))))
+	switch normalized {
 	case OCRLRouteFullHistoryHTTP, OCRLRouteCodexWSS:
-		return route
+		return normalized
 	default:
 		return OCRLRouteUnknown
 	}

@@ -1089,8 +1089,8 @@ Focused verification on 2026-06-05:
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
-The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.925 ms
-with 413950 B/op and 8201 allocs/op after archive verification and renderer
+The OCRL benchmark on Apple M1 processed 512 file capsules in about 1.023 ms
+with 414016 B/op and 8202 allocs/op after archive verification and renderer
 allocation trimming.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it

@@ -88,6 +88,23 @@ func TestBuildOCRLReplacementShadowModeNeverApplies(t *testing.T) {
 	}
 }
 
+func TestBuildOCRLReplacementNormalizesModeAndRoute(t *testing.T) {
+	t.Parallel()
+	result := BuildOCRLReplacement([]Capsule{
+		testCapsule(CapsuleCommand, "s", "old-command", "cmd-arch"),
+	}, OCRLPolicy{
+		Mode:           OCRLMode("  AUTO "),
+		Route:          OCRLRoute("  FULL_HISTORY_HTTP "),
+		Selection:      SelectionPolicy{SessionID: "s"},
+		ArchiveLoader:  fixedArchiveLoader("cmd-arch"),
+		CountTokens:    fixedTokenCounter(10),
+		OriginalTokens: 100,
+	})
+	if !result.Applied || result.Reason != OCRLReasonApplied {
+		t.Fatalf("result=%+v want normalized mode/route to apply", result)
+	}
+}
+
 func TestBuildOCRLReplacementFailsClosedOnArchiveAndSavingsGates(t *testing.T) {
 	t.Parallel()
 	capsule := testCapsule(CapsuleFile, "s", "old", "file-arch")

@@ -165,7 +165,7 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 0.925 ms, 413950 B/op, 8201 allocs/op.
+  512 file capsules in about 1.023 ms, 414016 B/op, 8202 allocs/op.
 
 ## Verification
 
@@ -345,6 +345,12 @@ summary remains opt-in, not default.
   invalid values, default shadow telemetry, explicit max route blocking, and
   off-mode no-savings behavior. Verification passed with focused OCRL tests,
   affected package tests, `go test ./... -count=1`, benchmark
-  `BenchmarkBuildOCRLReplacement` at `924533 ns/op`, `413950 B/op`,
-  `8201 allocs/op`, and `go run ./scripts/ci` all 8 steps green with 97.0%
+  `BenchmarkBuildOCRLReplacement` at `1023157 ns/op`, `414016 B/op`,
+  `8202 allocs/op`, and `go run ./scripts/ci` all 8 steps green with 97.0%
   total coverage.
+- 2026-06-05: Hardened the pure OCRL engine against caller formatting drift.
+  `BuildOCRLReplacement` now normalizes mode and route strings for whitespace
+  and case before making apply/shadow/off decisions, with a unit test proving
+  mixed-case `AUTO` and `FULL_HISTORY_HTTP` still hit the intended guarded
+  full-history apply path. `go test ./internal/contextledger -count=1` and
+  `go test ./... -count=1` passed.
