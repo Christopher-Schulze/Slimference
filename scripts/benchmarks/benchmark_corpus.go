@@ -89,6 +89,12 @@ type CategoryResult struct {
 	OutputReduceABFailures      []string                             `json:"output_reduce_ab_failures,omitempty"`
 	ToolPruneApplied            int                                  `json:"tool_prune_applied"`
 	ToolPruneSavedTokens        int64                                `json:"tool_prune_saved_tokens"`
+	OCRLCandidateCapsules       int                                  `json:"ocrl_candidate_capsules"`
+	OCRLArchiveExpansions       int                                  `json:"ocrl_archive_expansions"`
+	OCRLSavedTokens             int64                                `json:"ocrl_saved_tokens"`
+	OCRLApplied                 int                                  `json:"ocrl_applied"`
+	OCRLShadowOnly              int                                  `json:"ocrl_shadow_only"`
+	OCRLFullHistoryRows         int                                  `json:"ocrl_full_history_rows"`
 	ErrorCount                  int                                  `json:"error_count"`
 	ReReadCount                 int                                  `json:"reread_count"`
 	HostBudgetOKRows            int                                  `json:"host_budget_ok_rows"`
@@ -243,6 +249,12 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		OutputReduceABFailures:      append([]string(nil), abSummary.Failures...),
 		ToolPruneApplied:            agg.toolPruneApplied,
 		ToolPruneSavedTokens:        agg.toolPruneSaved,
+		OCRLCandidateCapsules:       agg.ocrlCandidateCapsules,
+		OCRLArchiveExpansions:       agg.ocrlArchiveExpansions,
+		OCRLSavedTokens:             agg.ocrlSavedTokens,
+		OCRLApplied:                 agg.ocrlApplied,
+		OCRLShadowOnly:              agg.ocrlShadowOnly,
+		OCRLFullHistoryRows:         agg.ocrlFullHistoryRows,
 		ErrorCount:                  agg.errorCount,
 		ReReadCount:                 agg.reReadCount,
 		HostBudgetOKRows:            agg.hostBudgetOK,
@@ -484,6 +496,22 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 		case "l2_summary":
 			if res.Layer2Saved <= 0 {
 				failures = append(failures, "scenario l2_summary: expected Layer 2 savings")
+			}
+		case "ocrl_full_history":
+			if res.OCRLApplied <= 0 {
+				failures = append(failures, "scenario ocrl_full_history: expected model-facing OCRL applied evidence")
+			}
+			if res.OCRLFullHistoryRows <= 0 {
+				failures = append(failures, "scenario ocrl_full_history: expected full-history OCRL route evidence")
+			}
+			if res.OCRLCandidateCapsules <= 0 || res.OCRLArchiveExpansions <= 0 {
+				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: candidates=%d archive_expansions=%d", res.OCRLCandidateCapsules, res.OCRLArchiveExpansions))
+			}
+			if res.OCRLSavedTokens <= 0 {
+				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: saved_tokens=%d", res.OCRLSavedTokens))
+			}
+			if res.OCRLShadowOnly > 0 {
+				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: shadow_only_rows=%d", res.OCRLShadowOnly))
 			}
 		default:
 			failures = append(failures, fmt.Sprintf("unknown scenario validator %q", raw))
@@ -780,6 +808,10 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		if c.ToolPruneApplied > 0 || c.ToolPruneSavedTokens > 0 {
 			sb.WriteString(fmt.Sprintf("  tool-prune:   applied=%d saved=%d\n", c.ToolPruneApplied, c.ToolPruneSavedTokens))
+		}
+		if c.OCRLCandidateCapsules > 0 || c.OCRLSavedTokens > 0 || c.OCRLApplied > 0 || c.OCRLShadowOnly > 0 {
+			sb.WriteString(fmt.Sprintf("  OCRL:         applied=%d shadow=%d full_history=%d candidates=%d archive_expansions=%d saved=%d\n",
+				c.OCRLApplied, c.OCRLShadowOnly, c.OCRLFullHistoryRows, c.OCRLCandidateCapsules, c.OCRLArchiveExpansions, c.OCRLSavedTokens))
 		}
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))

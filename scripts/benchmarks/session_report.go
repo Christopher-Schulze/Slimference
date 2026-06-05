@@ -45,6 +45,12 @@ type sessionReportAggregate struct {
 	outputReduceInputOverhead int64
 	toolPruneApplied          int
 	toolPruneSaved            int64
+	ocrlCandidateCapsules     int
+	ocrlArchiveExpansions     int
+	ocrlSavedTokens           int64
+	ocrlApplied               int
+	ocrlShadowOnly            int
+	ocrlFullHistoryRows       int
 	errorCount                int
 	reReadCount               int
 	hostBudgetOK              int
@@ -136,6 +142,7 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 			agg.toolPruneApplied++
 			agg.toolPruneSaved += int64(rec.ToolPrune.SavedTokens)
 		}
+		aggregateOCRL(agg, rec.ContextLedger)
 		agg.errorCount += len(rec.Errors)
 		agg.reReadCount += rec.ReReadCount
 		switch hostBudgetStateFromRaw(raw) {
@@ -269,6 +276,12 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.outputReduceInputOverhead += src.outputReduceInputOverhead
 	dst.toolPruneApplied += src.toolPruneApplied
 	dst.toolPruneSaved += src.toolPruneSaved
+	dst.ocrlCandidateCapsules += src.ocrlCandidateCapsules
+	dst.ocrlArchiveExpansions += src.ocrlArchiveExpansions
+	dst.ocrlSavedTokens += src.ocrlSavedTokens
+	dst.ocrlApplied += src.ocrlApplied
+	dst.ocrlShadowOnly += src.ocrlShadowOnly
+	dst.ocrlFullHistoryRows += src.ocrlFullHistoryRows
 	dst.errorCount += src.errorCount
 	dst.reReadCount += src.reReadCount
 	dst.hostBudgetOK += src.hostBudgetOK
@@ -284,6 +297,28 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	}
 	for key, value := range src.perCodexRoute {
 		dst.perCodexRoute[key] += value
+	}
+}
+
+func aggregateOCRL(agg *sessionReportAggregate, summary dbg.ContextLedgerSummary) {
+	if agg == nil {
+		return
+	}
+	agg.ocrlCandidateCapsules += summary.OCRLCandidateCapsules
+	agg.ocrlArchiveExpansions += summary.OCRLArchiveExpansions
+	if summary.OCRLShadowSavedTokens > 0 {
+		agg.ocrlSavedTokens += int64(summary.OCRLShadowSavedTokens)
+	}
+	if summary.OCRLShadowOnly {
+		agg.ocrlShadowOnly++
+	}
+	if strings.EqualFold(strings.TrimSpace(summary.OCRLRoute), "full_history_http") {
+		agg.ocrlFullHistoryRows++
+	}
+	if strings.EqualFold(strings.TrimSpace(summary.OCRLReason), "applied") &&
+		!summary.OCRLShadowOnly &&
+		!summary.TelemetryOnly {
+		agg.ocrlApplied++
 	}
 }
 

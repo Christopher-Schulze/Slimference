@@ -1117,6 +1117,12 @@ renderer scratch-buffer reuse. Exact archive-to-message target derivation for
 archive-match OCRL apply measured about 2.289 ms with 1183727 B/op and 3860
 allocs/op.
 
+The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`
+requires applied full-history OCRL evidence, selected capsules, archive
+expansions, positive OCRL saved tokens, and no shadow-only rows. The committed
+`synthetic_ocrl_full_history` fixture proves the gate wiring only; it is not a
+real Codex CLI/Desktop promotion claim.
+
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
 so OCRL proof telemetry cannot pollute recovery metrics.

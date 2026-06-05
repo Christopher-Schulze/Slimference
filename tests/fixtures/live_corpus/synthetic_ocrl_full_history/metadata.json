@@ -1,0 +1,19 @@
+{
+  "category": "synthetic_ocrl_full_history",
+  "description": "Synthetic OCRL full-history proof fixture. It exercises the corpus-level OCRL validator for model-facing full-history replacement evidence without claiming real Codex CLI/Desktop promotion.",
+  "synthetic": true,
+  "evidence_level": "synthetic",
+  "client_family": "synthetic",
+  "workload_class": "ocrl_full_history",
+  "language": "mixed",
+  "tool_mix": "old_context_archive",
+  "expected_savings_min": 0.60,
+  "expected_savings_max": 0.80,
+  "expected_request_count": 1,
+  "expected_max_errors": 0,
+  "scenario_validators": [
+    "ocrl_full_history",
+    "low_error"
+  ],
+  "notes": "This fixture proves benchmark-corpus can gate OCRL full-history applied evidence. Real promotion still requires non-synthetic operator captures."
+}

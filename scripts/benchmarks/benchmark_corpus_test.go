@@ -49,6 +49,7 @@ func itoa(i int) string {
 
 const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":600,"after_layer2":600,"final":600,"saved":400}}` + "\n"
 const sampleToolPruneRecord = `{"req_id":"req_tool_prune","provider":"codex_chatgpt","model":"gpt-5.5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":26},"tool_prune":{"applied":true,"pruned_tools":1,"saved_tokens":26}}` + "\n"
+const sampleOCRLFullHistoryRecord = `{"req_id":"req_ocrl","provider":"openai","model":"gpt-5","route_mode":"upstream","tokens":{"original":4200,"after_layer0":4200,"after_layer1":4200,"after_layer2":1450,"final":1450,"saved":2750},"context_ledger":{"telemetry_only":false,"ocrl_mode":"auto","ocrl_route":"full_history_http","ocrl_reason":"applied","ocrl_shadow_only":false,"ocrl_candidate_capsules":3,"ocrl_archive_expansions":3,"ocrl_original_tokens":3000,"ocrl_replacement_tokens":250,"ocrl_recovery_overhead_tokens":0,"ocrl_shadow_saved_tokens":2750}}` + "\n"
 
 const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"after_layer2":950,"final":950,"saved":50}}` + "\n"
 
@@ -339,8 +340,9 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 			"host_budget_ok",
 			"layer_combo_diversity",
 			"l2_summary",
+			"ocrl_full_history",
 		},
-	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord})
+	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord, sampleOCRLFullHistoryRecord})
 	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -350,6 +352,9 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 	}
 	if res.HostBudgetOKRows != 1 || res.HostBudgetIssueRows != 0 {
 		t.Fatalf("host budget rows: %+v", res)
+	}
+	if res.OCRLApplied != 1 || res.OCRLFullHistoryRows != 1 || res.OCRLSavedTokens != 2750 {
+		t.Fatalf("ocrl aggregate mismatch: %+v", res)
 	}
 }
 
@@ -366,6 +371,7 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 			"host_budget_ok",
 			"layer_combo_diversity",
 			"l2_summary",
+			"ocrl_full_history",
 			"unknown_validator",
 		},
 	}, []string{sampleErrorLatencyRecord, sampleHostBudgetIssueRecord})
@@ -382,6 +388,7 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 		"scenario host_budget_ok",
 		"scenario layer_combo_diversity",
 		"scenario l2_summary",
+		"scenario ocrl_full_history",
 		"unknown scenario validator",
 	} {
 		if !strings.Contains(got, want) {

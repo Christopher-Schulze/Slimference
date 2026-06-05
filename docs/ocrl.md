@@ -186,6 +186,9 @@ The engine requires:
 - archive-match target-derivation tests proving exact single-match apply and
   fail-closed behavior for ambiguous, unmatched, missing, errored, and duplicate
   target candidates
+- benchmark-corpus OCRL validator coverage: `ocrl_full_history` requires
+  applied full-history evidence, candidate capsules, archive expansions,
+  positive OCRL savings, and no shadow-only rows
 - docs and TODO state updated before a task can be closed
 
 Live Codex App/Desktop captures are a promotion gate for route claims, not a

@@ -203,6 +203,10 @@ The ledger stores deterministic capsules:
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - Benchmark gate:
   `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
+- Corpus gate:
+  `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --check`
+  includes the synthetic `ocrl_full_history` validator fixture. This proves
+  gate wiring, not live promotion.
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -419,3 +423,9 @@ summary remains opt-in, not default.
   `2289053 ns/op`, `1183727 B/op`, and `3860 allocs/op` for full archive-match
   OCRL apply over 512 capsules.
   `go test ./internal/contextledger -count=1` passed.
+- 2026-06-05: Added corpus-level OCRL proof gating. `benchmark-corpus` now
+  aggregates OCRL context-ledger fields and the `ocrl_full_history` validator
+  requires applied full-history evidence, archive expansions, positive OCRL
+  savings, and no shadow-only rows. `synthetic_ocrl_full_history` keeps this
+  gate covered in CI without pretending to be real CLI/Desktop promotion
+  evidence.
