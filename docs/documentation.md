@@ -17,7 +17,7 @@ source in one hop.
 3. [Request Lifecycle](#3-request-lifecycle)
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
-6. [Layer 2 - Context Ledger and Background Summarisation](#6-layer-2-context-ledger-and-background-summarisation)
+6. [Layer 2 - OCRL Context Ledger and Background Summarisation](#6-layer-2-ocrl-context-ledger-and-background-summarisation)
 7. [Layer 3 - Response Cache](#7-layer-3-response-cache)
 8. [Provider Support](#8-provider-support)
 9. [Install and integration](#9-install-and-integration)
@@ -1031,13 +1031,26 @@ original body locally retrievable.
 
 ---
 
-## 6. Layer 2 - Context Ledger and Background Summarisation
+## 6. Layer 2 - OCRL Context Ledger and Background Summarisation
 
-Layer 2 is no longer treated as "summary as truth" for product defaults.
+Layer 2 is no longer treated as "summary as truth" for product defaults. The
+product direction is OCRL, the Old Context Replacement Layer documented in
+`docs/ocrl.md`. OCRL is deterministic old-context replacement: it can render
+archive-backed capsules only when current-session provenance, inactive-context
+selection, archive recoverability, route eligibility, and positive token
+accounting are all proven. Any missing gate full-passes the original context.
+
 `internal/contextledger` builds deterministic command, file, search, failure,
 decision, and recovery capsules as compact provenance facts with hashes and
-archive ids. The Codex WSS hot path feeds those builders as content-free
-telemetry only; it does not insert ledger capsules into model-facing context.
+archive ids. `internal/contextledger/ocrl.go` adds the route-gated OCRL engine:
+`off`, `shadow`, `auto`, and `max` modes; Codex WSS stays shadow-only; only
+full-history HTTP-style routes are model-facing eligible; archive availability
+is verified before rendering; and net savings must remain positive after
+capsule and recovery overhead. The Codex Layer-0 reducer now retains the actual
+capsule objects in its internal stats path, not only counters, so future OCRL
+promotion can use real provenance objects instead of re-parsing telemetry. It
+still does not insert ledger capsules into model-facing context on Codex WSS.
+
 `internal/summarization/layer2.go` still exists as a background optimizer. Its
 local fallback is deterministic extractive summarisation, and an
 OpenAI-compatible `/v1/chat/completions` endpoint can still be configured for
@@ -1045,15 +1058,25 @@ higher semantic compression. `[compression.minimax]` is now a historical
 section name: `base_url`, `model`, and `api_key_env` can point at another
 compatible provider without code changes.
 
-Ledger capsule selection is fail-closed. A future model-facing insertion path
-may select only archive-backed old context from the current session. Active
-turns, recent turns, high-risk failures, missing provenance, missing facts,
-wrong-session capsules, missing archives, and budget-overflow candidates stay
-verbatim or rejected. `SelectionPolicy.ActivePaths` also keeps any file, search,
-or decision capsule touching an actively worked file verbatim, including
+Ledger capsule selection is fail-closed. A model-facing OCRL path may select
+only archive-backed old context from the current session. Active turns, recent
+turns, high-risk failures, missing provenance, missing facts, wrong-session
+capsules, missing archives, and budget-overflow candidates stay verbatim or
+rejected. `SelectionPolicy.ActivePaths` also keeps any file, search, or
+decision capsule touching an actively worked file verbatim, including
 repo-relative search hits resolved against the capsule `repo_root`.
 `SelectionPolicy.QualityPressure` full-passes every capsule when re-read,
 recovery, or comprehension canaries report pressure.
+
+Focused verification on 2026-06-05:
+
+- `go test ./internal/contextledger -count=1`
+- `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
+- `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+
+The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.84 ms
+with 413944 B/op and 8201 allocs/op after archive verification and renderer
+allocation trimming.
 
 ### Decision rule (T54)
 

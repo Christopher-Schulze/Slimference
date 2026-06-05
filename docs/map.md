@@ -96,8 +96,12 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/compression/prefilter_tag.go`: L1.14 Layer 0 marker detection
 - `internal/compression/lang.go`: Language detection from file extension
 
-### Layer 2 - MiniMax Summarization
+### Layer 2 - OCRL Context Ledger and Legacy Background Summarization
 
+- `docs/ocrl.md`: OCRL product spec for deterministic old-context replacement, modes, route gates, archive recovery, and zero-drawdown promotion rules
+- `internal/contextledger/ledger.go`: deterministic command/file/search/failure/decision/recovery capsule builders
+- `internal/contextledger/selection.go`: fail-closed capsule selection, active-path/quality-pressure gates, archive expansion and archive recoverability verification
+- `internal/contextledger/ocrl.go`: pure OCRL route/recovery/token gate engine plus deterministic capsule renderer
 - `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, ROI candidate scoring, prefix-hash apply validation, context-aware compression jobs, timeout-wrapped parent contexts, no post-cancel cache writes
 - `internal/summarization/minimax.go`: MiniMax M2.7 API client with request-bound HTTP contexts and cancelable retry backoff
 - `internal/summarization/prompt_contract.go`: T144a task-shaped summary contract selector for coding/debug/review/planning/docs/live-E2E prompts

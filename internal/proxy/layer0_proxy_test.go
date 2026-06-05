@@ -13,6 +13,7 @@ import (
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/contextledger"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/savingspolicy"
 	"github.com/slimference/slimference/internal/sessions"
@@ -208,6 +209,22 @@ func TestApplyProxyLayer0LedgerObservationKinds(t *testing.T) {
 		stats.LedgerFailureCapsules != 1 {
 		t.Fatalf("ledger counters mismatch: %+v", stats)
 	}
+	if len(stats.LedgerCapsules) != 6 {
+		t.Fatalf("ledger capsule objects mismatch: %+v", stats.LedgerCapsules)
+	}
+	kinds := map[contextledger.CapsuleKind]int{}
+	for _, capsule := range stats.LedgerCapsules {
+		kinds[capsule.Kind]++
+		if capsule.Provenance.SessionID != "sess-ledger" || capsule.Provenance.TurnID != "turn-1" {
+			t.Fatalf("capsule provenance mismatch: %+v", capsule)
+		}
+	}
+	if kinds[contextledger.CapsuleCommand] != 3 ||
+		kinds[contextledger.CapsuleFile] != 1 ||
+		kinds[contextledger.CapsuleSearch] != 1 ||
+		kinds[contextledger.CapsuleFailure] != 1 {
+		t.Fatalf("ledger capsule kind mismatch: %+v", kinds)
+	}
 }
 
 func TestApplyProxyLayer0LedgerSearchRequiresScope(t *testing.T) {
@@ -223,6 +240,9 @@ func TestApplyProxyLayer0LedgerSearchRequiresScope(t *testing.T) {
 	if stats.LedgerSearchCapsules != 0 {
 		t.Fatalf("implicit-scope search must not become a promotable ledger search capsule: %+v", stats)
 	}
+	if len(stats.LedgerCapsules) != 1 || stats.LedgerCapsules[0].Kind != contextledger.CapsuleCommand {
+		t.Fatalf("implicit-scope search should keep only command capsule object: %+v", stats.LedgerCapsules)
+	}
 }
 
 func TestApplyProxyLayer0LedgerSearchAcceptsCommandScopedSearch(t *testing.T) {
@@ -237,6 +257,9 @@ func TestApplyProxyLayer0LedgerSearchAcceptsCommandScopedSearch(t *testing.T) {
 	}
 	if stats.LedgerSearchCapsules != 1 {
 		t.Fatalf("repo-scoped cd search should become ledger search telemetry: %+v", stats)
+	}
+	if len(stats.LedgerCapsules) != 2 || stats.LedgerCapsules[1].Kind != contextledger.CapsuleSearch {
+		t.Fatalf("repo-scoped search should preserve search capsule object: %+v", stats.LedgerCapsules)
 	}
 }
 
@@ -285,6 +308,9 @@ func TestApplyProxyLayer0LedgerFileRequiresScope(t *testing.T) {
 	}
 	if stats.LedgerFileCapsules != 0 {
 		t.Fatalf("file ledger capsule without explicit scope must full-pass telemetry: %+v", stats)
+	}
+	if len(stats.LedgerCapsules) != 1 || stats.LedgerCapsules[0].Kind != contextledger.CapsuleCommand {
+		t.Fatalf("unscoped read should keep only command capsule object: %+v", stats.LedgerCapsules)
 	}
 }
 

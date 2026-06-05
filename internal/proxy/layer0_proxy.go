@@ -113,6 +113,7 @@ type proxyLayer0Stats struct {
 	LedgerFileCapsules      int
 	LedgerSearchCapsules    int
 	LedgerFailureCapsules   int
+	LedgerCapsules          []contextledger.Capsule
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 	CacheEvents             []proxyLayer0CacheEvent
@@ -156,7 +157,7 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 		exitCode = 0
 	}
 	cwd := proxyLayer0ToolWorkdir(use)
-	if _, err := contextledger.BuildCommandCapsule(contextledger.CommandObservation{
+	if capsule, err := contextledger.BuildCommandCapsule(contextledger.CommandObservation{
 		SessionID:   sessionID,
 		TurnID:      turnID,
 		CommandLine: commandLine,
@@ -165,9 +166,10 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 		Stdout:      []byte(proxyLayer0PayloadForLedger(text)),
 	}); err == nil {
 		s.LedgerCommandCapsules++
+		s.LedgerCapsules = append(s.LedgerCapsules, capsule)
 	}
 	if key, scope := proxyLayer0LedgerSearchKeyAndScope(commandLine, cwd); key != "" {
-		if _, err := contextledger.BuildSearchCapsule(contextledger.SearchObservation{
+		if capsule, err := contextledger.BuildSearchCapsule(contextledger.SearchObservation{
 			SessionID:   sessionID,
 			TurnID:      turnID,
 			CommandLine: commandLine,
@@ -175,11 +177,12 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 			PatternHash: proxyLayer0ShortHash(key),
 		}); err == nil {
 			s.LedgerSearchCapsules++
+			s.LedgerCapsules = append(s.LedgerCapsules, capsule)
 		}
 	}
 	if hasExit && exitCode != 0 {
 		if msg := proxyLayer0FailureMessage(text); msg != "" {
-			if _, err := contextledger.BuildFailureCapsule(contextledger.FailureObservation{
+			if capsule, err := contextledger.BuildFailureCapsule(contextledger.FailureObservation{
 				SessionID: sessionID,
 				TurnID:    turnID,
 				Tool:      commandLine,
@@ -187,6 +190,7 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 				ExitCode:  exitCode,
 			}); err == nil {
 				s.LedgerFailureCapsules++
+				s.LedgerCapsules = append(s.LedgerCapsules, capsule)
 			}
 		}
 	}
@@ -200,7 +204,7 @@ func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string,
 	if strings.TrimSpace(fullPassTurn) == "" && decision.Type == readcache.DecisionAllow {
 		fullPassTurn = turnID
 	}
-	if _, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
+	if capsule, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
 		SessionID:    sessionID,
 		TurnID:       turnID,
 		Path:         req.FilePath,
@@ -210,6 +214,7 @@ func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string,
 		FullPassTurn: fullPassTurn,
 	}); err == nil {
 		s.LedgerFileCapsules++
+		s.LedgerCapsules = append(s.LedgerCapsules, capsule)
 	}
 }
 

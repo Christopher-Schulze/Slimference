@@ -146,6 +146,10 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 ## Layer 2 Enhancements
 
+- [x] OCRL (`docs/ocrl.md`, `internal/contextledger/ocrl.go`): deterministic
+  Old Context Replacement Layer specified and implemented as a pure,
+  route-gated, archive-verified, positive-savings engine. Codex WSS remains
+  shadow-only until live proof shows a safe old-context insertion surface.
 - [x] Adaptive Sliding Window: `adaptive_window.go` — dynamische Fensteranpassung (3-7) nach Session-Komplexität
 - [x] Tool Result Priority Classification: `priority.go` — HIGH/MEDIUM/LOW, aggressivere Kompression für LOW
 

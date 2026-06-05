@@ -1,6 +1,6 @@
 # Slimference Data Policy
 
-Last updated: 2026-05-30 (Layer 2 opt-in default + provider-tunable Layer 2)
+Last updated: 2026-06-05 (OCRL local default direction + legacy external Layer 2 opt-in)
 
 ## Overview
 
@@ -20,11 +20,26 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 - **Data destination**: Local process only. No data leaves your machine.
 - **Controls**: `[compression] layer1_enabled`
 
-### Layer 2: Abstractive Summarization (external)
+### Layer 2: OCRL Context Ledger (local) + legacy summarization (external opt-in)
 
-- **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by a configured OpenAI-compatible LLM endpoint (MiniMax M2.7 by default).
-- **Data destination**: Compressed conversation content is sent to the configured summarization provider endpoint.
-- **Default state**: **Disabled** for fresh configs. Existing configs with `layer2_enabled = true` stay enabled, but new installs must opt in explicitly.
+- **Product direction**: OCRL, the Old Context Replacement Layer, is local and
+  deterministic. It builds compact archive-backed capsules for old inactive
+  context and can become model-facing only when route, session, archive
+  recovery, active-context, quality-pressure, and positive-token-savings gates
+  all pass.
+- **Data destination for OCRL**: Local process and local archive only. OCRL does
+  not call an external model.
+- **Current Codex WSS state**: shadow/proof only. OCRL does not insert capsules
+  into Codex WSS model-facing context.
+- **Legacy external summarization**: When explicitly enabled, conversation
+  prefixes exceeding the token threshold may be summarized by a configured
+  OpenAI-compatible LLM endpoint.
+- **Data destination for legacy summarization**: Compressed conversation content
+  is sent to the configured summarization provider endpoint.
+- **Default state**: **Disabled** for fresh configs. Existing configs with
+  `layer2_enabled = true` stay enabled, but new installs must opt in explicitly.
+  Model-facing legacy summary replacement remains blocked unless
+  `[compression.summary].allow_model_facing_replacement = true` is also set.
 - **Redaction**: Outbound redaction is **on by default** (T109). This strips:
   - HTTP authentication headers
   - Known credential/secret patterns (API keys, tokens, passwords)
@@ -85,7 +100,7 @@ Each layer can be individually disabled in config:
 ```toml
 [compression]
 layer1_enabled = true   # deterministic compression (safe, local)
-layer2_enabled = false  # abstractive summarization (external, opt-in)
+layer2_enabled = false  # legacy external summarization remains opt-in; OCRL is local/shadow unless promoted
 layer3_enabled = true   # response cache (safe, local)
 ```
 
@@ -105,4 +120,5 @@ slimference layer2 disable   # writes layer2_enabled = false to config
 
 - Redaction design: `docs/todo/t109-l2-outbound-redaction.md`
 - Trust model: `docs/todo/t121-l2-default-off-and-trust-labels.md`
+- OCRL product spec: `docs/ocrl.md`
 - Spec: `spec+.md` (normative)

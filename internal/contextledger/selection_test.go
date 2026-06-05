@@ -212,6 +212,32 @@ func TestExpandCapsuleArchivesCopiesAndFailsClosed(t *testing.T) {
 	}
 }
 
+func TestVerifyCapsuleArchivesAvoidsCopiesAndFailsClosed(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	count, err := VerifyCapsuleArchives(testCapsule(CapsuleFile, "s", "old", "b", "a", "a"), func(id string) ([]byte, error) {
+		calls++
+		if id == "a" || id == "b" {
+			return []byte("body"), nil
+		}
+		return nil, errors.New("missing")
+	})
+	if err != nil {
+		t.Fatalf("VerifyCapsuleArchives error: %v", err)
+	}
+	if count != 2 || calls != 2 {
+		t.Fatalf("count=%d calls=%d want 2", count, calls)
+	}
+	if _, err := VerifyCapsuleArchives(Capsule{}, nil); err == nil {
+		t.Fatal("expected nil loader error")
+	}
+	if _, err := VerifyCapsuleArchives(testCapsule(CapsuleFile, "s", "old", ""), func(string) ([]byte, error) {
+		return nil, nil
+	}); err == nil {
+		t.Fatal("expected missing archive error")
+	}
+}
+
 func testCapsule(kind CapsuleKind, sessionID, turnID string, archives ...string) Capsule {
 	return Capsule{
 		Kind:       kind,

@@ -250,3 +250,19 @@ func ExpandCapsuleArchives(capsule Capsule, load ArchiveLoader) ([]ArchiveExpans
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
+
+func VerifyCapsuleArchives(capsule Capsule, load ArchiveLoader) (int, error) {
+	if load == nil {
+		return 0, errors.New("archive loader is required")
+	}
+	ids := sortedStrings(capsule.Archives)
+	if len(ids) == 0 {
+		return 0, errors.New("capsule has no archive ids")
+	}
+	for _, id := range ids {
+		if _, err := load(id); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}

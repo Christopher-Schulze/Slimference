@@ -21,12 +21,22 @@ replacement for reality.
   command, file, search, failure, decision, and recovery observations. Capsules
   store compact facts, provenance, stable hashes where raw bytes exist, and
   archive ids, never raw omitted content.
+- `docs/ocrl.md` now defines OCRL, the Old Context Replacement Layer, as the
+  product replacement for classical Layer 2 summary-as-truth. OCRL has explicit
+  `off`, `shadow`, `auto`, and `max` modes, route eligibility, archive
+  recoverability, positive-token-savings, and zero-product-drawdown gates.
+- `internal/contextledger/ocrl.go` now implements the pure OCRL engine. It
+  selects capsules through the existing fail-closed selector, verifies archive
+  recoverability without copying raw bytes, renders stable machine-readable
+  capsule text, keeps Codex WSS shadow-only, and applies only on full-history
+  HTTP-style routes when net savings are positive.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
   content-free telemetry only for tool-output command/file/search/failure
   observations. `/admin/state.savings` exposes those capsule counts globally and
-  per route. Decision/recovery capsules are pure primitives only until a real
-  provenance source is wired. No capsule is inserted into model-facing context
-  yet.
+  per route. It also retains the actual capsule objects internally for future
+  OCRL promotion. Decision/recovery capsules are pure primitives only until a
+  real provenance source is wired. No capsule is inserted into Codex WSS
+  model-facing context yet.
 - Model-facing summary replacement is now separately gated. `layer2_enabled=true`
   can no longer make cached summaries or mid-exchange summaries replace
   model-facing history unless the explicit legacy override
@@ -91,6 +101,8 @@ The ledger stores deterministic capsules:
    - [x] missing archive means no replacement
    - [x] wire archive expansion replay into the A/B harness engine
    - [x] add real archived reducer-output fixtures to the A/B harness
+   - [x] add allocation-light archive recoverability verification for OCRL
+     apply gates without copying archive bytes
 5. [~] Replace summary replacement with ledger insertion only behind proof:
    - [x] classical summary replacement is blocked by default, even when Layer 2
      background work is enabled
@@ -98,6 +110,9 @@ The ledger stores deterministic capsules:
    - [x] shadow produces ledger sidecar and compares against direct context
    - [x] quality-pressure, active-path, wrong-session, missing-fact, and
      missing-archive candidates fail closed before any future promotion
+   - [x] implement the pure OCRL route/recovery/token gate engine
+   - [x] keep Codex WSS shadow-only unless a future surface resends old full
+     context and live proof supports promotion
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -117,6 +132,10 @@ The ledger stores deterministic capsules:
 - If a file or search capsule lacks an explicit execution scope, full-pass.
 - If archive expansion fails, full-pass and disable the mechanism for the
   session.
+- If the request route is not model-facing old-context eligible, OCRL stays
+  shadow-only.
+- If token accounting is missing, invalid, or net-negative after capsule and
+  recovery overhead, full-pass.
 - No LLM-produced summary can be default-on.
 
 ## Savings targets
@@ -127,6 +146,9 @@ The ledger stores deterministic capsules:
   WSS insertion point that does not fight `previous_response_id` semantics. The
   current hot-path wiring is telemetry-only and cannot change model behavior.
 - Net win must include ledger overhead and archive-recovery note overhead.
+- OCRL benchmark target: large capsule batches must stay cheap enough for
+  offline/proof and non-hotpath operation. Current local Apple M1 measurement:
+  512 file capsules in about 0.84 ms, 413944 B/op, 8201 allocs/op.
 
 ## Verification
 
@@ -134,6 +156,11 @@ The ledger stores deterministic capsules:
 - Golden fixtures for commands, reads, search, tests, failures, edits.
 - A/B context replay: direct vs ledger, with raw archive expansion proving no
   unrecoverable fact loss.
+- Unit gate: `go test ./internal/contextledger -count=1`
+- Proxy telemetry gate:
+  `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
+- Benchmark gate:
+  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -271,3 +298,14 @@ summary remains opt-in, not default.
   or `git -C /repo grep ...`) as well as tool `workdir` metadata. The existing
   implicit-cwd guard remains: unscoped `rg ...` still produces no search
   capsule. Focused proxy/filter tests cover both sides.
+- 2026-06-05: Added `docs/ocrl.md` and the pure OCRL engine in
+  `internal/contextledger/ocrl.go`. OCRL now has concrete modes, route gates,
+  archive-recoverability verification, deterministic machine-readable rendering,
+  and positive net-savings accounting. Codex WSS is explicitly shadow-only.
+  The Layer-0 proxy stats path now carries real capsule objects in addition to
+  counters, with regression tests proving command/file/search/failure object
+  coverage and provenance. Focused verification passed:
+  `go test ./internal/contextledger -count=1`,
+  `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`,
+  and `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+  measured about 0.84 ms/op for 512 capsules on Apple M1.
