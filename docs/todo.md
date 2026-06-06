@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T302 TUI live log window -> docs/todo/t302-tui-live-log-window.md
 - [x] T301 TUI status and logs separation -> docs/todo/t301-tui-status-logs-separation.md
 - [x] T300 Simple TUI home menu -> docs/todo/t300-simple-tui-home-menu.md
 - [x] T299 Strict TUI tab separation -> docs/todo/t299-strict-tui-tab-separation.md

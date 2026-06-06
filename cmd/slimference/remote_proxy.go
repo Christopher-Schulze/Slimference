@@ -38,7 +38,8 @@ func newRemoteProxyAdapter(cfg *config.Config) *remoteProxyAdapter {
 			Timeout: 1200 * time.Millisecond,
 		},
 		logger: &fileSessionLogger{
-			path: config.ExpandHomePath(cfg.Logging.File),
+			path:  config.ExpandHomePath(cfg.Logging.File),
+			since: time.Now(),
 		},
 		status: proxy.AdminStatus{
 			Layers: map[string]bool{
@@ -385,14 +386,15 @@ func (a *remoteProxyAdapter) SetAppEnabled(id string, enabled bool) error {
 }
 
 type fileSessionLogger struct {
-	path string
+	path  string
+	since time.Time
 }
 
 func (l *fileSessionLogger) Recent(n int) []sessions.LogEntry {
 	if l.path == "" {
 		return nil
 	}
-	lines, err := daemon.ReadRecentLogLines(l.path, n, time.Time{})
+	lines, err := daemon.ReadRecentLogLines(l.path, n, l.since)
 	if err != nil || len(lines) == 0 {
 		return nil
 	}

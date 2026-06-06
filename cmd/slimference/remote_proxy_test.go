@@ -42,7 +42,9 @@ func testRemoteConfig(t *testing.T, logPath string, srvURL string) *config.Confi
 func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "slimference.jsonl")
-	if err := os.WriteFile(logPath, []byte("{\"time\":\"2026-04-19T10:00:00Z\",\"level\":\"warn\",\"msg\":\"daemon log\"}\n"), 0o644); err != nil {
+	oldLine := "{\"time\":\"2026-04-19T10:00:00Z\",\"level\":\"warn\",\"msg\":\"old daemon log\"}\n"
+	liveLine := "{\"time\":\"2099-04-19T10:00:00Z\",\"level\":\"warn\",\"msg\":\"daemon log\"}\n"
+	if err := os.WriteFile(logPath, []byte(oldLine+liveLine), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
