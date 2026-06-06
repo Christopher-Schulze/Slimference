@@ -19,8 +19,8 @@ SUBCOMMANDS:
   filter       Layer-0 command filter (slimference filter -- <cmd>)
   install      Atomic Codex-only install (CA material + launchd + Codex hooks)
   codex        Scoped Codex CLI/App routing (run|desktop|launch-desktop|certify|recertify)
-  enable       Enable scoped Codex CLI/App route (alias: codex enable)
-  disable      Disable scoped Codex CLI/App route (alias: codex disable)
+  enable       Advanced shared Codex CLI/App route (alias: codex enable)
+  disable      Disable advanced shared Codex route (alias: codex disable)
   cert-trust   Open Keychain Access for the local CA trust step
   lab          Advanced global ChatGPT routing lab commands
   root-arm     Advanced global ChatGPT hosts + pfctl routing helper
@@ -66,8 +66,16 @@ GLOBAL FLAGS:
 FIRST STEPS:
   1. slimference install      # Codex-only install, no hosts patch yet
   2. slimference status --preflight
-  3. slimference codex run -- <prompt>
-  4. slimference enable       # advanced shared CLI/App route
+  3. slimference              # TUI: Launch Codex CLI/App in Slimference mode
+  4. slimference codex run -- <prompt>  # one-shot scoped CLI, fail-open
+
+NORMAL CODEX:
+  codex in a regular shell and Codex.app from Finder/Spotlight stay direct.
+  Slimference mode is explicit: use the TUI launch buttons or codex run.
+
+ADVANCED SHARED ROUTE:
+  slimference enable          # optional/dev: make Codex CLI/App use Slimference by default
+  slimference disable         # return shared route to normal direct Codex
 
 GLOBAL LAB ONLY:
   slimference lab cert-trust
@@ -290,7 +298,9 @@ should prefer 'slimference service <verb>' or '--no-tui' instead.
 		return `slimference start
 
 Start the local Slimference daemon in the background. This only starts
-the admin/proxy process. Scoped Codex routing uses slimference enable.
+the admin/proxy process. Normal Codex remains direct until launched through
+the TUI, 'slimference codex run', or the optional/dev 'slimference enable'
+advanced shared route.
 Global transparent lab routing additionally requires lab cert-trust,
 lab root-arm --global-chatgpt-hosts, and lab enable.
 `

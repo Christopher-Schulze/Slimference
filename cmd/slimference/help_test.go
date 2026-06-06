@@ -106,6 +106,9 @@ func TestHelpTopLevelPromotesPhaseHOnly(t *testing.T) {
 		"slimference install",
 		"slimference status --preflight",
 		"slimference codex run",
+		"NORMAL CODEX",
+		"codex in a regular shell and Codex.app from Finder/Spotlight stay direct",
+		"ADVANCED SHARED ROUTE",
 		"slimference enable",
 		"root-arm --global-chatgpt-hosts",
 	}
@@ -113,6 +116,10 @@ func TestHelpTopLevelPromotesPhaseHOnly(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("top-level help should promote %q", want)
 		}
+	}
+	firstSteps := out[strings.Index(out, "FIRST STEPS:"):strings.Index(out, "NORMAL CODEX:")]
+	if strings.Contains(firstSteps, "slimference enable") {
+		t.Fatalf("top-level first steps must not promote advanced shared route:\n%s", firstSteps)
 	}
 	forbidden := []string{
 		"slimference proxy install",

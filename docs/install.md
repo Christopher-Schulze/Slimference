@@ -20,9 +20,11 @@ slimference codex desktop status      # Desktop app-server shim readiness / proo
 slimference codex desktop prove --manual --json # diagnostic Desktop proof start
 slimference codex desktop prove --finish --json # diagnostic Desktop proof finish
 slimference codex launch-desktop --probe  # inspect process-local Desktop app-server env
-slimference enable                    # advanced shared Codex CLI/App route
-slimference enable --transport=wss    # advanced shared WSS route, pre-live-cert
 slimference codex status
+
+# Optional/dev: make normal Codex CLI/App use Slimference by default.
+# Most users should prefer the TUI Launch view or `slimference codex run`.
+slimference enable
 slimference disable
 
 # Global lab only, not the default because it also routes Browser ChatGPT
@@ -116,7 +118,7 @@ Slimference session that was opened from inside Codex from leaking
 Desktop launch also pins `PWD` to the current folder when the proof gate allows
 it.
 
-Slimference's default product path touches only scoped Codex surfaces:
+Slimference's safe product surfaces touch only scoped Codex paths:
 
 1. **Hook callouts** in `~/.codex/hooks.json` plus
    `~/.codex/config.toml` `[features].hooks=true` (out-of-band
@@ -126,21 +128,7 @@ Slimference's default product path touches only scoped Codex surfaces:
    that Codex CLI process with the local `slimference-codex` provider. It
    does not touch `/etc/hosts`, pfctl, macOS Network Proxy settings,
    Browser ChatGPT, or ChatGPT.app.
-3. **Advanced shared Codex CLI/App route** via `slimference enable`
-   (alias: `slimference codex enable`).
-   This writes a marker-owned provider block to `~/.codex/config.toml`:
-   `model_provider="slimference-codex"`,
-   `base_url="http://127.0.0.1:8990/backend-api/codex"`,
-   `requires_openai_auth=true`, transport-dependent
-   `supports_websockets=<false|true>`, and `wire_api="responses"`.
-   The default transport is stable HTTP (`supports_websockets=false`).
-   Explicit `--transport=wss` enables scoped Responses WebSockets and
-   routes local Codex WSS upgrades through the Phase-F frame adapter. It
-   is reversible with
-   `slimference disable` (alias: `slimference codex disable`) and still leaves Browser ChatGPT,
-   ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
-   untouched.
-4. **Process-local Codex Desktop app-server shim** via
+3. **Process-local Codex Desktop app-server shim** via
    `slimference codex desktop prove` and, after a green proof,
    `slimference codex launch-desktop --transport=app-server --replace-existing`.
    This does not
@@ -154,6 +142,22 @@ Slimference's default product path touches only scoped Codex surfaces:
    `desktop_ready_for_prompt`: the app is open with scoped Slimference env, but
    savings are not claimed until the user sends a prompt and the finish step
    sees bytes, frames, and mutation.
+4. **Advanced shared Codex CLI/App route** via `slimference enable`
+   (alias: `slimference codex enable`).
+   This writes a marker-owned provider block to `~/.codex/config.toml`:
+   `model_provider="slimference-codex"`,
+   `base_url="http://127.0.0.1:8990/backend-api/codex"`,
+   `requires_openai_auth=true`, transport-dependent
+   `supports_websockets=<false|true>`, and `wire_api="responses"`.
+   The default transport is stable HTTP (`supports_websockets=false`).
+   Explicit `--transport=wss` enables scoped Responses WebSockets and
+   routes local Codex WSS upgrades through the Phase-F frame adapter. It
+   is reversible with
+   `slimference disable` (alias: `slimference codex disable`) and still leaves Browser ChatGPT,
+   ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
+   untouched. It is useful for dev/compat sessions where every new Codex
+   CLI/App launch should use Slimference, but it is not required for the normal
+   TUI or one-shot scoped launch UX.
 
 The global transparent TLS-MITM path still exists for lab certification:
 local CA in Keychain, `/etc/hosts`, pfctl, and the SNI listener on 8443.
@@ -167,10 +171,10 @@ goal.
 | Surface | Product role | Default install? | Normal command |
 |---|---:|---:|---|
 | Codex hooks | Signal/local output layer | yes | `slimference install` |
-| Scoped Codex provider route | Codex CLI/App traffic layer | optional | `slimference enable` |
 | One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
 | Process-local Codex Desktop proof | Desktop diagnostic gate | no persistent state | `slimference codex desktop prove --manual --json` then `--finish` |
 | Process-local Codex Desktop launcher | Desktop proven launch only; currently proof-gated | no persistent state | `slimference codex launch-desktop --transport=app-server --replace-existing` |
+| Advanced shared Codex route | Optional/dev shared Codex CLI/App traffic layer | no default | `slimference enable` |
 | Global transparent MITM | Lab certification only | no | `slimference lab ...` |
 | Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
 | Base-URL Desktop launcher mode | Diagnostic/future-proof only | no | `slimference codex launch-desktop --transport=base-url --probe` |

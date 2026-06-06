@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T294 Mass-market scoped launch polish -> docs/todo/t294-mass-market-scoped-launch-polish.md
 - [x] T293 Conversation savings layer breakdown -> docs/todo/t293-conversation-savings-layer-breakdown.md
 - [x] T292 Advanced shared Codex route wording -> docs/todo/t292-advanced-shared-codex-route-wording.md
 - [x] T291 Mass-market TUI UX simplification -> docs/todo/t291-mass-market-tui-ux-simplification.md

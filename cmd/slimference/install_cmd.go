@@ -427,8 +427,9 @@ func renderStatus(p installPrinter, s control.SetupState) {
 	} else {
 		fmt.Fprintln(p.Out, "")
 		fmt.Fprintln(p.Out, "Transparent MITM DISARMED.")
-		fmt.Fprintln(p.Out, "Scoped Codex CLI: `slimference codex run -- <prompt>`.")
-		fmt.Fprintln(p.Out, "Advanced shared Codex CLI/App: `slimference enable`.")
+		fmt.Fprintln(p.Out, "Normal Codex CLI/App stays direct unless launched through Slimference.")
+		fmt.Fprintln(p.Out, "Slimference mode: TUI Launch view or `slimference codex run -- <prompt>`.")
+		fmt.Fprintln(p.Out, "Advanced shared route (optional/dev): `slimference enable`.")
 		fmt.Fprintln(p.Out, "Global lab only: `lab cert-trust`, `lab root-arm --global-chatgpt-hosts`, then `lab enable`.")
 	}
 }
