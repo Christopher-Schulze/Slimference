@@ -23,6 +23,8 @@ No blocked tasks.
 
 ## Done
 
+- [x] T308 Desktop patch-free route indicator -> docs/todo/t308-desktop-patch-free-route-indicator.md
+- [x] T307 Desktop no-model-metadata signal guard -> docs/todo/t307-desktop-no-model-metadata-signal-guard.md
 - [x] T306 Desktop chip drift and service-control split -> docs/todo/t306-desktop-chip-drift-and-service-control-split.md
 - [x] T305 TUI visual smoothing and Desktop badge hardening -> docs/todo/t305-tui-visual-smoothing-and-badge-hardening.md
 - [x] T304 Desktop scoped provider badge signal -> docs/todo/t304-desktop-scoped-provider-badge-signal.md

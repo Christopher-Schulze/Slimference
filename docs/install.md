@@ -358,13 +358,19 @@ The launcher uses a supported Codex Desktop process boundary:
    providers passed through; fail-open). The Desktop conversation then reaches the
    local Phase-F WSS route, recorded reliably by the `phasef_bridged` counter and
    the decisions log as `route_mode=websocket_phasef`.
-6. The visible Desktop signal is also process-local: the shim augments only
-   app-server responses for this spawned app-server. Older Codex Desktop builds
-   can show the `Slimference` provider chip from `result.config`; current builds
-   can show the route as a `Slimference ` prefix on the model display name from
-   tracked `model/list` responses. Model IDs and selected model values are not
-   changed. Normal Finder/Spotlight Codex.app launches remain direct and do not
-   receive this response augmentation.
+6. The shim still augments only `result.config` responses for older Desktop
+   builds that expose provider config as a visible route signal. Current Codex
+   Desktop builds do not expose a stable app-server data contract for the old
+   text chip, so Slimference does not mutate `model/list`, model IDs, display
+   names, selected model values, or service-tier metadata to fake it.
+7. The current visible signal is Slimference-owned: scoped Desktop launches
+   start a separate click-through macOS route indicator tied to the launched
+   Codex.app PID. It patches no Codex bundle files, mutates no model metadata,
+   joins all spaces/full-screen desktops, and exits when that PID exits. Set
+   `SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` or pass
+   `--env=SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` to suppress it for
+   diagnostics. Normal Finder/Spotlight Codex.app launches remain direct and do
+   not start it.
 
 Inspect the exact scoped environment without launching:
 
@@ -449,7 +455,10 @@ bundle executable directory as the child working directory, scrubs inherited
 `CODEX_*` runtime state, pins `PWD` when the TUI supplies a selected folder, and
 waits for a short startup probe. If Codex.app exits immediately, the command
 fails and prints the exit status or signal instead of claiming a successful
-launch.
+launch. On macOS, a successful scoped launch also starts the patch-free
+Slimference route indicator overlay; this is the immediate user-facing cue that
+the opened Codex.app window came from Slimference. The overlay is not part of
+Codex Desktop's renderer and does not affect model selection or service tiers.
 
 Manual external proof can still be collected when diagnosing a new Codex.app
 build:
@@ -466,17 +475,20 @@ Finder/Spotlight must return to native direct ChatGPT routing and must not use
 the app-server shim.
 
 For the current Codex Desktop UI, the strongest quick route check is the scoped
-shim flight log:
+route indicator plus the scoped shim flight log:
 
 ```bash
 tail -n 50 ~/.slimference/logs/desktop-shim.jsonl
 ```
 
 A Slimference-launched Desktop window should produce `config_read_rewrite` and,
-after the model picker data is loaded, `model_list_rewrite`. Those events prove
-that the spawned app-server shim is active. The log records event names and
-route metadata only; it does not record prompts, responses, model payloads, or
-secrets.
+after the model picker data is loaded, `model_list_seen`. Those events prove
+that the spawned app-server shim is active. `model/list` model metadata passes
+through byte-identically; Slimference does not fake badges by mutating model
+IDs, labels, selected model values, service tiers, or default tier metadata.
+The indicator is the quick visual cue; the log is the audit proof. The log
+records event names and route metadata only; it does not record prompts,
+responses, model payloads, or secrets.
 
 Important: `/_slimference/admin/state` `.wss` counters are daemon-wide. They
 can include Codex CLI recertification or smoke-test traffic.

@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -84,12 +84,15 @@ routine use, it stays out of the product path.
   `thread/start` carrying `modelProvider: null`, which resolves to the account
   default (chatgpt.com direct); the shim rewrites a default (null/absent)
   `modelProvider` to `slimference-codex`, byte-identical for everything else.
-  The same scoped shim also augments app-server responses shaped as
-  `result.config` and tracked `model/list` responses so Codex Desktop's blank
-  start screen exposes a visible Slimference route signal without writing
-  persistent Codex config. Older Desktop builds can show it as a provider chip;
-  current Desktop builds can show it as a `Slimference ` prefix on the model
-  display name. The model IDs and selected model values are never changed.
+  The same scoped shim augments app-server responses shaped as `result.config`
+  for older Desktop builds that still expose provider config in the UI. Current
+  Codex Desktop builds do not expose a stable process-local text-chip contract
+  through app-server response data, so Slimference does not fake the signal by
+  mutating `model/list`, model IDs, display names, selected model values, or
+  service-tier metadata. Instead, scoped Desktop launches start a separate
+  Slimference-owned macOS route indicator: a click-through all-spaces overlay
+  tied to the launched Codex.app PID. It patches no Codex bundle files, touches
+  no model metadata, and exits when the scoped Codex.app process exits.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
   untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
@@ -1735,8 +1738,11 @@ decisions log; the Desktop app-server holds loopback sockets to `:8990` with no
 direct `chatgpt.com` socket). Capability gating from `codex desktop status` still
 exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
-`route_mode=websocket_phasef`. Historical proxy/CA failures remain diagnostic
-proof state. Normal Finder/Spotlight Codex.app launches remain direct.
+`route_mode=websocket_phasef`. On macOS, the same scoped launch starts the
+Slimference route indicator overlay so the user has an immediate visible cue
+without patching Codex Desktop or changing model metadata. Historical proxy/CA
+failures remain diagnostic proof state. Normal Finder/Spotlight Codex.app
+launches remain direct and do not start the overlay.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
 together. Per-app rows are route policy/capability state, not separate install
 states, and are opened from Setup with `a`. Setup also owns daemon
@@ -2062,14 +2068,23 @@ Server->client responses shaped as `result.config` are augmented with
 `config.model_provider`/`config.modelProvider=slimference-codex` and matching
 `model_providers`/`modelProviders` process-local provider entries so older
 Codex Desktop builds can render the visible `Slimference` provider signal
-across snake_case and camelCase Desktop config shapes. Current Desktop builds
-also receive a scoped `model/list` display-only rewrite: each model
-`displayName` is prefixed with `Slimference ` while the `model` ID, default
-flag, explicit provider choices, and routing semantics stay unchanged. Non-JSON,
-non-config/model-list responses, error responses, malformed config shapes, and
-unrelated notifications pass through byte-identically. The shim writes a minimal
-flight log to `~/.slimference/logs/desktop-shim.jsonl` with rewrite event names
-only, never payloads or secrets.
+across snake_case and camelCase Desktop config shapes. The current local Codex
+Desktop bundle (`26.602.40724`) inspected on 2026-06-07
+does not expose a stable process-local text-chip contract through app-server
+response data. Slimference therefore treats `model/list` as read-only and never
+mutates model IDs, display names, selected model values, default flags, or
+service-tier metadata to fake a chip. The current visible signal is outside the
+Codex renderer: `cmd/slimference/codex_desktop_indicator*.go` starts a
+Slimference-owned macOS `NSPanel` overlay only for scoped Desktop launches. The
+overlay is click-through, joins all spaces/full-screen desktops, is tied to the
+launched Codex.app PID, and exits automatically when that PID disappears. Set
+`SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` or pass
+`--env=SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` to suppress it for local
+diagnostics.
+Non-JSON, non-config responses, error responses, malformed config shapes,
+model-list responses, and unrelated notifications pass through byte-identically.
+The shim writes a minimal flight log to `~/.slimference/logs/desktop-shim.jsonl`
+with event names only, never payloads or secrets.
 
 Discovery and proof (2026-05-22): a loopback tee proxy captured the real frames,
 and the daemon decisions log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`) recorded both the

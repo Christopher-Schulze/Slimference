@@ -53,11 +53,12 @@ func runCodexDesktopAppServerShim(args []string, p installPrinter) int {
 // resolves to the account default (chatgpt.com direct). The shim rewrites that
 // single field to the scoped Slimference provider so the Desktop conversation
 // rides the same no-CA WSS Phase-F path the CLI uses. On stdout, config-shaped
-// responses are augmented so the Desktop start screen can render the same
-// Slimference provider chip the routed thread will use even if Codex changes
-// config/read request details. All unrelated frames are byte-identical, and any
-// setup failure falls back to a plain exec passthrough (no rewrite) so the
-// app-server never breaks.
+// responses are augmented so older Desktop builds can render the provider
+// signal. Current Desktop builds do not expose a stable process-local text-chip
+// contract through app-server data, and Slimference intentionally does not
+// mutate model/list model metadata as a substitute. All unrelated frames are
+// byte-identical, and any setup failure falls back to a plain exec passthrough
+// (no rewrite) so the app-server never breaks.
 func runCodexDesktopAppServerMediated(argv0 string, argv []string, env []string, stdinSrc io.Reader, p installPrinter) int {
 	cmd := exec.Command(argv0, argv[1:]...)
 	cmd.Env = env
@@ -196,10 +197,11 @@ func (m *codexDesktopAppServerMediator) mediateStdin(in io.Reader, out io.Writer
 }
 
 // mediateStdout copies newline-delimited JSON-RPC from the real app-server to
-// Codex Desktop. It rewrites only app-server responses shaped as config/read or
-// tracked model/list results so the blank Desktop start screen exposes the
-// scoped Slimference route. All notifications, unrelated responses, non-JSON
-// payloads, and malformed frames pass through byte-identically.
+// Codex Desktop. It rewrites only config-shaped responses. model/list model
+// metadata is never mutated for badges or route labels; tracked model/list
+// responses are logged as diagnostics and pass through byte-identically. All
+// notifications, unrelated responses, non-JSON payloads, and malformed frames
+// pass through byte-identically.
 func (m *codexDesktopAppServerMediator) mediateStdout(in io.Reader, out io.Writer) {
 	r := bufio.NewReader(in)
 	for {
@@ -279,11 +281,7 @@ func (m *codexDesktopAppServerMediator) rewriteResponseContent(content []byte, m
 	if method != "model/list" {
 		return content, ""
 	}
-	rewritten, changed = rewriteCodexDesktopModelListResponse(content)
-	if !changed {
-		return content, ""
-	}
-	return rewritten, "model_list_rewrite"
+	return content, ""
 }
 
 func (m *codexDesktopAppServerMediator) rememberRequestMethod(content []byte) {
@@ -423,80 +421,6 @@ func rewriteCodexDesktopConfigReadResponse(content []byte, provider codexDesktop
 		return content, false
 	}
 	return out, true
-}
-
-func rewriteCodexDesktopModelListResponse(content []byte) ([]byte, bool) {
-	trimmed := bytes.TrimSpace(content)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return content, false
-	}
-	var msg map[string]json.RawMessage
-	if json.Unmarshal(trimmed, &msg) != nil {
-		return content, false
-	}
-	resultRaw, ok := msg["result"]
-	if !ok {
-		return content, false
-	}
-	var result map[string]json.RawMessage
-	if json.Unmarshal(resultRaw, &result) != nil {
-		return content, false
-	}
-	dataRaw, ok := result["data"]
-	if !ok {
-		return content, false
-	}
-	var models []map[string]json.RawMessage
-	if json.Unmarshal(dataRaw, &models) != nil {
-		return content, false
-	}
-	changed := false
-	for i := range models {
-		if codexDesktopMarkModelDisplayName(models[i]) {
-			changed = true
-		}
-	}
-	if !changed {
-		return content, false
-	}
-	newData, err := json.Marshal(models)
-	if err != nil {
-		return content, false
-	}
-	result["data"] = newData
-	newResult, err := json.Marshal(result)
-	if err != nil {
-		return content, false
-	}
-	msg["result"] = newResult
-	out, err := json.Marshal(msg)
-	if err != nil {
-		return content, false
-	}
-	return out, true
-}
-
-func codexDesktopMarkModelDisplayName(model map[string]json.RawMessage) bool {
-	rawModel, ok := model["model"]
-	if !ok {
-		return false
-	}
-	var modelID string
-	if json.Unmarshal(rawModel, &modelID) != nil || strings.TrimSpace(modelID) == "" {
-		return false
-	}
-	display := modelID
-	if rawDisplay, ok := model["displayName"]; ok {
-		var parsed string
-		if json.Unmarshal(rawDisplay, &parsed) == nil && strings.TrimSpace(parsed) != "" {
-			display = parsed
-		}
-	}
-	if strings.Contains(strings.ToLower(display), "slimference") {
-		return false
-	}
-	model["displayName"] = json.RawMessage(strconv.Quote("Slimference " + display))
-	return true
 }
 
 func codexDesktopModelProvidersConfig(baseURL string) json.RawMessage {

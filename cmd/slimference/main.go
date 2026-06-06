@@ -285,8 +285,9 @@ func wantsHeadless(args []string) bool {
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
 		"restart": true, "service": true, "integrate": true, "bypass": true,
 		"completion": true, "trust": true,
-		"app-server": true,
-		"help":       true,
+		"app-server":        true,
+		"desktop-indicator": true,
+		"help":              true,
 	}
 	// Flags that consume the next token as a value; their value must not be
 	// mistaken for a subcommand.
@@ -615,6 +616,9 @@ func handleSubcommand(args []string) {
 
 	case "app-server":
 		handleCodexDesktopAppServerShim(args[1:])
+
+	case "desktop-indicator":
+		handleCodexDesktopIndicatorCmd(args[1:])
 
 	case "lab":
 		handleLabCmd(args[1:])

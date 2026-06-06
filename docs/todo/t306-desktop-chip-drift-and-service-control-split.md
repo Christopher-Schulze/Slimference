@@ -20,13 +20,13 @@ semantics changed.
 - Scoped Desktop config-response augmentation sets both snake_case and camelCase
   provider fields so older Codex Desktop UI shapes can render the `Slimference`
   provider signal.
-- Scoped Desktop `model/list` responses get a visible `Slimference ` prefix on
-  `displayName` only, so current Codex Desktop builds still expose the route
-  signal when the separate provider chip is no longer rendered.
+- Scoped Desktop `model/list` responses are no longer used as a visual signal.
+  T307 rejected the first fallback because the user-facing rule is no model-list
+  or model-metadata mutation for route badges.
 - The provider entry includes stable display/name/base-url/auth/websocket/wire
   fields in snake_case and camelCase forms.
 - Model IDs, selected model values, explicit providers, and routing semantics
-  remain unchanged; the display-only prefix cannot change model selection.
+  remain unchanged.
 - A minimal process-local flight log records Desktop shim rewrite events under
   `~/.slimference/logs/desktop-shim.jsonl` without payloads or secrets.
 - Direct Finder/Spotlight/normal terminal Codex starts stay direct; only the
@@ -44,12 +44,11 @@ semantics changed.
 - [x] Re-check current largest Go files and identify safe monolith split
   boundary.
 - [x] Inspect current Codex.app bundle enough to confirm Desktop uses
-  `modelProvider`/camelCase signals around thread start and model list
-  `displayName` for the picker/start-screen model label.
+  `modelProvider`/camelCase signals around thread start and a model-list-backed
+  start-screen model label. T307 later rejected using that path for badges.
 - [x] Harden scoped Desktop config-response badge injection against
   snake_case/camelCase drift.
-- [x] Harden scoped Desktop model-list display injection for current Codex
-  Desktop UI without mutating model IDs.
+- [x] Harden scoped Desktop routing without relying on model-list mutation.
 - [x] Move TUI service-control adapter out of `cmd/slimference/main.go` into
   `cmd/slimference/tui_service_control.go`.
 - [x] Update shim tests for both provider key families and provider entry
@@ -61,9 +60,10 @@ semantics changed.
 - The live process route was already scoped; the failure mode was the visual
   provider signal, not the loopback app-server route.
 - Current Codex Desktop no longer reliably renders the old provider chip from
-  config alone. The robust visible signal is now the process-local
-  `model/list` display-name prefix. Live shim logs showed both
-  `config_read_rewrite` and `model_list_rewrite` for the scoped Desktop app.
+  config alone. T306 first used a process-local model label fallback; T307
+  removed all model metadata mutation. Live shim logs can show
+  `config_read_rewrite` and `model_list_seen`; there is no model-list rewrite
+  event in the product path.
 - The Codex Desktop app bundle is extracted only to `/tmp` during inspection.
   No bundle files are copied into the repository.
 - The monolith split reduced `cmd/slimference/main.go` from 4387 lines to 3974

@@ -224,6 +224,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		base,
 		[]string{
 			"FOO=bar",
+			codexDesktopIndicatorDisableEnv + "=0",
 			"CODEX_CLI_PATH=/evil",
 			"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
 			"HTTPS_PROXY=http://evil-proxy",
@@ -252,10 +253,14 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 		"FOO=bar",
+		codexDesktopIndicatorDisableEnv + "=0",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("app-server env missing %s in %v", want, got)
 		}
+	}
+	if codexDesktopIndicatorShouldStart(got) {
+		t.Fatalf("indicator disable extra should suppress indicator: %v", got)
 	}
 }
 
@@ -394,6 +399,7 @@ func TestFilterCodexDesktopAppServerEnv(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/codex",
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		codexDesktopIndicatorDisableEnv + "=0",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 		"FOO=bar",
 	}
@@ -403,6 +409,7 @@ func TestFilterCodexDesktopAppServerEnv(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/codex",
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		codexDesktopIndicatorDisableEnv + "=0",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -1231,6 +1238,117 @@ func TestResolveCodexDesktopUpstreamCodexBinary(t *testing.T) {
 	if err != nil || got != "/usr/local/bin/codex" {
 		t.Fatalf("lookpath resolve got=%q err=%v", got, err)
 	}
+}
+
+func TestCodexDesktopIndicatorShouldStartOnlyForScopedLaunch(t *testing.T) {
+	prevSupported := codexDesktopIndicatorSupportedFn
+	t.Cleanup(func() { codexDesktopIndicatorSupportedFn = prevSupported })
+	codexDesktopIndicatorSupportedFn = func() bool { return true }
+
+	if !codexDesktopIndicatorShouldStart([]string{codexDesktopShimActiveEnv + "=1"}) {
+		t.Fatal("scoped Desktop app-server launch should start indicator")
+	}
+	if codexDesktopIndicatorShouldStart([]string{"PATH=/usr/bin"}) {
+		t.Fatal("ordinary launch must not start indicator")
+	}
+	if codexDesktopIndicatorShouldStart([]string{
+		codexDesktopShimActiveEnv + "=1",
+		codexDesktopIndicatorDisableEnv + "=0",
+	}) {
+		t.Fatal("operator disable env must suppress indicator")
+	}
+}
+
+func TestNewCodexDesktopIndicatorCommandDetachedAndSanitized(t *testing.T) {
+	cmd := newCodexDesktopIndicatorCommand(
+		"/usr/local/bin/slimference",
+		[]string{"desktop-indicator", "--watch-pid=123"},
+		[]string{"PATH=/usr/bin", "CODEX_THREAD_ID=old", "HOME=/Users/x"},
+	)
+	if cmd.Path != "/usr/local/bin/slimference" {
+		t.Fatalf("Path=%q", cmd.Path)
+	}
+	if strings.Join(cmd.Args, "\n") != "/usr/local/bin/slimference\ndesktop-indicator\n--watch-pid=123" {
+		t.Fatalf("Args=%v", cmd.Args)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Fatalf("indicator must detach, SysProcAttr=%+v", cmd.SysProcAttr)
+	}
+	joinedEnv := strings.Join(cmd.Env, "\n")
+	if strings.Contains(joinedEnv, "CODEX_THREAD_ID=") {
+		t.Fatalf("indicator env leaked Codex session state: %v", cmd.Env)
+	}
+	if !strings.Contains(joinedEnv, "PATH=/usr/bin") || !strings.Contains(joinedEnv, "HOME=/Users/x") {
+		t.Fatalf("indicator env lost ordinary entries: %v", cmd.Env)
+	}
+}
+
+func TestParseCodexDesktopIndicatorFlags(t *testing.T) {
+	f, err := parseCodexDesktopIndicatorFlags([]string{
+		"--quiet",
+		"--watch-pid=456",
+		"--label=Slimference On",
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !f.quiet || f.watchPID != 456 || f.label != "Slimference On" {
+		t.Fatalf("flags=%+v", f)
+	}
+	if _, err := parseCodexDesktopIndicatorFlags([]string{"--watch-pid=bad"}); err == nil {
+		t.Fatal("expected bad pid error")
+	}
+	if _, err := parseCodexDesktopIndicatorFlags([]string{"--bogus"}); err == nil {
+		t.Fatal("expected unknown flag error")
+	}
+}
+
+func TestStartCodexDesktopProcessStartsIndicatorForScopedLaunch(t *testing.T) {
+	script := writeCodexDesktopTestScript(t, "#!/bin/sh\nsleep 30\n")
+	oldDelay := codexDesktopStartProbeDelay
+	prevSupported := codexDesktopIndicatorSupportedFn
+	prevIndicator := codexDesktopIndicatorStartFn
+	t.Cleanup(func() {
+		codexDesktopStartProbeDelay = oldDelay
+		codexDesktopIndicatorSupportedFn = prevSupported
+		codexDesktopIndicatorStartFn = prevIndicator
+	})
+	codexDesktopStartProbeDelay = 25 * time.Millisecond
+	codexDesktopIndicatorSupportedFn = func() bool { return true }
+
+	var indicatorPID int
+	var indicatorEnv []string
+	codexDesktopIndicatorStartFn = func(pid int, env []string) error {
+		indicatorPID = pid
+		indicatorEnv = append([]string(nil), env...)
+		return nil
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := startCodexDesktopProcess(
+		installPrinter{Out: &out, Err: &errBuf},
+		script,
+		nil,
+		[]string{"PATH=/bin:/usr/bin", codexDesktopShimActiveEnv + "=1"},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if indicatorPID <= 0 {
+		t.Fatal("indicator was not started")
+	}
+	if !strings.Contains(strings.Join(indicatorEnv, "\n"), codexDesktopShimActiveEnv+"=1") {
+		t.Fatalf("indicator did not receive launch env: %v", indicatorEnv)
+	}
+	if !strings.Contains(out.String(), "Indicator: Slimference macOS overlay active.") {
+		t.Fatalf("stdout missing indicator line: %q", out.String())
+	}
+	proc, err := os.FindProcess(indicatorPID)
+	if err == nil {
+		_ = proc.Kill()
+	}
+	var status syscall.WaitStatus
+	_, _ = syscall.Wait4(indicatorPID, &status, 0, nil)
 }
 
 func writeCodexDesktopTestScript(t *testing.T, body string) string {

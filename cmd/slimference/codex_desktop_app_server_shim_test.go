@@ -104,6 +104,7 @@ func TestRewriteCodexDesktopThreadStart(t *testing.T) {
 	}{
 		{"null provider rewritten", `{"id":"1","method":"thread/start","params":{"model":"gpt-5.5","modelProvider":null,"cwd":"/x"}}`, true, []string{`"modelProvider":"slimference-codex"`, `"model":"gpt-5.5"`, `"cwd":"/x"`}},
 		{"absent provider rewritten", `{"id":"1","method":"thread/start","params":{"model":"gpt-5.5"}}`, true, []string{`"modelProvider":"slimference-codex"`, `"model":"gpt-5.5"`}},
+		{"real service tier preserved", `{"id":"1","method":"thread/start","params":{"model":"gpt-5.5","modelProvider":null,"serviceTier":"priority"}}`, true, []string{`"modelProvider":"slimference-codex"`, `"serviceTier":"priority"`}},
 		{"explicit provider respected", `{"id":"1","method":"thread/start","params":{"modelProvider":"openai"}}`, false, nil},
 		{"realtime thread skipped", `{"id":"1","method":"thread/start","params":{"modelProvider":null,"config":{"features.realtime_conversation":true}}}`, false, nil},
 		{"non-realtime config rewritten", `{"id":"1","method":"thread/start","params":{"modelProvider":null,"config":{"features.realtime_conversation":false}}}`, true, []string{`"modelProvider":"slimference-codex"`}},
@@ -271,10 +272,10 @@ func TestCodexDesktopAppServerStdoutPassesNonConfigResponsesByteIdentical(t *tes
 	}
 }
 
-func TestCodexDesktopAppServerStdoutModelListAddsSlimferenceDisplayOnly(t *testing.T) {
+func TestCodexDesktopAppServerStdoutModelListPassesByteIdentical(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{})
 	request := `{"id":"m1","method":"model/list","params":{"limit":100}}` + "\n"
-	response := `{"id":"m1","result":{"data":[{"model":"gpt-5.5","displayName":"5.5","isDefault":true},{"model":"gpt-5-mini"}]}}` + "\n"
+	response := `{"id":"m1","result":{"data":[{"model":"gpt-5.5","displayName":"5.5","isDefault":true,"serviceTiers":[{"id":"priority","name":"Fast"}],"defaultServiceTier":null},{"model":"gpt-5-mini"}]}}` + "\n"
 
 	var stdinOut bytes.Buffer
 	mediator.mediateStdin(strings.NewReader(request), &stdinOut)
@@ -284,36 +285,12 @@ func TestCodexDesktopAppServerStdoutModelListAddsSlimferenceDisplayOnly(t *testi
 
 	var stdoutOut bytes.Buffer
 	mediator.mediateStdout(strings.NewReader(response), &stdoutOut)
-	got := strings.TrimSpace(stdoutOut.String())
-	if got == strings.TrimSpace(response) {
-		t.Fatalf("model/list response was not rewritten: %s", got)
-	}
-	var msg map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(got), &msg); err != nil {
-		t.Fatalf("rewritten response is invalid JSON: %v (%s)", err, got)
-	}
-	var result struct {
-		Data []struct {
-			Model       string `json:"model"`
-			DisplayName string `json:"displayName"`
-			IsDefault   bool   `json:"isDefault"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(msg["result"], &result); err != nil {
-		t.Fatalf("result is invalid JSON: %v", err)
-	}
-	if len(result.Data) != 2 {
-		t.Fatalf("models len=%d", len(result.Data))
-	}
-	if result.Data[0].Model != "gpt-5.5" || result.Data[0].DisplayName != "Slimference 5.5" || !result.Data[0].IsDefault {
-		t.Fatalf("bad first model: %+v", result.Data[0])
-	}
-	if result.Data[1].Model != "gpt-5-mini" || result.Data[1].DisplayName != "Slimference gpt-5-mini" {
-		t.Fatalf("bad second model: %+v", result.Data[1])
+	if stdoutOut.String() != response {
+		t.Fatalf("model/list response must pass through byte-identical:\ngot  %q\nwant %q", stdoutOut.String(), response)
 	}
 }
 
-func TestRewriteCodexDesktopModelListResponseRequiresRequestMethod(t *testing.T) {
+func TestCodexDesktopModelListShapedResponseWithoutRequestMethodPassesByteIdentical(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{})
 	response := []byte(`{"id":"m1","result":{"data":[{"model":"gpt-5.5","displayName":"5.5"}]}}` + "\n")
 	rewritten, method, kind := mediator.maybeRewriteResponseLine(response)
