@@ -19,12 +19,11 @@ No queued tasks.
 
 ## Blocked
 
-- [!] Live production savings claims beyond checked-in corpus evidence require
-  fresh Codex CLI/Desktop captures and resource bundles. This is proof work, not
-  a product drawdown.
+No blocked tasks.
 
 ## Done
 
+- [x] T296 Release proof refresh and docs alignment -> docs/todo/t296-release-proof-refresh-and-docs-alignment.md
 - [x] T295 TUI mass-market wording cleanup -> docs/todo/t295-tui-mass-market-wording-cleanup.md
 - [x] T294 Mass-market scoped launch polish -> docs/todo/t294-mass-market-scoped-launch-polish.md
 - [x] T293 Conversation savings layer breakdown -> docs/todo/t293-conversation-savings-layer-breakdown.md

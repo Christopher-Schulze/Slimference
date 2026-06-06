@@ -2305,6 +2305,22 @@ expectations inside the bundle; a positive provider-cache or local-savings
 delta cannot mask a missed mechanism-specific proof.
 This keeps a green host-budget snapshot from being mistaken for final resource
 certification.
+The 2026-06-06 release-proof refresh passed this strict path without enabling
+the advanced shared Codex route. `benchmark-corpus --check`,
+`benchmark-corpus --promotion-check`, and `benchmark-corpus --maxx-check` all
+passed on `tests/fixtures/live_corpus`; the promotion/maxx gates saw 54 real
+sessions split across `codex_cli=37` and `codex_desktop=17`. The local proof
+inventory found 89 rows, 24 matrix files, all maxx workload classes complete,
+and `safety_issue_rows=0`. The clean matrix step wrote 70 release rows from 89
+local proof rows. The final release report against
+`host-resource-codex_cli-auto-20260604T212018Z` and
+`host-resource-codex_desktop-20260604T212111Z` returned
+`gate_passed=true`, `resource_profile_proof_ok=true`,
+`local_billable_input_tokens_saved=330518`,
+`provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
+`output_reduce_injected_turns=2`, `host_budget_issue_rows=0`,
+`proof_event_loss_rows=0`, and `safety_issue_rows=0`. These numbers are a
+current release-corpus proof, not a universal average savings percentage.
 `go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>
 --min-net-tokens=1 --json` is the content-free output-reduce counterfactual
 gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or

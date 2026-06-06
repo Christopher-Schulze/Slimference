@@ -42,11 +42,11 @@ removed summary/OCRL fixtures, metadata, validators, or savings fields.
   ledger report fields.
 - `go run ./scripts/utils release-proof-report ... --json` fails closed without
   `--resource-profile-proof` bundles and reports the missing CLI/Desktop bundle
-  requirement. The actual final release-proof report remains live-only until
-  fresh clean matrices and both resource bundles exist.
-- Live production savings claims beyond checked-in corpus evidence remain
-  tracked in `docs/todo.md` Blocked as proof work, not a product drawdown or
-  implementation gap.
+  requirement.
+- Superseded by T296 on 2026-06-06: the current final release-proof refresh
+  passed with a fresh clean matrix and both CLI/Desktop resource bundles. T280
+  remains historical evidence for the fail-closed preflight, not the current
+  proof state.
 
 ## Deviations
 

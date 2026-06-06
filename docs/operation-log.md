@@ -4625,3 +4625,47 @@ Decision:
   safety directives because they lower product overhead without weakening the
   preservation contract, but only the direct-answer/status A/B pair is currently
   positive live evidence.
+
+## 2026-06-06 - T296 release proof refresh PASS
+
+Goal: refresh release proof and docs after the mass-market scoped-launch and
+TUI wording cleanup, without enabling persistent Codex routing.
+
+Evidence:
+- `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus
+  --check` passed.
+- `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus
+  --promotion-check` passed with 54 real sessions: `codex_cli=37`,
+  `codex_desktop=17`.
+- `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus
+  --maxx-check` passed with the same 54 real sessions and required maxx workload
+  breadth.
+- `go run ./scripts/utils wss-proof-inventory ~/.slimference/captures --json`
+  found 89 rows across 24 matrix files, all maxx workload classes complete, and
+  `safety_issue_rows=0`.
+- `go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures
+  /tmp/slimference-release-proof-t296-clean-matrix.jsonl --json` wrote 70 clean
+  release rows from 89 local proof rows.
+- `go run ./scripts/utils release-proof-report
+  /tmp/slimference-release-proof-t296-clean-matrix.jsonl
+  --resource-profile-proof
+  ~/.slimference/captures/host-resource-codex_cli-auto-20260604T212018Z
+  --resource-profile-proof
+  ~/.slimference/captures/host-resource-codex_desktop-20260604T212111Z --json`
+  passed with `gate_passed=true`, `resource_profile_proof_ok=true`,
+  `local_billable_input_tokens_saved=330518`,
+  `provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
+  `output_reduce_injected_turns=2`, `host_budget_issue_rows=0`,
+  `proof_event_loss_rows=0`, and `safety_issue_rows=0`.
+- `/Users/christopher/.local/bin/slimference status --preflight` showed
+  `normal_direct=true`, `advanced_route=false`, `global_443=false`,
+  `global_8443=false`, and WSS certified.
+- `/Users/christopher/.local/bin/slimference savings today` reported
+  `Decision net saved tokens: 267.4K` for the current local day.
+
+Decision:
+- Current release proof is passed for the checked-in corpus plus local
+  CLI/Desktop resource bundles.
+- Do not turn the 330,518-token clean-matrix result or the 267.4K daily
+  decision-log result into a universal savings percentage. New broader claims
+  still need matching proof rows.

@@ -1,8 +1,9 @@
 # Slimference - Savings Assessment
 
-Date: 2026-06-05
+Date: 2026-06-06
 Scope: current product architecture after Layer 2 removal
-Method: repository evidence, checked-in fixtures, and current product safety policy
+Method: repository evidence, checked-in fixtures, current local release proof,
+and product safety policy
 
 ## Executive Summary
 
@@ -42,8 +43,9 @@ logs, and long command outputs.
 | Mixed coding and chat with moderate tools | 15-40% |
 | Linear greenfield/chat with little repeated tool output | 5-20% |
 
-These ranges must not be marketed as universal. They are valid as engineering
-expectations, not as release claims, until backed by the live-corpus gates.
+These ranges must not be marketed as universal. The current local release proof
+backs concrete corpus/resource claims, not a universal average across every
+future user workload.
 
 ## Proven vs Unproven
 
@@ -56,14 +58,24 @@ What is proven by the repository:
 - The benchmark and release-proof scripts fail closed on missing metadata,
   missed validators, safety counters, and weak promotion evidence.
 - Go source no longer contains the retired Layer 2 implementation.
+- The 2026-06-06 refresh passed the checked-in live-corpus normal, promotion,
+  and maxx gates. It also passed the strict content-free release proof over 70
+  clean release matrix rows with CLI and Desktop resource bundles:
+  `gate_passed=true`, `resource_profile_proof_ok=true`,
+  `local_billable_input_tokens_saved=330518`,
+  `provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
+  `host_budget_issue_rows=0`, `proof_event_loss_rows=0`,
+  `safety_issue_rows=0`, and all maxx workload classes complete.
 
 What still requires live/product proof:
 
-- Final median savings across a broad live Codex Desktop and CLI workday corpus.
-- Host resource proof on target machines under real traffic.
-- Provider-cache economics over long sessions.
-- The exact contribution split between Layer 0, Layer 1, Layer 2, and Layer 3 on
-  representative real work.
+- Final median savings across many independent real user workdays. The current
+  corpus proves mechanism breadth and concrete local economic deltas, not a
+  market-wide average.
+- Host resource proof on additional target machines and OS/hardware profiles.
+- Provider-cache economics across more long-session shapes.
+- The exact contribution split between Layer 0, Layer 1, Layer 2, and Layer 3
+  for each workload family outside the captured release corpus.
 
 ## Where Savings Come From
 
@@ -111,9 +123,11 @@ Current honest position:
 - implementation direction: strong
 - product drawdown posture: strong for active default-safe layers
 - savings potential: high on real coding workflows, low on non-repetitive chat
-- final release proof: still depends on clean live-corpus, resource, and cache
-  evidence
+- current release proof: passed locally on the checked-in live corpus plus
+  clean CLI/Desktop resource bundles
+- remaining caution: do not generalize the 330,518-token release-matrix result
+  into a universal percentage
 
-The next work should stay focused on measured Layer 0/WSS, Layer 1 safety tiers,
-Layer 2 cache proof, Layer 3 output/tool-surface proof, and release-corpus
-coverage. Do not resurrect a model-facing Layer 2 summary path.
+Future work should only broaden measured corpus coverage, hardware/resource
+coverage, and per-workload layer attribution. Do not resurrect a model-facing
+Layer 2 summary path.
