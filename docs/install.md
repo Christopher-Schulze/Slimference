@@ -20,8 +20,8 @@ slimference codex desktop status      # Desktop app-server shim readiness / proo
 slimference codex desktop prove --manual --json # diagnostic Desktop proof start
 slimference codex desktop prove --finish --json # diagnostic Desktop proof finish
 slimference codex launch-desktop --probe  # inspect process-local Desktop app-server env
-slimference enable                    # optional shared Codex CLI/App route
-slimference enable --transport=wss    # optional shared WSS route, pre-live-cert
+slimference enable                    # advanced shared Codex CLI/App route
+slimference enable --transport=wss    # advanced shared WSS route, pre-live-cert
 slimference codex status
 slimference disable
 
@@ -126,7 +126,7 @@ Slimference's default product path touches only scoped Codex surfaces:
    that Codex CLI process with the local `slimference-codex` provider. It
    does not touch `/etc/hosts`, pfctl, macOS Network Proxy settings,
    Browser ChatGPT, or ChatGPT.app.
-3. **Optional shared Codex CLI/App route** via `slimference enable`
+3. **Advanced shared Codex CLI/App route** via `slimference enable`
    (alias: `slimference codex enable`).
    This writes a marker-owned provider block to `~/.codex/config.toml`:
    `model_provider="slimference-codex"`,
@@ -479,7 +479,7 @@ TLS/root-store barrier.
 for upstream Codex versions that might later add a conversation base-URL env
 hook. It is not the current Desktop product route.
 
-### 4. Enable shared Codex CLI/App route
+### 4. Enable advanced shared Codex CLI/App route
 
 Use this only when you want regular Codex CLI and Codex Desktop App
 sessions to use Slimference by default:
@@ -613,17 +613,17 @@ slimference_install:
     install:    install_plan.apply
     install --with-keychain: install_plan.apply plus optional ca.keychain trust step for Desktop/lab fallback
     uninstall:  install_plan.reverse
-    enable:     alias for codex enable; writes marker-owned shared Codex CLI/App provider route
-    disable:    alias for codex disable; removes marker-owned shared Codex CLI/App provider route
+    enable:     alias for codex enable; writes marker-owned advanced shared Codex CLI/App provider route
+    disable:    alias for codex disable; removes marker-owned advanced shared Codex CLI/App provider route
     lab cert-trust: open Keychain Access on ~/.slimference/ca/root.crt for interactive trust
     lab root-arm:   advanced global hosts + pfctl activation for Codex hosts; requires --global-chatgpt-hosts
     lab enable:     write_config_field(transparent.sni_peek_mode = true) + SIGHUP daemon
     lab disable:    write_config_field(transparent.sni_peek_mode = false) + SIGHUP daemon
     lab root-disarm: privileged hosts + pfctl deactivation
     codex run:  one-shot scoped Codex CLI provider route with direct fallback
-    codex enable: write marker-owned shared Codex CLI/App provider route
-    codex disable: remove marker-owned shared Codex CLI/App provider route
-    codex status: inspect shared Codex provider route + daemon health
+    codex enable: write marker-owned advanced shared Codex CLI/App provider route
+    codex disable: remove marker-owned advanced shared Codex CLI/App provider route
+    codex status: inspect normal direct vs advanced shared Codex route + daemon health
     status:     emit /admin/state JSON
 
   exit_codes:
@@ -649,7 +649,7 @@ slimference_install:
     - file: ~/.codex/config.toml
       marker_start: "# >>> slimference codex route >>>"
       marker_end:   "# <<< slimference codex route <<<"
-      purpose: optional shared Codex CLI/App provider route
+      purpose: advanced shared Codex CLI/App provider route
 
   not_touched:
     - env: OPENAI_API_BASE
@@ -680,7 +680,7 @@ direct.
 ```bash
 slimference status              # human-readable table
 slimference status --preflight  # adds DoH upstream checks without Codex traffic
-slimference codex status        # scoped Codex provider route + daemon health
+slimference codex status        # normal direct vs advanced shared Codex route + daemon health
 slimference status --json | jq  # machine-readable
 curl http://127.0.0.1:8990/_slimference/admin/state | jq
 ```
@@ -710,7 +710,7 @@ terminal-safe T236 proof before it can be enabled.
 
 The scoped product route block is under `/admin/state.codex_route`:
 
-- `enabled=true && complete=true && daemon_reachable=true`: shared Codex
+- `enabled=true && complete=true && daemon_reachable=true`: advanced shared Codex
   CLI/App route is configured and the daemon is reachable.
 - `transport=http|wss`: the currently written marker-owned provider route.
 - `auto_mode=wss_phasef|wss_bridge|http|direct`, `auto_transport=http|wss`,
@@ -838,7 +838,7 @@ slimference uninstall [flags]
   --help, -h        show help
 
 slimference enable | disable [flags]
-  --transport=auto|http|wss  scoped Codex route transport. auto resolves
+  --transport=auto|http|wss  advanced shared Codex route transport. auto resolves
                     wss_phasef -> wss_bridge -> http -> direct.
   --host=HOST       Slimference daemon host (default 127.0.0.1)
   --port=PORT       Slimference daemon port (default 8990)

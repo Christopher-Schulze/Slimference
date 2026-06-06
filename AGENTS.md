@@ -209,8 +209,10 @@ ausfuehren und mit `slimference codex status` verifizieren, dass
 `enabled=false` ist.
 
 **Single Entry Point:** Die Subcommands `slimference install`,
-`uninstall`, `status`, plus `slimference codex run|enable|disable|status`
-sind der normale scoped Codex-Pfad. `cert-trust`,
+`uninstall`, `status`, plus `slimference codex run|status`
+sind der normale Codex-Pfad. `slimference codex enable|disable` ist der
+advanced shared Codex route Pfad und darf in UI/CLI/Docs nie als notwendiger
+Normalzustand dargestellt werden. `cert-trust`,
 `root-arm --global-chatgpt-hosts`, transparent `enable`, transparent `disable`, und
 `root-disarm` sind globale Lab-/Zertifizierungsbefehle. `proxy run`,
 `integrate`, und persistente Proxy-/URL-Patches außerhalb des

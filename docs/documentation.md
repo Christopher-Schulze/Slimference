@@ -1342,7 +1342,7 @@ Codex-first and scoped:
   `slimference codex run -- <prompt>`; explicit
   `--transport=wss` enables scoped Responses WebSockets through the raw
   local WSS frontdoor before live default promotion
-- optional shared Codex CLI/App traffic through
+- advanced shared Codex CLI/App traffic through
   `slimference codex enable` / `slimference codex disable`, which writes
   only a marker-owned `slimference-codex` provider block in
   `~/.codex/config.toml`; explicit `codex enable --transport=wss` writes
@@ -1361,16 +1361,16 @@ always passes `api.anthropic.com` through.
 
 `internal/integrate` and `slimference integrate` are legacy/advanced
 diagnostics for config-patch flows. `slimference codex run` is the current
-scoped one-shot CLI path; `slimference codex enable` is the shared scoped
+scoped one-shot CLI path; `slimference codex enable` is the advanced shared
 CLI/App route. The older proxy lifecycle and
 transparent-proxied helpers remain advanced diagnostics. No default install,
 TUI setup action, or primary certification path should depend on persistent
 `OPENAI_API_BASE`, persistent `HTTPS_PROXY`, macOS System Network Proxy
 settings, or persistent legacy `openai_base_url`.
 
-The TUI exposes the same scoped lifecycle: Setup shows install state, scoped
-Codex route state, daemon controls, and a direct `[r]` toggle for
-`slimference codex enable` / `slimference codex disable`. Setup opens app
+The TUI exposes the same scoped lifecycle: Setup shows install state, normal
+direct vs advanced shared route state, daemon controls, and a direct `[r]`
+toggle for `slimference codex enable` / `slimference codex disable`. Setup opens app
 routing with `[a]`, with Claude Code parked. Savings counters come from
 `/admin/state`. Global transparent controls remain labelled as lab-only and are
 opened from Setup with `[g]`.
@@ -1497,9 +1497,9 @@ slimference install                 # Codex-only install plan
 slimference status --preflight      # scoped Codex readiness checks
 slimference codex run -- <prompt>   # one-shot CLI with fail-open direct
 slimference codex run --transport=wss -- <prompt>
-slimference codex enable            # shared Codex CLI/App route
+slimference codex enable            # advanced shared Codex CLI/App route
 slimference codex enable --transport=wss
-slimference codex disable           # remove shared route
+slimference codex disable           # remove advanced shared route
 slimference cert-trust              # global lab: open Keychain Access
 slimference root-arm --global-chatgpt-hosts
 slimference enable                  # global lab: enable SNI-peek daemon mode
@@ -1714,7 +1714,7 @@ proof state. Normal Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
 together. Per-app rows are route policy/capability state, not separate install
 states, and are opened from Setup with `a`. Setup also owns daemon
-start/stop/restart/repair, scoped Codex Mode, CA/material state, advanced lab
+start/stop/restart/repair, normal direct vs advanced shared Codex state, CA/material state, advanced lab
 controls, and the guided "Repair Codex CLI WSS savings" action that calls the
 same recert core as the CLI/background path. Global lab controls are reachable
 with `g` from Setup only and are not advertised as the normal product path. Old
@@ -1722,7 +1722,7 @@ macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
 stale processes when detected; the current healthy daemon PID remains the
 actionable state.
 
-The Launch Center labels the Codex route in hard product terms: `WSS savings
+The Launch Center labels Codex traffic in hard product terms: `WSS savings
 active` means Phase-F mutation is certified for the current tuple; `WSS route
 ready` means Desktop reaches the route but that specific proof did not show
 mutation; `WSS native bridge` / `WSS bridge/fallback` means Codex stays on the
@@ -2579,7 +2579,7 @@ phase recorder overhead (~15 ns/op on M1).
 ```
 cmd/slimference/              Entry point + every CLI subcommand.
   main.go                     Flag dispatch, subcommand router.
-  codex_cmd.go                Codex route CLI core: run, enable, disable, status, certify.
+  codex_cmd.go                Codex traffic CLI core: run, enable, disable, status, certify.
   codex_desktop_proof_cmd.go  Codex Desktop app-server proof/status flow.
   tui_proxy_adapter.go        In-process proxy adapter for the Bubble Tea TUI.
   help.go + help_test.go      --help content; golden-file drift check (T64).

@@ -435,7 +435,7 @@ func TestRunEnableWritesScopedCodexRoute(t *testing.T) {
 		!strings.Contains(string(data), "base_url = \"http://127.0.0.1:8990/backend-api/codex\"") {
 		t.Errorf("config wrong: %q", string(data))
 	}
-	if !strings.Contains(out.String(), "Codex route enabled") ||
+	if !strings.Contains(out.String(), "Advanced shared Codex route enabled") ||
 		!strings.Contains(out.String(), "Browser ChatGPT and ChatGPT.app stay direct") {
 		t.Errorf("output missing scoped route: %q", out.String())
 	}

@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T292 Advanced shared Codex route wording -> docs/todo/t292-advanced-shared-codex-route-wording.md
 - [x] T291 Mass-market TUI UX simplification -> docs/todo/t291-mass-market-tui-ux-simplification.md
 - [x] T290 Documentation anchor drift gate -> docs/todo/t290-documentation-anchor-drift-gate.md
 - [x] T289 RTK safe extra tool breadth -> docs/todo/t289-rtk-safe-extra-tool-breadth.md

@@ -152,7 +152,7 @@ func TestFormatSessionReport_CodexRoute(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(codexJSONL), nil)
 	out := FormatSessionReport(agg)
-	for _, need := range []string{"codex_chatgpt", "Codex route count:", "/v1/responses", "Prompt cache read:"} {
+	for _, need := range []string{"codex_chatgpt", "Codex traffic route count:", "/v1/responses", "Prompt cache read:"} {
 		if !strings.Contains(out, need) {
 			t.Fatalf("missing %q in report:\n%s", need, out)
 		}
@@ -207,7 +207,7 @@ func TestFormatSessionMarkdown_CodexRoute(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(codexJSONL), nil)
 	md := FormatSessionMarkdown(agg)
-	for _, need := range []string{"| Codex route | Requests |", "| /v1/responses | 1 |", "| Prompt cache read tokens | 300 |"} {
+	for _, need := range []string{"| Codex traffic route | Requests |", "| /v1/responses | 1 |", "| Prompt cache read tokens | 300 |"} {
 		if !strings.Contains(md, need) {
 			t.Fatalf("missing %q in markdown:\n%s", need, md)
 		}

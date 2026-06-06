@@ -19,7 +19,7 @@
 //	slimference codexhook <event> # Codex lifecycle hook entry points
 //	slimference install            # Install Codex-only Phase H surface
 //	slimference codex run -- <prompt> # Scoped Codex CLI with fail-open
-//	slimference enable             # Optional shared Codex CLI/App route
+//	slimference enable             # Advanced shared Codex CLI/App route
 //	slimference lab enable         # Global lab: arm SNI-peek after explicit root-arm
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)

@@ -136,7 +136,7 @@ func runInstallCmd(args []string, p installPrinter) int {
 	fmt.Fprintln(p.Out, "Install complete. Next:")
 	fmt.Fprintln(p.Out, "  slimference status --preflight")
 	fmt.Fprintln(p.Out, "  slimference codex run -- <prompt>")
-	fmt.Fprintln(p.Out, "  slimference codex enable   # optional shared CLI/App route")
+	fmt.Fprintln(p.Out, "  slimference codex enable   # advanced shared CLI/App route")
 	fmt.Fprintln(p.Out, "")
 	fmt.Fprintln(p.Out, "Global lab only:")
 	fmt.Fprintln(p.Out, "  slimference lab cert-trust")
@@ -362,11 +362,13 @@ func renderStatus(p installPrinter, s control.SetupState) {
 	if notice := staleSlimferenceProcessNoticeFn(); notice != "" {
 		fmt.Fprintf(p.Out, "      stale process: %s\n", notice)
 	}
-	fmt.Fprintf(p.Out, "  Listener %s :443=%v :8443=%v :%d=%v\n",
-		mark(s.Listener.BoundOn443 || s.Listener.BoundOnSNIPeek),
-		s.Listener.BoundOn443, s.Listener.BoundOnSNIPeek, 8990, s.Listener.BoundOn8990)
-	fmt.Fprintf(p.Out, "  Network  %s hosts_active=%v entries=%d\n",
-		mark(s.NetworkRedir.HostsActive), s.NetworkRedir.HostsActive, len(s.NetworkRedir.HostsEntries))
+	globalListenerReady := s.Listener.BoundOn443 || s.Listener.BoundOnSNIPeek
+	fmt.Fprintf(p.Out, "  Listener %s product_8990=%v global_443=%v global_8443=%v\n",
+		mark(s.Listener.BoundOn8990 || globalListenerReady),
+		s.Listener.BoundOn8990, s.Listener.BoundOn443, s.Listener.BoundOnSNIPeek)
+	networkOK := !s.NetworkRedir.HostsActive || globalListenerReady
+	fmt.Fprintf(p.Out, "  Network  %s normal_direct_hosts=%v hosts_active=%v entries=%d\n",
+		mark(networkOK), !s.NetworkRedir.HostsActive, s.NetworkRedir.HostsActive, len(s.NetworkRedir.HostsEntries))
 	auto := s.CodexRoute.AutoTransport
 	if auto == "" {
 		auto = "unknown"
@@ -375,9 +377,10 @@ func renderStatus(p installPrinter, s control.SetupState) {
 	if transport == "" {
 		transport = "off"
 	}
-	fmt.Fprintf(p.Out, "  Codex    %s route_enabled=%v complete=%v transport=%s auto=%s wss_certified=%v daemon=%v\n",
-		mark(s.CodexRoute.Complete && s.CodexRoute.DaemonReachable),
-		s.CodexRoute.Enabled, s.CodexRoute.Complete, transport, auto,
+	codexOK := !s.CodexRoute.Enabled || (s.CodexRoute.Complete && s.CodexRoute.DaemonReachable)
+	fmt.Fprintf(p.Out, "  Codex    %s normal_direct=%v advanced_route=%v complete=%v transport=%s auto=%s wss_certified=%v daemon=%v\n",
+		mark(codexOK),
+		!s.CodexRoute.Enabled, s.CodexRoute.Enabled, s.CodexRoute.Complete, transport, auto,
 		s.CodexRoute.WSSCertified, s.CodexRoute.DaemonReachable)
 	if s.CodexRoute.FallbackReason != "" {
 		fmt.Fprintf(p.Out, "      auto fallback: %s\n", s.CodexRoute.FallbackReason)
@@ -425,7 +428,7 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		fmt.Fprintln(p.Out, "")
 		fmt.Fprintln(p.Out, "Transparent MITM DISARMED.")
 		fmt.Fprintln(p.Out, "Scoped Codex CLI: `slimference codex run -- <prompt>`.")
-		fmt.Fprintln(p.Out, "Scoped Codex CLI/App: `slimference enable`.")
+		fmt.Fprintln(p.Out, "Advanced shared Codex CLI/App: `slimference enable`.")
 		fmt.Fprintln(p.Out, "Global lab only: `lab cert-trust`, `lab root-arm --global-chatgpt-hosts`, then `lab enable`.")
 	}
 }

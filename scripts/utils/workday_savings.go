@@ -58,7 +58,7 @@ Flags:
 Start captures a baseline. Finish captures the current daemon state and prints
 the counter delta. Close Codex CLI/Desktop sessions before finish so WSS counters
 flush; mid-session WSS counters can under-report by design. The finish report also
-keeps the current Codex route / auto-recert snapshot, so a measured window shows
+keeps the current Codex traffic / auto-recert snapshot, so a measured window shows
 whether it ended in Phase-F, WSS bridge, fallback, or pending repair.`
 
 func runWorkdaySavings(args []string, stdout, stderr io.Writer) int {

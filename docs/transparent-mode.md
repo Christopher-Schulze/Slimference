@@ -18,7 +18,7 @@ Therefore the normal scoped Codex CLI path is now:
 slimference install
 slimference status --preflight
 slimference codex run -- <prompt>
-slimference codex enable   # optional shared Codex CLI/App route
+slimference codex enable   # advanced shared Codex CLI/App route
 ```
 
 The global transparent path below is lab-only and requires an explicit

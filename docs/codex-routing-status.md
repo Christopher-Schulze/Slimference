@@ -5,8 +5,8 @@ Legacy investigation note. This file records why the old
 Codex ChatGPT-subscription conversation traffic. It is not the install
 guide. Current scoped Codex setup is documented in `docs/install.md` and
 uses Codex hooks plus `slimference codex run` for one-shot CLI traffic.
-`slimference codex enable` writes the reversible shared Codex CLI/App
-provider route. Transparent SNI-MITM remains global lab-only because it
+`slimference codex enable` writes the reversible advanced shared Codex
+CLI/App provider route. Transparent SNI-MITM remains global lab-only because it
 routes `chatgpt.com` machine-wide.
 
 ## TL;DR

@@ -145,7 +145,7 @@ Flags:
 
 This tool gives an honest, single-glance picture of every measurable Slimference
 savings source for one daemon, without conflating route-ready with savings-proven.
-It also includes the current Codex route / auto-recert snapshot, so workday
+It also includes the current Codex traffic / auto-recert snapshot, so workday
 reports can explain whether savings were active, bridged, repaired, or in
 fallback. WSS counters are live (daemon admin/state); filter Layer-0 savings
 come from the SQLite analytics DB if a path is provided.`
@@ -452,7 +452,7 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "Generated: %s\n", report.Generated.Format(time.RFC3339))
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "Codex route / auto-recert:")
+	fmt.Fprintln(w, "Codex traffic / auto-recert:")
 	fmt.Fprintf(w, "  auto_mode:                 %s\n", valueOrDash(report.CodexRoute.AutoMode))
 	fmt.Fprintf(w, "  auto_transport:            %s\n", valueOrDash(report.CodexRoute.AutoTransport))
 	fmt.Fprintf(w, "  daemon_reachable:          %v\n", report.CodexRoute.DaemonReachable)

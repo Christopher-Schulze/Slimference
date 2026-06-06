@@ -249,7 +249,7 @@ transparent bridge. Use this only for explicit lab certification.
 For scoped Codex CLI runs, prefer:
   slimference codex run -- <prompt>
 
-For the shared Codex CLI/App provider route, prefer:
+For the advanced shared Codex CLI/App provider route, prefer:
   slimference codex enable
 
 Triggers ONE macOS admin password dialog via osascript. Idempotent —

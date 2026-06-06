@@ -672,15 +672,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				status := m.codexRouteStatus
 				if status.Enabled {
 					if err := m.svc.DisableCodexRoute(); err != nil {
-						m.setFlash("Codex route disable failed: " + err.Error())
+						m.setFlash("Advanced shared route disable failed: " + err.Error())
 					} else {
-						m.setFlash("Codex Mode disabled")
+						m.setFlash("Normal Codex direct")
 					}
 				} else {
 					if err := m.svc.EnableCodexRoute(); err != nil {
-						m.setFlash("Codex route enable failed: " + err.Error())
+						m.setFlash("Advanced shared route enable failed: " + err.Error())
 					} else {
-						m.setFlash("Codex Mode enabled")
+						m.setFlash("Advanced shared route enabled")
 					}
 				}
 				m.refreshCodexRouteStatus(true)
@@ -1039,7 +1039,7 @@ func (m *Model) dashboardActions() []dashboardAction {
 			group:       "Manage",
 			id:          "manage",
 			label:       "Setup",
-			description: "Install, daemon repair, Codex route, app routing, and advanced lab controls.",
+			description: "Install, daemon repair, advanced route, app routing, and lab controls.",
 			state:       m.manageState(),
 		},
 	}
@@ -1360,10 +1360,10 @@ func (m *Model) setupSteps() []setupStep {
 			confirm: "Install Codex-only Slimference integration",
 		},
 		{
-			label:   "Run slimference enable (Codex Mode: auto)",
+			label:   "Run slimference enable (advanced shared route: auto)",
 			check:   func() bool { return m.codexRouteStatus.Complete },
 			action:  func(m *Model) error { return m.svc.EnableCodexRoute() },
-			confirm: "Enable scoped Codex provider route",
+			confirm: "Enable advanced shared Codex provider route",
 		},
 		{
 			label:   "Install Codex hook",

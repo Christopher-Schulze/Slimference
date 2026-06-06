@@ -580,7 +580,7 @@ func FormatSessionReport(agg *sessionReportAggregate) string {
 		}
 	}
 	if len(agg.perCodexRoute) > 0 {
-		sb.WriteString("\nCodex route count:\n")
+		sb.WriteString("\nCodex traffic route count:\n")
 		routeKeys := make([]string, 0, len(agg.perCodexRoute))
 		for k := range agg.perCodexRoute {
 			routeKeys = append(routeKeys, k)
@@ -655,7 +655,7 @@ func FormatSessionMarkdown(agg *sessionReportAggregate) string {
 		}
 	}
 	if len(agg.perCodexRoute) > 0 {
-		sb.WriteString("\n| Codex route | Requests |\n| --- | ---: |\n")
+		sb.WriteString("\n| Codex traffic route | Requests |\n| --- | ---: |\n")
 		keys := make([]string, 0, len(agg.perCodexRoute))
 		for key := range agg.perCodexRoute {
 			keys = append(keys, key)

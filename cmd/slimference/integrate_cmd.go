@@ -133,7 +133,7 @@ func runIntegrateInstall(opts integrate.Options, extra integrateExtra) {
 		fmt.Println("  1. `slimference install`")
 		fmt.Println("  2. `slimference status --preflight`")
 		fmt.Println("  3. `slimference codex run -- <prompt>`")
-		fmt.Println("  4. Optional shared CLI/App route: `slimference codex enable`")
+		fmt.Println("  4. Advanced shared CLI/App route: `slimference codex enable`")
 		fmt.Println()
 		fmt.Println("If you intentionally use legacy config-patch mode:")
 		fmt.Println("  1. `exec $SHELL -l`  (reload your shell so env/config edits apply)")

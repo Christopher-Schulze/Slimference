@@ -187,7 +187,7 @@ func runCodexEnableCmd(args []string, p installPrinter) int {
 	}
 	proxyURL := codexroute.ProxyURL(flags.host, flags.port)
 	if flags.dryRun {
-		fmt.Fprintf(p.Out, "Dry-run: would write scoped Codex route to %s\n\n%s",
+		fmt.Fprintf(p.Out, "Dry-run: would write advanced shared Codex route to %s\n\n%s",
 			codexroute.ConfigPath(home), codexroute.PreviewBlockWithOptions(proxyURL, codexRouteOptions(flags.transport)))
 		return 0
 	}
@@ -200,7 +200,7 @@ func runCodexEnableCmd(args []string, p installPrinter) int {
 		fmt.Fprintf(p.Err, "codex enable: %s does not exist; run Codex once or `slimference install` first. No files changed.\n", evt.Path)
 		return 1
 	}
-	fmt.Fprintf(p.Out, "Codex route enabled: %s (%s)\n", evt.Path, evt.Action)
+	fmt.Fprintf(p.Out, "Advanced shared Codex route enabled: %s (%s)\n", evt.Path, evt.Action)
 	fmt.Fprintln(p.Out, "Scope: Codex CLI + Codex Desktop App only. Browser ChatGPT and ChatGPT.app stay direct.")
 	fmt.Fprintln(p.Out, "Desktop App: restart Codex.app/app-server so it reloads ~/.codex/config.toml.")
 	return 0
@@ -222,7 +222,7 @@ func runCodexDisableCmd(args []string, p installPrinter) int {
 		return 1
 	}
 	if flags.dryRun {
-		fmt.Fprintf(p.Out, "Dry-run: would remove scoped Codex route from %s\n", codexroute.ConfigPath(home))
+		fmt.Fprintf(p.Out, "Dry-run: would remove advanced shared Codex route from %s\n", codexroute.ConfigPath(home))
 		return 0
 	}
 	evt, err := codexRouteDisableFn(home)
@@ -230,7 +230,7 @@ func runCodexDisableCmd(args []string, p installPrinter) int {
 		fmt.Fprintf(p.Err, "codex disable: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(p.Out, "Codex route disabled: %s (%s)\n", evt.Path, evt.Action)
+	fmt.Fprintf(p.Out, "Normal Codex direct. Advanced shared route off: %s (%s)\n", evt.Path, evt.Action)
 	fmt.Fprintln(p.Out, "Codex now talks direct after the next CLI/App config reload.")
 	return 0
 }
@@ -573,8 +573,8 @@ func codexProxyEnv(p installPrinter) proxyEnv {
 }
 
 func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, daemonErr string, auto codexroute.AutoDecision) {
-	fmt.Fprintln(w, "Slimference Codex route")
-	fmt.Fprintln(w, "-----------------------")
+	fmt.Fprintln(w, "Slimference Codex traffic")
+	fmt.Fprintln(w, "-------------------------")
 	fmt.Fprintf(w, "  Config   exists=%v enabled=%v complete=%v\n", s.Exists, s.Enabled, s.Complete)
 	fmt.Fprintf(w, "  Path     %s\n", s.Path)
 	fmt.Fprintf(w, "  BaseURL  %s\n", s.BaseURL)
@@ -628,11 +628,11 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 	fmt.Fprintln(w)
 	if s.Complete && daemonReachable {
-		fmt.Fprintln(w, "Codex CLI/App route is ready after Codex reload.")
+		fmt.Fprintln(w, "Advanced shared Codex route is ready after Codex reload.")
 	} else if s.Enabled && !daemonReachable {
-		fmt.Fprintln(w, "Route is configured but daemon is unreachable. Run `slimference disable` for direct fallback.")
+		fmt.Fprintln(w, "Advanced shared route is configured but daemon is unreachable. Run `slimference disable` for normal direct Codex.")
 	} else {
-		fmt.Fprintln(w, "Route is disabled. Use `slimference codex run -- <prompt>` for one-shot scoped CLI, or `slimference enable` for CLI/App.")
+		fmt.Fprintln(w, "Normal Codex direct. Use `slimference codex run -- <prompt>` for one-shot scoped CLI, or `slimference enable` for the advanced shared CLI/App route.")
 	}
 }
 
@@ -646,9 +646,9 @@ ChatGPT.app, Claude Code, or generic OpenAI tools through Slimference.
 
 Commands:
   run             run one Codex CLI process through Slimference; fail-open direct
-  enable          persist the shared Codex CLI/App provider route
-  disable         remove the shared Codex CLI/App provider route
-  status          show route config + daemon health
+  enable          persist the advanced shared Codex CLI/App provider route
+  disable         remove the advanced shared route; normal Codex stays direct
+  status          show normal direct vs advanced shared route state + daemon health
   certify         issue local WSS auto-promotion proof after live mutation
   recertify       run guided WSS repair; refresh Phase-F cert or bridge proof
   desktop         show Desktop app-server shim readiness and live-proof status
@@ -688,8 +688,8 @@ Removes the marker-owned provider block from ~/.codex/config.toml.
 
 const codexStatusHelpText = `usage: slimference codex status [--json] [--host=127.0.0.1] [--port=8990]
 
-Shows whether the scoped Codex provider route is configured and whether
-the Slimference daemon is reachable.
+Shows whether normal Codex is direct or the advanced shared Codex provider
+route is configured, plus daemon reachability.
 `
 
 const codexDesktopUsageLine = "usage: slimference codex desktop <status|prove> [flags]\n"

@@ -372,13 +372,13 @@ func TestUpdate_SetupCodexRouteToggle(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model := updated.(Model)
-	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Codex Mode enabled") {
+	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Advanced shared route enabled") {
 		t.Fatalf("enable route failed: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model = updated.(Model)
-	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Codex Mode disabled") {
+	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Normal Codex direct") {
 		t.Fatalf("disable route failed: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 }
@@ -392,7 +392,7 @@ func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model := updated.(Model)
-	if !strings.Contains(model.flashMsg, "Codex route enable failed") {
+	if !strings.Contains(model.flashMsg, "Advanced shared route enable failed") {
 		t.Fatalf("missing route error flash: %q", model.flashMsg)
 	}
 }

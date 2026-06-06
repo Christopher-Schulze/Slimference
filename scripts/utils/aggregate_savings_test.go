@@ -181,7 +181,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"=== Slimference Aggregate Savings ===",
-		"Codex route / auto-recert:",
+		"Codex traffic / auto-recert:",
 		"auto_mode:                 wss_phasef",
 		"recert_status:             passed",
 		"recert_log:                /tmp/codex-wss-recert.log",

@@ -67,7 +67,7 @@ FIRST STEPS:
   1. slimference install      # Codex-only install, no hosts patch yet
   2. slimference status --preflight
   3. slimference codex run -- <prompt>
-  4. slimference enable       # optional shared CLI/App route
+  4. slimference enable       # advanced shared CLI/App route
 
 GLOBAL LAB ONLY:
   slimference lab cert-trust
@@ -312,7 +312,7 @@ The current Codex path is:
   slimference install
   slimference status --preflight
   slimference codex run -- <prompt>
-  slimference codex enable   # optional shared CLI/App route
+  slimference codex enable   # advanced shared CLI/App route
   slimference uninstall
 
 The proxy lifecycle keeps the older System-HTTPS-Proxy helpers for
@@ -371,9 +371,9 @@ for manual fallback only.
 The Phase H default Codex path is handled by:
   slimference install
   slimference codex run -- <prompt>
-  slimference codex enable   # optional shared CLI/App route
+  slimference codex enable   # advanced shared CLI/App route
 
-The one-shot run path does not mutate Codex base URLs. The optional shared
+The one-shot run path does not mutate Codex base URLs. The advanced shared
 route writes a separate marker-owned provider block. Every integrate edit uses
 a fenced marker block so re-running install is a no-op and remove is exact.
 

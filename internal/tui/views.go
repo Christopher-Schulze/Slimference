@@ -610,7 +610,7 @@ func (m *Model) renderSetupView() string {
 			s.BannerGood.Render("ARMED") + " " + s.Normal.Render("System HTTPS is routed through Slimference."),
 		)
 	} else if allReady {
-		message := "Slimference is installed. Use the scoped Codex route when you want CLI/App traffic in the pipeline."
+		message := "Slimference is installed. Normal Codex stays direct; use Slimference Launch when you want traffic in the pipeline."
 		if m.svc == nil {
 			message = "ALL SET - Slimference is ready for daily use."
 		}
@@ -674,7 +674,7 @@ func (m *Model) renderSetupView() string {
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex Mode  [p] start/stop  [o] restart/repair daemon"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] advanced shared route  [p] start/stop  [o] restart/repair daemon"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] app routing  [g] advanced lab  [u] uninstall Slimference assets"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
@@ -1307,7 +1307,7 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 		mode = "auto"
 	}
 	modeText := " · " + mode
-	stateText := "scoped CLI/App route ready"
+	stateText := "advanced shared route ready"
 	switch {
 	case status.WSSCertified && (status.AutoMode == "wss_phasef" || (status.AutoMode == "" && mode == "wss")):
 		stateText = "WSS savings active"
@@ -1321,21 +1321,21 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 	}
 	switch {
 	case status.Complete && status.DaemonReachable:
-		return "  " + s.Saved.Render("● CODEX MODE") + "  " + stateText + s.Dim.Render(modeText)
+		return "  " + s.Saved.Render("● ADVANCED ROUTE") + "  " + stateText + s.Dim.Render(modeText)
 	case status.Enabled && !status.DaemonReachable:
-		return "  " + s.LogError.Render("● CODEX MODE") + "  configured but daemon unreachable; press [r] to disable"
+		return "  " + s.LogError.Render("● ADVANCED ROUTE") + "  configured but daemon unreachable; press [r] for normal direct Codex"
 	case status.Enabled && status.Conflict != "":
-		return "  " + s.BannerWarn.Render("● CODEX MODE") + "  configured with conflict: " + status.Conflict
+		return "  " + s.BannerWarn.Render("● ADVANCED ROUTE") + "  configured with conflict: " + status.Conflict
 	case status.Enabled:
-		return "  " + s.BannerWarn.Render("● CODEX MODE") + "  configured but incomplete" + s.Dim.Render(modeText)
+		return "  " + s.BannerWarn.Render("● ADVANCED ROUTE") + "  configured but incomplete" + s.Dim.Render(modeText)
 	case status.Exists:
 		suffix := ""
 		if status.FallbackReason != "" {
 			suffix = " · auto " + status.AutoTransport + " · " + status.FallbackReason
 		}
-		return "  " + s.Muted.Render("○ CODEX MODE") + "  disabled; press [r] to enable scoped CLI/App" + s.Dim.Render(suffix)
+		return "  " + s.Muted.Render("○ NORMAL CODEX") + "  direct; advanced shared route off" + s.Dim.Render(suffix)
 	default:
-		return "  " + s.Muted.Render("○ CODEX MODE") + "  Codex config not found"
+		return "  " + s.Muted.Render("○ NORMAL CODEX") + "  direct; Codex config not found"
 	}
 }
 

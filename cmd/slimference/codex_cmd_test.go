@@ -359,7 +359,7 @@ func TestCodexCmdEnableDisableStatus(t *testing.T) {
 	if rc := runCodexCmd([]string{"enable"}, p); rc != 0 {
 		t.Fatalf("enable rc=%d stdout=%s stderr=%s", rc, out.String(), errBuf.String())
 	}
-	if !strings.Contains(out.String(), "Codex route enabled") ||
+	if !strings.Contains(out.String(), "Advanced shared Codex route enabled") ||
 		!strings.Contains(out.String(), "ChatGPT.app stay direct") {
 		t.Fatalf("bad enable output: %q", out.String())
 	}
@@ -387,7 +387,7 @@ func TestCodexCmdEnableDisableStatus(t *testing.T) {
 	if rc := runCodexCmd([]string{"disable"}, p); rc != 0 {
 		t.Fatalf("disable rc=%d stderr=%s", rc, errBuf.String())
 	}
-	if !strings.Contains(out.String(), "Codex route disabled") {
+	if !strings.Contains(out.String(), "Normal Codex direct") {
 		t.Fatalf("bad disable output: %q", out.String())
 	}
 }
@@ -498,7 +498,7 @@ func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
 
 	out.Reset()
 	if rc := runCodexCmd([]string{"disable", "--dry-run"}, p); rc != 0 ||
-		!strings.Contains(out.String(), "would remove scoped Codex route") {
+		!strings.Contains(out.String(), "would remove advanced shared Codex route") {
 		t.Fatalf("disable dry-run rc=%d out=%q", rc, out.String())
 	}
 }
@@ -928,7 +928,7 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 		}, nil
 	}
 	if rc := runCodexCmd([]string{"status"}, p); rc != 0 ||
-		!strings.Contains(out.String(), "Route is disabled") ||
+		!strings.Contains(out.String(), "Normal Codex direct") ||
 		!strings.Contains(out.String(), "Conflict top-level model_provider") ||
 		!strings.Contains(out.String(), "Legacy") {
 		t.Fatalf("disabled status rc=%d out=%q", rc, out.String())

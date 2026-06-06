@@ -106,7 +106,7 @@ func TestWorkdaySavingsHelpMentionsRouteSnapshot(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Codex route / auto-recert snapshot") {
+	if !strings.Contains(stdout.String(), "Codex traffic / auto-recert snapshot") {
 		t.Fatalf("help should mention route snapshot:\n%s", stdout.String())
 	}
 }

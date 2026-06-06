@@ -117,7 +117,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		ToggleCodexMode: key.NewBinding(
 			key.WithKeys("r"),
-			key.WithHelp("r", "toggle Codex Mode"),
+			key.WithHelp("r", "advanced route"),
 		),
 		GlobalLab: key.NewBinding(
 			key.WithKeys("g"),
