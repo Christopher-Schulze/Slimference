@@ -179,6 +179,16 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 	}
 }
 
+func TestSavingsHelpDocumentsConversationLayerBreakdown(t *testing.T) {
+	t.Parallel()
+	out := helpForSubcommand("savings")
+	for _, want := range []string{"per-conversation layer net", "L0, L1, L2", "output-reduce overhead", "No estimates are invented"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("savings help should contain %q\n%s", want, out)
+		}
+	}
+}
+
 func TestFilterHelpDocumentsAdvancedWrapperOnly(t *testing.T) {
 	t.Parallel()
 	out := helpForSubcommand("filter")

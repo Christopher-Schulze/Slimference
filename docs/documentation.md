@@ -1788,6 +1788,15 @@ and the top parser filters by saved bytes. This is runtime observability; the
 persisted billing-style Layer 0 savings view remains `slimference gain
 --by-parser`.
 
+For measured conversation accounting, use `slimference savings <period>`. When
+the decision log is configured, the report prints aggregate `Decision layer net`
+and top Codex sessions with compact `layers=` fields. The same per-session
+fields are present in JSON as `layer0_net_tokens`, `layer1_net_tokens`,
+`layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
+`tool_prune_tokens`. These fields are measured-only: mechanism accounting is
+used when present, request-stage token counters are used only as fallback, and
+missing counters stay zero.
+
 ---
 
 ## 14. Configuration Reference
@@ -1926,7 +1935,7 @@ slimference help [subcommand]
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
 | `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, output, or proxy-flight telemetry.|
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
-| `savings`     | Unified savings view (L0 + proxy flights + L2) per period; --json / --csv (T80).|
+| `savings`     | Unified savings view per period with decision-log layer/conversation breakdown; --json / --csv (T80/T293).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |

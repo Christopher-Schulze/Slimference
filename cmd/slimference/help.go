@@ -212,7 +212,10 @@ machine-readable output. Optional $/M-token rate in config multiplies savings.
 
 Unified savings view (T80) collapsing Layer-0 filter.db, proxy-side
 compression analytics, and Layer-2 cache hits into one canonical
-report in tokens and (when configured) USD/EUR.
+report in tokens and (when configured) USD/EUR. Decision-log data adds
+measured per-conversation layer net fields in text and JSON: L0, L1, L2,
+L3, output-reduce overhead, and tool-prune savings. No estimates are invented
+when a decision log lacks the needed counters.
 `
 	case "compress-preview":
 		return `slimference compress-preview [--provider X] [--path P] [--diff] [--json] [-|<file>]

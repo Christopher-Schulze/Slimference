@@ -3,8 +3,10 @@
 Date: 2026-06-05
 
 This document records benchmark evidence that should remain reproducible from
-the checked-in repository. Layer 2 has been removed; current reports and claims
-must attribute savings only to active product paths.
+the checked-in repository. Legacy semantic Layer 2 summarization has been
+removed from the product path; current Layer 2 means response/provider-cache
+accounting only. Current reports and claims must attribute savings only to
+active product paths.
 
 ## Session Reports
 
@@ -24,12 +26,20 @@ Expected report dimensions:
 | Saved tokens | `original - final` |
 | Layer 0 saved | Tool-output / Codex reducer savings |
 | Layer 1 saved | Deterministic compression savings |
-| Layer 2 saved | Response/cache savings where applicable |
+| Layer 2 saved | Response/provider-cache savings where applicable |
 | Output reduce | Provider-output / directive accounting |
 | Cache hits | Local response-cache hits |
 
-Do not record or expect a Layer 2 savings column. If a fixture still contains
-Layer 2 fields, the fixture is stale and must be regenerated or scrubbed.
+Do not record or expect any semantic-summary Layer 2 savings column. If a
+fixture still treats Layer 2 as model-facing summary replacement, the fixture is
+stale and must be regenerated or scrubbed.
+
+`slimference savings <period>` also reports decision-log conversation
+breakdowns when the configured decisions log is present. Text output shows a
+`Decision layer net` aggregate and each top session prints `layers=...` with
+measured `L0`, `L1`, `L2`, `L3`, `out`, and `tools` net token fields. JSON
+exposes the same fields on `decision_sessions`. Missing counters stay absent or
+zero; the report does not invent estimates.
 
 ## Codex Smoke Corpus
 
@@ -75,5 +85,6 @@ consistency. It also emits an observed layer-combination matrix such as
   resource/profile bundles.
 - Savings must be reported by active layer and route. Provider-cache economics,
   local input savings, and output-wire savings stay separate.
-- A removed Layer 2 must not appear in benchmark output, metadata, fixtures, or
-  release proof.
+- Semantic-summary Layer 2 must not appear in benchmark output, metadata,
+  fixtures, or release proof. Layer 2 fields are valid only for current
+  response/provider-cache accounting.

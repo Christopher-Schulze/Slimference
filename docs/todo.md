@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T293 Conversation savings layer breakdown -> docs/todo/t293-conversation-savings-layer-breakdown.md
 - [x] T292 Advanced shared Codex route wording -> docs/todo/t292-advanced-shared-codex-route-wording.md
 - [x] T291 Mass-market TUI UX simplification -> docs/todo/t291-mass-market-tui-ux-simplification.md
 - [x] T290 Documentation anchor drift gate -> docs/todo/t290-documentation-anchor-drift-gate.md
