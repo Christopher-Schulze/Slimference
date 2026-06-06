@@ -3758,6 +3758,7 @@ func (sca *serviceControlAdapter) CodexDesktopStatus() tui.CodexDesktopStatus {
 		Mode:                 status.Mode,
 		FailureClass:         status.FailureClass,
 		DaemonReachable:      status.DaemonReachable,
+		AppServerActive:      codexDesktopAppServerActiveFn(),
 		CATrusted:            status.CATrust.Trusted,
 		CAExists:             status.CATrust.Exists,
 		ConversationObserved: status.ConversationObserved,

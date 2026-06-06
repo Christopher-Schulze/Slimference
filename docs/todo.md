@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T303 Desktop scoped app status signal -> docs/todo/t303-desktop-scoped-app-status.md
 - [x] T302 TUI live log window -> docs/todo/t302-tui-live-log-window.md
 - [x] T301 TUI status and logs separation -> docs/todo/t301-tui-status-logs-separation.md
 - [x] T300 Simple TUI home menu -> docs/todo/t300-simple-tui-home-menu.md

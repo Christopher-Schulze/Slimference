@@ -45,6 +45,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopStart := codexDesktopStartFn
 	oldDesktopCleanup := codexDesktopCleanupFn
 	oldDesktopRunning := codexDesktopRunningFn
+	oldDesktopAppServerActive := codexDesktopAppServerActiveFn
 	oldExecutable := osExecutable
 	oldDesktopUpstream := codexDesktopUpstreamCodexFn
 	oldDesktopSession := codexDesktopSessionFn
@@ -91,6 +92,7 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopUpstreamCodexFn = func(string) (string, error) { return "/tmp/codex", nil }
 	codexDesktopCleanupFn = func(int) error { return nil }
 	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
+	codexDesktopAppServerActiveFn = func() bool { return false }
 	sessionPath := filepath.Join(t.TempDir(), "desktop-proof.json")
 	codexDesktopSessionFn = func() string { return sessionPath }
 	resultPath := filepath.Join(t.TempDir(), "desktop-proof-result.json")
@@ -121,6 +123,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopStartFn = oldDesktopStart
 		codexDesktopCleanupFn = oldDesktopCleanup
 		codexDesktopRunningFn = oldDesktopRunning
+		codexDesktopAppServerActiveFn = oldDesktopAppServerActive
 		osExecutable = oldExecutable
 		codexDesktopUpstreamCodexFn = oldDesktopUpstream
 		codexDesktopSessionFn = oldDesktopSession

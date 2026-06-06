@@ -1184,6 +1184,9 @@ func renderCodexDesktopStatusLine(s Styles, status CodexDesktopStatus) string {
 	state := "not proven"
 	style := s.Muted
 	switch {
+	case status.AppServerActive:
+		state = "scoped app active"
+		style = s.Saved
 	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
 		state = "savings active"
 		style = s.Saved
@@ -1201,6 +1204,9 @@ func renderCodexDesktopStatusLine(s Styles, status CodexDesktopStatus) string {
 		style = s.BannerWarn
 	}
 	detail := status.Mode
+	if status.AppServerActive {
+		detail = "Codex.app -> slimference app-server"
+	}
 	if detail == "" {
 		detail = status.Detail
 	}

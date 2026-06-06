@@ -266,6 +266,7 @@ type CodexDesktopStatus struct {
 	Mode                 string
 	FailureClass         string
 	DaemonReachable      bool
+	AppServerActive      bool
 	CATrusted            bool
 	CAExists             bool
 	ConversationObserved bool
@@ -1071,6 +1072,8 @@ func (m *Model) codexCLIState() string {
 func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch {
+	case status.AppServerActive:
+		return "scoped active"
 	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
 		return "savings active"
 	case status.Mode == "desktop_app_server_route_ready":
@@ -1090,6 +1093,9 @@ func (m *Model) codexAppState() string {
 
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
+	if status.AppServerActive {
+		return "Codex.app is running with Slimference app-server shim; first prompt proves live traffic."
+	}
 	if status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven" {
 		return "Open Codex.app in Slimference mode; Desktop savings are proven."
 	}

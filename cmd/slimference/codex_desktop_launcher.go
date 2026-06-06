@@ -84,14 +84,15 @@ const (
 )
 
 var (
-	codexDesktopAppPathFn       = func() string { return defaultCodexDesktopAppPath }
-	codexDesktopStatFn          = func(name string) (fs.FileInfo, error) { return os.Stat(name) }
-	codexDesktopStartFn         = startCodexDesktopProcess
-	codexDesktopBaseEnvFn       = os.Environ
-	codexDesktopCATrustFn       = codexDesktopCATrustState
-	codexDesktopRunningFn       = runningCodexDesktopPIDs
-	codexDesktopLookPathFn      = exec.LookPath
-	codexDesktopUpstreamCodexFn = resolveCodexDesktopUpstreamCodexBinary
+	codexDesktopAppPathFn         = func() string { return defaultCodexDesktopAppPath }
+	codexDesktopStatFn            = func(name string) (fs.FileInfo, error) { return os.Stat(name) }
+	codexDesktopStartFn           = startCodexDesktopProcess
+	codexDesktopBaseEnvFn         = os.Environ
+	codexDesktopCATrustFn         = codexDesktopCATrustState
+	codexDesktopRunningFn         = runningCodexDesktopPIDs
+	codexDesktopAppServerActiveFn = codexDesktopAppServerActive
+	codexDesktopLookPathFn        = exec.LookPath
+	codexDesktopUpstreamCodexFn   = resolveCodexDesktopUpstreamCodexBinary
 )
 
 var codexDesktopStartProbeDelay = 750 * time.Millisecond
@@ -702,6 +703,23 @@ func runningCodexDesktopPIDs(binary string) ([]int, error) {
 		}
 	}
 	return pids, nil
+}
+
+func codexDesktopAppServerActive() bool {
+	out, err := exec.Command("ps", "-axo", "args=").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		if filepath.Base(fields[0]) == "slimference" && fields[1] == "app-server" {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveCodexDesktopUpstreamCodexBinary(slimferenceBin string) (string, error) {
