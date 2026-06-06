@@ -84,9 +84,9 @@ routine use, it stays out of the product path.
   `thread/start` carrying `modelProvider: null`, which resolves to the account
   default (chatgpt.com direct); the shim rewrites a default (null/absent)
   `modelProvider` to `slimference-codex`, byte-identical for everything else.
-  The same scoped shim also augments only the matching `config/read` response so
-  Codex Desktop's blank start screen can show the `Slimference` provider chip
-  without writing persistent Codex config.
+  The same scoped shim also augments app-server responses shaped as
+  `result.config` so Codex Desktop's blank start screen can show the
+  `Slimference` provider chip without writing persistent Codex config.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
   untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
@@ -2054,12 +2054,12 @@ the newline-delimited Desktop protocol. Client->server `thread/start` requests
 with a default provider (`null` or absent) are rewritten to
 `slimference-codex`; explicit providers and realtime/voice threads via
 `config["features.realtime_conversation"]` pass through byte-identically.
-Server->client `config/read` responses whose request ID was observed on stdin
-are augmented with `config.model_provider=slimference-codex` and the matching
-process-local provider entry so Codex Desktop can render the visible
-`Slimference` provider chip on the start screen. Non-JSON, unknown methods,
-error responses, malformed config shapes, and unrelated notifications pass
-through byte-identically.
+Server->client responses shaped as `result.config` are augmented with
+`config.model_provider=slimference-codex` and the matching process-local
+provider entry so Codex Desktop can render the visible `Slimference` provider
+chip on the start screen even if Codex changes its config/read request method
+or request id shape. Non-JSON, non-config responses, error responses, malformed
+config shapes, and unrelated notifications pass through byte-identically.
 
 Discovery and proof (2026-05-22): a loopback tee proxy captured the real frames,
 and the daemon decisions log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`) recorded both the

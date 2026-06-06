@@ -358,11 +358,11 @@ The launcher uses a supported Codex Desktop process boundary:
    providers passed through; fail-open). The Desktop conversation then reaches the
    local Phase-F WSS route, recorded reliably by the `phasef_bridged` counter and
    the decisions log as `route_mode=websocket_phasef`.
-6. The visible Desktop badge is also process-local: the shim augments only the
-   matching `config/read` response for this spawned app-server so the blank
-   Codex.app start screen can show the `Slimference` provider chip. Normal
-   Finder/Spotlight Codex.app launches remain direct and do not receive this
-   response augmentation.
+6. The visible Desktop badge is also process-local: the shim augments only
+   app-server responses shaped as `result.config` for this spawned app-server
+   so the blank Codex.app start screen can show the `Slimference` provider
+   chip. Normal Finder/Spotlight Codex.app launches remain direct and do not
+   receive this response augmentation.
 
 Inspect the exact scoped environment without launching:
 

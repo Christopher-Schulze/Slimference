@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 )
 
@@ -50,11 +49,12 @@ func runCodexDesktopAppServerShim(args []string, p installPrinter) int {
 // `thread/start` request from Codex Desktop carries `modelProvider: null`, which
 // resolves to the account default (chatgpt.com direct). The shim rewrites that
 // single field to the scoped Slimference provider so the Desktop conversation
-// rides the same no-CA WSS Phase-F path the CLI uses. On stdout, only the
-// matching `config/read` response is augmented so the Desktop start screen can
-// render the same Slimference provider chip the routed thread will use. All
-// unrelated frames are byte-identical, and any setup failure falls back to a
-// plain exec passthrough (no rewrite) so the app-server never breaks.
+// rides the same no-CA WSS Phase-F path the CLI uses. On stdout, config-shaped
+// responses are augmented so the Desktop start screen can render the same
+// Slimference provider chip the routed thread will use even if Codex changes
+// config/read request details. All unrelated frames are byte-identical, and any
+// setup failure falls back to a plain exec passthrough (no rewrite) so the
+// app-server never breaks.
 func runCodexDesktopAppServerMediated(argv0 string, argv []string, env []string, stdinSrc io.Reader, p installPrinter) int {
 	cmd := exec.Command(argv0, argv[1:]...)
 	cmd.Env = env
@@ -131,14 +131,11 @@ type codexDesktopProviderConfig struct {
 
 type codexDesktopAppServerMediator struct {
 	provider codexDesktopProviderConfig
-	mu       sync.Mutex
-	methods  map[string]string
 }
 
 func newCodexDesktopAppServerMediator(provider codexDesktopProviderConfig) *codexDesktopAppServerMediator {
 	return &codexDesktopAppServerMediator{
 		provider: provider,
-		methods:  make(map[string]string),
 	}
 }
 
@@ -147,7 +144,6 @@ func (m *codexDesktopAppServerMediator) mediateStdin(in io.Reader, out io.Writer
 	for {
 		line, err := r.ReadBytes('\n')
 		if len(line) > 0 {
-			m.recordRequest(line)
 			if _, werr := out.Write(maybeRewriteCodexDesktopThreadStart(line)); werr != nil {
 				return
 			}
@@ -159,10 +155,10 @@ func (m *codexDesktopAppServerMediator) mediateStdin(in io.Reader, out io.Writer
 }
 
 // mediateStdout copies newline-delimited JSON-RPC from the real app-server to
-// Codex Desktop. It rewrites only the `config/read` response belonging to a
-// request observed on stdin so the blank Desktop start screen exposes the scoped
-// Slimference provider. All notifications, unknown responses, non-JSON payloads,
-// and malformed frames pass through byte-identically.
+// Codex Desktop. It rewrites only app-server responses shaped as
+// `result.config` so the blank Desktop start screen exposes the scoped
+// Slimference provider. All notifications, non-config responses, non-JSON
+// payloads, and malformed frames pass through byte-identically.
 func (m *codexDesktopAppServerMediator) mediateStdout(in io.Reader, out io.Writer) {
 	r := bufio.NewReader(in)
 	for {
@@ -178,42 +174,11 @@ func (m *codexDesktopAppServerMediator) mediateStdout(in io.Reader, out io.Write
 	}
 }
 
-func (m *codexDesktopAppServerMediator) recordRequest(line []byte) {
-	id, method, ok := codexJSONRPCRequestIDAndMethod(line)
-	if !ok {
-		return
-	}
-	switch method {
-	case "config/read":
-	default:
-		return
-	}
-	m.mu.Lock()
-	m.methods[id] = method
-	m.mu.Unlock()
-}
-
-func (m *codexDesktopAppServerMediator) takeResponseMethod(line []byte) string {
-	id, ok := codexJSONRPCIDKey(line)
-	if !ok {
-		return ""
-	}
-	m.mu.Lock()
-	method := m.methods[id]
-	delete(m.methods, id)
-	m.mu.Unlock()
-	return method
-}
-
 func (m *codexDesktopAppServerMediator) maybeRewriteResponseLine(line []byte) []byte {
 	hasNL := len(line) > 0 && line[len(line)-1] == '\n'
 	content := line
 	if hasNL {
 		content = line[:len(line)-1]
-	}
-	method := m.takeResponseMethod(content)
-	if method != "config/read" {
-		return line
 	}
 	rewritten, changed := rewriteCodexDesktopConfigReadResponse(content, m.provider)
 	if !changed {
@@ -354,43 +319,6 @@ func codexDesktopModelProvidersConfig(baseURL string) json.RawMessage {
 		return nil
 	}
 	return out
-}
-
-func codexJSONRPCRequestIDAndMethod(line []byte) (string, string, bool) {
-	id, ok := codexJSONRPCIDKey(line)
-	if !ok {
-		return "", "", false
-	}
-	trimmed := bytes.TrimSpace(line)
-	var msg map[string]json.RawMessage
-	if json.Unmarshal(trimmed, &msg) != nil {
-		return "", "", false
-	}
-	method := codexJSONRPCMethod(msg)
-	if method == "" {
-		return "", "", false
-	}
-	return id, method, true
-}
-
-func codexJSONRPCIDKey(line []byte) (string, bool) {
-	trimmed := bytes.TrimSpace(line)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return "", false
-	}
-	var msg map[string]json.RawMessage
-	if json.Unmarshal(trimmed, &msg) != nil {
-		return "", false
-	}
-	raw, ok := msg["id"]
-	if !ok {
-		return "", false
-	}
-	key := string(bytes.TrimSpace(raw))
-	if key == "" || key == "null" {
-		return "", false
-	}
-	return key, true
 }
 
 func codexJSONRPCMethod(msg map[string]json.RawMessage) string {

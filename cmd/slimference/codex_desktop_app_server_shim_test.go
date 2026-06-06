@@ -184,8 +184,6 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
 		baseURL: "http://127.0.0.1:8990/backend-api/codex",
 	})
-	var stdinOut bytes.Buffer
-	mediator.mediateStdin(strings.NewReader(`{"id":"cfg1","method":"config/read","params":{"includeLayers":false}}`+"\n"), &stdinOut)
 
 	response := `{"id":"cfg1","result":{"config":{"model":"gpt-5.5","model_provider":"openai"},"origins":{}}}` + "\n"
 	var stdoutOut bytes.Buffer
@@ -228,11 +226,11 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	}
 }
 
-func TestCodexDesktopAppServerStdoutPassesUnknownResponsesByteIdentical(t *testing.T) {
+func TestCodexDesktopAppServerStdoutPassesNonConfigResponsesByteIdentical(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
 		baseURL: "http://127.0.0.1:8990/backend-api/codex",
 	})
-	in := `{"id":"cfg1","result":{"config":{"model_provider":"openai"},"origins":{}}}` + "\n" +
+	in := `{"id":"cfg1","result":{"origins":{}}}` + "\n" +
 		`{"method":"account/updated","params":{}}` + "\n" +
 		`not-json` + "\n"
 	var out bytes.Buffer

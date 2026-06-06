@@ -4,7 +4,7 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 // Palette is intentionally restricted: one solid dark background, one bright
-// foreground, one accent for focus/active, plus three semantic colors
+// foreground, one warm accent for focus/active, plus three semantic colors
 // (success/warn/error). Everything renders against the same dark surface, so
 // the dashboard reads as one unified panel rather than a patchwork of
 // background blocks.
@@ -14,9 +14,9 @@ var (
 	colorFg      = lipgloss.Color("253") // primary foreground
 	colorFgDim   = lipgloss.Color("245") // secondary foreground
 	colorFgMuted = lipgloss.Color("240") // muted / structural
-	colorAccent  = lipgloss.Color("81")  // focus / cursor / active row
-	colorGreen   = lipgloss.Color("78")  // savings / health-ok
-	colorOrange  = lipgloss.Color("215") // warning
+	colorAccent  = lipgloss.Color("216") // focus / cursor / active row
+	colorGreen   = lipgloss.Color("114") // savings / health-ok
+	colorOrange  = lipgloss.Color("179") // warning
 	colorRed     = lipgloss.Color("203") // error
 
 	// Compatibility aliases (kept so existing references compile while the

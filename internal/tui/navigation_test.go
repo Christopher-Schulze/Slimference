@@ -89,7 +89,7 @@ func TestUpdate_SetupArrowNavigation(t *testing.T) {
 	}
 }
 
-func TestView_SetupView_ShowsBackHintsWithoutTabs(t *testing.T) {
+func TestView_SetupView_HidesFooterLegendWithoutTabs(t *testing.T) {
 	t.Parallel()
 	m := NewModel(newMockProxy())
 	m.width = 100
@@ -99,12 +99,12 @@ func TestView_SetupView_ShowsBackHintsWithoutTabs(t *testing.T) {
 	m.enterSetupView()
 
 	output := m.View()
-	for _, needle := range []string{"SLIMFERENCE / Setup", "[↑/↓]", "[b/esc]", "enable autostart"} {
+	for _, needle := range []string{"SLIMFERENCE / Setup", "enable autostart"} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("setup view missing %q in output: %s", needle, output)
 		}
 	}
-	for _, blocked := range []string{"▶ Launch", "[←/→]"} {
+	for _, blocked := range []string{"▶ Launch", "[←/→]", "[↑/↓]", "[b/esc]", "quit"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("setup view leaked tab navigation %q in output: %s", blocked, output)
 		}

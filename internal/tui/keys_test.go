@@ -42,26 +42,26 @@ func TestDefaultKeyMap_AllBindingsPresent(t *testing.T) {
 	}
 }
 
-// TestFooterHelp_ContainsAllKeys verifies that the footer help string includes all shortcuts.
-func TestFooterHelp_ContainsAllKeys(t *testing.T) {
+// TestFooterHelp_Hidden verifies that the visible footer legend stays hidden.
+func TestFooterHelp_Hidden(t *testing.T) {
 	t.Parallel()
 	km := DefaultKeyMap()
 	help := km.footerHelp()
 
-	expectedKeys := []string{"[↑/↓]", "[enter]", "[b/esc]", "[q]"}
-	for _, key := range expectedKeys {
-		if !strings.Contains(help, key) {
-			t.Errorf("footerHelp() missing key %q in: %s", key, help)
-		}
+	if help != "" {
+		t.Fatalf("footerHelp()=%q, want hidden footer", help)
 	}
 }
 
-// TestFooterHelp_NonEmpty verifies the footer help is not empty.
-func TestFooterHelp_NonEmpty(t *testing.T) {
+// TestKeybindingsMarkdown_StillDocumentsKeys verifies that removing the visible
+// footer does not erase the generated keybinding documentation source.
+func TestKeybindingsMarkdown_StillDocumentsKeys(t *testing.T) {
 	t.Parallel()
 	km := DefaultKeyMap()
-	help := km.footerHelp()
-	if help == "" {
-		t.Error("footerHelp() returned empty string")
+	doc := km.RenderKeybindingsMarkdown()
+	for _, key := range []string{"up, k", "enter", "b, B", "q, ctrl+c"} {
+		if !strings.Contains(doc, key) {
+			t.Fatalf("RenderKeybindingsMarkdown() missing %q in:\n%s", key, doc)
+		}
 	}
 }

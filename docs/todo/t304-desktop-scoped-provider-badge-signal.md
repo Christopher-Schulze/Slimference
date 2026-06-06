@@ -16,8 +16,8 @@ only to the process-local app-server path started by Slimference.
 
 - The Desktop app-server shim still rewrites only default `thread/start`
   `modelProvider` values to `slimference-codex`.
-- The shim augments only the matching `config/read` response observed through
-  the same scoped JSON-RPC stream, setting the process-local
+- The shim augments scoped app-server responses shaped as `result.config`,
+  setting the process-local
   `slimference-codex` provider config for the UI badge.
 - Unknown stdout frames, notifications, malformed responses, error responses,
   and non-JSON data pass through byte-identically.
@@ -27,8 +27,8 @@ only to the process-local app-server path started by Slimference.
 
 ## Sub-Tasks
 
-- [x] Add request-ID tracking inside the app-server mediator for `config/read`.
-- [x] Add stdout mediation for the matching `config/read` response only.
+- [x] Add stdout mediation for scoped config-shaped app-server responses.
+- [x] Harden badge injection against config/read request method/id drift.
 - [x] Preserve byte-identical pass-through for unrelated app-server frames.
 - [x] Add unit tests for badge config injection and pass-through behavior.
 - [x] Update install/product docs.

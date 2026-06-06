@@ -1562,15 +1562,17 @@ func TestModel_CopyDebugLog(t *testing.T) {
 	}
 }
 
-func TestView_MainFooter_hasOpenKey(t *testing.T) {
+func TestView_MainFooterLegendHidden(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
 	m.width = 100
 	m.height = 24
 	output := m.View()
-	if !strings.Contains(output, "[enter]") || !strings.Contains(output, "open") {
-		t.Errorf("main footer should have enter open hint, got: %s", output)
+	for _, blocked := range []string{"[enter]", "[q]", "[b/esc]"} {
+		if strings.Contains(output, blocked) {
+			t.Errorf("main footer legend should be hidden, leaked %q in: %s", blocked, output)
+		}
 	}
 }
 

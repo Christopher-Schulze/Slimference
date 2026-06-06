@@ -35,7 +35,7 @@ func (m *Model) renderMainView() string {
 
 	content := header + "\n" + rule + "\n" +
 		strings.Join(menuLines, "\n") + "\n" + rule +
-		flashLine + "\n" + m.renderFooterBar()
+		flashLine
 
 	return s.Border.Width(width - 2).Render(content)
 }
@@ -240,9 +240,6 @@ func (m *Model) renderStatsView() string {
 	})
 
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" browse cards")+
-		s.KeySep.Render(" · ")+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
-		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
@@ -305,8 +302,6 @@ func (m *Model) renderStatusView() string {
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
-		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
@@ -358,8 +353,6 @@ func (m *Model) renderLogsView() string {
 			body := []string{
 				" " + s.PanelTitle.Render("LOG STREAM"),
 				"",
-				" " + renderShortcutRow(s, "select Export debug log and press Enter"),
-				"",
 			}
 			for _, entry := range entries {
 				formatted := m.proxy.SessionLogger().Format(entry)
@@ -377,10 +370,6 @@ func (m *Model) renderLogsView() string {
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" move")+
-		s.KeySep.Render(" · ")+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
-		s.KeySep.Render(" · ")+s.Key.Render("[y]")+s.FooterDesc.Render(" export")+
-		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
@@ -781,10 +770,6 @@ func (m *Model) renderSetupView() string {
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" move")+
-		s.KeySep.Render(" · ")+s.Key.Render("[enter]")+s.FooterDesc.Render(" execute")+
-		s.KeySep.Render(" · ")+s.Key.Render("[b/esc]")+s.FooterDesc.Render(" back")+
-		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
@@ -936,22 +921,6 @@ func (m *Model) renderHeader(innerWidth int) string {
 		pad = 1
 	}
 	return " " + title + strings.Repeat(" ", pad) + right
-}
-
-// renderFooterBar renders the full keyboard-hint footer line.
-func (m *Model) renderFooterBar() string {
-	s := m.styles
-	k := func(key, desc string) string {
-		return s.Key.Render("["+key+"]") + s.FooterDesc.Render(" "+desc)
-	}
-	sep := s.KeySep.Render(" · ")
-	parts := []string{
-		k("↑/↓", "select"),
-		k("enter", "open"),
-		k("b/esc", "back"),
-		k("q", "quit"),
-	}
-	return " " + strings.Join(parts, sep)
 }
 
 // buildLeftPanel builds the daily launch menu padded to width.

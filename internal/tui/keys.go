@@ -142,9 +142,10 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
-// footerHelp returns the compact help string shown in the footer.
+// footerHelp intentionally returns no visible footer legend. The key bindings
+// still exist and are documented through RenderKeybindingsMarkdown.
 func (km KeyMap) footerHelp() string {
-	return "[↑/↓] select  [enter] open  [b/esc] back  [q] quit"
+	return ""
 }
 
 // bindingSpec names a binding and references the KeyMap field.
