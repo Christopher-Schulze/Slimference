@@ -180,6 +180,97 @@ func TestMediateCodexDesktopAppServerStdin(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
+	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
+		baseURL: "http://127.0.0.1:8990/backend-api/codex",
+	})
+	var stdinOut bytes.Buffer
+	mediator.mediateStdin(strings.NewReader(`{"id":"cfg1","method":"config/read","params":{"includeLayers":false}}`+"\n"), &stdinOut)
+
+	response := `{"id":"cfg1","result":{"config":{"model":"gpt-5.5","model_provider":"openai"},"origins":{}}}` + "\n"
+	var stdoutOut bytes.Buffer
+	mediator.mediateStdout(strings.NewReader(response), &stdoutOut)
+	got := strings.TrimSpace(stdoutOut.String())
+	if got == strings.TrimSpace(response) {
+		t.Fatalf("config/read response was not rewritten: %s", got)
+	}
+	var msg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(got), &msg); err != nil {
+		t.Fatalf("rewritten response is invalid JSON: %v (%s)", err, got)
+	}
+	var result struct {
+		Config map[string]json.RawMessage `json:"config"`
+	}
+	if err := json.Unmarshal(msg["result"], &result); err != nil {
+		t.Fatalf("result is invalid JSON: %v", err)
+	}
+	var provider string
+	if err := json.Unmarshal(result.Config["model_provider"], &provider); err != nil {
+		t.Fatalf("model_provider missing/invalid: %v", err)
+	}
+	if provider != codexSlimferenceProviderID {
+		t.Fatalf("model_provider=%q", provider)
+	}
+	var providers map[string]struct {
+		Name               string `json:"name"`
+		BaseURL            string `json:"base_url"`
+		RequiresOpenAIAuth bool   `json:"requires_openai_auth"`
+		SupportsWebSockets bool   `json:"supports_websockets"`
+		WireAPI            string `json:"wire_api"`
+	}
+	if err := json.Unmarshal(result.Config["model_providers"], &providers); err != nil {
+		t.Fatalf("model_providers missing/invalid: %v", err)
+	}
+	entry := providers[codexSlimferenceProviderID]
+	if entry.Name != "Slimference" || entry.BaseURL != "http://127.0.0.1:8990/backend-api/codex" ||
+		!entry.RequiresOpenAIAuth || !entry.SupportsWebSockets || entry.WireAPI != "responses" {
+		t.Fatalf("bad provider entry: %+v", entry)
+	}
+}
+
+func TestCodexDesktopAppServerStdoutPassesUnknownResponsesByteIdentical(t *testing.T) {
+	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
+		baseURL: "http://127.0.0.1:8990/backend-api/codex",
+	})
+	in := `{"id":"cfg1","result":{"config":{"model_provider":"openai"},"origins":{}}}` + "\n" +
+		`{"method":"account/updated","params":{}}` + "\n" +
+		`not-json` + "\n"
+	var out bytes.Buffer
+	mediator.mediateStdout(strings.NewReader(in), &out)
+	if out.String() != in {
+		t.Fatalf("unknown stdout frames must pass byte-identical:\ngot  %q\nwant %q", out.String(), in)
+	}
+}
+
+func TestRewriteCodexDesktopConfigReadResponseRequiresConfigShape(t *testing.T) {
+	tests := []string{
+		`{"id":"cfg1","error":{"message":"nope"}}`,
+		`{"id":"cfg1","result":{"origins":{}}}`,
+		`{"id":"cfg1","result":{"config":"oops","origins":{}}}`,
+		`{"method":"account/updated","params":{}}`,
+		`not-json`,
+	}
+	for _, input := range tests {
+		out, changed := rewriteCodexDesktopConfigReadResponse([]byte(input), codexDesktopProviderConfig{baseURL: "http://127.0.0.1:8990/backend-api/codex"})
+		if changed || string(out) != input {
+			t.Fatalf("input should pass through unchanged: changed=%v out=%q input=%q", changed, out, input)
+		}
+	}
+}
+
+func TestCodexDesktopProviderConfigFromArgv(t *testing.T) {
+	argv := []string{
+		"codex",
+		"app-server",
+		"-c",
+		`model_providers.slimference-codex.base_url="http://127.0.0.1:8990/backend-api/codex"`,
+	}
+	got := codexDesktopProviderConfigFromArgv(argv)
+	if got.baseURL != "http://127.0.0.1:8990/backend-api/codex" {
+		t.Fatalf("baseURL=%q", got.baseURL)
+	}
+}
+
 func TestRunCodexDesktopAppServerMediatedRewritesChildStdin(t *testing.T) {
 	dir := t.TempDir()
 	outFile := filepath.Join(dir, "child-stdin.jsonl")

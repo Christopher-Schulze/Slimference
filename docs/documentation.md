@@ -84,9 +84,13 @@ routine use, it stays out of the product path.
   `thread/start` carrying `modelProvider: null`, which resolves to the account
   default (chatgpt.com direct); the shim rewrites a default (null/absent)
   `modelProvider` to `slimference-codex`, byte-identical for everything else.
+  The same scoped shim also augments only the matching `config/read` response so
+  Codex Desktop's blank start screen can show the `Slimference` provider chip
+  without writing persistent Codex config.
   Realtime/voice threads and explicit provider choices are passed through; any
-  parse ambiguity fails open. stdout/stderr pass through untouched. This avoids
-  the old proxy/CA/TLS root-store barrier entirely. Proof and TUI launches pass
+  parse ambiguity fails open. Unrelated stdout/stderr frames pass through
+  untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
+  and TUI launches pass
   `--replace-existing` so an already running Codex.app is quit and verified gone
   before the scoped Slimference instance starts; raw CLI launch keeps a
   conservative refusal unless the same flag is explicit. Verified (2026-05-22):
@@ -2044,17 +2048,18 @@ process-local provider block
 `requires_openai_auth=true`, `supports_websockets=true`, `wire_api=responses`).
 
 Implemented in `cmd/slimference/codex_desktop_app_server_shim.go`. The shim is a
-thin stdin JSON-RPC mediator (not a bare exec): it spawns the real Codex
-app-server, passes stdout/stderr straight through (no added latency on streaming
-responses), and inspects only the client->server stdin stream, which Codex
-Desktop frames as newline-delimited JSON. The single rewrite is on `thread/start`
-requests: Codex Desktop sends `modelProvider: null`, which resolves to the
-account default provider (`openai` -> chatgpt.com direct) and overrides the
-config default; the shim rewrites a default (null/absent) `modelProvider` to
-`slimference-codex`. It fails open on any ambiguity (non-JSON, no `params`,
-explicit non-null provider, or a realtime/voice thread via
-`config["features.realtime_conversation"]`), returning the original bytes
-byte-identical so the stream is never corrupted and voice is never touched.
+thin JSON-RPC mediator (not a bare exec): it spawns the real Codex app-server,
+passes unrelated frames straight through, and inspects only two scoped seams in
+the newline-delimited Desktop protocol. Client->server `thread/start` requests
+with a default provider (`null` or absent) are rewritten to
+`slimference-codex`; explicit providers and realtime/voice threads via
+`config["features.realtime_conversation"]` pass through byte-identically.
+Server->client `config/read` responses whose request ID was observed on stdin
+are augmented with `config.model_provider=slimference-codex` and the matching
+process-local provider entry so Codex Desktop can render the visible
+`Slimference` provider chip on the start screen. Non-JSON, unknown methods,
+error responses, malformed config shapes, and unrelated notifications pass
+through byte-identically.
 
 Discovery and proof (2026-05-22): a loopback tee proxy captured the real frames,
 and the daemon decisions log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`) recorded both the

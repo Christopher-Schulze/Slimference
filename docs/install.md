@@ -350,7 +350,7 @@ The launcher uses a supported Codex Desktop process boundary:
    (`model_provider=slimference-codex`,
    `model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
    `requires_openai_auth=true`, `supports_websockets=true`,
-   `wire_api=responses`), and mediates the stdin JSON-RPC.
+   `wire_api=responses`), and mediates the scoped JSON-RPC seams.
 5. The single rewrite: Codex Desktop opens conversations with `thread/start`
    `modelProvider: null`, which resolves to the chatgpt.com account default and
    bypasses Slimference. The shim rewrites a default (null/absent) `modelProvider`
@@ -358,6 +358,11 @@ The launcher uses a supported Codex Desktop process boundary:
    providers passed through; fail-open). The Desktop conversation then reaches the
    local Phase-F WSS route, recorded reliably by the `phasef_bridged` counter and
    the decisions log as `route_mode=websocket_phasef`.
+6. The visible Desktop badge is also process-local: the shim augments only the
+   matching `config/read` response for this spawned app-server so the blank
+   Codex.app start screen can show the `Slimference` provider chip. Normal
+   Finder/Spotlight Codex.app launches remain direct and do not receive this
+   response augmentation.
 
 Inspect the exact scoped environment without launching:
 
