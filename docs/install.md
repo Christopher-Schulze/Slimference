@@ -685,6 +685,7 @@ direct.
 slimference status              # human-readable table
 slimference status --preflight  # adds DoH upstream checks without Codex traffic
 slimference codex status        # normal direct vs advanced shared Codex route + daemon health
+slimference debug bundle        # bounded content-free field-session diagnostics
 slimference status --json | jq  # machine-readable
 curl http://127.0.0.1:8990/_slimference/admin/state | jq
 ```

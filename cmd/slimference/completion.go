@@ -9,7 +9,7 @@ import (
 // script is sourceable in a bash session and offers context-sensitive
 // completion for every top-level subcommand, the most common nested
 // subcommands (hook install|remove, proxy install|env|run|..., debug
-// paths|last|flight|..., daemon logs, service install|..., config init|show,
+// paths|last|flight|bundle|..., daemon logs, service install|..., config init|show,
 // test anthropic|openai), and the recurring period/flag tokens
 // (today|week|month|all, --json, --csv, --by-command, --by-parser, --cache,
 // --output).
@@ -99,12 +99,13 @@ _slimference() {
             ;;
         debug)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "paths last summary tail replay flight" -- "$cur") )
+                COMPREPLY=( $(compgen -W "paths last summary tail replay flight bundle" -- "$cur") )
             elif [ "$cword" -eq 3 ]; then
                 case "${COMP_WORDS[2]}" in
                     summary) COMPREPLY=( $(compgen -W "$periods --json" -- "$cur") ) ;;
                     last|tail) COMPREPLY=( $(compgen -W "--json" -- "$cur") ) ;;
                     flight) COMPREPLY=( $(compgen -W "last tail replay export" -- "$cur") ) ;;
+                    bundle) COMPREPLY=( $(compgen -W "--out --out= --flight-limit --flight-limit= --filter-limit --filter-limit= --log-lines --log-lines= --admin-url --admin-url= --help" -- "$cur") ) ;;
                 esac
             elif [ "$cword" -eq 4 ]; then
                 case "${COMP_WORDS[2]}:${COMP_WORDS[3]}" in

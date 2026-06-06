@@ -1683,7 +1683,17 @@ slimference debug tail 30         # 30 newest rows
 slimference debug summary week    # aggregate SubLayerBreakdown
 slimference debug replay file.jsonl
 slimference debug paths           # where everything lives
+slimference debug bundle          # bounded content-free diagnostics export
 ```
+
+`slimference debug bundle` is the field-session handoff command. After running
+real Slimference sessions, it writes a timestamped directory under
+`~/.slimference/exports/` with manifest, path snapshot, admin state, today's
+savings summary, decision/flight tails, filter-run token summaries, and daemon
+log tails. It intentionally excludes raw prompts, raw tool outputs, raw WSS
+frames, auth material, and capture archives; filter command/project strings are
+hashed. Use `--out DIR`, `--flight-limit N`, `--filter-limit N`, and
+`--log-lines N` to keep a bundle scoped for later analysis.
 
 ### Pipeline histograms (T58)
 

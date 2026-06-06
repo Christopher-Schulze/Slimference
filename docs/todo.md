@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T297 Lean diagnostics bundle for field sessions -> docs/todo/t297-lean-diagnostics-bundle.md
 - [x] T296 Release proof refresh and docs alignment -> docs/todo/t296-release-proof-refresh-and-docs-alignment.md
 - [x] T295 TUI mass-market wording cleanup -> docs/todo/t295-tui-mass-market-wording-cleanup.md
 - [x] T294 Mass-market scoped launch polish -> docs/todo/t294-mass-market-scoped-launch-polish.md

@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 )
@@ -67,6 +71,221 @@ func TestParseDebugFlightExportArgsEdges(t *testing.T) {
 	}
 	if _, _, err := parseDebugFlightExportArgs(nil); err == nil {
 		t.Fatal("expected usage error")
+	}
+}
+
+func TestParseDebugBundleArgs(t *testing.T) {
+	opts, err := parseDebugBundleArgs([]string{
+		"--out", "~/bundle",
+		"--flight-limit=999",
+		"--filter-limit", "2",
+		"--log-lines=2000",
+		"--admin-url", "http://127.0.0.1:8990/state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(opts.OutDir, "bundle") || opts.FlightLimit != 500 || opts.FilterLimit != 2 || opts.LogLines != 1000 {
+		t.Fatalf("unexpected opts: %+v", opts)
+	}
+	if opts.AdminURL != "http://127.0.0.1:8990/state" {
+		t.Fatalf("admin url: %q", opts.AdminURL)
+	}
+	for _, args := range [][]string{
+		{"--flight-limit=0"},
+		{"--filter-limit", "nope"},
+		{"--log-lines"},
+		{"--bad"},
+		{"extra"},
+	} {
+		if _, err := parseDebugBundleArgs(args); err == nil {
+			t.Fatalf("expected error for %v", args)
+		}
+	}
+	help, err := parseDebugBundleArgs([]string{"--help"})
+	if err != nil || !help.Help {
+		t.Fatalf("help opts=%+v err=%v", help, err)
+	}
+}
+
+func TestDefaultDebugBundleAdminURLNormalizesWildcardHosts(t *testing.T) {
+	cfg := &config.Config{Proxy: config.ProxyConfig{ListenAddress: "0.0.0.0", ListenPort: 8990}}
+	if got := defaultDebugBundleAdminURL(cfg); got != "http://127.0.0.1:8990/_slimference/admin/state" {
+		t.Fatalf("wildcard admin URL = %q", got)
+	}
+	cfg.Proxy.ListenAddress = "::1"
+	if got := defaultDebugBundleAdminURL(cfg); got != "http://[::1]:8990/_slimference/admin/state" {
+		t.Fatalf("ipv6 admin URL = %q", got)
+	}
+}
+
+func TestHandleDebugBundleWritesBoundedContentFreeBundle(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	t.Setenv("HOME", home)
+	decisionLog := filepath.Join(tmp, "decisions.jsonl")
+	filterDB := filepath.Join(tmp, "filter.db")
+	analyticsDir := filepath.Join(tmp, "analytics")
+	cfgPath := filepath.Join(tmp, "config.toml")
+	cfg := fmt.Sprintf(`
+[proxy]
+listen_address = "127.0.0.1"
+listen_port = 8990
+[analytics]
+log_dir = %q
+[filter]
+filter_db = %q
+[debug]
+decisions_log = %q
+`, analyticsDir, filterDB, decisionLog)
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	if err := os.MkdirAll(analyticsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := filter.OpenDB(filterDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "cat /secret/path.txt", "/Users/christopher/private-project", 1000, 100, 90, time.Now()); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	line, err := json.Marshal(dbg.RequestSummary{
+		RequestID: "req-1",
+		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		Model:     "gpt-test",
+		Tokens:    dbg.TokenCounts{Original: 100, Final: 40, Saved: 60},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decisionLog, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_slimference/admin/state" {
+			t.Fatalf("unexpected admin path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"service":"slimference","savings":{"product":{"status":"saving"}}}`))
+	}))
+	defer server.Close()
+	origStdoutLog := daemonStdoutLogPathFn
+	origStderrLog := daemonStderrLogPathFn
+	origReadLogs := daemonReadRecentLogLinesFn
+	defer func() {
+		daemonStdoutLogPathFn = origStdoutLog
+		daemonStderrLogPathFn = origStderrLog
+		daemonReadRecentLogLinesFn = origReadLogs
+	}()
+	daemonStdoutLogPathFn = func() string { return filepath.Join(tmp, "stdout.log") }
+	daemonStderrLogPathFn = func() string { return filepath.Join(tmp, "stderr.log") }
+	daemonReadRecentLogLinesFn = func(path string, lines int, _ time.Time) ([]string, error) {
+		if lines != 1 {
+			t.Fatalf("log line cap not honored: %d", lines)
+		}
+		return []string{"level=info msg=ok"}, nil
+	}
+	outDir := filepath.Join(tmp, "bundle")
+	handleDebugBundle([]string{
+		"--out", outDir,
+		"--admin-url", server.URL + "/_slimference/admin/state",
+		"--flight-limit", "1",
+		"--filter-limit", "1",
+		"--log-lines", "1",
+	})
+	for _, name := range []string{
+		"manifest.json",
+		"paths.json",
+		"admin-state.json",
+		"savings-today.json",
+		"decisions-tail.json",
+		"flight-tail.json",
+		"filter-tail.json",
+		"daemon-stdout-tail.json",
+		"daemon-stderr-tail.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	filterData, err := os.ReadFile(filepath.Join(outDir, "filter-tail.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(filterData), "secret") || strings.Contains(string(filterData), "private-project") {
+		t.Fatalf("filter bundle leaked raw command/project: %s", string(filterData))
+	}
+	if !strings.Contains(string(filterData), "command_hash") || !strings.Contains(string(filterData), "project_hash") {
+		t.Fatalf("filter bundle missing hashes: %s", string(filterData))
+	}
+	var manifest debugBundleManifest
+	manifestData, err := os.ReadFile(filepath.Join(outDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != debugBundleSchemaVersion || len(manifest.Files) < 8 {
+		t.Fatalf("bad manifest: %+v", manifest)
+	}
+}
+
+func TestWriteDebugBundleMissingSourcesStillWritesBundle(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", filepath.Join(tmp, "home"))
+	origStdoutLog := daemonStdoutLogPathFn
+	origStderrLog := daemonStderrLogPathFn
+	origReadLogs := daemonReadRecentLogLinesFn
+	defer func() {
+		daemonStdoutLogPathFn = origStdoutLog
+		daemonStderrLogPathFn = origStderrLog
+		daemonReadRecentLogLinesFn = origReadLogs
+	}()
+	daemonStdoutLogPathFn = func() string { return filepath.Join(tmp, "missing-stdout.log") }
+	daemonStderrLogPathFn = func() string { return filepath.Join(tmp, "missing-stderr.log") }
+	daemonReadRecentLogLinesFn = func(path string, lines int, _ time.Time) ([]string, error) {
+		return nil, os.ErrNotExist
+	}
+	cfg := &config.Config{
+		Proxy:     config.ProxyConfig{ListenAddress: "127.0.0.1", ListenPort: 8990},
+		Analytics: config.AnalyticsConfig{LogDir: filepath.Join(tmp, "missing-analytics")},
+	}
+	outDir := filepath.Join(tmp, "bundle")
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := writeDebugBundle(outDir, cfg, config.LoadInfo{Source: "test"}, debugBundleOptions{
+		FlightLimit: 2,
+		FilterLimit: 2,
+		LogLines:    2,
+		AdminURL:    "://bad-url",
+	}, time.Now())
+	for _, name := range []string{
+		"paths.json",
+		"admin-state-error.txt",
+		"savings-today.json",
+		"decisions-tail.json",
+		"flight-tail.json",
+		"filter-tail.json",
+		"daemon-stdout-tail.json",
+		"daemon-stderr-tail.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	missing := strings.Join(manifest.Missing, " ")
+	for _, want := range []string{"admin-state", "decisions-log", "filter-db", "daemon-stdout-tail", "daemon-stderr-tail"} {
+		if !strings.Contains(missing, want) {
+			t.Fatalf("missing marker %q not found in %q", want, missing)
+		}
 	}
 }
 

@@ -271,7 +271,7 @@ Print analytics snapshots. 'prompt-cache' reports per-day hit-rate over
 the selected window.
 `
 	case "debug":
-		return `slimference debug <paths|last|summary|tail|replay> [args]
+		return `slimference debug <paths|last|summary|tail|replay|flight|bundle> [args]
 
 paths              Show resolved config, filter.db, tee, analytics paths.
 last               Last Layer-0 row from filter.db (--json).
@@ -279,6 +279,9 @@ summary <window>   Aggregate filter_runs for today|week|month|all.
 tail <n>           Newest N filter.db rows (default 20, max 500, --json).
 replay <path>      Replay a decision-chain JSONL session, break down per
                    request.
+flight <cmd>        Show/export normalized content-free request flight rows.
+bundle              Export bounded content-free diagnostics to
+                   ~/.slimference/exports/ for later analysis.
 `
 	case "service":
 		return `slimference service <install|uninstall|start|stop|restart|status|logs>
