@@ -186,10 +186,10 @@ func TestBuildLeftPanelArmedBypassTiles(t *testing.T) {
 	m := NewModel(p)
 	m.transparentStatus = TransparentStatus{ProxyArmed: true}
 	out := strings.Join(m.buildLeftPanel(120), "\n")
-	if !strings.Contains(out, "GLOBAL LAB ON") {
-		t.Fatalf("armed tile missing:\n%s", out)
+	if strings.Contains(out, "GLOBAL LAB") || strings.Contains(out, "BYPASS") {
+		t.Fatalf("launch panel leaked setup/status tiles:\n%s", out)
 	}
-	if !strings.Contains(out, "BYPASS") {
-		t.Fatalf("bypass tile missing:\n%s", out)
+	if !strings.Contains(out, "Launch Codex CLI") || !strings.Contains(out, "Launch Codex App") {
+		t.Fatalf("launch actions missing:\n%s", out)
 	}
 }

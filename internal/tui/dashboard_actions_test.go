@@ -38,7 +38,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	m.SetServiceControl(svc)
 
 	actions := m.dashboardActions()
-	want := []string{"launch_cli", "launch_app", "savings", "status", "manage"}
+	want := []string{"launch_cli", "launch_app"}
 	if len(actions) != len(want) {
 		t.Fatalf("actions=%v want %d launch-center entries", actions, len(want))
 	}
@@ -199,18 +199,10 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	if !svc.codexAppLaunched || !strings.Contains(m.flashMsg, "Codex App launch requested") {
 		t.Fatalf("launch App failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
-	runAction("savings")
-	if m.view != ViewStats || !strings.Contains(m.flashMsg, "Savings opened") {
-		t.Fatalf("savings action view=%v flash=%q", m.view, m.flashMsg)
-	}
-	m.view = ViewMain
-	runAction("status")
-	if m.view != ViewDebug || !strings.Contains(m.flashMsg, "Status: CLI savings active") {
-		t.Fatalf("status action view=%v flash=%q", m.view, m.flashMsg)
-	}
-	runAction("manage")
-	if m.view != ViewSetup || !strings.Contains(m.flashMsg, "Setup opened") {
-		t.Fatalf("manage action view=%v flash=%q", m.view, m.flashMsg)
+	if findDashboardActionIndex(m.dashboardActions(), "savings") >= 0 ||
+		findDashboardActionIndex(m.dashboardActions(), "status") >= 0 ||
+		findDashboardActionIndex(m.dashboardActions(), "manage") >= 0 {
+		t.Fatalf("launch actions leaked non-launch entries: %+v", m.dashboardActions())
 	}
 }
 
@@ -343,12 +335,12 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"LAUNCH CENTER", "Launch Codex CLI", "SLIMFERENCE MODE", "CURRENT SESSION", "daemon live", "DIAGNOSTICS"} {
+	for _, needle := range []string{"LAUNCH", "Launch Codex CLI", "LAUNCH MODE", "HOW IT WORKS"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
 	}
-	for _, blocked := range []string{"PROVIDER MAP", "TRAFFIC", "LIVE", "CHECKPOINTS", "TOOL ARCHIVE", "OPTIMIZATIONS"} {
+	for _, blocked := range []string{"PROVIDER MAP", "TRAFFIC", "LIVE", "CHECKPOINTS", "TOOL ARCHIVE", "OPTIMIZATIONS", "CURRENT SESSION", "HEALTH", "DIAGNOSTICS", "MANAGE", "INSPECT"} {
 		if strings.Contains(view, blocked) {
 			t.Fatalf("launch view leaked internal block %q in:\n%s", blocked, view)
 		}
@@ -566,7 +558,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"operator notice", "LAUNCH CENTER", "SLIMFERENCE MODE", "CURRENT SESSION"} {
+	for _, needle := range []string{"operator notice", "LAUNCH", "LAUNCH MODE", "HOW IT WORKS"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -746,8 +738,8 @@ func TestRenderHeaderIdleAndMainViewWithoutFlash(t *testing.T) {
 	if strings.Contains(view, "operator notice") {
 		t.Fatalf("view should not contain stale flash message:\n%s", view)
 	}
-	if !strings.Contains(view, "No Slimference session data yet") {
-		t.Fatalf("view should show empty session state:\n%s", view)
+	if !strings.Contains(view, "LAUNCH MODE") {
+		t.Fatalf("view should show launch mode:\n%s", view)
 	}
 }
 
@@ -777,7 +769,7 @@ func TestRenderMainView_RightColumnPaddingBranch(t *testing.T) {
 	m.latestSnap = proxy.snap
 
 	view := m.renderMainView()
-	if !strings.Contains(view, "CURRENT SESSION") || strings.Contains(view, "LIVE") || strings.Contains(view, "anthrop") {
+	if !strings.Contains(view, "LAUNCH MODE") || strings.Contains(view, "LIVE") || strings.Contains(view, "anthrop") || strings.Contains(view, "CURRENT SESSION") {
 		t.Fatalf("renderMainView launch summary branch wrong in:\n%s", view)
 	}
 }

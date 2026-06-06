@@ -945,39 +945,12 @@ func (m *Model) buildLeftPanel(width int) []string {
 	var lines []string
 	add := func(str string) { lines = append(lines, pad(str)) }
 
-	allReady := m.hookStatus.Codex
-	if allReady {
-		add(" " + s.Saved.Render("● READY") + "  " + s.Dim.Render("Codex hook installed"))
-	} else {
-		missing := []string{}
-		if !m.hookStatus.Codex {
-			missing = append(missing, "Codex")
-		}
-		add(" " + s.Warning.Render("● SETUP") + "  " + s.Dim.Render("missing: "+strings.Join(missing, ", ")))
-		add(" " + s.Dim.Render("  open Setup with ←/→ to complete installation"))
-	}
-
-	if m.transparentStatus.ProxyArmed {
-		add(" " + s.Saved.Render("● GLOBAL LAB ON") + "  " + s.Dim.Render("advanced routing active"))
-	} else {
-		add(" " + s.Muted.Render("○ GLOBAL LAB OFF") + "  " + s.Dim.Render("normal scoped mode"))
-	}
-	if m.proxy.Bypass() {
-		add(" " + s.Warning.Render("● BYPASS") + "  " + s.Dim.Render("all traffic passes through unmodified (press [b])"))
-	}
-	add(" " + s.Dim.Render("  Normal Codex direct."))
-	add("")
-
 	actions := m.dashboardActions()
-	add(" " + s.PanelTitle.Render("LAUNCH CENTER"))
+	add(" " + s.PanelTitle.Render("LAUNCH"))
 	currentGroup := ""
 	for i, action := range actions {
 		if action.group != currentGroup {
-			if currentGroup != "" {
-				add("")
-			}
 			currentGroup = action.group
-			add(" " + s.MenuGroup.Render(strings.ToUpper(currentGroup)))
 		}
 		add(" " + renderMenuRow(s, width-2, m.mainCursor == i, action.label, action.state))
 	}
@@ -994,11 +967,9 @@ func (m *Model) buildLeftPanel(width int) []string {
 	return lines
 }
 
-// buildRightPanel builds the product summary for the daily launch screen.
+// buildRightPanel builds the launch-only explanation for the daily launch screen.
 func (m *Model) buildRightPanel(width int) []string {
 	s := m.styles
-	snap := m.latestSnap
-	product := m.latestProduct
 
 	pad := func(str string) string {
 		w := lipgloss.Width(str)
@@ -1011,52 +982,15 @@ func (m *Model) buildRightPanel(width int) []string {
 	var lines []string
 	add := func(str string) { lines = append(lines, pad(str)) }
 
-	productPanel := PresentProductStatus(product)
-	add(" " + s.PanelTitle.Render("SLIMFERENCE MODE"))
-	add(" " + renderProductRouteLine(s, productPanel))
+	add(" " + s.PanelTitle.Render("LAUNCH MODE"))
 	add(" " + s.Normal.Render("Normal Codex direct."))
 	add(" " + s.Normal.Render("Launch here = Slimference mode."))
-	if m.transparentStatus.ProxyArmed {
-		add(" " + s.Warning.Render("Global lab is armed. Open Setup to disarm."))
-	}
 	add("")
 
-	add(" " + s.PanelTitle.Render("CURRENT SESSION"))
-	if snap.TotalRequests == 0 && product.BillableInputTokensSaved == 0 && product.OutputWireBytesSaved == 0 && product.ProviderCacheReadTokens == 0 {
-		add(" " + s.Muted.Render("No Slimference session data yet."))
-		add(" " + s.Muted.Render("Launch Codex here, then open Savings."))
-	} else {
-		add(" " + s.Saved.Render(productPanel.InputSavedLine))
-		add(" " + s.Dim.Render(productPanel.OutputWireLine))
-		add(" " + s.Dim.Render(productPanel.ProviderCacheLine))
-		add(" " + s.Muted.Render(fmt.Sprintf("%d requests this session", snap.TotalRequests)))
-	}
-	add("")
-
-	add(" " + s.PanelTitle.Render("HEALTH"))
-	if productPanel.SafetyNeedsWarning {
-		add(" " + s.Warning.Render(productPanel.SafetyLine))
-	} else {
-		add(" " + s.Muted.Render("safety ok"))
-	}
-	if !m.hookStatus.Codex {
-		add(" " + s.Warning.Render("Setup missing: Codex"))
-	} else {
-		add(" " + s.Saved.Render("Codex CLI/Desktop enabled"))
-	}
-	if m.svc != nil {
-		running, pid, port := m.svc.DaemonStatus()
-		if running {
-			add(" " + s.Saved.Render(fmt.Sprintf("daemon live · PID %d · :%d", pid, port)))
-		} else {
-			add(" " + s.Warning.Render("daemon stopped · open Setup"))
-		}
-	}
-	add("")
-
-	add(" " + s.PanelTitle.Render("DIAGNOSTICS"))
-	add(" " + s.Muted.Render("After real sessions: slimference debug bundle"))
-	add(" " + s.Muted.Render("Logs and flight details live under Status."))
+	add(" " + s.PanelTitle.Render("HOW IT WORKS"))
+	add(" " + s.Muted.Render("Enter opens the selected Codex surface."))
+	add(" " + s.Muted.Render("Only that launched process uses Slimference."))
+	add(" " + s.Muted.Render("Use tabs above for details."))
 
 	return lines
 }
@@ -1067,12 +1001,6 @@ func launchActionHint(id string) string {
 		return "One-shot CLI through Slimference."
 	case "launch_app":
 		return "Codex.app through Slimference."
-	case "savings":
-		return "Measured savings and layer breakdown."
-	case "status":
-		return "Daemon, logs, route, and diagnostics."
-	case "manage":
-		return "Install, repair, app routing, lab."
 	default:
 		return ""
 	}

@@ -241,15 +241,8 @@ func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)
 
-	actions := model.dashboardActions()
-	foundPartial := false
-	for _, action := range actions {
-		if action.id == "manage" && action.state == "partial" {
-			foundPartial = true
-		}
-	}
-	if !foundPartial {
-		t.Fatalf("partial manage dashboard action missing: %+v", actions)
+	if actions := model.dashboardActions(); len(actions) != 2 {
+		t.Fatalf("launch dashboard must stay launch-only: %+v", actions)
 	}
 
 	steps := model.setupSteps()
@@ -345,7 +338,7 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	model.hookStatus = HookStatus{}
 
 	mainView := model.renderMainView()
-	if !strings.Contains(mainView, "CURRENT SESSION") {
+	if !strings.Contains(mainView, "LAUNCH MODE") {
 		t.Fatalf("unexpected main view: %q", mainView)
 	}
 
@@ -370,7 +363,7 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	}
 
 	model.width = 5
-	if panel := strings.Join(model.buildRightPanel(5), "\n"); !strings.Contains(panel, "CURRENT SESSION") {
+	if panel := strings.Join(model.buildRightPanel(5), "\n"); !strings.Contains(panel, "LAUNCH MODE") {
 		t.Fatalf("unexpected right panel: %q", panel)
 	}
 
@@ -411,7 +404,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.height = 24
 	model.hookStatus = HookStatus{}
 	model.proxy.(*mockProxy).recentReqs = nil
-	if view := model.renderMainView(); !strings.Contains(view, "No Slimference session data yet") {
+	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") {
 		t.Fatalf("unexpected quick-start main view: %q", view)
 	}
 
@@ -433,7 +426,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "CURRENT SESSION") || strings.Contains(view, "LIVE") {
+	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") || strings.Contains(view, "LIVE") || strings.Contains(view, "CURRENT SESSION") {
 		t.Fatalf("unexpected live main view: %q", view)
 	}
 
@@ -442,7 +435,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "No Slimference session data yet") {
+	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") {
 		t.Fatalf("unexpected padded live view: %q", view)
 	}
 }

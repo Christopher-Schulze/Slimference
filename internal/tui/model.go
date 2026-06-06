@@ -1021,27 +1021,6 @@ func (m *Model) dashboardActions() []dashboardAction {
 			description: m.codexAppDescription(),
 			state:       m.codexAppState(),
 		},
-		dashboardAction{
-			group:       "Inspect",
-			id:          "savings",
-			label:       "Savings",
-			description: "Open measured savings. Desktop savings stay unavailable until live proof exists.",
-			state:       m.savingsState(),
-		},
-		dashboardAction{
-			group:       "Inspect",
-			id:          "status",
-			label:       "Status",
-			description: m.statusDescription(),
-			state:       m.statusState(),
-		},
-		dashboardAction{
-			group:       "Manage",
-			id:          "manage",
-			label:       "Setup",
-			description: "Install, daemon repair, advanced route, app routing, and lab controls.",
-			state:       m.manageState(),
-		},
 	}
 }
 

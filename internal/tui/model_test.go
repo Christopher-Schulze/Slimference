@@ -1231,12 +1231,12 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE MODE", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "2.0K output-wire saved", "5.0K provider-cache read", "safety ok", "DIAGNOSTICS"} {
+	for _, want := range []string{"LAUNCH MODE", "Launch Codex CLI", "Launch Codex App", "HOW IT WORKS"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
 	}
-	for _, blocked := range []string{"cache 3/4", "tool-prune", "output-reduce", "PROVIDER MAP", "TRAFFIC", "LIVE"} {
+	for _, blocked := range []string{"WSS savings active", "fallback: bridge", "recert running", "12.0K input saved", "provider-cache", "safety ok", "cache 3/4", "tool-prune", "output-reduce", "PROVIDER MAP", "TRAFFIC", "LIVE", "CURRENT SESSION", "HEALTH", "DIAGNOSTICS"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("launch view leaked detail %q in:\n%s", blocked, output)
 		}
@@ -1257,7 +1257,7 @@ func TestView_MainRender_OutputReducePendingDoesNotClaimSavings(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"ACTIVE", "SLIMFERENCE MODE"} {
+	for _, want := range []string{"LAUNCH MODE", "HOW IT WORKS"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1280,7 +1280,7 @@ func TestView_MainRender_ProductStatusEmptyUsesExplicitProductZeros(t *testing.T
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE MODE", "direct", "No Slimference session data yet", "safety ok"} {
+	for _, want := range []string{"LAUNCH MODE", "Normal Codex direct", "Launch here = Slimference mode"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1308,8 +1308,8 @@ func TestView_MainRender_UsesCachedProductStatus(t *testing.T) {
 	if p.productCalls != callsAfterInit {
 		t.Fatalf("render fetched product status %d extra time(s)", p.productCalls-callsAfterInit)
 	}
-	if !strings.Contains(m.View(), "99 input saved") {
-		t.Fatalf("render did not use cached product status:\n%s", m.View())
+	if strings.Contains(m.View(), "99 input saved") {
+		t.Fatalf("launch view leaked product savings detail:\n%s", m.View())
 	}
 }
 
@@ -1332,9 +1332,9 @@ func TestView_MainRender_ProductAttention(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"ATTENTION", "WSS bridge", "tool miss", "WSS parse", "WSS degraded session", "WSS compression error", "rss_budget_exceeded"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("main view missing %q in:\n%s", want, output)
+	for _, blocked := range []string{"ATTENTION", "WSS bridge", "tool miss", "WSS parse", "WSS degraded session", "WSS compression error", "rss_budget_exceeded"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("launch view leaked status detail %q in:\n%s", blocked, output)
 		}
 	}
 }
@@ -1352,11 +1352,11 @@ func TestView_MainRender_ProductHostBudgetUnknown(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	if !strings.Contains(output, "host budget unknown") {
-		t.Fatalf("main view missing host-budget unknown warning:\n%s", output)
+	if strings.Contains(output, "host budget unknown") {
+		t.Fatalf("launch view leaked host-budget warning:\n%s", output)
 	}
 	if strings.Contains(output, "safety ok") {
-		t.Fatalf("main view must not claim safety ok when host budget is unknown:\n%s", output)
+		t.Fatalf("launch view must not show health state:\n%s", output)
 	}
 }
 
@@ -1483,8 +1483,8 @@ func TestView_MainRender_withHooks(t *testing.T) {
 	m.width = 100
 	m.height = 30
 	output := m.View()
-	if strings.Contains(output, "claude") || !strings.Contains(output, "Setup missing: Codex") {
-		t.Errorf("main view should keep Claude hook detail out and show Codex setup state, got: %s", output)
+	if strings.Contains(output, "claude") || strings.Contains(output, "Setup missing") {
+		t.Errorf("main view should keep hook/setup detail out, got: %s", output)
 	}
 }
 
@@ -1899,8 +1899,8 @@ func TestView_MainRender_allReady(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{Claude: true, Codex: true}
 	output := m.View()
-	if !strings.Contains(output, "READY") {
-		t.Errorf("main view should show READY when all hooks installed, got: %s", output)
+	if strings.Contains(output, "READY") || !strings.Contains(output, "LAUNCH MODE") {
+		t.Errorf("main view should keep setup readiness out of Launch, got: %s", output)
 	}
 }
 
@@ -1912,8 +1912,8 @@ func TestView_MainRender_notReady(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{Claude: false, Codex: false}
 	output := m.View()
-	if !strings.Contains(output, "SETUP") {
-		t.Errorf("main view should show SETUP when hooks missing, got: %s", output)
+	if strings.Contains(output, "● SETUP") || strings.Contains(output, "missing: Codex") {
+		t.Errorf("main view should keep setup warning out of Launch, got: %s", output)
 	}
 }
 
@@ -1976,8 +1976,8 @@ func TestView_MainRender_quickStart(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{}
 	output := m.View()
-	if !strings.Contains(output, "No Slimference session data yet") {
-		t.Errorf("main view should show empty session state when no hooks and no requests, got: %s", output)
+	if strings.Contains(output, "No Slimference session data yet") || !strings.Contains(output, "LAUNCH MODE") {
+		t.Errorf("main view should keep session state out of Launch, got: %s", output)
 	}
 }
 
@@ -2051,7 +2051,7 @@ func TestView_MainRender_liveLog(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{Claude: true, Codex: true}
 	output := m.View()
-	if !strings.Contains(output, "CURRENT SESSION") || strings.Contains(output, "LIVE") {
+	if !strings.Contains(output, "LAUNCH MODE") || strings.Contains(output, "LIVE") || strings.Contains(output, "CURRENT SESSION") {
 		t.Errorf("main view should keep live log out of Launch, got: %s", output)
 	}
 }
