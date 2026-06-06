@@ -63,11 +63,11 @@ func TestModel_SetupSteps_ServiceInstallCheckTrue(t *testing.T) {
 	}
 }
 
-func TestRenderHeader_IncludesPortAndDuration(t *testing.T) {
+func TestRenderHeader_IsQuietProductHeader(t *testing.T) {
 	proxy := newMockProxy()
 	model := NewModel(proxy)
 	got := model.renderHeader(40)
-	if !strings.Contains(got, ":8990") || !strings.Contains(got, "SLIMFERENCE v") {
+	if !strings.Contains(got, "SLIMFERENCE v") || strings.Contains(got, ":8990") || strings.Contains(got, "daemon") {
 		t.Fatalf("unexpected header: %q", got)
 	}
 }
@@ -243,8 +243,8 @@ func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)
 
-	if actions := model.dashboardActions(); len(actions) != 5 {
-		t.Fatalf("home menu must expose five entries: %+v", actions)
+	if actions := model.dashboardActions(); len(actions) != 6 {
+		t.Fatalf("home menu must expose six entries: %+v", actions)
 	}
 
 	steps := model.setupSteps()

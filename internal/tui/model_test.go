@@ -666,8 +666,8 @@ func TestView_StatsRender_QualitySpike(t *testing.T) {
 	}
 }
 
-// TestView_DebugRender verifies that the debug view renders without panicking.
-func TestView_DebugRender(t *testing.T) {
+// TestView_LogsRender verifies that the logs view renders diagnostics and export data.
+func TestView_LogsRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.sessionLogger.Log("INFO", "test", "hello debug view")
@@ -695,19 +695,41 @@ func TestView_DebugRender(t *testing.T) {
 		TotalProxyOverheadMs: 4.2,
 	}}
 	m := NewModel(p)
-	m.view = ViewDebug
+	m.view = ViewLogs
 	m.width = 100
 	m.height = 30
 
 	output := m.View()
 	if output == "" {
-		t.Error("View() returned empty string for debug view")
+		t.Error("View() returned empty string for logs view")
 	}
 	if !strings.Contains(output, "FLIGHT RECORDER") || !strings.Contains(output, "req-debug-fli") {
-		t.Fatalf("debug view missing flight diagnostics: %s", output)
+		t.Fatalf("logs view missing flight diagnostics: %s", output)
 	}
 	if !strings.Contains(output, "plan") || !strings.Contains(output, "l0=run") || !strings.Contains(output, "+1") {
-		t.Fatalf("debug view missing plan summary: %s", output)
+		t.Fatalf("logs view missing plan summary: %s", output)
+	}
+}
+
+func TestView_StatusRender(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.view = ViewDebug
+	m.SetServiceControl(&mockServiceControl{running: true})
+	m.width = 100
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{"SLIMFERENCE / Status", "DAEMON", "PID 1234", "CODEX MODE", "SAFETY"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status view missing %q in:\n%s", want, output)
+		}
+	}
+	for _, blocked := range []string{"FLIGHT RECORDER", "LOG STREAM", "HOOK TURN STATE"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("status view leaked logs block %q in:\n%s", blocked, output)
+		}
 	}
 }
 
@@ -950,8 +972,8 @@ func TestView_StatsRender_NarrowWidth(t *testing.T) {
 	}
 }
 
-// TestView_DebugRender_NarrowWidth verifies the debug view handles width < 40.
-func TestView_DebugRender_NarrowWidth(t *testing.T) {
+// TestView_StatusRender_NarrowWidth verifies the status view handles width < 40.
+func TestView_StatusRender_NarrowWidth(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
@@ -961,23 +983,23 @@ func TestView_DebugRender_NarrowWidth(t *testing.T) {
 
 	output := m.View()
 	if output == "" {
-		t.Error("View() returned empty string for debug narrow width")
+		t.Error("View() returned empty string for status narrow width")
 	}
 }
 
-// TestView_DebugRender_NilLogger verifies debug view renders correctly when SessionLogger is nil.
-func TestView_DebugRender_NilLogger(t *testing.T) {
+// TestView_LogsRender_NilLogger verifies logs view renders correctly when SessionLogger is nil.
+func TestView_LogsRender_NilLogger(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.sessionLogger = nil
 	m := NewModel(p)
-	m.view = ViewDebug
+	m.view = ViewLogs
 	m.width = 100
 	m.height = 30
 
 	output := m.View()
 	if output == "" {
-		t.Error("View() returned empty string for debug view with nil logger")
+		t.Error("View() returned empty string for logs view with nil logger")
 	}
 }
 
@@ -1231,7 +1253,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1257,7 +1279,7 @@ func TestView_MainRender_OutputReducePendingDoesNotClaimSavings(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Savings", "Status", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1280,7 +1302,7 @@ func TestView_MainRender_ProductStatusEmptyUsesExplicitProductZeros(t *testing.T
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

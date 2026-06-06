@@ -248,8 +248,8 @@ func (m *Model) renderStatsView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
-// renderDebugView renders the operator status and diagnostics screen.
-func (m *Model) renderDebugView() string {
+// renderStatusView renders runtime state without logs or diagnostics noise.
+func (m *Model) renderStatusView() string {
 	s := m.styles
 	width := m.width
 	if width < 60 {
@@ -261,6 +261,70 @@ func (m *Model) renderDebugView() string {
 
 	var lines []string
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Status"))
+	lines = append(lines, rule)
+
+	daemonLines := []string{" " + s.PanelTitle.Render("DAEMON")}
+	if m.svc != nil {
+		running, pid, port := m.svc.DaemonStatus()
+		if running {
+			daemonLines = append(daemonLines, "", "  "+s.Saved.Render("● RUNNING")+"  PID "+fmt.Sprintf("%d  port :%d", pid, port))
+		} else {
+			daemonLines = append(daemonLines, "", "  "+s.Muted.Render("○ STOPPED")+"  port :"+fmt.Sprintf("%d", m.proxy.Config().GetListenPort()))
+		}
+		if notice := m.svc.DaemonNotice(); notice != "" {
+			daemonLines = append(daemonLines, "  "+s.BannerWarn.Render("● NOTICE")+"  "+notice)
+		}
+	} else {
+		daemonLines = append(daemonLines, "", "  "+s.Muted.Render("○ SERVICE ADAPTER")+"  unavailable", "  "+s.Muted.Render(fmt.Sprintf("listen port :%d", m.proxy.Config().GetListenPort())))
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(daemonLines, "\n")))
+	lines = append(lines, "")
+
+	modeLines := []string{
+		" " + s.PanelTitle.Render("CODEX MODE"),
+		"",
+		"  " + s.Muted.Render("Normal Codex direct. Launch here = Slimference mode."),
+		renderCodexRouteStatusLine(s, m.codexRouteStatus),
+		renderCodexDesktopStatusLine(s, m.codexDesktopStatus),
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(modeLines, "\n")))
+	lines = append(lines, "")
+
+	transparent := TransparentStatus{}
+	if m.svc != nil {
+		transparent = m.transparentStatus
+	}
+	safetyLines := []string{
+		" " + s.PanelTitle.Render("SAFETY"),
+		"",
+		renderCAStatusLine(s, transparent),
+		renderTransparentStatusLine(s, transparent),
+		"  " + s.Normal.Render(productSafetyLine(m.latestProduct)),
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(safetyLines, "\n")))
+
+	lines = append(lines, "")
+	lines = append(lines, rule)
+	lines = append(lines, " "+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
+		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
+
+	content := strings.Join(lines, "\n")
+	return s.Border.Width(width - 2).Render(content)
+}
+
+// renderLogsView renders logs, flight diagnostics, and export actions.
+func (m *Model) renderLogsView() string {
+	s := m.styles
+	width := m.width
+	if width < 60 {
+		width = 80
+	}
+
+	innerWidth := width - 4
+	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
+
+	var lines []string
+	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Logs"))
 	lines = append(lines, rule)
 
 	actions := m.debugActions()
@@ -858,28 +922,15 @@ func renderHookStatus(s Styles, h HookStatus) string {
 	return s.Dim.Render("Hooks: ") + strings.Join(parts, "  ")
 }
 
-// renderHeader renders the title bar with version, session duration and port.
-// T67: inserts a "BYPASS" badge when the master bypass is active so the
-// operator never forgets that compression is off.
+// renderHeader renders the quiet product title bar.
 func (m *Model) renderHeader(innerWidth int) string {
 	s := m.styles
 	title := s.Title.Render("SLIMFERENCE v" + Version)
-	status := s.MenuMeta.Render("monitor")
-	if m.svc != nil {
-		running, pid, port := m.svc.DaemonStatus()
-		if running {
-			status = s.MenuOn.Render(fmt.Sprintf("daemon live · PID %d · :%d", pid, port))
-		} else {
-			status = s.MenuWarn.Render(fmt.Sprintf("daemon idle · :%d", m.proxy.Config().GetListenPort()))
-		}
-	}
 	bypassBadge := ""
 	if m.proxy.Bypass() {
-		bypassBadge = s.MenuWarn.Render("⚠ BYPASS ") + "  "
+		bypassBadge = s.MenuWarn.Render("⚠ BYPASS")
 	}
-	right := bypassBadge + status + "  " +
-		s.Muted.Render(fmt.Sprintf(":%d", m.proxy.Config().GetListenPort())) +
-		"  " + s.Dim.Render("◷ "+renderSessionDuration(m.sessionStart))
+	right := bypassBadge
 	pad := innerWidth - lipgloss.Width(title) - lipgloss.Width(right) - 1
 	if pad < 1 {
 		pad = 1
@@ -1127,6 +1178,36 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 	default:
 		return "  " + s.Muted.Render("○ NORMAL CODEX") + "  direct; Codex config not found"
 	}
+}
+
+func renderCodexDesktopStatusLine(s Styles, status CodexDesktopStatus) string {
+	state := "not proven"
+	style := s.Muted
+	switch {
+	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
+		state = "savings active"
+		style = s.Saved
+	case status.Mode == "desktop_app_server_route_ready":
+		state = "route ready"
+		style = s.Saved
+	case status.Mode == "desktop_wss_bridge_only":
+		state = "safe fallback"
+		style = s.BannerWarn
+	case status.FailureClass != "":
+		state = "blocked: " + status.FailureClass
+		style = s.LogError
+	case status.Mode != "":
+		state = "proof needed"
+		style = s.BannerWarn
+	}
+	detail := status.Mode
+	if detail == "" {
+		detail = status.Detail
+	}
+	if detail != "" {
+		detail = " · " + detail
+	}
+	return "  " + style.Render("● DESKTOP") + "  " + state + s.Dim.Render(detail)
 }
 
 func extendLines(lines []string, target int, filler string) []string {

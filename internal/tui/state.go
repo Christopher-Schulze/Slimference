@@ -158,6 +158,8 @@ func viewModeToString(v ViewMode) string {
 		return "debug"
 	case ViewSetup:
 		return "setup"
+	case ViewLogs:
+		return "logs"
 	default:
 		return ""
 	}
@@ -175,6 +177,8 @@ func viewModeFromString(s string) (ViewMode, bool) {
 		return ViewDebug, true
 	case "setup":
 		return ViewSetup, true
+	case "logs":
+		return ViewLogs, true
 	default:
 		return 0, false
 	}

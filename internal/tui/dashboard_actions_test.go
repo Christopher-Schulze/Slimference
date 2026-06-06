@@ -38,7 +38,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	m.SetServiceControl(svc)
 
 	actions := m.dashboardActions()
-	want := []string{"launch_cli", "launch_app", "savings", "status", "setup"}
+	want := []string{"launch_cli", "launch_app", "savings", "status", "logs", "setup"}
 	if len(actions) != len(want) {
 		t.Fatalf("actions=%v want %d launch-center entries", actions, len(want))
 	}
@@ -209,6 +209,11 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 		t.Fatalf("status action view=%v", m.view)
 	}
 	m.view = ViewMain
+	runAction("logs")
+	if m.view != ViewLogs {
+		t.Fatalf("logs action view=%v", m.view)
+	}
+	m.view = ViewMain
 	runAction("setup")
 	if m.view != ViewSetup {
 		t.Fatalf("setup action view=%v", m.view)
@@ -344,7 +349,7 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
+	for _, needle := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -562,7 +567,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	m.flashExpiry = time.Now().Add(time.Second)
 
 	header := m.renderHeader(18)
-	if !strings.Contains(header, "monitor") || !strings.Contains(header, ":8990") {
+	if !strings.Contains(header, "SLIMFERENCE v") || strings.Contains(header, "monitor") || strings.Contains(header, ":8990") {
 		t.Fatalf("header=%q", header)
 	}
 
@@ -710,18 +715,18 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 		t.Fatalf("stats up=%d", model.statsCursor)
 	}
 
-	model.view = ViewDebug
+	model.view = ViewLogs
 	model.debugCursor = 1
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = updated.(Model)
 	if model.debugCursor != 0 {
-		t.Fatalf("debug up=%d", model.debugCursor)
+		t.Fatalf("logs up=%d", model.debugCursor)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
 	if model.debugCursor != 0 {
-		t.Fatalf("debug down=%d", model.debugCursor)
+		t.Fatalf("logs down=%d", model.debugCursor)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -739,7 +744,7 @@ func TestRenderHeaderIdleAndMainViewWithoutFlash(t *testing.T) {
 	m.height = 24
 
 	header := m.renderHeader(24)
-	if !strings.Contains(header, "daemon idle") {
+	if !strings.Contains(header, "SLIMFERENCE v") || strings.Contains(header, "daemon idle") {
 		t.Fatalf("idle header=%q", header)
 	}
 

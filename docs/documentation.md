@@ -1705,17 +1705,19 @@ percentiles on demand.
 
 ## 13. TUI
 
-`internal/tui` is a BubbleTea UI with a five-item home menu as the default
-view: Launch Codex CLI, Launch Codex App, Savings, Status, Setup. There are no
+`internal/tui` is a BubbleTea UI with a six-item home menu as the default
+view: Launch Codex CLI, Launch Codex App, Savings, Status, Logs, Setup. There are no
 top tabs/reiter on the product surface. `↑/↓` selects, Enter opens, and
-subviews return with `b`/`esc`; Savings and Status also return with Enter.
-Apps, diagnostics, daemon repair, and advanced lab controls stay behind
-Setup/Status instead of being promoted as daily-use navigation.
+subviews return with `b`/`esc`; Savings, Status, and Logs also return with
+Enter. Apps, daemon repair, and advanced lab controls stay behind Setup instead
+of being promoted as daily-use navigation.
 The home view is strictly menu-only. Setup warnings, install/repair state,
 daemon health, diagnostics commands, current-session savings, traffic logs,
 provider maps, checkpoint/tool-archive internals, cache parser details, and
-transport proof vocabulary belong to Savings, Status, or Setup, not the first
-screen.
+transport proof vocabulary belong to Savings, Status, Logs, or Setup, not the
+first screen. Daemon PID/port/liveness is not rendered in the global header; it
+belongs to Status. Flight records, hook-turn state, session log stream, and log
+export belong to Logs.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App launches the process-local
@@ -1968,7 +1970,7 @@ to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
 assignments, `sk-*` keys, user-home paths, and temp paths are redacted. Raw
 request/response bodies are not captured by the flight recorder.
 
-The TUI Status view renders a `FLIGHT RECORDER` block sourced from the same
+The TUI Logs view renders a `FLIGHT RECORDER` block sourced from the same
 records: recent route/source/layers, billable savings estimate, provider cache
 tokens, output tokens, bypass count, and slowest request.
 

@@ -37,9 +37,10 @@ type ViewMode int
 const (
 	ViewMain  ViewMode = iota // default live dashboard
 	ViewStats                 // detailed statistics
-	ViewDebug                 // debug log tail
+	ViewDebug                 // operator status
 	ViewSetup                 // install wizard / service management
 	ViewApps                  // per-app routing toggles (Phase H)
+	ViewLogs                  // logs and diagnostics export
 )
 
 // ProxyInterface defines the subset of proxy.Proxy the TUI requires.
@@ -533,6 +534,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
+			if m.view == ViewLogs {
+				m.view = ViewMain
+				m.persistStateBestEffort()
+				return m, nil
+			}
 			if m.view == ViewSetup && m.svc != nil {
 				m.syncSetupSelection()
 				m.executeSetupStep()
@@ -550,7 +556,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			if m.view == ViewDebug {
+			if m.view == ViewLogs {
 				m.moveDebugCursor(-1)
 				m.persistStateBestEffort()
 				return m, nil
@@ -578,7 +584,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			if m.view == ViewDebug {
+			if m.view == ViewLogs {
 				m.moveDebugCursor(1)
 				m.persistStateBestEffort()
 				return m, nil
@@ -822,11 +828,13 @@ func (m Model) View() string {
 	case ViewStats:
 		return m.renderStatsView()
 	case ViewDebug:
-		return m.renderDebugView()
+		return m.renderStatusView()
 	case ViewSetup:
 		return m.renderSetupView()
 	case ViewApps:
 		return m.renderAppsView()
+	case ViewLogs:
+		return m.renderLogsView()
 	default:
 		return m.renderMainView()
 	}
@@ -1024,6 +1032,11 @@ func (m *Model) dashboardActions() []dashboardAction {
 			group: "Inspect",
 			id:    "status",
 			label: "Status",
+		},
+		dashboardAction{
+			group: "Inspect",
+			id:    "logs",
+			label: "Logs",
 		},
 		dashboardAction{
 			group: "Manage",
@@ -1301,6 +1314,9 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		m.refreshCodexDesktopStatus(true)
 		m.view = ViewDebug
 		m.setFlash(m.launchCenterStatusFlash())
+	case "logs":
+		m.view = ViewLogs
+		m.setFlash("Logs opened")
 	case "setup":
 		m.view = ViewSetup
 		m.enterSetupView()
