@@ -930,10 +930,9 @@ func (m *Model) renderFooterBar() string {
 	return " " + strings.Join(parts, sep)
 }
 
-// buildLeftPanel builds the left column (providers + layers + hooks) padded to width.
+// buildLeftPanel builds the daily launch menu padded to width.
 func (m *Model) buildLeftPanel(width int) []string {
 	s := m.styles
-	snap := m.latestSnap
 
 	pad := func(str string) string {
 		w := lipgloss.Width(str)
@@ -966,6 +965,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 	if m.proxy.Bypass() {
 		add(" " + s.Warning.Render("● BYPASS") + "  " + s.Dim.Render("all traffic passes through unmodified (press [b])"))
 	}
+	add(" " + s.Dim.Render("  Normal Codex direct."))
 	add("")
 
 	actions := m.dashboardActions()
@@ -987,58 +987,14 @@ func (m *Model) buildLeftPanel(width int) []string {
 		action := actions[clampIndex(m.mainCursor, len(actions))]
 		add(" " + s.PanelTitle.Render("SELECTED ACTION"))
 		add(" " + s.MetricVal.Render(action.label))
-		add(" " + s.Muted.Render(action.description))
+		add(" " + s.Muted.Render(launchActionHint(action.id)))
 		add("")
-	}
-
-	codexHealth := m.proxy.GetProviderHealth(types.OpenAI)
-	add(" " + s.PanelTitle.Render("AGENT HEALTH"))
-	add(" " + renderProviderBadge(s, "Codex CLI / Desktop", m.codexEnabled) + "  " + renderHealthDot(s, codexHealth.Status))
-	add(" " + s.Muted.Render("○ Claude Code  [OFF]  opt-in later"))
-	add("")
-
-	add(" " + s.PanelTitle.Render("OPTIMIZATIONS"))
-	add(renderOptimizationLine(s, "Deterministic compression", m.layer1Enabled, snap.Layer1Savings, ""))
-	add(renderOptimizationLine(s, "Cache layer", m.layer2Enabled, snap.Layer2Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
-	add("")
-
-	readCache := m.proxy.GetReadCacheStatus()
-	if readCache.Evaluations > 0 || readCache.TrackedFiles > 0 {
-		add(" " + s.PanelTitle.Render("READ CACHE"))
-		add(" " + s.Saved.Render(fmt.Sprintf("%d blocks", readCache.Blocks)) +
-			"  " + s.Dim.Render(fmt.Sprintf("%d unchanged · %d delta", readCache.UnchangedBlocks, readCache.DeltaBlocks)))
-		add(" " + s.Muted.Render(fmt.Sprintf("%d evals · %d files · %d sessions", readCache.Evaluations, readCache.TrackedFiles, readCache.Sessions)))
-		add("")
-	}
-
-	checkpoints := m.proxy.GetCheckpointStatus()
-	if checkpoints.Captures > 0 {
-		add(" " + s.PanelTitle.Render("CHECKPOINTS"))
-		add(" " + s.Saved.Render(fmt.Sprintf("%d captures", checkpoints.Captures)) +
-			"  " + s.Dim.Render(fmt.Sprintf("%d restores · %s", checkpoints.Restores, fallbackLabel(checkpoints.LastTrigger, "manual"))))
-		add(" " + s.Muted.Render(fmt.Sprintf("last: %s · %s stored", formatStatusTime(checkpoints.LastCapture), formatBytesCompact(checkpoints.Bytes))))
-		add("")
-	}
-
-	archive := m.proxy.GetToolArchiveStatus()
-	if archive.Archived > 0 {
-		add(" " + s.PanelTitle.Render("TOOL ARCHIVE"))
-		add(" " + s.Saved.Render(fmt.Sprintf("%d archived", archive.Archived)) +
-			"  " + s.Dim.Render(fmt.Sprintf("%d expands", archive.Expanded)))
-		add(" " + s.Muted.Render(fmt.Sprintf("%d entries · %s -> %s", archive.Count, formatBytesCompact(archive.BytesRaw), formatBytesCompact(archive.BytesStored))))
-		add("")
-	}
-
-	// HOOKS (only when at least one is installed)
-	if m.hookStatus.Claude || m.hookStatus.Codex {
-		add(" " + s.PanelTitle.Render("HOOKS"))
-		add(" " + renderHookStatus(s, m.hookStatus))
 	}
 
 	return lines
 }
 
-// buildRightPanel builds the right column (savings + live log / quick-start) padded to width.
+// buildRightPanel builds the product summary for the daily launch screen.
 func (m *Model) buildRightPanel(width int) []string {
 	s := m.styles
 	snap := m.latestSnap
@@ -1056,82 +1012,70 @@ func (m *Model) buildRightPanel(width int) []string {
 	add := func(str string) { lines = append(lines, pad(str)) }
 
 	productPanel := PresentProductStatus(product)
-	add(" " + s.PanelTitle.Render("PRODUCT"))
+	add(" " + s.PanelTitle.Render("SLIMFERENCE MODE"))
 	add(" " + renderProductRouteLine(s, productPanel))
-	add(" " + s.Saved.Render(productPanel.InputSavedLine) +
-		"  " + s.Dim.Render(productPanel.RequestReducedLine))
-	add(" " + s.Dim.Render(productPanel.OutputWireLine))
-	add(" " + s.Highlight.Render(productPanel.ProviderCacheLine) +
-		"  " + s.Dim.Render(productPanel.ProviderCreateLine))
-	add(" " + s.Muted.Render(productPanel.CacheLine))
-	if productPanel.ToolPruneLine != "" {
-		add(" " + s.Muted.Render(productPanel.ToolPruneLine))
+	add(" " + s.Normal.Render("Normal Codex direct."))
+	add(" " + s.Normal.Render("Launch here = Slimference mode."))
+	if m.transparentStatus.ProxyArmed {
+		add(" " + s.Warning.Render("Global lab is armed. Open Setup to disarm."))
 	}
-	if productPanel.OutputReduceLine != "" {
-		add(" " + s.Muted.Render(productPanel.OutputReduceLine))
+	add("")
+
+	add(" " + s.PanelTitle.Render("CURRENT SESSION"))
+	if snap.TotalRequests == 0 && product.BillableInputTokensSaved == 0 && product.OutputWireBytesSaved == 0 && product.ProviderCacheReadTokens == 0 {
+		add(" " + s.Muted.Render("No Slimference session data yet."))
+		add(" " + s.Muted.Render("Launch Codex here, then open Savings."))
+	} else {
+		add(" " + s.Saved.Render(productPanel.InputSavedLine))
+		add(" " + s.Dim.Render(productPanel.OutputWireLine))
+		add(" " + s.Dim.Render(productPanel.ProviderCacheLine))
+		add(" " + s.Muted.Render(fmt.Sprintf("%d requests this session", snap.TotalRequests)))
 	}
+	add("")
+
+	add(" " + s.PanelTitle.Render("HEALTH"))
 	if productPanel.SafetyNeedsWarning {
 		add(" " + s.Warning.Render(productPanel.SafetyLine))
 	} else {
 		add(" " + s.Muted.Render("safety ok"))
 	}
-	add("")
-
-	duration := time.Since(snap.SessionStart)
-	if duration < time.Second {
-		duration = time.Second
-	}
-	tokenRateIn := float64(snap.TotalInputTokens) / duration.Seconds()
-	tokenRateSaved := float64(snap.SavedInputTokens) / duration.Seconds()
-	requestRate := float64(snap.TotalRequests) / duration.Minutes()
-	add(" " + s.PanelTitle.Render("TRAFFIC"))
-	add(renderMetricPair(s, "Requests/min", fmt.Sprintf("%.1f", requestRate), "Input/s", formatFloatCompact(tokenRateIn), width-2))
-	add(renderMetricPair(s, "Saved/s", formatFloatCompact(tokenRateSaved), "Output", formatTokens(snap.TotalOutputTokens), width-2))
-
-	if snap.SecretsRedacted > 0 {
-		add(" " + s.Warning.Render(fmt.Sprintf("⚠  %d secrets redacted", snap.SecretsRedacted)))
-	}
-	if snap.AutoRetries > 0 {
-		add(" " + s.Dim.Render(fmt.Sprintf("↺  %d auto-retries", snap.AutoRetries)))
-	}
-	if snap.PromptCacheReadTokens > 0 || snap.PromptCacheCreateTokens > 0 {
-		add(" " + s.Highlight.Render(fmt.Sprintf("↻ prompt cache %.0f%%", snap.PromptCacheHitRate()*100)) +
-			"  " + s.Dim.Render(fmt.Sprintf("%s read · %s create", formatTokens(snap.PromptCacheReadTokens), formatTokens(snap.PromptCacheCreateTokens))))
-	}
-	add("")
-
-	add(" " + s.PanelTitle.Render("PROVIDER MAP"))
-	add(providerFlowLine(s, "Codex", snap.PerProvider[types.OpenAI], snap.LatencyOpenAIMs))
-	add("")
-
-	// LIVE log or QUICK START
-	if snap.TotalRequests == 0 && !m.hookStatus.Codex {
-		add(" " + s.PanelTitle.Render("QUICK START"))
-		add("")
-		add(" " + s.Normal.Render("1. Install Slimference:"))
-		add("   " + s.SetupCmd.Render("$ slimference install"))
-		add("")
-		add(" " + s.Normal.Render("2. Launch Codex from this TUI"))
-		add(" " + s.Muted.Render("   Use Launch Codex CLI or Launch Codex App."))
-		add("")
-		add(" " + s.Dim.Render("   Press [i] for Setup and repair."))
+	if !m.hookStatus.Codex {
+		add(" " + s.Warning.Render("Setup missing: Codex"))
 	} else {
-		maxLog := 6
-		if m.height >= 30 {
-			maxLog = 10
-		}
-		add(" " + s.PanelTitle.Render("LIVE"))
-		reqs := m.proxy.GetRecentRequests(maxLog)
-		if len(reqs) == 0 {
-			add(" " + s.Muted.Render("Waiting for requests..."))
+		add(" " + s.Saved.Render("Codex CLI/Desktop enabled"))
+	}
+	if m.svc != nil {
+		running, pid, port := m.svc.DaemonStatus()
+		if running {
+			add(" " + s.Saved.Render(fmt.Sprintf("daemon live · PID %d · :%d", pid, port)))
 		} else {
-			for i := len(reqs) - 1; i >= 0; i-- {
-				add(renderRequestLogLine(s, reqs[i]))
-			}
+			add(" " + s.Warning.Render("daemon stopped · open Setup"))
 		}
 	}
+	add("")
+
+	add(" " + s.PanelTitle.Render("DIAGNOSTICS"))
+	add(" " + s.Muted.Render("After real sessions: slimference debug bundle"))
+	add(" " + s.Muted.Render("Logs and flight details live under Status."))
 
 	return lines
+}
+
+func launchActionHint(id string) string {
+	switch id {
+	case "launch_cli":
+		return "One-shot CLI through Slimference."
+	case "launch_app":
+		return "Codex.app through Slimference."
+	case "savings":
+		return "Measured savings and layer breakdown."
+	case "status":
+		return "Daemon, logs, route, and diagnostics."
+	case "manage":
+		return "Install, repair, app routing, lab."
+	default:
+		return ""
+	}
 }
 
 func renderProductRouteLine(s Styles, product ProductPanel) string {

@@ -172,11 +172,11 @@ func TestPanelsRenderCheckpointAndArchiveData(t *testing.T) {
 	m.latestSnap.PromptCacheReadTokens = 3200
 	m.latestSnap.PromptCacheCreateTokens = 800
 
-	left := strings.Join(m.buildLeftPanel(36), "\n")
-	right := strings.Join(m.buildRightPanel(70), "\n")
-	for _, want := range []string{"CHECKPOINTS", "TOOL ARCHIVE", "READ CACHE", "prompt cache"} {
-		if !strings.Contains(left+right, want) {
-			t.Fatalf("panels missing %q in:\n%s\n%s", want, left, right)
+	m.view = ViewStats
+	output := m.renderStatsView()
+	for _, want := range []string{"CHECKPOINTS", "TOOL ARCHIVE", "READ CACHE", "PROMPT CACHE"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stats view missing %q in:\n%s", want, output)
 		}
 	}
 }

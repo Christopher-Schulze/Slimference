@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -46,7 +47,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 			t.Fatalf("action[%d]=%q want %q in %v", i, actions[i].id, id, actions)
 		}
 	}
-	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings active" {
+	if actions[0].label != "Launch Codex CLI" || actions[0].state != "savings active" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
 	if actions[1].label != "Launch Codex App" || actions[1].state != "proof needed" {
@@ -111,15 +112,15 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 	model := NewModel(newMockProxy())
 
 	model.codexRouteStatus = CodexRouteStatus{DaemonReachable: true, AutoTransport: "http"}
-	if got := model.codexCLIState(); got != "auto=http" {
+	if got := model.codexCLIState(); got != "ready" {
 		t.Fatalf("CLI state=%q", got)
 	}
 	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed", NeedsRecert: true}
-	if got := model.codexCLIState(); got != "WSS repair needed" {
+	if got := model.codexCLIState(); got != "repair needed" {
 		t.Fatalf("CLI recert state=%q", got)
 	}
 	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed", NeedsRecert: true, RecertStatus: "running"}
-	if got := model.codexCLIState(); got != "WSS repair running" {
+	if got := model.codexCLIState(); got != "repairing" {
 		t.Fatalf("CLI running recert state=%q", got)
 	}
 
@@ -130,13 +131,13 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 	}{
 		{CodexDesktopStatus{Mode: "desktop_app_server_phasef_proven", ConversationObserved: true}, "savings active", "Desktop savings are proven"},
 		{CodexDesktopStatus{Mode: "desktop_app_server_proven", ConversationObserved: true}, "savings active", "Desktop savings are proven"},
-		{CodexDesktopStatus{Mode: "desktop_app_server_route_ready", ConversationObserved: true}, "route ready", "routing is proven"},
+		{CodexDesktopStatus{Mode: "desktop_app_server_route_ready", ConversationObserved: true}, "route ready", "Normal Finder/Spotlight launches stay direct"},
 		{CodexDesktopStatus{FailureClass: "tls_trust_rejected"}, "blocked", "tls_trust_rejected"},
 		{CodexDesktopStatus{FailureClass: "ca_missing"}, "blocked", "ca_missing"},
 		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "blocked", "ca_untrusted"},
 		{CodexDesktopStatus{FailureClass: "daemon_unreachable"}, "blocked", "daemon_unreachable"},
-		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "proof needed", "proof-gated"},
-		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "proof needed", "proof-gated"},
+		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "proof needed", "not ready yet"},
+		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "proof needed", "not ready yet"},
 	} {
 		model.codexDesktopStatus = tc.status
 		if got := model.codexAppState(); got != tc.state {
@@ -204,7 +205,7 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	}
 	m.view = ViewMain
 	runAction("status")
-	if m.view != ViewDebug || !strings.Contains(m.flashMsg, "Status: CLI WSS savings") {
+	if m.view != ViewDebug || !strings.Contains(m.flashMsg, "Status: CLI savings active") {
 		t.Fatalf("status action view=%v flash=%q", m.view, m.flashMsg)
 	}
 	runAction("manage")
@@ -342,9 +343,14 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"LAUNCH CENTER", "Launch Codex CLI", "PROVIDER MAP", "TRAFFIC", "daemon live", "Claude Code"} {
+	for _, needle := range []string{"LAUNCH CENTER", "Launch Codex CLI", "SLIMFERENCE MODE", "CURRENT SESSION", "daemon live", "DIAGNOSTICS"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
+		}
+	}
+	for _, blocked := range []string{"PROVIDER MAP", "TRAFFIC", "LIVE", "CHECKPOINTS", "TOOL ARCHIVE", "OPTIMIZATIONS"} {
+		if strings.Contains(view, blocked) {
+			t.Fatalf("launch view leaked internal block %q in:\n%s", blocked, view)
 		}
 	}
 
@@ -374,6 +380,30 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	}
 	if got := extendLines([]string{"a"}, 3, "x"); len(got) != 3 || got[2] != "x" {
 		t.Fatalf("extendLines fill=%v", got)
+	}
+}
+
+func TestRenderMainView_DoesNotOverflowConfiguredWidth(t *testing.T) {
+	proxy := newMockProxy()
+	proxy.productStatus = ProductStatus{
+		RouteStatus:              "savings active",
+		FallbackReason:           "safe fallback reason that should stay compact",
+		RecertStatus:             "running",
+		SavingsStatus:            "saving",
+		BillableInputTokensSaved: 12000,
+		OutputWireBytesSaved:     2048,
+		ProviderCacheReadTokens:  5000,
+	}
+	m := NewModel(proxy)
+	m.width = 100
+	m.height = 30
+	m.SetServiceControl(&mockServiceControl{running: true})
+
+	view := m.renderMainView()
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > m.width {
+			t.Fatalf("main view line width=%d > %d:\n%s\nfull view:\n%s", w, m.width, line, view)
+		}
 	}
 }
 
@@ -536,7 +566,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"QUICK START", "operator notice", "LAUNCH CENTER", "PRODUCT"} {
+	for _, needle := range []string{"operator notice", "LAUNCH CENTER", "SLIMFERENCE MODE", "CURRENT SESSION"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -716,8 +746,8 @@ func TestRenderHeaderIdleAndMainViewWithoutFlash(t *testing.T) {
 	if strings.Contains(view, "operator notice") {
 		t.Fatalf("view should not contain stale flash message:\n%s", view)
 	}
-	if !strings.Contains(view, "QUICK START") {
-		t.Fatalf("view should show quick-start state:\n%s", view)
+	if !strings.Contains(view, "No Slimference session data yet") {
+		t.Fatalf("view should show empty session state:\n%s", view)
 	}
 }
 
@@ -747,7 +777,7 @@ func TestRenderMainView_RightColumnPaddingBranch(t *testing.T) {
 	m.latestSnap = proxy.snap
 
 	view := m.renderMainView()
-	if !strings.Contains(view, "LIVE") || !strings.Contains(view, "anthrop") {
-		t.Fatalf("renderMainView live branch missing in:\n%s", view)
+	if !strings.Contains(view, "CURRENT SESSION") || strings.Contains(view, "LIVE") || strings.Contains(view, "anthrop") {
+		t.Fatalf("renderMainView launch summary branch wrong in:\n%s", view)
 	}
 }

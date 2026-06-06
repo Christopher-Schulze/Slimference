@@ -1709,6 +1709,11 @@ The top-level user surface is intentionally small: Launch Codex CLI, Launch
 Codex App, Savings, Status, and Setup. Apps, diagnostics, daemon repair, and
 advanced lab controls stay behind Setup/Status instead of being promoted as
 daily-use navigation.
+The Launch view is deliberately not a live dashboard: it shows the launch menu,
+the selected action, a compact Slimference-mode summary, current-session totals,
+health, and the diagnostics handoff command. Traffic logs, provider maps,
+checkpoint/tool-archive internals, cache parser details, and transport proof
+vocabulary belong to Savings or Status, not the first screen.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App launches the process-local
@@ -1732,28 +1737,22 @@ macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
 stale processes when detected; the current healthy daemon PID remains the
 actionable state.
 
-The Launch Center labels Codex traffic in hard product terms: `WSS savings
-active` means Phase-F mutation is certified for the current tuple; `WSS route
-ready` means Desktop reaches the route but that specific proof did not show
-mutation; `WSS native bridge` / `WSS bridge/fallback` means Codex stays on the
-native WebSocket path while savings repair or fallback is active. The status
-surface includes recert attempt id, started/finished/last-success/retry times,
-last error, and the bounded recert log path when available.
-
-The main product panel reads the `/admin/state.savings.product` rollup through
-the same local or remote adapter path as the rest of the TUI. It shows route
-state, billable input saved, output-wire bytes, cache hit/miss totals,
-read-delta/repeated-output/chunk hits, and safety or host-budget attention. Raw
-parser matrices, policy internals, and mechanism debug counters stay in debug
-surfaces; the normal view does not invent a second mixed savings headline. It
-renders explicit zero values for output-wire and provider-cache savings instead
-of hiding absent counters, so `0` and "not shown" are never confused. The TUI
-caches product status in the model and refreshes it on ticks/events instead of
-fetching during render; host-budget attention slows the next tick from 500 ms to
-2 s. Product-signal selection is handled by the pure `PresentProductStatus`
-presenter before Bubble Tea styling, so route/savings/safety projection is
-unit-testable without starting the TUI and debug-only WSS internals cannot drift
-into the default product panel unnoticed.
+The Launch Center labels Codex traffic in product terms: `savings active`,
+`ready`, `safe fallback`, `repairing`, `repair needed`, or `blocked`. WSS,
+transport, route, recert attempt id, started/finished/last-success/retry times,
+last error, and bounded recert log path are Status details. The Launch summary
+reads the `/admin/state.savings.product` rollup through the same local or remote
+adapter path as the rest of the TUI and shows only route state, billable input
+saved, output-wire bytes, provider-cache read tokens, health, daemon live/idle,
+and the `slimference debug bundle` handoff. Raw parser matrices, policy
+internals, provider maps, traffic rates, mechanism debug counters, and
+archive/checkpoint details stay out of Launch. The TUI caches product status in
+the model and refreshes it on ticks/events instead of fetching during render;
+host-budget attention slows the next tick from 500 ms to 2 s. Product-signal
+selection is handled by the pure `PresentProductStatus` presenter before Bubble
+Tea styling, so route/savings/safety projection is unit-testable without
+starting the TUI and debug-only WSS internals cannot drift into the default
+product panel unnoticed.
 
 ### Keybindings
 

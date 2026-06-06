@@ -1049,19 +1049,19 @@ func (m *Model) codexCLIState() string {
 	status := m.codexRouteStatus
 	switch {
 	case status.WSSCertified && status.AutoMode == "wss_phasef":
-		return "WSS savings active"
+		return "savings active"
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
-		return "WSS native bridge"
+		return "safe fallback"
 	case status.NeedsRecert && status.RecertStatus == "running":
-		return "WSS repair running"
+		return "repairing"
 	case status.NeedsRecert:
-		return "WSS repair needed"
+		return "repair needed"
 	case !status.DaemonReachable:
 		return "daemon off"
 	case status.FallbackReason != "":
-		return "HTTP fallback"
+		return "safe fallback"
 	case status.AutoTransport != "":
-		return "auto=" + status.AutoTransport
+		return "ready"
 	default:
 		return "ready"
 	}
@@ -1093,15 +1093,15 @@ func (m *Model) codexAppDescription() string {
 		return "Open Codex.app in Slimference mode; Desktop savings are proven."
 	}
 	if status.Mode == "desktop_app_server_route_ready" {
-		return "Open Codex.app in Slimference mode; routing is proven and savings scale with conversation size."
+		return "Open Codex.app in Slimference mode. Normal Finder/Spotlight launches stay direct."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
-		return "Desktop Slimference mode is not savings-green yet; Launch Codex App blocks instead of opening direct."
+		return "Desktop Slimference mode is not ready yet; Launch Codex App blocks instead of opening direct."
 	}
 	if status.FailureClass != "" {
 		return "Desktop Slimference is not green (" + status.FailureClass + "); start Codex.app normally outside Slimference for direct mode."
 	}
-	return "Desktop Slimference remains proof-gated; Launch Codex App blocks until real savings are proven."
+	return "Desktop Slimference mode is not ready yet; Launch Codex App blocks instead of opening direct."
 }
 
 func (m *Model) savingsState() string {
@@ -1120,13 +1120,13 @@ func (m *Model) statusState() string {
 		return "needs repair"
 	}
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
-		return "WSS savings active"
+		return "savings active"
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
-		return "WSS native bridge"
+		return "safe fallback"
 	}
 	if m.codexRouteStatus.NeedsRecert && m.codexRouteStatus.RecertStatus == "running" {
-		return "WSS repair running"
+		return "repairing"
 	}
 	if m.codexRouteStatus.NeedsRecert {
 		return "WSS repair needed"
@@ -1139,13 +1139,13 @@ func (m *Model) statusState() string {
 
 func (m *Model) statusDescription() string {
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
-		return "Codex CLI Slimference mode is savings-ready for the current versions." + m.recertStatusSuffix()
+		return "Show detailed route, daemon, Desktop, CA, lab, and proof state." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
-		return "Codex CLI stays on native WebSocket fallback while savings repair runs." + m.recertStatusSuffix()
+		return "Show safe fallback and repair details." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.FallbackReason != "" {
-		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason + m.recertStatusSuffix()
+		return "Show why Slimference mode is safely paused: " + m.codexRouteStatus.FallbackReason + m.recertStatusSuffix()
 	}
 	if m.codexDesktopStatus.FailureClass != "" {
 		return "Desktop gate: " + m.codexDesktopStatus.FailureClass

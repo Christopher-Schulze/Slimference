@@ -345,7 +345,7 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	model.hookStatus = HookStatus{}
 
 	mainView := model.renderMainView()
-	if !strings.Contains(mainView, "QUICK START") {
+	if !strings.Contains(mainView, "CURRENT SESSION") {
 		t.Fatalf("unexpected main view: %q", mainView)
 	}
 
@@ -370,7 +370,7 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	}
 
 	model.width = 5
-	if panel := strings.Join(model.buildRightPanel(5), "\n"); !strings.Contains(panel, "Waiting for requests") && !strings.Contains(panel, "QUICK START") {
+	if panel := strings.Join(model.buildRightPanel(5), "\n"); !strings.Contains(panel, "CURRENT SESSION") {
 		t.Fatalf("unexpected right panel: %q", panel)
 	}
 
@@ -411,7 +411,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.height = 24
 	model.hookStatus = HookStatus{}
 	model.proxy.(*mockProxy).recentReqs = nil
-	if view := model.renderMainView(); !strings.Contains(view, "QUICK START") {
+	if view := model.renderMainView(); !strings.Contains(view, "No Slimference session data yet") {
 		t.Fatalf("unexpected quick-start main view: %q", view)
 	}
 
@@ -433,7 +433,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "LIVE") {
+	if view := model.renderMainView(); !strings.Contains(view, "CURRENT SESSION") || strings.Contains(view, "LIVE") {
 		t.Fatalf("unexpected live main view: %q", view)
 	}
 
@@ -442,7 +442,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "Waiting for requests") {
+	if view := model.renderMainView(); !strings.Contains(view, "No Slimference session data yet") {
 		t.Fatalf("unexpected padded live view: %q", view)
 	}
 }
