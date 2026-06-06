@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T300 Simple TUI home menu -> docs/todo/t300-simple-tui-home-menu.md
 - [x] T299 Strict TUI tab separation -> docs/todo/t299-strict-tui-tab-separation.md
 - [x] T298 TUI launch view declutter -> docs/todo/t298-tui-launch-view-declutter.md
 - [x] T297 Lean diagnostics bundle for field sessions -> docs/todo/t297-lean-diagnostics-bundle.md

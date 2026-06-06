@@ -1530,7 +1530,8 @@ rule Slimference out instantly.
 
 Controls:
 
-- TUI hotkey `B` (flash toast confirms state; header shows `⚠ BYPASS`).
+- CLI/admin bypass controls; the TUI header still shows `⚠ BYPASS` when bypass
+  was enabled outside the TUI.
 - `slimference bypass on|off|status` CLI (talks to the admin endpoint).
 - Admin POST `/_slimference/admin/bypass {"enabled": true}`.
 
@@ -1576,7 +1577,7 @@ See `docs/integration.md` for the full table. Summary:
 | Daemon crashed              | 1× ECONNREFUSED, SDK retries         | none                              |
 | Restart loop                | some reqs fail                       | `integrate remove` + shell reload |
 | Binary moved / deleted      | persistent ECONNREFUSED              | manual cleanup from docs          |
-| Want compression off        | —                                    | TUI `B` or `bypass on` CLI        |
+| Want compression off        | —                                    | `bypass on` CLI                   |
 | Panic button                | —                                    | `integrate emergency-off`         |
 
 ---
@@ -1704,18 +1705,17 @@ percentiles on demand.
 
 ## 13. TUI
 
-`internal/tui` is a BubbleTea UI with a Launch Center as the default view.
-The top-level user surface is intentionally small: Launch Codex CLI, Launch
-Codex App, Savings, Status, and Setup. Apps, diagnostics, daemon repair, and
-advanced lab controls stay behind Setup/Status instead of being promoted as
-daily-use navigation.
-The Launch view is strictly launch-only: it shows the Codex CLI/App launch
-actions, the selected action, and a short explanation that normal Codex stays
-direct while processes launched from this screen run in Slimference mode.
-Setup warnings, install/repair state, daemon health, diagnostics commands,
-current-session savings, traffic logs, provider maps, checkpoint/tool-archive
-internals, cache parser details, and transport proof vocabulary belong to
-Savings, Status, or Setup, not the first screen.
+`internal/tui` is a BubbleTea UI with a five-item home menu as the default
+view: Launch Codex CLI, Launch Codex App, Savings, Status, Setup. There are no
+top tabs/reiter on the product surface. `↑/↓` selects, Enter opens, and
+subviews return with `b`/`esc`; Savings and Status also return with Enter.
+Apps, diagnostics, daemon repair, and advanced lab controls stay behind
+Setup/Status instead of being promoted as daily-use navigation.
+The home view is strictly menu-only. Setup warnings, install/repair state,
+daemon health, diagnostics commands, current-session savings, traffic logs,
+provider maps, checkpoint/tool-archive internals, cache parser details, and
+transport proof vocabulary belong to Savings, Status, or Setup, not the first
+screen.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App launches the process-local
@@ -1739,17 +1739,16 @@ macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
 stale processes when detected; the current healthy daemon PID remains the
 actionable state.
 
-The Launch Center labels Codex launch readiness in product terms: `savings active`,
-`ready`, `safe fallback`, `repairing`, `repair needed`, or `blocked`. WSS,
-transport, route, recert attempt id, started/finished/last-success/retry times,
-last error, bounded recert log path, daemon state, logs, and diagnostics bundle
-handoff are Status or Setup details. Measured savings live under Savings and
-come from `/admin/state.savings.product` plus the per-session accounting
-surface. Raw parser matrices, policy internals, provider maps, traffic rates,
-mechanism debug counters, and archive/checkpoint details stay out of Launch.
-The TUI caches product status in the model and refreshes it on ticks/events
-instead of fetching during render; host-budget attention slows the next tick
-from 500 ms to 2 s. Product-signal selection is handled by the pure
+The home menu does not label readiness inline. WSS, transport, route, recert
+attempt id, started/finished/last-success/retry times, last error, bounded
+recert log path, daemon state, logs, and diagnostics bundle handoff are Status
+or Setup details. Measured savings live under Savings and come from
+`/admin/state.savings.product` plus the per-session accounting surface. Raw
+parser matrices, policy internals, provider maps, traffic rates, mechanism
+debug counters, and archive/checkpoint details stay out of the home view. The
+TUI caches product status in the model and refreshes it on ticks/events instead
+of fetching during render; host-budget attention slows the next tick from
+500 ms to 2 s. Product-signal selection is handled by the pure
 `PresentProductStatus` presenter before Bubble Tea styling, so savings/safety
 projection is unit-testable without starting the TUI and debug-only WSS
 internals cannot drift into user-facing detail views unnoticed.
@@ -1761,9 +1760,9 @@ Auto-generated in `docs/tui-keybindings.md` from
 
 | Category    | Keys        | Action                         |
 |-------------|-------------|--------------------------------|
-| Navigation  | `←/→/h/l`   | previous / next view           |
 | Navigation  | `↑/↓/j/k`   | move up / down                 |
-| Navigation  | `enter`     | execute highlighted action     |
+| Navigation  | `enter`     | open selected home item; back from Savings/Status |
+| Navigation  | `b` / `esc` | back to home                   |
 | Views       | `s`         | savings view                   |
 | Views       | `d`         | status view                    |
 | Views       | `i`         | setup view                     |
@@ -1774,15 +1773,14 @@ Auto-generated in `docs/tui-keybindings.md` from
 | Setup       | `g`         | advanced global lab controls   |
 | Setup       | `u`         | uninstall Slimference assets   |
 | Actions     | `f`         | flush caches                   |
-| Actions     | `b`         | **toggle bypass** (T67)        |
 | Actions     | `y`         | export diagnostics             |
 | Actions     | `ctrl+s`    | save preferences               |
 | Actions     | `q`/`ctrl+c`| quit                           |
 
 ### Bypass badge
 
-When bypass is on, the header renders `⚠ BYPASS` so it is visible from
-every view. A flash toast echoes the new state on toggle.
+When bypass is on through CLI/admin controls, the header renders `⚠ BYPASS` so
+it is visible from every view. The TUI `b` key is reserved for Back.
 
 ### Remote mode
 

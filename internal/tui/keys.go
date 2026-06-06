@@ -65,11 +65,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		PrevView: key.NewBinding(
 			key.WithKeys("left", "h"),
-			key.WithHelp("←", "previous view"),
+			key.WithHelp("←", "back"),
 		),
 		NextView: key.NewBinding(
 			key.WithKeys("right", "l"),
-			key.WithHelp("→", "next view"),
+			key.WithHelp("→", "unused"),
 		),
 		CursorUp: key.NewBinding(
 			key.WithKeys("up", "k"),
@@ -81,7 +81,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Execute: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "execute"),
+			key.WithHelp("enter", "open/back"),
 		),
 		ViewStats: key.NewBinding(
 			key.WithKeys("s"),
@@ -105,7 +105,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		ToggleBypass: key.NewBinding(
 			key.WithKeys("b", "B"),
-			key.WithHelp("b", "toggle bypass"),
+			key.WithHelp("b", "back"),
 		),
 		ServicePower: key.NewBinding(
 			key.WithKeys("p"),
@@ -144,7 +144,7 @@ func DefaultKeyMap() KeyMap {
 
 // footerHelp returns the compact help string shown in the footer.
 func (km KeyMap) footerHelp() string {
-	return "[←/→] views  [↑/↓] move  [enter] execute  [s] savings  [d] status  [i] setup  [b] bypass  [q] quit"
+	return "[↑/↓] select  [enter] open  [b/esc] back  [q] quit"
 }
 
 // bindingSpec names a binding and references the KeyMap field.
@@ -159,8 +159,6 @@ type bindingSpec struct {
 // outputs stay stable.
 func (km KeyMap) orderedBindings() []bindingSpec {
 	return []bindingSpec{
-		{"Navigation", km.PrevView},
-		{"Navigation", km.NextView},
 		{"Navigation", km.CursorUp},
 		{"Navigation", km.CursorDown},
 		{"Navigation", km.Execute},

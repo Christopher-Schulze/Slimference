@@ -48,7 +48,7 @@ func TestFooterHelp_ContainsAllKeys(t *testing.T) {
 	km := DefaultKeyMap()
 	help := km.footerHelp()
 
-	expectedKeys := []string{"[←/→]", "[↑/↓]", "[enter]", "[s]", "[d]", "[i]", "[b]", "[q]"}
+	expectedKeys := []string{"[↑/↓]", "[enter]", "[b/esc]", "[q]"}
 	for _, key := range expectedKeys {
 		if !strings.Contains(help, key) {
 			t.Errorf("footerHelp() missing key %q in: %s", key, help)

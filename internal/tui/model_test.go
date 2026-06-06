@@ -417,7 +417,7 @@ func TestUpdate_ToggleLayers(t *testing.T) {
 	}
 }
 
-// TestUpdate_ViewStatsToggle verifies that pressing 's' toggles the savings view.
+// TestUpdate_ViewStatsToggle verifies that pressing 's' opens the savings view.
 func TestUpdate_ViewStatsToggle(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -429,10 +429,10 @@ func TestUpdate_ViewStatsToggle(t *testing.T) {
 		t.Errorf("view = %d, want ViewStats after pressing 's'", model.view)
 	}
 
-	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	model2 := updated2.(Model)
 	if model2.view != ViewMain {
-		t.Errorf("view = %d, want ViewMain after pressing 's' again", model2.view)
+		t.Errorf("view = %d, want ViewMain after pressing back", model2.view)
 	}
 }
 
@@ -897,11 +897,11 @@ func TestUpdate_DebugToggleBack(t *testing.T) {
 		t.Fatalf("view = %d, want ViewDebug", model.view)
 	}
 
-	// Second press: back to main view.
-	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	// Back key returns to main view.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	model2 := updated2.(Model)
 	if model2.view != ViewMain {
-		t.Errorf("view = %d, want ViewMain after pressing 'd' from debug view", model2.view)
+		t.Errorf("view = %d, want ViewMain after pressing back from debug view", model2.view)
 	}
 }
 
@@ -1231,7 +1231,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"LAUNCH MODE", "Launch Codex CLI", "Launch Codex App", "HOW IT WORKS"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1257,7 +1257,7 @@ func TestView_MainRender_OutputReducePendingDoesNotClaimSavings(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"LAUNCH MODE", "HOW IT WORKS"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Savings", "Status", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1280,7 +1280,7 @@ func TestView_MainRender_ProductStatusEmptyUsesExplicitProductZeros(t *testing.T
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"LAUNCH MODE", "Normal Codex direct", "Launch here = Slimference mode"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1507,11 +1507,11 @@ func TestView_SetupView_renders(t *testing.T) {
 	if !strings.Contains(output, "COMMANDS") {
 		t.Errorf("setup view: want 'COMMANDS' in output, got: %s", output)
 	}
-	// Press 'i' again to go back.
-	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	// Press back to return home.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	model2 := updated2.(Model)
 	if model2.view != ViewMain {
-		t.Errorf("pressing i again should return to main view, got: %d", model2.view)
+		t.Errorf("pressing back should return to main view, got: %d", model2.view)
 	}
 }
 
@@ -1540,15 +1540,15 @@ func TestModel_CopyDebugLog(t *testing.T) {
 	}
 }
 
-func TestView_MainFooter_hasSetupKey(t *testing.T) {
+func TestView_MainFooter_hasOpenKey(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
 	m.width = 100
 	m.height = 24
 	output := m.View()
-	if !strings.Contains(output, "[i]") {
-		t.Errorf("main footer should have [i] setup key, got: %s", output)
+	if !strings.Contains(output, "[enter]") || !strings.Contains(output, "open") {
+		t.Errorf("main footer should have enter open hint, got: %s", output)
 	}
 }
 
@@ -1899,7 +1899,7 @@ func TestView_MainRender_allReady(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{Claude: true, Codex: true}
 	output := m.View()
-	if strings.Contains(output, "READY") || !strings.Contains(output, "LAUNCH MODE") {
+	if strings.Contains(output, "READY") || !strings.Contains(output, "MENU") {
 		t.Errorf("main view should keep setup readiness out of Launch, got: %s", output)
 	}
 }
@@ -1976,7 +1976,7 @@ func TestView_MainRender_quickStart(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{}
 	output := m.View()
-	if strings.Contains(output, "No Slimference session data yet") || !strings.Contains(output, "LAUNCH MODE") {
+	if strings.Contains(output, "No Slimference session data yet") || !strings.Contains(output, "MENU") {
 		t.Errorf("main view should keep session state out of Launch, got: %s", output)
 	}
 }
@@ -2051,7 +2051,7 @@ func TestView_MainRender_liveLog(t *testing.T) {
 	m.height = 24
 	m.hookStatus = HookStatus{Claude: true, Codex: true}
 	output := m.View()
-	if !strings.Contains(output, "LAUNCH MODE") || strings.Contains(output, "LIVE") || strings.Contains(output, "CURRENT SESSION") {
+	if !strings.Contains(output, "MENU") || strings.Contains(output, "LIVE") || strings.Contains(output, "CURRENT SESSION") {
 		t.Errorf("main view should keep live log out of Launch, got: %s", output)
 	}
 }

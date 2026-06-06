@@ -443,29 +443,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setFlash(fmt.Sprintf("Codex: %s", onOff(m.codexEnabled)))
 
 		case "s":
-			if m.view == ViewStats {
-				m.view = ViewMain
-			} else {
-				m.view = ViewStats
-			}
+			m.view = ViewStats
 			m.persistStateBestEffort()
 
 		case "d":
-			if m.view == ViewDebug {
-				m.view = ViewMain
-			} else {
-				m.view = ViewDebug
-			}
+			m.view = ViewDebug
 			m.persistStateBestEffort()
 
 		case "i":
-			if m.view == ViewSetup {
-				m.view = ViewMain
-				m.setupStep = 0
-			} else {
-				m.view = ViewSetup
-				m.enterSetupView()
-			}
+			m.view = ViewSetup
+			m.enterSetupView()
 			m.persistStateBestEffort()
 
 		case " ":
@@ -536,8 +523,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == ViewMain {
 				return m, m.executeMainSelection()
 			}
+			if m.view == ViewStats {
+				m.view = ViewMain
+				m.persistStateBestEffort()
+				return m, nil
+			}
 			if m.view == ViewDebug {
-				return m, m.executeDebugSelection()
+				m.view = ViewMain
+				m.persistStateBestEffort()
+				return m, nil
 			}
 			if m.view == ViewSetup && m.svc != nil {
 				m.syncSetupSelection()
@@ -603,13 +597,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "left", "h":
-			m.moveViewCursor(-1)
-			m.persistStateBestEffort()
+			if m.view != ViewMain {
+				m.view = ViewMain
+				m.setupStep = 0
+				m.persistStateBestEffort()
+			}
 			return m, nil
 
 		case "right", "l":
-			m.moveViewCursor(1)
-			m.persistStateBestEffort()
 			return m, nil
 
 		case "p":
@@ -754,17 +749,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, flashTimer(2 * time.Second)
 
 		case "b", "B":
-			// T67: master bypass toggle. Flip the flag and echo a flash
-			// so the operator has visual confirmation that the change
-			// landed on the running daemon.
-			next := !m.proxy.Bypass()
-			m.proxy.SetBypass(next)
-			if next {
-				m.setFlash("Bypass: ON  (proxy forwards traffic unmodified)")
-			} else {
-				m.setFlash("Bypass: OFF  (compression layers active)")
+			if m.view != ViewMain {
+				m.view = ViewMain
+				m.setupStep = 0
+				m.persistStateBestEffort()
 			}
-			return m, flashTimer(3 * time.Second)
+			return m, nil
+
+		case "esc", "backspace":
+			if m.view != ViewMain {
+				m.view = ViewMain
+				m.setupStep = 0
+				m.persistStateBestEffort()
+			}
+			return m, nil
 
 		case "y":
 			path := m.copyDebugLog()
@@ -1008,18 +1006,29 @@ func (m *Model) refreshCodexDesktopStatus(force bool) {
 func (m *Model) dashboardActions() []dashboardAction {
 	return []dashboardAction{
 		dashboardAction{
-			group:       "Launch",
-			id:          "launch_cli",
-			label:       "Launch Codex CLI",
-			description: "Open a one-shot Codex CLI session through Slimference. Normal terminal Codex stays direct.",
-			state:       m.codexCLIState(),
+			group: "Launch",
+			id:    "launch_cli",
+			label: "Launch Codex CLI",
 		},
 		dashboardAction{
-			group:       "Launch",
-			id:          "launch_app",
-			label:       "Launch Codex App",
-			description: m.codexAppDescription(),
-			state:       m.codexAppState(),
+			group: "Launch",
+			id:    "launch_app",
+			label: "Launch Codex App",
+		},
+		dashboardAction{
+			group: "Inspect",
+			id:    "savings",
+			label: "Savings",
+		},
+		dashboardAction{
+			group: "Inspect",
+			id:    "status",
+			label: "Status",
+		},
+		dashboardAction{
+			group: "Manage",
+			id:    "setup",
+			label: "Setup",
 		},
 	}
 }
@@ -1292,7 +1301,7 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		m.refreshCodexDesktopStatus(true)
 		m.view = ViewDebug
 		m.setFlash(m.launchCenterStatusFlash())
-	case "manage":
+	case "setup":
 		m.view = ViewSetup
 		m.enterSetupView()
 		m.setFlash("Setup opened")
@@ -1456,20 +1465,4 @@ func (m *Model) syncSetupSelection() {
 		return
 	}
 	m.selectSetupStep(m.setupCursor)
-}
-
-func (m *Model) moveViewCursor(delta int) {
-	next := int(m.view) + delta
-	if next < int(ViewMain) {
-		next = int(ViewSetup)
-	}
-	if next > int(ViewSetup) {
-		next = int(ViewMain)
-	}
-	m.view = ViewMode(next)
-	if m.view == ViewSetup {
-		m.enterSetupView()
-		return
-	}
-	m.setupStep = 0
 }

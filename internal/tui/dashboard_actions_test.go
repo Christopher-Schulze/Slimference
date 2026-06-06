@@ -38,7 +38,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	m.SetServiceControl(svc)
 
 	actions := m.dashboardActions()
-	want := []string{"launch_cli", "launch_app"}
+	want := []string{"launch_cli", "launch_app", "savings", "status", "setup"}
 	if len(actions) != len(want) {
 		t.Fatalf("actions=%v want %d launch-center entries", actions, len(want))
 	}
@@ -47,10 +47,10 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 			t.Fatalf("action[%d]=%q want %q in %v", i, actions[i].id, id, actions)
 		}
 	}
-	if actions[0].label != "Launch Codex CLI" || actions[0].state != "savings active" {
+	if actions[0].label != "Launch Codex CLI" || actions[0].state != "" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
-	if actions[1].label != "Launch Codex App" || actions[1].state != "proof needed" {
+	if actions[1].label != "Launch Codex App" || actions[1].state != "" {
 		t.Fatalf("App action=%+v", actions[1])
 	}
 	if got := findDashboardActionIndex(actions, "daemon"); got >= 0 {
@@ -199,10 +199,19 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	if !svc.codexAppLaunched || !strings.Contains(m.flashMsg, "Codex App launch requested") {
 		t.Fatalf("launch App failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
-	if findDashboardActionIndex(m.dashboardActions(), "savings") >= 0 ||
-		findDashboardActionIndex(m.dashboardActions(), "status") >= 0 ||
-		findDashboardActionIndex(m.dashboardActions(), "manage") >= 0 {
-		t.Fatalf("launch actions leaked non-launch entries: %+v", m.dashboardActions())
+	runAction("savings")
+	if m.view != ViewStats {
+		t.Fatalf("savings action view=%v", m.view)
+	}
+	m.view = ViewMain
+	runAction("status")
+	if m.view != ViewDebug {
+		t.Fatalf("status action view=%v", m.view)
+	}
+	m.view = ViewMain
+	runAction("setup")
+	if m.view != ViewSetup {
+		t.Fatalf("setup action view=%v", m.view)
 	}
 }
 
@@ -301,8 +310,8 @@ func TestUpdate_ArrowDrivenDashboardAndDebug(t *testing.T) {
 	model.view = ViewDebug
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Debug log copied") {
-		t.Fatalf("debug enter flash=%q", model.flashMsg)
+	if model.view != ViewMain {
+		t.Fatalf("debug enter should go back, view=%v", model.view)
 	}
 }
 
@@ -335,12 +344,12 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"LAUNCH", "Launch Codex CLI", "LAUNCH MODE", "HOW IT WORKS"} {
+	for _, needle := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Setup"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
 	}
-	for _, blocked := range []string{"PROVIDER MAP", "TRAFFIC", "LIVE", "CHECKPOINTS", "TOOL ARCHIVE", "OPTIMIZATIONS", "CURRENT SESSION", "HEALTH", "DIAGNOSTICS", "MANAGE", "INSPECT"} {
+	for _, blocked := range []string{"PROVIDER MAP", "TRAFFIC", "LIVE", "CHECKPOINTS", "TOOL ARCHIVE", "OPTIMIZATIONS", "CURRENT SESSION", "HEALTH", "DIAGNOSTICS", "SELECTED ACTION", "LAUNCH MODE", "HOW IT WORKS"} {
 		if strings.Contains(view, blocked) {
 			t.Fatalf("launch view leaked internal block %q in:\n%s", blocked, view)
 		}
@@ -417,8 +426,8 @@ func TestUpdate_MiscCoverageAndLegacySetupActions(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	model := updated.(Model)
-	if model.view != ViewSetup {
-		t.Fatalf("left should wrap to setup, got %v", model.view)
+	if model.view != ViewMain {
+		t.Fatalf("left should stay on main, got %v", model.view)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
@@ -558,7 +567,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"operator notice", "LAUNCH", "LAUNCH MODE", "HOW IT WORKS"} {
+	for _, needle := range []string{"operator notice", "MENU", "Launch Codex CLI", "Savings", "Setup"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -628,8 +637,8 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	model = updated.(Model)
-	if model.view != ViewMain {
-		t.Fatalf("second s should return to main, got %v", model.view)
+	if model.view != ViewStats {
+		t.Fatalf("second s should keep stats open, got %v", model.view)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
@@ -640,8 +649,8 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	model = updated.(Model)
-	if model.view != ViewMain {
-		t.Fatalf("second d should return to main, got %v", model.view)
+	if model.view != ViewDebug {
+		t.Fatalf("second d should keep debug open, got %v", model.view)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
@@ -738,8 +747,8 @@ func TestRenderHeaderIdleAndMainViewWithoutFlash(t *testing.T) {
 	if strings.Contains(view, "operator notice") {
 		t.Fatalf("view should not contain stale flash message:\n%s", view)
 	}
-	if !strings.Contains(view, "LAUNCH MODE") {
-		t.Fatalf("view should show launch mode:\n%s", view)
+	if !strings.Contains(view, "MENU") {
+		t.Fatalf("view should show home menu:\n%s", view)
 	}
 }
 
@@ -769,7 +778,7 @@ func TestRenderMainView_RightColumnPaddingBranch(t *testing.T) {
 	m.latestSnap = proxy.snap
 
 	view := m.renderMainView()
-	if !strings.Contains(view, "LAUNCH MODE") || strings.Contains(view, "LIVE") || strings.Contains(view, "anthrop") || strings.Contains(view, "CURRENT SESSION") {
+	if !strings.Contains(view, "MENU") || strings.Contains(view, "LIVE") || strings.Contains(view, "anthrop") || strings.Contains(view, "CURRENT SESSION") {
 		t.Fatalf("renderMainView launch summary branch wrong in:\n%s", view)
 	}
 }

@@ -198,20 +198,22 @@ func TestUpdate_SetupTransparentArmDisarmErrors(t *testing.T) {
 	}
 }
 
-func TestUpdate_BypassToggleOnAndOff(t *testing.T) {
+func TestUpdate_BackKeyReturnsFromSubview(t *testing.T) {
 	proxy := newMockProxy()
 	model := NewModel(proxy)
+	model.view = ViewStats
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	model = updated.(Model)
-	if !proxy.bypass || !strings.Contains(model.flashMsg, "Bypass: ON") {
-		t.Fatalf("after first toggle bypass=%v flash=%q", proxy.bypass, model.flashMsg)
+	if model.view != ViewMain || proxy.bypass {
+		t.Fatalf("b should go back without toggling bypass: view=%v bypass=%v", model.view, proxy.bypass)
 	}
 
+	model.view = ViewDebug
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
 	model = updated.(Model)
-	if proxy.bypass || !strings.Contains(model.flashMsg, "Bypass: OFF") {
-		t.Fatalf("after second toggle bypass=%v flash=%q", proxy.bypass, model.flashMsg)
+	if model.view != ViewMain || proxy.bypass {
+		t.Fatalf("B should go back without toggling bypass: view=%v bypass=%v", model.view, proxy.bypass)
 	}
 }
 
@@ -241,8 +243,8 @@ func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)
 
-	if actions := model.dashboardActions(); len(actions) != 2 {
-		t.Fatalf("launch dashboard must stay launch-only: %+v", actions)
+	if actions := model.dashboardActions(); len(actions) != 5 {
+		t.Fatalf("home menu must expose five entries: %+v", actions)
 	}
 
 	steps := model.setupSteps()
@@ -338,7 +340,7 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	model.hookStatus = HookStatus{}
 
 	mainView := model.renderMainView()
-	if !strings.Contains(mainView, "LAUNCH MODE") {
+	if !strings.Contains(mainView, "MENU") || !strings.Contains(mainView, "Savings") {
 		t.Fatalf("unexpected main view: %q", mainView)
 	}
 
@@ -360,11 +362,6 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 	setupView := model.renderSetupView()
 	if !strings.Contains(setupView, "Daemon running") || !strings.Contains(setupView, "launchd auto-start service") {
 		t.Fatalf("unexpected setup view: %q", setupView)
-	}
-
-	model.width = 5
-	if panel := strings.Join(model.buildRightPanel(5), "\n"); !strings.Contains(panel, "LAUNCH MODE") {
-		t.Fatalf("unexpected right panel: %q", panel)
 	}
 
 	if lines := model.renderRequestLog(); len(lines) != 1 || !strings.Contains(lines[0], "Waiting for requests") {
@@ -404,7 +401,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.height = 24
 	model.hookStatus = HookStatus{}
 	model.proxy.(*mockProxy).recentReqs = nil
-	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") {
+	if view := model.renderMainView(); !strings.Contains(view, "MENU") {
 		t.Fatalf("unexpected quick-start main view: %q", view)
 	}
 
@@ -426,7 +423,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") || strings.Contains(view, "LIVE") || strings.Contains(view, "CURRENT SESSION") {
+	if view := model.renderMainView(); !strings.Contains(view, "MENU") || strings.Contains(view, "LIVE") || strings.Contains(view, "CURRENT SESSION") {
 		t.Fatalf("unexpected live main view: %q", view)
 	}
 
@@ -435,7 +432,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	model.width = 100
 	model.height = 24
 	model.hookStatus = HookStatus{Claude: true, Codex: true}
-	if view := model.renderMainView(); !strings.Contains(view, "LAUNCH MODE") {
+	if view := model.renderMainView(); !strings.Contains(view, "MENU") {
 		t.Fatalf("unexpected padded live view: %q", view)
 	}
 }

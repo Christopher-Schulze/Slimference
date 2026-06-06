@@ -7,38 +7,35 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestUpdate_ViewArrowNavigationCyclesViews(t *testing.T) {
+func TestUpdate_BackNavigationReturnsHome(t *testing.T) {
 	t.Parallel()
 	m := NewModel(newMockProxy())
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model := updated.(Model)
-	if model.view != ViewStats {
-		t.Fatalf("right from main: got %d want %d", model.view, ViewStats)
+	if model.view != ViewMain {
+		t.Fatalf("right from main should stay home, got %d", model.view)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
-	model = updated.(Model)
-	if model.view != ViewDebug {
-		t.Fatalf("right from stats: got %d want %d", model.view, ViewDebug)
-	}
-
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
-	model = updated.(Model)
-	if model.view != ViewSetup {
-		t.Fatalf("right from debug: got %d want %d", model.view, ViewSetup)
-	}
-
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model.view = ViewStats
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
 	if model.view != ViewMain {
-		t.Fatalf("right from setup should wrap to main, got %d", model.view)
+		t.Fatalf("enter from savings should return home, got %d", model.view)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model.view = ViewDebug
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(Model)
-	if model.view != ViewSetup {
-		t.Fatalf("left from main should wrap to setup, got %d", model.view)
+	if model.view != ViewMain {
+		t.Fatalf("esc from status should return home, got %d", model.view)
+	}
+
+	model.view = ViewSetup
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	model = updated.(Model)
+	if model.view != ViewMain {
+		t.Fatalf("b from setup should return home, got %d", model.view)
 	}
 }
 
@@ -92,7 +89,7 @@ func TestUpdate_SetupArrowNavigation(t *testing.T) {
 	}
 }
 
-func TestView_SetupView_ShowsArrowHintsAndTabs(t *testing.T) {
+func TestView_SetupView_ShowsBackHintsWithoutTabs(t *testing.T) {
 	t.Parallel()
 	m := NewModel(newMockProxy())
 	m.width = 100
@@ -102,9 +99,14 @@ func TestView_SetupView_ShowsArrowHintsAndTabs(t *testing.T) {
 	m.enterSetupView()
 
 	output := m.View()
-	for _, needle := range []string{"Launch", "Savings", "Status", "Setup", "[↑/↓]", "[←/→]", "enable autostart"} {
+	for _, needle := range []string{"SLIMFERENCE / Setup", "[↑/↓]", "[b/esc]", "enable autostart"} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("setup view missing %q in output: %s", needle, output)
+		}
+	}
+	for _, blocked := range []string{"▶ Launch", "[←/→]"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("setup view leaked tab navigation %q in output: %s", blocked, output)
 		}
 	}
 }

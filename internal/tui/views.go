@@ -14,7 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-// renderMainView renders the primary dashboard with a two-column layout.
+// renderMainView renders the five-item home menu.
 func (m *Model) renderMainView() string {
 	s := m.styles
 	width := m.width
@@ -24,37 +24,17 @@ func (m *Model) renderMainView() string {
 	innerWidth := width - 4
 
 	header := m.renderHeader(innerWidth)
-	tabs := renderViewTabs(s, m.view)
 	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
 
-	leftWidth := 36
-	if innerWidth < 90 {
-		leftWidth = 32
-	}
-	rightWidth := innerWidth - leftWidth - 1
-
-	leftLines := m.buildLeftPanel(leftWidth)
-	rightLines := m.buildRightPanel(rightWidth)
-
-	h := max(len(leftLines), len(rightLines))
-	emptyL := strings.Repeat(" ", leftWidth)
-	emptyR := strings.Repeat(" ", rightWidth)
-	leftLines = extendLines(leftLines, h, emptyL)
-	rightLines = extendLines(rightLines, h, emptyR)
-
-	div := s.Divider.Render("│")
-	rows := make([]string, h)
-	for i := range rows {
-		rows[i] = leftLines[i] + div + rightLines[i]
-	}
+	menuLines := m.buildLeftPanel(innerWidth)
 
 	flashLine := ""
 	if m.flashMsg != "" && time.Now().Before(m.flashExpiry) {
 		flashLine = "\n" + s.Flash.Render("  "+m.flashMsg)
 	}
 
-	content := header + "\n" + tabs + "\n" + rule + "\n" +
-		strings.Join(rows, "\n") + "\n" + rule +
+	content := header + "\n" + rule + "\n" +
+		strings.Join(menuLines, "\n") + "\n" + rule +
 		flashLine + "\n" + m.renderFooterBar()
 
 	return s.Border.Width(width - 2).Render(content)
@@ -83,7 +63,6 @@ func (m *Model) renderStatsView() string {
 	var lines []string
 
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Savings"))
-	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
 	cardIndex := 0
@@ -261,8 +240,8 @@ func (m *Model) renderStatsView() string {
 	})
 
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[←/→]")+s.FooterDesc.Render(" switch view")+
-		s.KeySep.Render(" · ")+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" browse cards")+
+	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" browse cards")+
+		s.KeySep.Render(" · ")+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
 		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
@@ -282,7 +261,6 @@ func (m *Model) renderDebugView() string {
 
 	var lines []string
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Status"))
-	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
 	actions := m.debugActions()
@@ -335,9 +313,9 @@ func (m *Model) renderDebugView() string {
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[←/→]")+s.FooterDesc.Render(" switch view")+
-		s.KeySep.Render(" · ")+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" select action")+
-		s.KeySep.Render(" · ")+s.Key.Render("[enter]")+s.FooterDesc.Render(" export diagnostics")+
+	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" move")+
+		s.KeySep.Render(" · ")+s.Key.Render("[enter/b/esc]")+s.FooterDesc.Render(" back")+
+		s.KeySep.Render(" · ")+s.Key.Render("[y]")+s.FooterDesc.Render(" export")+
 		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
@@ -594,7 +572,6 @@ func (m *Model) renderSetupView() string {
 	var lines []string
 
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Setup"))
-	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
 	// Overall READY status.
@@ -740,9 +717,9 @@ func (m *Model) renderSetupView() string {
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
-	lines = append(lines, " "+s.Key.Render("[←/→]")+s.FooterDesc.Render(" switch view")+
-		s.KeySep.Render(" · ")+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" move")+
+	lines = append(lines, " "+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" move")+
 		s.KeySep.Render(" · ")+s.Key.Render("[enter]")+s.FooterDesc.Render(" execute")+
+		s.KeySep.Render(" · ")+s.Key.Render("[b/esc]")+s.FooterDesc.Render(" back")+
 		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
@@ -918,13 +895,9 @@ func (m *Model) renderFooterBar() string {
 	}
 	sep := s.KeySep.Render(" · ")
 	parts := []string{
-		k("←/→", "views"),
 		k("↑/↓", "select"),
-		k("enter", "apply"),
-		k("a", "apps"),
-		k("s", "stats"),
-		k("i", "setup"),
-		k("b", "bypass"),
+		k("enter", "open"),
+		k("b/esc", "back"),
 		k("q", "quit"),
 	}
 	return " " + strings.Join(parts, sep)
@@ -946,64 +919,12 @@ func (m *Model) buildLeftPanel(width int) []string {
 	add := func(str string) { lines = append(lines, pad(str)) }
 
 	actions := m.dashboardActions()
-	add(" " + s.PanelTitle.Render("LAUNCH"))
-	currentGroup := ""
+	add(" " + s.PanelTitle.Render("MENU"))
 	for i, action := range actions {
-		if action.group != currentGroup {
-			currentGroup = action.group
-		}
 		add(" " + renderMenuRow(s, width-2, m.mainCursor == i, action.label, action.state))
 	}
-	add("")
-
-	if len(actions) > 0 {
-		action := actions[clampIndex(m.mainCursor, len(actions))]
-		add(" " + s.PanelTitle.Render("SELECTED ACTION"))
-		add(" " + s.MetricVal.Render(action.label))
-		add(" " + s.Muted.Render(launchActionHint(action.id)))
-		add("")
-	}
 
 	return lines
-}
-
-// buildRightPanel builds the launch-only explanation for the daily launch screen.
-func (m *Model) buildRightPanel(width int) []string {
-	s := m.styles
-
-	pad := func(str string) string {
-		w := lipgloss.Width(str)
-		if w >= width {
-			return str
-		}
-		return str + strings.Repeat(" ", width-w)
-	}
-
-	var lines []string
-	add := func(str string) { lines = append(lines, pad(str)) }
-
-	add(" " + s.PanelTitle.Render("LAUNCH MODE"))
-	add(" " + s.Normal.Render("Normal Codex direct."))
-	add(" " + s.Normal.Render("Launch here = Slimference mode."))
-	add("")
-
-	add(" " + s.PanelTitle.Render("HOW IT WORKS"))
-	add(" " + s.Muted.Render("Enter opens the selected Codex surface."))
-	add(" " + s.Muted.Render("Only that launched process uses Slimference."))
-	add(" " + s.Muted.Render("Use tabs above for details."))
-
-	return lines
-}
-
-func launchActionHint(id string) string {
-	switch id {
-	case "launch_cli":
-		return "One-shot CLI through Slimference."
-	case "launch_app":
-		return "Codex.app through Slimference."
-	default:
-		return ""
-	}
 }
 
 func renderProductRouteLine(s Styles, product ProductPanel) string {

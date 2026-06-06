@@ -5,11 +5,9 @@ run the generator or rerun the TUI key tests to regenerate.
 
 | Category | Keys | Description |
 |----------|------|-------------|
-| Navigation | `left, h` | previous view |
-| Navigation | `right, l` | next view |
 | Navigation | `up, k` | move up |
 | Navigation | `down, j` | move down |
-| Navigation | `enter` | execute |
+| Navigation | `enter` | open/back |
 | Views | `s` | savings view |
 | Views | `d` | status view |
 | Views | `i` | setup view |
@@ -27,7 +25,7 @@ run the generator or rerun the TUI key tests to regenerate.
 | Providers | `c` | toggle Claude Code |
 | Providers | `x` | toggle Codex |
 | Actions | `f` | flush caches |
-| Actions | `b, B` | toggle bypass |
+| Actions | `b, B` | back |
 | Actions | `y` | export diagnostics |
 | Actions | `ctrl+s` | save preferences |
 | Actions | `q, ctrl+c` | quit |
