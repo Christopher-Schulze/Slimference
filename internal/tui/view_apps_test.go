@@ -186,7 +186,7 @@ func TestBuildLeftPanelArmedBypassTiles(t *testing.T) {
 	m := NewModel(p)
 	m.transparentStatus = TransparentStatus{ProxyArmed: true}
 	out := strings.Join(m.buildLeftPanel(120), "\n")
-	if !strings.Contains(out, "MITM ARMED") {
+	if !strings.Contains(out, "GLOBAL LAB ON") {
 		t.Fatalf("armed tile missing:\n%s", out)
 	}
 	if !strings.Contains(out, "BYPASS") {

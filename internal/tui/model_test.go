@@ -265,14 +265,14 @@ func (m *mockServiceControl) LaunchCodexCLI() (string, error) {
 		return "", m.err
 	}
 	m.codexCLILaunched = true
-	return "Codex CLI launched via Slimference transport=auto", nil
+	return "Codex CLI launched through Slimference", nil
 }
 func (m *mockServiceControl) LaunchCodexApp() (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}
 	m.codexAppLaunched = true
-	return "Codex App launch requested through Slimference app-server shim", nil
+	return "Codex App launch requested through Slimference mode", nil
 }
 func (m *mockServiceControl) RepairCodexWSS() (string, error) {
 	if m.err != nil {

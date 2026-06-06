@@ -128,9 +128,9 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 		state  string
 		desc   string
 	}{
-		{CodexDesktopStatus{Mode: "desktop_app_server_phasef_proven", ConversationObserved: true}, "WSS savings active", "Phase-F savings are proven"},
-		{CodexDesktopStatus{Mode: "desktop_app_server_proven", ConversationObserved: true}, "WSS savings active", "Phase-F savings are proven"},
-		{CodexDesktopStatus{Mode: "desktop_app_server_route_ready", ConversationObserved: true}, "WSS route ready", "conversation reaches the Phase-F savings route"},
+		{CodexDesktopStatus{Mode: "desktop_app_server_phasef_proven", ConversationObserved: true}, "savings active", "Desktop savings are proven"},
+		{CodexDesktopStatus{Mode: "desktop_app_server_proven", ConversationObserved: true}, "savings active", "Desktop savings are proven"},
+		{CodexDesktopStatus{Mode: "desktop_app_server_route_ready", ConversationObserved: true}, "route ready", "routing is proven"},
 		{CodexDesktopStatus{FailureClass: "tls_trust_rejected"}, "blocked", "tls_trust_rejected"},
 		{CodexDesktopStatus{FailureClass: "ca_missing"}, "blocked", "ca_missing"},
 		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "blocked", "ca_untrusted"},
@@ -239,7 +239,7 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	})
 	retryDiagnostic.mainCursor = findDashboardActionIndex(retryDiagnostic.dashboardActions(), "launch_app")
 	_ = retryDiagnostic.executeMainSelection()
-	if !strings.Contains(retryDiagnostic.flashMsg, "app-server shim") {
+	if !strings.Contains(retryDiagnostic.flashMsg, "Slimference mode") {
 		t.Fatalf("desktop retry flash=%q", retryDiagnostic.flashMsg)
 	}
 

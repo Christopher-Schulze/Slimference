@@ -1011,7 +1011,7 @@ func (m *Model) dashboardActions() []dashboardAction {
 			group:       "Launch",
 			id:          "launch_cli",
 			label:       "Launch Codex CLI",
-			description: "Open the proven scoped Codex CLI path with transport=auto.",
+			description: "Open a one-shot Codex CLI session through Slimference. Normal terminal Codex stays direct.",
 			state:       m.codexCLIState(),
 		},
 		dashboardAction{
@@ -1071,11 +1071,11 @@ func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch {
 	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
-		return "WSS savings active"
+		return "savings active"
 	case status.Mode == "desktop_app_server_route_ready":
-		return "WSS route ready"
+		return "route ready"
 	case status.Mode == "desktop_wss_bridge_only":
-		return "WSS bridge/fallback"
+		return "fallback"
 	case status.Mode == "desktop_proof_prompt_required":
 		return "proof needed"
 	case status.FailureClass != "":
@@ -1090,13 +1090,13 @@ func (m *Model) codexAppState() string {
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
 	if status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven" {
-		return "Open Codex.app through the Slimference app-server shim; Desktop Phase-F savings are proven."
+		return "Open Codex.app in Slimference mode; Desktop savings are proven."
 	}
 	if status.Mode == "desktop_app_server_route_ready" {
-		return "Open Codex.app through the Slimference app-server shim; the Desktop conversation reaches the Phase-F savings route (per-turn savings scale with conversation size; full mutation proof pending)."
+		return "Open Codex.app in Slimference mode; routing is proven and savings scale with conversation size."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
-		return "Desktop app-server route is not savings-green yet; Launch Codex App blocks instead of opening direct."
+		return "Desktop Slimference mode is not savings-green yet; Launch Codex App blocks instead of opening direct."
 	}
 	if status.FailureClass != "" {
 		return "Desktop Slimference is not green (" + status.FailureClass + "); start Codex.app normally outside Slimference for direct mode."
@@ -1139,10 +1139,10 @@ func (m *Model) statusState() string {
 
 func (m *Model) statusDescription() string {
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
-		return "Codex CLI runs WSS Phase-F savings on the current version tuple." + m.recertStatusSuffix()
+		return "Codex CLI Slimference mode is savings-ready for the current versions." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
-		return "Codex CLI stays on native WSS while Phase-F savings repair runs." + m.recertStatusSuffix()
+		return "Codex CLI stays on native WebSocket fallback while savings repair runs." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.FallbackReason != "" {
 		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason + m.recertStatusSuffix()

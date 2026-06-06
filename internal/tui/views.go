@@ -729,11 +729,10 @@ func (m *Model) renderSetupView() string {
 			"",
 			"  " + s.SetupCmd.Render("slimference install"),
 			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
-			"  " + s.SetupCmd.Render("slimference codex run --transport=wss -- <prompt>") + s.Dim.Render(" # WSS cert"),
-			"  " + s.SetupCmd.Render("slimference codex recertify wss --force") + s.Dim.Render(" # repair WSS proof"),
-			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("                  # CLI/App route"),
-			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("                 # direct fallback"),
-			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # route status"),
+			"  " + s.SetupCmd.Render("slimference codex recertify wss --force") + s.Dim.Render(" # repair savings proof"),
+			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("                  # advanced shared route"),
+			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("                 # normal direct Codex"),
+			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # Codex status"),
 			"  " + s.SetupCmd.Render("go run ./scripts/utils workday-savings start") + s.Dim.Render(" # begin measurement"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
@@ -959,12 +958,10 @@ func (m *Model) buildLeftPanel(width int) []string {
 		add(" " + s.Dim.Render("  open Setup with ←/→ to complete installation"))
 	}
 
-	// Phase H — transparent MITM arm/disarm tile. Renders prominently
-	// so the user always sees whether traffic is being intercepted.
 	if m.transparentStatus.ProxyArmed {
-		add(" " + s.Saved.Render("● MITM ARMED") + "  " + s.Dim.Render("intercepting Codex"))
+		add(" " + s.Saved.Render("● GLOBAL LAB ON") + "  " + s.Dim.Render("advanced routing active"))
 	} else {
-		add(" " + s.Saved.Render("● GLOBAL LAB ARMED") + "  " + s.Dim.Render("advanced routing active"))
+		add(" " + s.Muted.Render("○ GLOBAL LAB OFF") + "  " + s.Dim.Render("normal scoped mode"))
 	}
 	if m.proxy.Bypass() {
 		add(" " + s.Warning.Render("● BYPASS") + "  " + s.Dim.Render("all traffic passes through unmodified (press [b])"))
@@ -1311,7 +1308,7 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 	switch {
 	case status.WSSCertified && (status.AutoMode == "wss_phasef" || (status.AutoMode == "" && mode == "wss")):
 		stateText = "WSS savings active"
-		modeText += " · Phase-F proven"
+		modeText += " · savings proof green"
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
 		stateText = "WSS native bridge"
 		modeText += " · no mutation until repair"
