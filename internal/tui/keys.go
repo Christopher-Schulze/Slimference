@@ -4,20 +4,32 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keyboard shortcuts for the TUI.
 type KeyMap struct {
-	ToggleClaude key.Binding
-	ToggleCodex  key.Binding
-	ToggleLayer1 key.Binding
-	ToggleLayer2 key.Binding
-	PrevView     key.Binding
-	NextView     key.Binding
-	CursorUp     key.Binding
-	CursorDown   key.Binding
-	Execute      key.Binding
-	ViewStats    key.Binding
-	ViewDebug    key.Binding
-	FlushCaches  key.Binding
-	ToggleBypass key.Binding
-	Quit         key.Binding
+	ToggleClaude    key.Binding
+	ToggleCodex     key.Binding
+	ToggleLayer1    key.Binding
+	ToggleLayer2    key.Binding
+	SetupStep3      key.Binding
+	SetupStep4      key.Binding
+	SetupStep5      key.Binding
+	PrevView        key.Binding
+	NextView        key.Binding
+	CursorUp        key.Binding
+	CursorDown      key.Binding
+	Execute         key.Binding
+	ViewStats       key.Binding
+	ViewDebug       key.Binding
+	ViewSetup       key.Binding
+	ViewApps        key.Binding
+	FlushCaches     key.Binding
+	ToggleBypass    key.Binding
+	ServicePower    key.Binding
+	ServiceRepair   key.Binding
+	ToggleCodexMode key.Binding
+	GlobalLab       key.Binding
+	UninstallAssets key.Binding
+	ExportDebug     key.Binding
+	SavePrefs       key.Binding
+	Quit            key.Binding
 }
 
 // DefaultKeyMap returns the standard key bindings.
@@ -33,11 +45,23 @@ func DefaultKeyMap() KeyMap {
 		),
 		ToggleLayer1: key.NewBinding(
 			key.WithKeys("1"),
-			key.WithHelp("1", "toggle Layer 1"),
+			key.WithHelp("1", "setup step 1"),
 		),
 		ToggleLayer2: key.NewBinding(
 			key.WithKeys("2"),
-			key.WithHelp("2", "toggle Layer 2"),
+			key.WithHelp("2", "setup step 2"),
+		),
+		SetupStep3: key.NewBinding(
+			key.WithKeys("3"),
+			key.WithHelp("3", "setup step 3"),
+		),
+		SetupStep4: key.NewBinding(
+			key.WithKeys("4"),
+			key.WithHelp("4", "setup step 4"),
+		),
+		SetupStep5: key.NewBinding(
+			key.WithKeys("5"),
+			key.WithHelp("5", "setup step 5"),
 		),
 		PrevView: key.NewBinding(
 			key.WithKeys("left", "h"),
@@ -61,11 +85,19 @@ func DefaultKeyMap() KeyMap {
 		),
 		ViewStats: key.NewBinding(
 			key.WithKeys("s"),
-			key.WithHelp("s", "stats view"),
+			key.WithHelp("s", "savings view"),
 		),
 		ViewDebug: key.NewBinding(
 			key.WithKeys("d"),
-			key.WithHelp("d", "debug log"),
+			key.WithHelp("d", "status view"),
+		),
+		ViewSetup: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "setup view"),
+		),
+		ViewApps: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "app routing"),
 		),
 		FlushCaches: key.NewBinding(
 			key.WithKeys("f"),
@@ -74,6 +106,34 @@ func DefaultKeyMap() KeyMap {
 		ToggleBypass: key.NewBinding(
 			key.WithKeys("b", "B"),
 			key.WithHelp("b", "toggle bypass"),
+		),
+		ServicePower: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "start/stop daemon"),
+		),
+		ServiceRepair: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "restart/repair daemon"),
+		),
+		ToggleCodexMode: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "toggle Codex Mode"),
+		),
+		GlobalLab: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "advanced lab"),
+		),
+		UninstallAssets: key.NewBinding(
+			key.WithKeys("u"),
+			key.WithHelp("u", "uninstall assets"),
+		),
+		ExportDebug: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "export diagnostics"),
+		),
+		SavePrefs: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "save preferences"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
@@ -84,7 +144,7 @@ func DefaultKeyMap() KeyMap {
 
 // footerHelp returns the compact help string shown in the footer.
 func (km KeyMap) footerHelp() string {
-	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1/2] layers  [f] flush  [b] bypass  [q] quit"
+	return "[←/→] views  [↑/↓] move  [enter] execute  [s] savings  [d] status  [i] setup  [b] bypass  [q] quit"
 }
 
 // bindingSpec names a binding and references the KeyMap field.
@@ -106,12 +166,24 @@ func (km KeyMap) orderedBindings() []bindingSpec {
 		{"Navigation", km.Execute},
 		{"Views", km.ViewStats},
 		{"Views", km.ViewDebug},
+		{"Views", km.ViewSetup},
+		{"Setup", km.ToggleLayer1},
+		{"Setup", km.ToggleLayer2},
+		{"Setup", km.SetupStep3},
+		{"Setup", km.SetupStep4},
+		{"Setup", km.SetupStep5},
+		{"Setup", km.ViewApps},
+		{"Setup", km.ServicePower},
+		{"Setup", km.ServiceRepair},
+		{"Setup", km.ToggleCodexMode},
+		{"Setup", km.GlobalLab},
+		{"Setup", km.UninstallAssets},
 		{"Providers", km.ToggleClaude},
 		{"Providers", km.ToggleCodex},
-		{"Layers", km.ToggleLayer1},
-		{"Layers", km.ToggleLayer2},
 		{"Actions", km.FlushCaches},
 		{"Actions", km.ToggleBypass},
+		{"Actions", km.ExportDebug},
+		{"Actions", km.SavePrefs},
 		{"Actions", km.Quit},
 	}
 }

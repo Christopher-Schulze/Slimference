@@ -89,6 +89,8 @@ func TestAppsViewKeyboardToggleAndCursor(t *testing.T) {
 	}
 	m := NewModel(p)
 
+	m.view = ViewSetup
+	m.SetServiceControl(&mockServiceControl{})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(Model)
 	if model.view != ViewApps || model.appsCursor != 0 || model.appsFlash != "" {
@@ -117,8 +119,8 @@ func TestAppsViewKeyboardToggleAndCursor(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model = updated.(Model)
-	if model.view != ViewMain {
-		t.Fatalf("apps key from apps view should return main, got %v", model.view)
+	if model.view != ViewSetup {
+		t.Fatalf("apps key from apps view should return setup, got %v", model.view)
 	}
 }
 

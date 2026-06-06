@@ -99,9 +99,8 @@ func renderViewTabs(s Styles, current ViewMode) string {
 		label string
 	}{
 		{mode: ViewMain, label: "Launch"},
-		{mode: ViewStats, label: "Stats"},
-		{mode: ViewApps, label: "Apps"},
-		{mode: ViewDebug, label: "Debug"},
+		{mode: ViewStats, label: "Savings"},
+		{mode: ViewDebug, label: "Status"},
 		{mode: ViewSetup, label: "Setup"},
 	}
 	parts := make([]string, 0, len(items))

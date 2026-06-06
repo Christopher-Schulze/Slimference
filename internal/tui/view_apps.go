@@ -66,7 +66,7 @@ func (m Model) renderAppsView() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(s.Muted.Render("  ↑/↓ select   space toggle Codex apps   q quit"))
+	b.WriteString(s.Muted.Render("  ↑/↓ select   space toggle Codex apps   a back to Setup   q quit"))
 	b.WriteString("\n")
 	if m.appsFlash != "" {
 		b.WriteString("\n")

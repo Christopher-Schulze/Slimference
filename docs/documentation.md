@@ -1370,9 +1370,10 @@ settings, or persistent legacy `openai_base_url`.
 
 The TUI exposes the same scoped lifecycle: Setup shows install state, scoped
 Codex route state, daemon controls, and a direct `[r]` toggle for
-`slimference codex enable` / `slimference codex disable`. Apps shows
-per-app routing policy, with Claude Code parked. Stats/Savings counters come
-from `/admin/state`. Global transparent controls remain labelled as lab-only.
+`slimference codex enable` / `slimference codex disable`. Setup opens app
+routing with `[a]`, with Claude Code parked. Savings counters come from
+`/admin/state`. Global transparent controls remain labelled as lab-only and are
+opened from Setup with `[g]`.
 
 ### Legacy `integrate install`
 
@@ -1695,9 +1696,9 @@ percentiles on demand.
 
 `internal/tui` is a BubbleTea UI with a Launch Center as the default view.
 The top-level user surface is intentionally small: Launch Codex CLI, Launch
-Codex App, Savings, Status, and Manage Slimference. The implementation reuses
-the existing Stats, Apps, Debug, and Setup views behind those entries instead
-of creating a second TUI.
+Codex App, Savings, Status, and Setup. Apps, diagnostics, daemon repair, and
+advanced lab controls stay behind Setup/Status instead of being promoted as
+daily-use navigation.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App launches the process-local
@@ -1710,14 +1711,16 @@ exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
 `route_mode=websocket_phasef`. Historical proxy/CA failures remain diagnostic
 proof state. Normal Finder/Spotlight Codex.app launches remain direct.
-Manage Slimference owns one product-level install/repair surface for Codex CLI
-and Desktop together. Per-app rows are route policy/capability state, not
-separate install states. Manage also owns daemon start/stop/restart/repair,
-route controls, CA, lab controls, and the guided "Repair Codex CLI WSS savings"
-action that calls the same recert core as the CLI/background path. Old macOS
-`U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only stale
-processes when detected; the current healthy daemon PID remains the actionable
-state.
+Setup owns one product-level install/repair surface for Codex CLI and Desktop
+together. Per-app rows are route policy/capability state, not separate install
+states, and are opened from Setup with `a`. Setup also owns daemon
+start/stop/restart/repair, scoped Codex Mode, CA/material state, advanced lab
+controls, and the guided "Repair Codex CLI WSS savings" action that calls the
+same recert core as the CLI/background path. Global lab controls are reachable
+with `g` from Setup only and are not advertised as the normal product path. Old
+macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
+stale processes when detected; the current healthy daemon PID remains the
+actionable state.
 
 The Launch Center labels the Codex route in hard product terms: `WSS savings
 active` means Phase-F mutation is certified for the current tuple; `WSS route
@@ -1752,13 +1755,19 @@ Auto-generated in `docs/tui-keybindings.md` from
 | Navigation  | `←/→/h/l`   | previous / next view           |
 | Navigation  | `↑/↓/j/k`   | move up / down                 |
 | Navigation  | `enter`     | execute highlighted action     |
-| Views       | `s`         | stats view                     |
-| Views       | `d`         | debug log view                 |
-| Views       | `a`         | apps view; Codex CLI/Desktop toggles; Claude row parked until explicit Claude hosts opt-in |
+| Views       | `s`         | savings view                   |
+| Views       | `d`         | status view                    |
+| Views       | `i`         | setup view                     |
+| Setup       | `1`-`5`     | jump to setup step             |
+| Setup       | `a`         | app routing view; Codex CLI/Desktop toggles; Claude row parked until explicit Claude hosts opt-in |
 | Setup       | `r`         | enable/disable scoped Codex CLI/App route |
-| Layers      | `1/3`       | toggle active safe layers      |
+| Setup       | `p` / `o`   | start/stop daemon; restart/repair daemon |
+| Setup       | `g`         | advanced global lab controls   |
+| Setup       | `u`         | uninstall Slimference assets   |
 | Actions     | `f`         | flush caches                   |
 | Actions     | `b`         | **toggle bypass** (T67)        |
+| Actions     | `y`         | export diagnostics             |
+| Actions     | `ctrl+s`    | save preferences               |
 | Actions     | `q`/`ctrl+c`| quit                           |
 
 ### Bypass badge
@@ -1773,7 +1782,7 @@ to a running daemon via the admin API rather than driving a local
 `Proxy` instance. Used when you run `slimference` against a daemon
 started by `service install`.
 
-The Stats view renders Layer 0 parser telemetry from the same admin status
+The Savings view renders Layer 0 parser telemetry from the same admin status
 snapshot: total attempts/matches/misses/panics, runtime hit rate, bytes saved,
 and the top parser filters by saved bytes. This is runtime observability; the
 persisted billing-style Layer 0 savings view remains `slimference gain
@@ -1943,7 +1952,7 @@ to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
 assignments, `sk-*` keys, user-home paths, and temp paths are redacted. Raw
 request/response bodies are not captured by the flight recorder.
 
-The TUI Debug view renders a `FLIGHT RECORDER` block sourced from the same
+The TUI Status view renders a `FLIGHT RECORDER` block sourced from the same
 records: recent route/source/layers, billable savings estimate, provider cache
 tokens, output tokens, bypass count, and slowest request.
 
@@ -2076,7 +2085,7 @@ green; if a clean byte-equal WSS bridge proof exists, the active user session
 stays on WSS bridge while repair runs instead of jumping directly to HTTP.
 
 `slimference codex recertify wss` is the shared repair core for CLI, background
-auto-recert, and TUI Manage. It creates a temporary repo, runs real Codex CLI
+auto-recert, and TUI Setup. It creates a temporary repo, runs real Codex CLI
 turns through scoped WSS, evaluates only the `/_slimference/admin/state`
 `.wss` delta window,
 and writes either the Phase-F cert or the lower-risk

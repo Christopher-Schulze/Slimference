@@ -145,13 +145,13 @@ func TestUpdate_SetupTransparentKeys(t *testing.T) {
 	svc := &mockServiceControl{}
 	model.SetServiceControl(svc)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	model = updated.(Model)
 	if !svc.transparentInstalled || !svc.transparentEnabled || !strings.Contains(model.flashMsg, "armed") {
 		t.Fatalf("arm transparent failed: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	model = updated.(Model)
 	if !svc.transparentDisabled || !strings.Contains(model.flashMsg, "disarmed") {
 		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, model.flashMsg)
@@ -165,7 +165,7 @@ func TestUpdate_SetupTransparentKeys(t *testing.T) {
 }
 
 func TestUpdate_SetupTransparentKeyErrors(t *testing.T) {
-	for _, key := range []rune{'a', 'u'} {
+	for _, key := range []rune{'g', 'u'} {
 		model := NewModel(newMockProxy())
 		model.view = ViewSetup
 		model.SetServiceControl(&mockServiceControl{err: errors.New("boom")})
@@ -190,7 +190,7 @@ func TestUpdate_SetupTransparentArmDisarmErrors(t *testing.T) {
 				ProxyArmed:         armed,
 			},
 		})
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 		got := updated.(Model)
 		if !strings.Contains(got.flashMsg, "failed") {
 			t.Fatalf("armed=%v flash=%q", armed, got.flashMsg)

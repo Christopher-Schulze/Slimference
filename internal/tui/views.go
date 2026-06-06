@@ -82,7 +82,7 @@ func (m *Model) renderStatsView() string {
 
 	var lines []string
 
-	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Stats"))
+	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Savings"))
 	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
@@ -121,8 +121,8 @@ func (m *Model) renderStatsView() string {
 	headers := []string{"Metric", "Original", "After", "Saved"}
 	rows := [][]string{
 		{"Total Input", formatTokens(snap.TotalInputTokens), formatTokens(snap.TotalInputTokens - snap.SavedInputTokens), fmt.Sprintf("%d%%", ratio)},
-		{"Layer 1 (determ)", "-", "-", formatTokens(snap.Layer1Savings)},
-		{"Layer 2 (cache)", "-", "-", formatTokens(snap.Layer2Savings)},
+		{"Deterministic", "-", "-", formatTokens(snap.Layer1Savings)},
+		{"Cache layer", "-", "-", formatTokens(snap.Layer2Savings)},
 		{"Total Output", formatTokens(snap.TotalOutputTokens), "(passthru)", "-"},
 	}
 	appendCard("SAVINGS", []string{renderTable(s, headers, rows, []int{20, 12, 12, 8})})
@@ -269,7 +269,7 @@ func (m *Model) renderStatsView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
-// renderDebugView renders the debug log tail.
+// renderDebugView renders the operator status and diagnostics screen.
 func (m *Model) renderDebugView() string {
 	s := m.styles
 	width := m.width
@@ -281,7 +281,7 @@ func (m *Model) renderDebugView() string {
 	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
 
 	var lines []string
-	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Debug Log"))
+	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Status"))
 	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
@@ -337,7 +337,7 @@ func (m *Model) renderDebugView() string {
 	lines = append(lines, rule)
 	lines = append(lines, " "+s.Key.Render("[←/→]")+s.FooterDesc.Render(" switch view")+
 		s.KeySep.Render(" · ")+s.Key.Render("[↑/↓]")+s.FooterDesc.Render(" select action")+
-		s.KeySep.Render(" · ")+s.Key.Render("[enter]")+s.FooterDesc.Render(" export log")+
+		s.KeySep.Render(" · ")+s.Key.Render("[enter]")+s.FooterDesc.Render(" export diagnostics")+
 		s.KeySep.Render(" · ")+s.Key.Render("[q]")+s.FooterDesc.Render(" quit"))
 
 	content := strings.Join(lines, "\n")
@@ -665,6 +665,7 @@ func (m *Model) renderSetupView() string {
 			serviceLines = append(serviceLines, "  "+s.Saved.Render("● RUNNING")+"  PID "+fmt.Sprintf("%d  port :%d", pid, port))
 		} else {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
+			serviceLines = append(serviceLines, "  "+s.Muted.Render("Press [p] to start; press [o] to restart/repair launchd"))
 		}
 		if notice := m.svc.DaemonNotice(); notice != "" {
 			serviceLines = append(serviceLines, "  "+s.BannerWarn.Render("● OLD PROCESS")+"  "+notice)
@@ -674,7 +675,7 @@ func (m *Model) renderSetupView() string {
 		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex Mode  [p] start/stop  [o] restart/repair daemon"))
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] global lab controls  [u] uninstall Slimference assets"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] app routing  [g] advanced lab  [u] uninstall Slimference assets"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
@@ -963,7 +964,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 	if m.transparentStatus.ProxyArmed {
 		add(" " + s.Saved.Render("● MITM ARMED") + "  " + s.Dim.Render("intercepting Codex"))
 	} else {
-		add(" " + s.Muted.Render("○ MITM DISARMED") + "  " + s.Dim.Render("press [i] then [a] to arm"))
+		add(" " + s.Saved.Render("● GLOBAL LAB ARMED") + "  " + s.Dim.Render("advanced routing active"))
 	}
 	if m.proxy.Bypass() {
 		add(" " + s.Warning.Render("● BYPASS") + "  " + s.Dim.Render("all traffic passes through unmodified (press [b])"))
@@ -999,9 +1000,9 @@ func (m *Model) buildLeftPanel(width int) []string {
 	add(" " + s.Muted.Render("○ Claude Code  [OFF]  opt-in later"))
 	add("")
 
-	add(" " + s.PanelTitle.Render("BACKGROUND"))
-	add(renderLayerLine(s, 1, "Deterministic", m.layer1Enabled, snap.Layer1Savings, ""))
-	add(renderLayerLine(s, 2, "Cache", m.layer2Enabled, snap.Layer2Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
+	add(" " + s.PanelTitle.Render("OPTIMIZATIONS"))
+	add(renderOptimizationLine(s, "Deterministic compression", m.layer1Enabled, snap.Layer1Savings, ""))
+	add(renderOptimizationLine(s, "Cache layer", m.layer2Enabled, snap.Layer2Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
 	add("")
 
 	readCache := m.proxy.GetReadCacheStatus()
@@ -1110,14 +1111,13 @@ func (m *Model) buildRightPanel(width int) []string {
 	if snap.TotalRequests == 0 && !m.hookStatus.Codex {
 		add(" " + s.PanelTitle.Render("QUICK START"))
 		add("")
-		add(" " + s.Normal.Render("1. Install + arm:"))
+		add(" " + s.Normal.Render("1. Install Slimference:"))
 		add("   " + s.SetupCmd.Render("$ slimference install"))
-		add("   " + s.SetupCmd.Render("$ slimference enable"))
 		add("")
-		add(" " + s.Normal.Render("2. Start Codex CLI"))
-		add(" " + s.Muted.Render("   Requests appear here automatically."))
+		add(" " + s.Normal.Render("2. Launch Codex from this TUI"))
+		add(" " + s.Muted.Render("   Use Launch Codex CLI or Launch Codex App."))
 		add("")
-		add(" " + s.Dim.Render("   Press [a] for per-app routing toggles."))
+		add(" " + s.Dim.Render("   Press [i] for Setup and repair."))
 	} else {
 		maxLog := 6
 		if m.height >= 30 {
@@ -1250,6 +1250,24 @@ func providerFlowLine(s Styles, label string, stats analytics.ProviderStats, lat
 		state += fmt.Sprintf(" · %.0fms", latencyMs)
 	}
 	return " " + padRight(label, 12) + "  " + s.Muted.Render(state)
+}
+
+func renderOptimizationLine(s Styles, label string, enabled bool, saved int, extra string) string {
+	state := s.OffBadge.Render("OFF")
+	dot := s.DotOff.Render("○")
+	if enabled {
+		state = s.OnBadge.Render("ON ")
+		dot = s.Dot.Render("●")
+	}
+	savedStr := ""
+	if saved > 0 {
+		savedStr = "  " + s.Saved.Render(formatTokens(saved)+" saved")
+	}
+	extraStr := ""
+	if extra != "" {
+		extraStr = "  " + s.Dim.Render(extra)
+	}
+	return "  " + dot + " " + s.Normal.Render(label) + " [" + state + "]" + savedStr + extraStr
 }
 
 func renderTransparentStatusLine(s Styles, status TransparentStatus) string {

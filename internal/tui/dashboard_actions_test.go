@@ -204,11 +204,11 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	}
 	m.view = ViewMain
 	runAction("status")
-	if !strings.Contains(m.flashMsg, "Status: CLI WSS savings") {
-		t.Fatalf("status flash=%q", m.flashMsg)
+	if m.view != ViewDebug || !strings.Contains(m.flashMsg, "Status: CLI WSS savings") {
+		t.Fatalf("status action view=%v flash=%q", m.view, m.flashMsg)
 	}
 	runAction("manage")
-	if m.view != ViewSetup || !strings.Contains(m.flashMsg, "Manage Slimference opened") {
+	if m.view != ViewSetup || !strings.Contains(m.flashMsg, "Setup opened") {
 		t.Fatalf("manage action view=%v flash=%q", m.view, m.flashMsg)
 	}
 }
@@ -624,13 +624,13 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	model = updated.(Model)
-	if model.layer1Enabled {
-		t.Fatalf("layer1 should toggle off in main view")
+	if !model.layer1Enabled || !strings.Contains(model.flashMsg, "moved out of the daily UI") {
+		t.Fatalf("main 1 should not toggle layer1: enabled=%v flash=%q", model.layer1Enabled, model.flashMsg)
 	}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	model = updated.(Model)
-	if model.layer2Enabled {
-		t.Fatalf("layer2 should toggle off in main view")
+	if !model.layer2Enabled || !strings.Contains(model.flashMsg, "moved out of the daily UI") {
+		t.Fatalf("main 2 should not toggle layer2: enabled=%v flash=%q", model.layer2Enabled, model.flashMsg)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})

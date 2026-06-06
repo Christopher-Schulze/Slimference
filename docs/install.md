@@ -99,7 +99,7 @@ human entrypoints there are:
 - Launch Codex App
 - Savings
 - Status
-- Manage Slimference
+- Setup
 
 There is no separate "open direct" action. Direct mode is the native launch:
 `codex` in a normal shell or Codex.app from Finder/Spotlight. Slimference mode
@@ -294,7 +294,7 @@ the current observation cycle is green. When Codex or Slimference updates,
 tuple, `auto.needs_recert=true`, the recert state path, and
 `auto.recert_command`.
 
-Repair is shared by CLI, background auto-recert, and the TUI Manage action:
+Repair is shared by CLI, background auto-recert, and the TUI Setup action:
 
 ```bash
 slimference codex recertify wss --dry-run --json

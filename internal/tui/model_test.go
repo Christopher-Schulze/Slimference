@@ -397,7 +397,8 @@ func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
 	}
 }
 
-// TestUpdate_ToggleLayers verifies that pressing '1' and '2' toggles layers.
+// TestUpdate_ToggleLayers verifies that daily-surface number keys no longer
+// toggle optimization layers by accident.
 func TestUpdate_ToggleLayers(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -408,12 +409,15 @@ func TestUpdate_ToggleLayers(t *testing.T) {
 		model := updated.(Model)
 		m = model
 	}
-	if p.layer1Enabled || p.layer2Enabled {
-		t.Error("layers 1 and 2 should be off after toggling")
+	if !p.layer1Enabled || !p.layer2Enabled {
+		t.Error("layers 1 and 2 should remain enabled from the daily UI")
+	}
+	if !strings.Contains(m.flashMsg, "daily UI") {
+		t.Fatalf("missing daily UI flash: %q", m.flashMsg)
 	}
 }
 
-// TestUpdate_ViewStatsToggle verifies that pressing 's' toggles the stats view.
+// TestUpdate_ViewStatsToggle verifies that pressing 's' toggles the savings view.
 func TestUpdate_ViewStatsToggle(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -557,7 +561,7 @@ func TestView_MainRender(t *testing.T) {
 	}
 }
 
-// TestView_StatsRender verifies that the stats view renders without panicking.
+// TestView_StatsRender verifies that the savings view renders without panicking.
 func TestView_StatsRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -599,7 +603,7 @@ func TestView_StatsRender(t *testing.T) {
 
 	output := m.View()
 	if output == "" {
-		t.Error("View() returned empty string for stats view")
+		t.Error("View() returned empty string for savings view")
 	}
 	if !strings.Contains(output, "LAYER 0 PARSERS") || !strings.Contains(output, "git_status") {
 		t.Fatalf("layer0 parser card missing: %s", output)
@@ -931,7 +935,7 @@ func TestView_MainRender_NarrowWidth(t *testing.T) {
 	}
 }
 
-// TestView_StatsRender_NarrowWidth verifies the stats view handles width < 40.
+// TestView_StatsRender_NarrowWidth verifies the savings view handles width < 40.
 func TestView_StatsRender_NarrowWidth(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -1124,7 +1128,7 @@ func TestView_MainRender_NarrowHeaderPad(t *testing.T) {
 	}
 }
 
-// TestView_StatsRender_WithData verifies stats view branches with non-zero snap data.
+// TestView_StatsRender_WithData verifies savings view branches with non-zero snap data.
 func TestView_StatsRender_WithData(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()

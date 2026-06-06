@@ -501,10 +501,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			m.layer1Enabled = !m.layer1Enabled
-			m.proxy.SetLayerEnabled(1, m.layer1Enabled)
-			m.persistStateBestEffort()
-			m.setFlash(fmt.Sprintf("Layer 1: %s", onOff(m.layer1Enabled)))
+			m.setFlash("Runtime layer toggles moved out of the daily UI; use config/CLI for advanced control")
+			return m, flashTimer(3 * time.Second)
 
 		case "2":
 			if m.view == ViewSetup {
@@ -512,14 +510,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			m.layer2Enabled = !m.layer2Enabled
-			m.proxy.SetLayerEnabled(2, m.layer2Enabled)
-			m.persistStateBestEffort()
-			m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
+			m.setFlash("Cache layer controls moved out of the daily UI; use config/CLI for advanced control")
+			return m, flashTimer(3 * time.Second)
 
 		case "3":
 			if m.view == ViewSetup {
 				m.selectSetupStep(2)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+		case "4":
+			if m.view == ViewSetup {
+				m.selectSetupStep(3)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+		case "5":
+			if m.view == ViewSetup {
+				m.selectSetupStep(4)
 				m.persistStateBestEffort()
 				return m, nil
 			}
@@ -681,19 +689,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "a":
-			// Phase H: toggle Apps view from anywhere except Setup,
-			// where "a" remains the transparent-arm action.
-			if m.view != ViewSetup {
-				if m.view == ViewApps {
-					m.view = ViewMain
-				} else {
-					m.view = ViewApps
-					m.appsCursor = 0
-					m.appsFlash = ""
-				}
+			// Phase H: app routing lives behind Setup for the daily product
+			// surface. The app screen remains available without promoting it
+			// as a top-level tab.
+			if m.view == ViewApps {
+				m.view = ViewSetup
+				m.enterSetupView()
 				m.persistStateBestEffort()
 				return m, nil
 			}
+			if m.view == ViewSetup && m.svc != nil {
+				m.view = ViewApps
+				m.appsCursor = 0
+				m.appsFlash = ""
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			m.setFlash("App routing lives in Setup")
+			return m, flashTimer(2 * time.Second)
+
+		case "g":
 			if m.view == ViewSetup && m.svc != nil {
 				status := m.transparentStatus
 				if status.ProxyArmed {
@@ -1023,8 +1038,8 @@ func (m *Model) dashboardActions() []dashboardAction {
 		dashboardAction{
 			group:       "Manage",
 			id:          "manage",
-			label:       "Manage Slimference",
-			description: "Product install/repair, daemon restart, WSS repair, route controls, CA, and lab actions.",
+			label:       "Setup",
+			description: "Install, daemon repair, Codex route, app routing, and advanced lab controls.",
 			state:       m.manageState(),
 		},
 	}
@@ -1296,11 +1311,12 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		m.refreshTransparentStatus(true)
 		m.refreshCodexRouteStatus(true)
 		m.refreshCodexDesktopStatus(true)
+		m.view = ViewDebug
 		m.setFlash(m.launchCenterStatusFlash())
 	case "manage":
 		m.view = ViewSetup
 		m.enterSetupView()
-		m.setFlash("Manage Slimference opened")
+		m.setFlash("Setup opened")
 	}
 	m.persistStateBestEffort()
 	return flashTimer(3 * time.Second)
