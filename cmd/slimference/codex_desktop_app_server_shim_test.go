@@ -209,20 +209,51 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	if provider != codexSlimferenceProviderID {
 		t.Fatalf("model_provider=%q", provider)
 	}
+	if err := json.Unmarshal(result.Config["modelProvider"], &provider); err != nil {
+		t.Fatalf("modelProvider missing/invalid: %v", err)
+	}
+	if provider != codexSlimferenceProviderID {
+		t.Fatalf("modelProvider=%q", provider)
+	}
 	var providers map[string]struct {
-		Name               string `json:"name"`
-		BaseURL            string `json:"base_url"`
-		RequiresOpenAIAuth bool   `json:"requires_openai_auth"`
-		SupportsWebSockets bool   `json:"supports_websockets"`
-		WireAPI            string `json:"wire_api"`
+		ID                      string `json:"id"`
+		Name                    string `json:"name"`
+		DisplayName             string `json:"displayName"`
+		Label                   string `json:"label"`
+		BaseURL                 string `json:"base_url"`
+		BaseURLCamel            string `json:"baseUrl"`
+		BaseURLInitialism       string `json:"baseURL"`
+		RequiresOpenAIAuth      bool   `json:"requires_openai_auth"`
+		RequiresOpenAIAuthCamel bool   `json:"requiresOpenAIAuth"`
+		RequiresOpenAIAuthAlt   bool   `json:"requiresOpenAiAuth"`
+		SupportsWebSockets      bool   `json:"supports_websockets"`
+		SupportsWebSocketsCamel bool   `json:"supportsWebSockets"`
+		SupportsWebsocketsAlt   bool   `json:"supportsWebsockets"`
+		WireAPI                 string `json:"wire_api"`
+		WireAPICamel            string `json:"wireApi"`
+		WireAPIInitialism       string `json:"wireAPI"`
 	}
 	if err := json.Unmarshal(result.Config["model_providers"], &providers); err != nil {
 		t.Fatalf("model_providers missing/invalid: %v", err)
 	}
 	entry := providers[codexSlimferenceProviderID]
-	if entry.Name != "Slimference" || entry.BaseURL != "http://127.0.0.1:8990/backend-api/codex" ||
-		!entry.RequiresOpenAIAuth || !entry.SupportsWebSockets || entry.WireAPI != "responses" {
+	if entry.ID != codexSlimferenceProviderID || entry.Name != "Slimference" || entry.DisplayName != "Slimference" ||
+		entry.Label != "Slimference" || entry.BaseURL != "http://127.0.0.1:8990/backend-api/codex" ||
+		entry.BaseURLCamel != "http://127.0.0.1:8990/backend-api/codex" ||
+		entry.BaseURLInitialism != "http://127.0.0.1:8990/backend-api/codex" ||
+		!entry.RequiresOpenAIAuth || !entry.RequiresOpenAIAuthCamel || !entry.RequiresOpenAIAuthAlt ||
+		!entry.SupportsWebSockets || !entry.SupportsWebSocketsCamel || !entry.SupportsWebsocketsAlt ||
+		entry.WireAPI != "responses" || entry.WireAPICamel != "responses" || entry.WireAPIInitialism != "responses" {
 		t.Fatalf("bad provider entry: %+v", entry)
+	}
+	var camelProviders map[string]struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(result.Config["modelProviders"], &camelProviders); err != nil {
+		t.Fatalf("modelProviders missing/invalid: %v", err)
+	}
+	if camelProviders[codexSlimferenceProviderID].Name != "Slimference" {
+		t.Fatalf("bad camel provider entry: %+v", camelProviders[codexSlimferenceProviderID])
 	}
 }
 
@@ -237,6 +268,57 @@ func TestCodexDesktopAppServerStdoutPassesNonConfigResponsesByteIdentical(t *tes
 	mediator.mediateStdout(strings.NewReader(in), &out)
 	if out.String() != in {
 		t.Fatalf("unknown stdout frames must pass byte-identical:\ngot  %q\nwant %q", out.String(), in)
+	}
+}
+
+func TestCodexDesktopAppServerStdoutModelListAddsSlimferenceDisplayOnly(t *testing.T) {
+	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{})
+	request := `{"id":"m1","method":"model/list","params":{"limit":100}}` + "\n"
+	response := `{"id":"m1","result":{"data":[{"model":"gpt-5.5","displayName":"5.5","isDefault":true},{"model":"gpt-5-mini"}]}}` + "\n"
+
+	var stdinOut bytes.Buffer
+	mediator.mediateStdin(strings.NewReader(request), &stdinOut)
+	if stdinOut.String() != request {
+		t.Fatalf("model/list request must pass through unchanged: %s", stdinOut.String())
+	}
+
+	var stdoutOut bytes.Buffer
+	mediator.mediateStdout(strings.NewReader(response), &stdoutOut)
+	got := strings.TrimSpace(stdoutOut.String())
+	if got == strings.TrimSpace(response) {
+		t.Fatalf("model/list response was not rewritten: %s", got)
+	}
+	var msg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(got), &msg); err != nil {
+		t.Fatalf("rewritten response is invalid JSON: %v (%s)", err, got)
+	}
+	var result struct {
+		Data []struct {
+			Model       string `json:"model"`
+			DisplayName string `json:"displayName"`
+			IsDefault   bool   `json:"isDefault"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(msg["result"], &result); err != nil {
+		t.Fatalf("result is invalid JSON: %v", err)
+	}
+	if len(result.Data) != 2 {
+		t.Fatalf("models len=%d", len(result.Data))
+	}
+	if result.Data[0].Model != "gpt-5.5" || result.Data[0].DisplayName != "Slimference 5.5" || !result.Data[0].IsDefault {
+		t.Fatalf("bad first model: %+v", result.Data[0])
+	}
+	if result.Data[1].Model != "gpt-5-mini" || result.Data[1].DisplayName != "Slimference gpt-5-mini" {
+		t.Fatalf("bad second model: %+v", result.Data[1])
+	}
+}
+
+func TestRewriteCodexDesktopModelListResponseRequiresRequestMethod(t *testing.T) {
+	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{})
+	response := []byte(`{"id":"m1","result":{"data":[{"model":"gpt-5.5","displayName":"5.5"}]}}` + "\n")
+	rewritten, method, kind := mediator.maybeRewriteResponseLine(response)
+	if kind != "" || method != "" || !bytes.Equal(rewritten, response) {
+		t.Fatalf("model/list-shaped response without request method must pass through: method=%q kind=%q out=%s", method, kind, rewritten)
 	}
 }
 

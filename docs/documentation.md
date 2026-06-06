@@ -85,8 +85,11 @@ routine use, it stays out of the product path.
   default (chatgpt.com direct); the shim rewrites a default (null/absent)
   `modelProvider` to `slimference-codex`, byte-identical for everything else.
   The same scoped shim also augments app-server responses shaped as
-  `result.config` so Codex Desktop's blank start screen can show the
-  `Slimference` provider chip without writing persistent Codex config.
+  `result.config` and tracked `model/list` responses so Codex Desktop's blank
+  start screen exposes a visible Slimference route signal without writing
+  persistent Codex config. Older Desktop builds can show it as a provider chip;
+  current Desktop builds can show it as a `Slimference ` prefix on the model
+  display name. The model IDs and selected model values are never changed.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
   untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
@@ -2049,17 +2052,24 @@ process-local provider block
 
 Implemented in `cmd/slimference/codex_desktop_app_server_shim.go`. The shim is a
 thin JSON-RPC mediator (not a bare exec): it spawns the real Codex app-server,
-passes unrelated frames straight through, and inspects only two scoped seams in
-the newline-delimited Desktop protocol. Client->server `thread/start` requests
+passes unrelated frames straight through, and inspects only scoped routing and
+display-signal seams in the newline-delimited Desktop protocol. Client->server
+`thread/start` requests
 with a default provider (`null` or absent) are rewritten to
 `slimference-codex`; explicit providers and realtime/voice threads via
 `config["features.realtime_conversation"]` pass through byte-identically.
 Server->client responses shaped as `result.config` are augmented with
-`config.model_provider=slimference-codex` and the matching process-local
-provider entry so Codex Desktop can render the visible `Slimference` provider
-chip on the start screen even if Codex changes its config/read request method
-or request id shape. Non-JSON, non-config responses, error responses, malformed
-config shapes, and unrelated notifications pass through byte-identically.
+`config.model_provider`/`config.modelProvider=slimference-codex` and matching
+`model_providers`/`modelProviders` process-local provider entries so older
+Codex Desktop builds can render the visible `Slimference` provider signal
+across snake_case and camelCase Desktop config shapes. Current Desktop builds
+also receive a scoped `model/list` display-only rewrite: each model
+`displayName` is prefixed with `Slimference ` while the `model` ID, default
+flag, explicit provider choices, and routing semantics stay unchanged. Non-JSON,
+non-config/model-list responses, error responses, malformed config shapes, and
+unrelated notifications pass through byte-identically. The shim writes a minimal
+flight log to `~/.slimference/logs/desktop-shim.jsonl` with rewrite event names
+only, never payloads or secrets.
 
 Discovery and proof (2026-05-22): a loopback tee proxy captured the real frames,
 and the daemon decisions log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`) recorded both the

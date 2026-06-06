@@ -358,10 +358,12 @@ The launcher uses a supported Codex Desktop process boundary:
    providers passed through; fail-open). The Desktop conversation then reaches the
    local Phase-F WSS route, recorded reliably by the `phasef_bridged` counter and
    the decisions log as `route_mode=websocket_phasef`.
-6. The visible Desktop badge is also process-local: the shim augments only
-   app-server responses shaped as `result.config` for this spawned app-server
-   so the blank Codex.app start screen can show the `Slimference` provider
-   chip. Normal Finder/Spotlight Codex.app launches remain direct and do not
+6. The visible Desktop signal is also process-local: the shim augments only
+   app-server responses for this spawned app-server. Older Codex Desktop builds
+   can show the `Slimference` provider chip from `result.config`; current builds
+   can show the route as a `Slimference ` prefix on the model display name from
+   tracked `model/list` responses. Model IDs and selected model values are not
+   changed. Normal Finder/Spotlight Codex.app launches remain direct and do not
    receive this response augmentation.
 
 Inspect the exact scoped environment without launching:
@@ -436,7 +438,7 @@ app is running unless `--replace-existing` is passed explicitly:
 slimference codex launch-desktop --transport=app-server --replace-existing
 ```
 
-Only when a future proof gate is green may the daily TUI Launch Codex App item use:
+The daily TUI `Launch Codex App` item uses the same scoped app-server launcher:
 
 ```bash
 slimference codex launch-desktop --transport=app-server --replace-existing
@@ -462,6 +464,19 @@ The proof must show Desktop-specific WSS counter deltas after the prompted app
 session, not merely historical daemon counters. Relaunching Codex.app from
 Finder/Spotlight must return to native direct ChatGPT routing and must not use
 the app-server shim.
+
+For the current Codex Desktop UI, the strongest quick route check is the scoped
+shim flight log:
+
+```bash
+tail -n 50 ~/.slimference/logs/desktop-shim.jsonl
+```
+
+A Slimference-launched Desktop window should produce `config_read_rewrite` and,
+after the model picker data is loaded, `model_list_rewrite`. Those events prove
+that the spawned app-server shim is active. The log records event names and
+route metadata only; it does not record prompts, responses, model payloads, or
+secrets.
 
 Important: `/_slimference/admin/state` `.wss` counters are daemon-wide. They
 can include Codex CLI recertification or smoke-test traffic.

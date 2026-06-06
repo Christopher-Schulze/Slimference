@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T306 Desktop chip drift and service-control split -> docs/todo/t306-desktop-chip-drift-and-service-control-split.md
 - [x] T305 TUI visual smoothing and Desktop badge hardening -> docs/todo/t305-tui-visual-smoothing-and-badge-hardening.md
 - [x] T304 Desktop scoped provider badge signal -> docs/todo/t304-desktop-scoped-provider-badge-signal.md
 - [x] T303 Desktop scoped app status signal -> docs/todo/t303-desktop-scoped-app-status.md
