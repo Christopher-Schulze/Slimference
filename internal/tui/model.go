@@ -517,8 +517,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "5":
 			if m.view == ViewSetup {
-				m.selectSetupStep(4)
-				return m, nil
+				m.setFlash("Setup has 4 steps")
+				return m, flashTimer(2 * time.Second)
 			}
 
 		case "enter":
@@ -668,22 +668,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "r":
 			if m.view == ViewSetup && m.svc != nil {
-				status := m.codexRouteStatus
-				if status.Enabled {
-					if err := m.svc.DisableCodexRoute(); err != nil {
-						m.setFlash("Advanced shared route disable failed: " + err.Error())
-					} else {
-						m.setFlash("Normal Codex direct")
-					}
-				} else {
-					if err := m.svc.EnableCodexRoute(); err != nil {
-						m.setFlash("Advanced shared route enable failed: " + err.Error())
-					} else {
-						m.setFlash("Advanced shared route enabled")
-					}
-				}
-				m.refreshCodexRouteStatus(true)
-				m.persistStateBestEffort()
+				m.setFlash("Advanced route is CLI-only")
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -709,41 +694,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "g":
 			if m.view == ViewSetup && m.svc != nil {
-				status := m.transparentStatus
-				if status.ProxyArmed {
-					if err := m.svc.DisableTransparent(); err != nil {
-						m.setFlash("Global lab disarm failed: " + err.Error())
-					} else {
-						m.setFlash("Global lab disarmed")
-					}
-				} else {
-					if !status.Installed() {
-						if err := m.svc.InstallTransparent(); err != nil {
-							m.setFlash("Global lab asset install failed: " + err.Error())
-							m.persistStateBestEffort()
-							return m, flashTimer(3 * time.Second)
-						}
-					}
-					if err := m.svc.EnableTransparent(); err != nil {
-						m.setFlash("Global lab arm failed: " + err.Error())
-					} else {
-						m.setFlash("Global lab armed")
-					}
-				}
-				m.refreshTransparentStatus(true)
-				m.persistStateBestEffort()
+				m.setFlash("Global lab is CLI-only")
 				return m, flashTimer(3 * time.Second)
 			}
 
 		case "u":
 			if m.view == ViewSetup && m.svc != nil {
-				if err := m.svc.UninstallTransparent(); err != nil {
-					m.setFlash("Slimference asset uninstall failed: " + err.Error())
-				} else {
-					m.setFlash("Slimference assets uninstalled")
-				}
-				m.refreshTransparentStatus(true)
-				m.persistStateBestEffort()
+				m.setFlash("Uninstall is CLI-only")
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -1387,12 +1344,6 @@ func (m *Model) setupSteps() []setupStep {
 			check:   func() bool { return m.transparentStatus.CAExists && m.transparentStatus.AutoStartInstalled },
 			action:  func(m *Model) error { return m.svc.InstallTransparent() },
 			confirm: "Install Codex-only Slimference integration",
-		},
-		{
-			label:   "Run slimference enable (advanced shared route: auto)",
-			check:   func() bool { return m.codexRouteStatus.Complete },
-			action:  func(m *Model) error { return m.svc.EnableCodexRoute() },
-			confirm: "Enable advanced shared Codex provider route",
 		},
 		{
 			label:   "Install Codex hook",

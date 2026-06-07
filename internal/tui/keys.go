@@ -117,15 +117,15 @@ func DefaultKeyMap() KeyMap {
 		),
 		ToggleCodexMode: key.NewBinding(
 			key.WithKeys("r"),
-			key.WithHelp("r", "advanced route"),
+			key.WithHelp("r", "CLI-only advanced route"),
 		),
 		GlobalLab: key.NewBinding(
 			key.WithKeys("g"),
-			key.WithHelp("g", "advanced lab"),
+			key.WithHelp("g", "CLI-only global lab"),
 		),
 		UninstallAssets: key.NewBinding(
 			key.WithKeys("u"),
-			key.WithHelp("u", "uninstall assets"),
+			key.WithHelp("u", "CLI-only uninstall"),
 		),
 		ExportDebug: key.NewBinding(
 			key.WithKeys("y"),
@@ -170,13 +170,9 @@ func (km KeyMap) orderedBindings() []bindingSpec {
 		{"Setup", km.ToggleLayer2},
 		{"Setup", km.SetupStep3},
 		{"Setup", km.SetupStep4},
-		{"Setup", km.SetupStep5},
 		{"Setup", km.ViewApps},
 		{"Setup", km.ServicePower},
 		{"Setup", km.ServiceRepair},
-		{"Setup", km.ToggleCodexMode},
-		{"Setup", km.GlobalLab},
-		{"Setup", km.UninstallAssets},
 		{"Providers", km.ToggleClaude},
 		{"Providers", km.ToggleCodex},
 		{"Actions", km.FlushCaches},

@@ -839,10 +839,10 @@ func (m *Model) renderSetupView() string {
 	statusCard := ""
 	if transparent.ProxyArmed {
 		statusCard = s.Card.Width(innerWidth - 2).Render(
-			s.BannerGood.Render("ARMED") + " " + s.Normal.Render("System HTTPS is routed through Slimference."),
+			s.BannerWarn.Render("CHECK") + " " + s.Normal.Render("Machine-wide route is active. Use CLI lab commands to disarm."),
 		)
 	} else if allReady {
-		message := "Slimference is installed. Normal Codex stays direct; use Slimference Launch when you want traffic in the pipeline."
+		message := "Slimference is installed."
 		if m.svc == nil {
 			message = "ALL SET - Slimference is ready for daily use."
 		}
@@ -874,8 +874,7 @@ func (m *Model) renderSetupView() string {
 	if m.svc != nil {
 		steps := m.setupSteps()
 		stepLines := []string{
-			" " + s.PanelTitle.Render("SETUP STEPS"),
-			" " + s.Dim.Render("One product install prepares Codex CLI and Desktop together; capability state lives under Status."),
+			" " + s.PanelTitle.Render("INSTALL / REPAIR"),
 			"",
 		}
 		for i, step := range steps {
@@ -887,9 +886,8 @@ func (m *Model) renderSetupView() string {
 		lines = append(lines, s.CardActive.Width(innerWidth-2).Render(strings.Join(stepLines, "\n")))
 		lines = append(lines, "")
 
-		// Service controls.
 		serviceLines := []string{
-			" " + s.PanelTitle.Render("SERVICE CONTROLS"),
+			" " + s.PanelTitle.Render("DAEMON"),
 			"",
 		}
 		running, pid, port := m.svc.DaemonStatus()
@@ -897,18 +895,15 @@ func (m *Model) renderSetupView() string {
 			serviceLines = append(serviceLines, "  "+s.Saved.Render("● RUNNING")+"  PID "+fmt.Sprintf("%d  port :%d", pid, port))
 		} else {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
-			serviceLines = append(serviceLines, "  "+s.Muted.Render("Press [p] to start; press [o] to restart/repair launchd"))
 		}
 		if notice := m.svc.DaemonNotice(); notice != "" {
 			serviceLines = append(serviceLines, "  "+s.BannerWarn.Render("● OLD PROCESS")+"  "+notice)
 		}
-		serviceLines = append(serviceLines, renderCAStatusLine(s, transparent))
-		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
-		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
-		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] advanced shared route  [p] start/stop  [o] restart/repair daemon"))
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] app routing  [g] advanced lab  [u] uninstall Slimference assets"))
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
+		if transparent.AutoStartInstalled {
+			serviceLines = append(serviceLines, "  "+s.Saved.Render("● AUTOSTART")+"  installed")
+		} else {
+			serviceLines = append(serviceLines, "  "+s.BannerWarn.Render("● AUTOSTART")+"  missing")
+		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
 	} else {
@@ -957,15 +952,12 @@ func (m *Model) renderSetupView() string {
 
 		lines = append(lines, "")
 		commandLines := []string{
-			" " + s.PanelTitle.Render("COMMANDS (scoped Codex path)"),
+			" " + s.PanelTitle.Render("COMMANDS"),
 			"",
 			"  " + s.SetupCmd.Render("slimference install"),
 			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
 			"  " + s.SetupCmd.Render("slimference codex recertify wss --force") + s.Dim.Render(" # repair savings proof"),
-			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("                  # advanced shared route"),
-			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("                 # normal direct Codex"),
 			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # Codex status"),
-			"  " + s.SetupCmd.Render("go run ./scripts/utils workday-savings start") + s.Dim.Render(" # begin measurement"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
 	}

@@ -551,9 +551,6 @@ func TestRenderSetupViewShowsDaemonNotice(t *testing.T) {
 	if !strings.Contains(out, "OLD PROCESS") || !strings.Contains(out, "old stuck Slimference") {
 		t.Fatalf("setup view missing daemon notice:\n%s", out)
 	}
-	if !strings.Contains(out, "restart/repair") {
-		t.Fatalf("setup view missing restart repair wording:\n%s", out)
-	}
 }
 
 func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
@@ -696,7 +693,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Run slimference enable") {
+	if !strings.Contains(model.flashMsg, "Done: Install Codex hook") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

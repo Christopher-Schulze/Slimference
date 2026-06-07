@@ -72,19 +72,13 @@ func TestUpdate_SetupArrowNavigation(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
-	if model.setupStep != 5 || model.setupCursor != 4 {
-		t.Fatalf("fourth down selection: step=%d cursor=%d", model.setupStep, model.setupCursor)
-	}
-
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
-	model = updated.(Model)
-	if model.setupStep != 5 || model.setupCursor != 4 {
+	if model.setupStep != 4 || model.setupCursor != 3 {
 		t.Fatalf("down should clamp at last step: step=%d cursor=%d", model.setupStep, model.setupCursor)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = updated.(Model)
-	if model.setupStep != 4 || model.setupCursor != 3 {
+	if model.setupStep != 3 || model.setupCursor != 2 {
 		t.Fatalf("up selection: step=%d cursor=%d", model.setupStep, model.setupCursor)
 	}
 }
@@ -99,12 +93,12 @@ func TestView_SetupView_HidesFooterLegendWithoutTabs(t *testing.T) {
 	m.enterSetupView()
 
 	output := m.View()
-	for _, needle := range []string{"SLIMFERENCE / Setup", "enable autostart"} {
+	for _, needle := range []string{"SLIMFERENCE / Setup", "INSTALL / REPAIR"} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("setup view missing %q in output: %s", needle, output)
 		}
 	}
-	for _, blocked := range []string{"▶ Launch", "[←/→]", "[↑/↓]", "[b/esc]", "quit"} {
+	for _, blocked := range []string{"▶ Launch", "[←/→]", "[↑/↓]", "[b/esc]", "quit", "advanced shared route", "advanced lab", "uninstall Slimference assets"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("setup view leaked tab navigation %q in output: %s", blocked, output)
 		}

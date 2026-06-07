@@ -1377,12 +1377,11 @@ TUI setup action, or primary certification path should depend on persistent
 `OPENAI_API_BASE`, persistent `HTTPS_PROXY`, macOS System Network Proxy
 settings, or persistent legacy `openai_base_url`.
 
-The TUI exposes the same scoped lifecycle: Setup shows install state, normal
-direct vs advanced shared route state, daemon controls, and a direct `[r]`
-toggle for `slimference codex enable` / `slimference codex disable`. Setup opens app
-routing with `[a]`, with Claude Code parked. Savings counters come from
-`/admin/state`. Global transparent controls remain labelled as lab-only and are
-opened from Setup with `[g]`.
+The TUI exposes the same scoped lifecycle: Setup shows install/repair state for
+the product path, daemon controls, and app routing with `[a]`, with Claude Code
+parked. Savings counters come from `/admin/state`. Advanced shared-route and
+global transparent controls are CLI-only; Setup does not advertise or execute
+them.
 
 ### Legacy `integrate install`
 
@@ -1719,8 +1718,8 @@ view: Launch Codex CLI, Launch Codex App, Activity, Savings, Status, Logs,
 Setup. There are no
 top tabs/reiter on the product surface. `↑/↓` selects, Enter opens, and
 subviews return with `b`/`esc`; Savings, Status, and Logs also return with
-Enter. Apps, daemon repair, and advanced lab controls stay behind Setup instead
-of being promoted as daily-use navigation.
+Enter. Apps and daemon repair stay behind Setup instead of being promoted as
+daily-use navigation.
 The home view is strictly menu-only. Setup warnings, install/repair state,
 diagnostics commands, current-session savings, traffic logs, provider maps,
 checkpoint/tool-archive internals, cache parser details, and transport proof
@@ -1758,10 +1757,10 @@ Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
 together. Per-app rows are route policy/capability state, not separate install
 states, and are opened from Setup with `a`. Setup also owns daemon
-start/stop/restart/repair, normal direct vs advanced shared Codex state, CA/material state, advanced lab
-controls, and the guided "Repair Codex CLI WSS savings" action that calls the
-same recert core as the CLI/background path. Global lab controls are reachable
-with `g` from Setup only and are not advertised as the normal product path. Old
+start/stop/restart/repair, autostart repair, Codex hook repair, and the guided
+"Repair Codex CLI WSS savings" action that calls the same recert core as the
+CLI/background path. Advanced shared-route, global transparent routing, and
+asset uninstall controls are CLI-only and stay out of the Setup surface. Old
 macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
 stale processes when detected; the current healthy daemon PID remains the
 actionable state.
@@ -1793,12 +1792,9 @@ Auto-generated in `docs/tui-keybindings.md` from
 | Views       | `s`         | savings view                   |
 | Views       | `d`         | status view                    |
 | Views       | `i`         | setup view                     |
-| Setup       | `1`-`5`     | jump to setup step             |
+| Setup       | `1`-`4`     | jump to setup step             |
 | Setup       | `a`         | app routing view; Codex CLI/Desktop toggles; Claude row parked until explicit Claude hosts opt-in |
-| Setup       | `r`         | enable/disable scoped Codex CLI/App route |
 | Setup       | `p` / `o`   | start/stop daemon; restart/repair daemon |
-| Setup       | `g`         | advanced global lab controls   |
-| Setup       | `u`         | uninstall Slimference assets   |
 | Actions     | `f`         | flush caches                   |
 | Actions     | `y`         | export diagnostics             |
 | Actions     | `ctrl+s`    | save preferences               |

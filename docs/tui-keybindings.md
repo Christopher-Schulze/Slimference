@@ -15,13 +15,9 @@ run the generator or rerun the TUI key tests to regenerate.
 | Setup | `2` | setup step 2 |
 | Setup | `3` | setup step 3 |
 | Setup | `4` | setup step 4 |
-| Setup | `5` | setup step 5 |
 | Setup | `a` | app routing |
 | Setup | `p` | start/stop daemon |
 | Setup | `o` | restart/repair daemon |
-| Setup | `r` | advanced route |
-| Setup | `g` | advanced lab |
-| Setup | `u` | uninstall assets |
 | Providers | `c` | toggle Claude Code |
 | Providers | `x` | toggle Codex |
 | Actions | `f` | flush caches |

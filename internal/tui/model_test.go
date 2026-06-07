@@ -363,7 +363,7 @@ func TestUpdate_ToggleCodex(t *testing.T) {
 	}
 }
 
-func TestUpdate_SetupCodexRouteToggle(t *testing.T) {
+func TestUpdate_SetupCodexRouteToggleIsCLIOnly(t *testing.T) {
 	p := newMockProxy()
 	svc := &mockServiceControl{codexRouteStatus: CodexRouteStatus{Exists: true}}
 	m := NewModel(p)
@@ -372,18 +372,12 @@ func TestUpdate_SetupCodexRouteToggle(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model := updated.(Model)
-	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Advanced shared route enabled") {
-		t.Fatalf("enable route failed: svc=%+v flash=%q", svc, model.flashMsg)
-	}
-
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
-	model = updated.(Model)
-	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Normal Codex direct") {
-		t.Fatalf("disable route failed: svc=%+v flash=%q", svc, model.flashMsg)
+	if svc.codexRouteEnabled || svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "CLI-only") {
+		t.Fatalf("route key should be CLI-only: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 }
 
-func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
+func TestUpdate_SetupCodexRouteToggleErrorStillCLIOnly(t *testing.T) {
 	p := newMockProxy()
 	svc := &mockServiceControl{err: fmt.Errorf("boom")}
 	m := NewModel(p)
@@ -392,8 +386,8 @@ func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model := updated.(Model)
-	if !strings.Contains(model.flashMsg, "Advanced shared route enable failed") {
-		t.Fatalf("missing route error flash: %q", model.flashMsg)
+	if !strings.Contains(model.flashMsg, "CLI-only") {
+		t.Fatalf("route key should not call service: %q", model.flashMsg)
 	}
 }
 
@@ -1809,11 +1803,16 @@ func TestView_SetupView_withServiceControl_rendersSteps(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 	model := updated.(Model)
 	output := model.View()
-	if !strings.Contains(output, "SETUP STEPS") {
-		t.Errorf("setup view with svc: want 'SETUP STEPS', got: %s", output)
+	if !strings.Contains(output, "INSTALL / REPAIR") {
+		t.Errorf("setup view with svc: want 'INSTALL / REPAIR', got: %s", output)
 	}
-	if !strings.Contains(output, "SERVICE CONTROLS") {
-		t.Errorf("setup view with svc: want 'SERVICE CONTROLS', got: %s", output)
+	if !strings.Contains(output, "DAEMON") {
+		t.Errorf("setup view with svc: want 'DAEMON', got: %s", output)
+	}
+	for _, blocked := range []string{"SERVICE CONTROLS", "advanced shared route", "advanced lab", "uninstall Slimference assets"} {
+		if strings.Contains(output, blocked) {
+			t.Errorf("setup view leaked %q: %s", blocked, output)
+		}
 	}
 }
 
@@ -2081,8 +2080,8 @@ func TestView_SetupView_withSvc_stepCompleted(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 	model := updated.(Model)
 	output := model.View()
-	if !strings.Contains(output, "SETUP STEPS") {
-		t.Errorf("setup view should show SETUP STEPS with svc, got: %s", output)
+	if !strings.Contains(output, "INSTALL / REPAIR") {
+		t.Errorf("setup view should show INSTALL / REPAIR with svc, got: %s", output)
 	}
 }
 
