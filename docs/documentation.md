@@ -431,8 +431,10 @@ Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` part
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
 token budget. So the original `cat`-only scan could not fire (extended to `sed`), and
 search grouping was defeated by the truncation tail (made robust). The recurring
-upstream `400 invalid_request` is an oversized-request rejection, which Slimference's
-compaction makes less likely by shrinking requests, not a Slimference fault.
+upstream `400 invalid_request` class is treated as a product safety signal, not
+as a savings opportunity. Current Codex WSS guards full-pass search/path-list
+tool output and source-like tool output in `previous_response_id` continuation
+turns unless that exact shape is live-certified safe.
 
 Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
 point and a central policy engine with route labels (`http`, `wss_phasef`),
@@ -446,6 +448,11 @@ and generalized server-state-mirror mutation are closed as non-product-default
 surfaces. The server-state mirror remains telemetry/policy infrastructure only.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
+After any WSS upstream `error`, `response.failed`, or `response.incomplete`
+frame, the current socket adapter quarantines itself and full-passes subsequent
+request bodies until reconnect. That keeps the product fail-open after a proven
+bad upstream response instead of attempting another mutation in the same WSS
+state chain.
 
 Layer 2 semantic context replacement is retired. Product savings now stay on
 Layer 0/WSS tool-output reducers, Layer 1 deterministic compression, Layer 2
@@ -633,6 +640,13 @@ path-list output from tools such as `find` / `fd`, and search-looking output
 inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
 search-token savings, but the product contract is stronger: no upstream 400s
 and no model-facing context loss.
+
+Codex WSS source-like tool output is also full-pass when the request carries
+`previous_response_id`. This is intentionally narrower than disabling WSS
+savings: non-source repeated tool output, exact repeated-output reducers, and
+non-WSS source reducers keep their existing gates. The guarded continuation
+shape stops claiming read-delta/chunk savings until live evidence proves OpenAI's
+current WSS contract accepts that mutation without 400s.
 
 Reconc command output is treated as policy/workflow evidence and passes through
 unchanged on every Codex Layer-0 route. The guard recognizes direct `reconc`,
@@ -2030,8 +2044,12 @@ proxy and TUI use. A flight record is generated from each persisted
 `RequestSummary` and records route/source, host/path/provider, layer list,
 estimated input before/after, provider-reported input/cache/output usage,
 output-reduce metadata, `previous_response_id` state, errors, privacy state,
-and proxy overhead. `last`, `tail`, and `replay` support `--json`; `export`
-writes JSONL by default and CSV with `--csv` or an `.csv` target path.
+content-free debug facts, and proxy overhead. WSS debug facts include bounded
+shape counters such as previous-response presence, tool-result counts,
+source-tool-result counts, Layer-0 tokens saved, and bypass reason; they do not
+store raw prompt, tool output, code, or auth material. `last`, `tail`, and
+`replay` support `--json`; `export` writes JSONL by default and CSV with `--csv`
+or an `.csv` target path.
 
 The recorder is privacy-first: before a request summary is retained or flushed
 to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
@@ -2070,9 +2088,12 @@ adapter:
 - request-body summaries record repeated resolved read/tool keys as a re-read
   canary, so drift analysis can see context-recall pressure without logging raw
   tool output
+- source-like tool output in `previous_response_id` continuation turns full-passes
+  before request mutation; edit/re-read observation still runs first
 - server-to-client `error`, `response.failed`, and `response.incomplete` frames
   are forwarded byte-equal and recorded as content-free upstream-error
-  summaries for diagnostics
+  summaries for diagnostics; after such an error the current adapter full-passes
+  subsequent request bodies until reconnect
 - server-to-client text deltas run repdet
 - terminal response payloads stay byte-equal on WSS to avoid double-counting
   streaming repdet savings or corrupting final code/patch text

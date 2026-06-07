@@ -164,6 +164,7 @@ type RequestSummary struct {
 	ToolPrune              ToolPruneSummary             `json:"tool_prune,omitempty"`
 	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
 	Mechanisms             []MechanismAccounting        `json:"mechanisms,omitempty"`
+	DebugFacts             map[string]string            `json:"debug_facts,omitempty"`
 	PreviousResponseIDUsed bool                         `json:"previous_response_id_used,omitempty"`
 	SecretsRedacted        int                          `json:"secrets_redacted"`
 	Errors                 []string                     `json:"errors,omitempty"`

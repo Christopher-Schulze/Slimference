@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,8 @@ type wsPhaseFAdapter struct {
 	repdetIndex     *repdet.Index
 	toolUses        map[string]types.ContentBlock
 	sessionID       string
+	degraded        bool
+	degradedReason  string
 	toolUseHydrated bool
 	collapsedKeys   map[string]struct{}
 	qualityCohort   qualityab.Cohort
@@ -62,6 +65,8 @@ type wssRequestMeta struct {
 	SessionID          string
 	PreviousResponseID string
 	Model              string
+	BypassReason       string
+	DebugFacts         map[string]string
 }
 
 func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
@@ -163,7 +168,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		}
 	}
 	if !changed {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount, meta, outputReduceStats)
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, meta.BypassReason, reReadCount, meta, outputReduceStats)
 		return false
 	}
 	if err := replace(mutated); err != nil {
@@ -204,6 +209,17 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
 		a.observeWSSRecentEditsForSession(sessionID, messages, rememberedToolUses)
+		if degraded, reason := a.degradedState(); degraded {
+			meta.BypassReason = "wss_session_degraded_full_pass"
+			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
+			meta.DebugFacts["wss.degraded_reason"] = reason
+			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
+		}
+		if wssRiskyPreviousResponseSourceToolOutput(meta, messages) {
+			meta.BypassReason = "wss_previous_response_source_tool_output_full_pass"
+			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
+			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
+		}
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
 				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
@@ -701,6 +717,10 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if outputReduceSummary.Reason == "" {
 		outputReduceSummary.Reason = "disabled"
 	}
+	debugFacts := wssRequestDebugFacts(body, mutated, messages, l0Stats, replaced, bypassReason, meta, outputReduceStats)
+	for k, v := range meta.DebugFacts {
+		debugFacts[k] = v
+	}
 	summary := dbg.RequestSummary{
 		RequestID:              newRequestIDFn(),
 		Timestamp:              time.Now(),
@@ -726,6 +746,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Ratio:       ratio,
 		},
 		OutputReduce:   outputReduceSummary,
+		DebugFacts:     debugFacts,
 		ReReadCount:    reReadCount,
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{
@@ -736,13 +757,73 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			contentClasses:              classes,
 			previousResponseIDAvailable: meta.PreviousResponseID != "",
 			webSocketShapeKnown:         len(messages) > 0,
-			webSocketMutationRequested:  true,
+			webSocketMutationRequested:  bypassReason == "",
 			liveCorpusConfidence:        a.p.plannerLiveCorpusConfidence(),
 			negativeSavingsHistory:      saved < 0,
 		}),
 	}
 	a.p.debugRecorder.Record(summary)
 	a.p.observeQuality(summary)
+}
+
+func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {
+	return meta.PreviousResponseID != "" && wssMessagesContainSourceToolResult(messages)
+}
+
+func wssMessagesContainSourceToolResult(messages []types.Message) bool {
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type == "tool_result" && looksLikeSource(block.Text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToolResults int, toolUses int) {
+	for _, message := range messages {
+		for _, block := range message.Content {
+			switch block.Type {
+			case "tool_result":
+				toolResults++
+				if looksLikeSource(block.Text) {
+					sourceToolResults++
+				}
+			case "tool_use":
+				toolUses++
+			}
+		}
+	}
+	return toolResults, sourceToolResults, toolUses
+}
+
+func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
+	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
+	facts := map[string]string{
+		"wss.original_bytes":         strconv.Itoa(len(body)),
+		"wss.final_bytes":            strconv.Itoa(len(mutated)),
+		"wss.changed":                strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
+		"wss.previous_response_id":   strconv.FormatBool(meta.PreviousResponseID != ""),
+		"wss.messages":               strconv.Itoa(len(messages)),
+		"wss.tool_results":           strconv.Itoa(toolResults),
+		"wss.source_tool_results":    strconv.Itoa(sourceToolResults),
+		"wss.tool_uses":              strconv.Itoa(toolUses),
+		"wss.layer0_blocks_modified": strconv.Itoa(l0Stats.BlocksModified),
+		"wss.layer0_tokens_saved":    strconv.Itoa(l0Stats.TokensSaved),
+		"wss.output_reduce_applied":  strconv.FormatBool(outputReduceStats.Applied),
+		"wss.output_reduce_added":    strconv.Itoa(outputReduceStats.AddedTokens),
+		"wss.output_reduce_reason":   outputReduceStats.Reason,
+		"wss.replace_applied":        strconv.FormatBool(replaced),
+		"wss.session_id_present":     strconv.FormatBool(meta.SessionID != ""),
+	}
+	if bypassReason != "" {
+		facts["wss.bypass_reason"] = bypassReason
+	}
+	if facts["wss.output_reduce_reason"] == "" {
+		facts["wss.output_reduce_reason"] = "disabled"
+	}
+	return facts
 }
 
 func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
@@ -841,6 +922,7 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
 	if errSummary == "" {
 		errSummary = "upstream_error kind=" + string(env.Kind)
 	}
+	a.markDegraded(errSummary)
 	slog.Warn("codex wss upstream error", "kind", env.Kind, "status", status, "error_type", errorType)
 	a.p.debugRecorder.Record(dbg.RequestSummary{
 		RequestID:    newRequestIDFn(),
@@ -853,6 +935,25 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
 		BypassReason: "upstream_error",
 		Errors:       []string{errSummary},
 	})
+}
+
+func (a *wsPhaseFAdapter) markDegraded(reason string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.degraded = true
+	a.degradedReason = reason
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) degradedState() (bool, string) {
+	if a == nil {
+		return false, ""
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.degraded, a.degradedReason
 }
 
 func (a *wsPhaseFAdapter) currentSessionID() string {

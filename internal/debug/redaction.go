@@ -36,6 +36,13 @@ func RedactRequestSummary(s RequestSummary) RequestSummary {
 	s.RouteMode = redact(s.RouteMode)
 	s.BypassReason = redact(s.BypassReason)
 	s.Model = redact(s.Model)
+	if s.DebugFacts != nil {
+		clean := make(map[string]string, len(s.DebugFacts))
+		for k, v := range s.DebugFacts {
+			clean[redact(k)] = redact(v)
+		}
+		s.DebugFacts = clean
+	}
 	for i := range s.Errors {
 		s.Errors[i] = redact(s.Errors[i])
 	}

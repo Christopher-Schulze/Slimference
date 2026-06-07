@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T328 Codex WSS source-output safety quarantine -> docs/todo/t328-codex-wss-source-output-safety-quarantine.md
 - [x] T327 Reconc hook compatibility guard -> docs/todo/t327-reconc-hook-compatibility-guard.md
 - [x] T326 Reconc evidence pass-through -> docs/todo/t326-reconc-evidence-pass-through.md
 - [x] T325 Codex WSS search-output reducer risk gate -> docs/todo/t325-codex-wss-search-output-risk-gate.md

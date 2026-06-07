@@ -81,6 +81,7 @@ type FlightRequestSummary struct {
 	ToolPrune            FlightToolPruneAccounting    `json:"tool_prune"`
 	OutputReduce         FlightOutputReduceAccounting `json:"output_reduce"`
 	Mechanisms           []MechanismAccounting        `json:"mechanisms,omitempty"`
+	DebugFacts           map[string]string            `json:"debug_facts,omitempty"`
 	Plan                 *PlanSummary                 `json:"plan,omitempty"`
 	Errors               []string                     `json:"errors,omitempty"`
 	PrivacyRedacted      bool                         `json:"privacy_redaction_state"`
@@ -180,6 +181,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			TaskShape:   s.OutputReduce.TaskShape,
 		},
 		Mechanisms:           append([]MechanismAccounting(nil), s.Mechanisms...),
+		DebugFacts:           cloneStringMap(s.DebugFacts),
 		Plan:                 clonePlanSummary(s.Plan),
 		Errors:               append([]string(nil), s.Errors...),
 		PrivacyRedacted:      true,
@@ -292,6 +294,17 @@ func clonePlanSummary(plan *PlanSummary) *PlanSummary {
 	out := *plan
 	out.Decisions = append([]PlanDecisionSummary(nil), plan.Decisions...)
 	return &out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func plannerDecision(plan *PlanSummary) string {

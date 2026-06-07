@@ -708,6 +708,104 @@ func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	sourceOutput := strings.Repeat("package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"slimference\") }\n", 240)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp_source_guard",
+		"prompt_cache_key":     "source-guard-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "read-source",
+			"output":  sourceOutput,
+		}},
+		"stream": true,
+	})
+
+	if replace := adapter.handleRequest(&env); replace {
+		t.Fatalf("source-like tool output after previous_response_id must full-pass: %s", env.Body)
+	}
+	if !bytes.Contains(env.Raw, []byte("package main")) || bytes.Contains(env.Raw, []byte("local-archive://")) {
+		t.Fatalf("source-like tool output was not preserved: %s", env.Raw)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one debug summary, got %d", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.BypassReason != "wss_previous_response_source_tool_output_full_pass" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("source guard summary should be a no-savings full-pass: %+v", summary)
+	}
+	if summary.DebugFacts["wss.previous_response_id"] != "true" ||
+		summary.DebugFacts["wss.source_tool_results"] != "1" ||
+		summary.DebugFacts["wss.bypass_reason"] != "wss_previous_response_source_tool_output_full_pass" {
+		t.Fatalf("source guard facts missing: %+v", summary.DebugFacts)
+	}
+	if summary.Plan == nil || hasPlanAction(summary.Plan.Decisions, "websocket", "mutate", "known_shape_and_high_corpus_confidence") {
+		t.Fatalf("source guard must not request websocket mutation: %+v", summary.Plan)
+	}
+}
+
+func TestWSPhaseFUpstreamErrorQuarantinesSessionMutations(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.mu.Lock()
+	adapter.sessionID = "codex-wss:quarantine-session"
+	adapter.mu.Unlock()
+
+	errorEnv := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Invalid request",
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &errorEnv); err != nil || replace {
+		t.Fatalf("error frame replace=%v err=%v", replace, err)
+	}
+
+	largeOutput := strings.Repeat("quarantine repeat output line with enough stable body\n", 1800)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp_after_error",
+		"prompt_cache_key":     "quarantine-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "after-error",
+			"output":  largeOutput,
+		}},
+		"stream": true,
+	})
+	if replace := adapter.handleRequest(&env); replace {
+		t.Fatalf("degraded WSS session must full-pass until reconnect: %s", env.Body)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one latest request summary, got %d", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.BypassReason != "wss_session_degraded_full_pass" ||
+		summary.Tokens.Saved != 0 ||
+		summary.DebugFacts["wss.degraded_reason"] == "" {
+		t.Fatalf("quarantine summary missing: %+v", summary)
+	}
+}
+
 func TestWSPhaseFToolPrunePrunesIdleCodexTools(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
