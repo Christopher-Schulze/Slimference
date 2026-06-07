@@ -17,6 +17,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/control/apps"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/types"
@@ -77,6 +78,16 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 					{Model: "m1"},
 					{Model: "m2"},
 				},
+				RecentFlights: []dbg.FlightRequestSummary{
+					{
+						RequestID:    "flight-1",
+						ClientFamily: "codex_desktop",
+						RouteMode:    "websocket_phasef",
+						TokenAccounting: dbg.FlightTokenAccounting{
+							BillableSavingsEstimate: 42,
+						},
+					},
+				},
 				Layer0: map[string]filter.FilterSnapshot{
 					"git_status": {
 						Name:       "git_status",
@@ -130,6 +141,10 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 	reqs := a.GetRecentRequests(1)
 	if len(reqs) != 1 || reqs[0].Model != "m2" {
 		t.Fatalf("recent requests: %+v", reqs)
+	}
+	flights := a.GetRecentFlights(1)
+	if len(flights) != 1 || flights[0].RequestID != "flight-1" || flights[0].TokenAccounting.BillableSavingsEstimate != 42 {
+		t.Fatalf("recent flights: %+v", flights)
 	}
 	if got := a.GetLayer0Status(); got.Attempts != 5 || got.BytesSaved != 120 || len(got.Filters) != 1 {
 		t.Fatalf("layer0 status: %+v", got)

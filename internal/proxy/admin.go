@@ -12,6 +12,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/quality"
@@ -155,6 +156,7 @@ type AdminStatus struct {
 	PrefillSpeed     int                                 `json:"prefill_speed"`
 	Analytics        analytics.AnalyticsSnapshot         `json:"analytics"`
 	RecentRequests   []types.RequestMetrics              `json:"recent_requests"`
+	RecentFlights    []dbg.FlightRequestSummary          `json:"recent_flights"`
 	Layer0           map[string]filter.FilterSnapshot    `json:"layer0"`
 	ReadCache        AdminReadCacheStatus                `json:"read_cache"`
 	Checkpoints      AdminCheckpointStatus               `json:"checkpoints"`
@@ -343,6 +345,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		PrefillSpeed:   p.config.Usage.EstimatedPrefillSpeed,
 		Analytics:      analyticsSnap,
 		RecentRequests: p.GetRecentRequests(20),
+		RecentFlights:  p.GetRecentFlights(20),
 		Layer0:         filter.GlobalFilterObservability().Snapshot(),
 		ReadCache:      readStatus,
 		Checkpoints:    checkpointStatus,

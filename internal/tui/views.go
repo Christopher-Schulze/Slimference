@@ -268,43 +268,128 @@ func (m *Model) renderStatusView() string {
 		} else {
 			daemonLines = append(daemonLines, "", "  "+s.Muted.Render("○ STOPPED")+"  port :"+fmt.Sprintf("%d", m.proxy.Config().GetListenPort()))
 		}
-		if notice := m.svc.DaemonNotice(); notice != "" {
-			daemonLines = append(daemonLines, "  "+s.BannerWarn.Render("● NOTICE")+"  "+notice)
-		}
 	} else {
 		daemonLines = append(daemonLines, "", "  "+s.Muted.Render("○ SERVICE ADAPTER")+"  unavailable", "  "+s.Muted.Render(fmt.Sprintf("listen port :%d", m.proxy.Config().GetListenPort())))
 	}
 	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(daemonLines, "\n")))
 	lines = append(lines, "")
 
-	modeLines := []string{
-		" " + s.PanelTitle.Render("CODEX MODE"),
-		"",
-		"  " + s.Muted.Render("Normal Codex direct. Launch here = Slimference mode."),
-		renderCodexRouteStatusLine(s, m.codexRouteStatus),
-		renderCodexDesktopStatusLine(s, m.codexDesktopStatus),
-	}
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(modeLines, "\n")))
-	lines = append(lines, "")
-
 	transparent := TransparentStatus{}
 	if m.svc != nil {
 		transparent = m.transparentStatus
 	}
-	safetyLines := []string{
-		" " + s.PanelTitle.Render("SAFETY"),
+	installLines := []string{
+		" " + s.PanelTitle.Render("INSTALL"),
 		"",
-		renderCAStatusLine(s, transparent),
-		renderTransparentStatusLine(s, transparent),
+		renderStatusInstallLine(s, "Codex CLI", statusCLIReady(m.codexRouteStatus), statusCLIDetail(m.codexRouteStatus)),
+		renderStatusInstallLine(s, "Codex App", statusDesktopReady(m.codexDesktopStatus), statusDesktopDetail(m.codexDesktopStatus)),
+		renderStatusInstallLine(s, "CA material", transparent.CAExists, statusCADetail(transparent)),
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(installLines, "\n")))
+	lines = append(lines, "")
+
+	healthLines := []string{
+		" " + s.PanelTitle.Render("HEALTH"),
+		"",
 		"  " + s.Normal.Render(productSafetyLine(m.latestProduct)),
 	}
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(safetyLines, "\n")))
+	if m.latestProduct.HostBudgetExceeded {
+		healthLines = append(healthLines, "  "+s.LogError.Render("● HOST BUDGET")+"  exceeded")
+	}
+	if transparent.ProxyArmed {
+		healthLines = append(healthLines, "  "+s.LogError.Render("● LAB ROUTE")+"  armed globally")
+	}
+	if notice := m.svcNotice(); notice != "" {
+		healthLines = append(healthLines, "  "+s.BannerWarn.Render("● NOTICE")+"  "+notice)
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(healthLines, "\n")))
 
 	lines = append(lines, "")
 	lines = append(lines, rule)
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
+}
+
+func (m *Model) svcNotice() string {
+	if m.svc == nil {
+		return ""
+	}
+	return m.svc.DaemonNotice()
+}
+
+func renderStatusInstallLine(s Styles, label string, ok bool, detail string) string {
+	if ok {
+		return "  " + s.Saved.Render("● READY") + "    " + label + formatStatusDetail(s, detail)
+	}
+	return "  " + s.BannerWarn.Render("● CHECK") + "    " + label + formatStatusDetail(s, detail)
+}
+
+func formatStatusDetail(s Styles, detail string) string {
+	if detail == "" {
+		return ""
+	}
+	return s.Dim.Render(" · " + detail)
+}
+
+func statusCLIReady(status CodexRouteStatus) bool {
+	return status.WSSCertified || status.WSSBridgeAvailable || status.Complete || status.Exists
+}
+
+func statusCLIDetail(status CodexRouteStatus) string {
+	switch {
+	case status.NeedsRecert:
+		return "repair needed"
+	case status.WSSCertified:
+		return "WSS savings ready"
+	case status.WSSBridgeAvailable:
+		return "bridge ready"
+	case status.Complete:
+		return "launch ready"
+	case status.Exists:
+		return "installed"
+	case status.Conflict != "":
+		return "conflict: " + status.Conflict
+	default:
+		return "run Setup"
+	}
+}
+
+func statusDesktopReady(status CodexDesktopStatus) bool {
+	return status.AppServerActive ||
+		status.Mode == "desktop_app_server_phasef_proven" ||
+		status.Mode == "desktop_app_server_proven" ||
+		status.Mode == "desktop_app_server_route_ready"
+}
+
+func statusDesktopDetail(status CodexDesktopStatus) string {
+	switch {
+	case status.FailureClass != "":
+		return status.FailureClass
+	case status.AppServerActive:
+		return "app launch active"
+	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
+		return "savings ready"
+	case status.Mode == "desktop_app_server_route_ready":
+		return "launch ready"
+	case status.Mode == "desktop_wss_bridge_only":
+		return "bridge fallback"
+	case status.Mode != "":
+		return "proof pending"
+	default:
+		return "run Setup"
+	}
+}
+
+func statusCADetail(status TransparentStatus) string {
+	switch {
+	case status.CATrusted:
+		return "trusted"
+	case status.CAExists:
+		return "ready"
+	default:
+		return "run Setup"
+	}
 }
 
 // renderActivityView renders current Slimference activity only. Direct Codex

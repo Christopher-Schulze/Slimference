@@ -16,6 +16,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/control"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
@@ -434,6 +435,7 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	rpa.mu.Lock()
 	rpa.status.Checkpoints = proxy.AdminCheckpointStatus{Count: 4, Captures: 5, Restores: 6, Bytes: 7}
 	rpa.status.ToolArchive = proxy.AdminToolArchiveStatus{Count: 8, Archived: 9, Expanded: 10, BytesRaw: 11, BytesStored: 12}
+	rpa.status.RecentFlights = []dbg.FlightRequestSummary{{RequestID: "remote-flight"}}
 	rpa.lastRefresh = time.Now()
 	rpa.mu.Unlock()
 
@@ -443,8 +445,8 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	if got := rpa.GetToolArchiveStatus(); got.Count != 8 || got.Expanded != 10 {
 		t.Fatalf("remote archive status=%+v", got)
 	}
-	if got := rpa.GetRecentFlights(3); got != nil {
-		t.Fatalf("remote flights should be nil until admin transport exposes them, got %+v", got)
+	if got := rpa.GetRecentFlights(3); len(got) != 1 || got[0].RequestID != "remote-flight" {
+		t.Fatalf("remote flights should come from admin status, got %+v", got)
 	}
 
 	// T77 quality adapters: proxyAdapter pulls from QualitySnapshot,

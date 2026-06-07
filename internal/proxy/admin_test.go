@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -17,6 +18,10 @@ func TestAdminStatusHandler(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
 	p := New(cfg)
+	p.DebugRecorder().Record(dbg.RequestSummary{
+		RequestID: "admin-flight",
+		Tokens:    dbg.TokenCounts{Original: 20, Final: 12, Saved: 8},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, AdminStatusPath, nil)
 	rec := httptest.NewRecorder()
@@ -38,6 +43,9 @@ func TestAdminStatusHandler(t *testing.T) {
 	}
 	if got.ReadCache.Evaluations != 0 {
 		t.Fatalf("unexpected read cache status: %+v", got.ReadCache)
+	}
+	if len(got.RecentFlights) != 1 || got.RecentFlights[0].RequestID != "admin-flight" {
+		t.Fatalf("unexpected recent flights: %+v", got.RecentFlights)
 	}
 }
 

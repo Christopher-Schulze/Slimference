@@ -1722,14 +1722,17 @@ subviews return with `b`/`esc`; Savings, Status, and Logs also return with
 Enter. Apps, daemon repair, and advanced lab controls stay behind Setup instead
 of being promoted as daily-use navigation.
 The home view is strictly menu-only. Setup warnings, install/repair state,
-daemon health, diagnostics commands, current-session savings, traffic logs,
-provider maps, checkpoint/tool-archive internals, cache parser details, and
-transport proof vocabulary belong to Savings, Status, Logs, or Setup, not the
-first screen. Daemon PID/port/liveness is not rendered in the global header; it
-belongs to Status. Activity shows only explicit Slimference launch state and
-recent routed Slimference requests; direct Codex windows and old hook-turn
-diagnostics are intentionally hidden there. Hook-turn state, raw session log
-stream, and log export belong to Logs.
+diagnostics commands, current-session savings, traffic logs, provider maps,
+checkpoint/tool-archive internals, cache parser details, and transport proof
+vocabulary belong to Savings, Status, Logs, or Setup, not the first screen.
+Daemon PID/port/liveness is not rendered in the global header; it belongs to
+Status. Status is a daily operator check with three card families only:
+Daemon, Install, and Health. It does not show Normal Codex, advanced route,
+provider-chip, lab, or transport vocabulary during normal scoped operation.
+Activity shows only explicit Slimference launch state and recent routed
+Slimference requests from daemon flight telemetry; direct Codex windows and old
+hook-turn diagnostics are intentionally hidden there. Hook-turn state, raw
+session log stream, and log export belong to Logs.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new

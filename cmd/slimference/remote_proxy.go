@@ -184,8 +184,16 @@ func (a *remoteProxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
 	return append([]types.RequestMetrics(nil), a.status.RecentRequests[start:]...)
 }
 
-func (a *remoteProxyAdapter) GetRecentFlights(int) []dbg.FlightRequestSummary {
-	return nil
+func (a *remoteProxyAdapter) GetRecentFlights(n int) []dbg.FlightRequestSummary {
+	a.refresh()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	flights := a.status.RecentFlights
+	if n <= 0 || len(flights) <= n {
+		return append([]dbg.FlightRequestSummary(nil), flights...)
+	}
+	start := len(flights) - n
+	return append([]dbg.FlightRequestSummary(nil), flights[start:]...)
 }
 
 func (a *remoteProxyAdapter) GetLayer0Status() tui.Layer0Status {

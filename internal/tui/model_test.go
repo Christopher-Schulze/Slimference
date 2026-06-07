@@ -815,12 +815,12 @@ func TestView_StatusRender(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE / Status", "DAEMON", "PID 1234", "CODEX MODE", "SAFETY"} {
+	for _, want := range []string{"SLIMFERENCE / Status", "DAEMON", "PID 1234", "INSTALL", "HEALTH"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status view missing %q in:\n%s", want, output)
 		}
 	}
-	for _, blocked := range []string{"FLIGHT RECORDER", "LOG STREAM", "HOOK TURN STATE"} {
+	for _, blocked := range []string{"CODEX MODE", "NORMAL CODEX", "GLOBAL LAB", "SAFETY", "FLIGHT RECORDER", "LOG STREAM", "HOOK TURN STATE"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("status view leaked logs block %q in:\n%s", blocked, output)
 		}

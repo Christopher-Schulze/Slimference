@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T317 Status and remote Activity product cleanup -> docs/todo/t317-status-remote-activity-product-cleanup.md
 - [x] T316 TUI status polling responsiveness -> docs/todo/t316-tui-status-polling-responsiveness.md
 - [x] T315 Activity view live-signal cleanup -> docs/todo/t315-activity-view-live-signal-cleanup.md
 - [x] T313 TUI keyboard responsiveness hotpath -> docs/todo/t313-tui-keyboard-responsiveness-hotpath.md
