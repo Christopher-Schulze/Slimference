@@ -307,7 +307,8 @@ func (m *Model) renderStatusView() string {
 	if len(flights) == 0 {
 		usageLines = append(usageLines, "  "+s.Muted.Render("No active Slimference traffic seen yet."))
 	} else {
-		latest := flights[len(flights)-1]
+		activityFlights := buildActivityFlightViews(flights)
+		latest := activityFlights[len(activityFlights)-1]
 		usageLines = append(usageLines,
 			"  "+s.Saved.Render("● ROUTED")+"  "+activityFlightHeadline(latest),
 			"  "+s.Muted.Render(fmt.Sprintf("%d recent routed request(s)", len(flights))),
@@ -441,11 +442,12 @@ func (m *Model) renderActivityView() string {
 
 	var lines []string
 	flights := m.proxy.GetRecentFlights(8)
+	activityFlights := buildActivityFlightViews(flights)
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Activity"))
 	lines = append(lines, rule)
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderCurrentActivity(m, flights)))
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderCurrentActivity(m, activityFlights)))
 	lines = append(lines, "")
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, flights)))
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, activityFlights)))
 	lines = append(lines, "")
 	lines = append(lines, rule)
 
@@ -453,7 +455,24 @@ func (m *Model) renderActivityView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
-func renderCurrentActivity(m *Model, flights []dbg.FlightRequestSummary) string {
+type activityFlightView struct {
+	Flight    dbg.FlightRequestSummary
+	Thread    codexThreadMetadata
+	HasThread bool
+}
+
+func buildActivityFlightViews(flights []dbg.FlightRequestSummary) []activityFlightView {
+	threads := lookupCodexThreadMetadataForFlights(flights)
+	items := make([]activityFlightView, 0, len(flights))
+	for _, flight := range flights {
+		id := normalizeCodexSessionID(flight.SessionID)
+		thread, ok := threads[id]
+		items = append(items, activityFlightView{Flight: flight, Thread: thread, HasThread: ok})
+	}
+	return items
+}
+
+func renderCurrentActivity(m *Model, flights []activityFlightView) string {
 	s := m.styles
 	body := []string{" " + s.PanelTitle.Render("NOW")}
 	if len(flights) > 0 {
@@ -485,29 +504,43 @@ func renderCurrentActivity(m *Model, flights []dbg.FlightRequestSummary) string 
 	return strings.Join(body, "\n")
 }
 
-func activityFlightHeadline(flight dbg.FlightRequestSummary) string {
-	client := userClientLabel(flight)
-	route := userRouteLabel(flight)
-	saved := flight.TokenAccounting.BillableSavingsEstimate
-	if saved > 0 {
-		return fmt.Sprintf("%s via %s · %s saved", client, route, formatTokens(saved))
+func activityFlightHeadline(flight activityFlightView) string {
+	client := activityClientLabel(flight)
+	title := activitySessionTitle(flight)
+	saved := flight.Flight.TokenAccounting.BillableSavingsEstimate
+	if title != "" {
+		if saved > 0 {
+			return fmt.Sprintf("%s · %s · %s saved", client, compactDebugLabel(title, 58), formatTokens(saved))
+		}
+		return fmt.Sprintf("%s · %s · routed", client, compactDebugLabel(title, 58))
 	}
-	return fmt.Sprintf("%s via %s · routed", client, route)
+	if saved > 0 {
+		return fmt.Sprintf("%s · %s saved", client, formatTokens(saved))
+	}
+	return fmt.Sprintf("%s · routed", client)
 }
 
-func activityFlightDetail(flight dbg.FlightRequestSummary) string {
-	parts := []string{"session " + compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "unknown"), 22)}
-	if ts := flightTimestamp(flight); !ts.IsZero() {
+func activityFlightDetail(flight activityFlightView) string {
+	parts := make([]string, 0, 5)
+	if flight.HasThread && strings.TrimSpace(flight.Thread.CWD) != "" {
+		parts = append(parts, compactUserPath(flight.Thread.CWD))
+	}
+	if flight.HasThread && strings.TrimSpace(flight.Thread.Model) != "" {
+		parts = append(parts, strings.TrimSpace(flight.Thread.Model))
+	}
+	parts = append(parts, userRouteLabel(flight.Flight))
+	parts = append(parts, "session "+compactDebugLabel(firstNonEmpty(flight.Flight.SessionID, flight.Flight.RequestID, "unknown"), 18))
+	if ts := activityTimestamp(flight); !ts.IsZero() {
 		parts = append(parts, formatStatusTime(ts))
 	}
-	_, _, _, cached := flightTokenTotals(flight)
+	_, _, _, cached := flightTokenTotals(flight.Flight)
 	if cached > 0 {
 		parts = append(parts, formatTokens(cached)+" provider-cache read")
 	}
 	return strings.Join(parts, " · ")
 }
 
-func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string {
+func renderTrafficActivity(m *Model, flights []activityFlightView) string {
 	s := m.styles
 	body := []string{" " + s.PanelTitle.Render("RECENT ROUTES")}
 	if len(flights) == 0 {
@@ -519,19 +552,51 @@ func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string 
 		start = len(flights) - 4
 	}
 	for _, flight := range flights[start:] {
-		saved := flight.TokenAccounting.BillableSavingsEstimate
+		saved := flight.Flight.TokenAccounting.BillableSavingsEstimate
 		savedLabel := s.Muted.Render("0 saved")
 		if saved > 0 {
 			savedLabel = s.Saved.Render(fmt.Sprintf("%d saved", saved))
 		}
 		body = append(body, "", "  "+fmt.Sprintf("%s  %s  %s",
-			s.Highlight.Render(userClientLabel(flight)),
-			userRouteLabel(flight),
+			s.Highlight.Render(activityClientLabel(flight)),
+			compactDebugLabel(firstNonEmpty(activitySessionTitle(flight), userRouteLabel(flight.Flight)), 42),
 			savedLabel,
 		))
 		body = append(body, "  "+s.Muted.Render(activityFlightDetail(flight)))
 	}
 	return strings.Join(body, "\n")
+}
+
+func activityClientLabel(flight activityFlightView) string {
+	if flight.HasThread {
+		value := strings.ToLower(firstNonEmpty(flight.Thread.Source, flight.Thread.ThreadSource))
+		switch {
+		case strings.Contains(value, "cli"):
+			return "Codex CLI"
+		case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+			return "Codex App"
+		}
+	}
+	return userClientLabel(flight.Flight)
+}
+
+func activitySessionTitle(flight activityFlightView) string {
+	if !flight.HasThread {
+		return ""
+	}
+	title := strings.TrimSpace(flight.Thread.Title)
+	title = strings.TrimLeft(title, "›> \t")
+	if title != "" {
+		return title
+	}
+	return compactUserPath(flight.Thread.CWD)
+}
+
+func activityTimestamp(flight activityFlightView) time.Time {
+	if flight.HasThread && !flight.Thread.UpdatedAt.IsZero() {
+		return flight.Thread.UpdatedAt
+	}
+	return flightTimestamp(flight.Flight)
 }
 
 func userClientLabel(flight dbg.FlightRequestSummary) string {
@@ -578,6 +643,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func compactUserPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if home, err := userHomeDirFn(); err == nil && home != "" {
+		if value == home {
+			return "~"
+		}
+		if strings.HasPrefix(value, home+"/") {
+			return "~/" + strings.TrimPrefix(value, home+"/")
+		}
+	}
+	return value
 }
 
 // renderLogsView renders logs, flight diagnostics, and export actions.

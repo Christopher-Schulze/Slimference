@@ -641,12 +641,15 @@ inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
 search-token savings, but the product contract is stronger: no upstream 400s
 and no model-facing context loss.
 
-Codex WSS source-like tool output is also full-pass when the request carries
-`previous_response_id`. This is intentionally narrower than disabling WSS
-savings: non-source repeated tool output, exact repeated-output reducers, and
-non-WSS source reducers keep their existing gates. The guarded continuation
-shape stops claiming read-delta/chunk savings until live evidence proves OpenAI's
-current WSS contract accepts that mutation without 400s.
+Large Codex WSS source-like tool output is also full-pass when the request
+carries `previous_response_id`. The guard is size-scoped at the tool-result
+level so tiny source snippets do not lose the route, while large source
+continuations stay byte-equal. This is intentionally narrower than disabling WSS
+savings: non-source repeated tool output, exact repeated-output reducers, small
+source snippets, and non-WSS source reducers keep their existing gates. The
+guarded continuation shape stops claiming read-delta/chunk savings until live
+evidence proves OpenAI's current WSS contract accepts that mutation without
+400s.
 
 Reconc command output is treated as policy/workflow evidence and passes through
 unchanged on every Codex Layer-0 route. The guard recognizes direct `reconc`,
@@ -1786,10 +1789,11 @@ Status. Status is a daily operator check with four card families only: Daemon,
 Install, Using Now, and Health. It does not show Normal Codex, advanced route,
 provider-chip, lab, or transport vocabulary during normal scoped operation.
 Activity shows only explicit Slimference launch state and recent routed
-Slimference requests from daemon flight telemetry using product labels such as
-Codex CLI, Codex App, Slimference route, cache, and safe fallback. Raw provider
-IDs, internal route modes, backend paths, direct Codex windows, and old
-hook-turn diagnostics are intentionally hidden there. Logs owns diagnostics
+Slimference requests from daemon flight telemetry. When a routed Codex WSS
+session maps to Codex's local thread store, Activity shows the real surface
+(Codex CLI or Codex App), thread title, cwd, model, route state, and savings.
+Raw provider IDs, internal route modes, backend paths, direct Codex windows, and
+old hook-turn diagnostics are intentionally hidden there. Logs owns diagnostics
 export, a compact route summary, and recent daemon events.
 
 Launch Codex CLI opens the proven scoped wrapper path with

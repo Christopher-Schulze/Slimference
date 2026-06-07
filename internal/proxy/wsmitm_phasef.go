@@ -766,19 +766,26 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.p.observeQuality(summary)
 }
 
+const wssSourceToolResultFullPassMinBytes = 4096
+
 func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {
-	return meta.PreviousResponseID != "" && wssMessagesContainSourceToolResult(messages)
+	_, maxBytes := wssSourceToolResultBytes(messages)
+	return meta.PreviousResponseID != "" && maxBytes >= wssSourceToolResultFullPassMinBytes
 }
 
-func wssMessagesContainSourceToolResult(messages []types.Message) bool {
+func wssSourceToolResultBytes(messages []types.Message) (totalBytes int, maxBytes int) {
 	for _, message := range messages {
 		for _, block := range message.Content {
 			if block.Type == "tool_result" && looksLikeSource(block.Text) {
-				return true
+				size := len(block.Text)
+				totalBytes += size
+				if size > maxBytes {
+					maxBytes = size
+				}
 			}
 		}
 	}
-	return false
+	return totalBytes, maxBytes
 }
 
 func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToolResults int, toolUses int) {
@@ -800,6 +807,7 @@ func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToo
 
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
 	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
+	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
 	facts := map[string]string{
 		"wss.original_bytes":         strconv.Itoa(len(body)),
 		"wss.final_bytes":            strconv.Itoa(len(mutated)),
@@ -808,6 +816,8 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.messages":               strconv.Itoa(len(messages)),
 		"wss.tool_results":           strconv.Itoa(toolResults),
 		"wss.source_tool_results":    strconv.Itoa(sourceToolResults),
+		"wss.source_tool_bytes":      strconv.Itoa(sourceToolBytes),
+		"wss.source_tool_max_bytes":  strconv.Itoa(sourceToolMaxBytes),
 		"wss.tool_uses":              strconv.Itoa(toolUses),
 		"wss.layer0_blocks_modified": strconv.Itoa(l0Stats.BlocksModified),
 		"wss.layer0_tokens_saved":    strconv.Itoa(l0Stats.TokensSaved),

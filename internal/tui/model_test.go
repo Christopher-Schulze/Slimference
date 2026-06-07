@@ -740,12 +740,11 @@ func TestView_LogsRender(t *testing.T) {
 func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	p := newMockProxy()
 	p.recentFlights = []dbg.FlightRequestSummary{{
-		RequestID:    "req-activity",
-		SessionID:    "session-activity",
-		Provider:     "openai",
-		Path:         "/backend-api/codex",
-		ClientFamily: "codex_cli",
-		RouteMode:    "websocket_phasef",
+		RequestID: "req-activity",
+		SessionID: "codex-wss:019ea3fe-85bc-78f2-af43-ad3d2d76d820",
+		Provider:  "codex_chatgpt",
+		Path:      "/backend-api/codex",
+		RouteMode: "websocket_phasef",
 		TokenAccounting: dbg.FlightTokenAccounting{
 			BillableSavingsEstimate: 42,
 		},
@@ -766,18 +765,37 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	resetCodexThreadMetadataCacheForTest()
+	oldLookup := loadCodexThreadMetadataFunc
+	loadCodexThreadMetadataFunc = func(ids []string) (map[string]codexThreadMetadata, error) {
+		return map[string]codexThreadMetadata{
+			"019ea3fe-85bc-78f2-af43-ad3d2d76d820": {
+				ID:        "019ea3fe-85bc-78f2-af43-ad3d2d76d820",
+				Title:     "› okay chekc das projekt wie weit sind wir",
+				CWD:       home + "/CODE/Golem",
+				Source:    "cli",
+				Model:     "gpt-5.5",
+				UpdatedAt: time.Now(),
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		loadCodexThreadMetadataFunc = oldLookup
+		resetCodexThreadMetadataCacheForTest()
+	})
+
 	m := NewModel(p)
 	m.view = ViewActivity
 	m.width = 120
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "session-activity", "Codex CLI", "Slimference route", "42 saved"} {
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "Codex CLI", "okay chekc das projekt", "~/CODE/Golem", "gpt-5.5", "Slimference route", "42 saved"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity view missing %q in:\n%s", want, output)
 		}
 	}
-	for _, blocked := range []string{"codex_cli", "websocket_phasef", "/backend-api"} {
+	for _, blocked := range []string{"codex_cli", "codex_chatgpt", "websocket_phasef", "/backend-api", "Codex App"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("activity view leaked internal label %q in:\n%s", blocked, output)
 		}

@@ -45,6 +45,9 @@ request normalizer.
   continuation turns stop claiming Layer 0/read-delta/chunk savings until a
   future live capture proves that exact shape safe. This is not a global WSS
   savings rollback.
+- Follow-up T329 narrowed this quarantine to large source-like tool results
+  only. Small source snippets keep the normal route; the large continuation
+  class remains byte-equal until live proof says otherwise.
 - The product contract wins over local token savings: an optimization that can
   trigger upstream 400s is a workflow drawdown and cannot stay default-on for
   that shape.

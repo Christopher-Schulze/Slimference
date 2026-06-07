@@ -755,6 +755,31 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFPreviousResponseSourceToolOutputGuardIsSizeScoped(t *testing.T) {
+	meta := wssRequestMeta{PreviousResponseID: "resp_source_guard"}
+	smallSource := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type: "tool_result",
+			Text: "package main\nfunc main() {}\n",
+		}},
+	}}
+	if wssRiskyPreviousResponseSourceToolOutput(meta, smallSource) {
+		t.Fatal("small source snippets should not force full-pass")
+	}
+
+	largeSource := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type: "tool_result",
+			Text: strings.Repeat("package main\nfunc main() {}\n", 220),
+		}},
+	}}
+	if !wssRiskyPreviousResponseSourceToolOutput(meta, largeSource) {
+		t.Fatal("large source continuations after previous_response_id must full-pass")
+	}
+}
+
 func TestWSPhaseFUpstreamErrorQuarantinesSessionMutations(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
