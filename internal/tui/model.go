@@ -23,9 +23,10 @@ var chmodFn = os.Chmod
 var shutdownTimeout = 5 * time.Second
 
 const (
-	defaultTickInterval      = 500 * time.Millisecond
-	hostBudgetTickInterval   = 2 * time.Second
-	statusRefreshMinInterval = 2 * time.Second
+	defaultTickInterval             = time.Second
+	hostBudgetTickInterval          = 2 * time.Second
+	productStatusRefreshMinInterval = 5 * time.Second
+	serviceStatusRefreshMinInterval = 30 * time.Second
 )
 
 // Version is the display version string.
@@ -360,8 +361,9 @@ type Model struct {
 	debugCursor int
 
 	// Live data.
-	latestSnap    analytics.AnalyticsSnapshot
-	latestProduct ProductStatus
+	latestSnap      analytics.AnalyticsSnapshot
+	latestProduct   ProductStatus
+	latestProductAt time.Time
 
 	// Terminal dimensions.
 	width  int
@@ -385,6 +387,8 @@ type Model struct {
 	codexRouteStatusAt   time.Time
 	codexDesktopStatus   CodexDesktopStatus
 	codexDesktopStatusAt time.Time
+	lastLaunchLabel      string
+	lastLaunchAt         time.Time
 
 	// Flash message.
 	flashMsg    string
@@ -417,7 +421,7 @@ func NewModel(proxy ProxyInterface) Model {
 		width:         80,
 		height:        24,
 	}
-	m.refreshProductStatus()
+	m.refreshProductStatus(true)
 	if state, err := LoadPersistedState(); err == nil && state != nil {
 		applyPersistedState(&m, *state)
 	}
@@ -793,7 +797,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.latestSnap = m.proxy.GetAnalytics()
-		m.refreshProductStatus()
+		m.refreshProductStatus(false)
 		m.refreshTransparentStatus(false)
 		m.refreshCodexRouteStatus(false)
 		m.refreshCodexDesktopStatus(false)
@@ -802,7 +806,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case proxyEventMsg:
 		// Immediate update when a new request arrives.
 		m.latestSnap = m.proxy.GetAnalytics()
-		m.refreshProductStatus()
+		m.refreshProductStatus(false)
 		return m, nil
 
 	case flashExpiredMsg:
@@ -879,12 +883,17 @@ func (m Model) tickInterval() time.Duration {
 	return defaultTickInterval
 }
 
-func (m *Model) refreshProductStatus() {
+func (m *Model) refreshProductStatus(force bool) {
 	if m.proxy == nil {
 		m.latestProduct = ProductStatus{}
+		m.latestProductAt = time.Time{}
+		return
+	}
+	if !force && !m.latestProductAt.IsZero() && time.Since(m.latestProductAt) < productStatusRefreshMinInterval {
 		return
 	}
 	m.latestProduct = m.proxy.GetProductStatus()
+	m.latestProductAt = time.Now()
 }
 
 // flashTimer returns a command that clears the flash message after d.
@@ -974,7 +983,7 @@ func (m *Model) refreshTransparentStatus(force bool) {
 		m.transparentStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.transparentStatusAt.IsZero() && time.Since(m.transparentStatusAt) < statusRefreshMinInterval {
+	if !force && !m.transparentStatusAt.IsZero() && time.Since(m.transparentStatusAt) < serviceStatusRefreshMinInterval {
 		return
 	}
 	m.transparentStatus = m.svc.TransparentStatus()
@@ -987,7 +996,7 @@ func (m *Model) refreshCodexRouteStatus(force bool) {
 		m.codexRouteStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.codexRouteStatusAt.IsZero() && time.Since(m.codexRouteStatusAt) < statusRefreshMinInterval {
+	if !force && !m.codexRouteStatusAt.IsZero() && time.Since(m.codexRouteStatusAt) < serviceStatusRefreshMinInterval {
 		return
 	}
 	m.codexRouteStatus = m.svc.CodexRouteStatus()
@@ -1000,7 +1009,7 @@ func (m *Model) refreshCodexDesktopStatus(force bool) {
 		m.codexDesktopStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.codexDesktopStatusAt.IsZero() && time.Since(m.codexDesktopStatusAt) < statusRefreshMinInterval {
+	if !force && !m.codexDesktopStatusAt.IsZero() && time.Since(m.codexDesktopStatusAt) < serviceStatusRefreshMinInterval {
 		return
 	}
 	m.codexDesktopStatus = m.svc.CodexDesktopStatus()
@@ -1297,6 +1306,7 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		if err != nil {
 			m.setFlash("Codex CLI launch failed: " + err.Error())
 		} else {
+			m.noteSlimferenceLaunch("Codex CLI")
 			m.setFlash(msg)
 		}
 	case "launch_app":
@@ -1309,6 +1319,7 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		if err != nil {
 			m.setFlash("Codex App launch blocked: " + err.Error())
 		} else {
+			m.noteSlimferenceLaunch("Codex App")
 			m.setFlash(msg)
 		}
 	case "savings":
@@ -1333,6 +1344,11 @@ func (m *Model) executeMainSelection() tea.Cmd {
 	}
 	m.persistStateBestEffort()
 	return flashTimer(3 * time.Second)
+}
+
+func (m *Model) noteSlimferenceLaunch(label string) {
+	m.lastLaunchLabel = label
+	m.lastLaunchAt = time.Now()
 }
 
 func (m *Model) launchCenterStatusFlash() string {

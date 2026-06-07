@@ -23,6 +23,8 @@ No blocked tasks.
 
 ## Done
 
+- [x] T316 TUI status polling responsiveness -> docs/todo/t316-tui-status-polling-responsiveness.md
+- [x] T315 Activity view live-signal cleanup -> docs/todo/t315-activity-view-live-signal-cleanup.md
 - [x] T313 TUI keyboard responsiveness hotpath -> docs/todo/t313-tui-keyboard-responsiveness-hotpath.md
 - [x] T312 Activity view and Desktop indicator cleanup -> docs/todo/t312-activity-view-desktop-indicator-cleanup.md
 - [x] T311 Persistent CLI route title indicator -> docs/todo/t311-persistent-cli-route-title.md

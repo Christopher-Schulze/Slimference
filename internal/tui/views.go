@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -308,7 +307,8 @@ func (m *Model) renderStatusView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
-// renderActivityView renders scoped sessions and recent Slimference traffic.
+// renderActivityView renders current Slimference activity only. Direct Codex
+// processes and old hook diagnostics are intentionally not mixed into this view.
 func (m *Model) renderActivityView() string {
 	s := m.styles
 	width := m.width
@@ -320,11 +320,12 @@ func (m *Model) renderActivityView() string {
 	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
 
 	var lines []string
+	flights := m.proxy.GetRecentFlights(8)
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Activity"))
 	lines = append(lines, rule)
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderHookActivity(m, loadHookActivityStatuses(8))))
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderCurrentActivity(m, flights)))
 	lines = append(lines, "")
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, m.proxy.GetRecentFlights(8))))
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, flights)))
 	lines = append(lines, "")
 	lines = append(lines, rule)
 
@@ -332,48 +333,67 @@ func (m *Model) renderActivityView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
-func renderHookActivity(m *Model, statuses []hookTurnDebugStatus) string {
+func renderCurrentActivity(m *Model, flights []dbg.FlightRequestSummary) string {
 	s := m.styles
-	body := []string{" " + s.PanelTitle.Render("ACTIVE SESSIONS")}
-	if len(statuses) == 0 {
-		body = append(body, "", "  "+s.Muted.Render("No Slimference hook sessions yet."))
+	body := []string{" " + s.PanelTitle.Render("NOW")}
+	if len(flights) > 0 {
+		flight := flights[len(flights)-1]
+		body = append(body, "",
+			"  "+s.Saved.Render("● ROUTED")+"  "+activityFlightHeadline(flight),
+			"  "+s.Muted.Render(activityFlightDetail(flight)),
+		)
 		return strings.Join(body, "\n")
 	}
-	for _, status := range statuses {
-		state := s.Muted.Render("RECENT")
-		if !status.Closed {
-			state = s.Saved.Render("ACTIVE")
-		}
-		path := hookActivityPath(status)
-		if path == "" {
-			path = "path unknown"
-		}
-		line := fmt.Sprintf("%s  session %s  turn %s  updated %s",
-			state,
-			compactDebugLabel(status.SessionID, 20),
-			compactDebugLabel(status.TurnID, 12),
-			formatStatusTime(status.UpdatedAt),
+	if m.lastLaunchLabel != "" {
+		body = append(body, "",
+			"  "+s.Highlight.Render("● LAUNCHED")+"  "+m.lastLaunchLabel+" via Slimference",
+			"  "+s.Muted.Render("waiting for first routed request · "+formatStatusTime(m.lastLaunchAt)),
 		)
-		body = append(body, "", "  "+line)
-		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("path %s", compactDebugLabel(path, 64))))
-		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("tools %d  read %d  edited %d  git-lists %d", len(status.Tools), len(status.FilesRead), len(status.FilesEdited), len(status.GitPathLists))))
-		if last := hookActivityLastWork(status); last != "" {
-			body = append(body, "  "+s.Muted.Render("last "+compactDebugLabel(last, 64)))
-		}
+		return strings.Join(body, "\n")
 	}
+	if m.codexDesktopStatus.AppServerActive {
+		body = append(body, "",
+			"  "+s.Highlight.Render("● DESKTOP")+"  Codex App app-server active",
+			"  "+s.Muted.Render("waiting for first routed request"),
+		)
+		return strings.Join(body, "\n")
+	}
+	body = append(body, "",
+		"  "+s.Muted.Render("○ IDLE")+"  no Slimference-routed traffic detected",
+		"  "+s.Muted.Render("direct Codex windows are hidden here"),
+	)
 	return strings.Join(body, "\n")
+}
+
+func activityFlightHeadline(flight dbg.FlightRequestSummary) string {
+	client := compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16)
+	route := compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 22)
+	saved := flight.TokenAccounting.BillableSavingsEstimate
+	if saved > 0 {
+		return fmt.Sprintf("%s · %s · %d saved", client, route, saved)
+	}
+	return fmt.Sprintf("%s · %s · 0 saved", client, route)
+}
+
+func activityFlightDetail(flight dbg.FlightRequestSummary) string {
+	id := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 28)
+	target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 48)
+	if target == "" {
+		return id
+	}
+	return id + " · " + target
 }
 
 func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string {
 	s := m.styles
-	body := []string{" " + s.PanelTitle.Render("RECENT TRAFFIC")}
+	body := []string{" " + s.PanelTitle.Render("RECENT ROUTED REQUESTS")}
 	if len(flights) == 0 {
 		body = append(body, "", "  "+s.Muted.Render("No routed Slimference traffic yet."))
 		return strings.Join(body, "\n")
 	}
 	start := 0
-	if len(flights) > 6 {
-		start = len(flights) - 6
+	if len(flights) > 4 {
+		start = len(flights) - 4
 	}
 	for _, flight := range flights[start:] {
 		saved := flight.TokenAccounting.BillableSavingsEstimate
@@ -381,104 +401,18 @@ func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string 
 		if saved > 0 {
 			savedLabel = s.Saved.Render(fmt.Sprintf("%d saved", saved))
 		}
-		label := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 20)
-		target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 36)
-		body = append(body, "", "  "+fmt.Sprintf("%s  %s  %s  %s",
-			s.Highlight.Render(label),
-			compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16),
-			compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 18),
+		body = append(body, "", "  "+fmt.Sprintf("%s  %s  %s",
+			s.Highlight.Render(compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16)),
+			compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 22),
 			savedLabel,
 		))
-		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("%s  model %s", target, compactDebugLabel(firstNonEmpty(flight.Provider, "unknown"), 18))))
+		detail := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 24)
+		if target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 44); target != "" {
+			detail += " · " + target
+		}
+		body = append(body, "  "+s.Muted.Render(detail))
 	}
 	return strings.Join(body, "\n")
-}
-
-func loadHookActivityStatuses(limit int) []hookTurnDebugStatus {
-	home, _ := userHomeDirFn()
-	dir := sessions.DefaultHookStateDir(strings.TrimSpace(home))
-	return loadHookActivityStatusesFromDir(dir, limit)
-}
-
-func loadHookActivityStatusesFromDir(dir string, limit int) []hookTurnDebugStatus {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	statuses := make([]hookTurnDebugStatus, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		sessionID := strings.TrimSuffix(entry.Name(), ".json")
-		state, err := sessions.LoadHookState(dir, sessionID)
-		if err != nil || len(state.Turns) == 0 {
-			continue
-		}
-		turn := state.Turns[len(state.Turns)-1]
-		for _, candidate := range state.Turns {
-			if candidate.ID == state.CurrentTurn {
-				turn = candidate
-				break
-			}
-		}
-		statuses = append(statuses, hookTurnDebugStatus{
-			Present:      true,
-			StatePath:    filepath.Join(dir, entry.Name()),
-			SessionID:    state.SessionID,
-			TurnID:       turn.ID,
-			Closed:       turn.Closed,
-			UpdatedAt:    turn.UpdatedAt,
-			Tools:        append([]string(nil), turn.Tools...),
-			FilesRead:    append([]string(nil), turn.FilesRead...),
-			FilesEdited:  append([]string(nil), turn.FilesEdited...),
-			GitPathLists: append([]sessions.HookGitPathListState(nil), turn.GitPathLists...),
-		})
-	}
-	sort.Slice(statuses, func(i, j int) bool {
-		return statuses[i].UpdatedAt.After(statuses[j].UpdatedAt)
-	})
-	if limit > 0 && len(statuses) > limit {
-		statuses = statuses[:limit]
-	}
-	return statuses
-}
-
-func hookActivityPath(status hookTurnDebugStatus) string {
-	for i := len(status.GitPathLists) - 1; i >= 0; i-- {
-		if cwd := strings.TrimSpace(status.GitPathLists[i].CWD); cwd != "" {
-			return cwd
-		}
-	}
-	if last := hookActivityLastPath(status.FilesEdited); last != "" {
-		return filepath.Dir(last)
-	}
-	if last := hookActivityLastPath(status.FilesRead); last != "" {
-		return filepath.Dir(last)
-	}
-	return ""
-}
-
-func hookActivityLastWork(status hookTurnDebugStatus) string {
-	if last := hookActivityLastPath(status.FilesEdited); last != "" {
-		return "edited " + last
-	}
-	if last := hookActivityLastPath(status.FilesRead); last != "" {
-		return "read " + last
-	}
-	if len(status.Tools) > 0 {
-		return "tool " + status.Tools[len(status.Tools)-1]
-	}
-	return ""
-}
-
-func hookActivityLastPath(values []string) string {
-	for i := len(values) - 1; i >= 0; i-- {
-		if value := strings.TrimSpace(values[i]); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func firstNonEmpty(values ...string) string {

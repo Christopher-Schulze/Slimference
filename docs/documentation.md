@@ -1726,8 +1726,10 @@ daemon health, diagnostics commands, current-session savings, traffic logs,
 provider maps, checkpoint/tool-archive internals, cache parser details, and
 transport proof vocabulary belong to Savings, Status, Logs, or Setup, not the
 first screen. Daemon PID/port/liveness is not rendered in the global header; it
-belongs to Status. Flight records and hook-turn state are summarized in
-Activity; raw session log stream and log export belong to Logs.
+belongs to Status. Activity shows only explicit Slimference launch state and
+recent routed Slimference requests; direct Codex windows and old hook-turn
+diagnostics are intentionally hidden there. Hook-turn state, raw session log
+stream, and log export belong to Logs.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new

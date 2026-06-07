@@ -509,11 +509,31 @@ func TestUpdate_TickRefreshesProductStatus(t *testing.T) {
 	m := NewModel(p)
 
 	p.productStatus = ProductStatus{SavingsStatus: "saving", BillableInputTokensSaved: 42}
+	m.latestProductAt = time.Now().Add(-productStatusRefreshMinInterval - time.Second)
 	updated, _ := m.Update(tickMsg(time.Now()))
 	model := updated.(Model)
 
 	if model.latestProduct.SavingsStatus != "saving" || model.latestProduct.BillableInputTokensSaved != 42 {
 		t.Fatalf("latestProduct not refreshed: %+v", model.latestProduct)
+	}
+}
+
+func TestUpdate_TickKeepsFreshProductStatusCached(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.productStatus = ProductStatus{SavingsStatus: "active_no_savings"}
+	m := NewModel(p)
+	callsAfterInit := p.productCalls
+
+	p.productStatus = ProductStatus{SavingsStatus: "saving", BillableInputTokensSaved: 42}
+	updated, _ := m.Update(tickMsg(time.Now()))
+	model := updated.(Model)
+
+	if p.productCalls != callsAfterInit {
+		t.Fatalf("fresh tick refetched product status %d extra time(s)", p.productCalls-callsAfterInit)
+	}
+	if model.latestProduct.SavingsStatus != "active_no_savings" {
+		t.Fatalf("fresh tick should keep cached product status: %+v", model.latestProduct)
 	}
 }
 
@@ -730,13 +750,13 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	userHomeDirFn = func() (string, error) { return home, nil }
 	t.Cleanup(func() { userHomeDirFn = oldHome })
 	dir := sessions.DefaultHookStateDir(home)
-	if err := sessions.StartHookSession(dir, "session-activity"); err != nil {
+	if err := sessions.StartHookSession(dir, "stale-hook-session"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := sessions.ObserveHookGitPathList(dir, "session-activity", "/Users/me/CODE/Slimference", "git status", []string{"cmd/slimference/main.go"}); err != nil {
+	if _, _, err := sessions.ObserveHookGitPathList(dir, "stale-hook-session", "/Users/me/CODE/Golem", "git status", []string{"cmd/slimference/main.go"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sessions.ObserveHookFile(dir, "session-activity", "/Users/me/CODE/Slimference/cmd/slimference/main.go", "read"); err != nil {
+	if err := sessions.ObserveHookFile(dir, "stale-hook-session", "/Users/me/CODE/Golem/cmd/slimference/main.go", "read"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -746,10 +766,42 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE", "/ Activity", "ACTIVE SESSIONS", "RECENT TRAFFIC", "session-activity", "/Users/me/CODE/Slimference", "codex_cli", "websocket_phasef", "42 saved"} {
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTED REQUESTS", "session-activity", "codex_cli", "websocket_phasef", "42 saved"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity view missing %q in:\n%s", want, output)
 		}
+	}
+	for _, stale := range []string{"ACTIVE SESSIONS", "stale-hook-session", "/Users/me/CODE/Golem"} {
+		if strings.Contains(output, stale) {
+			t.Fatalf("activity view leaked stale hook data %q in:\n%s", stale, output)
+		}
+	}
+}
+
+func TestView_ActivityRenderShowsLaunchPendingWithoutHookNoise(t *testing.T) {
+	home := t.TempDir()
+	oldHome := userHomeDirFn
+	userHomeDirFn = func() (string, error) { return home, nil }
+	t.Cleanup(func() { userHomeDirFn = oldHome })
+	dir := sessions.DefaultHookStateDir(home)
+	if err := sessions.StartHookSession(dir, "old-direct-codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel(newMockProxy())
+	m.view = ViewActivity
+	m.width = 120
+	m.height = 30
+	m.noteSlimferenceLaunch("Codex App")
+
+	output := m.View()
+	for _, want := range []string{"NOW", "LAUNCHED", "Codex App via Slimference", "waiting for first routed request"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("activity launch-pending view missing %q in:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "old-direct-codex") || strings.Contains(output, "ACTIVE SESSIONS") {
+		t.Fatalf("activity launch-pending view leaked hook state:\n%s", output)
 	}
 }
 
