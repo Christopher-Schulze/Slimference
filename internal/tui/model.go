@@ -488,7 +488,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "1":
 			if m.view == ViewSetup {
 				m.selectSetupStep(0)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			m.setFlash("Runtime layer toggles moved out of the daily UI; use config/CLI for advanced control")
@@ -497,7 +496,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "2":
 			if m.view == ViewSetup {
 				m.selectSetupStep(1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			m.setFlash("Cache layer controls moved out of the daily UI; use config/CLI for advanced control")
@@ -506,19 +504,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			if m.view == ViewSetup {
 				m.selectSetupStep(2)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 		case "4":
 			if m.view == ViewSetup {
 				m.selectSetupStep(3)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 		case "5":
 			if m.view == ViewSetup {
 				m.selectSetupStep(4)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 
@@ -555,22 +550,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.view == ViewMain {
 				m.moveMainCursor(-1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewStats {
 				m.moveStatsCursor(-1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewLogs {
 				m.moveDebugCursor(-1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewSetup && m.svc != nil {
 				m.moveSetupCursor(-1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewApps {
@@ -583,22 +574,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.view == ViewMain {
 				m.moveMainCursor(1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewStats {
 				m.moveStatsCursor(1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewLogs {
 				m.moveDebugCursor(1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewSetup && m.svc != nil {
 				m.moveSetupCursor(1)
-				m.persistStateBestEffort()
 				return m, nil
 			}
 			if m.view == ViewApps {

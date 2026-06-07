@@ -292,6 +292,26 @@ func TestUpdate_ctrlSSavePreferences(t *testing.T) {
 	}
 }
 
+func TestUpdate_CursorMovementDoesNotPersistState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tui_state.json")
+	tuiStatePathOverride(t, path)
+
+	m := NewModel(newMockProxy())
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cursor movement must not write state file, stat err=%v", err)
+	}
+
+	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "activity")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("opening selected view must still persist state: %v", err)
+	}
+}
+
 // TestUpdate_ctrlSSaveFailureFlashesError covers the failure path of the
 // ctrl+s handler via the marshal stub.
 func TestUpdate_ctrlSSaveFailureFlashesError(t *testing.T) {
