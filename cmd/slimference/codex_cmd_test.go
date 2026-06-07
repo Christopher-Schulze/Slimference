@@ -1568,6 +1568,11 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	if !strings.Contains(gotArgs[1], "/bin/bash -lc") || !strings.Contains(gotArgs[1], "unset") || !strings.Contains(gotArgs[1], "CODEX_") {
 		t.Fatalf("launch command must scrub inherited Codex session env, args=%v", gotArgs)
 	}
+	if !strings.Contains(gotArgs[1], "printf") ||
+		!strings.Contains(gotArgs[1], "033]0;[SF] Codex CLI") ||
+		!strings.Contains(gotArgs[1], "007") {
+		t.Fatalf("launch command must set scoped Terminal title, args=%v", gotArgs)
+	}
 
 	osExecutable = func() (string, error) { return "", errors.New("no executable") }
 	if _, err := (&serviceControlAdapter{}).LaunchCodexCLI(); err == nil || !strings.Contains(err.Error(), "no executable") {

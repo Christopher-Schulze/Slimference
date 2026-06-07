@@ -423,10 +423,6 @@ func appendCodexDesktopSafeExtraEnv(out []string, extra []string, blocked map[st
 			continue
 		}
 		key := kv[:eq]
-		if key == codexDesktopIndicatorDisableEnv {
-			out = append(out, kv)
-			continue
-		}
 		if strings.HasPrefix(key, "CODEX_") || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
 			continue
 		}
@@ -553,11 +549,10 @@ func filterCodexDesktopProxyEnv(env []string) []string {
 }
 
 func filterCodexDesktopAppServerEnv(env []string) []string {
-	keys := make(map[string]struct{}, len(codexDesktopAppServerEnvKeys)+1)
+	keys := make(map[string]struct{}, len(codexDesktopAppServerEnvKeys))
 	for _, k := range codexDesktopAppServerEnvKeys {
 		keys[k] = struct{}{}
 	}
-	keys[codexDesktopIndicatorDisableEnv] = struct{}{}
 	var out []string
 	for _, kv := range env {
 		eq := strings.IndexByte(kv, '=')
@@ -666,16 +661,7 @@ func startCodexDesktopProcess(p installPrinter, binary string, args []string, en
 	if err := cmd.Process.Release(); err != nil {
 		fmt.Fprintf(p.Err, "codex launch-desktop: release failed: %v\n", err)
 	}
-	indicatorStarted := false
-	if err := maybeStartCodexDesktopIndicator(pid, env); err != nil {
-		fmt.Fprintf(p.Err, "codex launch-desktop: indicator unavailable: %v\n", err)
-	} else {
-		indicatorStarted = codexDesktopIndicatorShouldStart(env)
-	}
 	fmt.Fprintf(p.Out, "Codex.app launched (PID %d) with scoped Slimference env.\n", pid)
-	if indicatorStarted {
-		fmt.Fprintln(p.Out, "Indicator: Slimference macOS overlay active.")
-	}
 	fmt.Fprintln(p.Out, "Scope: only this Codex.app inherits the env. Browser ChatGPT, ChatGPT.app, Claude untouched.")
 	fmt.Fprintln(p.Out, "Reverse: quit Codex.app via Cmd+Q. Relaunch from Finder/Spotlight for direct routing.")
 	return 0

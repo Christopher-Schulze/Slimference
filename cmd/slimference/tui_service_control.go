@@ -246,7 +246,8 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	inner := "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
+	title := "printf '\\033]0;[SF] Codex CLI\\007'"
+	inner := "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) + " && " + title + " && " + shellQuote(binary) + " codex run --transport=auto --"
 	cmdLine := "/bin/bash -lc " + shellQuote(inner)
 	script := "tell application \"Terminal\" to do script " + strconv.Quote(cmdLine)
 	if err := tuiLaunchCommandFn("osascript", "-e", script); err != nil {

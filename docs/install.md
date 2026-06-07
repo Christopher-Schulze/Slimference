@@ -101,6 +101,7 @@ human entrypoints there are:
 - Launch Codex App
 - Savings
 - Status
+- Logs
 - Setup
 
 There is no separate "open direct" action. Direct mode is the native launch:
@@ -115,8 +116,9 @@ Launch Center strips inherited `CODEX_*` session variables before starting a
 new Codex CLI or proven Codex.app Slimference process. This prevents a
 Slimference session that was opened from inside Codex from leaking
 `CODEX_THREAD_ID` or other old runtime state into the newly launched app. The
-Desktop launch also pins `PWD` to the current folder when the proof gate allows
-it.
+TUI-launched Codex CLI tab also sets a `[SF] ` Terminal title prefix as a
+non-invasive route indicator. The Desktop launch pins `PWD` to the current
+folder when the proof gate allows it.
 
 Slimference's safe product surfaces touch only scoped Codex paths:
 
@@ -363,14 +365,11 @@ The launcher uses a supported Codex Desktop process boundary:
    Desktop builds do not expose a stable app-server data contract for the old
    text chip, so Slimference does not mutate `model/list`, model IDs, display
    names, selected model values, or service-tier metadata to fake it.
-7. The current visible signal is Slimference-owned: scoped Desktop launches
-   start a separate click-through macOS route indicator tied to the launched
-   Codex.app PID. It patches no Codex bundle files, mutates no model metadata,
-   joins all spaces/full-screen desktops, and exits when that PID exits. Set
-   `SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` or pass
-   `--env=SLIMFERENCE_CODEX_DESKTOP_INDICATOR=0` to suppress it for
-   diagnostics. Normal Finder/Spotlight Codex.app launches remain direct and do
-   not start it.
+7. There is no synthetic Desktop badge fallback. Older Desktop builds can render
+   the `Slimference` provider chip from process-local provider config; current
+   builds may not. Current route truth is `codex desktop status`, the
+   app-server shim flight log, and daemon decisions. Normal Finder/Spotlight
+   Codex.app launches remain direct.
 
 Inspect the exact scoped environment without launching:
 
@@ -456,9 +455,10 @@ bundle executable directory as the child working directory, scrubs inherited
 waits for a short startup probe. If Codex.app exits immediately, the command
 fails and prints the exit status or signal instead of claiming a successful
 launch. On macOS, a successful scoped launch also starts the patch-free
-Slimference route indicator overlay; this is the immediate user-facing cue that
-the opened Codex.app window came from Slimference. The overlay is not part of
-Codex Desktop's renderer and does not affect model selection or service tiers.
+Desktop app-server shim. Older Desktop builds can show the `Slimference`
+provider chip from the scoped provider config; current Desktop builds may not.
+Slimference does not patch Codex Desktop's renderer and does not mutate model
+selection or service tiers to fake that chip.
 
 Manual external proof can still be collected when diagnosing a new Codex.app
 build:
@@ -486,7 +486,7 @@ after the model picker data is loaded, `model_list_seen`. Those events prove
 that the spawned app-server shim is active. `model/list` model metadata passes
 through byte-identically; Slimference does not fake badges by mutating model
 IDs, labels, selected model values, service tiers, or default tier metadata.
-The indicator is the quick visual cue; the log is the audit proof. The log
+The log plus `codex desktop status` is the audit proof. The log
 records event names and route metadata only; it does not record prompts,
 responses, model payloads, or secrets.
 

@@ -46,8 +46,8 @@ default service tiers, or service-tier metadata.
   a product default for Slimference.
 - `model_list_seen` is diagnostic only. There is intentionally no model-list
   rewrite event.
-- T308 replaces the removed model-metadata fallback with a Slimference-owned
-  patch-free macOS route indicator tied to the scoped Codex.app PID.
+- T308 tried a patch-free macOS overlay as a route indicator. It was rejected
+  and removed from the product path; it is not the Desktop signal.
 
 ## Deviations
 
