@@ -361,9 +361,11 @@ output-reduce must not alter the model's task/tool context while trying to save
 output tokens. On the WSS Phase-F path, output-reduce is considered only for
 prompt/user-turn request bodies. Requests carrying normalized tool-result
 content, including top-level `function_call_output` and
-`response_item.payload.function_call_output`, are not output-reduce candidates,
-so read/search/git/test/tool-output reducers remain the only mechanisms that
-can alter tool-output deltas.
+`response_item.payload.function_call_output`, are not output-reduce candidates.
+This guard is evaluated from the original request plus Layer-0 tool-result
+stats, so a tool-output turn remains blocked even after Layer 0 has compacted
+the body. Read/search/git/test/tool-output reducers remain the only mechanisms
+that can alter tool-output deltas.
 Streaming provider usage is accounted by field semantics, not by blind addition:
 if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
 replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`

@@ -551,6 +551,78 @@ func TestWSPhaseFOutputReduceSkipsResponseItemToolOutput(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var status strings.Builder
+	for i := 0; i < 140; i++ {
+		status.WriteString("?? synthetic_layer0_output_reduce_guard_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"conversation_id":      "output-reduce-layer0-tool-output-session",
+			"previous_response_id": "resp_tool_turn",
+			"instructions":         strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{
+				{
+					"type":    "message",
+					"role":    "user",
+					"content": "check the project status",
+				},
+				{
+					"type": "response_item",
+					"payload": map[string]any{
+						"type":      "function_call",
+						"call_id":   "call_status",
+						"name":      "exec_command",
+						"arguments": map[string]any{"cmd": "git status --short"},
+					},
+				},
+				{
+					"type": "response_item",
+					"payload": map[string]any{
+						"type":    "function_call_output",
+						"call_id": "call_status",
+						"output":  status.String(),
+					},
+				},
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected Layer 0 to compact response_item tool output")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git status]") || strings.Contains(body, "synthetic_layer0_output_reduce_guard_139.go") {
+		t.Fatalf("response_item tool output was not compacted: %s", body)
+	}
+	if strings.Contains(body, "#slimference-output-rules") {
+		t.Fatalf("Layer-0-compacted tool-output turn must not receive output-reduce instructions: %s", body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
+		t.Fatalf("Layer-0-compacted tool output should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
 func TestWSPhaseFOutputReduceSkipsEmptyInput(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

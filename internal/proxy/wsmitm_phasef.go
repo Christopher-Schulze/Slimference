@@ -185,11 +185,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
 	var meta wssRequestMeta
+	requestContainsToolOutput := wssBodyContainsToolOutput(out)
 	messages, raw, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
 	}
 	if err == nil && len(messages) > 0 {
+		requestContainsToolOutput = requestContainsToolOutput || messagesContainToolResult(messages)
 		sessionID := meta.SessionID
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
@@ -265,7 +267,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			messages = refreshed
 		}
 	}
-	if injected, stats := a.applyWSSOutputReduce(out); stats.Reason != "disabled" {
+	if injected, stats := a.applyWSSOutputReduce(out, requestContainsToolOutput || l0Stats.ToolResultBlocks > 0); stats.Reason != "disabled" {
 		if stats.Applied {
 			out = injected
 		}
@@ -372,11 +374,11 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	return prunedBody, true
 }
 
-func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduce.Stats) {
+func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool) ([]byte, outputreduce.Stats) {
 	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
-	if wssBodyContainsToolOutput(body) {
+	if blockedByToolOutput || wssBodyContainsToolOutput(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	if !wssBodyHasUserPromptInput(body) {
@@ -421,6 +423,10 @@ func wssBodyContainsToolOutput(body []byte) bool {
 	if err != nil {
 		return false
 	}
+	return messagesContainToolResult(messages)
+}
+
+func messagesContainToolResult(messages []types.Message) bool {
 	for _, message := range messages {
 		if message.HasToolResult() {
 			return true
