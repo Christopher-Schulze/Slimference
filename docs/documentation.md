@@ -236,6 +236,10 @@ Codex hooks only: `~/.codex/hooks.json` points at
 and `slimference readhook codex`. Claude hook code remains in-tree but no
 public install path writes `~/.claude`.
 
+Slimference hook install/remove is scoped to Slimference-owned hook entries and
+preserves other Codex hooks, including Reconc repo-local policy hooks in
+`.codex/hooks.json`.
+
 ### Pipeline
 
 `internal/filter/pipeline.go::RunPipeline` runs:
@@ -637,6 +641,10 @@ packaged `reconc-*` binaries, shell-wrapped invocations, leading
 These outputs are intentionally not a savings surface: the token upside is small,
 while preserving exact policy, audit, hook, and task evidence avoids confusing
 Codex or the operator during workflow-state checks.
+
+Slimference also preserves Reconc's Codex hooks during Slimference hook install
+and removal, so Reconc can remain the repo-local policy gate while Slimference
+handles scoped transport and safe output reduction.
 
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads

@@ -840,6 +840,118 @@ func TestRemoveCodexHooksJSON_removesEntry(t *testing.T) {
 	}
 }
 
+func TestInstallAndRemoveCodexPreservesReconcHooks(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reconcHooks := `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-start \"$repo\"; fi; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-start \"$repo\"'",
+            "statusMessage": "reconc: initializing policy session"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-pre-tool-use \"$repo\"; fi; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-pre-tool-use \"$repo\"'"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-post-tool-use-failure \"$repo\"; fi; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-post-tool-use-failure \"$repo\"'"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-end \"$repo\"; fi; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-end \"$repo\"'"
+          }
+        ]
+      }
+    ]
+  }
+}`
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	if err := os.WriteFile(hooksPath, []byte(reconcHooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallCodex(home, "/bin/slimference"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterInstall := string(data)
+	for _, want := range []string{
+		"tools/reconc/bin/hook",
+		"codex-session-start",
+		"codex-pre-tool-use",
+		"codex-post-tool-use-failure",
+		"codex-session-end",
+		"codex-post-tool.sh",
+		"codex-read-tool.sh",
+	} {
+		if !strings.Contains(afterInstall, want) {
+			t.Fatalf("merged hooks.json lost %q:\n%s", want, afterInstall)
+		}
+	}
+	if err := RemoveCodex(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRemove := string(data)
+	for _, want := range []string{
+		"tools/reconc/bin/hook",
+		"codex-session-start",
+		"codex-pre-tool-use",
+		"codex-post-tool-use-failure",
+		"codex-session-end",
+	} {
+		if !strings.Contains(afterRemove, want) {
+			t.Fatalf("remove hooks.json lost Reconc hook %q:\n%s", want, afterRemove)
+		}
+	}
+	for _, forbidden := range []string{
+		"codex-pre-tool.sh",
+		"codex-post-tool.sh",
+		"codex-read-tool.sh",
+		"codex-session-start.sh",
+		"Output compactor",
+	} {
+		if strings.Contains(afterRemove, forbidden) {
+			t.Fatalf("remove hooks.json kept Slimference hook %q:\n%s", forbidden, afterRemove)
+		}
+	}
+}
+
 func TestRemoveCodexHooksJSON_noFile(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
