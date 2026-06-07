@@ -350,6 +350,22 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	}
 }
 
+func TestSearchOutputReducerEligibleFromCommandLine(t *testing.T) {
+	t.Parallel()
+	if !SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src`, "") {
+		t.Fatal("repo-scoped ripgrep must be search-output reducer eligible")
+	}
+	if !SearchOutputReducerEligibleFromCommandLine(`find .reconc -maxdepth 4 -type f`, "/repo") {
+		t.Fatal("find path lists must be search-output reducer eligible")
+	}
+	if !SearchOutputReducerEligibleFromCommandLine(`fd TASK docs/tasks`, "/repo") {
+		t.Fatal("fd path lists must be search-output reducer eligible")
+	}
+	if SearchOutputReducerEligibleFromCommandLine(`go test ./...`, "/repo") {
+		t.Fatal("non-search command must not be search-output reducer eligible")
+	}
+}
+
 func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
 	t.Parallel()
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`rg -n "needle" internal`); got != "" {

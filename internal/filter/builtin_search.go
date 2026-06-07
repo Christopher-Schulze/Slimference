@@ -282,6 +282,51 @@ func SearchOutputKeyFromCommandLine(commandLine string) string {
 	return strings.Join(argv, "\t")
 }
 
+// SearchOutputReducerEligibleFromCommandLine reports whether commandLine can
+// route through the search_output reducer. It is intentionally broader than
+// SearchOutputKeyFromCommandLine because some search reducers are useful for
+// one-shot output compaction but unsafe as cross-turn identity keys.
+func SearchOutputReducerEligibleFromCommandLine(commandLine, workDir string) bool {
+	for _, candidate := range []string{commandLine, NormalizeSearchCommandLine(commandLine, workDir)} {
+		if candidate == "" {
+			continue
+		}
+		if searchOutputReducerEligibleArgv(primaryArgvForCapturedOutput(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchOutputReducerEligibleArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	if isPathListTool(argv) {
+		return true
+	}
+	if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) {
+		return true
+	}
+	return isSearchEmptyResultTool(argv)
+}
+
+func isSearchEmptyResultTool(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	b = strings.TrimSuffix(b, ".exe")
+	switch b {
+	case "rg", "grep", "ggrep", "fd", "find", "ag", "ack", "ack.pl", "ug", "ugrep", "sift", "plocate", "locate", "sk":
+		return true
+	case "git":
+		return gitGrepIndex(argv) >= 0
+	default:
+		return false
+	}
+}
+
 // RepoScopedSearchOutputKeyFromCommandLine returns a stable search key only
 // when the command carries repository scope in the command line itself. This is
 // stricter than SearchOutputKeyFromCommandLine and is intended for cross-turn

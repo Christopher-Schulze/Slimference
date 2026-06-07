@@ -268,7 +268,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
-			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && workload == savingspolicy.CodexWorkloadSearch
+			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
@@ -436,6 +436,25 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
 	return codexLayer0Result{Messages: out, Stats: stats.finish(started)}
+}
+
+func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {
+	if workload == savingspolicy.CodexWorkloadSearch {
+		return true
+	}
+	workDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	if filter.SearchOutputReducerEligibleFromCommandLine(filterCommandLine, workDir) {
+		return true
+	}
+	return proxyToolResultLooksLikeSearchOutput(text)
+}
+
+func proxyToolResultLooksLikeSearchOutput(text string) bool {
+	if proxyLooksLikeSearchOutput(text) {
+		return true
+	}
+	_, payload, ok := splitCodexExecEnvelope(text)
+	return ok && proxyLooksLikeSearchOutput(payload)
 }
 
 func proxyEditedPathsFromMessages(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {

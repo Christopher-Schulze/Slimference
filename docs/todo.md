@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T325 Codex WSS search-output reducer risk gate -> docs/todo/t325-codex-wss-search-output-risk-gate.md
 - [x] T324 Codex WSS search-output fail-open -> docs/todo/t324-codex-wss-search-output-fail-open.md
 - [x] T323 Codex WSS Layer0/output-reduce separation -> docs/todo/t323-codex-wss-layer0-outputreduce-separation.md
 - [x] T322 Codex WSS output-reduce post-Layer0 tool guard -> docs/todo/t322-codex-wss-output-reduce-tool-guard.md

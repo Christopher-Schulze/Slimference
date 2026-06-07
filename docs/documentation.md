@@ -577,12 +577,15 @@ but it does not seed cross-turn search collapse or search delta state. This keep
 repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
 build/test reports, partial file ranges, or custom deterministic tools without
 introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
-search-output blocks currently fail open before first-pass grouping and repeated
-search delta, because fresh live Golem sessions on 2026-06-07 showed upstream
-`invalid_request_error` after WSS search-output mutation even with output-reduce
-disabled. HTTP, hook, and non-WSS routes keep the deterministic search reducers;
-WSS search savings must be re-certified with live captures before returning to
-the default WSS product path.
+search-output reducer paths currently fail open before first-pass grouping and
+repeated search delta, including grep-style search, path-list tools such as
+`find` / `fd`, empty-result search tools, and output-inferred search payloads.
+Fresh live Golem sessions on 2026-06-07 showed upstream `invalid_request_error`
+after WSS search-output mutation even with output-reduce disabled, and a later
+retest proved the narrower search-key gate was insufficient. HTTP, hook, and
+non-WSS routes keep the deterministic search reducers; WSS search/path-list
+savings must be re-certified with live captures before returning to the default
+WSS product path.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -620,9 +623,12 @@ header - both colon-less. The grouper now SKIPS colon-less noise lines (header,
 context separators, truncated tail) and only abandons grouping when nothing
 parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured `rg`
 (402 matches, 79 files) this compacts 40 KB to ~9 KB (78%) on supported routes.
-For Codex WSS Phase-F, search output is pass-through until the WSS protocol shape
-is re-certified live. That costs WSS search-token savings, but preserves the
-stronger product contract: no upstream 400s and no model-facing context loss.
+For Codex WSS Phase-F, search-output reducer paths are pass-through until the
+WSS protocol shape is re-certified live. That includes grep-style output,
+path-list output from tools such as `find` / `fd`, and search-looking output
+inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
+search-token savings, but the product contract is stronger: no upstream 400s
+and no model-facing context loss.
 
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads
@@ -774,10 +780,12 @@ window historically saved 382 billable WSS-input tokens on an archive-backed
 `frames_reencoded=1`, and zero parse, degraded-session, or compression errors.
 Fresh 2026-06-07 Golem sessions later showed upstream 400s after WSS
 search-output mutation, so that search-loop row is kept as historical evidence,
-not as a current default-WSS promotion claim. Current WSS search output fails
-open until re-certified. The strict matrix still proves representative WSS
-savings breadth for deterministic read, ranged-read, git, exec-envelope,
-no-savings, and mixed-workday reducers that remain in the product path. The
+not as a current default-WSS promotion claim. Current WSS search/path-list output
+fails open until re-certified, including inferred search payloads and
+`find`/`fd` path-list outputs such as Reconc file listings. The strict matrix
+still proves representative WSS savings breadth for deterministic read,
+ranged-read, git, exec-envelope, no-savings, and mixed-workday reducers that
+remain in the product path. The
 2026-06-02 strict matrix additionally covered repeat reads, ranged reads, search
 loops, git-status compaction, apply-patch/read safety, changed-file safety,
 similar-file safe-zero behavior, test-failure safe-zero behavior, no-savings

@@ -43,6 +43,9 @@ shape safe again.
   and disabled it on Layer0-mutated WSS turns. The next live Golem failure still
   followed a WSS `search_output` Layer 0 mutation, so the remaining unsafe
   mechanism is WSS search mutation itself.
+- Follow-up T325 broadened this from stable search-key commands to every WSS
+  path that can enter the `search_output` reducer, including path-list tools and
+  output-inferred search payloads.
 - Savings impact: WSS `rg` / `grep` / `git grep` outputs currently save zero via
   search grouping or repeated search delta. This is intentional. Read/ranged
   read, git status/diff, test/build filters, exec-envelope stripping,

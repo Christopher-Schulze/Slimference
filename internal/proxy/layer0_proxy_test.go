@@ -626,6 +626,51 @@ func TestReduceCodexLayer0WSSSearchChangedMatchSetPassesThrough(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSSearchOutputInferencePassesThrough(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var output strings.Builder
+	output.WriteString("Chunk ID: live-search\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n")
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&output, "docs/tasks/TASK-%04d.md:%d:needle with enough detail to group\n", i, i+1)
+	}
+	original := output.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-shell-search", ToolName: "exec_command", ToolInput: `{"cmd":"/bin/bash -lc 'rg -n needle docs/tasks'"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-shell-search", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-search-inferred",
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original {
+		t.Fatalf("WSS inferred search output must pass through, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var output strings.Builder
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&output, ".reconc/audit/%04d.jsonl\n", i)
+	}
+	original := output.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-find-reconc", ToolName: "exec_command", ToolInput: `{"cmd":"find .reconc -maxdepth 4 -type f"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-find-reconc", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-find-reconc",
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original {
+		t.Fatalf("WSS find path-list output must pass through, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
 func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
