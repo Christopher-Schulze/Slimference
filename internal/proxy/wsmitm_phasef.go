@@ -376,7 +376,7 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduc
 	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
-	if wssBodyContainsFunctionCallOutput(body) {
+	if wssBodyContainsToolOutput(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	if !wssBodyHasUserPromptInput(body) {
@@ -411,6 +411,22 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduc
 		return body, outputreduce.Stats{Reason: "error", TaskShape: taskShape}
 	}
 	return out, stats
+}
+
+func wssBodyContainsToolOutput(body []byte) bool {
+	if wssBodyContainsFunctionCallOutput(body) {
+		return true
+	}
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		return false
+	}
+	for _, message := range messages {
+		if message.HasToolResult() {
+			return true
+		}
+	}
+	return false
 }
 
 func wssBodyContainsFunctionCallOutput(body []byte) bool {
@@ -797,6 +813,7 @@ func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) strin
 }
 
 func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
+	a.recordWSSUpstreamError(env)
 	a.rememberToolUsesFromResponse(env)
 	a.recordWSSProviderUsage(env)
 	if env.Kind.IsTextDelta() {
@@ -817,6 +834,114 @@ func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
 		a.counters.mutations.Add(1)
 	}
 	return mutated
+}
+
+func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
+	if a == nil || a.p == nil || a.p.debugRecorder == nil || env == nil {
+		return
+	}
+	if env.Kind != wsmitm.FrameKindError && env.Kind != wsmitm.FrameKindResponseFailed && env.Kind != wsmitm.FrameKindResponseIncomplete {
+		return
+	}
+	status, errorType, message := wssUpstreamErrorFields(env)
+	errSummary := formatWSSUpstreamError(env.Kind, status, errorType, message)
+	if errSummary == "" {
+		errSummary = "upstream_error kind=" + string(env.Kind)
+	}
+	slog.Warn("codex wss upstream error", "kind", env.Kind, "status", status, "error_type", errorType)
+	a.p.debugRecorder.Record(dbg.RequestSummary{
+		RequestID:    newRequestIDFn(),
+		Timestamp:    time.Now(),
+		SessionID:    a.currentSessionID(),
+		Source:       "proxy",
+		Provider:     types.CodexChatGPT.String(),
+		Path:         "/backend-api/codex/responses",
+		RouteMode:    "websocket_phasef",
+		BypassReason: "upstream_error",
+		Errors:       []string{errSummary},
+	})
+}
+
+func (a *wsPhaseFAdapter) currentSessionID() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sessionID
+}
+
+func wssUpstreamErrorFields(env *wsmitm.Envelope) (string, string, string) {
+	if env == nil {
+		return "", "", ""
+	}
+	status := wssStatusField(env.Fields["status"])
+	errorType, message := wssErrorObjectFields(env.Fields["error"])
+	if env.Kind == wsmitm.FrameKindResponseFailed || env.Kind == wsmitm.FrameKindResponseIncomplete {
+		responseType, responseMessage := wssResponseErrorFields(env.Response)
+		if errorType == "" {
+			errorType = responseType
+		}
+		if message == "" {
+			message = responseMessage
+		}
+	}
+	return status, errorType, message
+}
+
+func wssStatusField(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var numeric int
+	if err := json.Unmarshal(raw, &numeric); err == nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return strings.TrimSpace(rawJSONString(raw))
+}
+
+func wssErrorObjectFields(raw json.RawMessage) (string, string) {
+	if len(raw) == 0 {
+		return "", ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return "", rawJSONString(raw)
+	}
+	return strings.TrimSpace(rawJSONString(fields["type"])), strings.TrimSpace(rawJSONString(fields["message"]))
+}
+
+func wssResponseErrorFields(raw json.RawMessage) (string, string) {
+	if len(raw) == 0 {
+		return "", ""
+	}
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return "", ""
+	}
+	return wssErrorObjectFields(response["error"])
+}
+
+func formatWSSUpstreamError(kind wsmitm.FrameKind, status string, errorType string, message string) string {
+	parts := []string{"upstream_error kind=" + string(kind)}
+	if status != "" {
+		parts = append(parts, "status="+status)
+	}
+	if errorType != "" {
+		parts = append(parts, "type="+errorType)
+	}
+	if message != "" {
+		parts = append(parts, "message="+truncateWSSUpstreamErrorMessage(message))
+	}
+	return strings.Join(parts, " ")
+}
+
+func truncateWSSUpstreamErrorMessage(message string) string {
+	message = strings.TrimSpace(strings.ReplaceAll(message, "\n", " "))
+	if len(message) <= 240 {
+		return message
+	}
+	return message[:240] + "..."
 }
 
 func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {

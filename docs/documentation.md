@@ -357,9 +357,11 @@ top-level `instructions` string. The injector does not rewrite `input` and never
 creates `input` items with `role=system`, because Codex rejects those and because
 output-reduce must not alter the model's task/tool context while trying to save
 output tokens. On the WSS Phase-F path, output-reduce is considered only for
-prompt/user-turn request bodies. Requests carrying `function_call_output` items
-are not output-reduce candidates, so read/search/git/test/tool-output reducers
-remain the only mechanisms that can alter tool-output deltas.
+prompt/user-turn request bodies. Requests carrying normalized tool-result
+content, including top-level `function_call_output` and
+`response_item.payload.function_call_output`, are not output-reduce candidates,
+so read/search/git/test/tool-output reducers remain the only mechanisms that
+can alter tool-output deltas.
 Streaming provider usage is accounted by field semantics, not by blind addition:
 if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
 replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`
@@ -2025,6 +2027,9 @@ adapter:
 - request-body summaries record repeated resolved read/tool keys as a re-read
   canary, so drift analysis can see context-recall pressure without logging raw
   tool output
+- server-to-client `error`, `response.failed`, and `response.incomplete` frames
+  are forwarded byte-equal and recorded as content-free upstream-error
+  summaries for diagnostics
 - server-to-client text deltas run repdet
 - terminal response payloads stay byte-equal on WSS to avoid double-counting
   streaming repdet savings or corrupting final code/patch text

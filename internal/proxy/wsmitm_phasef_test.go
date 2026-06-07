@@ -498,6 +498,59 @@ func TestWSPhaseFOutputReduceSkipsToolOutputDelta(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFOutputReduceSkipsResponseItemToolOutput(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"conversation_id":      "output-reduce-response-item-tool-output-session",
+			"previous_response_id": "resp_tool_turn",
+			"instructions":         strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{
+				{
+					"type":    "message",
+					"role":    "user",
+					"content": "continue from the tool output",
+				},
+				{
+					"type": "response_item",
+					"payload": map[string]any{
+						"type":    "function_call_output",
+						"call_id": "call_status",
+						"output":  "M internal/proxy/wsmitm_phasef.go\n",
+					},
+				},
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("response_item tool-output turn must not receive output-reduce instructions: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "#slimference-output-rules") {
+		t.Fatalf("response_item tool-output turn must not receive output-reduce instructions: %s", env.Body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
+		t.Fatalf("response_item tool-output turn should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
 func TestWSPhaseFOutputReduceSkipsEmptyInput(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -533,6 +586,46 @@ func TestWSPhaseFOutputReduceSkipsEmptyInput(t *testing.T) {
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
 		t.Fatalf("empty input should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
+func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.mu.Lock()
+	adapter.sessionID = "codex-wss:error-session"
+	adapter.mu.Unlock()
+
+	env := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Invalid request",
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatal("upstream error frames must stay byte-equal")
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one upstream-error summary, got %d", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.SessionID != "codex-wss:error-session" || summary.RouteMode != "websocket_phasef" || summary.BypassReason != "upstream_error" {
+		t.Fatalf("bad upstream-error summary identity: %+v", summary)
+	}
+	if len(summary.Errors) != 1 ||
+		!strings.Contains(summary.Errors[0], "status=400") ||
+		!strings.Contains(summary.Errors[0], "type=invalid_request_error") ||
+		!strings.Contains(summary.Errors[0], "message=Invalid request") {
+		t.Fatalf("upstream error details not recorded: %+v", summary.Errors)
 	}
 }
 
