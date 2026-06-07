@@ -245,6 +245,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			stats.CommandResolvedBlocks++
+			if proxyCommandLineInvokesReconc(commandLine) {
+				continue
+			}
 			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
 			beforeTokens := -1
 			countBeforeTokens := func() int {
@@ -447,6 +450,58 @@ func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.C
 		return true
 	}
 	return proxyToolResultLooksLikeSearchOutput(text)
+}
+
+func proxyCommandLineInvokesReconc(commandLine string) bool {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return false
+	}
+	_, inner, ok := splitLeadingCDCommand(commandLine)
+	if ok && proxyCommandLineInvokesReconc(inner) {
+		return true
+	}
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) >= 3 && looksLikeShellExecutable(argv[0]) &&
+		strings.HasPrefix(argv[1], "-") && strings.Contains(argv[1], "c") {
+		return proxyCommandLineInvokesReconc(argv[2])
+	}
+	if len(argv) == 0 {
+		return false
+	}
+	if proxyArgv0LooksLikeReconc(argv[0]) {
+		return true
+	}
+	return proxyGoRunInvokesReconc(argv)
+}
+
+func proxyArgv0LooksLikeReconc(argv0 string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(argv0)))
+	base = strings.TrimSuffix(base, ".exe")
+	return base == "reconc" || strings.HasPrefix(base, "reconc-")
+}
+
+func proxyGoRunInvokesReconc(argv []string) bool {
+	if len(argv) < 3 || strings.ToLower(filepath.Base(strings.TrimSpace(argv[0]))) != "go" || argv[1] != "run" {
+		return false
+	}
+	for _, arg := range argv[2:] {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		if arg == "--" {
+			return false
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		clean := filepath.ToSlash(filepath.Clean(arg))
+		if filepath.Base(clean) == "reconc" || strings.HasSuffix(clean, "/cmd/reconc") || clean == "cmd/reconc" {
+			return true
+		}
+	}
+	return false
 }
 
 func proxyToolResultLooksLikeSearchOutput(text string) bool {

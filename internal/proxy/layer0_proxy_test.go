@@ -671,6 +671,47 @@ func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ReconcCommandsPassThrough(t *testing.T) {
+	commands := []string{
+		"reconc check .",
+		"cd /repo && tools/reconc/dist/reconc-0.5.0-darwin-arm64 check .",
+		"/bin/bash -lc 'cd /repo && reconc check . --write docs/tasks.md'",
+		"go run ./cmd/reconc check . --json",
+	}
+	routes := []codexLayer0Route{codexLayer0RouteUnspecified, codexLayer0RouteHTTP, codexLayer0RouteWSSPhaseF}
+	var output strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&output, "Decision:  pass\nRepo:      /repo\nLockfile:  .reconc/policy.lock.json\nDefault:   warn\nSummary:   policy pass row %03d\n\n", i)
+	}
+	original := output.String()
+
+	for _, route := range routes {
+		for i, command := range commands {
+			t.Run(fmt.Sprintf("%s/%d", route, i), func(t *testing.T) {
+				t.Setenv("HOME", t.TempDir())
+				messages := []types.Message{
+					{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-reconc", ToolName: "exec_command", ToolInput: `{"cmd":` + strconv.Quote(command) + `}`}}},
+					{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-reconc", Text: original}}},
+				}
+				req := codexLayer0Request{
+					Route:     route,
+					Messages:  messages,
+					SessionID: "sess-reconc-pass-through",
+				}
+				seed := reduceCodexLayer0(req)
+				result := reduceCodexLayer0(req)
+				for _, got := range []codexLayer0Result{seed, result} {
+					if got.Stats.ToolResultBlocks != 1 || got.Stats.CommandResolvedBlocks != 1 ||
+						got.Stats.BlocksModified != 0 || got.Stats.TokensSaved != 0 || len(got.Stats.PolicyDecisions) != 0 ||
+						got.Messages[1].Content[0].Text != original {
+						t.Fatalf("Reconc command output must pass through unchanged, command=%q stats=%+v text=%q", command, got.Stats, got.Messages[1].Content[0].Text)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1362,6 +1403,19 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 	}
 	if got := applyWorkdirToLayer0Command("awk 'NR>=10&&NR<=20{print $0}' src/main.go", "/repo/project"); readRequestFromCommandLine(got).FilePath != "/repo/project/src/main.go" {
 		t.Fatalf("workdir awk $0 read must remain parseable after normalization: %q", got)
+	}
+	for _, command := range []string{
+		"reconc status .",
+		"cd /repo && tools/reconc/dist/reconc-0.5.0-darwin-arm64 check .",
+		"/bin/bash -lc 'cd /repo && reconc check .'",
+		"go run ./cmd/reconc check .",
+	} {
+		if !proxyCommandLineInvokesReconc(command) {
+			t.Fatalf("Reconc command was not recognized: %q", command)
+		}
+	}
+	if proxyCommandLineInvokesReconc("go test ./...") || proxyCommandLineInvokesReconc("rg reconc docs") {
+		t.Fatal("non-Reconc commands must not be treated as Reconc evidence commands")
 	}
 	if got := applyWorkdirToGitCommand("git -C /other status --short", "/repo/project"); got != "git -C /other status --short" {
 		t.Fatalf("git -C should not be rewritten: %q", got)

@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T326 Reconc evidence pass-through -> docs/todo/t326-reconc-evidence-pass-through.md
 - [x] T325 Codex WSS search-output reducer risk gate -> docs/todo/t325-codex-wss-search-output-risk-gate.md
 - [x] T324 Codex WSS search-output fail-open -> docs/todo/t324-codex-wss-search-output-fail-open.md
 - [x] T323 Codex WSS Layer0/output-reduce separation -> docs/todo/t323-codex-wss-layer0-outputreduce-separation.md

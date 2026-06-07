@@ -630,6 +630,14 @@ inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
 search-token savings, but the product contract is stronger: no upstream 400s
 and no model-facing context loss.
 
+Reconc command output is treated as policy/workflow evidence and passes through
+unchanged on every Codex Layer-0 route. The guard recognizes direct `reconc`,
+packaged `reconc-*` binaries, shell-wrapped invocations, leading
+`cd <repo> && ...` forms, and `go run ./cmd/reconc ...` development commands.
+These outputs are intentionally not a savings surface: the token upside is small,
+while preserving exact policy, audit, hook, and task evidence avoids confusing
+Codex or the operator during workflow-state checks.
+
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads
 into content-addressed regions: FastCDC handles general binary/text overlap, and
