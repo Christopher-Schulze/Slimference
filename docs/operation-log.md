@@ -4592,10 +4592,10 @@ Changes:
   count, passed pairs, output tokens saved, net tokens saved, and minimum output
   savings percent, and fails the category gate on missing, unsafe, or
   net-negative pairs.
-- `--maxx-check` now requires workload `output_reduce_ab` in addition to
-  `output_reduce_aggressive`. `output_reduce_aggressive` proves guarded
-  injection and observed provider-output accounting; `output_reduce_ab` proves
-  counterfactual savings against a no-directive baseline.
+- At that time, `--maxx-check` required workload `output_reduce_ab` in addition
+  to `output_reduce_aggressive`. T330 later removed WSS output-reduce directive
+  workloads from the current maxx gate because Codex WSS runtime no longer
+  injects model-facing output-reduce directives.
 
 Evidence:
 - `go test ./scripts/benchmarks -count=1` passed.

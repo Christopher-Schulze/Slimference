@@ -600,8 +600,6 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		"chunk_dedup_similar_outputs",
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
-		"output_reduce_aggressive",
-		"output_reduce_ab",
 		"tool_heavy",
 		"provider_cache_long_session",
 		"host_resource_long_workday",
@@ -613,17 +611,6 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		name := client + "_" + workload
 		meta := promotionMeta(name, client, workload)
 		switch workload {
-		case "output_reduce_aggressive":
-			meta.ExpectedOutputReduceAppliedMin = 1
-			meta.ExpectedOutputReduceOverheadMax = 1000
-			meta.ScenarioValidators = []string{"output_reduce", "low_error"}
-		case "output_reduce_ab":
-			meta.ExpectedSavingsMin = 0
-			meta.ExpectedRequestCount = 0
-			meta.ExpectedOutputReduceABPairsMin = 1
-			meta.ExpectedOutputReduceABNetSavedMin = 1
-			meta.ExpectedOutputReduceABSavingsPctMin = 1
-			meta.ScenarioValidators = []string{"output_reduce_ab", "low_error"}
 		case "provider_cache_long_session":
 			meta.ExpectedProviderCacheReadMin = 100
 			meta.ScenarioValidators = []string{"cache_reuse", "low_error"}
@@ -637,7 +624,7 @@ func writeMaxxCorpus(t *testing.T, root string) {
 			meta.ScenarioValidators = []string{"low_error"}
 		}
 		session := sampleHighSavingsRecord
-		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
+		if workload == "provider_cache_long_session" {
 			session = sampleEvidenceRecord
 		} else if workload == "tool_heavy" {
 			session = sampleToolPruneRecord
@@ -645,14 +632,7 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		if workload == "host_resource_long_workday" {
 			session = sampleHostBudgetOKRecord
 		}
-		sessions := []string{session}
-		if workload == "output_reduce_ab" {
-			sessions = nil
-		}
-		dir := writeCategory(t, root, name, meta, sessions)
-		if workload == "output_reduce_ab" {
-			writeOutputReduceABReport(t, dir, sampleOutputReduceABReport)
-		}
+		dir := writeCategory(t, root, name, meta, []string{session})
 		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
 		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
 	}
@@ -852,8 +832,6 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	got := strings.Join(gate.Failures, "\n")
 	for _, want := range []string{
 		"missing maxx workload_class chunk_dedup_similar_outputs",
-		"missing maxx workload_class output_reduce_aggressive",
-		"missing maxx workload_class output_reduce_ab",
 		"missing maxx workload_class tool_heavy",
 		"missing maxx workload_class provider_cache_long_session",
 		"missing maxx workload_class host_resource_long_workday",
@@ -864,10 +842,51 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	}
 }
 
-func TestEvaluateMaxxGate_FailsOutputReduceWithoutObservedOutputTokens(t *testing.T) {
+func TestEvaluateMaxxGate_IgnoresHistoricalDiagnosticWorkloads(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeMaxxCorpus(t, root)
+	meta := promotionMeta("codex_cli_output_reduce_aggressive", "codex_cli", "output_reduce_aggressive")
+	currentProductPath := false
+	meta.CurrentProductPath = &currentProductPath
+	meta.ExpectedSavingsMin = 0
+	meta.ExpectedOutputReduceAppliedMin = 1
+	meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+	dir := writeCategory(t, root, "codex_cli_output_reduce_aggressive", meta, []string{sampleEvidenceRecord})
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if got := report.SessionsByWorkload["output_reduce_aggressive"]; got != 0 {
+		t.Fatalf("historical output-reduce should not be product-counted, got %d", got)
+	}
+	var historicalFound bool
+	for _, category := range report.Categories {
+		if category.Category == "codex_cli_output_reduce_aggressive" {
+			historicalFound = true
+			if category.CurrentProductPath {
+				t.Fatalf("historical category marked current: %+v", category)
+			}
+			if len(category.Failures) != 0 {
+				t.Fatalf("historical category should still be category-testable: %+v", category.Failures)
+			}
+		}
+	}
+	if !historicalFound {
+		t.Fatal("historical output-reduce category not evaluated")
+	}
+	gate := EvaluateMaxxGate(report)
+	if !gate.Passed {
+		t.Fatalf("historical diagnostic workload should not fail maxx gate: %+v", gate)
+	}
+}
+
+func TestEvaluateCategory_FailsOutputReduceWithoutObservedOutputTokens(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
 	meta := promotionMeta("codex_cli_output_reduce_aggressive", "codex_cli", "output_reduce_aggressive")
 	meta.ExpectedSavingsMin = 0
 	meta.ExpectedOutputReduceAppliedMin = 1
@@ -876,15 +895,14 @@ func TestEvaluateMaxxGate_FailsOutputReduceWithoutObservedOutputTokens(t *testin
 	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
 	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
 
-	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	gate := EvaluateMaxxGate(report)
-	if gate.Passed {
-		t.Fatalf("expected maxx failure without output-token evidence: %+v", gate)
+	if len(res.Failures) == 0 {
+		t.Fatalf("expected output-reduce output-token evidence failure: %+v", res)
 	}
-	if got := strings.Join(gate.Failures, "\n"); !strings.Contains(got, "output_reduce_aggressive missing observed output-token evidence") {
+	if got := strings.Join(res.Failures, "\n"); !strings.Contains(got, "scenario output_reduce: expected observed output-token evidence") {
 		t.Fatalf("missing output-token evidence failure:\n%s", got)
 	}
 }

@@ -74,8 +74,8 @@ Debug/audit view:
      separate from the normal synthetic CI corpus gate
    - `benchmark-corpus --maxx-check` includes the promotion gate and additionally
      requires mechanism-specific live workload classes for chunk dedup,
-     output-reduce, tool pruning, provider-cache long sessions, and
-     host-resource workdays
+     tool pruning, provider-cache long sessions, and host-resource workdays;
+     WSS output-reduce directive rows are historical diagnostics after T330
    - requires at least five `codex_cli` sessions and five `codex_desktop`
      sessions
    - requires live workload classes: `repeat_read`, `ranged_read`,
@@ -247,12 +247,10 @@ gate is done when default promotions require live corpus evidence.
   zero safety issues. This keeps the gate aligned with the no-drawdown policy:
   the proof must show the safest productive reducer won, not that a lower-priority
   fallback displaced it.
-- 2026-06-03: Codex WSS output-reduce is now offline-verified and code-reachable
-  for the `output_reduce_aggressive` maxx gate. The WSS adapter injects only into
-  top-level Codex `instructions`, never into `input`, and only on prompt/user-turn
-  bodies. Tool-output deltas containing `function_call_output` remain byte-equal
-  unless a dedicated tool-output reducer changes them. The inventory gap is now a
-  real live-capture gap, not missing WSS wiring.
+- 2026-06-03: Codex WSS output-reduce was offline-verified and code-reachable
+  for the then-current `output_reduce_aggressive` maxx gate. T330 later
+  superseded that path: Codex WSS runtime no longer injects model-facing
+  output-reduce directives after live upstream 400 evidence.
 - 2026-06-03: Codex WSS tool-schema pruning is now offline-verified and
   code-reachable for the `tool_heavy` maxx gate. Tool-call frames observe
   session activity; `tools[]` pruning runs only on prompt/user turns with known
@@ -295,22 +293,20 @@ gate is done when default promotions require live corpus evidence.
   rows, 34 Codex CLI rows, 17 Codex Desktop rows, all release/maxx workload
   classes present, zero error rows, and `desktop_tool_heavy` proving
   `tool_prune.applied=true`, one pruned tool, 26 saved tokens, and host budget
-  `ok`. Then hardened `benchmark-corpus --maxx-check` so
-  `output_reduce_aggressive` must carry observed output-token evidence, not just
-  WSS instruction injection plus provider-cache tokens. At that point the
-  stricter gate correctly failed only on the missing observed output-token row;
-  the later focused proof below closed that gap.
+  `ok`. Then hardened the then-current `benchmark-corpus --maxx-check` so
+  `output_reduce_aggressive` had to carry observed output-token evidence, not
+  just WSS instruction injection plus provider-cache tokens. T330 later demoted
+  this WSS directive path to historical diagnostics only.
 - 2026-06-04: Unified proof inventory token-evidence semantics with
   `wss-proof-matrix`: tool-prune saved tokens, provider-cache read tokens, and
   guarded output-reduce observed-output evidence now all count as positive
   economic token rows for inventory visibility. The current local inventory has
   57 positive token rows, `tool_heavy.positive_token_rows=1`, and zero safety
   issue rows.
-- 2026-06-04: Hardened matrix, inventory, and export semantics so that
-  `output_reduce_aggressive` requires observed output tokens, not only WSS
-  instruction injection. Existing stale corpus rows still fail the maxx gate,
-  while future `wss-proof-export-corpus` runs will not export such rows as
-  economic evidence.
+- 2026-06-04: Hardened matrix, inventory, and export semantics so that the
+  then-current `output_reduce_aggressive` gate required observed output tokens,
+  not only WSS instruction injection. T330 later removed WSS output-reduce
+  directive workloads from the current product maxx gate.
 - 2026-06-04: Product TUI rollup now includes the maxx mechanism signals that
   were previously missing from the default surface. Tool-prune saved tokens are
   counted into `/admin/state.savings.product.billable_input_tokens_saved`, shown
@@ -334,3 +330,15 @@ gate is done when default promotions require live corpus evidence.
   counters, and 1610 billable input tokens saved. `benchmark-corpus
   --promotion-check` and `benchmark-corpus --maxx-check` pass on
   `tests/fixtures/live_corpus` with 53 real live sessions / 55 total requests.
+- 2026-06-08: Codex WSS output-reduce instruction injection is no longer a
+  promotable product proof surface after a fresh Golem live failure correlated
+  the only model-facing WSS request mutation with a later upstream 400. The
+  durable corpus remains historical evidence for output-token steering, but the
+  current WSS product path records directive candidates as
+  `codex_wss_directive_disabled`. Maxx status for WSS savings now rests on
+  deterministic input reducers and provider/cache evidence, not WSS prompt
+  directive injection.
+- 2026-06-08: `benchmark-corpus --maxx-check` no longer requires
+  `output_reduce_aggressive` or `output_reduce_ab` workload classes. Those
+  rows remain category-testable as historical diagnostics, but they are not
+  current Codex WSS product proof after T330.

@@ -1,7 +1,8 @@
 {
   "category": "cli_output_reduce_ab_direct_answer",
-  "description": "Content-free paired CLI A/B proof for Codex output-reduce direct-answer status output. Raw WSS frames stay outside the corpus.",
+  "description": "Historical content-free paired CLI A/B proof for Codex WSS output-reduce direct-answer status output. Raw WSS frames stay outside the corpus.",
   "synthetic": false,
+  "current_product_path": false,
   "evidence_level": "live_operator",
   "client_family": "codex_cli",
   "workload_class": "output_reduce_ab",
@@ -20,5 +21,5 @@
     "output_reduce_ab",
     "low_error"
   ],
-  "notes": "Generated from a scoped CLI baseline/directive A/B matrix after provider-output token extraction and directive-overhead accounting were fixed. The gate requires positive net output-token savings after directive input overhead."
+  "notes": "Generated from a scoped CLI baseline/directive A/B matrix after provider-output token extraction and directive-overhead accounting were fixed. After T330 this remains historical diagnostic evidence only; Codex WSS runtime no longer injects model-facing output-reduce directives."
 }

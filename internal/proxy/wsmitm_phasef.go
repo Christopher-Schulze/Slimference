@@ -409,29 +409,16 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput 
 		return body, outputreduce.Stats{Reason: "below_min_tokens"}
 	}
 	taskShape := outputreduce.DetectTaskShape(types.CodexChatGPT, body)
-	profileName := a.p.config.Compression.OutputReduce.Profile
-	if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
-		effective := outputreduce.ResolveProfile(types.CodexChatGPT, configuredProfile)
-		effective = outputreduce.SafeProfileForShape(effective, taskShape)
-		if a.p.outputReduce != nil {
-			model := wssPlannerModel(body)
-			effective = a.p.outputReduce.SelectProfile(types.CodexChatGPT.String(), model, effective, taskShape)
-		}
-		profileName = string(effective)
+	if taskShape == outputreduce.ShapeExactReply {
+		return body, outputreduce.Stats{Profile: "wss_phasef", Reason: "exact_reply", TaskShape: taskShape}
 	}
-	out, stats, err := outputreduce.InjectBody(types.CodexChatGPT, body, outputreduce.Options{
-		Enabled:             true,
-		Profile:             profileName,
-		CustomDirectivePath: a.p.config.Compression.OutputReduce.CustomDirectivePath,
-		SignatureMarker:     a.p.config.Compression.OutputReduce.SignatureMarker,
-		MaxAddedBytes:       a.p.config.Compression.OutputReduce.MaxAddedBytes,
-		TaskShape:           taskShape,
-		InputTokens:         inputTokens,
-	})
-	if err != nil {
-		return body, outputreduce.Stats{Reason: "error", TaskShape: taskShape}
+	if reason := outputreduce.LowROISkipReason(taskShape, inputTokens); reason != "" {
+		return body, outputreduce.Stats{Profile: "wss_phasef", Reason: reason, TaskShape: taskShape}
 	}
-	return out, stats
+	// Codex WSS Phase-F rejects some model-facing request rewrites after a
+	// previously accepted turn. Keep deterministic input reducers, but do not
+	// inject output-shaping instructions into this websocket route.
+	return body, outputreduce.Stats{Profile: "wss_phasef", Reason: "codex_wss_directive_disabled", TaskShape: taskShape}
 }
 
 func wssBodyContainsToolOutput(body []byte) bool {

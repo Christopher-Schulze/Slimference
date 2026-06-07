@@ -128,6 +128,10 @@ func TestPlan_CodexWSSL2AndWSSRemainProofGatedCandidates(t *testing.T) {
 
 func TestPlan_L3OutputReduce(t *testing.T) {
 	t.Parallel()
+	wss := Plan(RequestFacts{Provider: "codex_chatgpt", RouteMode: "websocket_phasef", EstimatedInputTokens: 90000, ExpectedOutputTokens: 2000})
+	if d := findDecision(t, wss, Layer3); d.Action != ActionBypass || d.Reason != "codex_wss_directive_disabled" || d.Risk != "none" {
+		t.Fatalf("Codex WSS L3=%+v", d)
+	}
 	cooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, OutputReduceCooldown: true})
 	if d := findDecision(t, cooldown, Layer3); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer3" || d.Risk != "medium" {
 		t.Fatalf("cooldown L3=%+v", d)

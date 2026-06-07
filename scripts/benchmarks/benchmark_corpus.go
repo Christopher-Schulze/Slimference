@@ -30,6 +30,7 @@ type CategoryMetadata struct {
 	Category                            string   `json:"category"`
 	Description                         string   `json:"description"`
 	Synthetic                           bool     `json:"synthetic"`
+	CurrentProductPath                  *bool    `json:"current_product_path,omitempty"`
 	EvidenceLevel                       string   `json:"evidence_level"`
 	ClientFamily                        string   `json:"client_family,omitempty"`
 	WorkloadClass                       string   `json:"workload_class,omitempty"`
@@ -96,6 +97,7 @@ type CategoryResult struct {
 	LayerCombinations           map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
 	EvidenceLevel               string                               `json:"evidence_level"`
 	Synthetic                   bool                                 `json:"synthetic"`
+	CurrentProductPath          bool                                 `json:"current_product_path"`
 	ClientFamily                string                               `json:"client_family,omitempty"`
 	WorkloadClass               string                               `json:"workload_class,omitempty"`
 	Failures                    []string                             `json:"failures,omitempty"`
@@ -249,6 +251,7 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		LayerCombinations:           cloneLayerCombinations(agg.layerCombinations),
 		EvidenceLevel:               normalizeEvidenceLevel(meta),
 		Synthetic:                   meta.Synthetic,
+		CurrentProductPath:          isCurrentProductPath(meta),
 		ClientFamily:                strings.TrimSpace(meta.ClientFamily),
 		WorkloadClass:               strings.TrimSpace(meta.WorkloadClass),
 		GateConfigured: meta.ExpectedSavingsMin > 0 ||
@@ -519,6 +522,13 @@ func normalizeEvidenceLevel(meta *CategoryMetadata) string {
 	return "live_operator"
 }
 
+func isCurrentProductPath(meta *CategoryMetadata) bool {
+	if meta == nil || meta.CurrentProductPath == nil {
+		return true
+	}
+	return *meta.CurrentProductPath
+}
+
 var requiredPromotionClientSessions = map[string]int{
 	"codex_cli":     5,
 	"codex_desktop": 5,
@@ -539,8 +549,6 @@ var requiredMaxxWorkloads = []string{
 	"chunk_dedup_similar_outputs",
 	"chunk_dedup_log_output",
 	"chunk_dedup_test_output",
-	"output_reduce_aggressive",
-	"output_reduce_ab",
 	"tool_heavy",
 	"provider_cache_long_session",
 	"host_resource_long_workday",
@@ -556,6 +564,9 @@ func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
 	}
 	for _, c := range report.Categories {
 		if c.Synthetic {
+			continue
+		}
+		if !c.CurrentProductPath {
 			continue
 		}
 		gate.RealCategories++
@@ -628,8 +639,9 @@ func categoryHasPromotionSavingsSignal(workload string, meta *CategoryMetadata) 
 
 // EvaluateMaxxGate applies the stricter whole-program max-out gate. It includes
 // the release/default-promotion gate and then requires the mechanism-specific
-// live workloads for chunk dedup, output-reduce, tool pruning, provider cache,
-// and host-resource proof.
+// live workloads for chunk dedup, tool pruning, provider cache, and
+// host-resource proof. Codex WSS output-reduce directive rows are historical
+// diagnostics after T330 because that product path is disabled.
 func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 	promotion := EvaluatePromotionGate(report)
 	gate := MaxxGateReport{
@@ -644,28 +656,6 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 	for _, workload := range requiredMaxxWorkloads {
 		if got := gate.SessionsByWorkload[workload]; got <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("missing maxx workload_class %s", workload))
-		}
-	}
-	for _, category := range report.Categories {
-		if category.Synthetic || category.WorkloadClass != "output_reduce_aggressive" {
-			continue
-		}
-		if category.OutputReduceApplied <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_applied=%d", category.Category, category.OutputReduceApplied))
-		}
-		if category.OutputTokens <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_aggressive missing observed output-token evidence", category.Category))
-		}
-	}
-	for _, category := range report.Categories {
-		if category.Synthetic || category.WorkloadClass != "output_reduce_ab" {
-			continue
-		}
-		if category.OutputReduceABPairs <= 0 || category.OutputReduceABPassedPairs != category.OutputReduceABPairs {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_ab pairs=%d passed=%d", category.Category, category.OutputReduceABPairs, category.OutputReduceABPassedPairs))
-		}
-		if category.OutputReduceABNetSaved <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_ab net_saved=%d", category.Category, category.OutputReduceABNetSaved))
 		}
 	}
 	gate.Passed = len(gate.Failures) == 0
@@ -730,10 +720,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		} else {
 			report.HasReal = true
 		}
-		if res.ClientFamily != "" {
+		if res.CurrentProductPath && res.ClientFamily != "" {
 			report.SessionsByClient[res.ClientFamily] += res.Sessions
 		}
-		if res.WorkloadClass != "" {
+		if res.CurrentProductPath && res.WorkloadClass != "" {
 			report.SessionsByWorkload[res.WorkloadClass] += res.Sessions
 		}
 	}
@@ -757,6 +747,8 @@ func FormatCorpusReport(report CorpusReport) string {
 		tag := ""
 		if c.Synthetic {
 			tag = " [synthetic]"
+		} else if !c.CurrentProductPath {
+			tag = " [historical]"
 		}
 		sb.WriteString(fmt.Sprintf("\n--- %s%s ---\n", c.Category, tag))
 		sb.WriteString(fmt.Sprintf("  sessions:     %d\n", c.Sessions))

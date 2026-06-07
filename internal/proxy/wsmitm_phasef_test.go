@@ -368,7 +368,7 @@ func TestWSPhaseFBeTerseInjectsIntoCodexResponsesInputForTreatment(t *testing.T)
 	}
 }
 
-func TestWSPhaseFOutputReduceInjectsIntoCodexInstructions(t *testing.T) {
+func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -393,24 +393,38 @@ func TestWSPhaseFOutputReduceInjectsIntoCodexInstructions(t *testing.T) {
 			"stream": true,
 		},
 	})
+	original := append([]byte(nil), env.Body...)
 
 	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected output-reduce request mutation")
+	if replace {
+		t.Fatalf("Codex WSS output-reduce directive must stay byte-equal, got body: %s", env.Body)
 	}
 	body := string(env.Body)
-	if !strings.Contains(body, "#slimference-output-rules") || !strings.Contains(body, `"instructions"`) {
-		t.Fatalf("output-reduce directive missing from Codex instructions: %s", body)
+	if !bytes.Equal(original, env.Body) {
+		t.Fatalf("Codex WSS output-reduce changed body\nbefore: %s\nafter: %s", original, env.Body)
+	}
+	if strings.Contains(body, "#slimference-output-rules") {
+		t.Fatalf("Codex WSS must not receive output-reduce instructions: %s", body)
 	}
 	if strings.Contains(body, `"role":"system"`) {
 		t.Fatalf("Codex output-reduce must not inject an input system message: %s", body)
 	}
 	snap := p.outputReduce.Snapshot()
-	if snap.InjectedTurns != 1 || snap.SkippedTurns != 0 || snap.LastReason != "applied" {
-		t.Fatalf("output-reduce tracker = %+v, want one applied injection", snap)
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 1 || snap.LastReason != "codex_wss_directive_disabled" {
+		t.Fatalf("output-reduce tracker = %+v, want one WSS directive skip", snap)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one debug summary, got %d", len(summaries))
+	}
+	if summaries[0].OutputReduce.Applied || summaries[0].OutputReduce.Reason != "codex_wss_directive_disabled" {
+		t.Fatalf("debug output-reduce = %+v, want codex_wss_directive_disabled skip", summaries[0].OutputReduce)
+	}
+	if summaries[0].DebugFacts["wss.changed"] != "false" || summaries[0].DebugFacts["wss.output_reduce_applied"] != "false" {
+		t.Fatalf("unexpected WSS debug facts: %+v", summaries[0].DebugFacts)
 	}
 }
 

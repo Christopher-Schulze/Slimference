@@ -358,20 +358,20 @@ tool stdout/stderr, and tool arguments, so old terminal output cannot make the
 current user turn look like a patch, repair, or command-output relay request.
 This keeps aggressive-profile caps focused on the actual current instruction
 instead of silently sacrificing output savings because of historical tool text.
-For Codex Responses bodies, output-reduce directives are written only to the
-top-level `instructions` string. The injector does not rewrite `input` and never
-creates `input` items with `role=system`, because Codex rejects those and because
-output-reduce must not alter the model's task/tool context while trying to save
-output tokens. On the WSS Phase-F path, output-reduce is considered only for
-prompt/user-turn request bodies that have not already been changed by Layer 0.
-Requests carrying normalized tool-result content, including top-level
-`function_call_output` and `response_item.payload.function_call_output`, are not
-output-reduce candidates. This guard is evaluated from the original request plus
-Layer-0 mutation stats, so a tool-output turn remains blocked even after Layer 0
-has compacted the body. Read/search/git/test/tool-output reducers remain the
-only mechanisms that can alter tool-output deltas, and WSS debug telemetry
-records output-reduce as applied only when an actual directive injection was
-written.
+For Codex Responses bodies on non-WSS routes, output-reduce directives are
+written only to the top-level `instructions` string. The injector does not
+rewrite `input` and never creates `input` items with `role=system`, because Codex
+rejects those and because output-reduce must not alter the model's task/tool
+context while trying to save output tokens. On the Codex WSS Phase-F path,
+model-facing output-reduce directive injection is disabled. Live Golem sessions
+showed recurrent upstream `invalid_request_error` after a prior WSS user-turn
+directive rewrite, while the directly rejected follow-up frame was byte-equal.
+The product rule wins: a speculative output-token reducer that can poison WSS
+conversation state is not a default product path. Read/git/test/repeated-output,
+tool-prune, stale-read, archive-recovery, and chunk reducers remain separate and
+can still alter WSS input only under their own deterministic guards. WSS debug
+telemetry records such skipped output-reduce candidates as
+`codex_wss_directive_disabled`.
 Streaming provider usage is accounted by field semantics, not by blind addition:
 if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
 replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`
@@ -2316,6 +2316,9 @@ simulated alternate-run replay. Category metadata can additionally declare
 `host_budget_ok`, `layer_combo_diversity`)
 so a category fails unless the intended optimization behavior is actually
 present in the captured request summaries; unknown validator names fail closed.
+Categories can set `current_product_path=false` to remain visible and
+category-testable as historical diagnostics while being excluded from
+promotion/maxx client and workload counts.
 
 `scripts/benchmarks benchmark-corpus --promotion-check` is the stricter
 release/default-on gate. It ignores synthetic categories and fails closed unless
@@ -2442,7 +2445,11 @@ local proof rows. The final release report against
 `provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
 `output_reduce_injected_turns=2`, `host_budget_issue_rows=0`,
 `proof_event_loss_rows=0`, and `safety_issue_rows=0`. These numbers are a
-current release-corpus proof, not a universal average savings percentage.
+current release-corpus proof for the still-enabled mechanisms, not a universal
+average savings percentage. The WSS output-reduce directive rows in that older
+bundle are historical after T330; Codex WSS runtime now records
+`codex_wss_directive_disabled` instead of injecting model-facing output-reduce
+instructions.
 `go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>
 --min-net-tokens=1 --json` is the content-free output-reduce counterfactual
 gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or
@@ -2453,8 +2460,9 @@ safety errors, output-reduce downgrades, host-budget violations, non-positive
 output-token reduction, net tokens below the configured floor, or an injected
 directive row that has no positive `output_reduce_input_overhead_tokens`.
 `codex-capture-run` and `wss-proof-live-row` can stamp those A/B fields into
-matrix rows; the report still reads only content-free proof counters, never raw
-prompts, model text, or tool output.
+historical matrix rows; the report still reads only content-free proof
+counters, never raw prompts, model text, or tool output. These A/B rows no
+longer promote Codex WSS output-reduce into the product path.
 The first focused CLI direct-answer/status A/B passed on 2026-06-05 after
 fixing proof accounting to record general provider output tokens from WSS usage
 frames and model-facing directive overhead instead of JSON re-marshal byte
@@ -2464,10 +2472,10 @@ reduction, `lost=0`, host budget `ok`, and zero WSS safety errors. That is a
 real positive pair for the tested workload, not a universal output-reduce
 percentage. The content-free pair is committed as
 `tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/output_reduce_ab_report.json`;
-`benchmark-corpus --maxx-check` now requires an `output_reduce_ab` workload with
-positive net A/B tokens, so a plain output-reduce injection row can no longer
-satisfy the max-out gate by itself. Broader task-shape pairs are still required
-before promoting a cross-workload output-reduce savings claim. The first clean
+`benchmark-corpus --maxx-check` no longer requires WSS output-reduce workloads
+after T330 because Codex WSS model-facing directive injection is disabled. The
+category-level output-reduce validators remain available for historical and
+non-WSS diagnostics, but they are not current Codex WSS product proof. The first clean
 Desktop direct-long A/B pair on 2026-06-05 proved route, guarded injection,
 host-budget OK, `lost=0`, and zero WSS safety errors, but it was net-negative
 (`245` baseline output tokens, `566` directive output tokens, `23` directive

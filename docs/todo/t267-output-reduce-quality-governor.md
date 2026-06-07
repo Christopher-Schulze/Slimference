@@ -194,11 +194,12 @@ Output reduction becomes a runtime-governed layer:
   exported row's saved-token field comes from provider-cache evidence, while the
   output-reduce claim is "injected and measured without safety regression."
 - 2026-06-04: Tightened `benchmark-corpus --maxx-check` to enforce that split.
-  `output_reduce_aggressive` now fails the maxx gate unless the live corpus row
-  carries observed output-token evidence in addition to output-reduce injection.
-  A fresh focused CLI proof with the current binary now satisfies that gate with
-  `output_reduce_injected`, 154 observed output tokens, `host_budget_ok`, and
-  zero parse/degrade/compression errors. This prevents provider-cache tokens from
+  At that time, `output_reduce_aggressive` failed the maxx gate unless the live
+  corpus row carried observed output-token evidence in addition to
+  output-reduce injection. A fresh focused CLI proof with the then-current
+  binary satisfied that gate with `output_reduce_injected`, 154 observed output
+  tokens, `host_budget_ok`, and zero parse/degrade/compression errors. This
+  prevents provider-cache tokens from
   accidentally closing an output-reduce savings claim while still requiring real
   output-token observability.
 - 2026-06-04: Tightened the upstream proof surfaces to the same standard.
@@ -270,10 +271,11 @@ Output reduction becomes a runtime-governed layer:
   `tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/` with a
   content-free `output_reduce_ab_report.json` and metadata gates for at least
   one pair, positive net saved tokens, and at least 20% output-token reduction.
-  `benchmark-corpus --maxx-check` now requires the `output_reduce_ab` workload
-  in addition to `output_reduce_aggressive`, and the corpus evaluator fails
-  unsafe, missing, or net-negative pairs. This makes the output-reduce Maxx
-  claim counterfactual, not merely "directive injected".
+  At that time, `benchmark-corpus --maxx-check` required the
+  `output_reduce_ab` workload in addition to `output_reduce_aggressive`, and
+  the corpus evaluator failed unsafe, missing, or net-negative pairs. T330 later
+  removed WSS output-reduce directive workloads from the current product maxx
+  gate after live Codex WSS evidence showed upstream 400 risk.
 - 2026-06-05: Reality-checked a second autonomous CLI A/B pair for an
   explanation/deep-analysis shape. The original standard safety directive was
   too expensive for this shape (`111` input-overhead tokens) and stayed net
@@ -337,6 +339,17 @@ Output reduction becomes a runtime-governed layer:
   detail, exact output, paths, errors, patches, or workflow context. Future
   shapes can reopen T267 only with paired A/B proof that passes host-budget,
   lost-context, safety, repair/re-ask, and net-token gates.
+- 2026-06-08: Live Golem/Codex WSS evidence demoted model-facing WSS
+  output-reduce directive injection from product path to historical proof only.
+  The directly rejected WSS follow-up was byte-equal, but the same session's
+  previous user turn had `output_reduce.applied=true`, `added_tokens=23`, and
+  no input savings. Runtime now returns `codex_wss_directive_disabled` for WSS
+  directive candidates. Non-WSS output-reduce, provider output-token accounting,
+  and deterministic WSS input reducers are unchanged.
+- 2026-06-08: `benchmark-corpus --maxx-check` no longer requires WSS
+  `output_reduce_aggressive` or `output_reduce_ab` workloads. The category
+  validators remain for archived diagnostics and future non-WSS proof, but they
+  cannot promote Codex WSS directive injection into the product path.
 
 ## Done
 

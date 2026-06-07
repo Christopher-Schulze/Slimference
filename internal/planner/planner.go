@@ -149,6 +149,9 @@ func decideL3(f RequestFacts) LayerDecision {
 	if disabled(f, Layer3) {
 		return decision(Layer3, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
+	if isCodexWebSocketRoute(f) {
+		return decision(Layer3, ActionBypass, "codex_wss_directive_disabled", 0, "none", "high")
+	}
 	if d, guarded := decideL3ShapeGuard(f); guarded {
 		return d
 	}

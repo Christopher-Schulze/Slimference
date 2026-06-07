@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T330 Codex WSS output-reduce directive guard -> docs/todo/t330-codex-wss-output-reduce-directive-guard.md
 - [x] T329 Codex WSS scoped source guard and Activity labeling -> docs/todo/t329-codex-wss-scoped-source-guard-activity-labeling.md
 - [x] T328 Codex WSS source-output safety quarantine -> docs/todo/t328-codex-wss-source-output-safety-quarantine.md
 - [x] T327 Reconc hook compatibility guard -> docs/todo/t327-reconc-hook-compatibility-guard.md
