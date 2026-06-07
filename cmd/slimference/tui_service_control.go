@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/codexroute"
@@ -246,13 +245,7 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	inner := "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
-	cmdLine := "/bin/bash -lc " + shellQuote(inner)
-	script := "tell application \"Terminal\" to do script " + strconv.Quote(cmdLine)
-	if err := tuiLaunchCommandFn("osascript", "-e", script); err != nil {
-		return "", fmt.Errorf("open Terminal: %w", err)
-	}
-	return "Codex CLI launched via Slimference transport=auto in " + dir, nil
+	return launchCodexCLIInCurrentTerminal(binary, dir)
 }
 
 func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {

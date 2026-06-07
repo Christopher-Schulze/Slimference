@@ -1580,12 +1580,15 @@ func TestServiceControlAdapterCodexRoute(t *testing.T) {
 func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	oldExecutable := osExecutable
 	oldLaunch := tuiLaunchCommandFn
+	oldEnv := tuiTerminalEnvFn
 	t.Cleanup(func() {
 		osExecutable = oldExecutable
 		tuiLaunchCommandFn = oldLaunch
+		tuiTerminalEnvFn = oldEnv
 	})
 
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	tuiTerminalEnvFn = func(key string) string { return "Apple_Terminal" }
 	var gotName string
 	var gotArgs []string
 	tuiLaunchCommandFn = func(name string, args ...string) error {
@@ -1606,6 +1609,9 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	}
 	if !strings.Contains(gotArgs[1], "/bin/bash -lc") || !strings.Contains(gotArgs[1], "unset") || !strings.Contains(gotArgs[1], "CODEX_") {
 		t.Fatalf("launch command must scrub inherited Codex session env, args=%v", gotArgs)
+	}
+	if !strings.Contains(gotArgs[1], "tell application \"Terminal\"") || !strings.Contains(gotArgs[1], "in front window") {
+		t.Fatalf("Terminal launch must open a tab in Terminal.app, args=%v", gotArgs)
 	}
 	if strings.Contains(gotArgs[1], "printf") || strings.Contains(gotArgs[1], "033]0;[SF]") {
 		t.Fatalf("TUI launcher must not own the Terminal title hack anymore, args=%v", gotArgs)

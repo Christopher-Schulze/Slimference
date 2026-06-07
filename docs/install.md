@@ -116,8 +116,10 @@ Launch Center strips inherited `CODEX_*` session variables before starting a
 new Codex CLI or proven Codex.app Slimference process. This prevents a
 Slimference session that was opened from inside Codex from leaking
 `CODEX_THREAD_ID` or other old runtime state into the newly launched app. The
-TUI-launched Codex CLI tab also sets a `[SF] ` Terminal title prefix as a
-non-invasive route indicator. The Desktop launch pins `PWD` to the current
+TUI detects whether it is running in Ghostty or Apple Terminal and opens the
+Slimference Codex CLI in a new tab of that same terminal app, from the TUI's
+current working directory. The launched CLI sets a `[SF] ` terminal-title prefix
+as a non-invasive route indicator. The Desktop launch pins `PWD` to the current
 folder when the proof gate allows it.
 
 Slimference's safe product surfaces touch only scoped Codex paths:

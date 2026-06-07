@@ -1731,7 +1731,9 @@ belongs to Status. Flight records, hook-turn state, session log stream, and log
 export belong to Logs.
 
 Launch Codex CLI opens the proven scoped wrapper path with
-`transport=auto`; the Terminal tab title is prefixed with `[SF] ` so the user
+`transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new
+Slimference Codex CLI tab in the same terminal app, rooted at the TUI's current
+working directory. The launched tab title is prefixed with `[SF] ` so the user
 can see that the session was launched through Slimference without patching the
 Codex terminal UI. Launch Codex App launches the process-local
 `--transport=app-server` Desktop path, whose hidden shim rewrites the

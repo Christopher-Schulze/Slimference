@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T310 Same-terminal Codex CLI launch -> docs/todo/t310-same-terminal-codex-cli-launch.md
 - [x] T309 Patch-free scoped session indicators -> docs/todo/t309-patch-free-scoped-session-indicators.md
 - [x] T308 Desktop patch-free route indicator rejected -> docs/todo/t308-desktop-patch-free-route-indicator.md
 - [x] T307 Desktop no-model-metadata signal guard -> docs/todo/t307-desktop-no-model-metadata-signal-guard.md
