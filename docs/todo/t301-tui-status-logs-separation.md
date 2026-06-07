@@ -10,13 +10,13 @@ and export.
 
 ## Acceptance
 
-- Home view exposes Launch Codex CLI, Launch Codex App, Savings, Status, Logs,
-  and Setup.
+- Home view exposes Launch Codex CLI, Launch Codex App, Activity, Savings,
+  Status, Logs, and Setup.
 - Global header does not render daemon live/idle, PID, port, or session timer.
 - Status view owns daemon running/PID/port, Codex mode, route state, Desktop
   state, CA/global-lab state, and safety state.
-- Logs view owns flight recorder, hook-turn state, session log stream, and debug
-  log export.
+- Activity owns the session/traffic summary; Logs owns the raw session log
+  stream and debug log export.
 - Status does not render log/flight/hook blocks.
 - Home remains menu-only and does not render status/log details.
 - Focused TUI tests, repo CI, build, install/restart, and status checks pass.

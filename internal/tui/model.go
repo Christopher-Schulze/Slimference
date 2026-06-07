@@ -35,12 +35,13 @@ var Version = buildinfo.Version
 type ViewMode int
 
 const (
-	ViewMain  ViewMode = iota // default live dashboard
-	ViewStats                 // detailed statistics
-	ViewDebug                 // operator status
-	ViewSetup                 // install wizard / service management
-	ViewApps                  // per-app routing toggles (Phase H)
-	ViewLogs                  // logs and diagnostics export
+	ViewMain     ViewMode = iota // default live dashboard
+	ViewStats                    // detailed statistics
+	ViewDebug                    // operator status
+	ViewSetup                    // install wizard / service management
+	ViewApps                     // per-app routing toggles (Phase H)
+	ViewLogs                     // logs and diagnostics export
+	ViewActivity                 // scoped sessions and recent Slimference traffic
 )
 
 // ProxyInterface defines the subset of proxy.Proxy the TUI requires.
@@ -540,6 +541,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
+			if m.view == ViewActivity {
+				m.view = ViewMain
+				m.persistStateBestEffort()
+				return m, nil
+			}
 			if m.view == ViewSetup && m.svc != nil {
 				m.syncSetupSelection()
 				m.executeSetupStep()
@@ -836,6 +842,8 @@ func (m Model) View() string {
 		return m.renderAppsView()
 	case ViewLogs:
 		return m.renderLogsView()
+	case ViewActivity:
+		return m.renderActivityView()
 	default:
 		return m.renderMainView()
 	}
@@ -1023,6 +1031,11 @@ func (m *Model) dashboardActions() []dashboardAction {
 			group: "Launch",
 			id:    "launch_app",
 			label: "Launch Codex App",
+		},
+		dashboardAction{
+			group: "Inspect",
+			id:    "activity",
+			label: "Activity",
 		},
 		dashboardAction{
 			group: "Inspect",
@@ -1323,6 +1336,9 @@ func (m *Model) executeMainSelection() tea.Cmd {
 	case "logs":
 		m.view = ViewLogs
 		m.setFlash("Logs opened")
+	case "activity":
+		m.view = ViewActivity
+		m.setFlash("Activity opened")
 	case "setup":
 		m.view = ViewSetup
 		m.enterSetupView()

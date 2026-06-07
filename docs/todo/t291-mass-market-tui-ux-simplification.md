@@ -9,10 +9,10 @@ install from Setup without confusing global lab controls with normal daily use.
 
 ## Acceptance
 
-- The top-level TUI navigation is limited to Launch, Savings, Status, and
-  Setup.
-- Normal users see Launch Codex CLI, Launch Codex App, Savings, Status, and
-  Setup as the primary product actions.
+- The top-level TUI navigation is limited to Launch, Activity, Savings, Status,
+  Logs, and Setup.
+- Normal users see Launch Codex CLI, Launch Codex App, Activity, Savings,
+  Status, Logs, and Setup as the primary product actions.
 - Advanced lab / MITM controls remain available but are hidden under Setup and
   never advertised as the normal path.
 - Daemon start/restart/repair and install/enable flows are visible from Setup.

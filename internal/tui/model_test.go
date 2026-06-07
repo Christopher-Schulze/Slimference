@@ -711,6 +711,48 @@ func TestView_LogsRender(t *testing.T) {
 	}
 }
 
+func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
+	p := newMockProxy()
+	p.recentFlights = []dbg.FlightRequestSummary{{
+		RequestID:    "req-activity",
+		SessionID:    "session-activity",
+		Provider:     "openai",
+		Path:         "/backend-api/codex",
+		ClientFamily: "codex_cli",
+		RouteMode:    "websocket_phasef",
+		TokenAccounting: dbg.FlightTokenAccounting{
+			BillableSavingsEstimate: 42,
+		},
+	}}
+
+	home := t.TempDir()
+	oldHome := userHomeDirFn
+	userHomeDirFn = func() (string, error) { return home, nil }
+	t.Cleanup(func() { userHomeDirFn = oldHome })
+	dir := sessions.DefaultHookStateDir(home)
+	if err := sessions.StartHookSession(dir, "session-activity"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sessions.ObserveHookGitPathList(dir, "session-activity", "/Users/me/CODE/Slimference", "git status", []string{"cmd/slimference/main.go"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessions.ObserveHookFile(dir, "session-activity", "/Users/me/CODE/Slimference/cmd/slimference/main.go", "read"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel(p)
+	m.view = ViewActivity
+	m.width = 120
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "ACTIVE SESSIONS", "RECENT TRAFFIC", "session-activity", "/Users/me/CODE/Slimference", "codex_cli", "websocket_phasef", "42 saved"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("activity view missing %q in:\n%s", want, output)
+		}
+	}
+}
+
 func TestView_StatusRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
@@ -1253,7 +1295,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Activity", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1279,7 +1321,7 @@ func TestView_MainRender_OutputReducePendingDoesNotClaimSavings(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Savings", "Status", "Logs", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Activity", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
@@ -1302,7 +1344,7 @@ func TestView_MainRender_ProductStatusEmptyUsesExplicitProductZeros(t *testing.T
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
+	for _, want := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Activity", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

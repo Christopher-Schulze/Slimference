@@ -4,13 +4,14 @@
 
 The TUI home screen is still too text-heavy. A mass-market launch surface should
 not look like a dashboard or tabbed control panel. The first screen should be a
-plain menu: Launch Codex CLI, Launch Codex App, Savings, Status, Setup.
+plain menu: Launch Codex CLI, Launch Codex App, Activity, Savings, Status,
+Logs, Setup.
 
 ## Acceptance
 
 - Home view has no top tabs/reiter.
-- Home view shows only five menu entries: Launch Codex CLI, Launch Codex App,
-  Savings, Status, Setup.
+- Home view shows only the product menu entries: Launch Codex CLI, Launch Codex
+  App, Activity, Savings, Status, Logs, Setup.
 - Home view does not render explanatory right-panel copy, selected-action copy,
   setup details, savings details, status details, diagnostics, or mechanism
   counters.

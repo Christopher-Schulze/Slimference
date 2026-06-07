@@ -85,11 +85,6 @@ func runCodexDesktopAppServerMediated(argv0 string, argv []string, env []string,
 	}
 	logger := newCodexDesktopShimFileLogger()
 	provider := codexDesktopProviderConfigFromArgv(argv)
-	stopMenubar := codexDesktopMenubarStartFn(codexDesktopMenubarConfig{
-		Title:   codexDesktopMenubarTitle,
-		Tooltip: codexDesktopMenubarTooltip,
-	})
-	defer stopMenubar()
 	logger.Log(codexDesktopShimLogRecord{
 		Event:          "shim_start",
 		Provider:       codexSlimferenceProviderID,

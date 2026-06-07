@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -168,11 +169,13 @@ func TestCodexCmdRunSetsScopedTerminalTitleOnlyWhenProxied(t *testing.T) {
 		}
 		return 0
 	}
+	t.Setenv("CODEX_MODEL", "gpt-5.5")
 	p, _, errBuf := newTestPrinter()
 	if rc := runCodexCmd([]string{"run", "--transport=http", "--", "exec", "hi"}, p); rc != 0 {
 		t.Fatalf("proxied rc=%d stderr=%s", rc, errBuf.String())
 	}
-	if got := strings.Join(titles, "|"); got != codexTerminalTitleActive+"|"+codexTerminalTitleReset {
+	wantActive := scopedCodexTerminalTitle([]string{"exec", "hi"})
+	if got := strings.Join(titles, "|"); got != wantActive+"|"+codexTerminalTitleReset {
 		t.Fatalf("terminal titles=%q", got)
 	}
 
@@ -189,6 +192,96 @@ func TestCodexCmdRunSetsScopedTerminalTitleOnlyWhenProxied(t *testing.T) {
 	}
 	if len(titles) != 0 {
 		t.Fatalf("direct mode must not touch terminal title: %v", titles)
+	}
+}
+
+func TestScopedCodexTerminalTitleKeepaliveRefreshesUntilRestore(t *testing.T) {
+	oldTerminalTitle := terminalTitleWriteFn
+	oldInterval := terminalTitleKeepaliveInterval
+	t.Cleanup(func() {
+		terminalTitleWriteFn = oldTerminalTitle
+		terminalTitleKeepaliveInterval = oldInterval
+	})
+
+	terminalTitleKeepaliveInterval = time.Millisecond
+	t.Setenv("CODEX_MODEL", "gpt-5.5")
+	activeTitle := scopedCodexTerminalTitle(nil)
+	var mu sync.Mutex
+	var titles []string
+	activeWrites := 0
+	activeTwice := make(chan struct{}, 1)
+	terminalTitleWriteFn = func(title string) {
+		mu.Lock()
+		defer mu.Unlock()
+		titles = append(titles, title)
+		if title == activeTitle {
+			activeWrites++
+			if activeWrites >= 2 {
+				select {
+				case activeTwice <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}
+
+	restore := setScopedCodexTerminalTitle(nil)
+	select {
+	case <-activeTwice:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("scoped terminal title was not refreshed")
+	}
+	restore()
+	restore()
+	time.Sleep(5 * time.Millisecond)
+
+	mu.Lock()
+	got := append([]string(nil), titles...)
+	mu.Unlock()
+	if len(got) < 3 {
+		t.Fatalf("titles=%v", got)
+	}
+	if got[0] != activeTitle || got[len(got)-1] != codexTerminalTitleReset {
+		t.Fatalf("titles=%v", got)
+	}
+	resetCount := 0
+	for i, title := range got {
+		if title == codexTerminalTitleReset {
+			resetCount++
+			if i != len(got)-1 {
+				t.Fatalf("reset must be final write, titles=%v", got)
+			}
+		}
+	}
+	if resetCount != 1 {
+		t.Fatalf("reset count=%d titles=%v", resetCount, got)
+	}
+}
+
+func TestScopedCodexTerminalTitleIncludesCWDAndConfigModel(t *testing.T) {
+	oldWD := terminalTitleWorkingDirFn
+	oldHome := terminalTitleHomeDirFn
+	oldReadFile := terminalTitleReadFileFn
+	t.Cleanup(func() {
+		terminalTitleWorkingDirFn = oldWD
+		terminalTitleHomeDirFn = oldHome
+		terminalTitleReadFileFn = oldReadFile
+	})
+
+	terminalTitleWorkingDirFn = func() (string, error) { return "/Users/me/CODE/Slimference", nil }
+	terminalTitleHomeDirFn = func() (string, error) { return "/Users/me", nil }
+	terminalTitleReadFileFn = func(path string) ([]byte, error) {
+		if !strings.HasSuffix(path, filepath.Join(".codex", "config.toml")) {
+			t.Fatalf("unexpected config path %q", path)
+		}
+		return []byte("model = \"gpt-5.5\"\nmodel_reasoning_effort = \"medium\"\n[profiles.default]\nmodel = \"ignored\"\n"), nil
+	}
+
+	if got := scopedCodexTerminalTitle(nil); got != "[SF] ~/CODE/Slimference | gpt-5.5 medium" {
+		t.Fatalf("title=%q", got)
+	}
+	if got := scopedCodexTerminalTitle([]string{"--model", "gpt-5.5-high"}); got != "[SF] ~/CODE/Slimference | gpt-5.5-high" {
+		t.Fatalf("arg title=%q", got)
 	}
 }
 

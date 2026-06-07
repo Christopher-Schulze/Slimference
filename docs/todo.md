@@ -23,6 +23,8 @@ No blocked tasks.
 
 ## Done
 
+- [x] T312 Activity view and Desktop indicator cleanup -> docs/todo/t312-activity-view-desktop-indicator-cleanup.md
+- [x] T311 Persistent CLI route title indicator -> docs/todo/t311-persistent-cli-route-title.md
 - [x] T310 Same-terminal Codex CLI launch -> docs/todo/t310-same-terminal-codex-cli-launch.md
 - [x] T309 Patch-free scoped session indicators -> docs/todo/t309-patch-free-scoped-session-indicators.md
 - [x] T308 Desktop patch-free route indicator rejected -> docs/todo/t308-desktop-patch-free-route-indicator.md

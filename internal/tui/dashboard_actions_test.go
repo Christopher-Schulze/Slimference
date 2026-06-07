@@ -38,7 +38,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	m.SetServiceControl(svc)
 
 	actions := m.dashboardActions()
-	want := []string{"launch_cli", "launch_app", "savings", "status", "logs", "setup"}
+	want := []string{"launch_cli", "launch_app", "activity", "savings", "status", "logs", "setup"}
 	if len(actions) != len(want) {
 		t.Fatalf("actions=%v want %d launch-center entries", actions, len(want))
 	}
@@ -350,7 +350,7 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Savings", "Status", "Logs", "Setup"} {
+	for _, needle := range []string{"MENU", "Launch Codex CLI", "Launch Codex App", "Activity", "Savings", "Status", "Logs", "Setup"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -573,7 +573,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"operator notice", "MENU", "Launch Codex CLI", "Savings", "Setup"} {
+	for _, needle := range []string{"operator notice", "MENU", "Launch Codex CLI", "Activity", "Savings", "Setup"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}

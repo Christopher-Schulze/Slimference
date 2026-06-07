@@ -329,19 +329,6 @@ func TestCodexDesktopProviderConfigFromArgv(t *testing.T) {
 }
 
 func TestRunCodexDesktopAppServerMediatedRewritesChildStdin(t *testing.T) {
-	var menubarStarts, menubarStops int
-	oldMenubarStart := codexDesktopMenubarStartFn
-	codexDesktopMenubarStartFn = func(cfg codexDesktopMenubarConfig) func() {
-		menubarStarts++
-		if cfg.Title != codexDesktopMenubarTitle || cfg.Tooltip != codexDesktopMenubarTooltip {
-			t.Fatalf("menubar config=%+v", cfg)
-		}
-		return func() {
-			menubarStops++
-		}
-	}
-	t.Cleanup(func() { codexDesktopMenubarStartFn = oldMenubarStart })
-
 	dir := t.TempDir()
 	outFile := filepath.Join(dir, "child-stdin.jsonl")
 	bin := filepath.Join(dir, "codex")
@@ -355,9 +342,6 @@ func TestRunCodexDesktopAppServerMediatedRewritesChildStdin(t *testing.T) {
 	rc := runCodexDesktopAppServerMediated(bin, []string{bin, "app-server"}, os.Environ(), stdin, installPrinter{Out: &out, Err: &errBuf})
 	if rc != 0 {
 		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
-	}
-	if menubarStarts != 1 || menubarStops != 1 {
-		t.Fatalf("menubar starts/stops=%d/%d", menubarStarts, menubarStops)
 	}
 	got, err := os.ReadFile(outFile)
 	if err != nil {
@@ -375,16 +359,6 @@ func TestRunCodexDesktopAppServerMediatedRewritesChildStdin(t *testing.T) {
 }
 
 func TestRunCodexDesktopAppServerMediatedPropagatesExitCode(t *testing.T) {
-	var menubarStarts, menubarStops int
-	oldMenubarStart := codexDesktopMenubarStartFn
-	codexDesktopMenubarStartFn = func(cfg codexDesktopMenubarConfig) func() {
-		menubarStarts++
-		return func() {
-			menubarStops++
-		}
-	}
-	t.Cleanup(func() { codexDesktopMenubarStartFn = oldMenubarStart })
-
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
@@ -395,19 +369,9 @@ func TestRunCodexDesktopAppServerMediatedPropagatesExitCode(t *testing.T) {
 	if rc != 7 {
 		t.Fatalf("rc=%d want 7 (err=%q)", rc, errBuf.String())
 	}
-	if menubarStarts != 1 || menubarStops != 1 {
-		t.Fatalf("menubar starts/stops=%d/%d", menubarStarts, menubarStops)
-	}
 }
 
 func TestRunCodexDesktopAppServerMediatedStartFailure(t *testing.T) {
-	oldMenubarStart := codexDesktopMenubarStartFn
-	codexDesktopMenubarStartFn = func(cfg codexDesktopMenubarConfig) func() {
-		t.Fatal("menubar must not start when child process fails before launch")
-		return func() {}
-	}
-	t.Cleanup(func() { codexDesktopMenubarStartFn = oldMenubarStart })
-
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	var out, errBuf bytes.Buffer
 	rc := runCodexDesktopAppServerMediated(missing, []string{missing, "app-server"}, os.Environ(), strings.NewReader(""), installPrinter{Out: &out, Err: &errBuf})

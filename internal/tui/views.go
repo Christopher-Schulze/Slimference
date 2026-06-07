@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -305,6 +306,188 @@ func (m *Model) renderStatusView() string {
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
+}
+
+// renderActivityView renders scoped sessions and recent Slimference traffic.
+func (m *Model) renderActivityView() string {
+	s := m.styles
+	width := m.width
+	if width < 60 {
+		width = 80
+	}
+
+	innerWidth := width - 4
+	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
+
+	var lines []string
+	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Activity"))
+	lines = append(lines, rule)
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderHookActivity(m, loadHookActivityStatuses(8))))
+	lines = append(lines, "")
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, m.proxy.GetRecentFlights(8))))
+	lines = append(lines, "")
+	lines = append(lines, rule)
+
+	content := strings.Join(lines, "\n")
+	return s.Border.Width(width - 2).Render(content)
+}
+
+func renderHookActivity(m *Model, statuses []hookTurnDebugStatus) string {
+	s := m.styles
+	body := []string{" " + s.PanelTitle.Render("ACTIVE SESSIONS")}
+	if len(statuses) == 0 {
+		body = append(body, "", "  "+s.Muted.Render("No Slimference hook sessions yet."))
+		return strings.Join(body, "\n")
+	}
+	for _, status := range statuses {
+		state := s.Muted.Render("RECENT")
+		if !status.Closed {
+			state = s.Saved.Render("ACTIVE")
+		}
+		path := hookActivityPath(status)
+		if path == "" {
+			path = "path unknown"
+		}
+		line := fmt.Sprintf("%s  session %s  turn %s  updated %s",
+			state,
+			compactDebugLabel(status.SessionID, 20),
+			compactDebugLabel(status.TurnID, 12),
+			formatStatusTime(status.UpdatedAt),
+		)
+		body = append(body, "", "  "+line)
+		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("path %s", compactDebugLabel(path, 64))))
+		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("tools %d  read %d  edited %d  git-lists %d", len(status.Tools), len(status.FilesRead), len(status.FilesEdited), len(status.GitPathLists))))
+		if last := hookActivityLastWork(status); last != "" {
+			body = append(body, "  "+s.Muted.Render("last "+compactDebugLabel(last, 64)))
+		}
+	}
+	return strings.Join(body, "\n")
+}
+
+func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string {
+	s := m.styles
+	body := []string{" " + s.PanelTitle.Render("RECENT TRAFFIC")}
+	if len(flights) == 0 {
+		body = append(body, "", "  "+s.Muted.Render("No routed Slimference traffic yet."))
+		return strings.Join(body, "\n")
+	}
+	start := 0
+	if len(flights) > 6 {
+		start = len(flights) - 6
+	}
+	for _, flight := range flights[start:] {
+		saved := flight.TokenAccounting.BillableSavingsEstimate
+		savedLabel := s.Muted.Render("0 saved")
+		if saved > 0 {
+			savedLabel = s.Saved.Render(fmt.Sprintf("%d saved", saved))
+		}
+		label := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 20)
+		target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 36)
+		body = append(body, "", "  "+fmt.Sprintf("%s  %s  %s  %s",
+			s.Highlight.Render(label),
+			compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16),
+			compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 18),
+			savedLabel,
+		))
+		body = append(body, "  "+s.Muted.Render(fmt.Sprintf("%s  model %s", target, compactDebugLabel(firstNonEmpty(flight.Provider, "unknown"), 18))))
+	}
+	return strings.Join(body, "\n")
+}
+
+func loadHookActivityStatuses(limit int) []hookTurnDebugStatus {
+	home, _ := userHomeDirFn()
+	dir := sessions.DefaultHookStateDir(strings.TrimSpace(home))
+	return loadHookActivityStatusesFromDir(dir, limit)
+}
+
+func loadHookActivityStatusesFromDir(dir string, limit int) []hookTurnDebugStatus {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	statuses := make([]hookTurnDebugStatus, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".json")
+		state, err := sessions.LoadHookState(dir, sessionID)
+		if err != nil || len(state.Turns) == 0 {
+			continue
+		}
+		turn := state.Turns[len(state.Turns)-1]
+		for _, candidate := range state.Turns {
+			if candidate.ID == state.CurrentTurn {
+				turn = candidate
+				break
+			}
+		}
+		statuses = append(statuses, hookTurnDebugStatus{
+			Present:      true,
+			StatePath:    filepath.Join(dir, entry.Name()),
+			SessionID:    state.SessionID,
+			TurnID:       turn.ID,
+			Closed:       turn.Closed,
+			UpdatedAt:    turn.UpdatedAt,
+			Tools:        append([]string(nil), turn.Tools...),
+			FilesRead:    append([]string(nil), turn.FilesRead...),
+			FilesEdited:  append([]string(nil), turn.FilesEdited...),
+			GitPathLists: append([]sessions.HookGitPathListState(nil), turn.GitPathLists...),
+		})
+	}
+	sort.Slice(statuses, func(i, j int) bool {
+		return statuses[i].UpdatedAt.After(statuses[j].UpdatedAt)
+	})
+	if limit > 0 && len(statuses) > limit {
+		statuses = statuses[:limit]
+	}
+	return statuses
+}
+
+func hookActivityPath(status hookTurnDebugStatus) string {
+	for i := len(status.GitPathLists) - 1; i >= 0; i-- {
+		if cwd := strings.TrimSpace(status.GitPathLists[i].CWD); cwd != "" {
+			return cwd
+		}
+	}
+	if last := hookActivityLastPath(status.FilesEdited); last != "" {
+		return filepath.Dir(last)
+	}
+	if last := hookActivityLastPath(status.FilesRead); last != "" {
+		return filepath.Dir(last)
+	}
+	return ""
+}
+
+func hookActivityLastWork(status hookTurnDebugStatus) string {
+	if last := hookActivityLastPath(status.FilesEdited); last != "" {
+		return "edited " + last
+	}
+	if last := hookActivityLastPath(status.FilesRead); last != "" {
+		return "read " + last
+	}
+	if len(status.Tools) > 0 {
+		return "tool " + status.Tools[len(status.Tools)-1]
+	}
+	return ""
+}
+
+func hookActivityLastPath(values []string) string {
+	for i := len(values) - 1; i >= 0; i-- {
+		if value := strings.TrimSpace(values[i]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // renderLogsView renders logs, flight diagnostics, and export actions.

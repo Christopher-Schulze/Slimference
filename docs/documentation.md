@@ -89,11 +89,9 @@ routine use, it stays out of the product path.
   Codex Desktop builds do not expose a stable process-local text-chip contract
   through app-server response data, so Slimference does not fake the signal by
   mutating `model/list`, model IDs, display names, selected model values, or
-  service-tier metadata. A scoped Desktop session starts a patch-free macOS
-  menu bar status item (`● SF`) for the lifetime of the hidden app-server shim,
-  so the user has a durable route indicator without patching Codex.app. Savings
-  proof still comes from `codex desktop status`, the app-server shim flight log,
-  and daemon decisions, not from the visual indicator alone.
+  service-tier metadata. Current Desktop builds therefore have no external
+  Slimference indicator. Route visibility stays in the TUI Activity/Status
+  views, the app-server shim flight log, and daemon decisions.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
   untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
@@ -1717,7 +1715,8 @@ percentiles on demand.
 ## 13. TUI
 
 `internal/tui` is a BubbleTea UI with a six-item home menu as the default
-view: Launch Codex CLI, Launch Codex App, Savings, Status, Logs, Setup. There are no
+view: Launch Codex CLI, Launch Codex App, Activity, Savings, Status, Logs,
+Setup. There are no
 top tabs/reiter on the product surface. `↑/↓` selects, Enter opens, and
 subviews return with `b`/`esc`; Savings, Status, and Logs also return with
 Enter. Apps, daemon repair, and advanced lab controls stay behind Setup instead
@@ -1727,15 +1726,16 @@ daemon health, diagnostics commands, current-session savings, traffic logs,
 provider maps, checkpoint/tool-archive internals, cache parser details, and
 transport proof vocabulary belong to Savings, Status, Logs, or Setup, not the
 first screen. Daemon PID/port/liveness is not rendered in the global header; it
-belongs to Status. Flight records, hook-turn state, session log stream, and log
-export belong to Logs.
+belongs to Status. Flight records and hook-turn state are summarized in
+Activity; raw session log stream and log export belong to Logs.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new
 Slimference Codex CLI tab in the same terminal app, rooted at the TUI's current
-working directory. The launched tab title is prefixed with `[SF] ` so the user
-can see that the session was launched through Slimference without patching the
-Codex terminal UI. Launch Codex App launches the process-local
+working directory. The launched CLI keeps the tab/window title prefixed with
+`[SF] ` while the proxied process is active, so the user can see that the
+session was launched through Slimference without touching the Codex terminal UI.
+Launch Codex App launches the process-local
 `--transport=app-server` Desktop path, whose hidden shim rewrites the
 `thread/start` `modelProvider` so the Desktop conversation rides the same
 `websocket_phasef` savings route as the CLI (verified 2026-05-22 via the daemon
@@ -1743,11 +1743,11 @@ decisions log; the Desktop app-server holds loopback sockets to `:8990` with no
 direct `chatgpt.com` socket). Capability gating from `codex desktop status` still
 exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
-`route_mode=websocket_phasef`. The scoped app-server shim also starts the
-patch-free macOS menu bar status item `● SF` while that Desktop Slimference
-session is alive. The historical in-composer `Slimference` provider chip is
-kept only for older Codex Desktop builds that still render the process-local
-provider config; current Desktop builds may not show it.
+`route_mode=websocket_phasef`. Desktop has no current external Slimference
+indicator; use Activity, Status, and the shim flight log to inspect scoped
+Desktop traffic. The historical in-composer `Slimference` provider chip is kept
+only for older Codex Desktop builds that still render the process-local provider
+config; current Desktop builds may not show it.
 Historical proxy/CA failures remain diagnostic proof state. Normal
 Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
@@ -2080,10 +2080,9 @@ Desktop bundle (`26.602.40724`) inspected on 2026-06-07
 does not expose a stable process-local text-chip contract through app-server
 response data. Slimference therefore treats `model/list` as read-only and never
 mutates model IDs, display names, selected model values, default flags, or
-service-tier metadata to fake a chip. The scoped shim starts a patch-free
-macOS menu bar status item (`● SF`) for the lifetime of the Slimference Desktop
-session. It is a user-visible route indicator only; Desktop savings and
-correctness are still verified through `codex desktop status`,
+service-tier metadata to fake a chip. Desktop has no external indicator in
+current builds; Desktop savings and correctness are verified through TUI
+Activity/Status, `codex desktop status`,
 `~/.slimference/logs/desktop-shim.jsonl`, and daemon decision events.
 The earlier floating overlay experiment was removed from the product path.
 Non-JSON, non-config responses, error responses, malformed config shapes,

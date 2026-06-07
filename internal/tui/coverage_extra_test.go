@@ -243,8 +243,8 @@ func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)
 
-	if actions := model.dashboardActions(); len(actions) != 6 {
-		t.Fatalf("home menu must expose six entries: %+v", actions)
+	if actions := model.dashboardActions(); len(actions) != 7 {
+		t.Fatalf("home menu must expose seven entries: %+v", actions)
 	}
 
 	steps := model.setupSteps()

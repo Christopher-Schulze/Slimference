@@ -99,6 +99,7 @@ human entrypoints there are:
 
 - Launch Codex CLI
 - Launch Codex App
+- Activity
 - Savings
 - Status
 - Logs
@@ -118,9 +119,10 @@ Slimference session that was opened from inside Codex from leaking
 `CODEX_THREAD_ID` or other old runtime state into the newly launched app. The
 TUI detects whether it is running in Ghostty or Apple Terminal and opens the
 Slimference Codex CLI in a new tab of that same terminal app, from the TUI's
-current working directory. The launched CLI sets a `[SF] ` terminal-title prefix
-as a non-invasive route indicator. The Desktop launch pins `PWD` to the current
-folder when the proof gate allows it.
+current working directory. The launched CLI keeps a `[SF] ` terminal-title
+prefix refreshed while the proxied process is active, because Codex may rewrite
+the tab/window title after startup. The Desktop launch pins `PWD` to the
+current folder when the proof gate allows it.
 
 Slimference's safe product surfaces touch only scoped Codex paths:
 
@@ -367,13 +369,11 @@ The launcher uses a supported Codex Desktop process boundary:
    Desktop builds do not expose a stable app-server data contract for the old
    text chip, so Slimference does not mutate `model/list`, model IDs, display
    names, selected model values, or service-tier metadata to fake it.
-7. The hidden Slimference shim starts a patch-free macOS menu bar status item
-   (`● SF`) for the lifetime of the scoped Desktop session. Older Desktop
+7. Current Desktop builds have no external Slimference indicator. Older Desktop
    builds can still render the `Slimference` provider chip from process-local
-   provider config; current builds may not. The menu bar item is the visible
-   route indicator, while route/savings proof remains `codex desktop status`,
-   the app-server shim flight log, and daemon decisions. Normal
-   Finder/Spotlight Codex.app launches remain direct.
+   provider config; current builds may not. Route/savings proof remains TUI
+   Activity/Status, `codex desktop status`, the app-server shim flight log, and
+   daemon decisions. Normal Finder/Spotlight Codex.app launches remain direct.
 
 Inspect the exact scoped environment without launching:
 
@@ -458,12 +458,12 @@ bundle executable directory as the child working directory, scrubs inherited
 `CODEX_*` runtime state, pins `PWD` when the TUI supplies a selected folder, and
 waits for a short startup probe. If Codex.app exits immediately, the command
 fails and prints the exit status or signal instead of claiming a successful
-launch. On macOS, a successful scoped launch also starts the hidden Desktop
-app-server shim, which owns a patch-free menu bar status item (`● SF`) for the
-lifetime of that scoped session. Older Desktop builds can show the
-`Slimference` provider chip from the scoped provider config; current Desktop
-builds may not. Slimference does not patch Codex Desktop's renderer and does
-not mutate model selection or service tiers to fake that chip.
+launch. On macOS, a successful scoped launch starts the hidden Desktop
+app-server shim. Older Desktop builds can show the `Slimference` provider chip
+from the scoped provider config; current Desktop builds may not. Slimference
+does not patch Codex Desktop's renderer, does not start an external Desktop
+indicator, and does not mutate model selection or service tiers to fake that
+chip.
 
 Manual external proof can still be collected when diagnosing a new Codex.app
 build:
@@ -479,8 +479,8 @@ session, not merely historical daemon counters. Relaunching Codex.app from
 Finder/Spotlight must return to native direct ChatGPT routing and must not use
 the app-server shim.
 
-For the current Codex Desktop UI, the strongest quick route check is the `● SF`
-macOS menu bar indicator plus the scoped shim flight log:
+For the current Codex Desktop UI, the strongest quick route check is TUI
+Activity/Status plus the scoped shim flight log:
 
 ```bash
 tail -n 50 ~/.slimference/logs/desktop-shim.jsonl

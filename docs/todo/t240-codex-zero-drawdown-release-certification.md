@@ -29,7 +29,7 @@ savings available only through the scoped launcher/proof-gated shim path.
 
 - Fresh build is installed and daemon is restarted from the installed binary.
 - `slimference` launch center opens and exposes exactly:
-  Launch Codex CLI, Launch Codex App, Savings, Status, Manage Slimference.
+  Launch Codex CLI, Launch Codex App, Activity, Savings, Status, Logs, Setup.
 - Install/Repair is unified for Codex. The default product flow prepares both
   CLI and Desktop support and does not show CLI/App install checkboxes. Desktop
   is capability-gated after install, not treated as a separate half-installed

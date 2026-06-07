@@ -155,7 +155,7 @@ func runCodexRunCmd(args []string, p installPrinter) int {
 	}
 	restoreTitle := func() {}
 	if mode != "direct" {
-		restoreTitle = setScopedCodexTerminalTitle()
+		restoreTitle = setScopedCodexTerminalTitle(codexArgs)
 		defer restoreTitle()
 	}
 	proxyArgs := []string{"run", "codex", "--" + mode, "--host=" + flags.host, "--port=" + flags.port}
