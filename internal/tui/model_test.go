@@ -265,14 +265,14 @@ func (m *mockServiceControl) LaunchCodexCLI() (string, error) {
 		return "", m.err
 	}
 	m.codexCLILaunched = true
-	return "Codex CLI launched through Slimference", nil
+	return "Codex CLI started with Slimference", nil
 }
 func (m *mockServiceControl) LaunchCodexApp() (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}
 	m.codexAppLaunched = true
-	return "Codex App launch requested through Slimference mode", nil
+	return "Codex App started with Slimference", nil
 }
 func (m *mockServiceControl) RepairCodexWSS() (string, error) {
 	if m.err != nil {
@@ -579,6 +579,11 @@ func TestView_MainRender(t *testing.T) {
 func TestView_StatsRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
+	p.snap = analytics.AnalyticsSnapshot{
+		TotalRequests:    2,
+		TotalInputTokens: 10000,
+		SavedInputTokens: 3000,
+	}
 	p.layer0Status = Layer0Status{
 		Attempts:   5,
 		Matches:    2,
@@ -614,13 +619,17 @@ func TestView_StatsRender(t *testing.T) {
 	m.view = ViewStats
 	m.width = 100
 	m.height = 30
+	m.latestSnap = p.snap
 
 	output := m.View()
 	if output == "" {
 		t.Error("View() returned empty string for savings view")
 	}
-	if !strings.Contains(output, "LAYER 0 PARSERS") || !strings.Contains(output, "git_status") {
-		t.Fatalf("layer0 parser card missing: %s", output)
+	if !strings.Contains(output, "TOTAL") || !strings.Contains(output, "saved 3.0K") {
+		t.Fatalf("total savings card missing: %s", output)
+	}
+	if strings.Contains(output, "LAYER 0 PARSERS") || strings.Contains(output, "git_status") {
+		t.Fatalf("stats view leaked parser internals: %s", output)
 	}
 }
 
@@ -643,8 +652,8 @@ func TestView_StatsRender_LowReadHitRate(t *testing.T) {
 	m.height = 40
 
 	output := m.View()
-	if !strings.Contains(output, "Hit rate:") {
-		t.Fatalf("hit rate line missing: %s", output)
+	if !strings.Contains(output, "read-cache") {
+		t.Fatalf("read-cache summary missing: %s", output)
 	}
 }
 
@@ -672,11 +681,11 @@ func TestView_StatsRender_QualitySpike(t *testing.T) {
 	m.height = 40
 
 	output := m.View()
-	if !strings.Contains(output, "ACTIVE") {
-		t.Fatalf("expected ACTIVE spike marker, got: %s", output)
+	if !strings.Contains(output, "SAFETY") {
+		t.Fatalf("safety card missing: %s", output)
 	}
-	if !strings.Contains(output, "QUALITY SIGNALS") {
-		t.Fatalf("quality card title missing: %s", output)
+	if strings.Contains(output, "QUALITY SIGNALS") {
+		t.Fatalf("stats view leaked quality debug title: %s", output)
 	}
 }
 
@@ -717,11 +726,14 @@ func TestView_LogsRender(t *testing.T) {
 	if output == "" {
 		t.Error("View() returned empty string for logs view")
 	}
-	if !strings.Contains(output, "FLIGHT RECORDER") || !strings.Contains(output, "req-debug-fli") {
+	if !strings.Contains(output, "ROUTES") || !strings.Contains(output, "req-debug-fli") {
 		t.Fatalf("logs view missing flight diagnostics: %s", output)
 	}
-	if !strings.Contains(output, "plan") || !strings.Contains(output, "l0=run") || !strings.Contains(output, "+1") {
-		t.Fatalf("logs view missing plan summary: %s", output)
+	if !strings.Contains(output, "1 request(s)") || !strings.Contains(output, "120 saved") {
+		t.Fatalf("logs view missing route summary: %s", output)
+	}
+	if strings.Contains(output, "plan") || strings.Contains(output, "l0=run") {
+		t.Fatalf("logs view leaked internal plan details: %s", output)
 	}
 }
 
@@ -760,9 +772,14 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTED REQUESTS", "session-activity", "codex_cli", "websocket_phasef", "42 saved"} {
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "session-activity", "Codex CLI", "Slimference route", "42 saved"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity view missing %q in:\n%s", want, output)
+		}
+	}
+	for _, blocked := range []string{"codex_cli", "websocket_phasef", "/backend-api"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("activity view leaked internal label %q in:\n%s", blocked, output)
 		}
 	}
 	for _, stale := range []string{"ACTIVE SESSIONS", "stale-hook-session", "/Users/me/CODE/Golem"} {
@@ -843,9 +860,12 @@ func TestRenderFlightDiagnosticsFallbacks(t *testing.T) {
 			},
 		},
 	}})
-	if !strings.Contains(out, "req-fallback") || !strings.Contains(out, "bypasses 1") ||
-		!strings.Contains(out, "plan-blocks 1") || !strings.Contains(out, "websocket=inspect blocked") {
+	if !strings.Contains(out, "1 request(s)") || !strings.Contains(out, "7 saved") ||
+		!strings.Contains(out, "5 cache") || !strings.Contains(out, "req-fallback") {
 		t.Fatalf("flight diagnostics fallback output=%s", out)
+	}
+	if strings.Contains(out, "websocket=inspect") || strings.Contains(out, "plan-blocks") {
+		t.Fatalf("flight diagnostics leaked internal plan details=%s", out)
 	}
 }
 
@@ -1803,8 +1823,8 @@ func TestView_SetupView_withServiceControl_rendersSteps(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 	model := updated.(Model)
 	output := model.View()
-	if !strings.Contains(output, "INSTALL / REPAIR") {
-		t.Errorf("setup view with svc: want 'INSTALL / REPAIR', got: %s", output)
+	if !strings.Contains(output, "SETUP") {
+		t.Errorf("setup view with svc: want 'SETUP', got: %s", output)
 	}
 	if !strings.Contains(output, "DAEMON") {
 		t.Errorf("setup view with svc: want 'DAEMON', got: %s", output)
@@ -2080,8 +2100,8 @@ func TestView_SetupView_withSvc_stepCompleted(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 	model := updated.(Model)
 	output := model.View()
-	if !strings.Contains(output, "INSTALL / REPAIR") {
-		t.Errorf("setup view should show INSTALL / REPAIR with svc, got: %s", output)
+	if !strings.Contains(output, "SETUP") {
+		t.Errorf("setup view should show SETUP with svc, got: %s", output)
 	}
 }
 
@@ -2143,7 +2163,7 @@ func TestView_SetupView_withSvc_stepSelected(t *testing.T) {
 	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	model2 := updated2.(Model)
 	output := model2.View()
-	if !strings.Contains(output, "Run slimference install") {
+	if !strings.Contains(output, "Slimference install") || !strings.Contains(output, "CHECK") {
 		t.Errorf("selected step should show in output, got: %s", output)
 	}
 }

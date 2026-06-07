@@ -169,14 +169,21 @@ func TestPanelsRenderCheckpointAndArchiveData(t *testing.T) {
 	m.width = 120
 	m.height = 40
 	m.latestSnap.TotalRequests = 2
+	m.latestSnap.TotalInputTokens = 4000
+	m.latestSnap.SavedInputTokens = 1000
 	m.latestSnap.PromptCacheReadTokens = 3200
 	m.latestSnap.PromptCacheCreateTokens = 800
 
 	m.view = ViewStats
 	output := m.renderStatsView()
-	for _, want := range []string{"CHECKPOINTS", "TOOL ARCHIVE", "READ CACHE", "PROMPT CACHE"} {
+	for _, want := range []string{"TOTAL", "SESSIONS", "CACHE", "SAFETY"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stats view missing %q in:\n%s", want, output)
+		}
+	}
+	for _, blocked := range []string{"CHECKPOINTS", "TOOL ARCHIVE", "PROMPT CACHE", "Layer 0"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("stats view leaked internal card %q in:\n%s", blocked, output)
 		}
 	}
 }

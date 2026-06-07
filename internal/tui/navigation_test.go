@@ -93,7 +93,7 @@ func TestView_SetupView_HidesFooterLegendWithoutTabs(t *testing.T) {
 	m.enterSetupView()
 
 	output := m.View()
-	for _, needle := range []string{"SLIMFERENCE / Setup", "INSTALL / REPAIR"} {
+	for _, needle := range []string{"SLIMFERENCE / Setup", "SETUP"} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("setup view missing %q in output: %s", needle, output)
 		}

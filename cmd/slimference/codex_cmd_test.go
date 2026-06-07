@@ -1694,7 +1694,7 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCodexCLI: %v", err)
 	}
-	if !strings.Contains(msg, "Codex CLI launched") {
+	if !strings.Contains(msg, "Codex CLI started") {
 		t.Fatalf("msg=%q", msg)
 	}
 	if gotName != "osascript" || len(gotArgs) != 2 || !strings.Contains(gotArgs[1], "codex run --transport=auto --") {
@@ -1706,8 +1706,8 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	if !strings.Contains(gotArgs[1], "tell application \"Terminal\"") || !strings.Contains(gotArgs[1], "in front window") {
 		t.Fatalf("Terminal launch must open a tab in Terminal.app, args=%v", gotArgs)
 	}
-	if strings.Contains(gotArgs[1], "printf") || strings.Contains(gotArgs[1], "033]0;[SF]") {
-		t.Fatalf("TUI launcher must not own the Terminal title hack anymore, args=%v", gotArgs)
+	if !strings.Contains(gotArgs[1], "[2J") || !strings.Contains(gotArgs[1], "[H") || !strings.Contains(gotArgs[1], "[SF] Codex CLI started with Slimference") {
+		t.Fatalf("TUI launcher must clean the visible startup command, args=%v", gotArgs)
 	}
 
 	osExecutable = func() (string, error) { return "", errors.New("no executable") }
@@ -1776,7 +1776,7 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LaunchCodexApp success: %v", err)
 	}
-	if !strings.Contains(msg, "Codex.app launched") {
+	if !strings.Contains(msg, "Codex App started with Slimference") {
 		t.Fatalf("msg=%q", msg)
 	}
 	if fmt.Sprint(cleaned) != "[44]" {

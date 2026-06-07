@@ -99,7 +99,7 @@ func TestDashboardActions_AutoStartInstalledErrorAndCursorMoves(t *testing.T) {
 		t.Fatalf("mainCursor=%d", m.mainCursor)
 	}
 	m.moveStatsCursor(20)
-	if m.statsCursor != 10 {
+	if m.statsCursor != 3 {
 		t.Fatalf("statsCursor=%d", m.statsCursor)
 	}
 	m.moveDebugCursor(5)
@@ -182,22 +182,32 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	m.SetServiceControl(svc)
 	m.latestSnap = proxy.snap
 
-	runAction := func(id string) {
+	runAction := func(id string) tea.Cmd {
 		actions := m.dashboardActions()
 		idx := findDashboardActionIndex(actions, id)
 		if idx < 0 {
 			t.Fatalf("action %q missing in %v", id, actions)
 		}
 		m.mainCursor = idx
-		_ = m.executeMainSelection()
+		return m.executeMainSelection()
 	}
 
-	runAction("launch_cli")
-	if !svc.codexCLILaunched || !strings.Contains(m.flashMsg, "Codex CLI launched") {
+	cmd := runAction("launch_cli")
+	if cmd == nil || m.launchingLabel != "Codex CLI" || !strings.Contains(m.flashMsg, "Starting Codex CLI") {
+		t.Fatalf("launch CLI did not enter starting state: cmd=%v label=%q flash=%q", cmd, m.launchingLabel, m.flashMsg)
+	}
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
+	if !svc.codexCLILaunched || !strings.Contains(m.flashMsg, "Codex CLI started") {
 		t.Fatalf("launch CLI failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
-	runAction("launch_app")
-	if !svc.codexAppLaunched || !strings.Contains(m.flashMsg, "Codex App launch requested") {
+	cmd = runAction("launch_app")
+	if cmd == nil || m.launchingLabel != "Codex App" || !strings.Contains(m.flashMsg, "Starting Codex App") {
+		t.Fatalf("launch App did not enter starting state: cmd=%v label=%q flash=%q", cmd, m.launchingLabel, m.flashMsg)
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if !svc.codexAppLaunched || !strings.Contains(m.flashMsg, "Codex App started") {
 		t.Fatalf("launch App failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
 	runAction("savings")
@@ -233,7 +243,11 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 
 	for _, id := range []string{"launch_cli", "launch_app"} {
 		m.mainCursor = findDashboardActionIndex(m.dashboardActions(), id)
-		_ = m.executeMainSelection()
+		cmd := m.executeMainSelection()
+		if cmd != nil {
+			updated, _ := m.Update(cmd())
+			m = updated.(Model)
+		}
 		if !strings.Contains(m.flashMsg, "failed") && !strings.Contains(m.flashMsg, "blocked") {
 			t.Fatalf("expected failure flash for %s, got %q", id, m.flashMsg)
 		}
@@ -246,8 +260,12 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 		},
 	})
 	retryDiagnostic.mainCursor = findDashboardActionIndex(retryDiagnostic.dashboardActions(), "launch_app")
-	_ = retryDiagnostic.executeMainSelection()
-	if !strings.Contains(retryDiagnostic.flashMsg, "Slimference mode") {
+	cmd := retryDiagnostic.executeMainSelection()
+	if cmd != nil {
+		updated, _ := retryDiagnostic.Update(cmd())
+		retryDiagnostic = updated.(Model)
+	}
+	if !strings.Contains(retryDiagnostic.flashMsg, "Codex App started") {
 		t.Fatalf("desktop retry flash=%q", retryDiagnostic.flashMsg)
 	}
 
@@ -256,8 +274,12 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 		err: errors.New("boom"),
 	})
 	disableFail.mainCursor = findDashboardActionIndex(disableFail.dashboardActions(), "launch_app")
-	_ = disableFail.executeMainSelection()
-	if !strings.Contains(disableFail.flashMsg, "Codex App launch blocked") {
+	cmd = disableFail.executeMainSelection()
+	if cmd != nil {
+		updated, _ := disableFail.Update(cmd())
+		disableFail = updated.(Model)
+	}
+	if !strings.Contains(disableFail.flashMsg, "Codex App launch failed") {
 		t.Fatalf("desktop launch failure flash=%q", disableFail.flashMsg)
 	}
 
@@ -302,7 +324,7 @@ func TestUpdate_ArrowDrivenDashboardAndDebug(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Codex App launch requested") {
+	if !strings.Contains(model.flashMsg, "Starting Codex App") {
 		t.Fatalf("enter on dashboard flash=%q", model.flashMsg)
 	}
 
@@ -606,14 +628,22 @@ func TestExecuteSelection_ErrorBranches(t *testing.T) {
 	m.SetServiceControl(svc)
 
 	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "launch_cli")
-	_ = m.executeMainSelection()
+	cmd := m.executeMainSelection()
+	if cmd != nil {
+		updated, _ := m.Update(cmd())
+		m = updated.(Model)
+	}
 	if !strings.Contains(m.flashMsg, "Codex CLI launch failed") {
 		t.Fatalf("CLI launch failure flash=%q", m.flashMsg)
 	}
 
 	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "launch_app")
-	_ = m.executeMainSelection()
-	if !strings.Contains(m.flashMsg, "Codex App launch blocked") {
+	cmd = m.executeMainSelection()
+	if cmd != nil {
+		updated, _ := m.Update(cmd())
+		m = updated.(Model)
+	}
+	if !strings.Contains(m.flashMsg, "Codex App launch failed") {
 		t.Fatalf("App launch failure flash=%q", m.flashMsg)
 	}
 
@@ -693,7 +723,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Install Codex hook") {
+	if !strings.Contains(model.flashMsg, "Done: Codex hook") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

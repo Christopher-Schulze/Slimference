@@ -63,6 +63,10 @@ func TestLaunchCodexCLIInCurrentTerminalUsesGhosttyTab(t *testing.T) {
 		"keystroke \"t\" using command down",
 		"/bin/bash -lc",
 		"/tmp/slim repo",
+		"[2J",
+		"[H",
+		"[SF] Codex CLI started with Slimference",
+		"exec /tmp/slimference codex run --transport=auto --",
 		"/tmp/slimference codex run --transport=auto --",
 	} {
 		if !strings.Contains(script, want) {
@@ -106,6 +110,10 @@ func TestLaunchCodexCLIInCurrentTerminalUsesTerminalTab(t *testing.T) {
 		"do script",
 		"in front window",
 		"cd /repo",
+		"[2J",
+		"[H",
+		"[SF] Codex CLI started with Slimference",
+		"exec /tmp/slimference codex run --transport=auto --",
 		"/tmp/slimference codex run --transport=auto --",
 	} {
 		if !strings.Contains(script, want) {

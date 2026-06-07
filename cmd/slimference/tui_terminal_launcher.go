@@ -31,11 +31,13 @@ func launchCodexCLIInCurrentTerminal(binary string, dir string) (string, error) 
 	default:
 		return "", fmt.Errorf("unsupported terminal app for same-app launch: TERM_PROGRAM=%q", tuiTerminalEnvFn("TERM_PROGRAM"))
 	}
-	return fmt.Sprintf("Codex CLI launched via Slimference transport=auto in %s (%s)", dir, app), nil
+	return fmt.Sprintf("Codex CLI started with Slimference in %s (%s)", dir, app), nil
 }
 
 func scopedCodexCLICommand(binary string, dir string) string {
-	return "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
+	return "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) +
+		" && printf '\\033[2J\\033[H' && printf '[SF] Codex CLI started with Slimference\\n\\n' && exec " +
+		shellQuote(binary) + " codex run --transport=auto --"
 }
 
 func detectTUITerminalApp() tuiTerminalApp {

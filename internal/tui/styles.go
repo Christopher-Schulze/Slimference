@@ -12,11 +12,11 @@ var (
 	colorBg      = lipgloss.Color("235") // solid dashboard background
 	colorBgAlt   = lipgloss.Color("237") // subtle row separator (only used sparingly)
 	colorFg      = lipgloss.Color("253") // primary foreground
-	colorFgDim   = lipgloss.Color("245") // secondary foreground
-	colorFgMuted = lipgloss.Color("240") // muted / structural
-	colorAccent  = lipgloss.Color("216") // focus / cursor / active row
-	colorGreen   = lipgloss.Color("114") // savings / health-ok
-	colorOrange  = lipgloss.Color("179") // warning
+	colorFgDim   = lipgloss.Color("244") // secondary foreground
+	colorFgMuted = lipgloss.Color("239") // muted / structural
+	colorAccent  = lipgloss.Color("209") // focus / cursor / active row
+	colorGreen   = lipgloss.Color("108") // savings / health-ok
+	colorOrange  = lipgloss.Color("215") // warning
 	colorRed     = lipgloss.Color("203") // error
 
 	// Compatibility aliases (kept so existing references compile while the

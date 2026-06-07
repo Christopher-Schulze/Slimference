@@ -339,6 +339,11 @@ type proxyEventMsg types.RequestMetrics
 // flashExpiredMsg signals that the flash message should be cleared.
 type flashExpiredMsg struct{}
 
+type launchResultMsg struct {
+	label string
+	err   error
+}
+
 // Model is the BubbleTea model for the Slimference TUI.
 // It holds all display state and communicates with the proxy via the ProxyInterface.
 type Model struct {
@@ -389,6 +394,7 @@ type Model struct {
 	codexDesktopStatusAt time.Time
 	lastLaunchLabel      string
 	lastLaunchAt         time.Time
+	launchingLabel       string
 
 	// Flash message.
 	flashMsg    string
@@ -769,6 +775,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashExpiredMsg:
 		m.flashMsg = ""
 
+	case launchResultMsg:
+		m.launchingLabel = ""
+		if msg.err != nil {
+			m.lastLaunchLabel = ""
+			m.setFlash(msg.label + " launch failed: " + msg.err.Error())
+			return m, flashTimer(3 * time.Second)
+		}
+		m.noteSlimferenceLaunch(msg.label)
+		m.setFlash(msg.label + " started with Slimference")
+		m.refreshCodexDesktopStatus(true)
+		return m, flashTimer(3 * time.Second)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -974,7 +992,7 @@ func (m *Model) refreshCodexDesktopStatus(force bool) {
 }
 
 func (m *Model) dashboardActions() []dashboardAction {
-	return []dashboardAction{
+	actions := []dashboardAction{
 		dashboardAction{
 			group: "Launch",
 			id:    "launch_cli",
@@ -1011,6 +1029,12 @@ func (m *Model) dashboardActions() []dashboardAction {
 			label: "Setup",
 		},
 	}
+	for i := range actions {
+		if m.launchingLabel != "" && actions[i].label == m.launchingLabel {
+			actions[i].state = "starting..."
+		}
+	}
+	return actions
 }
 
 func (m *Model) codexCLIState() string {
@@ -1228,7 +1252,7 @@ func (m *Model) moveMainCursor(delta int) {
 }
 
 func (m *Model) moveStatsCursor(delta int) {
-	const totalCards = 11
+	const totalCards = 4
 	m.statsCursor = clampIndex(m.statsCursor+delta, totalCards)
 }
 
@@ -1237,8 +1261,8 @@ func (m *Model) debugActions() []dashboardAction {
 		{
 			group:       "Actions",
 			id:          "copy_log",
-			label:       "Export debug log",
-			description: "Write the visible log stream to ~/.slimference/exports/ for later inspection.",
+			label:       "Export diagnostics",
+			description: "Write recent route and event logs to ~/.slimference/exports/.",
 			state:       "write file",
 		},
 	}
@@ -1259,26 +1283,18 @@ func (m *Model) executeMainSelection() tea.Cmd {
 			m.setFlash("Codex CLI launch unavailable: service adapter missing")
 			break
 		}
-		msg, err := m.svc.LaunchCodexCLI()
-		if err != nil {
-			m.setFlash("Codex CLI launch failed: " + err.Error())
-		} else {
-			m.noteSlimferenceLaunch("Codex CLI")
-			m.setFlash(msg)
-		}
+		m.launchingLabel = "Codex CLI"
+		m.setFlash("Starting Codex CLI...")
+		return m.launchCodexCLICommand()
 	case "launch_app":
 		m.refreshCodexDesktopStatus(true)
 		if m.svc == nil {
 			m.setFlash("Codex App launch unavailable: service adapter missing")
 			break
 		}
-		msg, err := m.svc.LaunchCodexApp()
-		if err != nil {
-			m.setFlash("Codex App launch blocked: " + err.Error())
-		} else {
-			m.noteSlimferenceLaunch("Codex App")
-			m.setFlash(msg)
-		}
+		m.launchingLabel = "Codex App"
+		m.setFlash("Starting Codex App...")
+		return m.launchCodexAppCommand()
 	case "savings":
 		m.view = ViewStats
 		m.setFlash("Savings opened")
@@ -1301,6 +1317,22 @@ func (m *Model) executeMainSelection() tea.Cmd {
 	}
 	m.persistStateBestEffort()
 	return flashTimer(3 * time.Second)
+}
+
+func (m *Model) launchCodexCLICommand() tea.Cmd {
+	svc := m.svc
+	return func() tea.Msg {
+		_, err := svc.LaunchCodexCLI()
+		return launchResultMsg{label: "Codex CLI", err: err}
+	}
+}
+
+func (m *Model) launchCodexAppCommand() tea.Cmd {
+	svc := m.svc
+	return func() tea.Msg {
+		_, err := svc.LaunchCodexApp()
+		return launchResultMsg{label: "Codex App", err: err}
+	}
 }
 
 func (m *Model) noteSlimferenceLaunch(label string) {
@@ -1340,19 +1372,19 @@ func (m *Model) setupSteps() []setupStep {
 	}
 	steps := []setupStep{
 		{
-			label:   "Run slimference install (product: Codex CLI + Desktop support)",
+			label:   "Slimference install",
 			check:   func() bool { return m.transparentStatus.CAExists && m.transparentStatus.AutoStartInstalled },
 			action:  func(m *Model) error { return m.svc.InstallTransparent() },
 			confirm: "Install Codex-only Slimference integration",
 		},
 		{
-			label:   "Install Codex hook",
+			label:   "Codex hook",
 			check:   func() bool { return m.hookStatus.Codex },
 			action:  func(m *Model) error { return m.svc.InstallHook("codex") },
 			confirm: "Install Codex lifecycle hook",
 		},
 		{
-			label: "Repair Codex CLI WSS savings",
+			label: "CLI savings route",
 			check: func() bool {
 				return m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef"
 			},
@@ -1360,7 +1392,7 @@ func (m *Model) setupSteps() []setupStep {
 			confirm: "Repair CLI WSS certification",
 		},
 		{
-			label: "Repair auto-start service (launchd only)",
+			label: "Autostart daemon",
 			check: func() bool {
 				home, _ := userHomeDirFn()
 				_, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"))

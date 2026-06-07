@@ -89,16 +89,25 @@ func renderLayerLine(s Styles, num int, name string, enabled bool, saved int, ex
 	)
 }
 
-func renderSetupStepRow(s Styles, index int, label string, done bool, selected bool) string {
-	number := s.StepIndex.Render(fmt.Sprintf("[%d]", index+1))
+func renderSetupStepRow(s Styles, width int, index int, label string, done bool, selected bool) string {
+	if width < 40 {
+		width = 40
+	}
+	marker := " "
+	status := s.BannerWarn.Render("CHECK")
+	labelStyle := s.StepIdle
 	switch {
 	case done:
-		return " " + s.StepDone.Render("✓") + "  " + number + "  " + s.Dim.Render(label)
+		status = s.StepDone.Render("READY")
+		labelStyle = s.Dim
 	case selected:
-		return " " + s.StepCursor.Render("▶") + "  " + number + "  " + s.StepCursor.Render(label)
+		marker = s.StepCursor.Render("▶")
+		labelStyle = s.StepCursor
 	default:
-		return " " + s.Muted.Render("○") + "  " + number + "  " + s.StepIdle.Render(label)
+		marker = s.Muted.Render("○")
 	}
+	row := fmt.Sprintf("%s  %-5s  [%d]  %s", marker, status, index+1, labelStyle.Render(label))
+	return padRight(row, width)
 }
 
 func renderMenuRow(s Styles, width int, selected bool, label string, state string) string {

@@ -1713,32 +1713,34 @@ percentiles on demand.
 
 ## 13. TUI
 
-`internal/tui` is a BubbleTea UI with a six-item home menu as the default
-view: Launch Codex CLI, Launch Codex App, Activity, Savings, Status, Logs,
-Setup. There are no
-top tabs/reiter on the product surface. `↑/↓` selects, Enter opens, and
-subviews return with `b`/`esc`; Savings, Status, and Logs also return with
-Enter. Apps and daemon repair stay behind Setup instead of being promoted as
+`internal/tui` is a BubbleTea UI with a seven-item home menu as the default
+view: Launch Codex CLI, Launch Codex App, Activity, Savings, Status, Logs, and
+Setup. There are no top tabs/reiter on the product surface. `↑/↓` selects,
+Enter opens, and subviews return with `b`/`esc`; Activity, Savings, Status,
+Logs, and Setup also return with Enter where no primary action is selected.
+Apps and advanced daemon repair stay behind Setup instead of being promoted as
 daily-use navigation.
 The home view is strictly menu-only. Setup warnings, install/repair state,
 diagnostics commands, current-session savings, traffic logs, provider maps,
 checkpoint/tool-archive internals, cache parser details, and transport proof
 vocabulary belong to Savings, Status, Logs, or Setup, not the first screen.
 Daemon PID/port/liveness is not rendered in the global header; it belongs to
-Status. Status is a daily operator check with three card families only:
-Daemon, Install, and Health. It does not show Normal Codex, advanced route,
+Status. Status is a daily operator check with four card families only: Daemon,
+Install, Using Now, and Health. It does not show Normal Codex, advanced route,
 provider-chip, lab, or transport vocabulary during normal scoped operation.
 Activity shows only explicit Slimference launch state and recent routed
-Slimference requests from daemon flight telemetry; direct Codex windows and old
-hook-turn diagnostics are intentionally hidden there. Hook-turn state, raw
-session log stream, and log export belong to Logs.
+Slimference requests from daemon flight telemetry using product labels such as
+Codex CLI, Codex App, Slimference route, cache, and safe fallback. Raw provider
+IDs, internal route modes, backend paths, direct Codex windows, and old
+hook-turn diagnostics are intentionally hidden there. Logs owns diagnostics
+export, a compact route summary, and recent daemon events.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new
 Slimference Codex CLI tab in the same terminal app, rooted at the TUI's current
-working directory. The launched CLI keeps the tab/window title prefixed with
-`[SF] ` while the proxied process is active, so the user can see that the
-session was launched through Slimference without touching the Codex terminal UI.
+working directory. The launched CLI clears the visible raw shell command, prints
+a short `[SF] Codex CLI started with Slimference` preamble, and keeps the
+tab/window title prefixed with `[SF] ` while the proxied process is active.
 Launch Codex App launches the process-local
 `--transport=app-server` Desktop path, whose hidden shim rewrites the
 `thread/start` `modelProvider` so the Desktop conversation rides the same
@@ -1755,15 +1757,14 @@ config; current Desktop builds may not show it.
 Historical proxy/CA failures remain diagnostic proof state. Normal
 Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
-together. Per-app rows are route policy/capability state, not separate install
-states, and are opened from Setup with `a`. Setup also owns daemon
-start/stop/restart/repair, autostart repair, Codex hook repair, and the guided
-"Repair Codex CLI WSS savings" action that calls the same recert core as the
-CLI/background path. Advanced shared-route, global transparent routing, and
-asset uninstall controls are CLI-only and stay out of the Setup surface. Old
-macOS `U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only
-stale processes when detected; the current healthy daemon PID remains the
-actionable state.
+together. It renders a stable four-row checklist: Slimference install, Codex
+hook, CLI savings route, and Autostart daemon. Per-app rows are route
+policy/capability state, not separate install states, and are opened from Setup
+with `a`. Advanced shared-route, global transparent routing, and asset
+uninstall controls are CLI-only and stay out of the Setup surface. Old macOS
+`U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only stale
+processes when detected; the current healthy daemon PID remains the actionable
+state.
 
 The home menu does not label readiness inline. WSS, transport, route, recert
 attempt id, started/finished/last-success/retry times, last error, bounded
@@ -1812,11 +1813,12 @@ to a running daemon via the admin API rather than driving a local
 `Proxy` instance. Used when you run `slimference` against a daemon
 started by `service install`.
 
-The Savings view renders Layer 0 parser telemetry from the same admin status
-snapshot: total attempts/matches/misses/panics, runtime hit rate, bytes saved,
-and the top parser filters by saved bytes. This is runtime observability; the
-persisted billing-style Layer 0 savings view remains `slimference gain
---by-parser`.
+The Savings view is product accounting, not parser telemetry. It renders total
+input saved, estimated original vs sent tokens, tracked output tokens,
+per-session recent/active savings rows, cache contribution, and safety state.
+Parser matrices, checkpoints, archive internals, quality canaries, and raw
+debug counters remain available through CLI/admin diagnostics, not the daily
+TUI.
 
 For measured conversation accounting, use `slimference savings <period>`. When
 the decision log is configured, the report prints aggregate `Decision layer net`
@@ -1991,9 +1993,12 @@ to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
 assignments, `sk-*` keys, user-home paths, and temp paths are redacted. Raw
 request/response bodies are not captured by the flight recorder.
 
-The TUI Logs view renders a `FLIGHT RECORDER` block sourced from the same
-records: recent route/source/layers, billable savings estimate, provider cache
-tokens, output tokens, bypass count, and slowest request.
+The TUI Logs view renders a compact `ROUTES` block sourced from the same
+records: routed request count, saved/cache/output token totals, fallback count,
+safety-block count, slowest request, and recent client/session rows. It does
+not show raw route modes, backend paths, layer plans, or hook-turn internals on
+the daily surface. Use `slimference debug flight --json` when the raw
+diagnostic record is needed.
 
 ### WebSocket inspection
 

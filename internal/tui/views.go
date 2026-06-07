@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,13 +50,26 @@ func (m *Model) renderStatsView() string {
 	}
 
 	snap := m.latestSnap
-	avgPrefill := m.proxy.Config().GetPrefillSpeed()
-	extraMsgs := snap.EstExtraMessages(snap.AvgTokensPerRequest)
-	ttftImprove := snap.AvgTTFTImprovement(avgPrefill)
-	ratio := 0
-	if snap.TotalInputTokens > 0 {
-		ratio = int((1 - float64(snap.TotalInputTokens-snap.SavedInputTokens)/float64(snap.TotalInputTokens)) * 100)
+	flights := m.proxy.GetRecentFlights(32)
+	flightOriginal, flightFinal, flightSaved, flightCached := aggregateFlightTokens(flights)
+	original := snap.TotalInputTokens
+	saved := snap.SavedInputTokens
+	final := original - saved
+	if original == 0 && flightOriginal > 0 {
+		original = flightOriginal
+		final = flightFinal
+		saved = flightSaved
 	}
+	if saved == 0 && flightSaved > 0 {
+		saved = flightSaved
+	}
+	if saved == 0 && m.latestProduct.BillableInputTokensSaved > 0 {
+		saved = int(m.latestProduct.BillableInputTokensSaved)
+	}
+	if final < 0 {
+		final = 0
+	}
+	ratio := savingsPercent(saved, original)
 
 	innerWidth := width - 4
 	rule := s.HorizRule.Render(strings.Repeat("─", innerWidth))
@@ -78,171 +92,167 @@ func (m *Model) renderStatsView() string {
 		cardIndex++
 	}
 
-	appendCard("SESSION SNAPSHOT", []string{
-		" " + s.BigSaved.Render(fmt.Sprintf("%d%%", ratio)) + " " + s.Dim.Render("avg compression") +
-			"    " + s.Highlight.Render(fmt.Sprintf("+%d msgs", extraMsgs)) +
-			"    " + s.Saved.Render(fmt.Sprintf("~%.1fs TTFT", ttftImprove)),
+	appendCard("TOTAL", []string{
+		" " + s.BigSaved.Render(fmt.Sprintf("%d%%", ratio)) + " " + s.Dim.Render("input saved"),
 		"",
 		" " + renderKPIRow(s,
-			fmt.Sprintf("%d requests", snap.TotalRequests),
-			fmt.Sprintf("%d errors", snap.Errors),
-			renderSessionDuration(snap.SessionStart),
+			fmt.Sprintf("would be %s", formatTokens(original)),
+			fmt.Sprintf("sent %s", formatTokens(final)),
+			fmt.Sprintf("saved %s", formatTokens(saved)),
 		),
+		" " + s.Muted.Render(fmt.Sprintf("%d tracked request(s) · %s output tokens", max(snap.TotalRequests, len(flights)), formatTokens(snap.TotalOutputTokens))),
 	})
 
-	appendCard("SESSION", []string{
-		fmt.Sprintf("  Started: %s", snap.SessionStart.Format("2006-01-02 15:04")),
-		fmt.Sprintf("  Duration: %s", renderSessionDuration(snap.SessionStart)),
-		fmt.Sprintf("  Requests: %d", snap.TotalRequests),
-		fmt.Sprintf("  Errors: %d", snap.Errors),
-	})
+	appendCard("SESSIONS", renderSavingsSessionLines(s, summarizeFlightSessions(flights, 8)))
 
-	headers := []string{"Metric", "Original", "After", "Saved"}
-	rows := [][]string{
-		{"Total Input", formatTokens(snap.TotalInputTokens), formatTokens(snap.TotalInputTokens - snap.SavedInputTokens), fmt.Sprintf("%d%%", ratio)},
-		{"Deterministic", "-", "-", formatTokens(snap.Layer1Savings)},
-		{"Cache layer", "-", "-", formatTokens(snap.Layer2Savings)},
-		{"Total Output", formatTokens(snap.TotalOutputTokens), "(passthru)", "-"},
-	}
-	appendCard("SAVINGS", []string{renderTable(s, headers, rows, []int{20, 12, 12, 8})})
-
+	cacheLine := fmt.Sprintf("%s provider cache read", formatTokens(max(snap.PromptCacheReadTokens, flightCached)))
 	readCache := m.proxy.GetReadCacheStatus()
-	hitRateLine := fmt.Sprintf("  Hit rate:         %.1f%%", readCache.HitRate*100)
-	hitRateStyle := s.Saved
-	if readCache.HitRate < 0.40 && readCache.Blocks+readCache.Allows > 10 {
-		hitRateStyle = s.Highlight
-	}
-	appendCard("READ CACHE", []string{
-		s.Normal.Render(fmt.Sprintf("  Evaluations:      %d", readCache.Evaluations)),
-		s.Normal.Render(fmt.Sprintf("  Blocks:           %d (%d unchanged, %d delta)", readCache.Blocks, readCache.UnchangedBlocks, readCache.DeltaBlocks)),
-		s.Normal.Render(fmt.Sprintf("  Allows:           %d", readCache.Allows)),
-		hitRateStyle.Render(hitRateLine),
-		s.Normal.Render(fmt.Sprintf("  Tracked files:    %d across %d sessions", readCache.TrackedFiles, readCache.Sessions)),
+	appendCard("CACHE", []string{
+		" " + s.Normal.Render(cacheLine),
+		" " + s.Normal.Render(fmt.Sprintf("%d local cache hit(s)", snap.CacheHits)),
+		" " + s.Muted.Render(fmt.Sprintf("%d read-cache decision(s), %d hit(s)", readCache.Blocks+readCache.Allows, readCache.Blocks)),
 	})
 
-	layer0 := m.proxy.GetLayer0Status()
-	layer0Lines := []string{
-		s.Normal.Render(fmt.Sprintf("  Attempts:        %d", layer0.Attempts)),
-		s.Normal.Render(fmt.Sprintf("  Matches:         %d (%.1f%% hit)", layer0.Matches, layer0.HitRate*100)),
-		s.Normal.Render(fmt.Sprintf("  Misses/Panics:   %d / %d", layer0.Misses, layer0.Panics)),
-		s.Normal.Render(fmt.Sprintf("  Bytes saved:     %s", formatBytesCompact(layer0.BytesSaved))),
+	safety := productSafetyLine(m.latestProduct)
+	safetyStyle := s.Saved
+	if safety != "safety ok" {
+		safetyStyle = s.BannerWarn
 	}
-	if len(layer0.Filters) == 0 {
-		layer0Lines = append(layer0Lines, s.Muted.Render("  No parser attempts recorded yet."))
-	} else {
-		limit := len(layer0.Filters)
-		if limit > 3 {
-			limit = 3
-		}
-		for i := 0; i < limit; i++ {
-			f := layer0.Filters[i]
-			layer0Lines = append(layer0Lines, s.Muted.Render(fmt.Sprintf("  %s  %d/%d · %s · %.2fms",
-				f.Name, f.Matches, f.Attempts, formatBytesCompact(f.BytesSaved), f.AvgMs)))
-		}
-	}
-	appendCard("LAYER 0 PARSERS", layer0Lines)
-
-	checkpoints := m.proxy.GetCheckpointStatus()
-	appendCard("CHECKPOINTS", []string{
-		s.Normal.Render(fmt.Sprintf("  Captures:         %d (%d restores)", checkpoints.Captures, checkpoints.Restores)),
-		s.Normal.Render(fmt.Sprintf("  Stored:           %d checkpoints · %s", checkpoints.Count, formatBytesCompact(checkpoints.Bytes))),
-		s.Normal.Render(fmt.Sprintf("  Last trigger:     %s", fallbackLabel(checkpoints.LastTrigger, "none"))),
-		s.Normal.Render(fmt.Sprintf("  Last capture:     %s", formatStatusTime(checkpoints.LastCapture))),
-	})
-
-	archive := m.proxy.GetToolArchiveStatus()
-	appendCard("TOOL ARCHIVE", []string{
-		s.Normal.Render(fmt.Sprintf("  Archived:         %d (%d expands)", archive.Archived, archive.Expanded)),
-		s.Normal.Render(fmt.Sprintf("  Stored entries:   %d", archive.Count)),
-		s.Normal.Render(fmt.Sprintf("  Raw vs stored:    %s -> %s", formatBytesCompact(archive.BytesRaw), formatBytesCompact(archive.BytesStored))),
-		s.Normal.Render(fmt.Sprintf("  Last archive:     %s", formatStatusTime(archive.LastArchived))),
-	})
-
-	q := m.proxy.GetQualityStatus()
-	spikeMarker := "no"
-	if q.SpikeActive {
-		spikeMarker = "ACTIVE"
-	}
-	appendCard("QUALITY SIGNALS (T77)", []string{
-		s.Normal.Render(fmt.Sprintf("  Re-read sessions:  %d", q.ReReadSessions)),
-		s.Normal.Render(fmt.Sprintf("  Re-read events:    %d / %d checks (rate %.2f%%)", q.ReReadTotalHits, q.ReReadTotalChecks, q.ReReadRate*100)),
-		s.Normal.Render(fmt.Sprintf("  Cache miss spike:  %s (baseline %.1f%%, total %d)", spikeMarker, q.BaselineHitRate*100, q.TotalSpikeCount)),
-		s.Normal.Render(fmt.Sprintf("  Tokens saved:      %s", formatTokens(int(q.TotalSaved)))),
-		s.Normal.Render(fmt.Sprintf("  Invalidation cost: %s", formatTokens(int(q.TotalInvalidation)))),
-		s.Normal.Render(fmt.Sprintf("  Net saved tokens:  %s", formatTokens(int(q.NetSaved)))),
-	})
-
-	promptHitRate := snap.PromptCacheHitRate() * 100
-	appendCard("PROMPT CACHE", []string{
-		s.Normal.Render(fmt.Sprintf("  Read hits:        %d / %d (%.1f%%)", snap.PromptCacheReadRequests, snap.TotalRequests, promptHitRate)),
-		s.Normal.Render(fmt.Sprintf("  Read tokens:      %s", formatTokens(snap.PromptCacheReadTokens))),
-		s.Normal.Render(fmt.Sprintf("  Create tokens:    %s", formatTokens(snap.PromptCacheCreateTokens))),
-		s.Normal.Render(fmt.Sprintf("  Est. read savings %s", formatTokens(int(float64(snap.PromptCacheReadTokens)*0.9)))),
-	})
-
-	avgOrig := 0
-	avgComp := 0
-	if snap.TotalRequests > 0 {
-		avgOrig = snap.TotalInputTokens / snap.TotalRequests
-		avgComp = (snap.TotalInputTokens - snap.SavedInputTokens) / snap.TotalRequests
-	}
-	sessMultiplier := 1.0
-	if snap.TotalInputTokens > 0 && snap.TotalInputTokens != snap.SavedInputTokens {
-		sessMultiplier = float64(snap.TotalInputTokens) / float64(snap.TotalInputTokens-snap.SavedInputTokens)
-	}
-	appendCard("CAPACITY GAIN", []string{
-		s.Normal.Render(fmt.Sprintf("  Extra messages:    +%d", extraMsgs)),
-		s.Normal.Render(fmt.Sprintf("  Session extended:  ~%.1fx longer before limit", sessMultiplier)),
-		s.Normal.Render(fmt.Sprintf("  TTFT improvement:  ~%.1fs faster per response", ttftImprove)),
-		s.Normal.Render(fmt.Sprintf("  Avg ratio:         %d%% compression", ratio)),
-		s.Normal.Render(fmt.Sprintf("  Avg tokens/req:    %s (was %s)", formatTokens(avgComp), formatTokens(avgOrig))),
-	})
-
-	pHeaders := []string{"Provider", "Messages", "Saved", "Avg %"}
-	pRows := [][]string{}
-	for prov, stats := range snap.PerProvider {
-		avgRatioPct := 0
-		if stats.AvgRatio > 0 {
-			avgRatioPct = int((1 - stats.AvgRatio) * 100)
-		}
-		pRows = append(pRows, []string{
-			prov.String(),
-			fmt.Sprintf("%d", stats.Messages),
-			formatTokens(stats.InputTokensSaved),
-			fmt.Sprintf("%d%%", avgRatioPct),
-		})
-	}
-	appendCard("PER PROVIDER", []string{renderTable(s, pHeaders, pRows, []int{18, 10, 12, 8})})
-
-	latHeaders := []string{"Provider", "Avg ms", "TTFT saved/req"}
-	latRows := [][]string{}
-	if snap.LatencyAnthropicMs > 0 || snap.PerProvider[types.Anthropic].Messages > 0 {
-		ttft := providerTTFTSaving(snap, types.Anthropic, avgPrefill)
-		latRows = append(latRows, []string{"Anthropic", fmt.Sprintf("%.0fms", snap.LatencyAnthropicMs), fmt.Sprintf("~%.1fs", ttft)})
-	}
-	if snap.LatencyOpenAIMs > 0 || snap.PerProvider[types.OpenAI].Messages > 0 {
-		ttft := providerTTFTSaving(snap, types.OpenAI, avgPrefill)
-		latRows = append(latRows, []string{"OpenAI", fmt.Sprintf("%.0fms", snap.LatencyOpenAIMs), fmt.Sprintf("~%.1fs", ttft)})
-	}
-	if len(latRows) == 0 {
-		appendCard("LATENCY", []string{s.Muted.Render("  No requests yet.")})
-	} else {
-		appendCard("LATENCY", []string{renderTable(s, latHeaders, latRows, []int{18, 10, 14})})
-	}
-
-	retriesDetail := ""
-	if snap.AutoRetries > 0 {
-		retriesDetail = fmt.Sprintf(" (%dx rate-limit, %dx overflow)", snap.RateLimitRetries, snap.OverflowRetries)
-	}
-	appendCard("RESILIENCE", []string{
-		fmt.Sprintf("  Auto-retries: %d%s", snap.AutoRetries, retriesDetail),
-		fmt.Sprintf("  Secrets redacted: %d", snap.SecretsRedacted),
+	appendCard("SAFETY", []string{
+		" " + safetyStyle.Render(safety),
+		" " + s.Muted.Render(fmt.Sprintf("%d error(s), %d auto-retry(s), %d secret(s) redacted", snap.Errors, snap.AutoRetries, snap.SecretsRedacted)),
 	})
 
 	lines = append(lines, rule)
 
 	content := strings.Join(lines, "\n")
 	return s.Border.Width(width - 2).Render(content)
+}
+
+type tuiSessionSavings struct {
+	ID       string
+	Client   string
+	Route    string
+	Requests int
+	Original int
+	Final    int
+	Saved    int
+	Cached   int
+	LastSeen time.Time
+}
+
+func aggregateFlightTokens(flights []dbg.FlightRequestSummary) (original int, final int, saved int, cached int) {
+	for _, flight := range flights {
+		orig, fin, save, cache := flightTokenTotals(flight)
+		original += orig
+		final += fin
+		saved += save
+		cached += cache
+	}
+	if final == 0 && original > 0 {
+		final = original - saved
+		if final < 0 {
+			final = 0
+		}
+	}
+	return original, final, saved, cached
+}
+
+func summarizeFlightSessions(flights []dbg.FlightRequestSummary, limit int) []tuiSessionSavings {
+	if limit <= 0 {
+		return nil
+	}
+	byID := map[string]*tuiSessionSavings{}
+	order := make([]string, 0, len(flights))
+	for _, flight := range flights {
+		id := firstNonEmpty(flight.SessionID, flight.RequestID, "session")
+		if _, ok := byID[id]; !ok {
+			byID[id] = &tuiSessionSavings{
+				ID:     id,
+				Client: userClientLabel(flight),
+				Route:  userRouteLabel(flight),
+			}
+			order = append(order, id)
+		}
+		row := byID[id]
+		orig, final, saved, cached := flightTokenTotals(flight)
+		row.Requests++
+		row.Original += orig
+		row.Final += final
+		row.Saved += saved
+		row.Cached += cached
+		if ts := flightTimestamp(flight); !ts.IsZero() && ts.After(row.LastSeen) {
+			row.LastSeen = ts
+		}
+	}
+	rows := make([]tuiSessionSavings, 0, len(order))
+	for _, id := range order {
+		rows = append(rows, *byID[id])
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].LastSeen.After(rows[j].LastSeen)
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
+func renderSavingsSessionLines(s Styles, sessions []tuiSessionSavings) []string {
+	if len(sessions) == 0 {
+		return []string{" " + s.Muted.Render("No Slimference session data yet.")}
+	}
+	lines := make([]string, 0, len(sessions)*2)
+	for _, session := range sessions {
+		state := "RECENT"
+		if !session.LastSeen.IsZero() && time.Since(session.LastSeen) < 15*time.Minute {
+			state = "ACTIVE"
+		}
+		stateStyle := s.Muted
+		if state == "ACTIVE" {
+			stateStyle = s.Saved
+		}
+		ratio := savingsPercent(session.Saved, session.Original)
+		lines = append(lines,
+			" "+stateStyle.Render(state)+"  "+s.Normal.Render(session.Client)+
+				s.Muted.Render(" · "+session.Route+" · "+compactDebugLabel(session.ID, 18)),
+		)
+		lines = append(lines,
+			"   "+s.Muted.Render(fmt.Sprintf("%d req · %s -> %s · %s saved (%d%%)",
+				session.Requests,
+				formatTokens(session.Original),
+				formatTokens(session.Final),
+				formatTokens(session.Saved),
+				ratio,
+			)),
+		)
+	}
+	return lines
+}
+
+func flightTokenTotals(flight dbg.FlightRequestSummary) (original int, final int, saved int, cached int) {
+	tokens := flight.TokenAccounting
+	original = tokens.EstimatedOriginalInputTokens
+	final = tokens.EstimatedFinalInputTokens
+	saved = tokens.BillableSavingsEstimate
+	cached = flightCached(flight)
+	if original == 0 && final > 0 {
+		original = final + saved
+	}
+	if final == 0 && original > 0 {
+		final = original - saved
+		if final < 0 {
+			final = 0
+		}
+	}
+	return original, final, saved, cached
+}
+
+func savingsPercent(saved int, original int) int {
+	if original <= 0 || saved <= 0 {
+		return 0
+	}
+	return int(float64(saved) / float64(original) * 100)
 }
 
 // renderStatusView renders runtime state without logs or diagnostics noise.
@@ -283,9 +293,27 @@ func (m *Model) renderStatusView() string {
 		"",
 		renderStatusInstallLine(s, "Codex CLI", statusCLIReady(m.codexRouteStatus), statusCLIDetail(m.codexRouteStatus)),
 		renderStatusInstallLine(s, "Codex App", statusDesktopReady(m.codexDesktopStatus), statusDesktopDetail(m.codexDesktopStatus)),
-		renderStatusInstallLine(s, "CA material", transparent.CAExists, statusCADetail(transparent)),
+		renderStatusInstallLine(s, "Local CA", transparent.CAExists, statusCADetail(transparent)),
+		renderStatusInstallLine(s, "Autostart", transparent.AutoStartInstalled, statusAutostartDetail(transparent)),
 	}
 	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(installLines, "\n")))
+	lines = append(lines, "")
+
+	flights := m.proxy.GetRecentFlights(8)
+	usageLines := []string{
+		" " + s.PanelTitle.Render("USING NOW"),
+		"",
+	}
+	if len(flights) == 0 {
+		usageLines = append(usageLines, "  "+s.Muted.Render("No active Slimference traffic seen yet."))
+	} else {
+		latest := flights[len(flights)-1]
+		usageLines = append(usageLines,
+			"  "+s.Saved.Render("● ROUTED")+"  "+activityFlightHeadline(latest),
+			"  "+s.Muted.Render(fmt.Sprintf("%d recent routed request(s)", len(flights))),
+		)
+	}
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(usageLines, "\n")))
 	lines = append(lines, "")
 
 	healthLines := []string{
@@ -392,6 +420,13 @@ func statusCADetail(status TransparentStatus) string {
 	}
 }
 
+func statusAutostartDetail(status TransparentStatus) string {
+	if status.AutoStartInstalled {
+		return "installed"
+	}
+	return "run Setup"
+}
+
 // renderActivityView renders current Slimference activity only. Direct Codex
 // processes and old hook diagnostics are intentionally not mixed into this view.
 func (m *Model) renderActivityView() string {
@@ -451,27 +486,30 @@ func renderCurrentActivity(m *Model, flights []dbg.FlightRequestSummary) string 
 }
 
 func activityFlightHeadline(flight dbg.FlightRequestSummary) string {
-	client := compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16)
-	route := compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 22)
+	client := userClientLabel(flight)
+	route := userRouteLabel(flight)
 	saved := flight.TokenAccounting.BillableSavingsEstimate
 	if saved > 0 {
-		return fmt.Sprintf("%s · %s · %d saved", client, route, saved)
+		return fmt.Sprintf("%s via %s · %s saved", client, route, formatTokens(saved))
 	}
-	return fmt.Sprintf("%s · %s · 0 saved", client, route)
+	return fmt.Sprintf("%s via %s · routed", client, route)
 }
 
 func activityFlightDetail(flight dbg.FlightRequestSummary) string {
-	id := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 28)
-	target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 48)
-	if target == "" {
-		return id
+	parts := []string{"session " + compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "unknown"), 22)}
+	if ts := flightTimestamp(flight); !ts.IsZero() {
+		parts = append(parts, formatStatusTime(ts))
 	}
-	return id + " · " + target
+	_, _, _, cached := flightTokenTotals(flight)
+	if cached > 0 {
+		parts = append(parts, formatTokens(cached)+" provider-cache read")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string {
 	s := m.styles
-	body := []string{" " + s.PanelTitle.Render("RECENT ROUTED REQUESTS")}
+	body := []string{" " + s.PanelTitle.Render("RECENT ROUTES")}
 	if len(flights) == 0 {
 		body = append(body, "", "  "+s.Muted.Render("No routed Slimference traffic yet."))
 		return strings.Join(body, "\n")
@@ -487,17 +525,50 @@ func renderTrafficActivity(m *Model, flights []dbg.FlightRequestSummary) string 
 			savedLabel = s.Saved.Render(fmt.Sprintf("%d saved", saved))
 		}
 		body = append(body, "", "  "+fmt.Sprintf("%s  %s  %s",
-			s.Highlight.Render(compactDebugLabel(firstNonEmpty(flight.ClientFamily, flight.Provider, "client"), 16)),
-			compactDebugLabel(firstNonEmpty(flight.RouteMode, "route"), 22),
+			s.Highlight.Render(userClientLabel(flight)),
+			userRouteLabel(flight),
 			savedLabel,
 		))
-		detail := compactDebugLabel(firstNonEmpty(flight.SessionID, flight.RequestID, "request"), 24)
-		if target := compactDebugLabel(firstNonEmpty(flight.Path, flight.Host, flight.Source), 44); target != "" {
-			detail += " · " + target
-		}
-		body = append(body, "  "+s.Muted.Render(detail))
+		body = append(body, "  "+s.Muted.Render(activityFlightDetail(flight)))
 	}
 	return strings.Join(body, "\n")
+}
+
+func userClientLabel(flight dbg.FlightRequestSummary) string {
+	value := strings.ToLower(firstNonEmpty(flight.ClientFamily, flight.Provider, flight.Source))
+	switch {
+	case strings.Contains(value, "cli"):
+		return "Codex CLI"
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+		return "Codex App"
+	case strings.Contains(value, "claude"):
+		return "Claude Code"
+	case strings.Contains(value, "codex"):
+		return "Codex"
+	default:
+		return "Codex"
+	}
+}
+
+func userRouteLabel(flight dbg.FlightRequestSummary) string {
+	value := strings.ToLower(firstNonEmpty(flight.RouteMode, flight.Source))
+	switch {
+	case strings.Contains(value, "cache"):
+		return "cache"
+	case strings.Contains(value, "phasef"), strings.Contains(value, "websocket"), strings.Contains(value, "mitm"):
+		return "Slimference route"
+	case strings.Contains(value, "raw"), strings.Contains(value, "passthrough"), strings.Contains(value, "upstream"):
+		return "safe fallback"
+	default:
+		return "Slimference route"
+	}
+}
+
+func flightTimestamp(flight dbg.FlightRequestSummary) time.Time {
+	if len(flight.Events) == 0 {
+		return time.Time{}
+	}
+	return flight.Events[len(flight.Events)-1].Timestamp
 }
 
 func firstNonEmpty(values ...string) string {
@@ -540,20 +611,17 @@ func (m *Model) renderLogsView() string {
 	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderFlightDiagnostics(m, flights)))
 	lines = append(lines, "")
 
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderHookTurnDiagnostics(m, loadLatestHookTurnDebugStatus())))
-	lines = append(lines, "")
-
 	if m.proxy.SessionLogger() != nil {
 		entries := m.proxy.SessionLogger().Recent(30)
 		if len(entries) == 0 {
 			lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join([]string{
-				" " + s.PanelTitle.Render("LOG STREAM"),
+				" " + s.PanelTitle.Render("RECENT EVENTS"),
 				"",
 				s.Muted.Render("  No log entries yet."),
 			}, "\n")))
 		} else {
 			body := []string{
-				" " + s.PanelTitle.Render("LOG STREAM"),
+				" " + s.PanelTitle.Render("RECENT EVENTS"),
 				"",
 			}
 			for _, entry := range entries {
@@ -564,7 +632,7 @@ func (m *Model) renderLogsView() string {
 		}
 	} else {
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join([]string{
-			" " + s.PanelTitle.Render("LOG STREAM"),
+			" " + s.PanelTitle.Render("RECENT EVENTS"),
 			"",
 			s.Muted.Render("  No log entries yet."),
 		}, "\n")))
@@ -579,46 +647,37 @@ func (m *Model) renderLogsView() string {
 
 func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) string {
 	s := m.styles
-	body := []string{" " + s.PanelTitle.Render("FLIGHT RECORDER")}
+	body := []string{" " + s.PanelTitle.Render("ROUTES")}
 	if len(flights) == 0 {
-		body = append(body, "", s.Muted.Render("  No flight records yet."))
+		body = append(body, "", s.Muted.Render("  No routed requests yet."))
 		return strings.Join(body, "\n")
 	}
-	var saved, cached, output, bypasses, planBlocks int
+	var saved, cached, output, fallbacks, safetyBlocks int
 	slowest := 0.0
-	slowestID := ""
 	for _, f := range flights {
 		saved += flightSaved(f)
 		cached += flightCached(f)
 		output += flightOutput(f)
 		if f.RouteMode == "raw_passthrough" || f.RouteMode == "local_cache" || f.BypassReason != "" {
-			bypasses++
+			fallbacks++
 		}
 		if f.Plan != nil && f.Plan.SafetyBlocked {
-			planBlocks++
+			safetyBlocks++
 		}
 		if f.TotalProxyOverheadMs > slowest {
 			slowest = f.TotalProxyOverheadMs
-			slowestID = f.RequestID
 		}
 	}
 	body = append(body,
 		"",
-		" "+s.Normal.Render(fmt.Sprintf("requests %d  saved %s  cached %s  output %s", len(flights), formatTokens(saved), formatTokens(cached), formatTokens(output))),
-		" "+s.Normal.Render(fmt.Sprintf("bypasses %d  plan-blocks %d  slowest %.1fms %s", bypasses, planBlocks, slowest, slowestID)),
+		" "+s.Normal.Render(fmt.Sprintf("%d request(s) · %s saved · %s cache · %s output", len(flights), formatTokens(saved), formatTokens(cached), formatTokens(output))),
+		" "+s.Muted.Render(fmt.Sprintf("%d fallback(s) · %d safety block(s) · slowest %.1fms", fallbacks, safetyBlocks, slowest)),
 		"",
 	)
 	for _, f := range flights {
-		label := f.RequestID
-		if len(label) > 14 {
-			label = label[:14]
-		}
-		body = append(body, " "+s.Muted.Render(fmt.Sprintf("%-14s", label))+
-			s.Normal.Render(fmt.Sprintf(" %s/%s L%v saved=%s cache=%s out=%s",
-				f.Source, f.RouteMode, f.Layers, formatTokens(flightSaved(f)), formatTokens(flightCached(f)), formatTokens(flightOutput(f)))))
-		if planLine := renderFlightPlanLine(f); planLine != "" {
-			body = append(body, " "+s.Muted.Render("plan")+" "+s.Normal.Render(planLine))
-		}
+		body = append(body, " "+s.Normal.Render(userClientLabel(f))+
+			s.Muted.Render(" · "+userRouteLabel(f)+" · session "+compactDebugLabel(firstNonEmpty(f.SessionID, f.RequestID), 18))+
+			s.Saved.Render("  "+formatTokens(flightSaved(f))+" saved"))
 	}
 	return strings.Join(body, "\n")
 }
@@ -873,15 +932,9 @@ func (m *Model) renderSetupView() string {
 	// Interactive wizard steps.
 	if m.svc != nil {
 		steps := m.setupSteps()
-		stepLines := []string{
-			" " + s.PanelTitle.Render("INSTALL / REPAIR"),
-			"",
-		}
+		stepLines := []string{" " + s.PanelTitle.Render("SETUP"), ""}
 		for i, step := range steps {
-			stepLines = append(stepLines, renderSetupStepRow(s, i, step.label, step.check(), m.setupCursor == i))
-			if m.setupCursor == i && !step.check() {
-				stepLines = append(stepLines, "   "+s.SetupCmd.Render("Enter ↵ "+step.confirm))
-			}
+			stepLines = append(stepLines, renderSetupStepRow(s, innerWidth-8, i, step.label, step.check(), m.setupCursor == i))
 		}
 		lines = append(lines, s.CardActive.Width(innerWidth-2).Render(strings.Join(stepLines, "\n")))
 		lines = append(lines, "")
@@ -1337,9 +1390,9 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 		if status.FallbackReason != "" {
 			suffix = " · auto " + status.AutoTransport + " · " + status.FallbackReason
 		}
-		return "  " + s.Muted.Render("○ NORMAL CODEX") + "  direct; advanced shared route off" + s.Dim.Render(suffix)
+		return "  " + s.Muted.Render("○ DIRECT") + "  advanced shared route off" + s.Dim.Render(suffix)
 	default:
-		return "  " + s.Muted.Render("○ NORMAL CODEX") + "  direct; Codex config not found"
+		return "  " + s.Muted.Render("○ DIRECT") + "  Codex config not found"
 	}
 }
 

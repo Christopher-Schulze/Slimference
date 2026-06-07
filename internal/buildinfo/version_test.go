@@ -8,7 +8,7 @@ func TestVersion(t *testing.T) {
 	if Version == "" {
 		t.Fatal("Version must not be empty")
 	}
-	if Version != "2.0.2" {
-		t.Fatalf("Version = %q, want %q", Version, "2.0.2")
+	if Version != "0.9.1" {
+		t.Fatalf("Version = %q, want %q", Version, "0.9.1")
 	}
 }

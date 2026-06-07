@@ -276,11 +276,8 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		}
 		return "", fmt.Errorf("launch Codex.app via Slimference: %s", msg)
 	}
-	msg := strings.TrimSpace(out.String())
-	if msg == "" {
-		msg = "Codex App launched via Slimference app-server shim in " + dir
-	}
-	return msg, nil
+	_ = strings.TrimSpace(out.String())
+	return "Codex App started with Slimference in " + dir, nil
 }
 
 func tuiLaunchDirectory() (string, error) {
