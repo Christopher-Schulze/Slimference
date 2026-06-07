@@ -79,6 +79,32 @@ func TestEnableWritesProviderBlockBeforeFirstTable(t *testing.T) {
 	}
 }
 
+func TestEnablePreservesMCPServerTables(t *testing.T) {
+	home := t.TempDir()
+	path := writeCodexConfig(t, home, "model = \"gpt-5\"\n\n[mcp_servers.filesystem]\ncommand = \"node\"\nargs = [\"server.js\"]\n\n[features]\nhooks = true\n")
+	if _, err := EnableWithOptions(home, ProxyURL("127.0.0.1", "8990"), Options{Transport: TransportWSS}); err != nil {
+		t.Fatalf("EnableWithOptions: %v", err)
+	}
+	gotBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	got := string(gotBytes)
+	for _, want := range []string{
+		`[mcp_servers.filesystem]`,
+		`command = "node"`,
+		`args = ["server.js"]`,
+		`[features]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("MCP config missing %q after enable:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, markerStart) > strings.Index(got, "[mcp_servers.filesystem]") {
+		t.Fatalf("route block must stay before MCP tables without moving them:\n%s", got)
+	}
+}
+
 func TestEnableWithOptionsWritesWSSProviderBlock(t *testing.T) {
 	home := t.TempDir()
 	path := writeCodexConfig(t, home, "model = \"gpt-5\"\n")

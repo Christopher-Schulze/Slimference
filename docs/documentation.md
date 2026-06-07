@@ -72,7 +72,9 @@ routine use, it stays out of the product path.
 - **Codex CLI**: default scoped path is `slimference install`, `status
   --preflight`, then `slimference codex run -- <prompt>`.
   This affects only that Codex CLI process and leaves Browser ChatGPT and
-  ChatGPT.app direct.
+  ChatGPT.app direct. Scoped launch strips stale Codex runtime/session env but
+  preserves config-bearing env such as `CODEX_HOME`, so MCP server definitions
+  remain visible.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The Slimference path is
   `slimference codex launch-desktop --transport=app-server --replace-existing`,
@@ -1740,9 +1742,11 @@ export, a compact route summary, and recent daemon events.
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`; the TUI detects Ghostty vs Apple Terminal and opens the new
 Slimference Codex CLI tab in the same terminal app, rooted at the TUI's current
-working directory. The launched CLI clears the visible raw shell command, prints
-a short `[SF] Codex CLI started with Slimference` preamble, and keeps the
-tab/window title prefixed with `[SF] ` while the proxied process is active.
+working directory. The launched CLI drops stale Codex runtime/session env while
+preserving config-bearing env such as `CODEX_HOME`, clears the visible raw shell
+command, prints a short `[SF] Codex CLI started with Slimference` preamble, and
+keeps the tab/window title prefixed with `[SF] ` while the proxied process is
+active.
 Launch Codex App launches the process-local
 `--transport=app-server` Desktop path, whose hidden shim rewrites the
 `thread/start` `modelProvider` so the Desktop conversation rides the same

@@ -132,6 +132,8 @@ func TestProxyEnvCodex_Direct(t *testing.T) {
 		"Codex CLI direct mode",
 		"-u HTTP_PROXY",
 		"-u HTTPS_PROXY",
+		"-u CODEX_THREAD_ID",
+		"-u CODEX_CI",
 		"-u ALL_PROXY",
 		"'NO_PROXY=*'",
 		"'no_proxy=*'",
@@ -156,6 +158,8 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 		"Codex CLI proxied mode",
 		"per-process custom provider override",
 		"WebSockets are disabled",
+		"-u CODEX_THREAD_ID",
+		"-u CODEX_CI",
 		"-u HTTP_PROXY",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 		"model_provider=\"slimference-codex\"",
@@ -215,6 +219,12 @@ func TestProxyEnvCodex_IPv6Proxied(t *testing.T) {
 	got := shellJoin(codexEnvCommand("proxied", "::1", "8990", nil))
 	if !strings.Contains(got, "model_providers.slimference-codex.base_url=\"http://[::1]:8990/backend-api/codex\"") {
 		t.Fatalf("expected bracketed IPv6 Codex base URL, got %q", got)
+	}
+	if strings.Contains(got, "CODEX_HOME") {
+		t.Fatalf("scoped Codex env command must not unset CODEX_HOME: %q", got)
+	}
+	if !strings.Contains(got, "-u CODEX_THREAD_ID") {
+		t.Fatalf("scoped Codex env command must unset stale runtime state: %q", got)
 	}
 }
 

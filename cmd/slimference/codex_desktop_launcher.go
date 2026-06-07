@@ -142,10 +142,6 @@ var codexDesktopAppServerEnvKeys = []string{
 	"no_proxy",
 }
 
-var codexDesktopSessionEnvPrefixes = []string{
-	"CODEX_",
-}
-
 var codexDesktopWorkspaceEnvKeys = []string{
 	"PWD",
 	"OLDPWD",
@@ -423,7 +419,7 @@ func appendCodexDesktopSafeExtraEnv(out []string, extra []string, blocked map[st
 			continue
 		}
 		key := kv[:eq]
-		if strings.HasPrefix(key, "CODEX_") || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
+		if codexShouldDropInheritedEnvKey(key) || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
 			continue
 		}
 		if _, hit := blocked[key]; hit {
@@ -451,12 +447,7 @@ func sanitizeCodexDesktopBaseEnv(base []string) []string {
 }
 
 func codexDesktopShouldDropInheritedEnv(key string) bool {
-	for _, prefix := range codexDesktopSessionEnvPrefixes {
-		if strings.HasPrefix(key, prefix) {
-			return true
-		}
-	}
-	return false
+	return codexShouldDropInheritedEnvKey(key)
 }
 
 func codexDesktopDirectOpenEnv(base []string, dir string) []string {

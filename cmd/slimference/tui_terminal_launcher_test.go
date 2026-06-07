@@ -66,6 +66,8 @@ func TestLaunchCodexCLIInCurrentTerminalUsesGhosttyTab(t *testing.T) {
 		"[2J",
 		"[H",
 		"[SF] Codex CLI started with Slimference",
+		"unset CODEX_THREAD_ID",
+		"CODEX_CI",
 		"exec /tmp/slimference codex run --transport=auto --",
 		"/tmp/slimference codex run --transport=auto --",
 	} {
@@ -75,6 +77,9 @@ func TestLaunchCodexCLIInCurrentTerminalUsesGhosttyTab(t *testing.T) {
 	}
 	if strings.Contains(script, "tell application \"Terminal\"") {
 		t.Fatalf("Ghostty launch must not target Terminal.app:\n%s", script)
+	}
+	if strings.Contains(script, "CODEX_@") || strings.Contains(script, "CODEX_HOME") {
+		t.Fatalf("Ghostty launch must not wipe config-bearing Codex env:\n%s", script)
 	}
 	if !strings.Contains(msg, "(Ghostty)") {
 		t.Fatalf("message=%q", msg)
@@ -113,6 +118,8 @@ func TestLaunchCodexCLIInCurrentTerminalUsesTerminalTab(t *testing.T) {
 		"[2J",
 		"[H",
 		"[SF] Codex CLI started with Slimference",
+		"unset CODEX_THREAD_ID",
+		"CODEX_CI",
 		"exec /tmp/slimference codex run --transport=auto --",
 		"/tmp/slimference codex run --transport=auto --",
 	} {
@@ -122,6 +129,9 @@ func TestLaunchCodexCLIInCurrentTerminalUsesTerminalTab(t *testing.T) {
 	}
 	if strings.Contains(script, "tell process \"Ghostty\"") {
 		t.Fatalf("Terminal launch must not target Ghostty:\n%s", script)
+	}
+	if strings.Contains(script, "CODEX_@") || strings.Contains(script, "CODEX_HOME") {
+		t.Fatalf("Terminal launch must not wipe config-bearing Codex env:\n%s", script)
 	}
 	if !strings.Contains(msg, "(Terminal)") {
 		t.Fatalf("message=%q", msg)

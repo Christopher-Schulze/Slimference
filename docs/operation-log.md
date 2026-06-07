@@ -1722,13 +1722,13 @@ Cleanup performed:
   `ClankWork-main` references remain in active Codex app state.
 
 Code fix:
-- Desktop launch env now strips inherited `CODEX_*` variables before adding
-  intentional Slimference proxy/CA variables.
-- TUI direct Codex.app launch now strips inherited `CODEX_*`, removes old
-  `PWD`/`OLDPWD`, and pins `PWD` to the current launch directory.
+- Desktop launch env strips inherited volatile Codex runtime variables before
+  adding intentional Slimference proxy/CA variables.
+- TUI direct Codex.app launch strips inherited volatile Codex runtime variables,
+  removes old `PWD`/`OLDPWD`, and pins `PWD` to the current launch directory.
 - TUI Codex CLI launch now runs through `/bin/bash -lc`, unsets inherited
-  `CODEX_*`, then runs `slimference codex run --transport=auto --` in the
-  current directory.
+  volatile Codex runtime variables, then runs
+  `slimference codex run --transport=auto --` in the current directory.
 
 Verification:
 - Normal `open -a Codex` after state cleanup kept

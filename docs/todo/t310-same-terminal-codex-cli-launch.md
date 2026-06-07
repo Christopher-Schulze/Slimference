@@ -16,8 +16,9 @@ and run the scoped Slimference command, while normal shell `codex` stays direct.
   the same app, then runs `slimference codex run --transport=auto --`.
 - TUI launch detects `TERM_PROGRAM=Apple_Terminal` and opens a new Apple
   Terminal tab in the front window, then runs the same scoped command.
-- The launch command scrubs inherited `CODEX_*` runtime variables before
-  starting the new Codex CLI session.
+- The launch command scrubs inherited Codex runtime/session variables before
+  starting the new Codex CLI session while preserving config-bearing values such
+  as `CODEX_HOME` for MCP server visibility.
 - The launched CLI starts in the TUI's current working directory.
 - Direct/manual `codex` invocations remain untouched.
 - Tests cover terminal detection, Ghostty launch script shape, Terminal launch

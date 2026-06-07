@@ -35,7 +35,7 @@ func launchCodexCLIInCurrentTerminal(binary string, dir string) (string, error) 
 }
 
 func scopedCodexCLICommand(binary string, dir string) string {
-	return "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) +
+	return codexRuntimeUnsetShellCommand() + "; cd " + shellQuote(dir) +
 		" && printf '\\033[2J\\033[H' && printf '[SF] Codex CLI started with Slimference\\n\\n' && exec " +
 		shellQuote(binary) + " codex run --transport=auto --"
 }

@@ -539,7 +539,7 @@ func defaultProxyCommandRunner(name string, args []string, stdin io.Reader, stdo
 var defaultProxyCommandRunnerFunc proxyCommandRunner = defaultProxyCommandRunner
 
 func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
-	base := []string{"env"}
+	base := appendCodexRuntimeEnvUnsets([]string{"env"})
 	switch mode {
 	case "direct":
 		base = append(base,

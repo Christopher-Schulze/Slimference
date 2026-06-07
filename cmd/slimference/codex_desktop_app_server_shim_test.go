@@ -186,7 +186,7 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 		baseURL: "http://127.0.0.1:8990/backend-api/codex",
 	})
 
-	response := `{"id":"cfg1","result":{"config":{"model":"gpt-5.5","model_provider":"openai"},"origins":{}}}` + "\n"
+	response := `{"id":"cfg1","result":{"config":{"model":"gpt-5.5","model_provider":"openai","mcp_servers":{"filesystem":{"command":"node","args":["server.js"]}},"mcpServers":{"github":{"command":"uvx"}}},"origins":{}}}` + "\n"
 	var stdoutOut bytes.Buffer
 	mediator.mediateStdout(strings.NewReader(response), &stdoutOut)
 	got := strings.TrimSpace(stdoutOut.String())
@@ -255,6 +255,25 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	}
 	if camelProviders[codexSlimferenceProviderID].Name != "Slimference" {
 		t.Fatalf("bad camel provider entry: %+v", camelProviders[codexSlimferenceProviderID])
+	}
+	var mcpServers map[string]struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	if err := json.Unmarshal(result.Config["mcp_servers"], &mcpServers); err != nil {
+		t.Fatalf("mcp_servers must be preserved: %v", err)
+	}
+	if mcpServers["filesystem"].Command != "node" || len(mcpServers["filesystem"].Args) != 1 || mcpServers["filesystem"].Args[0] != "server.js" {
+		t.Fatalf("bad mcp_servers preservation: %+v", mcpServers)
+	}
+	var camelMCPServers map[string]struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(result.Config["mcpServers"], &camelMCPServers); err != nil {
+		t.Fatalf("mcpServers must be preserved: %v", err)
+	}
+	if camelMCPServers["github"].Command != "uvx" {
+		t.Fatalf("bad mcpServers preservation: %+v", camelMCPServers)
 	}
 }
 

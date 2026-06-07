@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T321 Preserve Codex MCP config env on scoped launch -> docs/todo/t321-preserve-codex-mcp-config-env.md
 - [x] T320 Codex WSS tool-turn error guard -> docs/todo/t320-codex-wss-tool-turn-error-guard.md
 - [x] T319 TUI product surface redesign -> docs/todo/t319-tui-product-surface-redesign.md
 - [x] T318 Setup view product-surface cleanup -> docs/todo/t318-setup-view-product-surface-cleanup.md

@@ -77,8 +77,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   during the default install.
 - Launch Codex CLI starts the existing safe Codex CLI product path with
   `transport=auto` and shows WSS certification/fallback state. The Terminal
-  launch must scrub inherited `CODEX_*` session variables first so a TUI opened
-  from an existing Codex session cannot accidentally resume that old thread.
+  launch must scrub inherited Codex runtime/session variables first so a TUI
+  opened from an existing Codex session cannot accidentally resume that old
+  thread, while preserving config-bearing env such as `CODEX_HOME`.
 - Launch Codex App uses the T246/T247 branch decision:
   - if `slimference codex desktop prove --finish --json` records
     `desktop_app_server_phasef_proven`, launch the proven Desktop app-server
@@ -124,10 +125,11 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 - Current behavior: blocks with the explicit Desktop proof reason until the
   app-server shim proof produces real Slimference Desktop savings. Direct
   Codex.app launch remains Finder/Spotlight outside Slimference.
-- The Desktop launch environment must drop inherited `CODEX_*` session state
-  such as `CODEX_THREAD_ID` and must pin `PWD` to the selected current folder.
-  This prevents a Slimference/Codex session from leaking an old thread into the
-  newly opened Desktop app.
+- The Desktop launch environment must drop inherited Codex runtime/session state
+  such as `CODEX_THREAD_ID`, preserve config-bearing env such as `CODEX_HOME`,
+  and pin `PWD` to the selected current folder. This prevents a
+  Slimference/Codex session from leaking an old thread into the newly opened
+  Desktop app without hiding MCP server config.
 - If T246 passes: launches Codex.app with the proven process-local app-server
   shim mode.
 - If previous live counters show zero-byte CONNECT sessions from the old proxy
@@ -282,8 +284,9 @@ explicit diagnostic command.
   `slimference codex run --transport=auto --`, which starts the interactive
   Codex CLI through the scoped wrapper. Normal daily CLI launch can come from
   the TUI without a persistent shell alias. The generated shell command first
-  unsets inherited `CODEX_*` variables so Launch Center starts a fresh CLI
-  context even when Slimference itself was opened from inside Codex.
+  unsets known inherited Codex runtime/session variables so Launch Center starts
+  a fresh CLI context even when Slimference itself was opened from inside Codex,
+  while preserving config-bearing values such as `CODEX_HOME`.
 - `Launch Codex App` consumes `codex desktop status` and blocks while Desktop
   Slimference is not green. This prevents the daily TUI path from starting a
   known-bad proof/proxy session or silently opening direct mode under a

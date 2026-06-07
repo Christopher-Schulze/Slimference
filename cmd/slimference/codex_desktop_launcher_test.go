@@ -87,6 +87,7 @@ func TestBuildCodexDesktopLaunchEnvOverridesAndDeduplicates(t *testing.T) {
 		"CHATGPT_CODEX_BASE_URL=https://chatgpt.com", // must be dropped
 		"CODEX_THREAD_ID=old-thread",                 // inherited session state must be dropped
 		"CODEX_CI=1",                                 // inherited Codex runtime state must be dropped
+		"CODEX_HOME=/Users/x/.codex-alt",             // config root must be preserved for MCP servers
 		"UNRELATED=keep",
 		"NOEQUAL", // no '=' — preserved verbatim
 	}
@@ -94,10 +95,11 @@ func TestBuildCodexDesktopLaunchEnvOverridesAndDeduplicates(t *testing.T) {
 	got := buildCodexDesktopLaunchEnv(want, base, nil)
 
 	preserved := map[string]bool{
-		"PATH=/usr/bin":  false,
-		"HOME=/Users/x":  false,
-		"UNRELATED=keep": false,
-		"NOEQUAL":        false,
+		"PATH=/usr/bin":                  false,
+		"HOME=/Users/x":                  false,
+		"CODEX_HOME=/Users/x/.codex-alt": false,
+		"UNRELATED=keep":                 false,
+		"NOEQUAL":                        false,
 	}
 	for _, kv := range got {
 		if _, ok := preserved[kv]; ok {
@@ -169,12 +171,14 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 		"OPENAI_BASE_URL=http://old-base",
 		"CODEX_THREAD_ID=old-thread",
 		"CODEX_CI=1",
+		"CODEX_HOME=/Users/x/.codex-alt",
 		"UNRELATED=keep",
 		"NOEQUAL",
 	}
 	got := buildCodexDesktopProxyEnv("http://127.0.0.1:8990", base, []string{"HTTPS_PROXY=http://operator"})
 	wantPresent := map[string]bool{
 		"PATH=/usr/bin":                     false,
+		"CODEX_HOME=/Users/x/.codex-alt":    false,
 		"UNRELATED=keep":                    false,
 		"NOEQUAL":                           false,
 		"HTTP_PROXY=http://127.0.0.1:8990":  false,
@@ -224,6 +228,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		base,
 		[]string{
 			"FOO=bar",
+			"CODEX_HOME=/operator-codex-home",
 			"CODEX_CLI_PATH=/evil",
 			"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
 			"HTTPS_PROXY=http://evil-proxy",
@@ -232,7 +237,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 	)
 	joined := strings.Join(got, "\n")
 	for _, forbidden := range []string{
-		"CODEX_THREAD_ID=", "CODEX_HOME=", "HTTPS_PROXY=", "CHATGPT_CODEX_BASE_URL=",
+		"CODEX_THREAD_ID=", "HTTPS_PROXY=", "CHATGPT_CODEX_BASE_URL=",
 		"CODEX_CA_CERTIFICATE=", "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=old",
 		"CODEX_CLI_PATH=/evil", "SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
 		"HTTPS_PROXY=http://evil-proxy", "CODEX_THREAD_ID=evil-thread",
@@ -244,6 +249,8 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 	for _, want := range []string{
 		"PATH=/usr/bin",
 		"HOME=/Users/x",
+		"CODEX_HOME=/tmp/old-codex-home",
+		"CODEX_HOME=/operator-codex-home",
 		"UNRELATED=keep",
 		"NOEQUAL",
 		"CODEX_CLI_PATH=/usr/local/bin/slimference",
@@ -264,17 +271,18 @@ func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 		"PATH=/usr/bin",
 		"CODEX_THREAD_ID=old-thread",
 		"CODEX_HOME=/tmp/codex-home",
+		"CODEX_MCP_CONFIG=/tmp/mcp.json",
 		"CODEX_MANAGED_BY_NPM=1",
 		"UNRELATED=keep",
 		"NOEQUAL",
 	})
 	joined := strings.Join(got, "\n")
-	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_HOME=", "CODEX_MANAGED_BY_NPM="} {
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_MANAGED_BY_NPM="} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("sanitized env still contains %s in %v", forbidden, got)
 		}
 	}
-	for _, want := range []string{"PATH=/usr/bin", "UNRELATED=keep", "NOEQUAL"} {
+	for _, want := range []string{"PATH=/usr/bin", "CODEX_HOME=/tmp/codex-home", "CODEX_MCP_CONFIG=/tmp/mcp.json", "UNRELATED=keep", "NOEQUAL"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("sanitized env missing %s in %v", want, got)
 		}

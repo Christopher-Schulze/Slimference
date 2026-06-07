@@ -113,14 +113,16 @@ proxy/CA failures (`desktop_tls_blocked` / `tls_trust_rejected`) are shown as
 old diagnostic proof state, never as active Desktop savings. Direct mode is
 still available by launching Codex.app normally from Finder/Spotlight.
 
-Launch Center strips inherited `CODEX_*` session variables before starting a
-new Codex CLI or proven Codex.app Slimference process. This prevents a
-Slimference session that was opened from inside Codex from leaking
-`CODEX_THREAD_ID` or other old runtime state into the newly launched app. The
-TUI detects whether it is running in Ghostty or Apple Terminal and opens the
-Slimference Codex CLI in a new tab of that same terminal app, from the TUI's
-current working directory. The launched CLI keeps a `[SF] ` terminal-title
-prefix refreshed while the proxied process is active, because Codex may rewrite
+Launch Center strips only known volatile Codex runtime/session variables before
+starting a new Codex CLI or proven Codex.app Slimference process. This prevents
+a Slimference session that was opened from inside Codex from leaking
+`CODEX_THREAD_ID` or other old runtime state into the newly launched app, while
+preserving config-bearing env such as `CODEX_HOME` so MCP server definitions
+remain visible. The TUI detects whether it is running in Ghostty or Apple
+Terminal and opens the Slimference Codex CLI in a new tab of that same terminal
+app, from the TUI's current working directory. The launched CLI keeps a `[SF] `
+terminal-title prefix refreshed while the proxied process is active, because
+Codex may rewrite
 the tab/window title after startup. The Desktop launch pins `PWD` to the
 current folder when the proof gate allows it.
 
@@ -133,7 +135,9 @@ Slimference's safe product surfaces touch only scoped Codex paths:
    `slimference codex run -- <prompt>`. This launches only
    that Codex CLI process with the local `slimference-codex` provider. It
    does not touch `/etc/hosts`, pfctl, macOS Network Proxy settings,
-   Browser ChatGPT, or ChatGPT.app.
+   Browser ChatGPT, or ChatGPT.app. It also strips only known volatile Codex
+   runtime/session env before execing Codex, while preserving config-bearing env
+   such as `CODEX_HOME` so MCP servers remain available.
 3. **Process-local Codex Desktop app-server shim** via
    `slimference codex desktop prove` and, after a green proof,
    `slimference codex launch-desktop --transport=app-server --replace-existing`.
@@ -454,11 +458,12 @@ slimference codex launch-desktop --transport=app-server --replace-existing
 ```
 
 The launcher starts the app as a detached process-local session, uses the Codex
-bundle executable directory as the child working directory, scrubs inherited
-`CODEX_*` runtime state, pins `PWD` when the TUI supplies a selected folder, and
-waits for a short startup probe. If Codex.app exits immediately, the command
-fails and prints the exit status or signal instead of claiming a successful
-launch. On macOS, a successful scoped launch starts the hidden Desktop
+bundle executable directory as the child working directory, scrubs only known
+volatile Codex runtime/session state, preserves config-bearing env such as
+`CODEX_HOME`, pins `PWD` when the TUI supplies a selected folder, and waits for a
+short startup probe. If Codex.app exits immediately, the command fails and
+prints the exit status or signal instead of claiming a successful launch. On
+macOS, a successful scoped launch starts the hidden Desktop
 app-server shim. Older Desktop builds can show the `Slimference` provider chip
 from the scoped provider config; current Desktop builds may not. Slimference
 does not patch Codex Desktop's renderer, does not start an external Desktop
