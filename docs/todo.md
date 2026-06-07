@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T309 Patch-free scoped session indicators -> docs/todo/t309-patch-free-scoped-session-indicators.md
 - [x] T308 Desktop patch-free route indicator rejected -> docs/todo/t308-desktop-patch-free-route-indicator.md
 - [x] T307 Desktop no-model-metadata signal guard -> docs/todo/t307-desktop-no-model-metadata-signal-guard.md
 - [x] T306 Desktop chip drift and service-control split -> docs/todo/t306-desktop-chip-drift-and-service-control-split.md

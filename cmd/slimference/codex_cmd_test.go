@@ -51,6 +51,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopSession := codexDesktopSessionFn
 	oldDesktopResult := codexDesktopResultFn
 	oldDesktopDirect := tuiCodexDesktopDirectFn
+	oldTerminalTitle := terminalTitleWriteFn
 	codexVersionFn = func() string { return "codex-test" }
 	codexAutoFn = func(home string) codexroute.AutoDecision {
 		return codexroute.AutoDecision{
@@ -129,6 +130,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopSessionFn = oldDesktopSession
 		codexDesktopResultFn = oldDesktopResult
 		tuiCodexDesktopDirectFn = oldDesktopDirect
+		terminalTitleWriteFn = oldTerminalTitle
 	})
 }
 
@@ -150,6 +152,43 @@ func TestCodexCmdRunUsesProxiedWhenDaemonHealthy(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("proxy args missing %q in %#v", want, got)
 		}
+	}
+}
+
+func TestCodexCmdRunSetsScopedTerminalTitleOnlyWhenProxied(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	var titles []string
+	terminalTitleWriteFn = func(title string) {
+		titles = append(titles, title)
+	}
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		if !strings.Contains(strings.Join(args, "\x00"), "--proxied") {
+			t.Fatalf("expected proxied run args, got %#v", args)
+		}
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"run", "--transport=http", "--", "exec", "hi"}, p); rc != 0 {
+		t.Fatalf("proxied rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if got := strings.Join(titles, "|"); got != codexTerminalTitleActive+"|"+codexTerminalTitleReset {
+		t.Fatalf("terminal titles=%q", got)
+	}
+
+	titles = nil
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		if !strings.Contains(strings.Join(args, "\x00"), "--direct") {
+			t.Fatalf("expected direct run args, got %#v", args)
+		}
+		return 0
+	}
+	errBuf.Reset()
+	if rc := runCodexCmd([]string{"run", "--direct", "--", "exec", "hi"}, p); rc != 0 {
+		t.Fatalf("direct rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if len(titles) != 0 {
+		t.Fatalf("direct mode must not touch terminal title: %v", titles)
 	}
 }
 
@@ -1568,10 +1607,8 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	if !strings.Contains(gotArgs[1], "/bin/bash -lc") || !strings.Contains(gotArgs[1], "unset") || !strings.Contains(gotArgs[1], "CODEX_") {
 		t.Fatalf("launch command must scrub inherited Codex session env, args=%v", gotArgs)
 	}
-	if !strings.Contains(gotArgs[1], "printf") ||
-		!strings.Contains(gotArgs[1], "033]0;[SF] Codex CLI") ||
-		!strings.Contains(gotArgs[1], "007") {
-		t.Fatalf("launch command must set scoped Terminal title, args=%v", gotArgs)
+	if strings.Contains(gotArgs[1], "printf") || strings.Contains(gotArgs[1], "033]0;[SF]") {
+		t.Fatalf("TUI launcher must not own the Terminal title hack anymore, args=%v", gotArgs)
 	}
 
 	osExecutable = func() (string, error) { return "", errors.New("no executable") }

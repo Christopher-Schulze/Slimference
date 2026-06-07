@@ -153,6 +153,11 @@ func runCodexRunCmd(args []string, p installPrinter) int {
 	if mode != "direct" && autoNeedsRecert && autoHome != "" {
 		codexAutoRecertFn(autoHome, flags.host, flags.port, autoDecision)
 	}
+	restoreTitle := func() {}
+	if mode != "direct" {
+		restoreTitle = setScopedCodexTerminalTitle()
+		defer restoreTitle()
+	}
 	proxyArgs := []string{"run", "codex", "--" + mode, "--host=" + flags.host, "--port=" + flags.port}
 	if len(codexArgs) > 0 {
 		proxyArgs = append(proxyArgs, "--")

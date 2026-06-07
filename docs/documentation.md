@@ -89,9 +89,11 @@ routine use, it stays out of the product path.
   Codex Desktop builds do not expose a stable process-local text-chip contract
   through app-server response data, so Slimference does not fake the signal by
   mutating `model/list`, model IDs, display names, selected model values, or
-  service-tier metadata. Current Desktop route truth is exposed through
-  `codex desktop status`, the app-server shim flight log, and daemon decisions,
-  not through a patched or synthetic UI badge.
+  service-tier metadata. A scoped Desktop session starts a patch-free macOS
+  menu bar status item (`● SF`) for the lifetime of the hidden app-server shim,
+  so the user has a durable route indicator without patching Codex.app. Savings
+  proof still comes from `codex desktop status`, the app-server shim flight log,
+  and daemon decisions, not from the visual indicator alone.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
   untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
@@ -1739,9 +1741,11 @@ decisions log; the Desktop app-server holds loopback sockets to `:8990` with no
 direct `chatgpt.com` socket). Capability gating from `codex desktop status` still
 exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
-`route_mode=websocket_phasef`. The historical in-composer `Slimference`
-provider chip is kept only for older Codex Desktop builds that still render the
-process-local provider config; current Desktop builds may not show it.
+`route_mode=websocket_phasef`. The scoped app-server shim also starts the
+patch-free macOS menu bar status item `● SF` while that Desktop Slimference
+session is alive. The historical in-composer `Slimference` provider chip is
+kept only for older Codex Desktop builds that still render the process-local
+provider config; current Desktop builds may not show it.
 Historical proxy/CA failures remain diagnostic proof state. Normal
 Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
@@ -2074,10 +2078,12 @@ Desktop bundle (`26.602.40724`) inspected on 2026-06-07
 does not expose a stable process-local text-chip contract through app-server
 response data. Slimference therefore treats `model/list` as read-only and never
 mutates model IDs, display names, selected model values, default flags, or
-service-tier metadata to fake a chip. The patch-free macOS overlay experiment
-was removed from the product path; Desktop route state is verified through
-`codex desktop status`, `~/.slimference/logs/desktop-shim.jsonl`, and daemon
-decision events.
+service-tier metadata to fake a chip. The scoped shim starts a patch-free
+macOS menu bar status item (`● SF`) for the lifetime of the Slimference Desktop
+session. It is a user-visible route indicator only; Desktop savings and
+correctness are still verified through `codex desktop status`,
+`~/.slimference/logs/desktop-shim.jsonl`, and daemon decision events.
+The earlier floating overlay experiment was removed from the product path.
 Non-JSON, non-config responses, error responses, malformed config shapes,
 model-list responses, and unrelated notifications pass through byte-identically.
 The shim writes a minimal flight log to `~/.slimference/logs/desktop-shim.jsonl`
