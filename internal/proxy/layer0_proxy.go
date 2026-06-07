@@ -268,6 +268,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
+			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && workload == savingspolicy.CodexWorkloadSearch
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
@@ -333,7 +334,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			preFilterRepeated := false
-			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && policy.RepeatedOutput {
+			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && policy.RepeatedOutput {
 				preFilterRepeated = true
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
@@ -353,7 +354,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					mechanism = proxyLayer0MechanismRepeatedOut
 				}
 			}
-			if !changed {
+			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
@@ -373,7 +374,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = countCandidateTokens(candidateText) < countBeforeTokens()
 			}
-			if !readCommand && !preFilterRepeated && candidateEligible && policy.RepeatedOutput {
+			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()

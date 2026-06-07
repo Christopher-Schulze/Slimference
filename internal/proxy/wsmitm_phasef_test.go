@@ -1836,7 +1836,7 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 }
 
-func TestWSPhaseFSearchOutputCompactsRecoverablyAcrossTurns(t *testing.T) {
+func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -1899,19 +1899,22 @@ func TestWSPhaseFSearchOutputCompactsRecoverablyAcrossTurns(t *testing.T) {
 	second := searchOutput(true)
 
 	seedToolCall("search-1")
-	_, _ = runOutput("search-1", first)
+	replaced, raw := runOutput("search-1", first)
+	if replaced {
+		t.Fatalf("WSS search output must pass through until live-safe, raw=%s", raw)
+	}
 	seedToolCall("search-2")
-	replaced, raw := runOutput("search-2", second)
-	if !replaced {
-		t.Fatalf("changed repeated search output should delta-compress, raw=%s", raw)
+	replaced, raw = runOutput("search-2", second)
+	if replaced {
+		t.Fatalf("changed repeated WSS search output must pass through until live-safe, raw=%s", raw)
 	}
-	if !bytes.Contains(raw, []byte("[rg] 18 match(es)")) ||
-		!bytes.Contains(raw, []byte("[context-archive kind=tool-output uri=local-archive://")) ||
-		!bytes.Contains(raw, []byte("TODO stable changed")) {
-		t.Fatalf("search compaction missing recovery marker or changed match: %s", raw)
+	if !bytes.Contains(raw, []byte("src/very/long/path/search_fixture.go:10:TODO stable changed")) ||
+		bytes.Contains(raw, []byte("[context-archive kind=tool-output uri=local-archive://")) ||
+		bytes.Contains(raw, []byte("[rg] 18 match(es)")) {
+		t.Fatalf("WSS search output did not remain byte-preserving enough: %s", raw)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 2 || snap.ProxyLayer0TokensSaved == 0 {
-		t.Fatalf("search compaction counters missing: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("WSS search output must not record Layer 0 search savings: %+v", snap)
 	}
 }
 

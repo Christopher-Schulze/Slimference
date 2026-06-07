@@ -576,7 +576,13 @@ or `git -C <abs> ...`. An implicit-cwd search can still use first-pass grouping,
 but it does not seed cross-turn search collapse or search delta state. This keeps
 repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
 build/test reports, partial file ranges, or custom deterministic tools without
-introducing semantic summaries or cross-repo false hits.
+introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
+search-output blocks currently fail open before first-pass grouping and repeated
+search delta, because fresh live Golem sessions on 2026-06-07 showed upstream
+`invalid_request_error` after WSS search-output mutation even with output-reduce
+disabled. HTTP, hook, and non-WSS routes keep the deterministic search reducers;
+WSS search savings must be re-certified with live captures before returning to
+the default WSS product path.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -605,18 +611,18 @@ old silent loss where a rename-only or mode-only diff could collapse to a
 
 First-pass search outputs are grouped by `TryCompactSearchOutput` /
 `groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`
-header, capped at 30 files with `[+N more files]`). This grouping used to abandon
-the whole output on the FIRST colon-less line, which a real-workload capture showed
-defeats it on every Codex search: Codex truncates exec output to a token budget, so
-the captured `rg` payload always ends in a cut-off line and carries a leading
-`Total output lines: N` header - both colon-less. The grouper now SKIPS colon-less
-noise lines (header, context separators, truncated tail) and only abandons grouping
-when nothing parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured
-`rg` (402 matches, 79 files) this compacts 40 KB to ~9 KB (78%). The compaction is
-default-auto in the filter pipeline, low-risk (the model keeps the match count,
-representative file/match context, and can re-run the search to recover dropped matches),
-and is a search-output reducer, so it has none of the first-read-seeding conflict that
-made first-read scan-mode unsuitable for the product default.
+header, capped at 30 files with `[+N more files]`) on HTTP and other non-WSS
+routes. This grouping used to abandon the whole output on the FIRST colon-less
+line, which a real-workload capture showed defeats it on every Codex search:
+Codex truncates exec output to a token budget, so the captured `rg` payload
+always ends in a cut-off line and carries a leading `Total output lines: N`
+header - both colon-less. The grouper now SKIPS colon-less noise lines (header,
+context separators, truncated tail) and only abandons grouping when nothing
+parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured `rg`
+(402 matches, 79 files) this compacts 40 KB to ~9 KB (78%) on supported routes.
+For Codex WSS Phase-F, search output is pass-through until the WSS protocol shape
+is re-certified live. That costs WSS search-token savings, but preserves the
+stronger product contract: no upstream 400s and no model-facing context loss.
 
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads
@@ -763,15 +769,20 @@ saved 372 billable
 WSS-input tokens on an archive-backed `git status --short` workload with
 `phasef_bridged=1`, `compressed_messages_mutated=1`, `frames_reencoded=1`, and
 zero parse, degraded-session, or compression errors. The clean Desktop workday
-window saved 382 billable WSS-input tokens on an archive-backed `rg -n TODO`
-workload with `phasef_bridged=2`, `compressed_messages_mutated=1`,
+window historically saved 382 billable WSS-input tokens on an archive-backed
+`rg -n TODO` workload with `phasef_bridged=2`, `compressed_messages_mutated=1`,
 `frames_reencoded=1`, and zero parse, degraded-session, or compression errors.
-This proves representative CLI/Desktop WSS savings breadth for deterministic
-reducers. The 2026-06-02 strict matrix additionally covered repeat reads,
-ranged reads, search loops, git-status compaction, apply-patch/read safety,
-changed-file safety, similar-file safe-zero behavior, test-failure safe-zero
-behavior, no-savings controls, and a mixed Desktop workday through the same
-product path. The mixed Desktop row alone saved 8,394 live billable/input
+Fresh 2026-06-07 Golem sessions later showed upstream 400s after WSS
+search-output mutation, so that search-loop row is kept as historical evidence,
+not as a current default-WSS promotion claim. Current WSS search output fails
+open until re-certified. The strict matrix still proves representative WSS
+savings breadth for deterministic read, ranged-read, git, exec-envelope,
+no-savings, and mixed-workday reducers that remain in the product path. The
+2026-06-02 strict matrix additionally covered repeat reads, ranged reads, search
+loops, git-status compaction, apply-patch/read safety, changed-file safety,
+similar-file safe-zero behavior, test-failure safe-zero behavior, no-savings
+controls, and a mixed Desktop workday through the same product path. The mixed
+Desktop row alone saved 8,394 live billable/input
 tokens with `read_delta=1`, `captured_output=1`, `codex_exec_envelope=1`,
 `lost=0`, and zero safety errors. In this strict release proof,
 `repeated_output` and `chunk_dedup` did not record live block hits and are not

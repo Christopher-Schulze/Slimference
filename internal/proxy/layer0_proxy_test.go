@@ -535,7 +535,7 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0RepeatedSearchSameMatchSetBeforeGrouping(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchSameMatchSetPassesThrough(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	command := `cd /repo/search && rg -n needle src`
@@ -566,12 +566,8 @@ func TestReduceCodexLayer0RepeatedSearchSameMatchSetBeforeGrouping(t *testing.T)
 		Messages:  messagesFor("search-a", output(false)),
 		SessionID: "sess-search-match-set",
 	})
-	if seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.CapturedOutputBlocks != 1 || seed.Stats.TokensSaved <= 0 {
-		t.Fatalf("first search should group and seed raw match identity: %+v", seed.Stats)
-	}
-	if len(seed.Stats.CacheEvents) != 1 || seed.Stats.CacheEvents[0].Mechanism != savingspolicy.CodexMechanismRepeatedOutput ||
-		seed.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss {
-		t.Fatalf("first search should record repeated-output seed miss: %+v", seed.Stats.CacheEvents)
+	if seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.CapturedOutputBlocks != 0 || seed.Stats.TokensSaved != 0 || seed.Stats.BlocksModified != 0 {
+		t.Fatalf("WSS search seed must pass through until live-safe: %+v", seed.Stats)
 	}
 	out := reduceCodexLayer0(codexLayer0Request{
 		Route:     codexLayer0RouteWSSPhaseF,
@@ -579,14 +575,15 @@ func TestReduceCodexLayer0RepeatedSearchSameMatchSetBeforeGrouping(t *testing.T)
 		SessionID: "sess-search-match-set",
 	})
 	text := out.Messages[1].Content[0].Text
-	if out.Stats.RepeatedOutputBlocks != 1 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved <= 0 ||
-		!strings.Contains(text, "kind=search-output") ||
-		!strings.Contains(text, "status=same-match-set") {
-		t.Fatalf("same search match-set should collapse before grouping: stats=%+v text=%q", out.Stats, text)
+	if out.Stats.RepeatedOutputBlocks != 0 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved != 0 || out.Stats.BlocksModified != 0 ||
+		strings.Contains(text, "kind=search-output") ||
+		strings.Contains(text, "[rg]") ||
+		!strings.Contains(text, "src/a.go:1:needle alpha context") {
+		t.Fatalf("WSS same search match-set must remain original text: stats=%+v text=%q", out.Stats, text)
 	}
 }
 
-func TestReduceCodexLayer0RepeatedSearchChangedMatchSetDeltaBeforeGrouping(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchChangedMatchSetPassesThrough(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	command := `cd /repo/search && rg -n needle src`
@@ -612,8 +609,8 @@ func TestReduceCodexLayer0RepeatedSearchChangedMatchSetDeltaBeforeGrouping(t *te
 		Messages:  messagesFor("search-delta-a", output(1, 80, "")),
 		SessionID: "sess-search-match-delta",
 	})
-	if seed.Stats.CapturedOutputBlocks != 1 || seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.TokensSaved <= 0 {
-		t.Fatalf("first changed-set search should group and seed: %+v", seed.Stats)
+	if seed.Stats.CapturedOutputBlocks != 0 || seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.TokensSaved != 0 || seed.Stats.BlocksModified != 0 {
+		t.Fatalf("WSS changed-set seed must pass through until live-safe: %+v", seed.Stats)
 	}
 	out := reduceCodexLayer0(codexLayer0Request{
 		Route:     codexLayer0RouteWSSPhaseF,
@@ -621,13 +618,11 @@ func TestReduceCodexLayer0RepeatedSearchChangedMatchSetDeltaBeforeGrouping(t *te
 		SessionID: "sess-search-match-delta",
 	})
 	text := out.Messages[1].Content[0].Text
-	if out.Stats.RepeatedOutputBlocks != 1 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved <= 0 ||
-		!strings.Contains(text, "kind=search-output") ||
-		!strings.Contains(text, "removed=5 added=1") ||
-		!strings.Contains(text, "-src/a.go:1:needle alpha context") ||
-		!strings.Contains(text, "+src/c.go:90:needle gamma context") ||
-		!strings.Contains(text, "[context-archive kind=full-output uri=local-archive://") {
-		t.Fatalf("changed search match-set should delta before grouping: stats=%+v text=%q", out.Stats, text)
+	if out.Stats.RepeatedOutputBlocks != 0 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved != 0 || out.Stats.BlocksModified != 0 ||
+		strings.Contains(text, "kind=search-output") ||
+		strings.Contains(text, "[context-archive kind=full-output uri=local-archive://") ||
+		!strings.Contains(text, "src/c.go:90:needle gamma context") {
+		t.Fatalf("WSS changed search match-set must remain original text: stats=%+v text=%q", out.Stats, text)
 	}
 }
 

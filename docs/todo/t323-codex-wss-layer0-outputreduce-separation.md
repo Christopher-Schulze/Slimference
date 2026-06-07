@@ -16,7 +16,9 @@ Layer 0 savings.
   mutation.
 - WSS output-reduce telemetry must reflect only actual directive injection, not
   Layer 0 replacement.
-- Existing WSS Layer 0 read/search/git/test compaction must continue to work.
+- Existing WSS Layer 0 read/git/test compaction must continue to work; WSS
+  search-output safety is handled separately in T324 after the follow-up live
+  failure reproduced without output-reduce.
 - Regression coverage must prove that a Layer0-compacted tool-output turn has
   positive Layer 0 savings but `output_reduce.applied=false`.
 - The installed local binary must be rebuilt after the fix.
@@ -39,8 +41,10 @@ Layer 0 savings.
   candidate in the summary path. The live error followed a compacted
   `search_output` turn, so the safe contract is stricter: deterministic WSS
   Layer 0 mutation and output-reduce instruction injection never stack.
-- Savings impact: tool/search/git/test turns keep deterministic Layer 0 savings.
-  Output-reduce remains eligible only for pure user-prompt WSS bodies.
+- Savings impact: read/git/test turns keep deterministic Layer 0 savings.
+  Output-reduce remains eligible only for pure user-prompt WSS bodies. Search
+  output moved to T324 fail-open after the live retest still reproduced upstream
+  400s with output-reduce disabled.
 - Product safety: this removes a model-facing instruction layer from already
   rewritten tool-output traffic and keeps debug records truthful for future
   live captures.
