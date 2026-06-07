@@ -155,6 +155,7 @@ Die Anforderungen **hohe sinnvolle Go-Coverage** und **Tests unter `tests/` in T
 - [ ] `go test ./...` grün; **Coverage (Go)** den Projektzielen entsprechend (95.0 %+ Aggregate-Gate)
 - [ ] Neue **Go**-Logik mit harten `*_test.go`-Tests
 - [ ] Neues **Tooling** nur unter **`scripts/<thema>/`**, vorzugsweise **Go**
+- [ ] Nach produktrelevanten Code-/TUI-/CLI-/Install-Aenderungen: aktuelle Binary mit `go run ./scripts/build -restart` bauen/installieren, dann `which slimference` und `slimference status --preflight` pruefen. `slimference` im Terminal muss den neuesten lokalen Build starten, nicht ein altes Artefakt.
 - [ ] Optional: **`tests/ts/`**-Tests ergänzend, ohne Go-Coverage zu ersetzen
 - [ ] **`research/rtk-ai/rtk/`** unverändert gelassen
 - [ ] Bei Install-/Uninstall-Änderungen: `docs/install.md` aktuell + Meta-Test `go test ./docs/` grün
