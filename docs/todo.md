@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T323 Codex WSS Layer0/output-reduce separation -> docs/todo/t323-codex-wss-layer0-outputreduce-separation.md
 - [x] T322 Codex WSS output-reduce post-Layer0 tool guard -> docs/todo/t322-codex-wss-output-reduce-tool-guard.md
 - [x] T321 Preserve Codex MCP config env on scoped launch -> docs/todo/t321-preserve-codex-mcp-config-env.md
 - [x] T320 Codex WSS tool-turn error guard -> docs/todo/t320-codex-wss-tool-turn-error-guard.md

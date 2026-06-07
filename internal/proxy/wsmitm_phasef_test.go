@@ -617,6 +617,13 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	if strings.Contains(body, "#slimference-output-rules") {
 		t.Fatalf("Layer-0-compacted tool-output turn must not receive output-reduce instructions: %s", body)
 	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one debug summary, got %d", len(summaries))
+	}
+	if summaries[0].OutputReduce.Applied || summaries[0].OutputReduce.Reason != "disabled" {
+		t.Fatalf("Layer-0-compacted WSS turn must not be recorded as output-reduce applied: %+v", summaries[0].OutputReduce)
+	}
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
 		t.Fatalf("Layer-0-compacted tool output should not be counted as an output-reduce candidate: %+v", snap)
@@ -1978,8 +1985,8 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	if summary.Tokens.Original <= summary.Tokens.Final || summary.NetSavedTokens <= 0 {
 		t.Fatalf("expected positive WSS planner token delta: %+v", summary.Tokens)
 	}
-	if summary.OutputReduce.Reason != "phasef_read_delta" {
-		t.Fatalf("bad WSS output-reduce reason: %+v", summary.OutputReduce)
+	if summary.OutputReduce.Applied || summary.OutputReduce.Reason != "disabled" {
+		t.Fatalf("WSS Layer-0 mutation must not be recorded as output-reduce applied: %+v", summary.OutputReduce)
 	}
 	if summary.Plan == nil {
 		t.Fatal("WSS body summary missing planner output")

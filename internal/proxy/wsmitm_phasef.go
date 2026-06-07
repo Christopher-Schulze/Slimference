@@ -132,7 +132,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		return false
 	}
 	a.counters.requestBodiesSeen.Add(1)
-	mutated, messages, changed, l0Stats, reReadCount, meta := a.applyInputPipelineDetailed(body)
+	mutated, messages, changed, l0Stats, reReadCount, meta, outputReduceStats := a.applyInputPipelineDetailed(body)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -163,28 +163,29 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		}
 	}
 	if !changed {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount, meta)
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount, meta, outputReduceStats)
 		return false
 	}
 	if err := replace(mutated); err != nil {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed", reReadCount, meta)
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed", reReadCount, meta, outputReduceStats)
 		return false
 	}
 	a.counters.mutations.Add(1)
-	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "", reReadCount, meta)
+	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "", reReadCount, meta, outputReduceStats)
 	return true
 }
 
 func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int) {
-	out, messages, changed, l0Stats, reReadCount, _ := a.applyInputPipelineDetailed(body)
+	out, messages, changed, l0Stats, reReadCount, _, _ := a.applyInputPipelineDetailed(body)
 	return out, messages, changed, l0Stats, reReadCount
 }
 
-func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int, wssRequestMeta) {
+func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int, wssRequestMeta, outputreduce.Stats) {
 	out := body
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
 	var meta wssRequestMeta
+	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
 	requestContainsToolOutput := wssBodyContainsToolOutput(out)
 	messages, raw, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil {
@@ -267,7 +268,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			messages = refreshed
 		}
 	}
-	if injected, stats := a.applyWSSOutputReduce(out, requestContainsToolOutput || l0Stats.ToolResultBlocks > 0); stats.Reason != "disabled" {
+	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
+	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce); stats.Reason != "disabled" {
+		outputReduceStats = stats
 		if stats.Applied {
 			out = injected
 		}
@@ -303,7 +306,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		a.rememberWSSQualityCohort(recordCohort)
 	}
-	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta
+	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta, outputReduceStats
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
@@ -670,7 +673,7 @@ func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) 
 	return out
 }
 
-func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int, meta wssRequestMeta) {
+func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int, meta wssRequestMeta, outputReduceStats outputreduce.Stats) {
 	if a == nil || a.p == nil || a.p.debugRecorder == nil {
 		return
 	}
@@ -684,6 +687,19 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	layersApplied := []int(nil)
 	if replaced && l0Stats.TokensSaved > 0 {
 		layersApplied = []int{0}
+	}
+	outputReduceSummary := dbg.OutputReduceSummary{
+		Applied:     outputReduceStats.Applied,
+		Profile:     outputReduceStats.Profile,
+		Reason:      outputReduceStats.Reason,
+		AddedTokens: outputReduceStats.AddedTokens,
+		TaskShape:   string(outputReduceStats.TaskShape),
+	}
+	if outputReduceSummary.Profile == "" {
+		outputReduceSummary.Profile = "wss_phasef"
+	}
+	if outputReduceSummary.Reason == "" {
+		outputReduceSummary.Reason = "disabled"
 	}
 	summary := dbg.RequestSummary{
 		RequestID:              newRequestIDFn(),
@@ -709,11 +725,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Saved:       saved,
 			Ratio:       ratio,
 		},
-		OutputReduce: dbg.OutputReduceSummary{
-			Applied: replaced,
-			Profile: "wss_phasef",
-			Reason:  wssPlannerOutputReduceReason(replaced, l0Stats),
-		},
+		OutputReduce:   outputReduceSummary,
 		ReReadCount:    reReadCount,
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{
@@ -791,31 +803,6 @@ func wssPreviousResponseID(body []byte) string {
 		return ""
 	}
 	return wssPreviousResponseIDFromRaw(raw)
-}
-
-func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) string {
-	if !replaced {
-		if l0Stats.ToolResultBlocks > 0 {
-			return "phasef_inspected_no_mutation"
-		}
-		return "phasef_inspected"
-	}
-	if l0Stats.ReadDeltaBlocks > 0 {
-		return "phasef_read_delta"
-	}
-	if l0Stats.CodexExecEnvelopeBlocks > 0 {
-		return "phasef_codex_exec_envelope"
-	}
-	if l0Stats.RepeatedOutputBlocks > 0 {
-		return "phasef_repeated_output"
-	}
-	if l0Stats.ChunkDedupBlocks > 0 {
-		return "phasef_chunk_dedup"
-	}
-	if l0Stats.CapturedOutputBlocks > 0 {
-		return "phasef_captured_output"
-	}
-	return "phasef_mutated"
 }
 
 func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
