@@ -2215,7 +2215,7 @@ func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
 }
 
 func TestWSSRequestMetaFromRawMatchesBodyHelpers(t *testing.T) {
-	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_prev","prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-key\"}"},"input":[]}`)
+	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_prev","prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-key\",\"source\":\"cli\"}"},"input":[]}`)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		t.Fatal(err)
@@ -2229,6 +2229,9 @@ func TestWSSRequestMetaFromRawMatchesBodyHelpers(t *testing.T) {
 	}
 	if meta.Model != wssPlannerModel(body) {
 		t.Fatalf("model from raw = %q, body helper = %q", meta.Model, wssPlannerModel(body))
+	}
+	if meta.ClientFamily != "codex_cli" {
+		t.Fatalf("client family from raw = %q, want codex_cli", meta.ClientFamily)
 	}
 }
 

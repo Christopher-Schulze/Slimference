@@ -807,6 +807,16 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	}
 }
 
+func TestUserClientLabelDoesNotTreatCodexProviderAsDesktopApp(t *testing.T) {
+	got := userClientLabel(dbg.FlightRequestSummary{
+		Provider: "codex_chatgpt",
+		Source:   "proxy",
+	})
+	if got != "Codex" {
+		t.Fatalf("client label = %q, want neutral Codex", got)
+	}
+}
+
 func TestView_ActivityRenderShowsLaunchPendingWithoutHookNoise(t *testing.T) {
 	home := t.TempDir()
 	oldHome := userHomeDirFn

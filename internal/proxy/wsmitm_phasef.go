@@ -65,6 +65,7 @@ type wssRequestMeta struct {
 	SessionID          string
 	PreviousResponseID string
 	Model              string
+	ClientFamily       string
 	BypassReason       string
 	DebugFacts         map[string]string
 }
@@ -716,6 +717,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		Source:                 "proxy",
 		Provider:               types.CodexChatGPT.String(),
 		Path:                   "/backend-api/codex/responses",
+		ClientFamily:           firstNonEmpty(meta.ClientFamily, "codex"),
 		RouteMode:              "websocket_phasef",
 		BypassReason:           bypassReason,
 		Model:                  meta.Model,
@@ -928,6 +930,7 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
 		Source:       "proxy",
 		Provider:     types.CodexChatGPT.String(),
 		Path:         "/backend-api/codex/responses",
+		ClientFamily: "codex",
 		RouteMode:    "websocket_phasef",
 		BypassReason: "upstream_error",
 		Errors:       []string{errSummary},
@@ -1308,6 +1311,57 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 		SessionID:          wssCodexSessionIDFromRaw(raw),
 		PreviousResponseID: wssPreviousResponseIDFromRaw(raw),
 		Model:              wssPlannerModelFromRaw(raw),
+		ClientFamily:       wssCodexClientFamilyFromRaw(raw),
+	}
+}
+
+func wssCodexClientFamilyFromRaw(raw map[string]json.RawMessage) string {
+	for _, source := range []json.RawMessage{raw["client_metadata"], raw["metadata"]} {
+		if family := codexMetadataClientFamily(source); family != "" {
+			return family
+		}
+	}
+	return "codex"
+}
+
+func codexMetadataClientFamily(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ""
+	}
+	for _, key := range []string{"client_family", "client", "source", "origin"} {
+		if family := normalizeCodexClientFamily(rawJSONString(fields[key])); family != "" {
+			return family
+		}
+	}
+	turnRaw := rawJSONString(fields["x-codex-turn-metadata"])
+	if turnRaw == "" {
+		return ""
+	}
+	var turn map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(turnRaw), &turn); err != nil {
+		return ""
+	}
+	for _, key := range []string{"client_family", "client", "source", "origin", "thread_source"} {
+		if family := normalizeCodexClientFamily(rawJSONString(turn[key])); family != "" {
+			return family
+		}
+	}
+	return ""
+}
+
+func normalizeCodexClientFamily(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.Contains(value, "cli"):
+		return "codex_cli"
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+		return "codex_desktop_app"
+	default:
+		return ""
 	}
 }
 

@@ -1,29 +1,16 @@
 package tui
 
 import (
-	"database/sql"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/slimference/slimference/internal/codexthreads"
 	dbg "github.com/slimference/slimference/internal/debug"
-	_ "modernc.org/sqlite"
 )
 
-type codexThreadMetadata struct {
-	ID           string
-	Title        string
-	CWD          string
-	Source       string
-	ThreadSource string
-	Model        string
-	UpdatedAt    time.Time
-}
+type codexThreadMetadata = codexthreads.Metadata
 
 var (
-	sqlOpenCodexThreadFunc       = func(driver, dsn string) (*sql.DB, error) { return sql.Open(driver, dsn) }
 	loadCodexThreadMetadataFunc  = loadCodexThreadMetadata
 	codexThreadMetadataCacheTTL  = 2 * time.Second
 	codexThreadMetadataCacheMu   sync.Mutex
@@ -100,63 +87,11 @@ func loadCodexThreadMetadata(sessionIDs []string) (map[string]codexThreadMetadat
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(home, ".codex", "state_5.sqlite")
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return map[string]codexThreadMetadata{}, nil
-		}
-		return nil, err
-	}
-	db, err := sqlOpenCodexThreadFunc("sqlite", "file:"+path+"?mode=ro")
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-
-	out := make(map[string]codexThreadMetadata, len(sessionIDs))
-	for _, sessionID := range sessionIDs {
-		id := normalizeCodexSessionID(sessionID)
-		if id == "" {
-			continue
-		}
-		meta, ok, err := queryCodexThreadMetadata(db, id)
-		if err != nil {
-			return out, err
-		}
-		if ok {
-			out[id] = meta
-		}
-	}
-	return out, nil
-}
-
-func queryCodexThreadMetadata(db *sql.DB, id string) (codexThreadMetadata, bool, error) {
-	row := db.QueryRow(`
-SELECT id, title, cwd, source, COALESCE(thread_source, ''), COALESCE(model, ''), COALESCE(updated_at_ms, updated_at * 1000)
-FROM threads
-WHERE id = ?
-LIMIT 1`, id)
-	var meta codexThreadMetadata
-	var updatedAtMS int64
-	err := row.Scan(&meta.ID, &meta.Title, &meta.CWD, &meta.Source, &meta.ThreadSource, &meta.Model, &updatedAtMS)
-	if err == sql.ErrNoRows {
-		return codexThreadMetadata{}, false, nil
-	}
-	if err != nil {
-		return codexThreadMetadata{}, false, err
-	}
-	if updatedAtMS > 0 {
-		meta.UpdatedAt = time.UnixMilli(updatedAtMS).UTC()
-	}
-	return meta, true, nil
+	return codexthreads.Lookup(home, sessionIDs)
 }
 
 func normalizeCodexSessionID(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.TrimPrefix(value, "codex-wss:")
-	value = strings.TrimPrefix(value, "codex-wss_")
-	return value
+	return codexthreads.NormalizeSessionID(value)
 }
 
 func resetCodexThreadMetadataCacheForTest() {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/codexthreads"
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
 )
@@ -87,6 +88,9 @@ type SavingsMechanismSummary struct {
 
 type SavingsSessionSummary struct {
 	SessionID          string  `json:"session_id"`
+	DisplayName        string  `json:"display_name,omitempty"`
+	ProjectPath        string  `json:"project_path,omitempty"`
+	ClientFamily       string  `json:"client_family,omitempty"`
 	Requests           int64   `json:"requests"`
 	OriginalTokens     int64   `json:"original_tokens"`
 	FinalTokens        int64   `json:"final_tokens"`
@@ -108,6 +112,8 @@ type SavingsSessionSummary struct {
 	CostAfterUSD       float64 `json:"cost_after_usd"`
 	CostSavedUSD       float64 `json:"cost_saved_usd"`
 }
+
+var lookupCodexThreadMetadataForSavingsFn = lookupCodexThreadMetadataForSavings
 
 func parseSavingsArgs(args []string) (period string, f savingsFlags, err error) {
 	for i := 0; i < len(args); i++ {
@@ -282,6 +288,9 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			sessionRow = &SavingsSessionSummary{SessionID: sessionID}
 			bySession[sessionID] = sessionRow
 		}
+		if sessionRow.ClientFamily == "" {
+			sessionRow.ClientFamily = savingsClientFamily(summary)
+		}
 		sessionRow.Requests++
 		sessionRow.OriginalTokens += int64(summary.Tokens.Original)
 		sessionRow.FinalTokens += int64(summary.Tokens.Final)
@@ -354,6 +363,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		out.DecisionOutputReduceTokens += row.OutputReduceTokens
 		out.DecisionToolPruneTokens += row.ToolPruneTokens
 	}
+	enrichSavingsSessions(out.DecisionSessions)
 	sort.Slice(out.DecisionSessions, func(i, j int) bool {
 		if out.DecisionSessions[i].NetSavedTokens == out.DecisionSessions[j].NetSavedTokens {
 			return out.DecisionSessions[i].SessionID < out.DecisionSessions[j].SessionID
@@ -432,13 +442,92 @@ func outputReduceSessionNetTokens(summary dbg.RequestSummary) int64 {
 }
 
 func decisionSessionID(summary dbg.RequestSummary) string {
-	if strings.TrimSpace(summary.SessionID) != "" {
-		return strings.TrimSpace(summary.SessionID)
+	sessionID := strings.TrimSpace(summary.SessionID)
+	if sessionID != "" && !strings.EqualFold(sessionID, "empty") {
+		return sessionID
 	}
 	if strings.TrimSpace(summary.Source) != "" {
 		return "no-session:" + strings.TrimSpace(summary.Source)
 	}
 	return "no-session:unknown"
+}
+
+func savingsClientFamily(summary dbg.RequestSummary) string {
+	value := strings.ToLower(strings.TrimSpace(summary.ClientFamily))
+	if value != "" {
+		return value
+	}
+	source := strings.ToLower(strings.TrimSpace(summary.Source))
+	switch {
+	case strings.Contains(source, "cli"):
+		return "codex_cli"
+	case strings.Contains(source, "desktop"), strings.Contains(source, "app"):
+		return "codex_desktop_app"
+	default:
+		return ""
+	}
+}
+
+func enrichSavingsSessions(sessions []SavingsSessionSummary) {
+	ids := make([]string, 0, len(sessions))
+	for i := range sessions {
+		raw := strings.TrimSpace(sessions[i].SessionID)
+		if id := codexthreads.NormalizeSessionID(raw); id != "" && (strings.HasPrefix(raw, "codex-wss:") || strings.HasPrefix(raw, "codex-wss_")) {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	metadata, err := lookupCodexThreadMetadataForSavingsFn(ids)
+	if err != nil {
+		return
+	}
+	for i := range sessions {
+		id := codexthreads.NormalizeSessionID(sessions[i].SessionID)
+		meta, ok := metadata[id]
+		if !ok {
+			continue
+		}
+		if title := savingsThreadDisplayName(meta); title != "" {
+			sessions[i].DisplayName = title
+		}
+		if cwd := strings.TrimSpace(meta.CWD); cwd != "" {
+			sessions[i].ProjectPath = cwd
+		}
+		if family := savingsThreadClientFamily(meta); family != "" {
+			sessions[i].ClientFamily = family
+		}
+	}
+}
+
+func lookupCodexThreadMetadataForSavings(ids []string) (map[string]codexthreads.Metadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return codexthreads.Lookup(home, ids)
+}
+
+func savingsThreadDisplayName(meta codexthreads.Metadata) string {
+	title := strings.TrimSpace(meta.Title)
+	title = strings.TrimLeft(title, "›> \t")
+	if title != "" {
+		return title
+	}
+	return compactSavingsPath(meta.CWD)
+}
+
+func savingsThreadClientFamily(meta codexthreads.Metadata) string {
+	value := strings.ToLower(strings.TrimSpace(firstNonEmpty(meta.Source, meta.ThreadSource)))
+	switch {
+	case strings.Contains(value, "cli"):
+		return "codex_cli"
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+		return "codex_desktop_app"
+	default:
+		return ""
+	}
 }
 
 func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
@@ -549,9 +638,10 @@ func formatSavingsText(s SavingsSummary) string {
 				break
 			}
 			layerText := formatSessionLayerBreakdown(session)
+			label := formatSavingsSessionLabel(session)
 			if session.CostBeforeUSD > 0 || session.CostAfterUSD > 0 || session.CostSavedUSD > 0 {
-				sb.WriteString(fmt.Sprintf("  session %-28s net=%s layers=%s cache=%s/%.1f%% original=%s final=%s cost=~$%.4f/~$%.4f requests=%d\n",
-					session.SessionID,
+				sb.WriteString(fmt.Sprintf("  session %-58s net=%s layers=%s cache=%s/%.1f%% original=%s final=%s cost=~$%.4f/~$%.4f requests=%d\n",
+					label,
 					formatSignedInt64Plain(session.NetSavedTokens),
 					layerText,
 					formatSignedInt64Plain(session.CacheNetTokens),
@@ -564,8 +654,8 @@ func formatSavingsText(s SavingsSummary) string {
 				))
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  session %-28s net=%s layers=%s cache=%s/%.1f%% original=%s final=%s requests=%d\n",
-				session.SessionID,
+			sb.WriteString(fmt.Sprintf("  session %-58s net=%s layers=%s cache=%s/%.1f%% original=%s final=%s requests=%d\n",
+				label,
 				formatSignedInt64Plain(session.NetSavedTokens),
 				layerText,
 				formatSignedInt64Plain(session.CacheNetTokens),
@@ -586,6 +676,86 @@ func formatSavingsText(s SavingsSummary) string {
 		sb.WriteString(fmt.Sprintf("Total saved (~$%.2f/M est.): ~$%.4f\n", s.USDPerMillion, s.TotalSavedUSD))
 	}
 	return sb.String()
+}
+
+func formatSavingsSessionLabel(session SavingsSessionSummary) string {
+	label := strings.TrimSpace(session.DisplayName)
+	if label == "" {
+		label = savingsSessionFallbackLabel(session)
+	}
+	if client := formatSavingsClientFamily(session.ClientFamily); client != "" {
+		label = client + " - " + label
+	}
+	if project := compactSavingsPath(session.ProjectPath); project != "" && !strings.Contains(label, project) {
+		label += " - " + project
+	}
+	return truncateSavingsLabel(label, 58)
+}
+
+func savingsSessionFallbackLabel(session SavingsSessionSummary) string {
+	id := strings.TrimSpace(session.SessionID)
+	switch {
+	case id == "", strings.EqualFold(id, "empty"):
+		if session.CacheReadTokens > 0 || session.CacheNetTokens > 0 {
+			return "Unattributed provider cache"
+		}
+		return "Unattributed traffic"
+	case strings.HasPrefix(id, "no-session:"):
+		if session.CacheReadTokens > 0 || session.CacheNetTokens > 0 {
+			return "Unattributed provider cache"
+		}
+		source := strings.TrimSpace(strings.TrimPrefix(id, "no-session:"))
+		if source == "" || source == "unknown" {
+			return "Unattributed traffic"
+		}
+		return "Unattributed " + source
+	case strings.HasPrefix(id, "codex-wss:") || strings.HasPrefix(id, "codex-wss_"):
+		return "Codex thread " + truncateSavingsLabel(codexthreads.NormalizeSessionID(id), 12)
+	default:
+		return truncateSavingsLabel(id, 24)
+	}
+}
+
+func formatSavingsClientFamily(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.Contains(value, "cli"):
+		return "Codex CLI"
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+		return "Codex App"
+	default:
+		return ""
+	}
+}
+
+func compactSavingsPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if path == home {
+			return "~"
+		}
+		if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+			return "~" + strings.TrimPrefix(path, home)
+		}
+	}
+	return path
+}
+
+func truncateSavingsLabel(value string, maxLen int) string {
+	value = strings.TrimSpace(value)
+	if maxLen <= 0 || len(value) <= maxLen {
+		return value
+	}
+	if maxLen <= 1 {
+		return value[:maxLen]
+	}
+	if maxLen <= 3 {
+		return value[:maxLen]
+	}
+	return value[:maxLen-3] + "..."
 }
 
 func formatDecisionLayerBreakdown(s SavingsSummary) string {

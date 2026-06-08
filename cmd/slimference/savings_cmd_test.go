@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/codexthreads"
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
 )
@@ -567,11 +568,72 @@ func TestDecisionSessionIDFallbacks(t *testing.T) {
 	if got := decisionSessionID(dbg.RequestSummary{SessionID: " sess "}); got != "sess" {
 		t.Fatalf("session id: %q", got)
 	}
+	if got := decisionSessionID(dbg.RequestSummary{SessionID: " empty ", Source: "proxy"}); got != "no-session:proxy" {
+		t.Fatalf("empty session fallback: %q", got)
+	}
 	if got := decisionSessionID(dbg.RequestSummary{Source: " hook_post "}); got != "no-session:hook_post" {
 		t.Fatalf("source fallback: %q", got)
 	}
 	if got := decisionSessionID(dbg.RequestSummary{}); got != "no-session:unknown" {
 		t.Fatalf("unknown fallback: %q", got)
+	}
+}
+
+func TestSavingsSessionsUseCodexThreadMetadata(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookup := lookupCodexThreadMetadataForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookup
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{{
+			RequestID:            "req-thread",
+			Timestamp:            now,
+			SessionID:            "codex-wss:thread-123",
+			Source:               "proxy",
+			Provider:             "codex_chatgpt",
+			ClientFamily:         "codex",
+			ProviderCachedTokens: 500,
+			Tokens:               dbg.TokenCounts{Original: 1000, Final: 700, Saved: 300},
+		}}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {
+		if len(ids) != 1 || ids[0] != "thread-123" {
+			t.Fatalf("thread lookup ids=%v", ids)
+		}
+		return map[string]codexthreads.Metadata{
+			"thread-123": {
+				ID:     "thread-123",
+				Title:  "› check project status",
+				CWD:    "/Users/me/CODE/Golem",
+				Source: "cli",
+				Model:  "gpt-5.5",
+			},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if len(got.DecisionSessions) != 1 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	session := got.DecisionSessions[0]
+	if session.DisplayName != "check project status" || session.ProjectPath != "/Users/me/CODE/Golem" || session.ClientFamily != "codex_cli" {
+		t.Fatalf("bad enriched session: %+v", session)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Codex CLI", "check project status", "/Users/me/CODE/Golem", "cache=500"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "codex_chatgpt") || strings.Contains(text, "Codex App") {
+		t.Fatalf("text leaked wrong client label: %s", text)
 	}
 }
 

@@ -1790,8 +1790,9 @@ Install, Using Now, and Health. It does not show Normal Codex, advanced route,
 provider-chip, lab, or transport vocabulary during normal scoped operation.
 Activity shows only explicit Slimference launch state and recent routed
 Slimference requests from daemon flight telemetry. When a routed Codex WSS
-session maps to Codex's local thread store, Activity shows the real surface
-(Codex CLI or Codex App), thread title, cwd, model, route state, and savings.
+session maps to Codex's local thread store (`~/.codex/state_5.sqlite`),
+Activity shows the real surface (Codex CLI or Codex App), thread title, cwd,
+model, route state, and savings.
 Raw provider IDs, internal route modes, backend paths, direct Codex windows, and
 old hook-turn diagnostics are intentionally hidden there. Logs owns diagnostics
 export, a compact route summary, and recent daemon events.
@@ -1814,9 +1815,13 @@ exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
 `route_mode=websocket_phasef`. Desktop has no current external Slimference
 indicator; use Activity, Status, and the shim flight log to inspect scoped
-Desktop traffic. The historical in-composer `Slimference` provider chip is kept
-only for older Codex Desktop builds that still render the process-local provider
-config; current Desktop builds may not show it.
+Desktop traffic. Desktop launch is intentionally cwd-agnostic: the TUI's current
+directory only matters for Launch Codex CLI. Codex Desktop can switch between
+projects and run multiple threads inside the app; Slimference attributes routed
+traffic by Codex thread/session id and enriches it from Codex's local thread
+store instead of assuming the TUI cwd. The historical in-composer `Slimference`
+provider chip is kept only for older Codex Desktop builds that still render the
+process-local provider config; current Desktop builds may not show it.
 Historical proxy/CA failures remain diagnostic proof state. Normal
 Finder/Spotlight Codex.app launches remain direct.
 Setup owns one product-level install/repair surface for Codex CLI and Desktop
@@ -1879,18 +1884,23 @@ started by `service install`.
 The Savings view is product accounting, not parser telemetry. It renders total
 input saved, estimated original vs sent tokens, tracked output tokens,
 per-session recent/active savings rows, cache contribution, and safety state.
+Codex WSS session rows are enriched from the same Codex thread store as
+Activity, so Desktop and CLI threads show user-facing title/path/client labels
+when Codex has persisted them; raw `codex_chatgpt` provider names are never used
+as Desktop/CLI proof by themselves.
 Parser matrices, checkpoints, archive internals, quality canaries, and raw
 debug counters remain available through CLI/admin diagnostics, not the daily
 TUI.
 
 For measured conversation accounting, use `slimference savings <period>`. When
 the decision log is configured, the report prints aggregate `Decision layer net`
-and top Codex sessions with compact `layers=` fields. The same per-session
-fields are present in JSON as `layer0_net_tokens`, `layer1_net_tokens`,
+and top Codex sessions with compact `layers=` fields. Per-session rows include
+`display_name`, `project_path`, and `client_family` when Codex thread metadata
+can be resolved, plus `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
-`tool_prune_tokens`. These fields are measured-only: mechanism accounting is
-used when present, request-stage token counters are used only as fallback, and
-missing counters stay zero.
+`tool_prune_tokens`. These fields are measured-only: mechanism accounting is used
+when present, request-stage token counters are used only as fallback, and missing
+counters stay zero.
 Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_read_tokens`, `decision_cache_create_tokens`,
 `decision_cache_net_tokens`, `decision_cache_hit_requests`,
@@ -2052,7 +2062,7 @@ slimference help [subcommand]
 `slimference debug flight` reads the same normalized flight records that the
 proxy and TUI use. A flight record is generated from each persisted
 `RequestSummary` and records route/source, host/path/provider, layer list,
-estimated input before/after, provider-reported input/cache/output usage,
+client family, estimated input before/after, provider-reported input/cache/output usage,
 output-reduce metadata, `previous_response_id` state, errors, privacy state,
 content-free debug facts, and proxy overhead. WSS debug facts include bounded
 shape counters such as previous-response presence, tool-result counts,

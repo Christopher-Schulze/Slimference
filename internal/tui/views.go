@@ -133,6 +133,8 @@ type tuiSessionSavings struct {
 	ID       string
 	Client   string
 	Route    string
+	Title    string
+	Project  string
 	Requests int
 	Original int
 	Final    int
@@ -164,13 +166,25 @@ func summarizeFlightSessions(flights []dbg.FlightRequestSummary, limit int) []tu
 	}
 	byID := map[string]*tuiSessionSavings{}
 	order := make([]string, 0, len(flights))
+	threads := lookupCodexThreadMetadataForFlights(flights)
 	for _, flight := range flights {
 		id := firstNonEmpty(flight.SessionID, flight.RequestID, "session")
 		if _, ok := byID[id]; !ok {
+			thread, hasThread := threads[normalizeCodexSessionID(flight.SessionID)]
+			client := userClientLabel(flight)
+			title := ""
+			project := ""
+			if hasThread {
+				client = activityClientLabel(activityFlightView{Flight: flight, Thread: thread, HasThread: true})
+				title = codexThreadDisplayTitle(thread)
+				project = strings.TrimSpace(thread.CWD)
+			}
 			byID[id] = &tuiSessionSavings{
-				ID:     id,
-				Client: userClientLabel(flight),
-				Route:  userRouteLabel(flight),
+				ID:      id,
+				Client:  client,
+				Route:   userRouteLabel(flight),
+				Title:   title,
+				Project: project,
 			}
 			order = append(order, id)
 		}
@@ -213,12 +227,21 @@ func renderSavingsSessionLines(s Styles, sessions []tuiSessionSavings) []string 
 			stateStyle = s.Saved
 		}
 		ratio := savingsPercent(session.Saved, session.Original)
+		label := compactDebugLabel(session.ID, 18)
+		if strings.TrimSpace(session.Title) != "" {
+			label = compactDebugLabel(session.Title, 46)
+		}
+		detailPrefix := ""
+		if strings.TrimSpace(session.Project) != "" {
+			detailPrefix = compactUserPath(session.Project) + " · "
+		}
 		lines = append(lines,
 			" "+stateStyle.Render(state)+"  "+s.Normal.Render(session.Client)+
-				s.Muted.Render(" · "+session.Route+" · "+compactDebugLabel(session.ID, 18)),
+				s.Muted.Render(" · "+session.Route+" · "+label),
 		)
 		lines = append(lines,
-			"   "+s.Muted.Render(fmt.Sprintf("%d req · %s -> %s · %s saved (%d%%)",
+			"   "+s.Muted.Render(fmt.Sprintf("%s%d req · %s -> %s · %s saved (%d%%)",
+				detailPrefix,
 				session.Requests,
 				formatTokens(session.Original),
 				formatTokens(session.Final),
@@ -584,12 +607,16 @@ func activitySessionTitle(flight activityFlightView) string {
 	if !flight.HasThread {
 		return ""
 	}
-	title := strings.TrimSpace(flight.Thread.Title)
+	return codexThreadDisplayTitle(flight.Thread)
+}
+
+func codexThreadDisplayTitle(thread codexThreadMetadata) string {
+	title := strings.TrimSpace(thread.Title)
 	title = strings.TrimLeft(title, "›> \t")
 	if title != "" {
 		return title
 	}
-	return compactUserPath(flight.Thread.CWD)
+	return compactUserPath(thread.CWD)
 }
 
 func activityTimestamp(flight activityFlightView) time.Time {
@@ -604,7 +631,7 @@ func userClientLabel(flight dbg.FlightRequestSummary) string {
 	switch {
 	case strings.Contains(value, "cli"):
 		return "Codex CLI"
-	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"):
 		return "Codex App"
 	case strings.Contains(value, "claude"):
 		return "Claude Code"
