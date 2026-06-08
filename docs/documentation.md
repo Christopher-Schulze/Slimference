@@ -1923,6 +1923,13 @@ captured from the same metadata sources or User-Agent fallback. Rows also includ
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used
 when present, request-stage token counters are used only as fallback, and missing
 counters stay zero.
+Codex attribution health is reported as
+`decision_codex_requests`, `decision_codex_attributed_requests`,
+`decision_codex_unattributed_requests`, and
+`decision_codex_attribution_rate`. A Codex request counts as attributed only when
+the row carries a strong `codex-http:<thread>` or `codex-wss:<thread>` session ID;
+anonymous historical fallback buckets remain visible instead of being silently
+merged into real sessions.
 Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_read_tokens`, `decision_cache_create_tokens`,
 `decision_cache_net_tokens`, `decision_cache_hit_requests`,

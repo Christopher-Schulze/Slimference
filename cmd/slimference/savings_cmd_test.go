@@ -749,6 +749,69 @@ func TestSavingsSessionsKeepParallelCodexThreadsSeparate(t *testing.T) {
 	}
 }
 
+func TestSavingsCodexAttributionHealth(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookup := lookupCodexThreadMetadataForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookup
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID: "codex-http",
+				Timestamp: now,
+				SessionID: "codex-http:thread-http",
+				Provider:  "codex_chatgpt",
+				Tokens:    dbg.TokenCounts{Original: 100, Final: 80, Saved: 20},
+			},
+			{
+				RequestID: "codex-anon",
+				Timestamp: now,
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Tokens:    dbg.TokenCounts{Original: 50, Final: 50},
+			},
+			{
+				RequestID: "openai",
+				Timestamp: now,
+				Source:    "proxy",
+				Provider:  "openai",
+				Tokens:    dbg.TokenCounts{Original: 200, Final: 100, Saved: 100},
+			},
+		}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {
+		if len(ids) != 1 || ids[0] != "thread-http" {
+			t.Fatalf("thread lookup ids=%v", ids)
+		}
+		return map[string]codexthreads.Metadata{}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if got.DecisionCodexRequests != 2 ||
+		got.DecisionCodexAttributedRequests != 1 ||
+		got.DecisionCodexUnattributedRequests != 1 ||
+		!nearFloat(got.DecisionCodexAttributionRate, 0.5) {
+		t.Fatalf("bad Codex attribution health: %+v", got)
+	}
+	text := formatSavingsText(got)
+	if !strings.Contains(text, "Codex attribution:") || !strings.Contains(text, "1/2 attributed (50.0%, 1 unattributed)") {
+		t.Fatalf("text missing attribution health: %s", text)
+	}
+	csv := formatSavingsCSV(got)
+	for _, want := range []string{"decision_codex_requests", "decision_codex_attributed_requests", "decision_codex_unattributed_requests", "decision_codex_attribution_rate", ",2,1,1,0.500000,"} {
+		if !strings.Contains(csv, want) {
+			t.Fatalf("csv missing %q: %s", want, csv)
+		}
+	}
+}
+
 func TestAccumulateDecisionMechanismsBranches(t *testing.T) {
 	cfg := config.Defaults()
 	out := SavingsSummary{}

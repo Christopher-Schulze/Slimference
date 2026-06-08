@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T338 Codex attribution health accounting -> docs/todo/t338-codex-attribution-health-accounting.md
 - [x] T337 Codex passthrough flight attribution -> docs/todo/t337-codex-passthrough-flight-attribution.md
 - [x] T336 Codex HTTP transport attribution precision -> docs/todo/t336-codex-http-transport-attribution.md
 - [x] T335 OpenAI prompt-cache negative-net guard -> docs/todo/t335-openai-prompt-cache-negative-net-guard.md

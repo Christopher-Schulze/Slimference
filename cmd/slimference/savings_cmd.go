@@ -28,50 +28,54 @@ type savingsFlags struct {
 // accounting, and measured decision-log savings into one canonical view.
 // Returned by `slimference savings <period>` and surfaced via /admin if needed.
 type SavingsSummary struct {
-	Period                           string                    `json:"period"`
-	Project                          string                    `json:"project,omitempty"`
-	Layer0Runs                       int64                     `json:"layer0_runs"`
-	Layer0SavedTokens                int64                     `json:"layer0_saved_tokens"`
-	Layer0SavedUSD                   float64                   `json:"layer0_saved_usd"`
-	ProxyOrigTokens                  int64                     `json:"proxy_orig_tokens"`
-	ProxyCompTokens                  int64                     `json:"proxy_comp_tokens"`
-	ProxySavedTokens                 int64                     `json:"proxy_saved_tokens"`
-	ProxyRequests                    int64                     `json:"proxy_requests"`
-	ProviderReportedRequests         int64                     `json:"provider_reported_requests"`
-	ProviderInputTokens              int64                     `json:"provider_input_tokens"`
-	ProviderCachedTokens             int64                     `json:"provider_cached_tokens"`
-	ProviderOutputTokens             int64                     `json:"provider_output_tokens"`
-	OutputReduceInputOverheadTokens  int64                     `json:"output_reduce_input_overhead_tokens"`
-	CacheReadDiscountTokenEquivalent int64                     `json:"cache_read_discount_token_equivalent"`
-	NetBillableEquivalentTokens      int64                     `json:"net_billable_equivalent_tokens"`
-	CacheHits                        int64                     `json:"cache_hits"`
-	TotalSavedTokens                 int64                     `json:"total_saved_tokens"`
-	TotalSavedUSD                    float64                   `json:"total_saved_usd"`
-	USDPerMillion                    float64                   `json:"usd_per_million_tokens"`
-	DecisionRequests                 int64                     `json:"decision_requests"`
-	DecisionOriginalTokens           int64                     `json:"decision_original_tokens"`
-	DecisionFinalTokens              int64                     `json:"decision_final_tokens"`
-	DecisionAddedTokens              int64                     `json:"decision_added_tokens"`
-	DecisionNetSavedTokens           int64                     `json:"decision_net_saved_tokens"`
-	DecisionOutputTokens             int64                     `json:"decision_output_tokens"`
-	DecisionCacheReadTokens          int64                     `json:"decision_cache_read_tokens"`
-	DecisionCacheCreateTokens        int64                     `json:"decision_cache_create_tokens"`
-	DecisionCacheNetTokens           int64                     `json:"decision_cache_net_tokens"`
-	DecisionCacheHitRequests         int64                     `json:"decision_cache_hit_requests"`
-	DecisionCacheCreateRequests      int64                     `json:"decision_cache_create_requests"`
-	DecisionCacheNegativeNetRequests int64                     `json:"decision_cache_negative_net_requests"`
-	DecisionCacheHitRate             float64                   `json:"decision_cache_hit_rate"`
-	DecisionLayer0NetTokens          int64                     `json:"decision_layer0_net_tokens"`
-	DecisionLayer1NetTokens          int64                     `json:"decision_layer1_net_tokens"`
-	DecisionLayer2NetTokens          int64                     `json:"decision_layer2_net_tokens"`
-	DecisionLayer3NetTokens          int64                     `json:"decision_layer3_net_tokens"`
-	DecisionOutputReduceTokens       int64                     `json:"decision_output_reduce_tokens"`
-	DecisionToolPruneTokens          int64                     `json:"decision_tool_prune_tokens"`
-	DecisionEstimatedCostBeforeUSD   float64                   `json:"decision_estimated_cost_before_usd"`
-	DecisionEstimatedCostAfterUSD    float64                   `json:"decision_estimated_cost_after_usd"`
-	DecisionEstimatedCostSavedUSD    float64                   `json:"decision_estimated_cost_saved_usd"`
-	Mechanisms                       []SavingsMechanismSummary `json:"mechanisms,omitempty"`
-	DecisionSessions                 []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
+	Period                            string                    `json:"period"`
+	Project                           string                    `json:"project,omitempty"`
+	Layer0Runs                        int64                     `json:"layer0_runs"`
+	Layer0SavedTokens                 int64                     `json:"layer0_saved_tokens"`
+	Layer0SavedUSD                    float64                   `json:"layer0_saved_usd"`
+	ProxyOrigTokens                   int64                     `json:"proxy_orig_tokens"`
+	ProxyCompTokens                   int64                     `json:"proxy_comp_tokens"`
+	ProxySavedTokens                  int64                     `json:"proxy_saved_tokens"`
+	ProxyRequests                     int64                     `json:"proxy_requests"`
+	ProviderReportedRequests          int64                     `json:"provider_reported_requests"`
+	ProviderInputTokens               int64                     `json:"provider_input_tokens"`
+	ProviderCachedTokens              int64                     `json:"provider_cached_tokens"`
+	ProviderOutputTokens              int64                     `json:"provider_output_tokens"`
+	OutputReduceInputOverheadTokens   int64                     `json:"output_reduce_input_overhead_tokens"`
+	CacheReadDiscountTokenEquivalent  int64                     `json:"cache_read_discount_token_equivalent"`
+	NetBillableEquivalentTokens       int64                     `json:"net_billable_equivalent_tokens"`
+	CacheHits                         int64                     `json:"cache_hits"`
+	TotalSavedTokens                  int64                     `json:"total_saved_tokens"`
+	TotalSavedUSD                     float64                   `json:"total_saved_usd"`
+	USDPerMillion                     float64                   `json:"usd_per_million_tokens"`
+	DecisionRequests                  int64                     `json:"decision_requests"`
+	DecisionOriginalTokens            int64                     `json:"decision_original_tokens"`
+	DecisionFinalTokens               int64                     `json:"decision_final_tokens"`
+	DecisionAddedTokens               int64                     `json:"decision_added_tokens"`
+	DecisionNetSavedTokens            int64                     `json:"decision_net_saved_tokens"`
+	DecisionOutputTokens              int64                     `json:"decision_output_tokens"`
+	DecisionCacheReadTokens           int64                     `json:"decision_cache_read_tokens"`
+	DecisionCacheCreateTokens         int64                     `json:"decision_cache_create_tokens"`
+	DecisionCacheNetTokens            int64                     `json:"decision_cache_net_tokens"`
+	DecisionCacheHitRequests          int64                     `json:"decision_cache_hit_requests"`
+	DecisionCacheCreateRequests       int64                     `json:"decision_cache_create_requests"`
+	DecisionCacheNegativeNetRequests  int64                     `json:"decision_cache_negative_net_requests"`
+	DecisionCacheHitRate              float64                   `json:"decision_cache_hit_rate"`
+	DecisionCodexRequests             int64                     `json:"decision_codex_requests"`
+	DecisionCodexAttributedRequests   int64                     `json:"decision_codex_attributed_requests"`
+	DecisionCodexUnattributedRequests int64                     `json:"decision_codex_unattributed_requests"`
+	DecisionCodexAttributionRate      float64                   `json:"decision_codex_attribution_rate"`
+	DecisionLayer0NetTokens           int64                     `json:"decision_layer0_net_tokens"`
+	DecisionLayer1NetTokens           int64                     `json:"decision_layer1_net_tokens"`
+	DecisionLayer2NetTokens           int64                     `json:"decision_layer2_net_tokens"`
+	DecisionLayer3NetTokens           int64                     `json:"decision_layer3_net_tokens"`
+	DecisionOutputReduceTokens        int64                     `json:"decision_output_reduce_tokens"`
+	DecisionToolPruneTokens           int64                     `json:"decision_tool_prune_tokens"`
+	DecisionEstimatedCostBeforeUSD    float64                   `json:"decision_estimated_cost_before_usd"`
+	DecisionEstimatedCostAfterUSD     float64                   `json:"decision_estimated_cost_after_usd"`
+	DecisionEstimatedCostSavedUSD     float64                   `json:"decision_estimated_cost_saved_usd"`
+	Mechanisms                        []SavingsMechanismSummary `json:"mechanisms,omitempty"`
+	DecisionSessions                  []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
 }
 
 type SavingsMechanismSummary struct {
@@ -283,6 +287,14 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			out.DecisionCacheNegativeNetRequests++
 		}
 		sessionID := decisionSessionID(summary)
+		if isCodexDecisionSummary(summary, sessionID) {
+			out.DecisionCodexRequests++
+			if isCodexThreadSession(strings.TrimSpace(summary.SessionID)) {
+				out.DecisionCodexAttributedRequests++
+			} else {
+				out.DecisionCodexUnattributedRequests++
+			}
+		}
 		sessionRow := bySession[sessionID]
 		if sessionRow == nil {
 			sessionRow = &SavingsSessionSummary{SessionID: sessionID}
@@ -373,6 +385,9 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	if out.DecisionRequests > 0 {
 		out.DecisionCacheHitRate = float64(out.DecisionCacheHitRequests) / float64(out.DecisionRequests)
 	}
+	if out.DecisionCodexRequests > 0 {
+		out.DecisionCodexAttributionRate = float64(out.DecisionCodexAttributedRequests) / float64(out.DecisionCodexRequests)
+	}
 }
 
 func savingsMechanismLayer(mechanism dbg.MechanismAccounting) (int, bool) {
@@ -450,6 +465,17 @@ func decisionSessionID(summary dbg.RequestSummary) string {
 		return "no-session:" + strings.TrimSpace(summary.Source)
 	}
 	return "no-session:unknown"
+}
+
+func isCodexDecisionSummary(summary dbg.RequestSummary, sessionID string) bool {
+	provider := strings.ToLower(strings.TrimSpace(summary.Provider))
+	client := strings.ToLower(strings.TrimSpace(summary.ClientFamily))
+	source := strings.ToLower(strings.TrimSpace(summary.Source))
+	return strings.Contains(provider, "codex") ||
+		strings.Contains(client, "codex") ||
+		strings.Contains(source, "codex") ||
+		isCodexThreadSession(strings.TrimSpace(summary.SessionID)) ||
+		isCodexThreadSession(strings.TrimSpace(sessionID))
 }
 
 func savingsClientFamily(summary dbg.RequestSummary) string {
@@ -624,6 +650,14 @@ func formatSavingsText(s SavingsSummary) string {
 				s.DecisionCacheHitRate*100,
 				s.DecisionCacheCreateRequests,
 				s.DecisionCacheNegativeNetRequests,
+			))
+		}
+		if s.DecisionCodexRequests > 0 {
+			sb.WriteString(fmt.Sprintf("Codex attribution:           %d/%d attributed (%.1f%%, %d unattributed)\n",
+				s.DecisionCodexAttributedRequests,
+				s.DecisionCodexRequests,
+				s.DecisionCodexAttributionRate*100,
+				s.DecisionCodexUnattributedRequests,
 			))
 		}
 		sb.WriteString(fmt.Sprintf("Decision layer net:          %s\n", formatDecisionLayerBreakdown(s)))
@@ -805,8 +839,8 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_attribution_rate,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -836,6 +870,10 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.DecisionCacheHitRate,
 		s.DecisionCacheCreateRequests,
 		s.DecisionCacheNegativeNetRequests,
+		s.DecisionCodexRequests,
+		s.DecisionCodexAttributedRequests,
+		s.DecisionCodexUnattributedRequests,
+		s.DecisionCodexAttributionRate,
 		s.DecisionLayer0NetTokens,
 		s.DecisionLayer1NetTokens,
 		s.DecisionLayer2NetTokens,
