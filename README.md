@@ -1,196 +1,209 @@
 # Slimference
 
-Slimference is a local Go proxy and tool-output compressor for coding agents like Claude Code and Codex.
+**Slimference is a local, Codex-first token-savings layer for coding agents.**
 
-It reduces token waste in two places:
+It runs on your machine, routes only the Codex sessions you explicitly launch
+through it, and reduces wasted input tokens from repeated reads, noisy command
+output, logs, search results, cache misses, and duplicated tool context.
 
-- Layer 0: before shell output ever enters the conversation
-- Layers 1, 3, and 4: deterministic request/cache/output reducers after conversation history already exists
+The core rule is simple: **no model-quality drawdown for savings**. Slimference
+does not use external summarization, does not ask a smaller model to rewrite
+your context, and does not replace conversation memory with lossy summaries.
+Default product paths are deterministic, guarded, reversible, and fail open.
 
-The result is longer working sessions, less repeated context, and better visibility into what is being compressed.
+## What Slimference Does
 
-## What It Does
+- Launches Codex CLI or Codex Desktop in a scoped Slimference mode.
+- Leaves normal Codex launches direct unless you start them through Slimference.
+- Compacts deterministic tool output before it bloats the model context.
+- Routes Codex traffic through a local daemon for cache-aware, proof-gated
+  savings.
+- Tracks savings, cache impact, routed activity, logs, and diagnostics locally.
+- Falls back to direct Codex when the daemon or a proof gate is not safe.
 
-Slimference combines three runtime surfaces:
+Slimference is built for long coding sessions where agents repeatedly inspect
+the same files, run the same tests, search the same repo, and carry lots of
+tool output across turns.
 
-- A local HTTP reverse proxy for Anthropic and OpenAI-compatible chat requests
-- A Layer 0 CLI filter that compacts tool output before it reaches the model
-- A Bubble Tea TUI for monitoring and operational control
+## Current Product Scope
 
-In practice that means:
+| Surface | Status | Notes |
+|---|---:|---|
+| Codex CLI | First-class | Scoped launch through Slimference, normal shell Codex stays direct |
+| Codex Desktop | Supported through scoped app-server launch | Normal Finder/Spotlight Codex stays direct |
+| Browser ChatGPT | Direct | Not touched by default |
+| ChatGPT.app direct launch | Direct | Not touched by default |
+| Claude Code | Parked | Code exists for reference, not installed by default |
+| Global MITM / hosts / pfctl | Lab only | Explicit advanced path, not product default |
 
-- old conversation history gets compacted before upstream requests are sent
-- repeated or noisy tool output gets collapsed
-- build, test, lint, git, search, JSON, logs, and file reads get specialized compression
-- analytics, logs, and recent request activity are stored locally
-- the daemon can run permanently in the background, while the TUI acts as a control window
+## Why It Is Safe
 
-## Architecture
+Slimference only turns savings into a normal product path when the reducer is
+deterministic and bounded:
 
-Slimference is split into four active product layers:
+- **Fail open:** parser errors, unknown payloads, schema drift, daemon failure,
+  or unsafe proof state send the original data or launch direct Codex.
+- **No lossy summaries:** the retired semantic summary path is not a default
+  savings layer.
+- **No external compression model:** no context is sent to another model for
+  rewriting.
+- **No fake Desktop indicator:** current Codex Desktop builds do not expose a
+  stable process-local text chip contract, so Slimference reports route truth in
+  the TUI and logs instead of mutating model names or service tiers.
+- **Scoped by default:** no system proxy, no persistent OpenAI base URL, no
+  machine-wide `chatgpt.com` route.
 
-1. Layer 0: CLI pre-entry filtering
-   Shell commands are intercepted through hooks and compacted before their output is added to chat history.
+## Savings Layers
 
-2. Layer 1: deterministic compression
-   Fast synchronous Go transforms like ANSI stripping, JSON compaction, deduplication, structure extraction, delta encoding, repeated tool collapse, and more.
+| Layer | What it saves | Drawdown posture |
+|---|---|---|
+| Layer 0 | Shell/tool output before it enters context | Deterministic parser reducers, fail open |
+| Layer 1 | Repeated/noisy request content | Deterministic transforms only |
+| Layer 2 | Response/cache accounting path | No model-facing lossy summary replacement |
+| Layer 3 | Response and prompt-cache leverage | Cache-aware, measured, negative-net guarded |
+| Layer 4 | Output/tool-surface waste where proven safe | Conservative and proof-gated |
 
-3. Layer 2: response caching
-   Safe requests can be served from cache, and Anthropic prompt-cache breakpoints are optimized where possible.
+Typical wins come from repeated file reads, search outputs, test logs, git
+output, JSON/log compaction, archive-backed tool references, and provider cache
+alignment. Actual savings depend on workflow shape and should be measured with
+the built-in reports.
 
-4. Layer 4: output and tool-surface reduction
-   Safe output directives, repetition controls, and tool-schema pruning reduce avoidable output/tool tokens without replacing conversation memory.
+## Install From Source
 
-The old semantic summary path is retired. Slimference does not use an external summarization model, local context ledger replacement, or model-facing summary insertion as a product savings path.
+Requirements:
 
-## Runtime Model
+- macOS
+- Go 1.25+
+- Codex CLI / Codex Desktop already installed and logged in
 
-Slimference now runs in a daemon-plus-monitor model:
-
-- `slimference start`
-  Starts the proxy daemon in the background.
-
-- `slimference service install`
-  Installs launchd auto-start on macOS so Slimference starts at login.
-
-- `slimference`
-  Opens the TUI as a monitoring and management window. It attaches to the running daemon instead of starting a second proxy.
-
-The daemon keeps running, logging, and collecting analytics even when the TUI is closed.
-
-## Quick Start
-
-### 1. Build
-
-```bash
-go run ./scripts/build --out ./slimference
-```
-
-### 2. Check the setup
-
-```bash
-./slimference doctor
-```
-
-### 3. Start the daemon
-
-```bash
-./slimference start
-```
-
-### 4. Open the TUI
+Build and install:
 
 ```bash
-./slimference
+go run ./scripts/build --install
+~/.local/bin/slimference install
+~/.local/bin/slimference status --preflight
 ```
 
-### 5. Install hooks for your agent
+Update a local source checkout:
 
 ```bash
-./slimference hook install claude
-./slimference hook install codex
+go run ./scripts/build --restart
+~/.local/bin/slimference status --preflight
 ```
 
-### 6. Enable auto-start on login
+Open the TUI:
 
 ```bash
-./slimference service install
+slimference
 ```
 
-## TUI
+## Daily Use
 
-The TUI is built with Bubble Tea and Lip Gloss.
+From the TUI:
 
-It is meant to be the operator console for a running Slimference daemon:
+- **Launch Codex CLI** starts a new scoped Codex CLI session through
+  Slimference in the current project directory.
+- **Launch Codex App** starts Codex Desktop with the scoped Slimference
+  app-server route when the proof gate is green.
+- **Activity** shows currently routed Slimference traffic.
+- **Savings** shows token accounting, cache impact, archive savings, and
+  provider-level breakdowns.
+- **Status** shows daemon/install/runtime health.
+- **Logs** shows bounded diagnostic logs and export support.
+- **Setup** repairs install/autostart/scoped route prerequisites.
 
-- monitor provider and layer status
-- view analytics and savings
-- inspect recent request activity
-- inspect local logs
-- enable or disable providers and layers
-- start, stop, restart, install, or uninstall the background service
-
-Navigation highlights:
-
-- `left` / `right`: switch views
-- `up` / `down`: move inside setup selections
-- `enter`: execute the selected setup action
-- `c` / `x`: toggle Claude Code / Codex
-- `1` / `2` / `3`: toggle compression layers
-- `f`: flush caches
-- `q`: quit the TUI
+Normal Codex CLI or Codex Desktop launches outside the TUI remain direct unless
+you explicitly enable an advanced shared route.
 
 ## Useful Commands
 
-### Service and daemon
-
 ```bash
-./slimference start
-./slimference stop
-./slimference restart
-./slimference service status
-./slimference service install
-./slimference service uninstall
-./slimference daemon logs --lines=100
-```
+# Launch one scoped Codex CLI prompt through Slimference
+slimference codex run -- "check this project"
 
-### Layer 0 filtering and savings
+# Launch Codex CLI with the safest available transport
+slimference codex run --transport=auto -- "run a quick status"
 
-```bash
-./slimference filter -- git status
-./slimference gain today
-./slimference gain week --by-command
-```
+# Inspect scoped route / daemon state
+slimference status --preflight
+slimference codex status
 
-### Debug and diagnostics
+# Savings reports
+slimference savings
+slimference gain today
+slimference gain --proxy today
+slimference gain --cache today
+slimference gain --output today
 
-```bash
-./slimference doctor
-./slimference debug paths
-./slimference debug last
-./slimference debug tail 20
-./slimference stats today
-./slimference version
+# Diagnostics
+slimference debug bundle
+slimference debug paths
+slimference debug flight last
+
+# Service lifecycle
+slimference start
+slimference stop
+slimference restart
+slimference service status
 ```
 
 ## Local Data
 
-Slimference writes local state under `~/.slimference/`.
+Slimference stores runtime data under `~/.slimference/`.
 
-Important paths include:
+Important paths:
 
-- `~/.slimference/logs/slimference.jsonl`
-- `~/.slimference/logs/daemon.stdout.log`
-- `~/.slimference/logs/daemon.stderr.log`
+- `~/.slimference/logs/`
 - `~/.slimference/analytics/`
 - `~/.slimference/filter.db`
-- `~/.slimference/tui_state.json`
+- `~/.slimference/debug/`
+- `~/.slimference/exports/`
+- `~/.slimference/run/daemon.pid`
 
-## Supported Agent Surface
-
-Current first-class hook support:
-
-- Claude Code
-- Codex
+Diagnostics are designed to be useful without dumping private prompt content by
+default. Review exported bundles before sharing them.
 
 ## Development
 
-Run the full Go test suite:
+Run the full project gate:
 
 ```bash
-go test ./...
+go run ./scripts/ci
 ```
 
-Build the binary:
+Fast focused checks:
 
 ```bash
-go run ./scripts/build --out ./slimference
+go test ./cmd/slimference ./internal/tui ./internal/debug ./internal/filter ./internal/evidence
+git diff --check
 ```
 
-The repository also includes Go tooling under [`scripts/`](./scripts/README.md) and deeper technical documentation in [`docs/documentation.md`](./docs/documentation.md).
+Build the installed binary:
 
-## Notes
+```bash
+go build -o ~/.local/bin/slimference ./cmd/slimference
+slimference --version
+```
 
-- `spec+.md` is the implementation-driving specification.
-- `handover.md` is the operator and agent onboarding file.
-- `rtk-master/` is reference material only and is not part of Slimference runtime code.
+Project docs:
+
+- [`docs/install.md`](docs/install.md) is the install/uninstall source of truth.
+- [`docs/documentation.md`](docs/documentation.md) is the technical reference.
+- [`spec+.md`](spec+.md) is the implementation-driving specification.
+- [`docs/todo.md`](docs/todo.md) tracks active engineering work.
+
+## Reality Check
+
+Slimference is not a magic output-token reducer and it does not make a model
+smarter. It saves tokens by removing deterministic waste around the model:
+redundant tool data, repeated reads, noisy logs, cache-hostile formatting, and
+avoidable request bloat.
+
+If a savings idea would make the model lose context, hallucinate, forget
+details, work from stale state, or depend on an unproven retrieval/rewrite
+scheme, it is not a default Slimference product feature.
+
+## License
+
+License file is not present in this checkout yet. Add one before publishing a
+public release.
