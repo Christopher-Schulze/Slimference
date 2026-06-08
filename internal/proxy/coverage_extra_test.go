@@ -139,6 +139,19 @@ func TestExtractSessionIDCodexHTTPDoesNotUseUserIDAsThread(t *testing.T) {
 	}
 }
 
+func TestExtractSessionIDCodexHTTPResponsesInputFallbackIsNotEmpty(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte(`{"model":"gpt-5.5","input":"check the repo"}`),
+		[]byte(`{"model":"gpt-5.5","input":[{"type":"message","role":"user","content":"check the repo"}]}`),
+		[]byte(`{"model":"gpt-5.5","input":[{"type":"message","role":"assistant","content":"ignored"},{"type":"message","role":"user","content":[{"type":"input_text","text":"check the repo"}]}]}`),
+	} {
+		got := extractSessionID(types.CodexChatGPT, body, http.Header{})
+		if !strings.HasPrefix(got, "fh:") {
+			t.Fatalf("Codex Responses API fallback session id=%q for %s", got, body)
+		}
+	}
+}
+
 func TestExtractClientFamilyCodexHTTPFallbacks(t *testing.T) {
 	if family := extractClientFamily(types.CodexChatGPT, []byte(`{"metadata":{"source":"desktop"}}`), http.Header{}); family != "codex_desktop_app" {
 		t.Fatalf("metadata family=%q", family)

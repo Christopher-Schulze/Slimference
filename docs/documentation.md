@@ -1919,7 +1919,10 @@ are read from top-level, `metadata`, `client_metadata`, or nested
 the same account. HTTP rows use `codex-http:<thread>`, WSS rows use
 `codex-wss:<thread>`, and WSS keeps its historical `prompt_cache_key` fallback
 only when stronger metadata is absent. Codex HTTP `client_family` is captured
-from the same metadata sources or User-Agent fallback. Rows also include
+from the same metadata sources or User-Agent fallback. If Codex HTTP does not
+carry any strong thread metadata, the anonymous fallback hashes Responses API
+`input` user text instead of collapsing those rows into the empty bucket. Rows
+also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used

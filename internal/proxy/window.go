@@ -319,6 +319,7 @@ func extractFirstUserText(body []byte) string {
 			Role    string      `json:"role"`
 			Content interface{} `json:"content"`
 		} `json:"messages"`
+		Input interface{} `json:"input"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
@@ -328,7 +329,7 @@ func extractFirstUserText(body []byte) string {
 			return contentValueString(msg.Content)
 		}
 	}
-	return ""
+	return inputValueFirstUserText(req.Input)
 }
 
 func contentValueString(value interface{}) string {
@@ -348,6 +349,38 @@ func contentValueString(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", value)
 	}
+}
+
+func inputValueFirstUserText(value interface{}) string {
+	switch input := value.(type) {
+	case string:
+		return input
+	case []interface{}:
+		for _, item := range input {
+			if text := inputItemUserText(item); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func inputItemUserText(value interface{}) string {
+	item, ok := value.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	role, _ := item["role"].(string)
+	if role != "" && role != "user" {
+		return ""
+	}
+	if content, ok := item["content"]; ok {
+		return contentValueString(content)
+	}
+	if text, ok := item["text"].(string); ok {
+		return text
+	}
+	return ""
 }
 
 func extractMetadataUserID(body []byte) string {
