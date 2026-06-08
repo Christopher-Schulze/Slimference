@@ -648,6 +648,7 @@ func TestView_StatsRenderEvidenceSummary(t *testing.T) {
 			Action:       evidence.ActionFullPass,
 			Signals:      []evidence.Signal{evidence.SignalCacheHotZone},
 			NetTokens:    -5,
+			CacheImpact:  "provider_cache_read",
 		}},
 	}}
 	m := NewModel(p)
@@ -659,7 +660,7 @@ func TestView_StatsRenderEvidenceSummary(t *testing.T) {
 	if !strings.Contains(output, "EVIDENCE") {
 		t.Fatalf("evidence card missing: %s", output)
 	}
-	for _, want := range []string{"2 decision(s)", "37 net", "1 applied", "1 full-pass", "test=1", "search=1", "cache_hot_zone=1"} {
+	for _, want := range []string{"2 decision(s)", "37 net", "1 applied", "1 full-pass", "test=1", "search=1", "cache_hot_zone=1", "provider_cache_read=1"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("evidence summary missing %q: %s", want, output)
 		}

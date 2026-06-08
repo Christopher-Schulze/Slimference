@@ -476,6 +476,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 					Action:       evidence.ActionApplied,
 					Signals:      []evidence.Signal{evidence.SignalErrorKeyword, evidence.SignalStacktrace},
 					NetTokens:    700,
+					CacheImpact:  "provider_cache_read",
 				}},
 			},
 			{
@@ -551,6 +552,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 	if got.Evidence.Decisions != 3 || got.Evidence.Applied != 2 || got.Evidence.FullPass != 1 ||
 		got.Evidence.ByContentClass[string(evidence.ContentTest)] != 1 ||
 		got.Evidence.BySignal[string(evidence.SignalCacheHotZone)] != 1 ||
+		got.Evidence.ByCacheImpact["provider_cache_read"] != 2 ||
 		got.Evidence.NetTokens != 700 {
 		t.Fatalf("bad evidence totals: %+v", got.Evidence)
 	}
@@ -564,7 +566,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		t.Fatalf("top mechanism: %+v", got.Mechanisms)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Evidence decisions", "cache_hot_zone=1", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Evidence decisions", "cache_hot_zone=1", "Evidence cache impact", "provider_cache_read=2", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
@@ -1226,6 +1228,7 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 			NetTokens:      3,
 			ByContentClass: map[string]int64{"search": 1, "test": 1},
 			BySignal:       map[string]int64{"error_keyword": 1, "cache_hot_zone": 1},
+			ByCacheImpact:  map[string]int64{"provider_cache_read": 1},
 		},
 		Mechanisms: []SavingsMechanismSummary{
 			{Name: "m00", NetTokens: 10, SavedTokens: 10, Count: 1},
@@ -1248,7 +1251,7 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 		},
 	}
 	text := formatSavingsText(s)
-	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cache net", "100.0% hit", "L0=2,L1=4,L2=6,out=-1,tools=8", "Evidence decisions", "search=1", "cache_hot_zone=1", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "cache=8/100.0%", "net=-5"} {
+	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cache net", "100.0% hit", "L0=2,L1=4,L2=6,out=-1,tools=8", "Evidence decisions", "search=1", "cache_hot_zone=1", "provider_cache_read=1", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "cache=8/100.0%", "net=-5"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}

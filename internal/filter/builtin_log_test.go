@@ -188,3 +188,16 @@ func TestFilterLogOutput_KeepsOperationalFailurePastHeadBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterLogOutput_KeepsRejectedPastHeadBudget(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 130; i++ {
+		sb.WriteString("2024-01-01 INFO request processed\n")
+	}
+	sb.WriteString("2024-01-01 ERROR upstream rejected request\n")
+	got := filterLogOutput(sb.String())
+	if !strings.Contains(got, "upstream rejected request") {
+		t.Fatalf("rejected failure past head budget was dropped: %q", got[:min(len(got), 240)])
+	}
+}

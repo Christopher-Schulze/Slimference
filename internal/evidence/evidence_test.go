@@ -12,6 +12,7 @@ func TestAnalyzeClassifiesCoreContent(t *testing.T) {
 		{name: "json", text: `{"ok":true,"items":[1,2]}`, want: ContentJSON},
 		{name: "diff", argv: []string{"git", "diff"}, text: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old\n+new\n", want: ContentDiff},
 		{name: "search", argv: []string{"rg", "TODO"}, text: "a.go:10:TODO one\nb.go:20:TODO two\n", want: ContentSearch},
+		{name: "windows search", text: `C:\repo\src\a-file.go:10:TODO one` + "\n" + `C:\repo\src\b-file.go:20:TODO two`, want: ContentSearch},
 		{name: "stacktrace", text: "Traceback (most recent call last):\n  File \"a.py\", line 1\nValueError: bad\n", want: ContentStacktrace},
 		{name: "test", argv: []string{"go", "test"}, text: "--- FAIL: TestX (0.00s)\nFAIL\n", want: ContentTest},
 		{name: "log", text: "2026-06-08 error failed\n2026-06-08 warn degraded\n", want: ContentLog},
@@ -29,13 +30,30 @@ func TestAnalyzeClassifiesCoreContent(t *testing.T) {
 }
 
 func TestAnalyzeSignalsEvidence(t *testing.T) {
-	text := "panic: failed hard\nsame line\nsame line\nsame line\nfile.go:12: warning\nexit status 1\n" +
+	text := "panic: failed hard\nsame line\nsame line\nsame line\nfile.go:12: warning\nTODO fix auth secret\nexit status 1\n" +
 		"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
 	got := Analyze([]string{"go", "test"}, []byte(text))
-	for _, signal := range []Signal{SignalErrorKeyword, SignalWarning, SignalDedupe, SignalOutlier, SignalPath, SignalCount, SignalExitStatus, SignalFirstLast, SignalRecency} {
+	for _, signal := range []Signal{SignalErrorKeyword, SignalWarning, SignalImportant, SignalSecurity, SignalDedupe, SignalOutlier, SignalPath, SignalCount, SignalExitStatus, SignalFirstLast, SignalRecency} {
 		if !hasSignal(got.Signals, signal) {
 			t.Fatalf("missing signal %s in %v", signal, got.Signals)
 		}
+	}
+}
+
+func TestAnalyzeExtendedErrorSignals(t *testing.T) {
+	for _, text := range []string{
+		"request abort after timeout",
+		"connection rejected by server",
+		"critical crash in worker",
+	} {
+		got := Analyze([]string{"tail", "app.log"}, []byte(text))
+		if !hasSignal(got.Signals, SignalErrorKeyword) {
+			t.Fatalf("extended error signal missing for %q: %v", text, got.Signals)
+		}
+	}
+	got := Analyze(nil, []byte("token budget reached but no sensitive material"))
+	if hasSignal(got.Signals, SignalSecurity) {
+		t.Fatalf("token must not be treated as security signal: %v", got.Signals)
 	}
 }
 

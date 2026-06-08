@@ -455,11 +455,21 @@ by those reducers and reports. It classifies content as `test`, `log`,
 `search`, `diff`, `stacktrace`, `json`, `code`, `plain`, or `unknown`, then
 records content-free signals such as error keywords, stacktraces, outliers,
 dedupe, changed hunks, recency, cache hot zone, first/last preservation,
-exit/status, paths, counts, and warnings. The manifest stores safety class,
-action, reason, preserved-evidence labels, recovery mode, and net tokens, but
-never raw prompt/tool payload. It does not summarize or retrieve content for
-the model; it only makes deterministic reducer decisions auditable and catches
-negative-net/cache regressions.
+exit/status, paths, counts, warnings, importance, and security. Keyword
+detection is centralized in a deterministic registry; `token` is intentionally
+not a security keyword because token-budget chatter would create false security
+signals. The manifest stores safety class, action, reason, preserved-evidence
+labels, recovery mode, cache impact, and net tokens, but never raw prompt/tool
+payload. CLI savings and the TUI evidence card aggregate cache impact values so
+provider-cache read, create/warmup, observed, and negative-net situations stay
+visible. It does not summarize or retrieve content for the model; it only makes
+deterministic reducer decisions auditable and catches negative-net/cache
+regressions.
+Headroom-derived ideas are limited to deterministic parser/evidence/reporting
+hardening. Slimference does not product-enable Headroom-style Kompress/local
+model compression, lossy code/text summaries, CCR retrieve-on-demand, memory
+injection, or learning loops, because those require the model to recover omitted
+context and do not meet the no-drawdown rule.
 After any WSS upstream `error`, `response.failed`, or `response.incomplete`
 frame, the current socket adapter quarantines itself and full-passes subsequent
 request bodies until reconnect. That keeps the product fail-open after a proven
@@ -646,6 +656,13 @@ header - both colon-less. The grouper now SKIPS colon-less noise lines (header,
 context separators, truncated tail) and only abandons grouping when nothing
 parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured `rg`
 (402 matches, 79 files) this compacts 40 KB to ~9 KB (78%) on supported routes.
+The same parser accepts normal `file:line:content`, Windows
+`C:\path\file.go:line:content`, and dashed `file-line-content` match rows while
+context/json/list/count/null separator modes still full-pass. When a file or
+match list must be capped, first/last evidence stays visible and high-signal
+rows (`error`, `fatal`, `timeout`, `rejected`, `warning`, `security`, `secret`,
+`auth`, `todo`, `fixme`, etc.) are promoted into the visible window before
+plain middle rows.
 For Codex WSS Phase-F, search-output reducer paths are pass-through until the
 WSS protocol shape is re-certified live. That includes grep-style output,
 path-list output from tools such as `find` / `fd`, and search-looking output

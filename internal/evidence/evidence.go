@@ -37,6 +37,8 @@ const (
 	SignalPath         Signal = "path"
 	SignalCount        Signal = "count"
 	SignalWarning      Signal = "warning"
+	SignalImportant    Signal = "important"
+	SignalSecurity     Signal = "security"
 )
 
 type SafetyClass string
@@ -179,14 +181,9 @@ func classify(argv []string, text string) ContentClass {
 func detectSignals(text string) []Signal {
 	var out []Signal
 	lower := strings.ToLower(text)
-	for _, word := range []string{"error", "failed", "failure", "panic", "exception", "fatal", "denied", "invalid"} {
-		if strings.Contains(lower, word) {
-			out = appendSignal(out, SignalErrorKeyword)
-			break
-		}
-	}
-	if strings.Contains(lower, "warning") || strings.Contains(lower, "warn ") || strings.Contains(lower, "warn:") {
-		out = appendSignal(out, SignalWarning)
+	signals := detectKeywordSignals(text)
+	for _, signal := range signals {
+		out = appendSignal(out, signal)
 	}
 	if looksLikeStacktrace(text) {
 		out = appendSignal(out, SignalStacktrace)
@@ -337,11 +334,33 @@ func hasExitSignal(lower string) bool {
 
 func hasPathishPrefix(line string) bool {
 	head := line
-	if idx := strings.IndexByte(line, ':'); idx >= 0 {
+	if idx := firstSearchEvidenceSeparator(line); idx >= 0 {
 		head = line[:idx]
 	}
 	head = strings.TrimSpace(head)
-	return strings.Contains(head, "/") || strings.Contains(head, ".")
+	return strings.Contains(head, "/") || strings.Contains(head, "\\") || strings.Contains(head, ".")
+}
+
+func firstSearchEvidenceSeparator(line string) int {
+	scanStart := 0
+	if len(line) >= 3 &&
+		((line[0] >= 'A' && line[0] <= 'Z') || (line[0] >= 'a' && line[0] <= 'z')) &&
+		line[1] == ':' &&
+		(line[2] == '\\' || line[2] == '/') {
+		scanStart = 2
+	}
+	for i := scanStart; i < len(line); i++ {
+		if line[i] != ':' && line[i] != '-' {
+			continue
+		}
+		if i+1 < len(line) && line[i+1] >= '0' && line[i+1] <= '9' {
+			return i
+		}
+	}
+	if idx := strings.IndexByte(line[scanStart:], ':'); idx >= 0 {
+		return scanStart + idx
+	}
+	return -1
 }
 
 func countColonFields(line string) int {

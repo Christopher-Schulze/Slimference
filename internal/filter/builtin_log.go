@@ -91,7 +91,7 @@ func importantLogLine(line string) bool {
 	for _, tok := range []string{
 		"error", "fatal", "panic", "fail", "exception", "traceback", "warn",
 		"critical", "severe", "denied", "forbidden", "unauthorized",
-		"permission denied", "refused", "timeout", "timed out", "unhealthy",
+		"permission denied", "refused", "rejected", "timeout", "timed out", "unhealthy",
 		"crashloop", "oom", "out of memory", "segfault", "abort",
 	} {
 		if strings.Contains(tl, tok) {

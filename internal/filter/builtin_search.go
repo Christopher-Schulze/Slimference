@@ -16,6 +16,18 @@ const (
 	minLinesForGrouped = 4  // only group if output is at least this many lines
 )
 
+type searchMatchLine struct {
+	lineNum string
+	content string
+	score   int
+}
+
+type parsedSearchLine struct {
+	file    string
+	lineNum string
+	content string
+}
+
 // groupSearchResults groups grep/rg/fd style "file:line:content" output by file.
 // Returns (grouped, ok). ok=false means unchanged passthrough.
 func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
@@ -28,13 +40,8 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		return stdout, false
 	}
 
-	// Try to parse as "file:line:content" or "file:content".
-	type matchLine struct {
-		lineNum string
-		content string
-	}
 	fileOrder := []string{}
-	fileMatches := map[string][]matchLine{}
+	fileMatches := map[string][]searchMatchLine{}
 	skipped, nonEmpty := 0, 0
 
 	for _, raw := range lines {
@@ -47,42 +54,24 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 			skipped++
 			continue
 		}
-		// Try "file:linenum:content" (rg/grep -n style).
-		firstColon := strings.IndexByte(line, ':')
-		if firstColon <= 0 {
-			// A colon-less line is noise: a header line (e.g. rg's
+		parsed, ok := parseSearchMatchLine(line)
+		if !ok {
+			// An unparsable line is noise: a header line (e.g. rg's
 			// "Total output lines: N"), a context separator, or a line cut off
 			// by Codex's output truncation. Skip it rather than abandoning the
 			// whole grouping - a single such line must not defeat compaction.
 			skipped++
 			continue
 		}
-		filePart := line[:firstColon]
-		rest := line[firstColon+1:]
 
-		// Check if rest starts with a line number (digits + colon).
-		secColon := strings.IndexByte(rest, ':')
-		lineNum := ""
-		content := rest
-		if secColon > 0 {
-			potentialNum := rest[:secColon]
-			allDigits := true
-			for _, c := range potentialNum {
-				if c < '0' || c > '9' {
-					allDigits = false
-					break
-				}
-			}
-			if allDigits && len(potentialNum) > 0 {
-				lineNum = potentialNum
-				content = rest[secColon+1:]
-			}
+		if _, seen := fileMatches[parsed.file]; !seen {
+			fileOrder = append(fileOrder, parsed.file)
 		}
-
-		if _, seen := fileMatches[filePart]; !seen {
-			fileOrder = append(fileOrder, filePart)
-		}
-		fileMatches[filePart] = append(fileMatches[filePart], matchLine{lineNum: lineNum, content: content})
+		fileMatches[parsed.file] = append(fileMatches[parsed.file], searchMatchLine{
+			lineNum: parsed.lineNum,
+			content: parsed.content,
+			score:   searchEvidenceScore(parsed.content),
+		})
 	}
 
 	// Count total matches.
@@ -102,7 +91,7 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
 
-	selectedFiles := cappedSearchIndexes(len(fileOrder), maxFilesShown, 6)
+	selectedFiles := selectSearchFileIndexes(fileOrder, fileMatches, maxFilesShown)
 	previousFile := -1
 	for _, fileIdx := range selectedFiles {
 		if previousFile >= 0 && fileIdx > previousFile+1 {
@@ -111,7 +100,7 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		f := fileOrder[fileIdx]
 		ms := fileMatches[f]
 		sb.WriteString(fmt.Sprintf("  %s (%d match(es))\n", f, len(ms)))
-		selectedMatches := cappedSearchIndexes(len(ms), maxMatchesPerFile, 6)
+		selectedMatches := selectSearchMatchIndexes(ms, maxMatchesPerFile)
 		previousMatch := -1
 		for _, matchIdx := range selectedMatches {
 			if previousMatch >= 0 && matchIdx > previousMatch+1 {
@@ -136,6 +125,187 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		return stdout, false // no benefit
 	}
 	return []byte(result), true
+}
+
+func parseSearchMatchLine(line string) (parsedSearchLine, bool) {
+	if file, lineNum, content, ok := parseNumberedSearchMatchLine(line); ok {
+		return parsedSearchLine{file: file, lineNum: lineNum, content: content}, true
+	}
+	if file, content, ok := parseUnnumberedSearchMatchLine(line); ok {
+		return parsedSearchLine{file: file, content: content}, true
+	}
+	return parsedSearchLine{}, false
+}
+
+func parseNumberedSearchMatchLine(line string) (file string, lineNum string, content string, ok bool) {
+	scanStart := 0
+	if hasWindowsDrivePrefix(line) {
+		scanStart = 2
+	}
+	for i := scanStart; i < len(line); i++ {
+		sep := line[i]
+		if sep != ':' && sep != '-' {
+			continue
+		}
+		if i == 0 || i+2 >= len(line) || line[i+1] < '0' || line[i+1] > '9' {
+			continue
+		}
+		if line[i-1] == ':' || line[i-1] == '-' {
+			continue
+		}
+		j := i + 1
+		for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+			j++
+		}
+		if j == len(line) || (line[j] != ':' && line[j] != '-') {
+			continue
+		}
+		if j+1 > len(line) {
+			continue
+		}
+		file = line[:i]
+		if !looksLikeSearchFile(file) {
+			continue
+		}
+		return file, line[i+1 : j], line[j+1:], true
+	}
+	return "", "", "", false
+}
+
+func parseUnnumberedSearchMatchLine(line string) (file string, content string, ok bool) {
+	scanStart := 0
+	if hasWindowsDrivePrefix(line) {
+		scanStart = 2
+	}
+	idx := strings.IndexByte(line[scanStart:], ':')
+	if idx < 0 {
+		return "", "", false
+	}
+	idx += scanStart
+	if idx <= 0 || idx == len(line)-1 {
+		return "", "", false
+	}
+	file = line[:idx]
+	if !looksLikeSearchFile(file) {
+		return "", "", false
+	}
+	return file, line[idx+1:], true
+}
+
+func hasWindowsDrivePrefix(line string) bool {
+	return len(line) >= 3 &&
+		((line[0] >= 'A' && line[0] <= 'Z') || (line[0] >= 'a' && line[0] <= 'z')) &&
+		line[1] == ':' &&
+		(line[2] == '\\' || line[2] == '/')
+}
+
+func looksLikeSearchFile(file string) bool {
+	file = strings.TrimSpace(file)
+	return file != "" &&
+		(strings.Contains(file, "/") || strings.Contains(file, "\\") || strings.Contains(file, "."))
+}
+
+func selectSearchFileIndexes(fileOrder []string, fileMatches map[string][]searchMatchLine, budget int) []int {
+	total := len(fileOrder)
+	selected := map[int]struct{}{}
+	seedFirstLastSearchIndexes(selected, total, budget)
+	for len(selected) < min(budget, total) {
+		bestIdx, bestScore := -1, 0
+		for i, file := range fileOrder {
+			if _, ok := selected[i]; ok {
+				continue
+			}
+			score := 0
+			for _, match := range fileMatches[file] {
+				score += match.score
+			}
+			if score > bestScore {
+				bestIdx, bestScore = i, score
+			}
+		}
+		if bestIdx < 0 || bestScore <= 0 {
+			break
+		}
+		selected[bestIdx] = struct{}{}
+	}
+	for _, idx := range cappedSearchIndexes(total, budget, 6) {
+		if len(selected) >= min(budget, total) {
+			break
+		}
+		selected[idx] = struct{}{}
+	}
+	return sortedSearchIndexes(selected)
+}
+
+func selectSearchMatchIndexes(matches []searchMatchLine, budget int) []int {
+	total := len(matches)
+	selected := map[int]struct{}{}
+	seedFirstLastSearchIndexes(selected, total, budget)
+	for len(selected) < min(budget, total) {
+		bestIdx, bestScore := -1, 0
+		for i, match := range matches {
+			if _, ok := selected[i]; ok {
+				continue
+			}
+			if match.score > bestScore {
+				bestIdx, bestScore = i, match.score
+			}
+		}
+		if bestIdx < 0 || bestScore <= 0 {
+			break
+		}
+		selected[bestIdx] = struct{}{}
+	}
+	for _, idx := range cappedSearchIndexes(total, budget, 6) {
+		if len(selected) >= min(budget, total) {
+			break
+		}
+		selected[idx] = struct{}{}
+	}
+	return sortedSearchIndexes(selected)
+}
+
+func seedFirstLastSearchIndexes(selected map[int]struct{}, total, budget int) {
+	if total <= 0 || budget <= 0 {
+		return
+	}
+	selected[0] = struct{}{}
+	if budget > 1 && total > 1 {
+		selected[total-1] = struct{}{}
+	}
+}
+
+func sortedSearchIndexes(selected map[int]struct{}) []int {
+	out := make([]int, 0, len(selected))
+	for idx := range selected {
+		out = append(out, idx)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func searchEvidenceScore(content string) int {
+	lower := strings.ToLower(content)
+	score := 0
+	for _, word := range []string{"panic", "fatal", "critical", "exception", "traceback", "crash", "error", "failed", "failure", "abort", "timeout", "timed out", "rejected", "denied", "invalid"} {
+		if strings.Contains(lower, word) {
+			score += 100
+			break
+		}
+	}
+	for _, word := range []string{"warning", "warn "} {
+		if strings.Contains(lower, word) {
+			score += 60
+			break
+		}
+	}
+	for _, word := range []string{"todo", "fixme", "important", "bug", "security", "secret", "password", "auth"} {
+		if strings.Contains(lower, word) {
+			score += 30
+			break
+		}
+	}
+	return score
 }
 
 func isSearchEnvelopeNoiseLine(line string) bool {
@@ -187,34 +357,15 @@ func CanonicalSearchMatchSet(stdout []byte) (string, bool) {
 			skipped++
 			continue
 		}
-		firstColon := strings.IndexByte(line, ':')
-		if firstColon <= 0 {
+		parsed, ok := parseSearchMatchLine(line)
+		if !ok {
 			skipped++
 			continue
 		}
-		filePart := line[:firstColon]
-		rest := line[firstColon+1:]
-		secColon := strings.IndexByte(rest, ':')
-		lineNum := ""
-		content := rest
-		if secColon > 0 {
-			potentialNum := rest[:secColon]
-			allDigits := true
-			for _, c := range potentialNum {
-				if c < '0' || c > '9' {
-					allDigits = false
-					break
-				}
-			}
-			if allDigits && len(potentialNum) > 0 {
-				lineNum = potentialNum
-				content = rest[secColon+1:]
-			}
-		}
 		matches = append(matches, matchLine{
-			file:    filePart,
-			lineNum: lineNum,
-			content: strings.TrimSpace(content),
+			file:    parsed.file,
+			lineNum: parsed.lineNum,
+			content: strings.TrimSpace(parsed.content),
 		})
 	}
 	if len(matches) == 0 || skipped*2 > nonEmpty {

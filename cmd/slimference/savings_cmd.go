@@ -94,6 +94,7 @@ type SavingsEvidenceSummary struct {
 	ByContentClass map[string]int64 `json:"by_content_class,omitempty"`
 	BySafetyClass  map[string]int64 `json:"by_safety_class,omitempty"`
 	BySignal       map[string]int64 `json:"by_signal,omitempty"`
+	ByCacheImpact  map[string]int64 `json:"by_cache_impact,omitempty"`
 }
 
 type SavingsMechanismSummary struct {
@@ -474,6 +475,12 @@ func accumulateSavingsEvidence(out *SavingsEvidenceSummary, decisions []evidence
 			if signal != "" {
 				out.BySignal[string(signal)]++
 			}
+		}
+		if decision.CacheImpact != "" {
+			if out.ByCacheImpact == nil {
+				out.ByCacheImpact = map[string]int64{}
+			}
+			out.ByCacheImpact[decision.CacheImpact]++
 		}
 	}
 }
@@ -1110,6 +1117,9 @@ func formatSavingsText(s SavingsSummary) string {
 				formatSavingsTopCounts(s.Evidence.ByContentClass, 4),
 				formatSavingsTopCounts(s.Evidence.BySignal, 6),
 			))
+			if len(s.Evidence.ByCacheImpact) > 0 {
+				sb.WriteString(fmt.Sprintf("Evidence cache impact:       %s\n", formatSavingsTopCounts(s.Evidence.ByCacheImpact, 4)))
+			}
 		}
 		if s.DecisionEstimatedCostBeforeUSD > 0 || s.DecisionEstimatedCostAfterUSD > 0 || s.DecisionEstimatedCostSavedUSD > 0 {
 			sb.WriteString(fmt.Sprintf("Decision cost before/after:  ~$%.4f / ~$%.4f (saved ~$%.4f)\n",

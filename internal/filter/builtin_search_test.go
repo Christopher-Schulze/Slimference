@@ -121,6 +121,83 @@ func TestGroupSearchResults_grouped(t *testing.T) {
 	}
 }
 
+func TestGroupSearchResultsWindowsPathLineNumbers(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for i := 1; i <= 24; i++ {
+		fmt.Fprintf(&sb, `C:\Users\chris\repo\src\file-one.go:%d:ordinary match text with enough payload to save space`, i)
+		sb.WriteByte('\n')
+	}
+	input := sb.String()
+	out, ok := TryCompactSearchOutput([]string{"rg", "-n", "needle"}, []byte(input))
+	if !ok {
+		t.Fatalf("windows path output should group")
+	}
+	s := string(out)
+	if !strings.Contains(s, `C:\Users\chris\repo\src\file-one.go`) {
+		t.Fatalf("windows path was truncated at drive colon: %q", s)
+	}
+	if strings.Contains(s, "  C (") {
+		t.Fatalf("drive letter must not become the file key: %q", s)
+	}
+}
+
+func TestGroupSearchResultsDashSeparatedLineNumbers(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for i := 1; i <= 24; i++ {
+		fmt.Fprintf(&sb, "src/path-with-dash/pre-commit-config.yaml-%d-match text with enough payload to save space\n", i)
+	}
+	out, ok := TryCompactSearchOutput([]string{"ag", "match"}, []byte(sb.String()))
+	if !ok {
+		t.Fatalf("dash-separated output should group")
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/path-with-dash/pre-commit-config.yaml") || !strings.Contains(s, "24:") {
+		t.Fatalf("dash-separated path/line format parsed incorrectly: %q", s)
+	}
+}
+
+func TestGroupSearchResultsPromotesHighSignalMiddleMatch(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		msg := "ordinary match text with enough payload to save space"
+		if i == 16 {
+			msg = "fatal timeout rejected request with enough payload to survive score promotion"
+		}
+		fmt.Fprintf(&sb, "src/service/handler.go:%d:%s\n", i, msg)
+	}
+	out, ok := groupSearchResults([]byte(sb.String()), "rg")
+	if !ok {
+		t.Fatalf("large search output should group")
+	}
+	if !strings.Contains(string(out), "fatal timeout rejected request") {
+		t.Fatalf("high-signal middle match was dropped: %q", string(out))
+	}
+}
+
+func TestCanonicalSearchMatchSetWindowsPath(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		`C:\repo\src\b-file.go:20:needle beta`,
+		`C:\repo\src\a-file.go:2:needle alpha`,
+	}, "\n")
+	got, ok := CanonicalSearchMatchSet([]byte(input))
+	if !ok {
+		t.Fatal("windows search output should canonicalize")
+	}
+	want := `C:\repo\src\a-file.go:2:needle alpha` + "\n" +
+		`C:\repo\src\b-file.go:20:needle beta` + "\n"
+	if got != want {
+		t.Fatalf("canonical windows search identity = %q, want %q", got, want)
+	}
+}
+
 func TestGroupSearchResults_shortPassthrough(t *testing.T) {
 	t.Parallel()
 	// Less than minLinesForGrouped → passthrough

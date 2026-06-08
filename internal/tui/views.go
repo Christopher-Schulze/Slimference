@@ -156,6 +156,7 @@ type tuiEvidenceSummary struct {
 	NetTokens  int
 	Classes    map[string]int
 	Signals    map[string]int
+	Cache      map[string]int
 }
 
 func aggregateFlightTokens(flights []dbg.FlightRequestSummary) (original int, final int, saved int, cached int) {
@@ -231,6 +232,7 @@ func summarizeFlightEvidence(flights []dbg.FlightRequestSummary) tuiEvidenceSumm
 	out := tuiEvidenceSummary{
 		Classes: map[string]int{},
 		Signals: map[string]int{},
+		Cache:   map[string]int{},
 	}
 	for _, flight := range flights {
 		for _, decision := range flight.EvidenceDecisions {
@@ -252,18 +254,25 @@ func summarizeFlightEvidence(flights []dbg.FlightRequestSummary) tuiEvidenceSumm
 					out.Signals[string(signal)]++
 				}
 			}
+			if strings.TrimSpace(decision.CacheImpact) != "" {
+				out.Cache[decision.CacheImpact]++
+			}
 		}
 	}
 	return out
 }
 
 func renderEvidenceLines(s Styles, evidence tuiEvidenceSummary) []string {
-	return []string{
+	lines := []string{
 		" " + s.Normal.Render(fmt.Sprintf("%d decision(s) · %s net", evidence.Decisions, formatSignedTokens(evidence.NetTokens))),
 		" " + s.Muted.Render(fmt.Sprintf("%d applied · %d full-pass · %d failed-open", evidence.Applied, evidence.FullPass, evidence.FailedOpen)),
 		" " + s.Muted.Render("classes "+formatTopIntCounts(evidence.Classes, 4)),
 		" " + s.Muted.Render("signals "+formatTopIntCounts(evidence.Signals, 5)),
 	}
+	if len(evidence.Cache) > 0 {
+		lines = append(lines, " "+s.Muted.Render("cache "+formatTopIntCounts(evidence.Cache, 4)))
+	}
+	return lines
 }
 
 func renderSavingsSessionLines(s Styles, sessions []tuiSessionSavings) []string {
