@@ -1929,13 +1929,18 @@ Codex attribution health is reported as
 `decision_codex_attribution_rate`. A Codex request counts as attributed only when
 the row carries a strong `codex-http:<thread>` or `codex-wss:<thread>` session ID;
 anonymous historical fallback buckets remain visible instead of being silently
-merged into real sessions.
+merged into real sessions. `decision_codex_attribution_status` is `ok` when all
+Codex rows are strongly attributed and `attention` when any Codex row remains
+anonymous.
 Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_read_tokens`, `decision_cache_create_tokens`,
 `decision_cache_net_tokens`, `decision_cache_hit_requests`,
 `decision_cache_hit_rate`, and `decision_cache_negative_net_requests` show
 whether cache steering helped or harmed. A cache-create-only request therefore
 shows negative cache net instead of being hidden behind gross token savings.
+`decision_cache_status` is `ok` for positive cache reuse, `warming` for
+create-only activity, `attention` for negative net cache impact, and `none` when
+the decision log has no cache activity.
 
 ---
 

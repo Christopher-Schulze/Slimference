@@ -61,10 +61,12 @@ type SavingsSummary struct {
 	DecisionCacheCreateRequests       int64                     `json:"decision_cache_create_requests"`
 	DecisionCacheNegativeNetRequests  int64                     `json:"decision_cache_negative_net_requests"`
 	DecisionCacheHitRate              float64                   `json:"decision_cache_hit_rate"`
+	DecisionCacheStatus               string                    `json:"decision_cache_status,omitempty"`
 	DecisionCodexRequests             int64                     `json:"decision_codex_requests"`
 	DecisionCodexAttributedRequests   int64                     `json:"decision_codex_attributed_requests"`
 	DecisionCodexUnattributedRequests int64                     `json:"decision_codex_unattributed_requests"`
 	DecisionCodexAttributionRate      float64                   `json:"decision_codex_attribution_rate"`
+	DecisionCodexAttributionStatus    string                    `json:"decision_codex_attribution_status,omitempty"`
 	DecisionLayer0NetTokens           int64                     `json:"decision_layer0_net_tokens"`
 	DecisionLayer1NetTokens           int64                     `json:"decision_layer1_net_tokens"`
 	DecisionLayer2NetTokens           int64                     `json:"decision_layer2_net_tokens"`
@@ -384,9 +386,11 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	})
 	if out.DecisionRequests > 0 {
 		out.DecisionCacheHitRate = float64(out.DecisionCacheHitRequests) / float64(out.DecisionRequests)
+		out.DecisionCacheStatus = savingsDecisionCacheStatus(*out)
 	}
 	if out.DecisionCodexRequests > 0 {
 		out.DecisionCodexAttributionRate = float64(out.DecisionCodexAttributedRequests) / float64(out.DecisionCodexRequests)
+		out.DecisionCodexAttributionStatus = savingsDecisionCodexAttributionStatus(*out)
 	}
 }
 
@@ -476,6 +480,32 @@ func isCodexDecisionSummary(summary dbg.RequestSummary, sessionID string) bool {
 		strings.Contains(source, "codex") ||
 		isCodexThreadSession(strings.TrimSpace(summary.SessionID)) ||
 		isCodexThreadSession(strings.TrimSpace(sessionID))
+}
+
+func savingsDecisionCacheStatus(s SavingsSummary) string {
+	if s.DecisionRequests == 0 {
+		return ""
+	}
+	if s.DecisionCacheReadTokens == 0 && s.DecisionCacheCreateTokens == 0 {
+		return "none"
+	}
+	if s.DecisionCacheNetTokens < 0 || s.DecisionCacheNegativeNetRequests > 0 {
+		return "attention"
+	}
+	if s.DecisionCacheReadTokens > 0 {
+		return "ok"
+	}
+	return "warming"
+}
+
+func savingsDecisionCodexAttributionStatus(s SavingsSummary) string {
+	if s.DecisionCodexRequests == 0 {
+		return ""
+	}
+	if s.DecisionCodexUnattributedRequests > 0 {
+		return "attention"
+	}
+	return "ok"
 }
 
 func savingsClientFamily(summary dbg.RequestSummary) string {
@@ -644,18 +674,22 @@ func formatSavingsText(s SavingsSummary) string {
 		}
 		if s.DecisionCacheReadTokens > 0 || s.DecisionCacheCreateTokens > 0 {
 			sb.WriteString(fmt.Sprintf("Decision cache read/create:  %s / %s\n", formatInt64Plain(s.DecisionCacheReadTokens), formatInt64Plain(s.DecisionCacheCreateTokens)))
-			sb.WriteString(fmt.Sprintf("Decision cache net:          %s (%d hit req, %.1f%% hit, %d create req, %d negative net)\n",
+			sb.WriteString(fmt.Sprintf("Decision cache net:          %s (%s, %d hit req, %.1f%% hit, %d create req, %d negative net)\n",
 				formatSignedInt64Plain(s.DecisionCacheNetTokens),
+				formatSavingsHealthStatus(s.DecisionCacheStatus),
 				s.DecisionCacheHitRequests,
 				s.DecisionCacheHitRate*100,
 				s.DecisionCacheCreateRequests,
 				s.DecisionCacheNegativeNetRequests,
 			))
+		} else if s.DecisionCacheStatus != "" {
+			sb.WriteString(fmt.Sprintf("Decision cache status:       %s\n", formatSavingsHealthStatus(s.DecisionCacheStatus)))
 		}
 		if s.DecisionCodexRequests > 0 {
-			sb.WriteString(fmt.Sprintf("Codex attribution:           %d/%d attributed (%.1f%%, %d unattributed)\n",
+			sb.WriteString(fmt.Sprintf("Codex attribution:           %d/%d attributed (%s, %.1f%%, %d unattributed)\n",
 				s.DecisionCodexAttributedRequests,
 				s.DecisionCodexRequests,
+				formatSavingsHealthStatus(s.DecisionCodexAttributionStatus),
 				s.DecisionCodexAttributionRate*100,
 				s.DecisionCodexUnattributedRequests,
 			))
@@ -775,6 +809,21 @@ func formatSavingsClientFamily(value string) string {
 	}
 }
 
+func formatSavingsHealthStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ok":
+		return "ok"
+	case "attention":
+		return "attention"
+	case "warming":
+		return "warming"
+	case "none":
+		return "none"
+	default:
+		return "unknown"
+	}
+}
+
 func compactSavingsPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -839,8 +888,8 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_attribution_rate,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%s,%d,%d,%d,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -870,10 +919,12 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.DecisionCacheHitRate,
 		s.DecisionCacheCreateRequests,
 		s.DecisionCacheNegativeNetRequests,
+		s.DecisionCacheStatus,
 		s.DecisionCodexRequests,
 		s.DecisionCodexAttributedRequests,
 		s.DecisionCodexUnattributedRequests,
 		s.DecisionCodexAttributionRate,
+		s.DecisionCodexAttributionStatus,
 		s.DecisionLayer0NetTokens,
 		s.DecisionLayer1NetTokens,
 		s.DecisionLayer2NetTokens,

@@ -801,11 +801,11 @@ func TestSavingsCodexAttributionHealth(t *testing.T) {
 		t.Fatalf("bad Codex attribution health: %+v", got)
 	}
 	text := formatSavingsText(got)
-	if !strings.Contains(text, "Codex attribution:") || !strings.Contains(text, "1/2 attributed (50.0%, 1 unattributed)") {
+	if !strings.Contains(text, "Codex attribution:") || !strings.Contains(text, "1/2 attributed (attention, 50.0%, 1 unattributed)") {
 		t.Fatalf("text missing attribution health: %s", text)
 	}
 	csv := formatSavingsCSV(got)
-	for _, want := range []string{"decision_codex_requests", "decision_codex_attributed_requests", "decision_codex_unattributed_requests", "decision_codex_attribution_rate", ",2,1,1,0.500000,"} {
+	for _, want := range []string{"decision_cache_status", "decision_codex_requests", "decision_codex_attributed_requests", "decision_codex_unattributed_requests", "decision_codex_attribution_rate", "decision_codex_attribution_status", ",none,2,1,1,0.500000,attention,"} {
 		if !strings.Contains(csv, want) {
 			t.Fatalf("csv missing %q: %s", want, csv)
 		}
