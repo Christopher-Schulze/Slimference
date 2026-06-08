@@ -1911,7 +1911,8 @@ started by `service install`.
 
 The Savings view is product accounting, not parser telemetry. It renders total
 input saved, estimated original vs sent tokens, tracked output tokens,
-per-session recent/active savings rows, cache contribution, and safety state.
+per-session recent/active savings rows, cache contribution, deterministic
+evidence decision aggregates, and safety state.
 Codex WSS and HTTP session rows are enriched from the same Codex thread store
 as Activity, so Desktop and CLI threads show user-facing title/path/client
 labels when Codex has persisted them. Raw flight IDs stay transport-precise

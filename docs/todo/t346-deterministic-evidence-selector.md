@@ -66,8 +66,11 @@ model, semantic summary, manual experiment surface, or default-off feature.
   not inferred from raw prompt text.
 - `slimference savings` reports aggregate evidence counts/classes/signals only;
   raw prompt/tool payload stays out of logs and reports.
+- Second verification pass found and closed the UI gap: the Savings TUI now
+  shows the same content-free evidence decision aggregate as CLI/JSON reports.
 - Targeted tests passed: `go test ./internal/evidence ./internal/debug
   ./internal/filter ./internal/proxy ./cmd/slimference`.
+- Follow-up targeted TUI test passed: `go test ./internal/tui`.
 - Final gate passed: `go run ./scripts/ci`.
 
 ## Deviations

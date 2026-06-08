@@ -45,9 +45,10 @@ Decision logs and savings reports also include a deterministic evidence
 manifest. It is content-free: content class, safety class, action, reason,
 signals, recovery label, preserved-evidence label, and token accounting only.
 The visible aggregate is `Evidence decisions` plus top content classes and
-signals, so regressions in error-priority, stacktrace preservation, changed
-hunks, cache hot zones, or negative-net reducer behavior are visible without
-duplicating prompt/tool payload.
+signals in CLI/JSON reports and the Savings TUI, so regressions in
+error-priority, stacktrace preservation, changed hunks, cache hot zones, or
+negative-net reducer behavior are visible without duplicating prompt/tool
+payload.
 
 ## Codex Smoke Corpus
 

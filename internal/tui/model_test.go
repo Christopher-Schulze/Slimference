@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/evidence"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -630,6 +631,38 @@ func TestView_StatsRender(t *testing.T) {
 	}
 	if strings.Contains(output, "LAYER 0 PARSERS") || strings.Contains(output, "git_status") {
 		t.Fatalf("stats view leaked parser internals: %s", output)
+	}
+}
+
+func TestView_StatsRenderEvidenceSummary(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.recentFlights = []dbg.FlightRequestSummary{{
+		EvidenceDecisions: []evidence.BlockDecision{{
+			ContentClass: evidence.ContentTest,
+			Action:       evidence.ActionApplied,
+			Signals:      []evidence.Signal{evidence.SignalErrorKeyword, evidence.SignalRecency},
+			NetTokens:    42,
+		}, {
+			ContentClass: evidence.ContentSearch,
+			Action:       evidence.ActionFullPass,
+			Signals:      []evidence.Signal{evidence.SignalCacheHotZone},
+			NetTokens:    -5,
+		}},
+	}}
+	m := NewModel(p)
+	m.view = ViewStats
+	m.width = 120
+	m.height = 40
+
+	output := m.View()
+	if !strings.Contains(output, "EVIDENCE") {
+		t.Fatalf("evidence card missing: %s", output)
+	}
+	for _, want := range []string{"2 decision(s)", "37 net", "1 applied", "1 full-pass", "test=1", "search=1", "cache_hot_zone=1"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("evidence summary missing %q: %s", want, output)
+		}
 	}
 }
 

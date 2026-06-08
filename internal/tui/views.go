@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slimference/slimference/internal/analytics"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/evidence"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -113,6 +114,10 @@ func (m *Model) renderStatsView() string {
 		" " + s.Muted.Render(fmt.Sprintf("%d read-cache decision(s), %d hit(s)", readCache.Blocks+readCache.Allows, readCache.Blocks)),
 	})
 
+	if evidence := summarizeFlightEvidence(flights); evidence.Decisions > 0 {
+		appendCard("EVIDENCE", renderEvidenceLines(s, evidence))
+	}
+
 	safety := productSafetyLine(m.latestProduct)
 	safetyStyle := s.Saved
 	if safety != "safety ok" {
@@ -141,6 +146,16 @@ type tuiSessionSavings struct {
 	Saved    int
 	Cached   int
 	LastSeen time.Time
+}
+
+type tuiEvidenceSummary struct {
+	Decisions  int
+	Applied    int
+	FullPass   int
+	FailedOpen int
+	NetTokens  int
+	Classes    map[string]int
+	Signals    map[string]int
 }
 
 func aggregateFlightTokens(flights []dbg.FlightRequestSummary) (original int, final int, saved int, cached int) {
@@ -212,6 +227,45 @@ func summarizeFlightSessions(flights []dbg.FlightRequestSummary, limit int) []tu
 	return rows
 }
 
+func summarizeFlightEvidence(flights []dbg.FlightRequestSummary) tuiEvidenceSummary {
+	out := tuiEvidenceSummary{
+		Classes: map[string]int{},
+		Signals: map[string]int{},
+	}
+	for _, flight := range flights {
+		for _, decision := range flight.EvidenceDecisions {
+			out.Decisions++
+			out.NetTokens += decision.NetTokens
+			switch decision.Action {
+			case evidence.ActionApplied:
+				out.Applied++
+			case evidence.ActionFullPass:
+				out.FullPass++
+			case evidence.ActionFailedOpen:
+				out.FailedOpen++
+			}
+			if decision.ContentClass != "" {
+				out.Classes[string(decision.ContentClass)]++
+			}
+			for _, signal := range decision.Signals {
+				if signal != "" {
+					out.Signals[string(signal)]++
+				}
+			}
+		}
+	}
+	return out
+}
+
+func renderEvidenceLines(s Styles, evidence tuiEvidenceSummary) []string {
+	return []string{
+		" " + s.Normal.Render(fmt.Sprintf("%d decision(s) · %s net", evidence.Decisions, formatSignedTokens(evidence.NetTokens))),
+		" " + s.Muted.Render(fmt.Sprintf("%d applied · %d full-pass · %d failed-open", evidence.Applied, evidence.FullPass, evidence.FailedOpen)),
+		" " + s.Muted.Render("classes "+formatTopIntCounts(evidence.Classes, 4)),
+		" " + s.Muted.Render("signals "+formatTopIntCounts(evidence.Signals, 5)),
+	}
+}
+
 func renderSavingsSessionLines(s Styles, sessions []tuiSessionSavings) []string {
 	if len(sessions) == 0 {
 		return []string{" " + s.Muted.Render("No Slimference session data yet.")}
@@ -269,6 +323,43 @@ func flightTokenTotals(flight dbg.FlightRequestSummary) (original int, final int
 		}
 	}
 	return original, final, saved, cached
+}
+
+func formatSignedTokens(tokens int) string {
+	if tokens < 0 {
+		return "-" + formatTokens(-tokens)
+	}
+	return formatTokens(tokens)
+}
+
+func formatTopIntCounts(counts map[string]int, limit int) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(counts))
+	for key, count := range counts {
+		if strings.TrimSpace(key) == "" || count <= 0 {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if counts[keys[i]] == counts[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return counts[keys[i]] > counts[keys[j]]
+	})
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func savingsPercent(saved int, original int) int {
