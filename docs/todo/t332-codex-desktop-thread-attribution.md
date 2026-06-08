@@ -33,6 +33,8 @@ Codex App without thread evidence.
 - [x] Stop treating `codex_chatgpt` provider fallback as Codex App proof.
 - [x] Add focused regression tests for WSS client metadata, Activity labels, and
   Savings thread enrichment.
+- [x] Add direct `internal/codexthreads` tests for current Codex schema, older
+  schema fallback, missing DB/table behavior, and session id normalization.
 - [x] Update product documentation.
 
 ## Notes
@@ -42,7 +44,12 @@ Codex App without thread evidence.
   their session ids back to Codex's persisted thread metadata when available.
 - This is display/accounting hardening only. It does not change token mutation,
   prompt cache steering, provider routing, or Desktop model metadata.
+- The Codex thread lookup now introspects the local `threads` table and treats
+  optional columns as optional, so a missing `thread_source`, `model`, or
+  `updated_at_ms` column degrades to empty labels/timestamp fallback instead of
+  breaking Activity/Savings rendering.
 
 ## Verification
 
+- `go test ./internal/codexthreads -count=1`
 - `go test ./internal/codexthreads ./internal/proxy ./internal/tui ./cmd/slimference -run 'TestWSSRequestMetaFromRawMatchesBodyHelpers|TestWSCodexSessionIDFromCodexResponsesShape|TestView_ActivityRenderShowsSessionsAndTraffic|TestUserClientLabelDoesNotTreatCodexProviderAsDesktopApp|TestSavingsSessionsUseCodexThreadMetadata|TestComputeSavingsDecisionMechanismBreakdown|TestFormatSavingsTextDecisionCacheAndSigned' -count=1`
