@@ -14,6 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/codexthreads"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 )
 
@@ -749,6 +750,141 @@ func TestSavingsSessionsKeepParallelCodexThreadsSeparate(t *testing.T) {
 	}
 }
 
+func TestSavingsResolvesHashFallbackToLocalCodexThread(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	firstPrompt := "check the project status"
+	fallbackID := "fh:" + codexFirstTextHash(firstPrompt)
+
+	prevReplay := replaySessionFn
+	prevLookupMeta := lookupCodexThreadMetadataForSavingsFn
+	prevLookupWindow := lookupCodexThreadWindowForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookupMeta
+		lookupCodexThreadWindowForSavingsFn = prevLookupWindow
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{{
+			RequestID:    "req-fallback",
+			Timestamp:    now,
+			SessionID:    fallbackID,
+			Source:       "proxy",
+			Provider:     "codex_chatgpt",
+			Path:         "/backend-api/codex/responses",
+			ClientFamily: "codex_cli",
+			Model:        "gpt-5.5",
+			Tokens:       dbg.TokenCounts{Original: 1000, Final: 700, Saved: 300},
+		}}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {
+		if len(ids) != 1 || ids[0] != "thread-local" {
+			t.Fatalf("thread lookup ids=%v", ids)
+		}
+		return map[string]codexthreads.Metadata{}, nil
+	}
+	lookupCodexThreadWindowForSavingsFn = func(start, end time.Time) ([]codexthreads.Metadata, error) {
+		if start.After(now) || end.Before(now) {
+			t.Fatalf("bad lookup window start=%s end=%s now=%s", start, end, now)
+		}
+		return []codexthreads.Metadata{
+			{
+				ID:               "thread-local",
+				Title:            "› check project status",
+				CWD:              "/Users/me/CODE/Golem",
+				Source:           "cli",
+				ThreadSource:     "user",
+				Model:            "gpt-5.5",
+				FirstUserMessage: firstPrompt,
+				UpdatedAt:        now,
+			},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if got.DecisionCodexRequests != 1 ||
+		got.DecisionCodexAttributedRequests != 1 ||
+		got.DecisionCodexUnattributedRequests != 0 ||
+		got.DecisionCodexAttributionStatus != "ok" {
+		t.Fatalf("fallback should resolve cleanly: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	session := got.DecisionSessions[0]
+	if session.SessionID != "codex-local:thread-local" ||
+		session.DisplayName != "check project status" ||
+		session.ProjectPath != "/Users/me/CODE/Golem" ||
+		session.ClientFamily != "codex_cli" {
+		t.Fatalf("bad resolved session: %+v", session)
+	}
+}
+
+func TestSavingsHashFallbackMatchesProxyHashWithoutTrimming(t *testing.T) {
+	prompt := "  check the project status  "
+	fallbackID := "fh:" + codexFirstTextHash(prompt)
+	meta, ok := resolveLocalCodexFallbackByHash(
+		savingsSessionFacts{SessionID: fallbackID},
+		[]codexthreads.Metadata{{ID: "thread-local", FirstUserMessage: prompt}},
+	)
+	if !ok || meta.ID != "thread-local" {
+		t.Fatalf("hash fallback must match the proxy content hash byte-for-byte, ok=%v meta=%+v", ok, meta)
+	}
+	_, ok = resolveLocalCodexFallbackByHash(
+		savingsSessionFacts{SessionID: fallbackID},
+		[]codexthreads.Metadata{{ID: "thread-trimmed", FirstUserMessage: strings.TrimSpace(prompt)}},
+	)
+	if ok {
+		t.Fatalf("trimmed local text must not match a proxy hash for the untrimmed first user text")
+	}
+}
+
+func TestSavingsKeepsAmbiguousHashFallbackUnattributed(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookupWindow := lookupCodexThreadWindowForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadWindowForSavingsFn = prevLookupWindow
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{{
+			RequestID:    "req-ambiguous",
+			Timestamp:    now,
+			SessionID:    "fh:aaaaaaaaaaaaaaaa",
+			Source:       "proxy",
+			Provider:     "codex_chatgpt",
+			Path:         "/backend-api/codex/responses",
+			ClientFamily: "codex",
+			Model:        "gpt-5.5",
+			Tokens:       dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+		}}, nil
+	}
+	lookupCodexThreadWindowForSavingsFn = func(time.Time, time.Time) ([]codexthreads.Metadata, error) {
+		return []codexthreads.Metadata{
+			{ID: "thread-a", Source: "cli", Model: "gpt-5.5", UpdatedAt: now},
+			{ID: "thread-b", Source: "vscode", Model: "gpt-5.5", UpdatedAt: now},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if got.DecisionCodexRequests != 1 ||
+		got.DecisionCodexAttributedRequests != 0 ||
+		got.DecisionCodexUnattributedRequests != 1 ||
+		got.DecisionCodexAttributionStatus != "attention" {
+		t.Fatalf("ambiguous fallback must stay unattributed: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].SessionID != "fh:aaaaaaaaaaaaaaaa" {
+		t.Fatalf("ambiguous session should remain fallback: %+v", got.DecisionSessions)
+	}
+}
+
 func TestSavingsCodexAttributionHealth(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	cfg := config.Defaults()
@@ -842,6 +978,73 @@ func TestAccumulateDecisionMechanismsBranches(t *testing.T) {
 	accumulateDecisionMechanismsFromDecisionLog(&out, cfg, "bad-period", time.Now())
 	if out.DecisionRequests != 0 {
 		t.Fatalf("bad period should not mutate summary: %+v", out)
+	}
+}
+
+func TestComputeSavingsLiveUsesCurrentDaemonWindow(t *testing.T) {
+	now := time.Date(2026, 6, 8, 18, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-10 * time.Minute)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	prevDaemon := daemonIsRunningFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+		daemonIsRunningFn = prevDaemon
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 1234, Port: 8990, StartedAt: startedAt}, nil
+	}
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID: "old-anon",
+				Timestamp: startedAt.Add(-time.Second),
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Path:      "/backend-api/codex/responses",
+				Tokens:    dbg.TokenCounts{Original: 1000, Final: 1000},
+			},
+			{
+				RequestID:         "live-thread",
+				Timestamp:         startedAt.Add(time.Second),
+				SessionID:         "codex-http:thread-live",
+				Source:            "proxy",
+				Provider:          "codex_chatgpt",
+				Path:              "/backend-api/codex/responses",
+				Tokens:            dbg.TokenCounts{Original: 1000, Final: 700, Saved: 300},
+				CacheReadTokens:   200,
+				CacheCreateTokens: 20,
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "live", "", now)
+	if got.DecisionRequests != 1 || got.DecisionNetSavedTokens != 300 {
+		t.Fatalf("live window included stale rows: %+v", got)
+	}
+	if got.DecisionCodexRequests != 1 ||
+		got.DecisionCodexAttributedRequests != 1 ||
+		got.DecisionCodexUnattributedRequests != 0 ||
+		got.DecisionCodexAttributionStatus != "ok" {
+		t.Fatalf("live attribution should be clean: %+v", got)
+	}
+	if got.DecisionCacheNetTokens != 180 || got.DecisionCacheStatus != "ok" || got.DecisionCacheNegativeNetRequests != 0 {
+		t.Fatalf("live cache health should be clean: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].SessionID != "codex-http:thread-live" {
+		t.Fatalf("live sessions: %+v", got.DecisionSessions)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Slimference savings (live)", "Codex attribution:", "1/1 attributed (ok, 100.0%, 0 unattributed)", "Decision cache net", "180"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
 	}
 }
 

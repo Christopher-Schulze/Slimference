@@ -29,12 +29,41 @@ func TestParseStaleSlimferenceProcesses(t *testing.T) {
 
 func TestParseStaleSlimferenceProcessesIgnoresSelfAndHealthy(t *testing.T) {
 	input := `
- 100 U    /Users/christopher/.local/bin/slimference status
- 101 Ss   /Users/christopher/.local/bin/slimference daemon
- 102 S    /bin/bash -lc echo slimference
-`
+	 100 U    /Users/christopher/.local/bin/slimference status
+	 101 Ss   /Users/christopher/.local/bin/slimference daemon
+	 102 S    /bin/bash -lc echo slimference
+	 103 U+   /Users/christopher/.npm-global/lib/node_modules/@openai/codex/bin/codex -c model_provider=slimference-codex
+	`
 	got := parseStaleSlimferenceProcesses(input, 100)
 	if len(got) != 0 {
 		t.Fatalf("expected none, got %+v", got)
+	}
+}
+
+func TestIsSlimferenceProcessArgsRequiresExecutable(t *testing.T) {
+	if !isSlimferenceProcessArgs("/Users/christopher/.local/bin/slimference daemon") {
+		t.Fatal("slimference executable should match")
+	}
+	if !isSlimferenceProcessArgs("/tmp/slimference.dyld-stuck-20260520 version") {
+		t.Fatal("slimference dyld-stuck executable should match")
+	}
+	if isSlimferenceProcessArgs("/Users/christopher/.npm-global/bin/codex -c model_provider=slimference-codex") {
+		t.Fatal("codex provider args must not count as a Slimference process")
+	}
+}
+
+func TestStaleSlimferenceProcessNoticeIgnoringPID(t *testing.T) {
+	prev := psSlimferenceProcessesFn
+	psSlimferenceProcessesFn = func() ([]staleSlimferenceProcess, error) {
+		return []staleSlimferenceProcess{
+			{PID: 101, Stat: "U", Args: "/Users/christopher/.local/bin/slimference daemon"},
+			{PID: 202, Stat: "UE", Args: "/Users/christopher/.local/bin/slimference stop"},
+		}, nil
+	}
+	t.Cleanup(func() { psSlimferenceProcessesFn = prev })
+
+	notice := staleSlimferenceProcessNoticeIgnoringPID(101)
+	if strings.Contains(notice, "101(U)") || !strings.Contains(notice, "202(UE)") {
+		t.Fatalf("notice should ignore current daemon pid only: %q", notice)
 	}
 }

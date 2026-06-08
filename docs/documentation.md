@@ -1207,6 +1207,9 @@ the same Layer 1-3 compression path:
   body shapes return to byte-equal passthrough.
 - Rebuild preserves body-level fields such as `conversation_id`, `metadata`,
   `stream`, and `store`, plus auth/session headers in the forwarded request.
+  `x-codex-thread-id`, `x-codex-conversation-id`, and `x-codex-session-id`
+  are also accepted as strong local reporting identities when the body lacks
+  thread metadata; these headers are forwarded unchanged.
 
 ### Server-side state lever (T78)
 
@@ -1908,20 +1911,33 @@ Parser matrices, checkpoints, archive internals, quality canaries, and raw
 debug counters remain available through CLI/admin diagnostics, not the daily
 TUI.
 
-For measured conversation accounting, use `slimference savings <period>`. When
+For measured conversation accounting, use `slimference savings <period>`. `period`
+is `live`, `today`, `week`, `month`, or `all`. `live` is the current-daemon
+proof window: it starts at the running daemon's `started_at` timestamp and uses
+decision-log rows only, so stale anonymous rows from older binaries cannot make
+the current attribution/cache health look worse than it is. If no daemon is
+running, `live` falls back to the last 30 minutes. When
 the decision log is configured, the report prints aggregate `Decision layer net`
 and top Codex sessions with compact `layers=` fields. Per-session rows include
 `display_name`, `project_path`, and `client_family` when Codex thread metadata
-can be resolved from WSS or HTTP Codex thread metadata. Strong thread identities
-are read from top-level, `metadata`, `client_metadata`, or nested
-`x-codex-turn-metadata` fields, but only thread/conversation/session keys count;
-`user_id` is deliberately ignored because it can merge parallel sessions from
-the same account. HTTP rows use `codex-http:<thread>`, WSS rows use
-`codex-wss:<thread>`, and WSS keeps its historical `prompt_cache_key` fallback
+can be resolved from WSS, HTTP Codex thread metadata, strong Codex session
+headers, or an unambiguous local Codex thread DB match. Strong thread identities
+are read from top-level, `metadata`, `client_metadata`, nested
+`x-codex-turn-metadata`, `x-codex-thread-id`, `x-codex-conversation-id`, or
+`x-codex-session-id`, but only thread/conversation/session keys count; `user_id`
+is deliberately ignored because it can merge parallel sessions from the same
+account. HTTP rows use `codex-http:<thread>`, WSS rows use
+`codex-wss:<thread>`, and local report-only resolutions use
+`codex-local:<thread>`. WSS keeps its historical `prompt_cache_key` fallback
 only when stronger metadata is absent. Codex HTTP `client_family` is captured
-from the same metadata sources or User-Agent fallback. If Codex HTTP does not
-carry any strong thread metadata, the anonymous fallback hashes Responses API
-`input` user text instead of collapsing those rows into the empty bucket. Rows
+from the same metadata sources or User-Agent fallback; `codex/...` User-Agents
+classify as Codex CLI. If Codex HTTP does not carry any strong thread metadata,
+the anonymous fallback hashes Responses API `input` user text instead of
+collapsing those rows into the empty bucket. During Savings reporting,
+`fh:*` fallback rows may be resolved to `codex-local:<thread>` only when the
+local `~/.codex/state_5.sqlite` thread table gives exactly one match by
+first-user-message hash or by time/model/client-family. Ambiguous parallel
+candidates remain anonymous and keep attribution status at `attention`. Rows
 also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
@@ -1932,12 +1948,13 @@ Codex attribution health is reported as
 `decision_codex_requests`, `decision_codex_attributed_requests`,
 `decision_codex_unattributed_requests`, and
 `decision_codex_attribution_rate`. A Codex request counts as attributed only when
-the row carries a strong `codex-http:<thread>` or `codex-wss:<thread>` session ID;
-anonymous historical fallback buckets remain visible instead of being silently
+the row carries a strong `codex-http:<thread>`/`codex-wss:<thread>` session ID or
+a report-time `codex-local:<thread>` resolution that passed the ambiguity guard.
+Anonymous historical fallback buckets remain visible instead of being silently
 merged into real sessions. Content-free Codex sideband endpoints such as
 `/backend-api/codex/models` remain in total decision accounting but do not count
 as unattributed conversation sessions. `decision_codex_attribution_status` is
-`ok` when all conversation-bearing Codex rows are strongly attributed and
+`ok` when all conversation-bearing Codex rows are attributed and
 `attention` when any such row remains anonymous.
 Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_read_tokens`, `decision_cache_create_tokens`,
@@ -2087,7 +2104,7 @@ slimference help [subcommand]
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
 | `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, output, or proxy-flight telemetry.|
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
-| `savings`     | Unified savings view per period with decision-log layer/conversation breakdown; --json / --csv (T80/T293).|
+| `savings`     | Unified savings view per period (`live`/today/week/month/all) with decision-log layer/conversation breakdown; --json / --csv (T80/T293/T343).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |

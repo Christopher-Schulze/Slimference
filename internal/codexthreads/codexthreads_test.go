@@ -40,12 +40,13 @@ CREATE TABLE threads (
 	source TEXT NOT NULL,
 	thread_source TEXT,
 	model TEXT,
+	first_user_message TEXT,
 	updated_at INTEGER NOT NULL,
 	updated_at_ms INTEGER
 )`)
 	execTestSQL(t, db, `
-INSERT INTO threads (id, title, cwd, source, thread_source, model, updated_at, updated_at_ms)
-VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 1760000000, 1760000000123)`)
+INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, updated_at, updated_at_ms)
+VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 'first prompt', 1760000000, 1760000000123)`)
 	db.Close()
 
 	got, err := Lookup(home, []string{"codex-wss:thread-1", "codex-wss:thread-1", "missing", ""})
@@ -56,7 +57,7 @@ VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 176
 	if !ok {
 		t.Fatalf("thread metadata missing: %+v", got)
 	}
-	if meta.Title != "Check status" || meta.CWD != "/tmp/project" || meta.Source != "cli" || meta.ThreadSource != "cli" || meta.Model != "gpt-5.5" {
+	if meta.Title != "Check status" || meta.CWD != "/tmp/project" || meta.Source != "cli" || meta.ThreadSource != "cli" || meta.Model != "gpt-5.5" || meta.FirstUserMessage != "first prompt" {
 		t.Fatalf("bad metadata: %+v", meta)
 	}
 	wantTime := time.UnixMilli(1760000000123).UTC()
@@ -65,6 +66,43 @@ VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 176
 	}
 	if _, ok := got["missing"]; ok {
 		t.Fatalf("unexpected missing entry: %+v", got)
+	}
+}
+
+func TestLookupWindowCurrentCodexSchema(t *testing.T) {
+	home := t.TempDir()
+	db := openTestCodexDB(t, home)
+	execTestSQL(t, db, `
+CREATE TABLE threads (
+	id TEXT PRIMARY KEY,
+	title TEXT,
+	cwd TEXT,
+	source TEXT,
+	thread_source TEXT,
+	model TEXT,
+	first_user_message TEXT,
+	updated_at_ms INTEGER
+)`)
+	execTestSQL(t, db, `
+INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, updated_at_ms)
+VALUES
+	('old-thread', 'Old', '/tmp/old', 'cli', 'user', 'gpt-5.5', 'old prompt', 1759999999000),
+	('thread-1', 'One', '/tmp/one', 'cli', 'user', 'gpt-5.5', 'first prompt', 1760000000100),
+	('thread-2', 'Two', '/tmp/two', 'vscode', '', 'gpt-5.5', 'second prompt', 1760000000200)`)
+	db.Close()
+
+	got, err := LookupWindow(home, time.UnixMilli(1760000000000).UTC(), time.UnixMilli(1760000000300).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("window rows=%d: %+v", len(got), got)
+	}
+	if got[0].ID != "thread-2" || got[0].FirstUserMessage != "second prompt" {
+		t.Fatalf("rows should be newest first with first_user_message: %+v", got)
+	}
+	if got[1].ID != "thread-1" || got[1].Source != "cli" {
+		t.Fatalf("second row: %+v", got[1])
 	}
 }
 

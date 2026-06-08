@@ -1358,6 +1358,8 @@ func normalizeCodexClientFamily(value string) string {
 	switch {
 	case strings.Contains(value, "cli"):
 		return "codex_cli"
+	case strings.HasPrefix(value, "codex/"), strings.HasPrefix(value, "codex "):
+		return "codex_cli"
 	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
 		return "codex_desktop_app"
 	default:

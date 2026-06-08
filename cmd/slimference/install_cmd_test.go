@@ -815,6 +815,9 @@ func TestRenderStatusHuman(t *testing.T) {
 	prevStale := staleSlimferenceProcessNoticeFn
 	staleSlimferenceProcessNoticeFn = func() string { return "" }
 	t.Cleanup(func() { staleSlimferenceProcessNoticeFn = prevStale })
+	prevIgnoring := staleSlimferenceProcessNoticeIgnoringPIDFn
+	staleSlimferenceProcessNoticeIgnoringPIDFn = func(int) string { return "" }
+	t.Cleanup(func() { staleSlimferenceProcessNoticeIgnoringPIDFn = prevIgnoring })
 
 	p, out, _ := newTestPrinter()
 	state := control.SetupState{
@@ -836,6 +839,11 @@ func TestRenderStatusIncludesStaleProcessNotice(t *testing.T) {
 		return "1 old stuck Slimference process(es): 42(U). Current daemon may still be healthy; reboot clears U/UE/dyld_start state."
 	}
 	t.Cleanup(func() { staleSlimferenceProcessNoticeFn = prevStale })
+	prevIgnoring := staleSlimferenceProcessNoticeIgnoringPIDFn
+	staleSlimferenceProcessNoticeIgnoringPIDFn = func(int) string {
+		return "1 old stuck Slimference process(es): 42(U). Current daemon may still be healthy; reboot clears U/UE/dyld_start state."
+	}
+	t.Cleanup(func() { staleSlimferenceProcessNoticeIgnoringPIDFn = prevIgnoring })
 
 	p, out, _ := newTestPrinter()
 	renderStatus(p, control.SetupState{Daemon: control.DaemonState{Running: true, PID: 100, HealthOK: true}})

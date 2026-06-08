@@ -23,6 +23,9 @@ No blocked tasks.
 
 ## Done
 
+- [x] T345 Healthy daemon stale-process status guard -> docs/todo/t345-healthy-daemon-stale-process-status-guard.md
+- [x] T344 Local Codex fallback thread attribution -> docs/todo/t344-local-codex-fallback-attribution.md
+- [x] T343 Live savings proof window -> docs/todo/t343-live-savings-proof-window.md
 - [x] T342 Codex sideband attribution health -> docs/todo/t342-codex-sideband-attribution-health.md
 - [x] T341 Codex Responses input fallback attribution -> docs/todo/t341-codex-responses-input-fallback-attribution.md
 - [x] T340 Codex user-id attribution guard -> docs/todo/t340-codex-user-id-attribution-guard.md

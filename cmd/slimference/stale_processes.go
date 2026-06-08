@@ -15,16 +15,30 @@ type staleSlimferenceProcess struct {
 }
 
 var (
-	psSlimferenceProcessesFn         = listStaleSlimferenceProcessesViaPS
-	staleSlimferenceProcessNoticeFn  = staleSlimferenceProcessNotice
-	staleSlimferenceProcessSelfPIDFn = os.Getpid
-	staleSlimferenceProcessCommandFn = func(name string, args ...string) *exec.Cmd { return exec.Command(name, args...) }
+	psSlimferenceProcessesFn                   = listStaleSlimferenceProcessesViaPS
+	staleSlimferenceProcessNoticeFn            = staleSlimferenceProcessNotice
+	staleSlimferenceProcessNoticeIgnoringPIDFn = staleSlimferenceProcessNoticeIgnoringPID
+	staleSlimferenceProcessSelfPIDFn           = os.Getpid
+	staleSlimferenceProcessCommandFn           = func(name string, args ...string) *exec.Cmd { return exec.Command(name, args...) }
 )
 
 func staleSlimferenceProcessNotice() string {
+	return staleSlimferenceProcessNoticeIgnoringPID(0)
+}
+
+func staleSlimferenceProcessNoticeIgnoringPID(ignorePID int) string {
 	procs, err := psSlimferenceProcessesFn()
 	if err != nil || len(procs) == 0 {
 		return ""
+	}
+	if ignorePID > 0 {
+		filtered := procs[:0]
+		for _, proc := range procs {
+			if proc.PID != ignorePID {
+				filtered = append(filtered, proc)
+			}
+		}
+		procs = filtered
 	}
 	return formatStaleSlimferenceProcessNotice(procs)
 }
@@ -51,7 +65,7 @@ func parseStaleSlimferenceProcesses(output string, selfPID int) []staleSlimferen
 		}
 		stat := fields[1]
 		args := strings.Join(fields[2:], " ")
-		if !strings.Contains(args, "slimference") {
+		if !isSlimferenceProcessArgs(args) {
 			continue
 		}
 		if !staleSlimferenceProcessLooksStuck(stat, args) {
@@ -60,6 +74,18 @@ func parseStaleSlimferenceProcesses(output string, selfPID int) []staleSlimferen
 		out = append(out, staleSlimferenceProcess{PID: pid, Stat: stat, Args: args})
 	}
 	return out
+}
+
+func isSlimferenceProcessArgs(args string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(args), " ")
+	if first == "" {
+		return false
+	}
+	base := first
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return strings.HasPrefix(base, "slimference")
 }
 
 func staleSlimferenceProcessLooksStuck(stat string, args string) bool {

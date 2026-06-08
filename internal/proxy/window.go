@@ -210,6 +210,9 @@ func extractSessionID(provider types.Provider, body []byte, headers http.Header)
 			if sid := extractCodexHTTPThreadSessionID(body); sid != "" {
 				return sid
 			}
+			if sid := codexStrongThreadHeaderSessionID(headers); sid != "" {
+				return sid
+			}
 		}
 		if cid := headers.Get("openai-conversation-id"); cid != "" {
 			return "openai:" + cid
@@ -248,6 +251,15 @@ func codexStrongThreadRawID(raw map[string]json.RawMessage) string {
 	}
 	if sid := codexNestedSessionID(raw["client_metadata"]); sid != "" {
 		return sid
+	}
+	return ""
+}
+
+func codexStrongThreadHeaderSessionID(headers http.Header) string {
+	for _, key := range []string{"x-codex-thread-id", "x-codex-conversation-id", "x-codex-session-id"} {
+		if sid := strings.TrimSpace(headers.Get(key)); sid != "" {
+			return "codex-http:" + sid
+		}
 	}
 	return ""
 }

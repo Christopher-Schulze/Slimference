@@ -50,6 +50,7 @@ _slimference() {
 
     local top_level="install uninstall enable disable status cert-trust root-arm root-disarm lab config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service codex proxy integrate bypass completion expand checkpoint trust version"
     local periods="today week month all"
+    local savings_periods="live today week month all"
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
     local quality_flags="--json --url"
@@ -191,7 +192,7 @@ _slimference() {
             COMPREPLY=( $(compgen -W "$periods $period_flags --project" -- "$cur") )
             ;;
         savings)
-            COMPREPLY=( $(compgen -W "$periods $savings_flags" -- "$cur") )
+            COMPREPLY=( $(compgen -W "$savings_periods $savings_flags" -- "$cur") )
             ;;
         quality)
             COMPREPLY=( $(compgen -W "$quality_flags" -- "$cur") )

@@ -12,13 +12,14 @@ import (
 )
 
 type Metadata struct {
-	ID           string
-	Title        string
-	CWD          string
-	Source       string
-	ThreadSource string
-	Model        string
-	UpdatedAt    time.Time
+	ID               string
+	Title            string
+	CWD              string
+	Source           string
+	ThreadSource     string
+	Model            string
+	FirstUserMessage string
+	UpdatedAt        time.Time
 }
 
 func LookupDefault(sessionIDs []string) (map[string]Metadata, error) {
@@ -79,6 +80,60 @@ func Lookup(home string, sessionIDs []string) (map[string]Metadata, error) {
 	return out, nil
 }
 
+func LookupWindowDefault(start, end time.Time) ([]Metadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return LookupWindow(home, start, end)
+}
+
+func LookupWindow(home string, start, end time.Time) ([]Metadata, error) {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return nil, nil
+	}
+	path := filepath.Join(home, ".codex", "state_5.sqlite")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	columns, err := threadColumns(db)
+	if err != nil {
+		return nil, err
+	}
+	if len(columns) == 0 {
+		return nil, nil
+	}
+	rows, err := db.Query(threadWindowQuerySQL(columns), start.UnixMilli(), end.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Metadata{}
+	for rows.Next() {
+		meta, err := scanMetadata(rows)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, meta)
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 func threadColumns(db *sql.DB) (map[string]struct{}, error) {
 	rows, err := db.Query(`PRAGMA table_info(threads)`)
 	if err != nil {
@@ -109,7 +164,7 @@ func threadColumns(db *sql.DB) (map[string]struct{}, error) {
 
 func threadQuerySQL(columns map[string]struct{}) string {
 	return fmt.Sprintf(`
-SELECT id, %s, %s, %s, %s, %s, %s
+SELECT id, %s, %s, %s, %s, %s, %s, %s
 FROM threads
 WHERE id = ?
 LIMIT 1`,
@@ -118,6 +173,25 @@ LIMIT 1`,
 		textColumnSQL(columns, "source"),
 		textColumnSQL(columns, "thread_source"),
 		textColumnSQL(columns, "model"),
+		textColumnSQL(columns, "first_user_message"),
+		updatedAtSQL(columns),
+	)
+}
+
+func threadWindowQuerySQL(columns map[string]struct{}) string {
+	return fmt.Sprintf(`
+SELECT id, %s, %s, %s, %s, %s, %s, %s
+FROM threads
+WHERE %s BETWEEN ? AND ?
+ORDER BY %s DESC`,
+		textColumnSQL(columns, "title"),
+		textColumnSQL(columns, "cwd"),
+		textColumnSQL(columns, "source"),
+		textColumnSQL(columns, "thread_source"),
+		textColumnSQL(columns, "model"),
+		textColumnSQL(columns, "first_user_message"),
+		updatedAtSQL(columns),
+		updatedAtSQL(columns),
 		updatedAtSQL(columns),
 	)
 }
@@ -146,19 +220,31 @@ func updatedAtSQL(columns map[string]struct{}) string {
 
 func query(db *sql.DB, querySQL string, id string) (Metadata, bool, error) {
 	row := db.QueryRow(querySQL, id)
-	var meta Metadata
-	var updatedAtMS int64
-	err := row.Scan(&meta.ID, &meta.Title, &meta.CWD, &meta.Source, &meta.ThreadSource, &meta.Model, &updatedAtMS)
+	meta, err := scanMetadata(row)
 	if err == sql.ErrNoRows {
 		return Metadata{}, false, nil
 	}
 	if err != nil {
 		return Metadata{}, false, err
 	}
+	return meta, true, nil
+}
+
+type metadataScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanMetadata(scanner metadataScanner) (Metadata, error) {
+	var meta Metadata
+	var updatedAtMS int64
+	err := scanner.Scan(&meta.ID, &meta.Title, &meta.CWD, &meta.Source, &meta.ThreadSource, &meta.Model, &meta.FirstUserMessage, &updatedAtMS)
+	if err != nil {
+		return Metadata{}, err
+	}
 	if updatedAtMS > 0 {
 		meta.UpdatedAt = time.UnixMilli(updatedAtMS).UTC()
 	}
-	return meta, true, nil
+	return meta, nil
 }
 
 func NormalizeSessionID(value string) string {
@@ -167,5 +253,7 @@ func NormalizeSessionID(value string) string {
 	value = strings.TrimPrefix(value, "codex-wss_")
 	value = strings.TrimPrefix(value, "codex-http:")
 	value = strings.TrimPrefix(value, "codex-http_")
+	value = strings.TrimPrefix(value, "codex-local:")
+	value = strings.TrimPrefix(value, "codex-local_")
 	return value
 }

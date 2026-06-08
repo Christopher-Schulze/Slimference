@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -120,6 +121,7 @@ type SavingsSessionSummary struct {
 }
 
 var lookupCodexThreadMetadataForSavingsFn = lookupCodexThreadMetadataForSavings
+var lookupCodexThreadWindowForSavingsFn = lookupCodexThreadWindowForSavings
 
 func parseSavingsArgs(args []string) (period string, f savingsFlags, err error) {
 	for i := 0; i < len(args); i++ {
@@ -167,14 +169,16 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 		USDPerMillion: cfg.Analytics.GainUSDPerMillionTokens,
 	}
 
-	filterPath, err := resolveFilterDBPathFn()
-	if err == nil {
-		if _, statErr := os.Stat(filterPath); statErr == nil {
-			rep, err := analytics.QueryFilterGainReport(filterPath, period, now, false, project, out.USDPerMillion)
-			if err == nil {
-				out.Layer0Runs = rep.FilterGainSummary.Runs
-				out.Layer0SavedTokens = rep.FilterGainSummary.TokensSavedEst
-				out.Layer0SavedUSD = rep.FilterGainSummary.SavingsUsdEst
+	if period != "live" {
+		filterPath, err := resolveFilterDBPathFn()
+		if err == nil {
+			if _, statErr := os.Stat(filterPath); statErr == nil {
+				rep, err := analytics.QueryFilterGainReport(filterPath, period, now, false, project, out.USDPerMillion)
+				if err == nil {
+					out.Layer0Runs = rep.FilterGainSummary.Runs
+					out.Layer0SavedTokens = rep.FilterGainSummary.TokensSavedEst
+					out.Layer0SavedUSD = rep.FilterGainSummary.SavingsUsdEst
+				}
 			}
 		}
 	}
@@ -203,6 +207,9 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 				accumulateSnapshots(&out, snaps)
 			}
 		}
+	case "live":
+		// Live reporting is decision-log based so historical daily snapshots
+		// cannot pollute current-daemon attribution/cache health.
 	}
 
 	if project == "" {
@@ -257,12 +264,13 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	if err != nil {
 		return
 	}
-	start, end, err := analytics.FilterGainWindow(period, now)
+	start, end, err := savingsReportWindow(period, now)
 	if err != nil {
 		return
 	}
 	byName := map[string]*SavingsMechanismSummary{}
 	bySession := map[string]*SavingsSessionSummary{}
+	bySessionFacts := map[string]*savingsSessionFacts{}
 	for _, summary := range summaries {
 		if summary.Timestamp.IsZero() || summary.Timestamp.Before(start) || summary.Timestamp.After(end) {
 			continue
@@ -289,14 +297,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			out.DecisionCacheNegativeNetRequests++
 		}
 		sessionID := decisionSessionID(summary)
-		if isCodexAttributionCandidate(summary, sessionID) {
-			out.DecisionCodexRequests++
-			if isCodexThreadSession(strings.TrimSpace(summary.SessionID)) {
-				out.DecisionCodexAttributedRequests++
-			} else {
-				out.DecisionCodexUnattributedRequests++
-			}
-		}
+		updateSavingsSessionFacts(bySessionFacts, sessionID, summary)
 		sessionRow := bySession[sessionID]
 		if sessionRow == nil {
 			sessionRow = &SavingsSessionSummary{SessionID: sessionID}
@@ -354,6 +355,15 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		}
 		addSessionLayerFallback(sessionRow, summary, layerObserved)
 	}
+	resolveLocalCodexFallbackSessions(bySession, bySessionFacts, start, end)
+	for _, facts := range bySessionFacts {
+		out.DecisionCodexRequests += facts.CodexCandidateRequests
+		out.DecisionCodexAttributedRequests += facts.AttributedRequests
+	}
+	if out.DecisionCodexAttributedRequests > out.DecisionCodexRequests {
+		out.DecisionCodexAttributedRequests = out.DecisionCodexRequests
+	}
+	out.DecisionCodexUnattributedRequests = out.DecisionCodexRequests - out.DecisionCodexAttributedRequests
 	out.Mechanisms = out.Mechanisms[:0]
 	for _, row := range byName {
 		out.Mechanisms = append(out.Mechanisms, *row)
@@ -460,6 +470,203 @@ func outputReduceSessionNetTokens(summary dbg.RequestSummary) int64 {
 	return -int64(summary.OutputReduce.AddedTokens)
 }
 
+type savingsSessionFacts struct {
+	SessionID              string
+	ClientFamily           string
+	Model                  string
+	FirstSeen              time.Time
+	LastSeen               time.Time
+	CodexCandidateRequests int64
+	AttributedRequests     int64
+}
+
+func updateSavingsSessionFacts(bySessionFacts map[string]*savingsSessionFacts, sessionID string, summary dbg.RequestSummary) {
+	facts := bySessionFacts[sessionID]
+	if facts == nil {
+		facts = &savingsSessionFacts{SessionID: sessionID}
+		bySessionFacts[sessionID] = facts
+	}
+	if !summary.Timestamp.IsZero() {
+		if facts.FirstSeen.IsZero() || summary.Timestamp.Before(facts.FirstSeen) {
+			facts.FirstSeen = summary.Timestamp
+		}
+		if facts.LastSeen.IsZero() || summary.Timestamp.After(facts.LastSeen) {
+			facts.LastSeen = summary.Timestamp
+		}
+	}
+	if facts.ClientFamily == "" {
+		facts.ClientFamily = savingsClientFamily(summary)
+	}
+	if facts.Model == "" {
+		facts.Model = strings.TrimSpace(summary.Model)
+	}
+	if !isCodexAttributionCandidate(summary, sessionID) {
+		return
+	}
+	facts.CodexCandidateRequests++
+	if isCodexAttributedSession(strings.TrimSpace(summary.SessionID)) || isCodexAttributedSession(sessionID) {
+		facts.AttributedRequests++
+	}
+}
+
+func resolveLocalCodexFallbackSessions(bySession map[string]*SavingsSessionSummary, byFacts map[string]*savingsSessionFacts, start, end time.Time) {
+	if !needsLocalCodexFallbackLookup(byFacts) {
+		return
+	}
+	metadata, err := lookupCodexThreadWindowForSavingsFn(start.Add(-5*time.Minute), end.Add(5*time.Minute))
+	if err != nil || len(metadata) == 0 {
+		return
+	}
+	for sessionID, facts := range byFacts {
+		if !needsLocalCodexFallbackResolution(facts) {
+			continue
+		}
+		meta, ok := resolveLocalCodexFallbackMetadata(*facts, metadata)
+		if !ok || strings.TrimSpace(meta.ID) == "" {
+			continue
+		}
+		localID := "codex-local:" + strings.TrimSpace(meta.ID)
+		row := bySession[sessionID]
+		if row == nil {
+			continue
+		}
+		delete(bySession, sessionID)
+		delete(byFacts, sessionID)
+		if existing := bySession[localID]; existing != nil {
+			mergeSavingsSession(existing, row)
+			row = existing
+		} else {
+			row.SessionID = localID
+			bySession[localID] = row
+		}
+		applyCodexThreadMetadata(row, meta)
+		facts.SessionID = localID
+		facts.AttributedRequests = facts.CodexCandidateRequests
+		if family := savingsThreadClientFamily(meta); family != "" {
+			facts.ClientFamily = family
+		}
+		byFacts[localID] = facts
+	}
+}
+
+func needsLocalCodexFallbackLookup(byFacts map[string]*savingsSessionFacts) bool {
+	for _, facts := range byFacts {
+		if needsLocalCodexFallbackResolution(facts) {
+			return true
+		}
+	}
+	return false
+}
+
+func needsLocalCodexFallbackResolution(facts *savingsSessionFacts) bool {
+	if facts == nil || facts.CodexCandidateRequests == 0 || facts.AttributedRequests > 0 {
+		return false
+	}
+	id := strings.TrimSpace(facts.SessionID)
+	return strings.HasPrefix(id, "fh:")
+}
+
+func resolveLocalCodexFallbackMetadata(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, bool) {
+	if meta, ok := resolveLocalCodexFallbackByHash(facts, candidates); ok {
+		return meta, true
+	}
+	filtered := make([]codexthreads.Metadata, 0, len(candidates))
+	for _, meta := range candidates {
+		if !metadataMatchesSavingsFacts(meta, facts) {
+			continue
+		}
+		filtered = append(filtered, meta)
+	}
+	if len(filtered) != 1 {
+		return codexthreads.Metadata{}, false
+	}
+	return filtered[0], true
+}
+
+func resolveLocalCodexFallbackByHash(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, bool) {
+	want := strings.TrimPrefix(strings.TrimSpace(facts.SessionID), "fh:")
+	if want == "" {
+		return codexthreads.Metadata{}, false
+	}
+	var matched codexthreads.Metadata
+	matches := 0
+	for _, meta := range candidates {
+		if codexFirstTextHash(meta.FirstUserMessage) != want {
+			continue
+		}
+		matched = meta
+		matches++
+	}
+	if matches != 1 {
+		return codexthreads.Metadata{}, false
+	}
+	return matched, true
+}
+
+func metadataMatchesSavingsFacts(meta codexthreads.Metadata, facts savingsSessionFacts) bool {
+	if !metadataTimeOverlapsSavingsFacts(meta, facts) {
+		return false
+	}
+	if model := strings.TrimSpace(facts.Model); model != "" && strings.TrimSpace(meta.Model) != "" && model != strings.TrimSpace(meta.Model) {
+		return false
+	}
+	family := strings.TrimSpace(facts.ClientFamily)
+	if family != "" && family != "codex" && savingsThreadClientFamily(meta) != family {
+		return false
+	}
+	return true
+}
+
+func metadataTimeOverlapsSavingsFacts(meta codexthreads.Metadata, facts savingsSessionFacts) bool {
+	if meta.UpdatedAt.IsZero() || facts.FirstSeen.IsZero() || facts.LastSeen.IsZero() {
+		return true
+	}
+	return !meta.UpdatedAt.Before(facts.FirstSeen.Add(-30*time.Minute)) &&
+		!meta.UpdatedAt.After(facts.LastSeen.Add(30*time.Minute))
+}
+
+func codexFirstTextHash(text string) string {
+	if text == "" {
+		return ""
+	}
+	if len(text) > 200 {
+		text = text[:200]
+	}
+	h := sha256.Sum256([]byte(text))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+func mergeSavingsSession(dst, src *SavingsSessionSummary) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Requests += src.Requests
+	dst.OriginalTokens += src.OriginalTokens
+	dst.FinalTokens += src.FinalTokens
+	dst.AddedTokens += src.AddedTokens
+	dst.NetSavedTokens += src.NetSavedTokens
+	dst.Layer0NetTokens += src.Layer0NetTokens
+	dst.Layer1NetTokens += src.Layer1NetTokens
+	dst.Layer2NetTokens += src.Layer2NetTokens
+	dst.Layer3NetTokens += src.Layer3NetTokens
+	dst.OutputReduceTokens += src.OutputReduceTokens
+	dst.ToolPruneTokens += src.ToolPruneTokens
+	dst.OutputTokens += src.OutputTokens
+	dst.CacheReadTokens += src.CacheReadTokens
+	dst.CacheCreateTokens += src.CacheCreateTokens
+	dst.CacheNetTokens += src.CacheNetTokens
+	dst.CacheHitRequests += src.CacheHitRequests
+	if dst.ClientFamily == "" {
+		dst.ClientFamily = src.ClientFamily
+	}
+	if dst.DisplayName == "" {
+		dst.DisplayName = src.DisplayName
+	}
+	if dst.ProjectPath == "" {
+		dst.ProjectPath = src.ProjectPath
+	}
+}
+
 func decisionSessionID(summary dbg.RequestSummary) string {
 	sessionID := strings.TrimSpace(summary.SessionID)
 	if sessionID != "" && !strings.EqualFold(sessionID, "empty") {
@@ -478,8 +685,8 @@ func isCodexDecisionSummary(summary dbg.RequestSummary, sessionID string) bool {
 	return strings.Contains(provider, "codex") ||
 		strings.Contains(client, "codex") ||
 		strings.Contains(source, "codex") ||
-		isCodexThreadSession(strings.TrimSpace(summary.SessionID)) ||
-		isCodexThreadSession(strings.TrimSpace(sessionID))
+		isCodexAttributedSession(strings.TrimSpace(summary.SessionID)) ||
+		isCodexAttributedSession(strings.TrimSpace(sessionID))
 }
 
 func isCodexAttributionCandidate(summary dbg.RequestSummary, sessionID string) bool {
@@ -540,7 +747,7 @@ func enrichSavingsSessions(sessions []SavingsSessionSummary) {
 	seen := make(map[string]struct{}, len(sessions))
 	for i := range sessions {
 		raw := strings.TrimSpace(sessions[i].SessionID)
-		if id := codexthreads.NormalizeSessionID(raw); id != "" && isCodexThreadSession(raw) {
+		if id := codexthreads.NormalizeSessionID(raw); id != "" && isCodexAttributedSession(raw) {
 			if _, ok := seen[id]; ok {
 				continue
 			}
@@ -562,15 +769,7 @@ func enrichSavingsSessions(sessions []SavingsSessionSummary) {
 		if !ok {
 			continue
 		}
-		if title := savingsThreadDisplayName(meta); title != "" {
-			sessions[i].DisplayName = title
-		}
-		if cwd := strings.TrimSpace(meta.CWD); cwd != "" {
-			sessions[i].ProjectPath = cwd
-		}
-		if family := savingsThreadClientFamily(meta); family != "" {
-			sessions[i].ClientFamily = family
-		}
+		applyCodexThreadMetadata(&sessions[i], meta)
 	}
 }
 
@@ -580,6 +779,25 @@ func lookupCodexThreadMetadataForSavings(ids []string) (map[string]codexthreads.
 		return nil, err
 	}
 	return codexthreads.Lookup(home, ids)
+}
+
+func lookupCodexThreadWindowForSavings(start, end time.Time) ([]codexthreads.Metadata, error) {
+	return codexthreads.LookupWindowDefault(start, end)
+}
+
+func applyCodexThreadMetadata(session *SavingsSessionSummary, meta codexthreads.Metadata) {
+	if session == nil {
+		return
+	}
+	if title := savingsThreadDisplayName(meta); title != "" {
+		session.DisplayName = title
+	}
+	if cwd := strings.TrimSpace(meta.CWD); cwd != "" {
+		session.ProjectPath = cwd
+	}
+	if family := savingsThreadClientFamily(meta); family != "" {
+		session.ClientFamily = family
+	}
 }
 
 func savingsThreadDisplayName(meta codexthreads.Metadata) string {
@@ -596,11 +814,15 @@ func savingsThreadClientFamily(meta codexthreads.Metadata) string {
 	switch {
 	case strings.Contains(value, "cli"):
 		return "codex_cli"
-	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"), strings.Contains(value, "vscode"):
 		return "codex_desktop_app"
 	default:
 		return ""
 	}
+}
+
+func isCodexAttributedSession(id string) bool {
+	return isCodexThreadSession(id) || isCodexLocalThreadSession(id)
 }
 
 func isCodexThreadSession(id string) bool {
@@ -608,6 +830,11 @@ func isCodexThreadSession(id string) bool {
 		strings.HasPrefix(id, "codex-wss_") ||
 		strings.HasPrefix(id, "codex-http:") ||
 		strings.HasPrefix(id, "codex-http_")
+}
+
+func isCodexLocalThreadSession(id string) bool {
+	return strings.HasPrefix(id, "codex-local:") ||
+		strings.HasPrefix(id, "codex-local_")
 }
 
 func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
@@ -620,7 +847,11 @@ func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Conf
 	if err != nil {
 		return
 	}
-	report, err := analytics.SummarizeProxyFlights(summaries, period, now)
+	start, end, err := savingsReportWindow(period, now)
+	if err != nil {
+		return
+	}
+	report, err := analytics.SummarizeProxyFlights(filterSummariesByWindow(summaries, start, end), "all", now)
 	if err != nil || report.Requests == 0 {
 		return
 	}
@@ -634,6 +865,34 @@ func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Conf
 	out.ProviderOutputTokens = int64(report.ProviderOutputTokens)
 	out.OutputReduceInputOverheadTokens = int64(report.OutputReduceInputOverheadTokens)
 	out.CacheReadDiscountTokenEquivalent = int64(report.CacheReadDiscountTokenEquivalent)
+}
+
+func savingsReportWindow(period string, now time.Time) (time.Time, time.Time, error) {
+	if period != "live" {
+		return analytics.FilterGainWindow(period, now)
+	}
+	start := now.Add(-30 * time.Minute)
+	if running, pf, err := daemonIsRunningFn(); err == nil && running && pf != nil && !pf.StartedAt.IsZero() {
+		start = pf.StartedAt
+	}
+	if start.After(now) {
+		start = now
+	}
+	return start, now, nil
+}
+
+func filterSummariesByWindow(summaries []dbg.RequestSummary, start, end time.Time) []dbg.RequestSummary {
+	if len(summaries) == 0 {
+		return nil
+	}
+	filtered := make([]dbg.RequestSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		if summary.Timestamp.IsZero() || summary.Timestamp.Before(start) || summary.Timestamp.After(end) {
+			continue
+		}
+		filtered = append(filtered, summary)
+	}
+	return filtered
 }
 
 func accumulateSnapshots(out *SavingsSummary, snapshots []analytics.AnalyticsSnapshot) {
@@ -801,7 +1060,7 @@ func savingsSessionFallbackLabel(session SavingsSessionSummary) string {
 			return "Unattributed traffic"
 		}
 		return "Unattributed " + source
-	case isCodexThreadSession(id):
+	case isCodexAttributedSession(id):
 		return "Codex thread " + truncateSavingsLabel(codexthreads.NormalizeSessionID(id), 12)
 	default:
 		return truncateSavingsLabel(id, 24)
@@ -813,7 +1072,7 @@ func formatSavingsClientFamily(value string) string {
 	switch {
 	case strings.Contains(value, "cli"):
 		return "Codex CLI"
-	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"):
+	case strings.Contains(value, "desktop"), strings.Contains(value, "app"), strings.Contains(value, "chatgpt"), strings.Contains(value, "vscode"):
 		return "Codex App"
 	default:
 		return ""
@@ -993,7 +1252,7 @@ func maxSavingsInt(a, b int) int {
 	return b
 }
 
-// handleSavingsCmd implements `slimference savings [today|week|month|all]`.
+// handleSavingsCmd implements `slimference savings [live|today|week|month|all]`.
 // T80 unified view that collapses gain + stats + cache into one summary.
 func handleSavingsCmd(args []string) {
 	period, flags, err := parseSavingsArgs(args)
@@ -1003,9 +1262,9 @@ func handleSavingsCmd(args []string) {
 		return
 	}
 	switch period {
-	case "today", "week", "month", "all":
+	case "live", "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: slimference savings [today|week|month|all] [--json] [--csv] [--project <path>]")
+		fmt.Fprintln(os.Stderr, "usage: slimference savings [live|today|week|month|all] [--json] [--csv] [--project <path>]")
 		exitFn(1)
 		return
 	}

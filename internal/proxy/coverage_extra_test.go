@@ -124,6 +124,15 @@ func TestExtractSessionIDCodexHTTPUsesStrongThreadFields(t *testing.T) {
 	}
 }
 
+func TestExtractSessionIDCodexHTTPUsesStrongThreadHeaders(t *testing.T) {
+	headers := http.Header{"X-Codex-Session-Id": []string{"thread-from-header"}}
+	body := []byte(`{"model":"gpt-5.5","input":"check the repo"}`)
+	got := extractSessionID(types.CodexChatGPT, body, headers)
+	if got != "codex-http:thread-from-header" {
+		t.Fatalf("session id=%q", got)
+	}
+}
+
 func TestExtractSessionIDCodexHTTPDoesNotUseUserIDAsThread(t *testing.T) {
 	for _, body := range [][]byte{
 		[]byte(`{"user_id":"user-top","messages":[{"role":"user","content":"top user only"}]}`),
@@ -159,6 +168,10 @@ func TestExtractClientFamilyCodexHTTPFallbacks(t *testing.T) {
 	headers := http.Header{"User-Agent": []string{"OpenAI-Codex-Desktop/1.0"}}
 	if family := extractClientFamily(types.CodexChatGPT, []byte(`{}`), headers); family != "codex_desktop_app" {
 		t.Fatalf("ua family=%q", family)
+	}
+	cliHeaders := http.Header{"User-Agent": []string{"codex/0.137.0"}}
+	if family := extractClientFamily(types.CodexChatGPT, []byte(`{}`), cliHeaders); family != "codex_cli" {
+		t.Fatalf("cli ua family=%q", family)
 	}
 	if family := extractClientFamily(types.CodexChatGPT, []byte(`{`), http.Header{}); family != "codex" {
 		t.Fatalf("fallback family=%q", family)
