@@ -4,18 +4,25 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type FilterStats struct {
-	Name     string
-	Elapsed  time.Duration
-	Panicked bool
-	Matched  bool
-	InBytes  int
-	OutBytes int
+	Name              string
+	Elapsed           time.Duration
+	Panicked          bool
+	Matched           bool
+	InBytes           int
+	OutBytes          int
+	ContentClass      string
+	SafetyClass       string
+	Action            string
+	Reason            string
+	Signals           []string
+	PreservedEvidence []string
 }
 
 type filterCounter struct {
@@ -27,6 +34,17 @@ type filterCounter struct {
 	bytesOut   atomic.Int64
 	bytesSaved atomic.Int64
 	totalNs    atomic.Int64
+	lastMu     sync.Mutex
+	last       filterCounterLast
+}
+
+type filterCounterLast struct {
+	ContentClass      string
+	SafetyClass       string
+	Action            string
+	Reason            string
+	Signals           []string
+	PreservedEvidence []string
 }
 
 type FilterObservability struct {
@@ -75,6 +93,23 @@ func (o *FilterObservability) Record(stats FilterStats) {
 			)
 		}
 	}
+	c.recordLast(stats)
+}
+
+func (c *filterCounter) recordLast(stats FilterStats) {
+	if stats.ContentClass == "" && stats.SafetyClass == "" && stats.Action == "" && stats.Reason == "" && len(stats.Signals) == 0 && len(stats.PreservedEvidence) == 0 {
+		return
+	}
+	c.lastMu.Lock()
+	c.last = filterCounterLast{
+		ContentClass:      strings.TrimSpace(stats.ContentClass),
+		SafetyClass:       strings.TrimSpace(stats.SafetyClass),
+		Action:            strings.TrimSpace(stats.Action),
+		Reason:            strings.TrimSpace(stats.Reason),
+		Signals:           append([]string(nil), stats.Signals...),
+		PreservedEvidence: append([]string(nil), stats.PreservedEvidence...),
+	}
+	c.lastMu.Unlock()
 }
 
 func (o *FilterObservability) Snapshot() map[string]FilterSnapshot {
@@ -106,23 +141,47 @@ func (o *FilterObservability) Snapshot() map[string]FilterSnapshot {
 			HitRate:    hitRate,
 			AvgMs:      avgMs,
 		}
+		last := c.snapshotLast()
+		snap := out[name]
+		snap.ContentClass = last.ContentClass
+		snap.SafetyClass = last.SafetyClass
+		snap.LastAction = last.Action
+		snap.LastReason = last.Reason
+		snap.Signals = last.Signals
+		snap.PreservedEvidence = last.PreservedEvidence
+		out[name] = snap
 		return true
 	})
 	return out
 }
 
+func (c *filterCounter) snapshotLast() filterCounterLast {
+	c.lastMu.Lock()
+	defer c.lastMu.Unlock()
+	out := c.last
+	out.Signals = append([]string(nil), c.last.Signals...)
+	out.PreservedEvidence = append([]string(nil), c.last.PreservedEvidence...)
+	return out
+}
+
 type FilterSnapshot struct {
-	Name       string  `json:"name"`
-	Attempts   int64   `json:"attempts"`
-	Calls      int64   `json:"calls"`
-	Matches    int64   `json:"matches"`
-	Misses     int64   `json:"misses"`
-	Panics     int64   `json:"panics"`
-	BytesIn    int64   `json:"bytes_in"`
-	BytesOut   int64   `json:"bytes_out"`
-	BytesSaved int64   `json:"bytes_saved"`
-	HitRate    float64 `json:"hit_rate"`
-	AvgMs      float64 `json:"avg_ms"`
+	Name              string   `json:"name"`
+	Attempts          int64    `json:"attempts"`
+	Calls             int64    `json:"calls"`
+	Matches           int64    `json:"matches"`
+	Misses            int64    `json:"misses"`
+	Panics            int64    `json:"panics"`
+	BytesIn           int64    `json:"bytes_in"`
+	BytesOut          int64    `json:"bytes_out"`
+	BytesSaved        int64    `json:"bytes_saved"`
+	HitRate           float64  `json:"hit_rate"`
+	AvgMs             float64  `json:"avg_ms"`
+	ContentClass      string   `json:"content_class,omitempty"`
+	SafetyClass       string   `json:"safety_class,omitempty"`
+	LastAction        string   `json:"last_action,omitempty"`
+	LastReason        string   `json:"last_reason,omitempty"`
+	Signals           []string `json:"signals,omitempty"`
+	PreservedEvidence []string `json:"preserved_evidence,omitempty"`
 }
 
 var globalObservability = NewFilterObservability(50)

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 func TestBuildFlightRequestSummary(t *testing.T) {
@@ -36,6 +38,17 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 		ToolPrune:              ToolPruneSummary{Applied: true, Reason: "idle_tools", PrunedTools: 3, AlwaysKept: 2, SavedTokens: 120, Reattached: 1, Miss: true, Retry: true, Cooldown: true},
 		OutputReduce:           OutputReduceSummary{Applied: true, Profile: "codex", Reason: "applied", AddedTokens: 12},
 		PreviousResponseIDUsed: true,
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Layer:             0,
+			Mechanism:         "git_diff",
+			ContentClass:      evidence.ContentDiff,
+			SafetyClass:       evidence.SafetyStructuredEvidence,
+			Action:            evidence.ActionApplied,
+			Reason:            "matched",
+			Signals:           []evidence.Signal{evidence.SignalChangedHunk},
+			PreservedEvidence: []string{"file path", "hunk header"},
+			NetTokens:         123,
+		}},
 		Plan: &PlanSummary{
 			Provider:      "openai",
 			Model:         "gpt-5",
@@ -86,6 +99,15 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 	if flight.Plan == nil || len(flight.Plan.Decisions) != 1 || flight.Plan.Decisions[0].Layer != "l1" {
 		t.Fatalf("bad planner summary: %+v", flight.Plan)
 	}
+	if len(flight.EvidenceDecisions) != 2 ||
+		!hasFlightEvidenceMechanism(flight.EvidenceDecisions, "git_diff") ||
+		!hasFlightEvidenceMechanism(flight.EvidenceDecisions, "provider_prompt_cache") {
+		t.Fatalf("bad evidence manifest: %+v", flight.EvidenceDecisions)
+	}
+	summary.EvidenceDecisions[0].Signals[0] = evidence.SignalWarning
+	if flight.EvidenceDecisions[0].Signals[0] != evidence.SignalChangedHunk {
+		t.Fatalf("evidence manifest should be cloned, got %+v", flight.EvidenceDecisions)
+	}
 	summary.Plan.Decisions[0].Layer = "mutated"
 	if flight.Plan.Decisions[0].Layer != "l1" {
 		t.Fatalf("planner summary should be cloned, got %+v", flight.Plan.Decisions)
@@ -104,6 +126,9 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 	}
 	if !hasFlightStage(flight.Events, "tool_prune", "applied") {
 		t.Fatalf("missing tool-prune event: %+v", flight.Events)
+	}
+	if !hasFlightStage(flight.Events, "evidence", "manifest_recorded") {
+		t.Fatalf("missing evidence event: %+v", flight.Events)
 	}
 }
 
@@ -173,6 +198,15 @@ func TestPlannerHelpers(t *testing.T) {
 func hasFlightStage(events []FlightEvent, stage, decision string) bool {
 	for _, event := range events {
 		if event.Stage == stage && event.Decision == decision {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFlightEvidenceMechanism(decisions []evidence.BlockDecision, mechanism string) bool {
+	for _, decision := range decisions {
+		if decision.Mechanism == mechanism {
 			return true
 		}
 	}

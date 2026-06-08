@@ -385,6 +385,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	compressedMessages := messages
 	var layer0Savings, layer1Savings int
+	var l0Stats proxyLayer0Stats
 	appliedLayers := make([]int, 0, 3)
 
 	// --- 3.75 Layer 0: proxy-side tool-output compaction ---
@@ -411,6 +412,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			LatencyBudgetExceeded: p.codexLayer0LatencyExceeded.Load(),
 		})
 		l0Messages, stats := result.Messages, result.Stats
+		l0Stats = stats
 		p.recordCodexLayer0Stats(stats)
 		if stats.TokensSaved > 0 {
 			compressedMessages = l0Messages
@@ -1066,6 +1068,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			},
 			Layer1Breakdown:      layer1Breakdown,
 			Layer1Decisions:      layer1Decisions,
+			EvidenceDecisions:    l0Stats.EvidenceDecisions,
 			CacheHit:             false,
 			CacheReadTokens:      cacheReadTokens,
 			CacheCreateTokens:    upstreamCacheUsage.CreateTokens,

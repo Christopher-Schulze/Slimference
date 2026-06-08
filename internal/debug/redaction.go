@@ -50,15 +50,30 @@ func RedactRequestSummary(s RequestSummary) RequestSummary {
 		entry := &s.Entries[i]
 		entry.RequestID = redact(entry.RequestID)
 		entry.ContentType = redact(entry.ContentType)
+		entry.ContentClass = redact(entry.ContentClass)
 		entry.SubLayer = redact(entry.SubLayer)
 		entry.Action = redact(entry.Action)
 		entry.Reason = redact(entry.Reason)
+		entry.SafetyClass = redact(entry.SafetyClass)
+		entry.Recovery = redact(entry.Recovery)
+		for j := range entry.Signals {
+			entry.Signals[j] = redact(entry.Signals[j])
+		}
 		if entry.Settings != nil {
 			clean := make(map[string]string, len(entry.Settings))
 			for k, v := range entry.Settings {
 				clean[redact(k)] = redact(v)
 			}
 			entry.Settings = clean
+		}
+	}
+	for i := range s.EvidenceDecisions {
+		decision := &s.EvidenceDecisions[i]
+		decision.Mechanism = redact(decision.Mechanism)
+		decision.Reason = redact(decision.Reason)
+		decision.Recovery = redact(decision.Recovery)
+		for j := range decision.PreservedEvidence {
+			decision.PreservedEvidence[j] = redact(decision.PreservedEvidence[j])
 		}
 	}
 	if redactions > 0 {

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 func writeDecisionLine(f *os.File, line []byte) error {
@@ -24,10 +26,14 @@ type DecisionEntry struct {
 	MessageIdx   int               `json:"msg_idx"`
 	BlockIdx     int               `json:"block_idx"`
 	ContentType  string            `json:"content_type"` // "text", "tool_result", "image"
-	Layer        int               `json:"layer"`        // 0, 1, 2, 3
-	SubLayer     string            `json:"sub_layer"`    // "json_compact", "dedup", "ansi_strip", etc.
-	Action       string            `json:"action"`       // "compressed", "skipped", "passthrough", "short_circuit"
+	ContentClass string            `json:"content_class,omitempty"`
+	Layer        int               `json:"layer"`     // 0, 1, 2, 3
+	SubLayer     string            `json:"sub_layer"` // "json_compact", "dedup", "ansi_strip", etc.
+	Action       string            `json:"action"`    // "compressed", "skipped", "passthrough", "short_circuit"
 	Reason       string            `json:"reason"`
+	SafetyClass  string            `json:"safety_class,omitempty"`
+	Signals      []string          `json:"signals,omitempty"`
+	Recovery     string            `json:"recovery,omitempty"`
 	TokensBefore int               `json:"tokens_before"`
 	TokensAfter  int               `json:"tokens_after"`
 	SavedTokens  int               `json:"saved"`
@@ -70,6 +76,8 @@ type MechanismAccounting struct {
 	AddedTokens    int    `json:"added_tokens,omitempty"`
 	NetTokens      int    `json:"net_tokens"`
 	Reason         string `json:"reason,omitempty"`
+	ContentClass   string `json:"content_class,omitempty"`
+	SafetyClass    string `json:"safety_class,omitempty"`
 }
 
 // TokenCounts holds before/after token totals for a request.
@@ -164,6 +172,7 @@ type RequestSummary struct {
 	ToolPrune              ToolPruneSummary             `json:"tool_prune,omitempty"`
 	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
 	Mechanisms             []MechanismAccounting        `json:"mechanisms,omitempty"`
+	EvidenceDecisions      []evidence.BlockDecision     `json:"evidence_decisions,omitempty"`
 	DebugFacts             map[string]string            `json:"debug_facts,omitempty"`
 	PreviousResponseIDUsed bool                         `json:"previous_response_id_used,omitempty"`
 	SecretsRedacted        int                          `json:"secrets_redacted"`
@@ -228,6 +237,7 @@ func normalizeDecisionsLogPath(path string) string {
 
 // Record appends a completed RequestSummary to the ring and optionally flushes to JSONL.
 func (r *Recorder) Record(s RequestSummary) {
+	s.EnsureEvidenceDecisions()
 	s = RedactRequestSummary(s)
 	s.EnsureMechanisms()
 	s.EnsureFlight()
@@ -250,6 +260,58 @@ func (s *RequestSummary) EnsureMechanisms() {
 		return
 	}
 	s.Mechanisms = BuildMechanismAccounting(*s)
+}
+
+func (s *RequestSummary) EnsureEvidenceDecisions() {
+	if s == nil || !hasCacheHotZoneEvidence(*s) || hasEvidenceMechanism(s.EvidenceDecisions, "provider_prompt_cache") {
+		return
+	}
+	saved := s.CacheReadTokens + s.ProviderCachedTokens
+	added := s.CacheCreateTokens
+	action := evidence.ActionSkipped
+	if s.PromptCache.Applied || saved > 0 || added > 0 {
+		action = evidence.ActionApplied
+	}
+	reason := strings.TrimSpace(s.PromptCache.Reason)
+	if reason == "" {
+		reason = cacheDecision(*s)
+	}
+	decision := evidence.BlockDecision{
+		Layer:             2,
+		Mechanism:         "provider_prompt_cache",
+		ContentClass:      evidence.ContentUnknown,
+		SafetyClass:       evidence.SafetyExact,
+		Action:            action,
+		Reason:            reason,
+		Signals:           []evidence.Signal{evidence.SignalCacheHotZone},
+		PreservedEvidence: []string{"stable prefix hash", "provider cache read tokens", "provider cache create tokens"},
+		Recovery:          "provider-owned cache hint only; fail-open keeps original request shape",
+		OriginalTokens:    s.PromptCache.StablePrefixTokens,
+		SavedTokens:       saved,
+		AddedTokens:       added,
+		NetTokens:         saved - added,
+		CacheImpact:       cacheDecision(*s),
+	}
+	s.EvidenceDecisions = append(s.EvidenceDecisions, decision)
+}
+
+func hasCacheHotZoneEvidence(s RequestSummary) bool {
+	return s.PromptCache.Applied ||
+		strings.TrimSpace(s.PromptCache.Reason) != "" ||
+		s.PromptCache.StablePrefixTokens > 0 ||
+		s.CacheHit ||
+		s.CacheReadTokens > 0 ||
+		s.CacheCreateTokens > 0 ||
+		s.ProviderCachedTokens > 0
+}
+
+func hasEvidenceMechanism(decisions []evidence.BlockDecision, mechanism string) bool {
+	for _, decision := range decisions {
+		if strings.EqualFold(strings.TrimSpace(decision.Mechanism), mechanism) {
+			return true
+		}
+	}
+	return false
 }
 
 func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
@@ -276,6 +338,8 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			AddedTokens:    added,
 			NetTokens:      saved - added,
 			Reason:         entry.Reason,
+			ContentClass:   entry.ContentClass,
+			SafetyClass:    entry.SafetyClass,
 		})
 	}
 	for name, bd := range s.Layer1Breakdown {

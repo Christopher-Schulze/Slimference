@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 func TestRecorder_RecordAndLast(t *testing.T) {
@@ -184,6 +186,29 @@ func TestBuildMechanismAccountingEdges(t *testing.T) {
 		byName["tool_prune"].Count != 0 ||
 		byName["output_reduce_directive"].Count != 0 {
 		t.Fatalf("false bool counts not covered: %+v", byName)
+	}
+}
+
+func TestEnsureEvidenceDecisionsAddsPromptCacheHotZone(t *testing.T) {
+	t.Parallel()
+	summary := RequestSummary{
+		PromptCache:       PromptCacheSummary{Applied: true, Reason: "stable_prefix", StablePrefixTokens: 120},
+		CacheReadTokens:   80,
+		CacheCreateTokens: 10,
+	}
+	summary.EnsureEvidenceDecisions()
+	summary.EnsureEvidenceDecisions()
+	if len(summary.EvidenceDecisions) != 1 {
+		t.Fatalf("expected one cache evidence decision, got %+v", summary.EvidenceDecisions)
+	}
+	decision := summary.EvidenceDecisions[0]
+	if decision.Mechanism != "provider_prompt_cache" ||
+		decision.SafetyClass != evidence.SafetyExact ||
+		decision.Action != evidence.ActionApplied ||
+		decision.NetTokens != 70 ||
+		len(decision.Signals) != 1 ||
+		decision.Signals[0] != evidence.SignalCacheHotZone {
+		t.Fatalf("bad cache evidence decision: %+v", decision)
 	}
 }
 

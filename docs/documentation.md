@@ -449,6 +449,17 @@ and generalized server-state-mirror mutation are closed as non-product-default
 surfaces. The server-state mirror remains telemetry/policy infrastructure only.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
+
+The deterministic evidence selector is the block-level decision manifest used
+by those reducers and reports. It classifies content as `test`, `log`,
+`search`, `diff`, `stacktrace`, `json`, `code`, `plain`, or `unknown`, then
+records content-free signals such as error keywords, stacktraces, outliers,
+dedupe, changed hunks, recency, cache hot zone, first/last preservation,
+exit/status, paths, counts, and warnings. The manifest stores safety class,
+action, reason, preserved-evidence labels, recovery mode, and net tokens, but
+never raw prompt/tool payload. It does not summarize or retrieve content for
+the model; it only makes deterministic reducer decisions auditable and catches
+negative-net/cache regressions.
 After any WSS upstream `error`, `response.failed`, or `response.incomplete`
 frame, the current socket adapter quarantines itself and full-passes subsequent
 request bodies until reconnect. That keeps the product fail-open after a proven

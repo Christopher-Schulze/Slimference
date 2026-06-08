@@ -3,6 +3,8 @@ package debug
 import (
 	"strings"
 	"time"
+
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 const FlightSchemaVersion = 1
@@ -81,6 +83,7 @@ type FlightRequestSummary struct {
 	ToolPrune            FlightToolPruneAccounting    `json:"tool_prune"`
 	OutputReduce         FlightOutputReduceAccounting `json:"output_reduce"`
 	Mechanisms           []MechanismAccounting        `json:"mechanisms,omitempty"`
+	EvidenceDecisions    []evidence.BlockDecision     `json:"evidence_decisions,omitempty"`
 	DebugFacts           map[string]string            `json:"debug_facts,omitempty"`
 	Plan                 *PlanSummary                 `json:"plan,omitempty"`
 	Errors               []string                     `json:"errors,omitempty"`
@@ -107,6 +110,7 @@ func (s *RequestSummary) EnsureFlight() {
 }
 
 func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
+	s.EnsureEvidenceDecisions()
 	source := strings.TrimSpace(s.Source)
 	if source == "" {
 		source = "proxy"
@@ -181,6 +185,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			TaskShape:   s.OutputReduce.TaskShape,
 		},
 		Mechanisms:           append([]MechanismAccounting(nil), s.Mechanisms...),
+		EvidenceDecisions:    cloneEvidenceDecisions(s.EvidenceDecisions),
 		DebugFacts:           cloneStringMap(s.DebugFacts),
 		Plan:                 clonePlanSummary(s.Plan),
 		Errors:               append([]string(nil), s.Errors...),
@@ -268,6 +273,15 @@ func buildFlightEvents(s RequestSummary, flight FlightRequestSummary) []FlightEv
 			},
 		})
 	}
+	if len(s.EvidenceDecisions) > 0 {
+		fields := map[string]string{"blocks": intString(len(s.EvidenceDecisions))}
+		events = append(events, FlightEvent{
+			Timestamp: s.Timestamp,
+			Stage:     "evidence",
+			Decision:  "manifest_recorded",
+			Fields:    fields,
+		})
+	}
 	if len(s.Errors) > 0 {
 		for _, errText := range s.Errors {
 			events = append(events, FlightEvent{
@@ -285,6 +299,17 @@ func buildFlightEvents(s RequestSummary, flight FlightRequestSummary) []FlightEv
 		ElapsedMs: s.ProxyLatencyMs,
 	})
 	return events
+}
+
+func cloneEvidenceDecisions(in []evidence.BlockDecision) []evidence.BlockDecision {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]evidence.BlockDecision, len(in))
+	for i, decision := range in {
+		out[i] = evidence.RedactDecision(decision)
+	}
+	return out
 }
 
 func clonePlanSummary(plan *PlanSummary) *PlanSummary {

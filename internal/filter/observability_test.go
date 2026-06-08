@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -57,11 +58,17 @@ func TestRunFilter_NoMatch(t *testing.T) {
 func TestFilterObservability_Record(t *testing.T) {
 	o := NewFilterObservability(10)
 	o.Record(FilterStats{
-		Name:     "git_status",
-		Elapsed:  5 * time.Millisecond,
-		Matched:  true,
-		InBytes:  100,
-		OutBytes: 50,
+		Name:              "git_status",
+		Elapsed:           5 * time.Millisecond,
+		Matched:           true,
+		InBytes:           100,
+		OutBytes:          50,
+		ContentClass:      "diff",
+		SafetyClass:       "structured_evidence",
+		Action:            "applied",
+		Reason:            "matched",
+		Signals:           []string{"changed_hunk", "path"},
+		PreservedEvidence: []string{"file path", "hunk header"},
 	})
 	o.Record(FilterStats{
 		Name:     "git_status",
@@ -99,6 +106,12 @@ func TestFilterObservability_Record(t *testing.T) {
 	}
 	if fs.HitRate < 0.66 || fs.HitRate > 0.67 {
 		t.Fatalf("hit_rate=%f want about 0.666", fs.HitRate)
+	}
+	if fs.ContentClass != "diff" || fs.SafetyClass != "structured_evidence" || fs.LastAction != "applied" || fs.LastReason != "matched" {
+		t.Fatalf("evidence fields not retained: %+v", fs)
+	}
+	if len(fs.Signals) != 2 || fs.Signals[0] != "changed_hunk" || len(fs.PreservedEvidence) != 2 {
+		t.Fatalf("evidence slices not retained: %+v", fs)
 	}
 }
 
@@ -196,4 +209,42 @@ func TestApplyLayer0Filters_PanicSurvival(t *testing.T) {
 		t.Fatal("should match a filter for git status input")
 	}
 	_ = out
+}
+
+func TestApplyLayer0FiltersRecordsEvidenceManifestFields(t *testing.T) {
+	orig := globalObservability
+	defer func() { globalObservability = orig }()
+	globalObservability = NewFilterObservability(50)
+
+	var input strings.Builder
+	for i := 0; i < 30; i++ {
+		input.WriteString("src/internal/proxy/handler.go:10:func handleCompressibleRequest() { // compression step xxxxxxxxxxxxxxxxxxxx\n")
+	}
+	for i := 0; i < 10; i++ {
+		input.WriteString("src/internal/config/defaults.go:22:func Defaults() *Config { return &Config{ // defaults yyyyyyyyyyyyyyyyyyyy\n")
+	}
+	stdout := []byte(input.String())
+	out, matched := applyLayer0Filters(".", []string{"rg", "TODO"}, stdout)
+	if matched != "search_output" {
+		t.Fatalf("matched=%q out=%q", matched, out)
+	}
+	snap := globalObservability.Snapshot()[matched]
+	if snap.ContentClass != "search" || snap.SafetyClass != "structured_evidence" {
+		t.Fatalf("bad evidence class/safety: %+v", snap)
+	}
+	if snap.LastAction != "applied" || snap.LastReason == "" {
+		t.Fatalf("bad evidence action/reason: %+v", snap)
+	}
+	if !containsString(snap.Signals, "path") || !containsString(snap.PreservedEvidence, "match text") {
+		t.Fatalf("missing evidence signal/contract: %+v", snap)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

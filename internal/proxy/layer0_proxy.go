@@ -13,6 +13,7 @@ import (
 
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/evidence"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/savingspolicy"
@@ -111,6 +112,7 @@ type proxyLayer0Stats struct {
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 	CacheEvents             []proxyLayer0CacheEvent
+	EvidenceDecisions       []evidence.BlockDecision
 	TotalLatencyNs          int64
 	ReadDeltaLatencyNs      int64
 	FilterLatencyNs         int64
@@ -139,6 +141,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.ReadDeltaKeys = nil
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
+	s.EvidenceDecisions = nil
 	return s
 }
 
@@ -296,6 +299,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload))
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -356,6 +360,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
 				}
+			}
+			if wssSearchOutputBlocked {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload))
 			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
@@ -431,6 +438,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				default:
 					stats.CapturedOutputBlocks++
 				}
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload))
+			} else {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload))
 			}
 		}
 	}
@@ -439,6 +449,63 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
 	return codexLayer0Result{Messages: out, Stats: stats.finish(started)}
+}
+
+func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload) evidence.BlockDecision {
+	argv := strings.Fields(commandLine)
+	analysis := evidence.Analyze(argv, []byte(beforeText))
+	preserved := proxyLayer0PreservedEvidence(mechanism, workload)
+	safety := proxyLayer0EvidenceSafety(mechanism)
+	recovery := proxyLayer0EvidenceRecovery(mechanism)
+	if afterText == "" && beforeTokens == 0 && afterTokens == 0 {
+		return evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, 0, 0)
+	}
+	return evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
+}
+
+func proxyLayer0EvidenceSafety(mechanism proxyLayer0Mechanism) evidence.SafetyClass {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta, proxyLayer0MechanismRepeatedOut:
+		return evidence.SafetyExact
+	case proxyLayer0MechanismChunkDedup:
+		return evidence.SafetyRecoverable
+	case proxyLayer0MechanismCapturedOut, proxyLayer0MechanismCodexEnvelope:
+		return evidence.SafetyStructuredEvidence
+	default:
+		return evidence.SafetyUnknown
+	}
+}
+
+func proxyLayer0EvidenceRecovery(mechanism proxyLayer0Mechanism) string {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta, proxyLayer0MechanismRepeatedOut:
+		return "previous in-session exact block"
+	case proxyLayer0MechanismChunkDedup:
+		return "local archive chunk recovery"
+	case proxyLayer0MechanismCapturedOut, proxyLayer0MechanismCodexEnvelope:
+		return "parser fail-open to original output"
+	default:
+		return "fail-open to original output"
+	}
+}
+
+func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savingspolicy.CodexWorkload) []string {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta:
+		return []string{"file path", "changed hunk", "full prior read"}
+	case proxyLayer0MechanismRepeatedOut:
+		return []string{"command identity", "previous exact output"}
+	case proxyLayer0MechanismChunkDedup:
+		return []string{"chunk identity", "archive uri", "fresh unmatched content"}
+	}
+	switch workload {
+	case savingspolicy.CodexWorkloadSearch:
+		return []string{"file", "line", "match text", "match count", "omitted count"}
+	case savingspolicy.CodexWorkloadRead:
+		return []string{"file path", "range", "changed hunk", "recency guard"}
+	default:
+		return []string{"error line", "warning", "path", "line", "summary", "exit status"}
+	}
 }
 
 func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {

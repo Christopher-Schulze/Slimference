@@ -16,6 +16,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 func TestParseSavingsArgs_Defaults(t *testing.T) {
@@ -467,6 +468,15 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 					{Name: "zero_effect"},
 					{Name: "request_total", Count: 1, OriginalTokens: 1000, FinalTokens: 250, SavedTokens: 750, NetTokens: 750},
 				},
+				EvidenceDecisions: []evidence.BlockDecision{{
+					Layer:        1,
+					Mechanism:    "codex_posttool_compaction",
+					ContentClass: evidence.ContentTest,
+					SafetyClass:  evidence.SafetyDiagnosticPriority,
+					Action:       evidence.ActionApplied,
+					Signals:      []evidence.Signal{evidence.SignalErrorKeyword, evidence.SignalStacktrace},
+					NetTokens:    700,
+				}},
 			},
 			{
 				RequestID: "hook-2",
@@ -480,6 +490,15 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 					AddedTokens: 2,
 				},
 				Mechanisms: []dbg.MechanismAccounting{{Name: "aaa_tie", NetTokens: 5}, {Name: "bbb_tie", NetTokens: 5}},
+				EvidenceDecisions: []evidence.BlockDecision{{
+					Layer:        4,
+					Mechanism:    "output_reduce_directive",
+					ContentClass: evidence.ContentPlain,
+					SafetyClass:  evidence.SafetyFullPass,
+					Action:       evidence.ActionFullPass,
+					Signals:      []evidence.Signal{evidence.SignalRecency},
+					NetTokens:    -2,
+				}},
 			},
 			{
 				RequestID: "hook-3",
@@ -529,6 +548,12 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		got.DecisionOutputReduceTokens != -2 || got.DecisionToolPruneTokens != 3 {
 		t.Fatalf("bad aggregate layer totals: %+v", got)
 	}
+	if got.Evidence.Decisions != 3 || got.Evidence.Applied != 2 || got.Evidence.FullPass != 1 ||
+		got.Evidence.ByContentClass[string(evidence.ContentTest)] != 1 ||
+		got.Evidence.BySignal[string(evidence.SignalCacheHotZone)] != 1 ||
+		got.Evidence.NetTokens != 700 {
+		t.Fatalf("bad evidence totals: %+v", got.Evidence)
+	}
 	if got.DecisionSessions[0].CostBeforeUSD <= 0 || got.DecisionSessions[0].CostAfterUSD <= 0 || got.DecisionSessions[0].CostSavedUSD <= 0 {
 		t.Fatalf("missing session cost estimates: %+v", got.DecisionSessions[0])
 	}
@@ -539,7 +564,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		t.Fatalf("top mechanism: %+v", got.Mechanisms)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Evidence decisions", "cache_hot_zone=1", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
@@ -1194,6 +1219,14 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 		DecisionEstimatedCostBeforeUSD: 0.10,
 		DecisionEstimatedCostAfterUSD:  0.07,
 		DecisionEstimatedCostSavedUSD:  0.03,
+		Evidence: SavingsEvidenceSummary{
+			Decisions:      2,
+			Applied:        1,
+			FullPass:       1,
+			NetTokens:      3,
+			ByContentClass: map[string]int64{"search": 1, "test": 1},
+			BySignal:       map[string]int64{"error_keyword": 1, "cache_hot_zone": 1},
+		},
 		Mechanisms: []SavingsMechanismSummary{
 			{Name: "m00", NetTokens: 10, SavedTokens: 10, Count: 1},
 			{Name: "m01", NetTokens: 9, SavedTokens: 9, Count: 1},
@@ -1215,7 +1248,7 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 		},
 	}
 	text := formatSavingsText(s)
-	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cache net", "100.0% hit", "L0=2,L1=4,L2=6,out=-1,tools=8", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "cache=8/100.0%", "net=-5"} {
+	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cache net", "100.0% hit", "L0=2,L1=4,L2=6,out=-1,tools=8", "Evidence decisions", "search=1", "cache_hot_zone=1", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "cache=8/100.0%", "net=-5"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}

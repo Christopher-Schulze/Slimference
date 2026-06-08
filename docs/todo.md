@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T346 Deterministic evidence selector and decision manifest -> docs/todo/t346-deterministic-evidence-selector.md
 - [x] T345 Healthy daemon stale-process status guard -> docs/todo/t345-healthy-daemon-stale-process-status-guard.md
 - [x] T344 Local Codex fallback thread attribution -> docs/todo/t344-local-codex-fallback-attribution.md
 - [x] T343 Live savings proof window -> docs/todo/t343-live-savings-proof-window.md

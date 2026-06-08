@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/slimference/slimference/internal/compression"
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 // Layer0ReducerSafetyClass describes how much information a default reducer is
@@ -155,14 +156,30 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 	}
 
 	inBytes := len(stdout)
+	analysis := evidence.Analyze(argv, stdout)
 	for _, reducer := range layer0ReducerSpecs() {
 		out, ok, stats := runFilter(reducer.ID, func() ([]byte, bool) {
 			return reducer.fn(argv, stdout, ctx)
 		})
 		stats.InBytes = inBytes
 		stats.OutBytes = inBytes
+		stats.ContentClass = string(analysis.ContentClass)
+		stats.SafetyClass = string(layer0EvidenceSafety(reducer.SafetyClass))
+		stats.Signals = evidenceSignalStrings(analysis.Signals)
+		stats.PreservedEvidence = append([]string(nil), reducer.PreservedEvidence...)
+		stats.Action = string(evidence.ActionSkipped)
+		stats.Reason = "not_applicable"
+		if stats.Panicked {
+			stats.Action = string(evidence.ActionFailedOpen)
+			stats.Reason = "panic_fail_open_original"
+		}
 		if ok {
 			stats.OutBytes = len(out)
+			stats.Action = string(evidence.ActionApplied)
+			stats.Reason = "matched"
+			if len(out) >= inBytes {
+				stats.Reason = "matched_no_positive_byte_savings"
+			}
 			globalObservability.Record(stats)
 			return out, reducer.ID
 		}
@@ -172,10 +189,15 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 	if rule := FirstMatchingTOMLRule(workDir, argv); rule != nil {
 		out := ApplyTOMLRule(stdout, rule)
 		globalObservability.Record(FilterStats{
-			Name:     "toml_rule",
-			Matched:  true,
-			InBytes:  inBytes,
-			OutBytes: len(out),
+			Name:         "toml_rule",
+			Matched:      true,
+			InBytes:      inBytes,
+			OutBytes:     len(out),
+			ContentClass: string(analysis.ContentClass),
+			SafetyClass:  string(evidence.SafetyStructuredEvidence),
+			Action:       string(evidence.ActionApplied),
+			Reason:       "matched_project_toml_rule",
+			Signals:      evidenceSignalStrings(analysis.Signals),
 		})
 		return out, "toml_rule"
 	}
@@ -187,14 +209,45 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 	if name, rule := FirstMatchingBuiltinTOMLRule(argv); rule != nil {
 		out := ApplyBuiltinTOMLRule(stdout, rule)
 		globalObservability.Record(FilterStats{
-			Name:     "builtin_toml:" + name,
-			Matched:  true,
-			InBytes:  inBytes,
-			OutBytes: len(out),
+			Name:         "builtin_toml:" + name,
+			Matched:      true,
+			InBytes:      inBytes,
+			OutBytes:     len(out),
+			ContentClass: string(analysis.ContentClass),
+			SafetyClass:  string(evidence.SafetyStructuredEvidence),
+			Action:       string(evidence.ActionApplied),
+			Reason:       "matched_builtin_toml_rule",
+			Signals:      evidenceSignalStrings(analysis.Signals),
 		})
 		return out, "builtin_toml:" + name
 	}
 	return stdout, ""
+}
+
+func layer0EvidenceSafety(class Layer0ReducerSafetyClass) evidence.SafetyClass {
+	switch class {
+	case Layer0ReducerSafetyExact:
+		return evidence.SafetyExact
+	case Layer0ReducerSafetyStructuredEvidence:
+		return evidence.SafetyStructuredEvidence
+	case Layer0ReducerSafetyDiagnosticPriority:
+		return evidence.SafetyDiagnosticPriority
+	case Layer0ReducerSafetyEmptyEvidence:
+		return evidence.SafetyStructuredEvidence
+	default:
+		return evidence.SafetyUnknown
+	}
+}
+
+func evidenceSignalStrings(signals []evidence.Signal) []string {
+	if len(signals) == 0 {
+		return nil
+	}
+	out := make([]string, len(signals))
+	for i, signal := range signals {
+		out[i] = string(signal)
+	}
+	return out
 }
 
 func productDefaultFileReadMustFullPass(argv []string) bool {

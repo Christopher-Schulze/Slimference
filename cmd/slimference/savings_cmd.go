@@ -14,6 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/codexthreads"
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/evidence"
 )
 
 var _ = config.Defaults // keep config import alive even if no direct calls remain
@@ -79,7 +80,20 @@ type SavingsSummary struct {
 	DecisionEstimatedCostAfterUSD     float64                   `json:"decision_estimated_cost_after_usd"`
 	DecisionEstimatedCostSavedUSD     float64                   `json:"decision_estimated_cost_saved_usd"`
 	Mechanisms                        []SavingsMechanismSummary `json:"mechanisms,omitempty"`
+	Evidence                          SavingsEvidenceSummary    `json:"evidence,omitempty"`
 	DecisionSessions                  []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
+}
+
+type SavingsEvidenceSummary struct {
+	Decisions      int64            `json:"decisions,omitempty"`
+	Applied        int64            `json:"applied,omitempty"`
+	FullPass       int64            `json:"full_pass,omitempty"`
+	FailedOpen     int64            `json:"failed_open,omitempty"`
+	Skipped        int64            `json:"skipped,omitempty"`
+	NetTokens      int64            `json:"net_tokens,omitempty"`
+	ByContentClass map[string]int64 `json:"by_content_class,omitempty"`
+	BySafetyClass  map[string]int64 `json:"by_safety_class,omitempty"`
+	BySignal       map[string]int64 `json:"by_signal,omitempty"`
 }
 
 type SavingsMechanismSummary struct {
@@ -278,6 +292,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		if summary.Timestamp.IsZero() || summary.Timestamp.Before(start) || summary.Timestamp.After(end) {
 			continue
 		}
+		summary.EnsureEvidenceDecisions()
 		summary.EnsureMechanisms()
 		out.DecisionRequests++
 		out.DecisionOriginalTokens += int64(summary.Tokens.Original)
@@ -322,6 +337,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		}
 		sessionRow.OutputReduceTokens += outputReduceSessionNetTokens(summary)
 		sessionRow.ToolPruneTokens += int64(summary.ToolPrune.SavedTokens)
+		accumulateSavingsEvidence(&out.Evidence, summary.EvidenceDecisions)
 		layerObserved := map[int]bool{}
 		for _, mechanism := range summary.Mechanisms {
 			if mechanism.Name == "" || mechanism.Name == "request_total" {
@@ -420,6 +436,46 @@ func accumulateCodexUnattributedReason(out *SavingsSummary, facts *savingsSessio
 		out.DecisionCodexUnattributedReasons = make(map[string]int64)
 	}
 	out.DecisionCodexUnattributedReasons[reason] += facts.CodexCandidateRequests - facts.AttributedRequests
+}
+
+func accumulateSavingsEvidence(out *SavingsEvidenceSummary, decisions []evidence.BlockDecision) {
+	if out == nil {
+		return
+	}
+	for _, decision := range decisions {
+		out.Decisions++
+		out.NetTokens += int64(decision.NetTokens)
+		switch decision.Action {
+		case evidence.ActionApplied:
+			out.Applied++
+		case evidence.ActionFullPass:
+			out.FullPass++
+		case evidence.ActionFailedOpen:
+			out.FailedOpen++
+		case evidence.ActionSkipped:
+			out.Skipped++
+		}
+		if decision.ContentClass != "" {
+			if out.ByContentClass == nil {
+				out.ByContentClass = map[string]int64{}
+			}
+			out.ByContentClass[string(decision.ContentClass)]++
+		}
+		if decision.SafetyClass != "" {
+			if out.BySafetyClass == nil {
+				out.BySafetyClass = map[string]int64{}
+			}
+			out.BySafetyClass[string(decision.SafetyClass)]++
+		}
+		if len(decision.Signals) > 0 && out.BySignal == nil {
+			out.BySignal = map[string]int64{}
+		}
+		for _, signal := range decision.Signals {
+			if signal != "" {
+				out.BySignal[string(signal)]++
+			}
+		}
+	}
 }
 
 func savingsMechanismLayer(mechanism dbg.MechanismAccounting) (int, bool) {
@@ -1042,6 +1098,19 @@ func formatSavingsText(s SavingsSummary) string {
 			}
 		}
 		sb.WriteString(fmt.Sprintf("Decision layer net:          %s\n", formatDecisionLayerBreakdown(s)))
+		if s.Evidence.Decisions > 0 {
+			sb.WriteString(fmt.Sprintf("Evidence decisions:          %d (%d applied, %d full-pass, %d failed-open, net=%s)\n",
+				s.Evidence.Decisions,
+				s.Evidence.Applied,
+				s.Evidence.FullPass,
+				s.Evidence.FailedOpen,
+				formatSignedInt64Plain(s.Evidence.NetTokens),
+			))
+			sb.WriteString(fmt.Sprintf("Evidence classes/signals:    %s / %s\n",
+				formatSavingsTopCounts(s.Evidence.ByContentClass, 4),
+				formatSavingsTopCounts(s.Evidence.BySignal, 6),
+			))
+		}
 		if s.DecisionEstimatedCostBeforeUSD > 0 || s.DecisionEstimatedCostAfterUSD > 0 || s.DecisionEstimatedCostSavedUSD > 0 {
 			sb.WriteString(fmt.Sprintf("Decision cost before/after:  ~$%.4f / ~$%.4f (saved ~$%.4f)\n",
 				s.DecisionEstimatedCostBeforeUSD,
@@ -1172,20 +1241,35 @@ func formatSavingsHealthStatus(value string) string {
 }
 
 func formatCodexUnattributedReasons(reasons map[string]int64) string {
-	if len(reasons) == 0 {
-		return ""
+	return formatSavingsTopCounts(reasons, 0)
+}
+
+func formatSavingsTopCounts(counts map[string]int64, limit int) string {
+	if len(counts) == 0 {
+		return "none"
 	}
-	keys := make([]string, 0, len(reasons))
-	for key, count := range reasons {
+	keys := make([]string, 0, len(counts))
+	for key, count := range counts {
 		if strings.TrimSpace(key) == "" || count <= 0 {
 			continue
 		}
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		if counts[keys[i]] == counts[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return counts[keys[i]] > counts[keys[j]]
+	})
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%d", key, reasons[key]))
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	if len(parts) == 0 {
+		return "none"
 	}
 	return strings.Join(parts, ", ")
 }
