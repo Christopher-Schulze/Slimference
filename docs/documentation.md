@@ -1895,8 +1895,10 @@ input saved, estimated original vs sent tokens, tracked output tokens,
 per-session recent/active savings rows, cache contribution, and safety state.
 Codex WSS and HTTP session rows are enriched from the same Codex thread store
 as Activity, so Desktop and CLI threads show user-facing title/path/client
-labels when Codex has persisted them; raw `codex_chatgpt` provider names are
-never used as Desktop/CLI proof by themselves.
+labels when Codex has persisted them. Raw flight IDs stay transport-precise
+(`codex-wss:<thread>` or `codex-http:<thread>`), then normalize to the same
+thread ID for metadata lookup. Raw `codex_chatgpt` provider names are never used
+as Desktop/CLI proof by themselves.
 Parser matrices, checkpoints, archive internals, quality canaries, and raw
 debug counters remain available through CLI/admin diagnostics, not the daily
 TUI.
@@ -1907,8 +1909,10 @@ and top Codex sessions with compact `layers=` fields. Per-session rows include
 `display_name`, `project_path`, and `client_family` when Codex thread metadata
 can be resolved from WSS or HTTP Codex thread metadata. Strong thread identities
 are read from top-level, `metadata`, `client_metadata`, or nested
-`x-codex-turn-metadata` fields; WSS keeps its historical `prompt_cache_key`
-fallback only when stronger metadata is absent. Rows also include
+`x-codex-turn-metadata` fields; HTTP rows use `codex-http:<thread>`, WSS rows
+use `codex-wss:<thread>`, and WSS keeps its historical `prompt_cache_key`
+fallback only when stronger metadata is absent. Codex HTTP `client_family` is
+captured from the same metadata sources or User-Agent fallback. Rows also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used

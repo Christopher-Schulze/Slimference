@@ -711,6 +711,9 @@ func TestServeHTTP_CodexResponsesCompressionAndHeaders(t *testing.T) {
 	if len(summaries) != 1 || summaries[0].Provider != "codex_chatgpt" || summaries[0].Tokens.Saved <= 0 {
 		t.Fatalf("debug summary missing codex savings: %#v", summaries)
 	}
+	if summaries[0].SessionID != "codex-http:conv_redacted" || summaries[0].ClientFamily != "codex_cli" {
+		t.Fatalf("debug summary attribution wrong: %#v", summaries[0])
+	}
 }
 
 func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {

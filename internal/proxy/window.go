@@ -226,18 +226,54 @@ func extractCodexHTTPThreadSessionID(body []byte) string {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
-	return codexStrongThreadSessionID(raw)
+	if sid := codexStrongThreadRawID(raw); sid != "" {
+		return "codex-http:" + sid
+	}
+	return ""
 }
 
 func codexStrongThreadSessionID(raw map[string]json.RawMessage) string {
-	if sid := codexRawSessionID(raw); sid != "" {
+	if sid := codexStrongThreadRawID(raw); sid != "" {
 		return "codex-wss:" + sid
+	}
+	return ""
+}
+
+func codexStrongThreadRawID(raw map[string]json.RawMessage) string {
+	if sid := codexRawSessionID(raw); sid != "" {
+		return sid
 	}
 	if sid := codexNestedSessionID(raw["metadata"]); sid != "" {
-		return "codex-wss:" + sid
+		return sid
 	}
 	if sid := codexNestedSessionID(raw["client_metadata"]); sid != "" {
-		return "codex-wss:" + sid
+		return sid
+	}
+	return ""
+}
+
+func extractClientFamily(provider types.Provider, body []byte, headers http.Header) string {
+	if provider != types.CodexChatGPT {
+		return ""
+	}
+	if family := extractCodexHTTPClientFamily(body); family != "" {
+		return family
+	}
+	if family := normalizeCodexClientFamily(headers.Get("User-Agent")); family != "" {
+		return family
+	}
+	return "codex"
+}
+
+func extractCodexHTTPClientFamily(body []byte) string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ""
+	}
+	for _, source := range []json.RawMessage{raw["client_metadata"], raw["metadata"]} {
+		if family := codexMetadataClientFamily(source); family != "" {
+			return family
+		}
 	}
 	return ""
 }

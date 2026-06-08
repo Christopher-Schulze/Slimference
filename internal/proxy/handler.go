@@ -188,6 +188,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	r = r.WithContext(context.WithValue(r.Context(), requestBodyEncodingKey{}, requestEncoding))
 	r = r.WithContext(context.WithValue(r.Context(), origBodyKey{}, body))
 	sessionID := extractSessionID(provider, body, r.Header)
+	clientFamily := extractClientFamily(provider, body, r.Header)
 
 	// --- 1. Extract messages ---
 	messages, rawBody, err := extractMessages(provider, body)
@@ -665,6 +666,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					Timestamp:          start,
 					Source:             "proxy",
 					Provider:           provider.String(),
+					ClientFamily:       clientFamily,
 					Host:               r.Host,
 					Path:               r.URL.Path,
 					RouteMode:          "local_cache",
@@ -1045,6 +1047,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			SessionID:          sessionID,
 			Source:             "proxy",
 			Provider:           provider.String(),
+			ClientFamily:       clientFamily,
 			Host:               r.Host,
 			Path:               r.URL.Path,
 			RouteMode:          "upstream",

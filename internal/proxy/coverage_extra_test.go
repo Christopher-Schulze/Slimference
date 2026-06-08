@@ -79,8 +79,11 @@ func fillAnalyticsQueue(p *Proxy) {
 func TestExtractSessionIDCodexHTTPUsesTurnMetadata(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_prev","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"019ea6ca-5279-7200-868e-2efda5e6731d\",\"source\":\"cli\"}"},"input":[]}`)
 	got := extractSessionID(types.CodexChatGPT, body, http.Header{})
-	if got != "codex-wss:019ea6ca-5279-7200-868e-2efda5e6731d" {
+	if got != "codex-http:019ea6ca-5279-7200-868e-2efda5e6731d" {
 		t.Fatalf("session id=%q", got)
+	}
+	if family := extractClientFamily(types.CodexChatGPT, body, http.Header{}); family != "codex_cli" {
+		t.Fatalf("client family=%q", family)
 	}
 }
 
@@ -93,22 +96,22 @@ func TestExtractSessionIDCodexHTTPUsesStrongThreadFields(t *testing.T) {
 		{
 			name: "top level thread id",
 			body: `{"thread_id":"thread-top","conversation_id":"conv-worse","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-client\"}"}}`,
-			want: "codex-wss:thread-top",
+			want: "codex-http:thread-top",
 		},
 		{
 			name: "metadata thread id",
 			body: `{"metadata":{"thread_id":"thread-meta"},"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-client\"}"}}`,
-			want: "codex-wss:thread-meta",
+			want: "codex-http:thread-meta",
 		},
 		{
 			name: "metadata turn metadata",
 			body: `{"metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-turn-meta\"}"}}`,
-			want: "codex-wss:thread-turn-meta",
+			want: "codex-http:thread-turn-meta",
 		},
 		{
 			name: "client metadata direct session id",
 			body: `{"client_metadata":{"session_id":"session-client"}}`,
-			want: "codex-wss:session-client",
+			want: "codex-http:session-client",
 		},
 	}
 	for _, tt := range tests {
@@ -118,6 +121,22 @@ func TestExtractSessionIDCodexHTTPUsesStrongThreadFields(t *testing.T) {
 				t.Fatalf("session id=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExtractClientFamilyCodexHTTPFallbacks(t *testing.T) {
+	if family := extractClientFamily(types.CodexChatGPT, []byte(`{"metadata":{"source":"desktop"}}`), http.Header{}); family != "codex_desktop_app" {
+		t.Fatalf("metadata family=%q", family)
+	}
+	headers := http.Header{"User-Agent": []string{"OpenAI-Codex-Desktop/1.0"}}
+	if family := extractClientFamily(types.CodexChatGPT, []byte(`{}`), headers); family != "codex_desktop_app" {
+		t.Fatalf("ua family=%q", family)
+	}
+	if family := extractClientFamily(types.CodexChatGPT, []byte(`{`), http.Header{}); family != "codex" {
+		t.Fatalf("fallback family=%q", family)
+	}
+	if family := extractClientFamily(types.OpenAI, []byte(`{}`), headers); family != "" {
+		t.Fatalf("non-codex family=%q", family)
 	}
 }
 
