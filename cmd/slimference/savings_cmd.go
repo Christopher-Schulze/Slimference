@@ -470,15 +470,21 @@ func savingsClientFamily(summary dbg.RequestSummary) string {
 
 func enrichSavingsSessions(sessions []SavingsSessionSummary) {
 	ids := make([]string, 0, len(sessions))
+	seen := make(map[string]struct{}, len(sessions))
 	for i := range sessions {
 		raw := strings.TrimSpace(sessions[i].SessionID)
 		if id := codexthreads.NormalizeSessionID(raw); id != "" && isCodexThreadSession(raw) {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
 			ids = append(ids, id)
 		}
 	}
 	if len(ids) == 0 {
 		return
 	}
+	sort.Strings(ids)
 	metadata, err := lookupCodexThreadMetadataForSavingsFn(ids)
 	if err != nil {
 		return

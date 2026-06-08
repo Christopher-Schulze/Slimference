@@ -1899,6 +1899,11 @@ labels when Codex has persisted them. Raw flight IDs stay transport-precise
 (`codex-wss:<thread>` or `codex-http:<thread>`), then normalize to the same
 thread ID for metadata lookup. Raw `codex_chatgpt` provider names are never used
 as Desktop/CLI proof by themselves.
+Codex passthrough flights, including Desktop sideband endpoints and empty
+responses payloads, are also recorded after successful upstream handoff as
+content-free zero-savings rows with the same thread/client attribution and a
+precise bypass reason. Generic OpenAI passthrough is not recorded there to avoid
+turning unrelated API traffic into noise.
 Parser matrices, checkpoints, archive internals, quality canaries, and raw
 debug counters remain available through CLI/admin diagnostics, not the daily
 TUI.

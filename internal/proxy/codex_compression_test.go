@@ -941,7 +941,7 @@ func TestServeHTTP_GenericOpenAIResponsesPassthrough(t *testing.T) {
 
 func TestServeHTTP_CodexUnknownShapePassthrough(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"conversation_id":"conv-redacted","metadata":{"route":"unknown"}}`)
+	body := []byte(`{"conversation_id":"conv-redacted","metadata":{"route":"unknown","source":"desktop"},"model":"gpt-5.5"}`)
 	var capturedBody []byte
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -969,6 +969,65 @@ func TestServeHTTP_CodexUnknownShapePassthrough(t *testing.T) {
 	}
 	if string(capturedBody) != string(body) {
 		t.Fatalf("unknown shape must pass through byte-equal: got %s want %s", capturedBody, body)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected passthrough summary: %#v", summaries)
+	}
+	summary := summaries[0]
+	if summary.SessionID != "codex-http:conv-redacted" ||
+		summary.ClientFamily != "codex_desktop_app" ||
+		summary.RouteMode != "passthrough" ||
+		summary.BypassReason != "non_compressible_path" ||
+		summary.Tokens.Saved != 0 ||
+		len(summary.LayersApplied) != 0 {
+		t.Fatalf("bad passthrough attribution: %#v", summary)
+	}
+}
+
+func TestServeHTTP_CodexEmptyResponsesPassthrough(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"conversation_id":"conv-empty","metadata":{"source":"cli"},"model":"gpt-5.5","input":[]}`)
+	var capturedBody []byte
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", strings.NewReader(string(body)))
+	req.Header.Set("User-Agent", "codex/0.125.0 (rust)")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if string(capturedBody) != string(body) {
+		t.Fatalf("empty Codex responses body must pass through byte-equal: got %s want %s", capturedBody, body)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected passthrough summary: %#v", summaries)
+	}
+	summary := summaries[0]
+	if summary.SessionID != "codex-http:conv-empty" ||
+		summary.ClientFamily != "codex_cli" ||
+		summary.RouteMode != "passthrough" ||
+		summary.BypassReason != "empty_messages" ||
+		summary.Tokens.Saved != 0 ||
+		len(summary.LayersApplied) != 0 {
+		t.Fatalf("bad empty responses passthrough attribution: %#v", summary)
 	}
 }
 

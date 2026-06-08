@@ -1023,7 +1023,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			p.proxyError(w, http.StatusBadRequest, "read body failed")
 			return
 		}
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "non_compressible_path")
 		return
 	}
 
@@ -1042,13 +1042,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	provider = detectProviderWithUA(r.URL.Path, body, userAgent)
 
 	if !isProviderCompressiblePath(provider, r.URL.Path) {
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "provider_path_passthrough")
 		return
 	}
 
 	// If this provider is toggled off: passthrough without compression.
 	if !p.isProviderEnabled(provider) {
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "provider_disabled")
 		return
 	}
 
@@ -1057,7 +1057,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// compression CPU on routes the operator has explicitly carved
 	// out (e.g. for staged rollouts).
 	if p.IsRouteBypassed(r.URL.Path) {
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "route_bypass")
 		return
 	}
 
@@ -1066,7 +1066,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// is in the bypass set. Cheap byte-scan that avoids parsing the
 	// full body when the set is empty.
 	if p.hasBypassedTool(body) {
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "tool_bypass")
 		return
 	}
 

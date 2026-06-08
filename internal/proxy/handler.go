@@ -181,7 +181,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			"content_encoding", r.Header.Get("Content-Encoding"),
 			"body_bytes", len(body),
 		)
-		p.handlePassthrough(w, r, provider, wireBody)
+		p.handlePassthroughWithAttribution(w, r, provider, wireBody, nil, "decode_failed")
 		return
 	}
 	body = decodedBody
@@ -200,7 +200,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				"content_encoding", r.Header.Get("Content-Encoding"),
 				"body_bytes", len(wireBody),
 			)
-			p.handlePassthrough(w, r, provider, wireBody)
+			p.handlePassthroughWithAttribution(w, r, provider, wireBody, body, "parse_failed")
 			return
 		}
 		slog.Error("extract messages", "error", err)
@@ -209,7 +209,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 	_ = rawBody
 	if len(messages) == 0 {
-		p.handlePassthrough(w, r, provider, body)
+		p.handlePassthroughWithAttribution(w, r, provider, body, body, "empty_messages")
 		return
 	}
 
@@ -1540,6 +1540,11 @@ func (p *Proxy) rewriteToolPruneRetryBody(provider types.Provider, preToolPruneB
 }
 
 func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte) {
+	p.handlePassthroughWithAttribution(w, r, provider, body, body, "passthrough")
+}
+
+func (p *Proxy) handlePassthroughWithAttribution(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte, attributionBody []byte, reason string) {
+	start := time.Now()
 	upstreamURL := p.upstreamURL(provider, r.URL.Path, r.URL.RawQuery)
 
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(body))
@@ -1574,10 +1579,45 @@ func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provid
 		p.proxyError(w, http.StatusBadGateway, fmt.Sprintf("upstream: %v", err))
 		return
 	}
+	p.recordPassthroughFlight(r, provider, attributionBody, reason, start)
 
 	if isStreamingRequest(body) {
 		streamingRelay(r.Context(), w, resp, provider.String())
 	} else {
 		passthrough(w, resp)
 	}
+}
+
+func (p *Proxy) recordPassthroughFlight(r *http.Request, provider types.Provider, body []byte, reason string, start time.Time) {
+	if p == nil || p.debugRecorder == nil || r == nil || r.URL == nil || provider != types.CodexChatGPT {
+		return
+	}
+	sessionID := extractSessionID(provider, body, r.Header)
+	clientFamily := extractClientFamily(provider, body, r.Header)
+	model := extractModel(body)
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "passthrough"
+	}
+	p.debugRecorder.Record(dbg.RequestSummary{
+		RequestID:      newRequestIDFn(),
+		Timestamp:      start,
+		SessionID:      sessionID,
+		Source:         "proxy",
+		Provider:       provider.String(),
+		Host:           r.Host,
+		Path:           r.URL.Path,
+		ClientFamily:   clientFamily,
+		RouteMode:      "passthrough",
+		BypassReason:   reason,
+		Model:          model,
+		ProxyLatencyMs: float64(time.Since(start).Microseconds()) / 1000.0,
+		Plan: p.dryRunPlan(plannerInput{
+			provider:             provider,
+			model:                model,
+			routeMode:            "passthrough",
+			contentClasses:       []string{"passthrough"},
+			liveCorpusConfidence: p.plannerLiveCorpusConfidence(),
+		}),
+	})
 }
