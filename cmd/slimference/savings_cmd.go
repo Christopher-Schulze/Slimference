@@ -66,6 +66,7 @@ type SavingsSummary struct {
 	DecisionCodexRequests             int64                     `json:"decision_codex_requests"`
 	DecisionCodexAttributedRequests   int64                     `json:"decision_codex_attributed_requests"`
 	DecisionCodexUnattributedRequests int64                     `json:"decision_codex_unattributed_requests"`
+	DecisionCodexUnattributedReasons  map[string]int64          `json:"decision_codex_unattributed_reasons,omitempty"`
 	DecisionCodexAttributionRate      float64                   `json:"decision_codex_attribution_rate"`
 	DecisionCodexAttributionStatus    string                    `json:"decision_codex_attribution_status,omitempty"`
 	DecisionLayer0NetTokens           int64                     `json:"decision_layer0_net_tokens"`
@@ -361,6 +362,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	for _, facts := range bySessionFacts {
 		out.DecisionCodexRequests += facts.CodexCandidateRequests
 		out.DecisionCodexAttributedRequests += facts.AttributedRequests
+		accumulateCodexUnattributedReason(out, facts)
 	}
 	if out.DecisionCodexAttributedRequests > out.DecisionCodexRequests {
 		out.DecisionCodexAttributedRequests = out.DecisionCodexRequests
@@ -404,6 +406,20 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		out.DecisionCodexAttributionRate = float64(out.DecisionCodexAttributedRequests) / float64(out.DecisionCodexRequests)
 		out.DecisionCodexAttributionStatus = savingsDecisionCodexAttributionStatus(*out)
 	}
+}
+
+func accumulateCodexUnattributedReason(out *SavingsSummary, facts *savingsSessionFacts) {
+	if out == nil || facts == nil || facts.CodexCandidateRequests <= facts.AttributedRequests {
+		return
+	}
+	reason := strings.TrimSpace(facts.UnattributedReason)
+	if reason == "" {
+		reason = "missing_thread_identity"
+	}
+	if out.DecisionCodexUnattributedReasons == nil {
+		out.DecisionCodexUnattributedReasons = make(map[string]int64)
+	}
+	out.DecisionCodexUnattributedReasons[reason] += facts.CodexCandidateRequests - facts.AttributedRequests
 }
 
 func savingsMechanismLayer(mechanism dbg.MechanismAccounting) (int, bool) {
@@ -482,6 +498,7 @@ type savingsSessionFacts struct {
 	CandidateLastSeen      time.Time
 	CodexCandidateRequests int64
 	AttributedRequests     int64
+	UnattributedReason     string
 }
 
 func updateSavingsSessionFacts(bySessionFacts map[string]*savingsSessionFacts, sessionID string, summary dbg.RequestSummary) {
@@ -538,15 +555,21 @@ func resolveLocalCodexFallbackSessions(bySession map[string]*SavingsSessionSumma
 		return
 	}
 	metadata, err := lookupCodexThreadWindowForSavingsFn(start.Add(-5*time.Minute), end.Add(5*time.Minute))
-	if err != nil || len(metadata) == 0 {
+	if err != nil {
+		markLocalCodexFallbackLookupFailure(byFacts, "metadata_lookup_error")
+		return
+	}
+	if len(metadata) == 0 {
+		markLocalCodexFallbackLookupFailure(byFacts, "no_local_thread_candidates")
 		return
 	}
 	for sessionID, facts := range byFacts {
 		if !needsLocalCodexFallbackResolution(facts) {
 			continue
 		}
-		meta, ok := resolveLocalCodexFallbackMetadata(*facts, metadata)
+		meta, reason, ok := resolveLocalCodexFallbackMetadata(*facts, metadata)
 		if !ok || strings.TrimSpace(meta.ID) == "" {
+			facts.UnattributedReason = reason
 			continue
 		}
 		localID := "codex-local:" + strings.TrimSpace(meta.ID)
@@ -573,6 +596,14 @@ func resolveLocalCodexFallbackSessions(bySession map[string]*SavingsSessionSumma
 	}
 }
 
+func markLocalCodexFallbackLookupFailure(byFacts map[string]*savingsSessionFacts, reason string) {
+	for _, facts := range byFacts {
+		if needsLocalCodexFallbackResolution(facts) {
+			facts.UnattributedReason = reason
+		}
+	}
+}
+
 func needsLocalCodexFallbackLookup(byFacts map[string]*savingsSessionFacts) bool {
 	for _, facts := range byFacts {
 		if needsLocalCodexFallbackResolution(facts) {
@@ -594,9 +625,9 @@ func isAnonymousCodexFallbackSession(id string) bool {
 	return strings.HasPrefix(strings.TrimSpace(id), "no-session:")
 }
 
-func resolveLocalCodexFallbackMetadata(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, bool) {
+func resolveLocalCodexFallbackMetadata(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, string, bool) {
 	if meta, ok := resolveLocalCodexFallbackByHash(facts, candidates); ok {
-		return meta, true
+		return meta, "", true
 	}
 	filtered := make([]codexthreads.Metadata, 0, len(candidates))
 	for _, meta := range candidates {
@@ -606,9 +637,12 @@ func resolveLocalCodexFallbackMetadata(facts savingsSessionFacts, candidates []c
 		filtered = append(filtered, meta)
 	}
 	if len(filtered) != 1 {
-		return codexthreads.Metadata{}, false
+		if len(filtered) == 0 {
+			return codexthreads.Metadata{}, "no_matching_thread_candidate", false
+		}
+		return codexthreads.Metadata{}, "ambiguous_thread_candidates", false
 	}
-	return filtered[0], true
+	return filtered[0], "", true
 }
 
 func resolveLocalCodexFallbackByHash(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, bool) {
@@ -1003,6 +1037,9 @@ func formatSavingsText(s SavingsSummary) string {
 				s.DecisionCodexAttributionRate*100,
 				s.DecisionCodexUnattributedRequests,
 			))
+			if len(s.DecisionCodexUnattributedReasons) > 0 {
+				sb.WriteString(fmt.Sprintf("Codex unattributed reasons:  %s\n", formatCodexUnattributedReasons(s.DecisionCodexUnattributedReasons)))
+			}
 		}
 		sb.WriteString(fmt.Sprintf("Decision layer net:          %s\n", formatDecisionLayerBreakdown(s)))
 		if s.DecisionEstimatedCostBeforeUSD > 0 || s.DecisionEstimatedCostAfterUSD > 0 || s.DecisionEstimatedCostSavedUSD > 0 {
@@ -1134,6 +1171,25 @@ func formatSavingsHealthStatus(value string) string {
 	}
 }
 
+func formatCodexUnattributedReasons(reasons map[string]int64) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(reasons))
+	for key, count := range reasons {
+		if strings.TrimSpace(key) == "" || count <= 0 {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, reasons[key]))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func compactSavingsPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -1198,8 +1254,8 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%s,%d,%d,%d,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_unattributed_reasons,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%s,%d,%d,%d,%s,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -1233,6 +1289,7 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.DecisionCodexRequests,
 		s.DecisionCodexAttributedRequests,
 		s.DecisionCodexUnattributedRequests,
+		formatCodexUnattributedReasons(s.DecisionCodexUnattributedReasons),
 		s.DecisionCodexAttributionRate,
 		s.DecisionCodexAttributionStatus,
 		s.DecisionLayer0NetTokens,

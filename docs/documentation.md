@@ -1955,12 +1955,16 @@ when present, request-stage token counters are used only as fallback, and missin
 counters stay zero.
 Codex attribution health is reported as
 `decision_codex_requests`, `decision_codex_attributed_requests`,
-`decision_codex_unattributed_requests`, and
+`decision_codex_unattributed_requests`,
+`decision_codex_unattributed_reasons`, and
 `decision_codex_attribution_rate`. A Codex request counts as attributed only when
 the row carries a strong `codex-http:<thread>`/`codex-wss:<thread>` session ID or
 a report-time `codex-local:<thread>` resolution that passed the ambiguity guard.
 Anonymous historical fallback buckets remain visible instead of being silently
-merged into real sessions. Content-free Codex sideband endpoints such as
+merged into real sessions. The reason map separates lookup errors, missing local
+thread candidates, ambiguous thread candidates, and missing thread identity
+cases so unresolved history is inspectable without guessing. Content-free Codex
+sideband endpoints such as
 `/backend-api/codex/models` remain in total decision accounting but do not count
 as unattributed conversation sessions. `decision_codex_attribution_status` is
 `ok` when all conversation-bearing Codex rows are attributed and

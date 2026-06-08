@@ -46,6 +46,9 @@ parallel sessions make the match ambiguous.
   negative samples while preserving the single create-only warmup allowance.
 - Aligned admin status, prompt-cache reports, and proxy-gain reports with the
   same conservative cache math: `max(cache_read - cache_create, 0) * 0.9`.
+- Added Codex unattributed-reason reporting for unresolved historical/fallback
+  rows so ambiguity, lookup failure, and missing local candidates are visible
+  without guessing a thread.
 
 ## Verification
 

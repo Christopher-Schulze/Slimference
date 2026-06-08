@@ -884,6 +884,9 @@ func TestSavingsKeepsAmbiguousHashFallbackUnattributed(t *testing.T) {
 		got.DecisionCodexAttributionStatus != "attention" {
 		t.Fatalf("ambiguous fallback must stay unattributed: %+v", got)
 	}
+	if got.DecisionCodexUnattributedReasons["ambiguous_thread_candidates"] != 1 {
+		t.Fatalf("ambiguous reason missing: %+v", got.DecisionCodexUnattributedReasons)
+	}
 	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].SessionID != "fh:aaaaaaaaaaaaaaaa" {
 		t.Fatalf("ambiguous session should remain fallback: %+v", got.DecisionSessions)
 	}
@@ -991,7 +994,7 @@ func TestSavingsKeepsAmbiguousAnonymousCodexFallbackUnattributed(t *testing.T) {
 		{ID: "thread-a", Source: "cli", Model: "gpt-5.5", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)},
 		{ID: "thread-b", Source: "vscode", Model: "gpt-5.5", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)},
 	}
-	if _, ok := resolveLocalCodexFallbackMetadata(facts, candidates); ok {
+	if _, reason, ok := resolveLocalCodexFallbackMetadata(facts, candidates); ok || reason != "ambiguous_thread_candidates" {
 		t.Fatalf("ambiguous anonymous fallback must stay unattributed")
 	}
 }
@@ -1058,8 +1061,11 @@ func TestSavingsCodexAttributionHealth(t *testing.T) {
 	if !strings.Contains(text, "Codex attribution:") || !strings.Contains(text, "1/2 attributed (attention, 50.0%, 1 unattributed)") {
 		t.Fatalf("text missing attribution health: %s", text)
 	}
+	if !strings.Contains(text, "Codex unattributed reasons:") || !strings.Contains(text, "no_local_thread_candidates=1") {
+		t.Fatalf("text missing unattributed reason: %s", text)
+	}
 	csv := formatSavingsCSV(got)
-	for _, want := range []string{"decision_cache_status", "decision_codex_requests", "decision_codex_attributed_requests", "decision_codex_unattributed_requests", "decision_codex_attribution_rate", "decision_codex_attribution_status", ",none,2,1,1,0.500000,attention,"} {
+	for _, want := range []string{"decision_cache_status", "decision_codex_requests", "decision_codex_attributed_requests", "decision_codex_unattributed_requests", "decision_codex_unattributed_reasons", "decision_codex_attribution_rate", "decision_codex_attribution_status", ",none,2,1,1,no_local_thread_candidates=1,0.500000,attention,"} {
 		if !strings.Contains(csv, want) {
 			t.Fatalf("csv missing %q: %s", want, csv)
 		}
