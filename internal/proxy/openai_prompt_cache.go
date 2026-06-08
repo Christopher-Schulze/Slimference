@@ -20,6 +20,15 @@ type promptCacheRateBucket struct {
 }
 
 const openAIPromptCacheRejectTTL = 30 * time.Minute
+const openAIPromptCacheNetMinSamples = 3
+const openAIPromptCacheNetMinLossTokens = 1024
+
+type promptCacheNetBucket struct {
+	readTokens      int
+	createTokens    int
+	samples         int
+	negativeSamples int
+}
 
 type openAIPromptCacheDecision struct {
 	Applied            bool
@@ -45,7 +54,8 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 	if provider != types.OpenAI {
 		return body, openAIPromptCacheDecision{Reason: "unsupported_provider"}
 	}
-	if p.openAIPromptCacheRejected(provider, model, time.Now()) {
+	now := time.Now()
+	if p.openAIPromptCacheRejected(provider, model, now) {
 		return body, openAIPromptCacheDecision{Reason: "rejected_cooldown"}
 	}
 	caps := types.CapabilitiesFor(provider)
@@ -75,7 +85,9 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 	if _, exists := root["prompt_cache_key"]; !exists && caps.SupportsPromptCacheKey {
 		key := buildOpenAIPromptCacheKey(cfg, model, sessionID, plan.Hash)
 		if key != "" {
-			if p.allowOpenAIPromptCacheKey(key, cfg.MaxRequestsPerKeyPerMinute, time.Now()) {
+			if p.openAIPromptCacheKeyRejected(provider, model, key, now) {
+				decision.Reason = "negative_net_cooldown"
+			} else if p.allowOpenAIPromptCacheKey(key, cfg.MaxRequestsPerKeyPerMinute, now) {
 				raw, _ := json.Marshal(key)
 				root["prompt_cache_key"] = raw
 				decision.Key = key
@@ -207,8 +219,64 @@ func (p *Proxy) markOpenAIPromptCacheRejected(provider types.Provider, model str
 	p.openAIPromptCacheRejects[key] = now
 }
 
+func (p *Proxy) observeOpenAIPromptCacheNet(provider types.Provider, model string, decision openAIPromptCacheDecision, usage cacheUsage, now time.Time) {
+	if !decision.Applied || decision.Key == "" {
+		return
+	}
+	key := openAIPromptCacheKeyRejectKey(provider, model, decision.Key)
+	if key == "" {
+		return
+	}
+	readTokens := usage.ReadTokens
+	createTokens := usage.CreateTokens
+	if readTokens == 0 && createTokens == 0 {
+		return
+	}
+	p.openAIPromptCacheMu.Lock()
+	defer p.openAIPromptCacheMu.Unlock()
+	if p.openAIPromptCacheNet == nil {
+		p.openAIPromptCacheNet = make(map[string]promptCacheNetBucket)
+	}
+	bucket := p.openAIPromptCacheNet[key]
+	bucket.samples++
+	bucket.readTokens += readTokens
+	bucket.createTokens += createTokens
+	if readTokens-createTokens < 0 {
+		bucket.negativeSamples++
+	}
+	p.openAIPromptCacheNet[key] = bucket
+	net := bucket.readTokens - bucket.createTokens
+	if bucket.samples >= openAIPromptCacheNetMinSamples &&
+		bucket.negativeSamples >= openAIPromptCacheNetMinSamples &&
+		net <= -openAIPromptCacheNetMinLossTokens {
+		if p.openAIPromptCacheRejects == nil {
+			p.openAIPromptCacheRejects = make(map[string]time.Time)
+		}
+		p.openAIPromptCacheRejects[key] = now
+		delete(p.openAIPromptCacheNet, key)
+	}
+}
+
 func (p *Proxy) openAIPromptCacheRejected(provider types.Provider, model string, now time.Time) bool {
 	key := openAIPromptCacheRejectKey(provider, model)
+	if key == "" {
+		return false
+	}
+	p.openAIPromptCacheMu.Lock()
+	defer p.openAIPromptCacheMu.Unlock()
+	rejectedAt, ok := p.openAIPromptCacheRejects[key]
+	if !ok {
+		return false
+	}
+	if now.Sub(rejectedAt) >= openAIPromptCacheRejectTTL {
+		delete(p.openAIPromptCacheRejects, key)
+		return false
+	}
+	return true
+}
+
+func (p *Proxy) openAIPromptCacheKeyRejected(provider types.Provider, model string, promptCacheKey string, now time.Time) bool {
+	key := openAIPromptCacheKeyRejectKey(provider, model, promptCacheKey)
 	if key == "" {
 		return false
 	}
@@ -231,6 +299,14 @@ func openAIPromptCacheRejectKey(provider types.Provider, model string) string {
 		return provider.String()
 	}
 	return provider.String() + "\x00" + model
+}
+
+func openAIPromptCacheKeyRejectKey(provider types.Provider, model string, promptCacheKey string) string {
+	promptCacheKey = strings.TrimSpace(promptCacheKey)
+	if promptCacheKey == "" {
+		return ""
+	}
+	return openAIPromptCacheRejectKey(provider, model) + "\x00key\x00" + promptCacheKey
 }
 
 func peekPromptCacheUnsupportedError(resp *http.Response) bool {

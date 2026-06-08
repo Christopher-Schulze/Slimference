@@ -210,6 +210,7 @@ type Proxy struct {
 	openAIPromptCacheMu      sync.Mutex
 	openAIPromptCacheRate    map[string]promptCacheRateBucket
 	openAIPromptCacheRejects map[string]time.Time
+	openAIPromptCacheNet     map[string]promptCacheNetBucket
 	webSocketTunnel          *WebSocketTunnel
 	webSocketShapes          *wscompact.ShapeRegistry
 

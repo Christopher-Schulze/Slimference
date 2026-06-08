@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T335 OpenAI prompt-cache negative-net guard -> docs/todo/t335-openai-prompt-cache-negative-net-guard.md
 - [x] T334 Strong Codex thread attribution and proxy cache net proof -> docs/todo/t334-strong-codex-thread-attribution-cache-proof.md
 - [x] T333 Codex HTTP session savings attribution -> docs/todo/t333-codex-http-session-savings-attribution.md
 - [x] T332 Codex Desktop thread attribution and savings labels -> docs/todo/t332-codex-desktop-thread-attribution.md

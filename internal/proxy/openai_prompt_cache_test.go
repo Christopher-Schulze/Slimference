@@ -293,6 +293,41 @@ func TestOpenAIPromptCacheRejectedCooldown(t *testing.T) {
 	}
 }
 
+func TestOpenAIPromptCacheNegativeNetCooldown(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Proxy.OpenAIPromptCache.Enabled = true
+	cfg.Proxy.OpenAIPromptCache.PromptCacheKeyStrategy = "static"
+	cfg.Proxy.OpenAIPromptCache.StaticPromptCacheKey = "lossy-key"
+	cfg.Proxy.OpenAIPromptCache.MinTokens = 0
+	cfg.Proxy.OpenAIPromptCache.Retention = "off"
+	p := New(cfg)
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix for cache"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
+
+	now := time.Now()
+	for i := 0; i < openAIPromptCacheNetMinSamples; i++ {
+		p.observeOpenAIPromptCacheNet(types.OpenAI, "gpt-5", openAIPromptCacheDecision{
+			Applied: true,
+			Key:     "lossy-key",
+		}, cacheUsage{CreateTokens: openAIPromptCacheNetMinLossTokens}, now.Add(time.Duration(i)*time.Second))
+	}
+
+	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 2000, "sess")
+	if decision.Applied || decision.Reason != "negative_net_cooldown" || strings.Contains(string(out), "prompt_cache_key") {
+		t.Fatalf("expected negative-net cooldown: decision=%+v body=%s", decision, out)
+	}
+	if !p.openAIPromptCacheKeyRejected(types.OpenAI, "gpt-5", "lossy-key", now.Add(time.Minute)) {
+		t.Fatal("key should be rejected during cooldown")
+	}
+	if p.openAIPromptCacheKeyRejected(types.OpenAI, "gpt-5", "lossy-key", now.Add(openAIPromptCacheRejectTTL+5*time.Second)) {
+		t.Fatal("key rejection should expire")
+	}
+	p.config.Proxy.OpenAIPromptCache.StaticPromptCacheKey = "healthy-key"
+	out, decision = p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 2000, "sess")
+	if !decision.Applied || decision.Key != "healthy-key" || !strings.Contains(string(out), `"prompt_cache_key"`) {
+		t.Fatalf("other keys should keep working: decision=%+v body=%s", decision, out)
+	}
+}
+
 func TestPromptCacheUnsupportedPeekRestoresBody(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusBadRequest,

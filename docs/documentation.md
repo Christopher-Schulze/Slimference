@@ -200,8 +200,9 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
 10. **OpenAI prompt-cache steering** (T136/T285) — default-on hashed
     `prompt_cache_key` steering for generic OpenAI API requests only, using
     model-bound stable-prefix hashes. Optional model-gated
-    `prompt_cache_retention` stays operator-controlled. CodexChatGPT backend
-    routes stay untouched until live proof.
+    `prompt_cache_retention` stays operator-controlled. Per-key negative-net
+    cooldown suppresses keys that repeatedly cost more cache-create tokens than
+    they read back. CodexChatGPT backend routes stay untouched until live proof.
 11. **Layer 3 output/tool-surface reducers** — safe output discipline and
     tool-surface reductions are applied only when policy and proof gates allow.
 12. **Upstream call** via the per-provider HTTP client. Streaming is
@@ -1259,6 +1260,13 @@ preserving any server-state rewrite, then suppresses prompt-cache steering for
 that provider/model for 30 minutes. Debug/flight telemetry records only
 content-free fields: applied/reason, retention, stable-prefix token estimate,
 and stable-prefix hash.
+
+Provider usage is also fed back into a per-key negative-net guard. After 3
+negative samples and at least 1024 net-lost provider cache tokens, only that
+generated key enters a 30-minute cooldown and future requests omit optional
+cache hints with `reason=negative_net_cooldown`. A single create-only warmup
+does not disable the key. Other keys keep working, and the model-facing prompt
+content is unchanged.
 
 CodexChatGPT backend routes do not receive these fields until T140 captures
 live request acceptance.

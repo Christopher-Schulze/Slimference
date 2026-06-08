@@ -982,6 +982,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	if upstreamCacheUsage.InputTokens > 0 {
 		tokens.ObserveUpstreamUsage(provider, model, upstreamCacheUsage.InputTokens, compressedTokens)
 	}
+	p.observeOpenAIPromptCacheNet(provider, model, promptCacheDecision, upstreamCacheUsage, time.Now())
 
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
 	p.pipelineHist.Total.Record(time.Since(start))
