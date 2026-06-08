@@ -289,7 +289,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			out.DecisionCacheNegativeNetRequests++
 		}
 		sessionID := decisionSessionID(summary)
-		if isCodexDecisionSummary(summary, sessionID) {
+		if isCodexAttributionCandidate(summary, sessionID) {
 			out.DecisionCodexRequests++
 			if isCodexThreadSession(strings.TrimSpace(summary.SessionID)) {
 				out.DecisionCodexAttributedRequests++
@@ -480,6 +480,17 @@ func isCodexDecisionSummary(summary dbg.RequestSummary, sessionID string) bool {
 		strings.Contains(source, "codex") ||
 		isCodexThreadSession(strings.TrimSpace(summary.SessionID)) ||
 		isCodexThreadSession(strings.TrimSpace(sessionID))
+}
+
+func isCodexAttributionCandidate(summary dbg.RequestSummary, sessionID string) bool {
+	if !isCodexDecisionSummary(summary, sessionID) {
+		return false
+	}
+	path := strings.ToLower(strings.TrimSpace(summary.Path))
+	if path != "" && !strings.Contains(path, "responses") && !strings.Contains(path, "chat/completions") {
+		return false
+	}
+	return true
 }
 
 func savingsDecisionCacheStatus(s SavingsSummary) string {

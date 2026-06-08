@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T342 Codex sideband attribution health -> docs/todo/t342-codex-sideband-attribution-health.md
 - [x] T341 Codex Responses input fallback attribution -> docs/todo/t341-codex-responses-input-fallback-attribution.md
 - [x] T340 Codex user-id attribution guard -> docs/todo/t340-codex-user-id-attribution-guard.md
 - [x] T339 Savings health status signals -> docs/todo/t339-savings-health-status-signals.md

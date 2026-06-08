@@ -783,6 +783,13 @@ func TestSavingsCodexAttributionHealth(t *testing.T) {
 				Provider:  "openai",
 				Tokens:    dbg.TokenCounts{Original: 200, Final: 100, Saved: 100},
 			},
+			{
+				RequestID: "codex-models-sideband",
+				Timestamp: now,
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Path:      "/backend-api/codex/models",
+			},
 		}, nil
 	}
 	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {

@@ -1934,9 +1934,11 @@ Codex attribution health is reported as
 `decision_codex_attribution_rate`. A Codex request counts as attributed only when
 the row carries a strong `codex-http:<thread>` or `codex-wss:<thread>` session ID;
 anonymous historical fallback buckets remain visible instead of being silently
-merged into real sessions. `decision_codex_attribution_status` is `ok` when all
-Codex rows are strongly attributed and `attention` when any Codex row remains
-anonymous.
+merged into real sessions. Content-free Codex sideband endpoints such as
+`/backend-api/codex/models` remain in total decision accounting but do not count
+as unattributed conversation sessions. `decision_codex_attribution_status` is
+`ok` when all conversation-bearing Codex rows are strongly attributed and
+`attention` when any such row remains anonymous.
 Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_read_tokens`, `decision_cache_create_tokens`,
 `decision_cache_net_tokens`, `decision_cache_hit_requests`,
