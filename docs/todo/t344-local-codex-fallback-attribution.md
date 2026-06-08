@@ -42,6 +42,8 @@ parallel sessions make the match ambiguous.
 - Made Savings cost estimates conservative for provider cache by subtracting
   cache-create tokens from cache-read discount equivalent before reporting
   estimated cost saved.
+- Tightened generic OpenAI prompt-cache negative-net cooldown from three to two
+  negative samples while preserving the single create-only warmup allowance.
 
 ## Verification
 

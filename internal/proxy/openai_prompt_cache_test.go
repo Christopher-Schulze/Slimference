@@ -304,7 +304,14 @@ func TestOpenAIPromptCacheNegativeNetCooldown(t *testing.T) {
 	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix for cache"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
 
 	now := time.Now()
-	for i := 0; i < openAIPromptCacheNetMinSamples; i++ {
+	p.observeOpenAIPromptCacheNet(types.OpenAI, "gpt-5", openAIPromptCacheDecision{
+		Applied: true,
+		Key:     "lossy-key",
+	}, cacheUsage{CreateTokens: openAIPromptCacheNetMinLossTokens}, now)
+	if p.openAIPromptCacheKeyRejected(types.OpenAI, "gpt-5", "lossy-key", now.Add(time.Second)) {
+		t.Fatal("one create-only warmup should not reject the key")
+	}
+	for i := 1; i < openAIPromptCacheNetMinNegativeSamples; i++ {
 		p.observeOpenAIPromptCacheNet(types.OpenAI, "gpt-5", openAIPromptCacheDecision{
 			Applied: true,
 			Key:     "lossy-key",

@@ -1264,7 +1264,7 @@ that provider/model for 30 minutes. Debug/flight telemetry records only
 content-free fields: applied/reason, retention, stable-prefix token estimate,
 and stable-prefix hash.
 
-Provider usage is also fed back into a per-key negative-net guard. After 3
+Provider usage is also fed back into a per-key negative-net guard. After 2
 negative samples and at least 1024 net-lost provider cache tokens, only that
 generated key enters a 30-minute cooldown and future requests omit optional
 cache hints with `reason=negative_net_cooldown`. A single create-only warmup

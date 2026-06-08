@@ -20,7 +20,7 @@ type promptCacheRateBucket struct {
 }
 
 const openAIPromptCacheRejectTTL = 30 * time.Minute
-const openAIPromptCacheNetMinSamples = 3
+const openAIPromptCacheNetMinNegativeSamples = 2
 const openAIPromptCacheNetMinLossTokens = 1024
 
 type promptCacheNetBucket struct {
@@ -246,8 +246,7 @@ func (p *Proxy) observeOpenAIPromptCacheNet(provider types.Provider, model strin
 	}
 	p.openAIPromptCacheNet[key] = bucket
 	net := bucket.readTokens - bucket.createTokens
-	if bucket.samples >= openAIPromptCacheNetMinSamples &&
-		bucket.negativeSamples >= openAIPromptCacheNetMinSamples &&
+	if bucket.negativeSamples >= openAIPromptCacheNetMinNegativeSamples &&
 		net <= -openAIPromptCacheNetMinLossTokens {
 		if p.openAIPromptCacheRejects == nil {
 			p.openAIPromptCacheRejects = make(map[string]time.Time)
