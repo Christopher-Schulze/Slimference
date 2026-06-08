@@ -279,7 +279,7 @@ func extractCodexHTTPClientFamily(body []byte) string {
 }
 
 func codexRawSessionID(fields map[string]json.RawMessage) string {
-	for _, key := range []string{"thread_id", "conversation_id", "session_id", "user_id"} {
+	for _, key := range []string{"thread_id", "conversation_id", "session_id"} {
 		if s := rawJSONString(fields[key]); s != "" {
 			return s
 		}

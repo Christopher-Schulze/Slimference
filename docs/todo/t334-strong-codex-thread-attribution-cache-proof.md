@@ -13,8 +13,8 @@ behind gross cached-token counts.
 
 - Codex HTTP and WSS use the same strong thread extractor for top-level,
   `metadata`, and `client_metadata` session fields.
-- Strong thread ids include `thread_id`, `conversation_id`, `session_id`,
-  `user_id`, and `x-codex-turn-metadata` where present.
+- Strong thread ids include `thread_id`, `conversation_id`, `session_id`, and
+  `x-codex-turn-metadata` where present. `user_id` is not a thread boundary.
 - WSS keeps its historical `prompt_cache_key` fallback only after stronger
   thread metadata is absent; HTTP does not add that weak fallback.
 - `slimference savings` keeps parallel Codex threads separate and enriches both
@@ -44,6 +44,9 @@ behind gross cached-token counts.
 - Weak prompt-cache-key grouping remains WSS-only because it is historical WSS
   recovery behavior. HTTP attribution stays conservative to avoid merging
   unrelated sessions that merely share a cacheable prefix.
+- T340 tightened this further: `user_id` is explicitly excluded from strong
+  Codex thread attribution because it can merge parallel sessions from the same
+  account.
 
 ## Verification
 

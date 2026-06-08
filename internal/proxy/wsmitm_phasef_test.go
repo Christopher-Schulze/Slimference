@@ -2179,11 +2179,9 @@ func TestWSCodexSessionIDFallbacks(t *testing.T) {
 		[]byte(`{"thread_id":"t1"}`),
 		[]byte(`{"conversation_id":"c1"}`),
 		[]byte(`{"session_id":"s1"}`),
-		[]byte(`{"user_id":"u1"}`),
 		[]byte(`{"metadata":{"thread_id":"mt1"}}`),
 		[]byte(`{"metadata":{"conversation_id":"mc1"}}`),
 		[]byte(`{"metadata":{"session_id":"ms1"}}`),
-		[]byte(`{"metadata":{"user_id":"mu1"}}`),
 		[]byte(`{"metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"mtm1\"}"}}`),
 		[]byte(`{"client_metadata":{"session_id":"cms1"}}`),
 	} {
@@ -2191,7 +2189,14 @@ func TestWSCodexSessionIDFallbacks(t *testing.T) {
 			t.Fatalf("missing codex prefix for %s: %q", raw, got)
 		}
 	}
-	for _, raw := range [][]byte{[]byte(`not-json`), []byte(`{"metadata":1}`), []byte(`{}`)} {
+	for _, raw := range [][]byte{
+		[]byte(`not-json`),
+		[]byte(`{"metadata":1}`),
+		[]byte(`{}`),
+		[]byte(`{"user_id":"u1"}`),
+		[]byte(`{"metadata":{"user_id":"mu1"}}`),
+		[]byte(`{"client_metadata":{"user_id":"cu1"}}`),
+	} {
 		if got := wsCodexSessionID(raw); got != "" {
 			t.Fatalf("unexpected session id for %s: %q", raw, got)
 		}

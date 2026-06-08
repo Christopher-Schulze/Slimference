@@ -1914,10 +1914,12 @@ and top Codex sessions with compact `layers=` fields. Per-session rows include
 `display_name`, `project_path`, and `client_family` when Codex thread metadata
 can be resolved from WSS or HTTP Codex thread metadata. Strong thread identities
 are read from top-level, `metadata`, `client_metadata`, or nested
-`x-codex-turn-metadata` fields; HTTP rows use `codex-http:<thread>`, WSS rows
-use `codex-wss:<thread>`, and WSS keeps its historical `prompt_cache_key`
-fallback only when stronger metadata is absent. Codex HTTP `client_family` is
-captured from the same metadata sources or User-Agent fallback. Rows also include
+`x-codex-turn-metadata` fields, but only thread/conversation/session keys count;
+`user_id` is deliberately ignored because it can merge parallel sessions from
+the same account. HTTP rows use `codex-http:<thread>`, WSS rows use
+`codex-wss:<thread>`, and WSS keeps its historical `prompt_cache_key` fallback
+only when stronger metadata is absent. Codex HTTP `client_family` is captured
+from the same metadata sources or User-Agent fallback. Rows also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used

@@ -124,6 +124,21 @@ func TestExtractSessionIDCodexHTTPUsesStrongThreadFields(t *testing.T) {
 	}
 }
 
+func TestExtractSessionIDCodexHTTPDoesNotUseUserIDAsThread(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte(`{"user_id":"user-top","messages":[{"role":"user","content":"top user only"}]}`),
+		[]byte(`{"metadata":{"user_id":"user-meta"},"messages":[{"role":"user","content":"metadata user only"}]}`),
+		[]byte(`{"client_metadata":{"user_id":"user-client"},"messages":[{"role":"user","content":"client user only"}]}`),
+	} {
+		if got := extractCodexHTTPThreadSessionID(body); got != "" {
+			t.Fatalf("user_id must not be used as Codex HTTP thread id for %s: %q", body, got)
+		}
+		if got := extractSessionID(types.CodexChatGPT, body, http.Header{}); strings.HasPrefix(got, "codex-http:") {
+			t.Fatalf("user_id-only Codex HTTP body must fall back to non-thread session id for %s: %q", body, got)
+		}
+	}
+}
+
 func TestExtractClientFamilyCodexHTTPFallbacks(t *testing.T) {
 	if family := extractClientFamily(types.CodexChatGPT, []byte(`{"metadata":{"source":"desktop"}}`), http.Header{}); family != "codex_desktop_app" {
 		t.Fatalf("metadata family=%q", family)

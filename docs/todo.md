@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T340 Codex user-id attribution guard -> docs/todo/t340-codex-user-id-attribution-guard.md
 - [x] T339 Savings health status signals -> docs/todo/t339-savings-health-status-signals.md
 - [x] T338 Codex attribution health accounting -> docs/todo/t338-codex-attribution-health-accounting.md
 - [x] T337 Codex passthrough flight attribution -> docs/todo/t337-codex-passthrough-flight-attribution.md
