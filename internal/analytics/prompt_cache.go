@@ -58,10 +58,9 @@ func ReadPromptCacheReport(logDir, period string, now time.Time) (PromptCacheRep
 	if report.TotalRequests > 0 {
 		report.HitRate = float64(report.CacheReadRequests) / float64(report.TotalRequests)
 	}
-	// Anthropic prompt-cache read tokens are billed at a 90% discount. This
-	// token-equivalent estimate keeps the CLI provider-agnostic and avoids
-	// pretending to know the user's actual per-model price sheet.
-	report.EstimatedSavedRead = int(float64(report.CacheReadTokens) * 0.9)
+	// Prompt-cache read tokens are treated as savings only after create tokens
+	// have been paid back. This keeps reports conservative during warmup.
+	report.EstimatedSavedRead = cacheReadDiscountEquivalent(report.CacheReadTokens, report.CacheCreateTokens)
 	return report, nil
 }
 

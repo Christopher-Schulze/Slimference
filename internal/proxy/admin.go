@@ -199,6 +199,14 @@ type PromptCacheStats struct {
 	EstimatedSavedReadTokens int   `json:"estimated_saved_read_tokens"`
 }
 
+func adminPromptCacheSavedReadTokens(readTokens int, createTokens int) int {
+	net := readTokens - createTokens
+	if net <= 0 {
+		return 0
+	}
+	return int(float64(net) * 0.9)
+}
+
 // RepetitionStats exposes T93 posttool repetition store snapshot.
 type RepetitionStats struct {
 	Rows           int64 `json:"rows"`
@@ -367,7 +375,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),
 			CacheReadTokens:          analyticsSnap.PromptCacheReadTokens,
 			CacheCreateTokens:        analyticsSnap.PromptCacheCreateTokens,
-			EstimatedSavedReadTokens: int(float64(analyticsSnap.PromptCacheReadTokens) * 0.9),
+			EstimatedSavedReadTokens: adminPromptCacheSavedReadTokens(analyticsSnap.PromptCacheReadTokens, analyticsSnap.PromptCacheCreateTokens),
 		},
 		Pipeline: p.pipelineHist.Snapshot(),
 		AnthropicVersion: AnthropicVersionStats{

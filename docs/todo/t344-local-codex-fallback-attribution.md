@@ -44,6 +44,8 @@ parallel sessions make the match ambiguous.
   estimated cost saved.
 - Tightened generic OpenAI prompt-cache negative-net cooldown from three to two
   negative samples while preserving the single create-only warmup allowance.
+- Aligned admin status, prompt-cache reports, and proxy-gain reports with the
+  same conservative cache math: `max(cache_read - cache_create, 0) * 0.9`.
 
 ## Verification
 

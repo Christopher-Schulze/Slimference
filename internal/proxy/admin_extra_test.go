@@ -55,8 +55,8 @@ func TestAdminStatusSnapshot_PromptCacheProviderTelemetry(t *testing.T) {
 	if got.PromptCache.CacheCreateTokens != 250 {
 		t.Fatalf("cache create tokens = %d, want 250", got.PromptCache.CacheCreateTokens)
 	}
-	if got.PromptCache.EstimatedSavedReadTokens != 900 {
-		t.Fatalf("estimated saved read tokens = %d, want 900", got.PromptCache.EstimatedSavedReadTokens)
+	if got.PromptCache.EstimatedSavedReadTokens != 675 {
+		t.Fatalf("estimated saved read tokens = %d, want 675", got.PromptCache.EstimatedSavedReadTokens)
 	}
 }
 

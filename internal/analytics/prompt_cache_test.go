@@ -78,7 +78,7 @@ func TestReadPromptCacheReport(t *testing.T) {
 	if report.CacheCreateTokens != 40 {
 		t.Fatalf("CacheCreateTokens=%d", report.CacheCreateTokens)
 	}
-	if report.EstimatedSavedRead != 144 {
+	if report.EstimatedSavedRead != 108 {
 		t.Fatalf("EstimatedSavedRead=%d", report.EstimatedSavedRead)
 	}
 }

@@ -1271,7 +1271,10 @@ cache hints with `reason=negative_net_cooldown`. A single create-only warmup
 does not disable the key. Other keys keep working, and the model-facing prompt
 content is unchanged. Savings cost estimates are conservative: cache-create
 tokens are subtracted from the cache-read discount equivalent before estimated
-cost saved is reported.
+cost saved is reported. Admin status, prompt-cache reports, proxy gain reports,
+and savings summaries all use the same conservative net-read estimate so
+cache-warmup cannot appear as a positive saving before read tokens have paid it
+back.
 
 CodexChatGPT backend routes do not receive these fields until T140 captures
 live request acceptance.

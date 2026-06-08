@@ -67,7 +67,7 @@ func TestPromptCacheReportAndCSVErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalRequests != 1 || report.CacheReadRequests != 1 || report.EstimatedSavedRead != 9 {
+	if report.TotalRequests != 1 || report.CacheReadRequests != 1 || report.EstimatedSavedRead != 4 {
 		t.Fatalf("report=%+v", report)
 	}
 

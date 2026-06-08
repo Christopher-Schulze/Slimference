@@ -128,7 +128,7 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		report.ToolPruneRetries != 1 {
 		t.Fatalf("bad tool-prune totals: %+v", report)
 	}
-	if report.CacheReadDiscountTokenEquivalent != 450 || report.NetBillableEquivalentEstimate != 770 {
+	if report.CacheReadDiscountTokenEquivalent != 135 || report.NetBillableEquivalentEstimate != 455 {
 		t.Fatalf("bad net estimate: %+v", report)
 	}
 	if len(report.PromptCacheHeat) != 2 {

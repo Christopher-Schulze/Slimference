@@ -117,10 +117,18 @@ func SummarizeProxyFlights(summaries []dbg.RequestSummary, period string, now ti
 			report.ProviderOutputTokens += tokens.EstimatedOutputTokens
 		}
 	}
-	report.CacheReadDiscountTokenEquivalent = int(float64(report.ProviderCachedTokens) * 0.9)
+	report.CacheReadDiscountTokenEquivalent = cacheReadDiscountEquivalent(report.ProviderCacheReadTokens, report.ProviderCacheCreateTokens)
 	report.NetBillableEquivalentEstimate = report.BillableInputSavingsEstimate + report.CacheReadDiscountTokenEquivalent
 	report.PromptCacheHeat = sortedPromptCacheHeat(heat)
 	return report, nil
+}
+
+func cacheReadDiscountEquivalent(readTokens int, createTokens int) int {
+	net := readTokens - createTokens
+	if net <= 0 {
+		return 0
+	}
+	return int(float64(net) * 0.9)
 }
 
 func accumulatePromptCacheHeat(heat map[string]*PromptCacheHeatRow, flight *dbg.FlightRequestSummary) {

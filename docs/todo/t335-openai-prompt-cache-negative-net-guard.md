@@ -18,7 +18,7 @@ T334 made provider prompt-cache read/create/net accounting visible. The product 
 ## Notes
 
 - Guard scope: generic OpenAI API prompt-cache steering only.
-- Trigger: 3 negative samples and at least 1024 net-lost provider cache tokens.
+- Trigger: 2 negative samples and at least 1024 net-lost provider cache tokens.
 - Cooldown TTL: 30 minutes.
 - Product drawdown: none expected; the guard only stops adding optional provider cache metadata after measured negative economics.
 
