@@ -76,6 +76,14 @@ func fillAnalyticsQueue(p *Proxy) {
 	}
 }
 
+func TestExtractSessionIDCodexHTTPUsesTurnMetadata(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_prev","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"019ea6ca-5279-7200-868e-2efda5e6731d\",\"source\":\"cli\"}"},"input":[]}`)
+	got := extractSessionID(types.CodexChatGPT, body, http.Header{})
+	if got != "codex-wss:019ea6ca-5279-7200-868e-2efda5e6731d" {
+		t.Fatalf("session id=%q", got)
+	}
+}
+
 func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 	t.Run("cache hit", func(t *testing.T) {
 		p := New(config.Defaults())

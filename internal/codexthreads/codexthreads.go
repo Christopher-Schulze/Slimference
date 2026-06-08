@@ -165,5 +165,7 @@ func NormalizeSessionID(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(value, "codex-wss:")
 	value = strings.TrimPrefix(value, "codex-wss_")
+	value = strings.TrimPrefix(value, "codex-http:")
+	value = strings.TrimPrefix(value, "codex-http_")
 	return value
 }

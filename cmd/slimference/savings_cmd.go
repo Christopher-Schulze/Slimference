@@ -472,7 +472,7 @@ func enrichSavingsSessions(sessions []SavingsSessionSummary) {
 	ids := make([]string, 0, len(sessions))
 	for i := range sessions {
 		raw := strings.TrimSpace(sessions[i].SessionID)
-		if id := codexthreads.NormalizeSessionID(raw); id != "" && (strings.HasPrefix(raw, "codex-wss:") || strings.HasPrefix(raw, "codex-wss_")) {
+		if id := codexthreads.NormalizeSessionID(raw); id != "" && isCodexThreadSession(raw) {
 			ids = append(ids, id)
 		}
 	}
@@ -528,6 +528,13 @@ func savingsThreadClientFamily(meta codexthreads.Metadata) string {
 	default:
 		return ""
 	}
+}
+
+func isCodexThreadSession(id string) bool {
+	return strings.HasPrefix(id, "codex-wss:") ||
+		strings.HasPrefix(id, "codex-wss_") ||
+		strings.HasPrefix(id, "codex-http:") ||
+		strings.HasPrefix(id, "codex-http_")
 }
 
 func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
@@ -709,7 +716,7 @@ func savingsSessionFallbackLabel(session SavingsSessionSummary) string {
 			return "Unattributed traffic"
 		}
 		return "Unattributed " + source
-	case strings.HasPrefix(id, "codex-wss:") || strings.HasPrefix(id, "codex-wss_"):
+	case isCodexThreadSession(id):
 		return "Codex thread " + truncateSavingsLabel(codexthreads.NormalizeSessionID(id), 12)
 	default:
 		return truncateSavingsLabel(id, 24)

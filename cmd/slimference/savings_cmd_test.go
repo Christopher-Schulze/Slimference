@@ -637,6 +637,56 @@ func TestSavingsSessionsUseCodexThreadMetadata(t *testing.T) {
 	}
 }
 
+func TestSavingsSessionsUseCodexHTTPThreadMetadata(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookup := lookupCodexThreadMetadataForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookup
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{{
+			RequestID:    "req-http-thread",
+			Timestamp:    now,
+			SessionID:    "codex-http:thread-http",
+			Source:       "proxy",
+			Provider:     "codex_chatgpt",
+			ClientFamily: "codex",
+			Tokens:       dbg.TokenCounts{Original: 2000, Final: 1200, Saved: 800},
+		}}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {
+		if len(ids) != 1 || ids[0] != "thread-http" {
+			t.Fatalf("thread lookup ids=%v", ids)
+		}
+		return map[string]codexthreads.Metadata{
+			"thread-http": {
+				ID:     "thread-http",
+				Title:  "› current goal",
+				CWD:    "/Users/me/CODE/Golem",
+				Source: "cli",
+			},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if len(got.DecisionSessions) != 1 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	session := got.DecisionSessions[0]
+	if session.DisplayName != "current goal" || session.ProjectPath != "/Users/me/CODE/Golem" || session.ClientFamily != "codex_cli" {
+		t.Fatalf("bad enriched HTTP session: %+v", session)
+	}
+	if label := savingsSessionFallbackLabel(session); !strings.Contains(label, "thread-http") {
+		t.Fatalf("fallback label=%q", label)
+	}
+}
+
 func TestAccumulateDecisionMechanismsBranches(t *testing.T) {
 	cfg := config.Defaults()
 	out := SavingsSummary{}

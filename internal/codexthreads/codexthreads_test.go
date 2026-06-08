@@ -18,6 +18,8 @@ func TestNormalizeSessionID(t *testing.T) {
 		{" thread ", "thread"},
 		{"codex-wss:thread", "thread"},
 		{"codex-wss_thread", "thread"},
+		{"codex-http:thread", "thread"},
+		{"codex-http_thread", "thread"},
 		{"", ""},
 	}
 	for _, tc := range cases {

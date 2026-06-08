@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T333 Codex HTTP session savings attribution -> docs/todo/t333-codex-http-session-savings-attribution.md
 - [x] T332 Codex Desktop thread attribution and savings labels -> docs/todo/t332-codex-desktop-thread-attribution.md
 - [x] T331 Cache net proof accounting -> docs/todo/t331-cache-net-proof-accounting.md
 - [x] T330 Codex WSS output-reduce directive guard -> docs/todo/t330-codex-wss-output-reduce-directive-guard.md

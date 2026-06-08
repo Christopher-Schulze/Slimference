@@ -206,6 +206,11 @@ func extractSessionID(provider types.Provider, body []byte, headers http.Header)
 			return "anthropic:" + trace
 		}
 	case types.OpenAI, types.CodexChatGPT:
+		if provider == types.CodexChatGPT {
+			if sid := extractCodexHTTPThreadSessionID(body); sid != "" {
+				return sid
+			}
+		}
 		if cid := headers.Get("openai-conversation-id"); cid != "" {
 			return "openai:" + cid
 		}
@@ -214,6 +219,19 @@ func extractSessionID(provider types.Provider, body []byte, headers http.Header)
 		}
 	}
 	return contentHashSessionID(body)
+}
+
+func extractCodexHTTPThreadSessionID(body []byte) string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ""
+	}
+	if sid := codexTurnMetadataSessionID(raw["client_metadata"]); sid != "" {
+		// Historical compatibility namespace: this is the Codex thread id, not
+		// a transport claim. Route/source fields still record HTTP vs WSS.
+		return "codex-wss:" + sid
+	}
+	return ""
 }
 
 func contentHashSessionID(body []byte) string {

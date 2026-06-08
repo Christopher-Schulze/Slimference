@@ -1896,7 +1896,8 @@ For measured conversation accounting, use `slimference savings <period>`. When
 the decision log is configured, the report prints aggregate `Decision layer net`
 and top Codex sessions with compact `layers=` fields. Per-session rows include
 `display_name`, `project_path`, and `client_family` when Codex thread metadata
-can be resolved, plus `layer0_net_tokens`, `layer1_net_tokens`,
+can be resolved from WSS or HTTP Codex turn metadata, plus
+`layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used
 when present, request-stage token counters are used only as fallback, and missing
