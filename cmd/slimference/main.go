@@ -2611,6 +2611,10 @@ func handleGainProxy(period string, flags gainCLIFlags) {
 	fmt.Printf("Provider input tokens:           %s\n", formatTokensPlain(report.ProviderInputTokens))
 	fmt.Printf("Provider cached tokens:          %s\n", formatTokensPlain(report.ProviderCachedTokens))
 	fmt.Printf("Provider output tokens:          %s\n", formatTokensPlain(report.ProviderOutputTokens))
+	if report.ProviderCacheReadTokens > 0 || report.ProviderCacheCreateTokens > 0 {
+		fmt.Printf("Provider cache read/create:      %s / %s\n", formatTokensPlain(report.ProviderCacheReadTokens), formatTokensPlain(report.ProviderCacheCreateTokens))
+		fmt.Printf("Provider cache net:              %s (%d negative net requests)\n", formatSignedInt64Plain(int64(report.ProviderCacheNetTokens)), report.ProviderCacheNegativeNetRequests)
+	}
 	fmt.Printf("Billable input savings estimate: %s\n", formatTokensPlain(report.BillableInputSavingsEstimate))
 	if report.ToolPruneSavedTokens > 0 || report.ToolPruneMisses > 0 || report.ToolPruneRetries > 0 {
 		fmt.Printf("Tool-prune saved tokens:        %s\n", formatTokensPlain(report.ToolPruneSavedTokens))
@@ -2638,6 +2642,9 @@ func handleGainProxy(period string, flags gainCLIFlags) {
 				formatTokensPlain(row.CacheCreateTokens),
 				formatTokensPlain(row.StablePrefixTokensMax),
 			)
+			if row.CacheCreateTokens > 0 {
+				fmt.Printf("    cache_net=%s\n", formatSignedInt64Plain(int64(row.CacheNetTokens)))
+			}
 		}
 	}
 	fmt.Println("Provider cache credits are observed billing-equivalent credits, not claimed Slimference-caused token deletion.")

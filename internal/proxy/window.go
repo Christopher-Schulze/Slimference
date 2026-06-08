@@ -226,12 +226,43 @@ func extractCodexHTTPThreadSessionID(body []byte) string {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
-	if sid := codexTurnMetadataSessionID(raw["client_metadata"]); sid != "" {
-		// Historical compatibility namespace: this is the Codex thread id, not
-		// a transport claim. Route/source fields still record HTTP vs WSS.
+	return codexStrongThreadSessionID(raw)
+}
+
+func codexStrongThreadSessionID(raw map[string]json.RawMessage) string {
+	if sid := codexRawSessionID(raw); sid != "" {
+		return "codex-wss:" + sid
+	}
+	if sid := codexNestedSessionID(raw["metadata"]); sid != "" {
+		return "codex-wss:" + sid
+	}
+	if sid := codexNestedSessionID(raw["client_metadata"]); sid != "" {
 		return "codex-wss:" + sid
 	}
 	return ""
+}
+
+func codexRawSessionID(fields map[string]json.RawMessage) string {
+	for _, key := range []string{"thread_id", "conversation_id", "session_id", "user_id"} {
+		if s := rawJSONString(fields[key]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func codexNestedSessionID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ""
+	}
+	if sid := codexRawSessionID(fields); sid != "" {
+		return sid
+	}
+	return codexTurnMetadataSessionID(raw)
 }
 
 func contentHashSessionID(body []byte) string {

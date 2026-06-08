@@ -24,6 +24,8 @@ func TestSummarizeProxyFlights(t *testing.T) {
 				Saved:    300,
 			},
 			CacheHit:             true,
+			CacheReadTokens:      50,
+			CacheCreateTokens:    100,
 			ProviderInputTokens:  1200,
 			ProviderCachedTokens: 500,
 			ProviderOutputTokens: 80,
@@ -52,6 +54,7 @@ func TestSummarizeProxyFlights(t *testing.T) {
 			Source:              "transparent_connect",
 			Provider:            "openai",
 			OutputTokens:        20,
+			CacheCreateTokens:   300,
 			ProviderInputTokens: 100,
 			PromptCache: dbg.PromptCacheSummary{
 				Reason:             "stable_prefix_too_small",
@@ -109,6 +112,10 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		report.EstimatedFinalInputTokens != 920 ||
 		report.ProviderInputTokens != 1300 ||
 		report.ProviderCachedTokens != 500 ||
+		report.ProviderCacheReadTokens != 550 ||
+		report.ProviderCacheCreateTokens != 400 ||
+		report.ProviderCacheNetTokens != 150 ||
+		report.ProviderCacheNegativeNetRequests != 1 ||
 		report.ProviderOutputTokens != 100 ||
 		report.BillableInputSavingsEstimate != 320 ||
 		report.OutputReduceInputOverheadTokens != 12 {
@@ -127,10 +134,10 @@ func TestSummarizeProxyFlights(t *testing.T) {
 	if len(report.PromptCacheHeat) != 2 {
 		t.Fatalf("expected two heat rows, got %+v", report.PromptCacheHeat)
 	}
-	if hot := report.PromptCacheHeat[0]; hot.StablePrefixHash != "hot-a" || hot.HintsApplied != 1 || hot.ProviderCachedTokens != 500 || hot.StablePrefixTokensMax != 1500 {
+	if hot := report.PromptCacheHeat[0]; hot.StablePrefixHash != "hot-a" || hot.HintsApplied != 1 || hot.ProviderCachedTokens != 500 || hot.CacheReadTokens != 50 || hot.CacheCreateTokens != 100 || hot.CacheNetTokens != 450 || hot.StablePrefixTokensMax != 1500 {
 		t.Fatalf("bad hot heat row: %+v", hot)
 	}
-	if cold := report.PromptCacheHeat[1]; cold.StablePrefixHash != "cold-b" || cold.HintsSkipped != 1 {
+	if cold := report.PromptCacheHeat[1]; cold.StablePrefixHash != "cold-b" || cold.HintsSkipped != 1 || cold.CacheNetTokens != -300 {
 		t.Fatalf("bad cold heat row: %+v", cold)
 	}
 }
@@ -173,13 +180,18 @@ func TestWriteProxyFlightGainCSV(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	err := WriteProxyFlightGainCSV(&buf, ProxyFlightGainSummary{
-		Period:                        "today",
-		Requests:                      2,
-		ProviderCachedTokens:          500,
-		NetBillableEquivalentEstimate: 730,
+		Period:                           "today",
+		Requests:                         2,
+		ProviderCachedTokens:             500,
+		ProviderCacheReadTokens:          700,
+		ProviderCacheCreateTokens:        900,
+		ProviderCacheNetTokens:           -200,
+		ProviderCacheNegativeNetRequests: 1,
+		NetBillableEquivalentEstimate:    730,
 		PromptCacheHeat: []PromptCacheHeatRow{{
 			StablePrefixHash:     "hot-a",
 			ProviderCachedTokens: 900,
+			CacheNetTokens:       -100,
 		}},
 	})
 	if err != nil {
@@ -187,8 +199,10 @@ func TestWriteProxyFlightGainCSV(t *testing.T) {
 	}
 	out := buf.String()
 	if !strings.Contains(out, "provider_cached_tokens") ||
+		!strings.Contains(out, "provider_cache_net_tokens") ||
 		!strings.Contains(out, "prompt_cache_heat_keys") ||
 		!strings.Contains(out, "730") ||
+		!strings.Contains(out, "-200") ||
 		!strings.Contains(out, "hot-a") ||
 		!strings.Contains(out, "900") {
 		t.Fatalf("csv output: %q", out)

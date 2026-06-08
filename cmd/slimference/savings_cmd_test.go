@@ -687,6 +687,68 @@ func TestSavingsSessionsUseCodexHTTPThreadMetadata(t *testing.T) {
 	}
 }
 
+func TestSavingsSessionsKeepParallelCodexThreadsSeparate(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookup := lookupCodexThreadMetadataForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookup
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID:    "req-thread-a",
+				Timestamp:    now,
+				SessionID:    "codex-wss:thread-a",
+				Source:       "proxy",
+				Provider:     "codex_chatgpt",
+				ClientFamily: "codex",
+				Tokens:       dbg.TokenCounts{Original: 1000, Final: 400, Saved: 600},
+			},
+			{
+				RequestID:    "req-thread-b",
+				Timestamp:    now.Add(-time.Second),
+				SessionID:    "codex-http:thread-b",
+				Source:       "proxy",
+				Provider:     "codex_chatgpt",
+				ClientFamily: "codex",
+				Tokens:       dbg.TokenCounts{Original: 1200, Final: 900, Saved: 300},
+			},
+		}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func(ids []string) (map[string]codexthreads.Metadata, error) {
+		if len(ids) != 2 || ids[0] != "thread-a" || ids[1] != "thread-b" {
+			t.Fatalf("thread lookup ids=%v", ids)
+		}
+		return map[string]codexthreads.Metadata{
+			"thread-a": {ID: "thread-a", Title: "› Golem status", CWD: "/Users/me/CODE/Golem", Source: "cli"},
+			"thread-b": {ID: "thread-b", Title: "› Slimference audit", CWD: "/Users/me/CODE/Slimference", Source: "desktop"},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now)
+	if len(got.DecisionSessions) != 2 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	if got.DecisionSessions[0].SessionID != "codex-wss:thread-a" ||
+		got.DecisionSessions[0].DisplayName != "Golem status" ||
+		got.DecisionSessions[0].ProjectPath != "/Users/me/CODE/Golem" ||
+		got.DecisionSessions[0].ClientFamily != "codex_cli" {
+		t.Fatalf("bad first session: %+v", got.DecisionSessions[0])
+	}
+	if got.DecisionSessions[1].SessionID != "codex-http:thread-b" ||
+		got.DecisionSessions[1].DisplayName != "Slimference audit" ||
+		got.DecisionSessions[1].ProjectPath != "/Users/me/CODE/Slimference" ||
+		got.DecisionSessions[1].ClientFamily != "codex_desktop_app" {
+		t.Fatalf("bad second session: %+v", got.DecisionSessions[1])
+	}
+}
+
 func TestAccumulateDecisionMechanismsBranches(t *testing.T) {
 	cfg := config.Defaults()
 	out := SavingsSummary{}

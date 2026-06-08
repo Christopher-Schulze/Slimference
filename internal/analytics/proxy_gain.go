@@ -26,6 +26,10 @@ type ProxyFlightGainSummary struct {
 	ProviderInputTokens              int                  `json:"provider_input_tokens"`
 	ProviderCachedTokens             int                  `json:"provider_cached_tokens"`
 	ProviderOutputTokens             int                  `json:"provider_output_tokens"`
+	ProviderCacheReadTokens          int                  `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens        int                  `json:"provider_cache_create_tokens"`
+	ProviderCacheNetTokens           int                  `json:"provider_cache_net_tokens"`
+	ProviderCacheNegativeNetRequests int                  `json:"provider_cache_negative_net_requests"`
 	BillableInputSavingsEstimate     int                  `json:"billable_input_savings_estimate"`
 	WireSavingsEstimate              int                  `json:"wire_savings_estimate"`
 	ToolPruneSavedTokens             int                  `json:"tool_prune_saved_tokens"`
@@ -48,6 +52,7 @@ type PromptCacheHeatRow struct {
 	ProviderCachedTokens  int    `json:"provider_cached_tokens"`
 	CacheReadTokens       int    `json:"cache_read_tokens"`
 	CacheCreateTokens     int    `json:"cache_create_tokens"`
+	CacheNetTokens        int    `json:"cache_net_tokens"`
 }
 
 // SummarizeProxyFlights folds decision-log request summaries into one honest
@@ -84,6 +89,15 @@ func SummarizeProxyFlights(summaries []dbg.RequestSummary, period string, now ti
 		report.EstimatedFinalInputTokens += tokens.EstimatedFinalInputTokens
 		report.ProviderInputTokens += tokens.ProviderInputTokens
 		report.ProviderCachedTokens += tokens.ProviderCachedTokens
+		cacheRead := tokens.ProviderCachedTokens + flight.CacheAccounting.ProviderCacheReadTokens
+		cacheCreate := flight.CacheAccounting.ProviderCacheCreateTokens
+		cacheNet := cacheRead - cacheCreate
+		report.ProviderCacheReadTokens += cacheRead
+		report.ProviderCacheCreateTokens += cacheCreate
+		report.ProviderCacheNetTokens += cacheNet
+		if cacheNet < 0 {
+			report.ProviderCacheNegativeNetRequests++
+		}
 		report.BillableInputSavingsEstimate += tokens.BillableSavingsEstimate + flight.ToolPrune.SavedTokens
 		report.WireSavingsEstimate += tokens.WireSavingsEstimate + flight.ToolPrune.SavedTokens
 		report.ToolPruneSavedTokens += flight.ToolPrune.SavedTokens
@@ -135,6 +149,7 @@ func accumulatePromptCacheHeat(heat map[string]*PromptCacheHeatRow, flight *dbg.
 	row.ProviderCachedTokens += flight.TokenAccounting.ProviderCachedTokens
 	row.CacheReadTokens += cache.ProviderCacheReadTokens
 	row.CacheCreateTokens += cache.ProviderCacheCreateTokens
+	row.CacheNetTokens += flight.TokenAccounting.ProviderCachedTokens + cache.ProviderCacheReadTokens - cache.ProviderCacheCreateTokens
 }
 
 func sortedPromptCacheHeat(heat map[string]*PromptCacheHeatRow) []PromptCacheHeatRow {
@@ -192,6 +207,10 @@ func WriteProxyFlightGainCSV(w io.Writer, report ProxyFlightGainSummary) error {
 		"provider_input_tokens",
 		"provider_cached_tokens",
 		"provider_output_tokens",
+		"provider_cache_read_tokens",
+		"provider_cache_create_tokens",
+		"provider_cache_net_tokens",
+		"provider_cache_negative_net_requests",
 		"billable_input_savings_estimate",
 		"wire_savings_estimate",
 		"tool_prune_saved_tokens",
@@ -222,6 +241,10 @@ func WriteProxyFlightGainCSV(w io.Writer, report ProxyFlightGainSummary) error {
 		fmt.Sprintf("%d", report.ProviderInputTokens),
 		fmt.Sprintf("%d", report.ProviderCachedTokens),
 		fmt.Sprintf("%d", report.ProviderOutputTokens),
+		fmt.Sprintf("%d", report.ProviderCacheReadTokens),
+		fmt.Sprintf("%d", report.ProviderCacheCreateTokens),
+		fmt.Sprintf("%d", report.ProviderCacheNetTokens),
+		fmt.Sprintf("%d", report.ProviderCacheNegativeNetRequests),
 		fmt.Sprintf("%d", report.BillableInputSavingsEstimate),
 		fmt.Sprintf("%d", report.WireSavingsEstimate),
 		fmt.Sprintf("%d", report.ToolPruneSavedTokens),

@@ -1374,24 +1374,11 @@ func wssPreviousResponseIDFromRaw(raw map[string]json.RawMessage) string {
 }
 
 func wssCodexSessionIDFromRaw(raw map[string]json.RawMessage) string {
-	for _, key := range []string{"conversation_id", "session_id", "user_id"} {
-		if s := rawJSONString(raw[key]); s != "" {
-			return "codex-wss:" + s
-		}
-	}
-	var metadata map[string]json.RawMessage
-	if err := json.Unmarshal(raw["metadata"], &metadata); err == nil {
-		for _, key := range []string{"conversation_id", "session_id", "user_id"} {
-			if s := rawJSONString(metadata[key]); s != "" {
-				return "codex-wss:" + s
-			}
-		}
-	}
 	// Prefer Codex's explicit thread/session metadata over prompt_cache_key. The
 	// prompt cache key can be stable for a shared instruction prefix, while the
 	// turn metadata is the narrower readcache namespace when present.
-	if s := codexTurnMetadataSessionID(raw["client_metadata"]); s != "" {
-		return "codex-wss:" + s
+	if s := codexStrongThreadSessionID(raw); s != "" {
+		return s
 	}
 	if s := rawJSONString(raw["prompt_cache_key"]); s != "" {
 		return "codex-wss:" + s

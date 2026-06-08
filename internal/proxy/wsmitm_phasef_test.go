@@ -2176,12 +2176,16 @@ func codexWSObsoleteReadBody(oldOutput string) []byte {
 
 func TestWSCodexSessionIDFallbacks(t *testing.T) {
 	for _, raw := range [][]byte{
+		[]byte(`{"thread_id":"t1"}`),
 		[]byte(`{"conversation_id":"c1"}`),
 		[]byte(`{"session_id":"s1"}`),
 		[]byte(`{"user_id":"u1"}`),
+		[]byte(`{"metadata":{"thread_id":"mt1"}}`),
 		[]byte(`{"metadata":{"conversation_id":"mc1"}}`),
 		[]byte(`{"metadata":{"session_id":"ms1"}}`),
 		[]byte(`{"metadata":{"user_id":"mu1"}}`),
+		[]byte(`{"metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"mtm1\"}"}}`),
+		[]byte(`{"client_metadata":{"session_id":"cms1"}}`),
 	} {
 		if got := wsCodexSessionID(raw); !strings.HasPrefix(got, "codex-wss:") {
 			t.Fatalf("missing codex prefix for %s: %q", raw, got)
@@ -2211,6 +2215,10 @@ func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
 	both := []byte(`{"prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"tm-key\"}"}}`)
 	if got := wsCodexSessionID(both); got != "codex-wss:tm-key" {
 		t.Fatalf("client_metadata should win: %q", got)
+	}
+	metaTurn := []byte(`{"prompt_cache_key":"pck-key","metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"meta-turn-key\"}"}}`)
+	if got := wsCodexSessionID(metaTurn); got != "codex-wss:meta-turn-key" {
+		t.Fatalf("metadata turn metadata should win: %q", got)
 	}
 }
 

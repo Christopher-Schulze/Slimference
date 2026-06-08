@@ -1263,11 +1263,12 @@ and stable-prefix hash.
 CodexChatGPT backend routes do not receive these fields until T140 captures
 live request acceptance.
 
-`slimference gain --proxy` includes a content-free prompt-cache heat map grouped
-by stable-prefix hash. Each row records request count, hint applied/skipped
-counts, maximum stable-prefix token estimate, provider cached tokens, provider
-cache read tokens, and cache create tokens. JSON exposes `prompt_cache_heat`,
-CSV exposes heat-key count plus top hash/cached-token totals, and text output
+`slimference gain --proxy` includes provider cache read/create/net accounting
+and a content-free prompt-cache heat map grouped by stable-prefix hash. Each row
+records request count, hint applied/skipped counts, maximum stable-prefix token
+estimate, provider cached tokens, provider cache read tokens, cache create
+tokens, and cache net tokens. JSON exposes the full fields, CSV includes
+provider-cache read/create/net and negative-net request counts, and text output
 prints the hottest five hashes. These rows explain cache behavior; provider
 cache credits remain provider/accounting evidence, not claimed local deletion.
 
@@ -1884,10 +1885,10 @@ started by `service install`.
 The Savings view is product accounting, not parser telemetry. It renders total
 input saved, estimated original vs sent tokens, tracked output tokens,
 per-session recent/active savings rows, cache contribution, and safety state.
-Codex WSS session rows are enriched from the same Codex thread store as
-Activity, so Desktop and CLI threads show user-facing title/path/client labels
-when Codex has persisted them; raw `codex_chatgpt` provider names are never used
-as Desktop/CLI proof by themselves.
+Codex WSS and HTTP session rows are enriched from the same Codex thread store
+as Activity, so Desktop and CLI threads show user-facing title/path/client
+labels when Codex has persisted them; raw `codex_chatgpt` provider names are
+never used as Desktop/CLI proof by themselves.
 Parser matrices, checkpoints, archive internals, quality canaries, and raw
 debug counters remain available through CLI/admin diagnostics, not the daily
 TUI.
@@ -1896,7 +1897,10 @@ For measured conversation accounting, use `slimference savings <period>`. When
 the decision log is configured, the report prints aggregate `Decision layer net`
 and top Codex sessions with compact `layers=` fields. Per-session rows include
 `display_name`, `project_path`, and `client_family` when Codex thread metadata
-can be resolved from WSS or HTTP Codex turn metadata, plus
+can be resolved from WSS or HTTP Codex thread metadata. Strong thread identities
+are read from top-level, `metadata`, `client_metadata`, or nested
+`x-codex-turn-metadata` fields; WSS keeps its historical `prompt_cache_key`
+fallback only when stronger metadata is absent. Rows also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is used

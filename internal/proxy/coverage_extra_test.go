@@ -84,6 +84,43 @@ func TestExtractSessionIDCodexHTTPUsesTurnMetadata(t *testing.T) {
 	}
 }
 
+func TestExtractSessionIDCodexHTTPUsesStrongThreadFields(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "top level thread id",
+			body: `{"thread_id":"thread-top","conversation_id":"conv-worse","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-client\"}"}}`,
+			want: "codex-wss:thread-top",
+		},
+		{
+			name: "metadata thread id",
+			body: `{"metadata":{"thread_id":"thread-meta"},"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-client\"}"}}`,
+			want: "codex-wss:thread-meta",
+		},
+		{
+			name: "metadata turn metadata",
+			body: `{"metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-turn-meta\"}"}}`,
+			want: "codex-wss:thread-turn-meta",
+		},
+		{
+			name: "client metadata direct session id",
+			body: `{"client_metadata":{"session_id":"session-client"}}`,
+			want: "codex-wss:session-client",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractSessionID(types.CodexChatGPT, []byte(tt.body), http.Header{})
+			if got != tt.want {
+				t.Fatalf("session id=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 	t.Run("cache hit", func(t *testing.T) {
 		p := New(config.Defaults())
