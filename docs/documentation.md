@@ -1891,6 +1891,12 @@ fields are present in JSON as `layer0_net_tokens`, `layer1_net_tokens`,
 `tool_prune_tokens`. These fields are measured-only: mechanism accounting is
 used when present, request-stage token counters are used only as fallback, and
 missing counters stay zero.
+Provider-cache accounting is deliberately separate from local input deletion:
+`decision_cache_read_tokens`, `decision_cache_create_tokens`,
+`decision_cache_net_tokens`, `decision_cache_hit_requests`,
+`decision_cache_hit_rate`, and `decision_cache_negative_net_requests` show
+whether cache steering helped or harmed. A cache-create-only request therefore
+shows negative cache net instead of being hidden behind gross token savings.
 
 ---
 

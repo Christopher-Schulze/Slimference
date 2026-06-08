@@ -501,8 +501,11 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 	if got.TotalSavedTokens != got.DecisionNetSavedTokens {
 		t.Fatalf("total should use measured decision savings when larger: %+v", got)
 	}
-	if got.DecisionOutputTokens != 12 || got.DecisionCacheReadTokens != 4 || got.DecisionCacheCreateTokens != 2 {
+	if got.DecisionOutputTokens != 12 || got.DecisionCacheReadTokens != 4 || got.DecisionCacheCreateTokens != 2 || got.DecisionCacheNetTokens != 2 {
 		t.Fatalf("bad output/cache totals: %+v", got)
+	}
+	if got.DecisionCacheHitRequests != 1 || got.DecisionCacheCreateRequests != 1 || got.DecisionCacheNegativeNetRequests != 0 || !nearFloat(got.DecisionCacheHitRate, 1.0/3.0) {
+		t.Fatalf("bad cache health totals: %+v", got)
 	}
 	if got.DecisionEstimatedCostBeforeUSD <= 0 || got.DecisionEstimatedCostAfterUSD <= 0 || got.DecisionEstimatedCostSavedUSD <= 0 {
 		t.Fatalf("missing decision cost estimates: %+v", got)
@@ -510,7 +513,8 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 	if len(got.DecisionSessions) != 3 || got.DecisionSessions[0].SessionID != "sess-1" || got.DecisionSessions[0].NetSavedTokens != 750 || got.DecisionSessions[1].SessionID != "aaa" {
 		t.Fatalf("bad decision sessions: %+v", got.DecisionSessions)
 	}
-	if got.DecisionSessions[0].Layer1NetTokens != 750 || got.DecisionSessions[0].Layer2NetTokens != 2 {
+	if got.DecisionSessions[0].Layer1NetTokens != 750 || got.DecisionSessions[0].Layer2NetTokens != 2 ||
+		got.DecisionSessions[0].CacheNetTokens != 2 || got.DecisionSessions[0].CacheHitRequests != 1 || !nearFloat(got.DecisionSessions[0].CacheHitRate, 1.0) {
 		t.Fatalf("bad sess-1 layer totals: %+v", got.DecisionSessions[0])
 	}
 	if got.DecisionSessions[1].Layer0NetTokens != 5 || got.DecisionSessions[1].Layer1NetTokens != 5 {
@@ -533,7 +537,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		t.Fatalf("top mechanism: %+v", got.Mechanisms)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2"} {
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
@@ -614,6 +618,10 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 		DecisionOutputTokens:           7,
 		DecisionCacheReadTokens:        11,
 		DecisionCacheCreateTokens:      3,
+		DecisionCacheNetTokens:         8,
+		DecisionCacheHitRequests:       1,
+		DecisionCacheHitRate:           1,
+		DecisionCacheCreateRequests:    1,
 		DecisionLayer0NetTokens:        2,
 		DecisionLayer1NetTokens:        4,
 		DecisionLayer2NetTokens:        6,
@@ -634,7 +642,7 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 			{Name: "hidden", NetTokens: -6, AddedTokens: 6, Count: 1},
 		},
 		DecisionSessions: []SavingsSessionSummary{
-			{SessionID: "s0", NetSavedTokens: 10, Layer1NetTokens: 10, OriginalTokens: 100, FinalTokens: 90, CostBeforeUSD: 0.10, CostAfterUSD: 0.09, Requests: 1},
+			{SessionID: "s0", NetSavedTokens: 10, Layer1NetTokens: 10, CacheNetTokens: 8, CacheHitRate: 1, OriginalTokens: 100, FinalTokens: 90, CostBeforeUSD: 0.10, CostAfterUSD: 0.09, Requests: 1},
 			{SessionID: "s1", NetSavedTokens: 9, Layer2NetTokens: 9, OriginalTokens: 100, FinalTokens: 91, Requests: 1},
 			{SessionID: "s2", NetSavedTokens: 8, OriginalTokens: 100, FinalTokens: 92, Requests: 1},
 			{SessionID: "s3", NetSavedTokens: 7, OriginalTokens: 100, FinalTokens: 93, Requests: 1},
@@ -643,7 +651,43 @@ func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
 		},
 	}
 	text := formatSavingsText(s)
-	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision layer net", "L0=2,L1=4,L2=6,out=-1,tools=8", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "net=-5"} {
+	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cache net", "100.0% hit", "L0=2,L1=4,L2=6,out=-1,tools=8", "layers=L1=10", "layers=L2=9", "layers=none", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "cache=8/100.0%", "net=-5"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestComputeSavingsDetectsNegativeCacheNet(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{{
+			Timestamp:         now,
+			SessionID:         "cache-regression",
+			CacheCreateTokens: 90,
+			Tokens:            dbg.TokenCounts{Original: 1000, Final: 1000},
+		}}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", now)
+	if got.DecisionCacheNetTokens != -90 || got.DecisionCacheNegativeNetRequests != 1 {
+		t.Fatalf("negative cache net not surfaced: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].CacheNetTokens != -90 {
+		t.Fatalf("session negative cache net not surfaced: %+v", got.DecisionSessions)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Decision cache net", "-90", "1 negative net", "cache=-90/0.0%"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}

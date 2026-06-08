@@ -108,3 +108,8 @@ Slimference optimizes total cost, not just prompt length:
 - 2026-05-15 verification: focused `go test ./cmd/slimference ./internal/debug` passed; full `go run ./scripts/ci` passed; local daemon restarted with the updated binary.
 - 2026-05-15 WP1 savings report: `slimference savings today` now includes decision-log requests, original/final/added/net tokens, output tokens, cache read/create tokens, top mechanism rows, and top decision-session rows. Current local run exposes provider prompt cache (`~1.8M net`), Codex PostToolUse compaction (`~522K net`), archive replacement (`~7.2K net`), and hook replacement overhead (`~-1.5K net`).
 - 2026-05-15 WP1 cost estimates: `savings` now carries decision-level and decision-session cost before/after/saved fields. Text output prints cost only when `analytics.gain_usd_per_million_tokens` or `SLIMFERENCE_GAIN_USD_PER_MILLION` is configured, avoiding fake `$0.0000` rows on token-only installs.
+- 2026-06-08 T331 proof-accounting refresh: `slimference savings` now carries
+  cache read/create/net, cache hit request count, cache hit rate, create request
+  count, and negative-cache-net request count in text/JSON/CSV. Session rows show
+  cache net and hit rate so cache regressions cannot hide behind gross local
+  token savings.

@@ -162,6 +162,11 @@ accounting or locally proven upstream bypass, not mixed counters.
   tokens stay in `cache_read_tokens`, OpenAI/Codex cached input tokens stay in
   `provider_cached_tokens`, and regression tests prove the derived
   `provider_prompt_cache` mechanism counts each provider signal exactly once.
+- 2026-06-08: Strengthened provider-cache proof accounting in
+  `slimference savings`. Decision-log summaries now expose cache read/create/net,
+  hit request count, hit rate, create request count, and negative-cache-net
+  request count; per-session rows include cache net and hit rate. This is
+  reporting only and does not change provider-cache steering.
 - 2026-06-03: Added provider-cache live-delta proof signals to the Codex WSS
   proof tooling. `codex-capture-run` now persists `provider_cache_read_tokens`
   and `provider_cache_create_tokens` in matrix `live_delta` rows, prints them

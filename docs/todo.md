@@ -23,6 +23,7 @@ No blocked tasks.
 
 ## Done
 
+- [x] T331 Cache net proof accounting -> docs/todo/t331-cache-net-proof-accounting.md
 - [x] T330 Codex WSS output-reduce directive guard -> docs/todo/t330-codex-wss-output-reduce-directive-guard.md
 - [x] T329 Codex WSS scoped source guard and Activity labeling -> docs/todo/t329-codex-wss-scoped-source-guard-activity-labeling.md
 - [x] T328 Codex WSS source-output safety quarantine -> docs/todo/t328-codex-wss-source-output-safety-quarantine.md
