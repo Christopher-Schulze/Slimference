@@ -1269,7 +1269,9 @@ negative samples and at least 1024 net-lost provider cache tokens, only that
 generated key enters a 30-minute cooldown and future requests omit optional
 cache hints with `reason=negative_net_cooldown`. A single create-only warmup
 does not disable the key. Other keys keep working, and the model-facing prompt
-content is unchanged.
+content is unchanged. Savings cost estimates are conservative: cache-create
+tokens are subtracted from the cache-read discount equivalent before estimated
+cost saved is reported.
 
 CodexChatGPT backend routes do not receive these fields until T140 captures
 live request acceptance.
@@ -1936,8 +1938,12 @@ the anonymous fallback hashes Responses API `input` user text instead of
 collapsing those rows into the empty bucket. During Savings reporting,
 `fh:*` fallback rows may be resolved to `codex-local:<thread>` only when the
 local `~/.codex/state_5.sqlite` thread table gives exactly one match by
-first-user-message hash or by time/model/client-family. Ambiguous parallel
-candidates remain anonymous and keep attribution status at `attention`. Rows
+first-user-message hash or by time/model/client-family. Anonymous fallback rows
+such as `no-session:proxy` resolve only when exactly one local Codex thread
+activity envelope (`created_at` through `updated_at`) encloses the token-bearing
+request window; zero-token tunnel and ping rows do not widen that window.
+Ambiguous parallel candidates remain anonymous and keep attribution status at
+`attention`. Rows
 also include
 `layer0_net_tokens`, `layer1_net_tokens`,
 `layer2_net_tokens`, `layer3_net_tokens`, `output_reduce_tokens`, and
@@ -1962,6 +1968,8 @@ Provider-cache accounting is deliberately separate from local input deletion:
 `decision_cache_hit_rate`, and `decision_cache_negative_net_requests` show
 whether cache steering helped or harmed. A cache-create-only request therefore
 shows negative cache net instead of being hidden behind gross token savings.
+Estimated saved cost uses cache-read discount equivalent minus cache-create
+tokens, clamped at zero, so provider-cache warmup cannot overstate savings.
 `decision_cache_status` is `ok` for positive cache reuse, `warming` for
 create-only activity, `attention` for negative net cache impact, and `none` when
 the decision log has no cache activity.

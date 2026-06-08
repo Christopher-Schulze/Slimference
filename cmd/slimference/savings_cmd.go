@@ -238,6 +238,7 @@ func computeDecisionCostEstimates(out *SavingsSummary) {
 		out.DecisionOutputTokens,
 		out.DecisionNetSavedTokens,
 		out.DecisionCacheReadTokens,
+		out.DecisionCacheCreateTokens,
 		out.USDPerMillion,
 	)
 	for i := range out.DecisionSessions {
@@ -246,6 +247,7 @@ func computeDecisionCostEstimates(out *SavingsSummary) {
 			out.DecisionSessions[i].OutputTokens,
 			out.DecisionSessions[i].NetSavedTokens,
 			out.DecisionSessions[i].CacheReadTokens,
+			out.DecisionSessions[i].CacheCreateTokens,
 			out.USDPerMillion,
 		)
 		out.DecisionSessions[i].CostBeforeUSD = before
@@ -476,6 +478,8 @@ type savingsSessionFacts struct {
 	Model                  string
 	FirstSeen              time.Time
 	LastSeen               time.Time
+	CandidateFirstSeen     time.Time
+	CandidateLastSeen      time.Time
 	CodexCandidateRequests int64
 	AttributedRequests     int64
 }
@@ -504,9 +508,29 @@ func updateSavingsSessionFacts(bySessionFacts map[string]*savingsSessionFacts, s
 		return
 	}
 	facts.CodexCandidateRequests++
+	if isTokenBearingSavingsDecision(summary) && !summary.Timestamp.IsZero() {
+		if facts.CandidateFirstSeen.IsZero() || summary.Timestamp.Before(facts.CandidateFirstSeen) {
+			facts.CandidateFirstSeen = summary.Timestamp
+		}
+		if facts.CandidateLastSeen.IsZero() || summary.Timestamp.After(facts.CandidateLastSeen) {
+			facts.CandidateLastSeen = summary.Timestamp
+		}
+	}
 	if isCodexAttributedSession(strings.TrimSpace(summary.SessionID)) || isCodexAttributedSession(sessionID) {
 		facts.AttributedRequests++
 	}
+}
+
+func isTokenBearingSavingsDecision(summary dbg.RequestSummary) bool {
+	return summary.Tokens.Original > 0 ||
+		summary.Tokens.Final > 0 ||
+		summary.Tokens.Saved != 0 ||
+		summary.CacheReadTokens > 0 ||
+		summary.CacheCreateTokens > 0 ||
+		summary.ProviderCachedTokens > 0 ||
+		summary.ProviderInputTokens > 0 ||
+		summary.ProviderOutputTokens > 0 ||
+		summary.OutputTokens > 0
 }
 
 func resolveLocalCodexFallbackSessions(bySession map[string]*SavingsSessionSummary, byFacts map[string]*savingsSessionFacts, start, end time.Time) {
@@ -563,7 +587,11 @@ func needsLocalCodexFallbackResolution(facts *savingsSessionFacts) bool {
 		return false
 	}
 	id := strings.TrimSpace(facts.SessionID)
-	return strings.HasPrefix(id, "fh:")
+	return strings.HasPrefix(id, "fh:") || isAnonymousCodexFallbackSession(id)
+}
+
+func isAnonymousCodexFallbackSession(id string) bool {
+	return strings.HasPrefix(strings.TrimSpace(id), "no-session:")
 }
 
 func resolveLocalCodexFallbackMetadata(facts savingsSessionFacts, candidates []codexthreads.Metadata) (codexthreads.Metadata, bool) {
@@ -604,7 +632,11 @@ func resolveLocalCodexFallbackByHash(facts savingsSessionFacts, candidates []cod
 }
 
 func metadataMatchesSavingsFacts(meta codexthreads.Metadata, facts savingsSessionFacts) bool {
-	if !metadataTimeOverlapsSavingsFacts(meta, facts) {
+	if isAnonymousCodexFallbackSession(facts.SessionID) {
+		if !metadataActivityEnclosesSavingsFacts(meta, facts) {
+			return false
+		}
+	} else if !metadataTimeOverlapsSavingsFacts(meta, facts) {
 		return false
 	}
 	if model := strings.TrimSpace(facts.Model); model != "" && strings.TrimSpace(meta.Model) != "" && model != strings.TrimSpace(meta.Model) {
@@ -623,6 +655,14 @@ func metadataTimeOverlapsSavingsFacts(meta codexthreads.Metadata, facts savingsS
 	}
 	return !meta.UpdatedAt.Before(facts.FirstSeen.Add(-30*time.Minute)) &&
 		!meta.UpdatedAt.After(facts.LastSeen.Add(30*time.Minute))
+}
+
+func metadataActivityEnclosesSavingsFacts(meta codexthreads.Metadata, facts savingsSessionFacts) bool {
+	if meta.CreatedAt.IsZero() || meta.UpdatedAt.IsZero() || facts.CandidateFirstSeen.IsZero() || facts.CandidateLastSeen.IsZero() {
+		return false
+	}
+	return !meta.CreatedAt.After(facts.CandidateFirstSeen.Add(5*time.Minute)) &&
+		!meta.UpdatedAt.Before(facts.CandidateLastSeen.Add(-5*time.Minute))
 }
 
 func codexFirstTextHash(text string) string {
@@ -1221,9 +1261,9 @@ func formatSignedInt64Plain(n int64) string {
 	return formatTokensPlain64(n)
 }
 
-func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens int64, usdPerMillion float64) (float64, float64, float64) {
+func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens, cacheCreateTokens int64, usdPerMillion float64) (float64, float64, float64) {
 	beforeTokens := inputTokens + outputTokens
-	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens)
+	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens) - cacheCreateTokens
 	if savedEquivalentTokens < 0 {
 		savedEquivalentTokens = 0
 	}

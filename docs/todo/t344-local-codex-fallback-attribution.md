@@ -19,6 +19,10 @@ parallel sessions make the match ambiguous.
 - `fh:*` savings sessions can resolve to `codex-local:<thread-id>` only when
   the local Codex thread DB gives a unique match by first-user-message hash or
   by time/model/client-family.
+- Anonymous Codex fallback sessions such as `no-session:proxy` can resolve only
+  when exactly one local Codex thread created/updated activity envelope
+  encloses the token-bearing request window. Zero-token tunnel/ping rows do not
+  widen that attribution window.
 - Ambiguous parallel candidates remain unattributed and keep the attribution
   status at `attention`.
 - The change is reporting-only: no reducer, cache key, payload, route, or
@@ -32,13 +36,17 @@ parallel sessions make the match ambiguous.
 - Added `codex/...` CLI User-Agent recognition.
 - Added local fallback session resolution for Savings reports with strict
   ambiguity guards.
-- Kept provider-cache accounting untouched; live report still surfaces
-  negative cache net if it ever appears.
+- Extended local Codex thread lookup with `created_at`/`created_at_ms` and
+  overlap-window queries so long-running active threads can be matched without
+  blindly relying on `updated_at` only.
+- Made Savings cost estimates conservative for provider cache by subtracting
+  cache-create tokens from cache-read discount equivalent before reporting
+  estimated cost saved.
 
 ## Verification
 
 - Focused gate passed:
-  - `go test ./internal/codexthreads ./internal/proxy ./cmd/slimference -run 'TestLookupWindowCurrentCodexSchema|TestLookupCurrentCodexSchema|TestExtractSessionIDCodexHTTPUsesStrongThreadHeaders|TestExtractClientFamilyCodexHTTPFallbacks|TestSavingsResolvesHashFallbackToLocalCodexThread|TestSavingsHashFallbackMatchesProxyHashWithoutTrimming|TestSavingsKeepsAmbiguousHashFallbackUnattributed|TestComputeSavingsLiveUsesCurrentDaemonWindow|TestSavingsCodexAttributionHealth|TestComputeSavingsDetectsNegativeCacheNet' -count=1`
+  - `go test ./internal/codexthreads ./internal/proxy ./cmd/slimference -run 'TestLookupWindowCurrentCodexSchema|TestLookupCurrentCodexSchema|TestExtractSessionIDCodexHTTPUsesStrongThreadHeaders|TestExtractClientFamilyCodexHTTPFallbacks|TestSavingsResolvesHashFallbackToLocalCodexThread|TestSavingsHashFallbackMatchesProxyHashWithoutTrimming|TestSavingsKeepsAmbiguousHashFallbackUnattributed|TestSavingsResolvesAnonymousCodexFallbackByUniqueActivityEnvelope|TestSavingsKeepsAmbiguousAnonymousCodexFallbackUnattributed|TestComputeSavingsLiveUsesCurrentDaemonWindow|TestSavingsCodexAttributionHealth|TestComputeSavingsDetectsNegativeCacheNet|TestEstimateCostUSD' -count=1`
 - Live local proof after the change:
   - `go run ./cmd/slimference savings live --json`
   - `decision_codex_attribution_status=ok`

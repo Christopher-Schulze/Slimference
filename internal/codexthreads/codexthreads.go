@@ -19,6 +19,7 @@ type Metadata struct {
 	ThreadSource     string
 	Model            string
 	FirstUserMessage string
+	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
 
@@ -164,34 +165,37 @@ func threadColumns(db *sql.DB) (map[string]struct{}, error) {
 
 func threadQuerySQL(columns map[string]struct{}) string {
 	return fmt.Sprintf(`
-SELECT id, %s, %s, %s, %s, %s, %s, %s
-FROM threads
-WHERE id = ?
-LIMIT 1`,
+	SELECT id, %s, %s, %s, %s, %s, %s, %s, %s
+	FROM threads
+	WHERE id = ?
+	LIMIT 1`,
 		textColumnSQL(columns, "title"),
 		textColumnSQL(columns, "cwd"),
 		textColumnSQL(columns, "source"),
 		textColumnSQL(columns, "thread_source"),
 		textColumnSQL(columns, "model"),
 		textColumnSQL(columns, "first_user_message"),
+		createdAtSQL(columns),
 		updatedAtSQL(columns),
 	)
 }
 
 func threadWindowQuerySQL(columns map[string]struct{}) string {
 	return fmt.Sprintf(`
-SELECT id, %s, %s, %s, %s, %s, %s, %s
-FROM threads
-WHERE %s BETWEEN ? AND ?
-ORDER BY %s DESC`,
+	SELECT id, %s, %s, %s, %s, %s, %s, %s, %s
+	FROM threads
+	WHERE %s >= ? AND %s <= ?
+	ORDER BY %s DESC`,
 		textColumnSQL(columns, "title"),
 		textColumnSQL(columns, "cwd"),
 		textColumnSQL(columns, "source"),
 		textColumnSQL(columns, "thread_source"),
 		textColumnSQL(columns, "model"),
 		textColumnSQL(columns, "first_user_message"),
+		createdAtSQL(columns),
 		updatedAtSQL(columns),
 		updatedAtSQL(columns),
+		createdAtSQL(columns),
 		updatedAtSQL(columns),
 	)
 }
@@ -218,6 +222,21 @@ func updatedAtSQL(columns map[string]struct{}) string {
 	}
 }
 
+func createdAtSQL(columns map[string]struct{}) string {
+	_, hasCreatedAtMS := columns["created_at_ms"]
+	_, hasCreatedAt := columns["created_at"]
+	switch {
+	case hasCreatedAtMS && hasCreatedAt:
+		return "COALESCE(created_at_ms, created_at * 1000)"
+	case hasCreatedAtMS:
+		return "COALESCE(created_at_ms, 0)"
+	case hasCreatedAt:
+		return "COALESCE(created_at * 1000, 0)"
+	default:
+		return updatedAtSQL(columns)
+	}
+}
+
 func query(db *sql.DB, querySQL string, id string) (Metadata, bool, error) {
 	row := db.QueryRow(querySQL, id)
 	meta, err := scanMetadata(row)
@@ -236,10 +255,14 @@ type metadataScanner interface {
 
 func scanMetadata(scanner metadataScanner) (Metadata, error) {
 	var meta Metadata
+	var createdAtMS int64
 	var updatedAtMS int64
-	err := scanner.Scan(&meta.ID, &meta.Title, &meta.CWD, &meta.Source, &meta.ThreadSource, &meta.Model, &meta.FirstUserMessage, &updatedAtMS)
+	err := scanner.Scan(&meta.ID, &meta.Title, &meta.CWD, &meta.Source, &meta.ThreadSource, &meta.Model, &meta.FirstUserMessage, &createdAtMS, &updatedAtMS)
 	if err != nil {
 		return Metadata{}, err
+	}
+	if createdAtMS > 0 {
+		meta.CreatedAt = time.UnixMilli(createdAtMS).UTC()
 	}
 	if updatedAtMS > 0 {
 		meta.UpdatedAt = time.UnixMilli(updatedAtMS).UTC()

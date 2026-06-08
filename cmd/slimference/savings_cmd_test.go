@@ -547,15 +547,19 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 }
 
 func TestEstimateCostUSD(t *testing.T) {
-	before, after, saved := estimateCostUSD(100, 20, 30, 10, 2.5)
+	before, after, saved := estimateCostUSD(100, 20, 30, 10, 0, 2.5)
 	if !nearFloat(before, 0.0003) || !nearFloat(after, 0.0002025) || !nearFloat(saved, 0.0000975) {
 		t.Fatalf("cost estimates: before=%v after=%v saved=%v", before, after, saved)
 	}
-	before, after, saved = estimateCostUSD(10, 0, 999, 999, 2.5)
+	before, after, saved = estimateCostUSD(100, 20, 30, 10, 20, 2.5)
+	if !nearFloat(before, 0.0003) || !nearFloat(after, 0.0002525) || !nearFloat(saved, 0.0000475) {
+		t.Fatalf("cache-create-adjusted estimates: before=%v after=%v saved=%v", before, after, saved)
+	}
+	before, after, saved = estimateCostUSD(10, 0, 999, 999, 0, 2.5)
 	if !nearFloat(before, 0.000025) || after != 0 || !nearFloat(saved, 0.000025) {
 		t.Fatalf("clamped cost estimates: before=%v after=%v saved=%v", before, after, saved)
 	}
-	before, after, saved = estimateCostUSD(10, 0, -20, 0, 2.5)
+	before, after, saved = estimateCostUSD(10, 0, -20, 0, 0, 2.5)
 	if !nearFloat(before, 0.000025) || !nearFloat(after, 0.000025) || saved != 0 {
 		t.Fatalf("negative savings cost estimates: before=%v after=%v saved=%v", before, after, saved)
 	}
@@ -882,6 +886,113 @@ func TestSavingsKeepsAmbiguousHashFallbackUnattributed(t *testing.T) {
 	}
 	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].SessionID != "fh:aaaaaaaaaaaaaaaa" {
 		t.Fatalf("ambiguous session should remain fallback: %+v", got.DecisionSessions)
+	}
+}
+
+func TestSavingsResolvesAnonymousCodexFallbackByUniqueActivityEnvelope(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+
+	prevReplay := replaySessionFn
+	prevLookupMeta := lookupCodexThreadMetadataForSavingsFn
+	prevLookupWindow := lookupCodexThreadWindowForSavingsFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		lookupCodexThreadMetadataForSavingsFn = prevLookupMeta
+		lookupCodexThreadWindowForSavingsFn = prevLookupWindow
+	})
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID: "zero-ping",
+				Timestamp: now.Add(-6 * time.Hour),
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Path:      "/backend-api/codex/responses",
+			},
+			{
+				RequestID: "req-anon-1",
+				Timestamp: now,
+				SessionID: "empty",
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Path:      "/backend-api/codex/responses",
+				Model:     "gpt-5.5",
+				Tokens:    dbg.TokenCounts{Original: 1000, Final: 700, Saved: 300},
+			},
+			{
+				RequestID: "req-anon-2",
+				Timestamp: now.Add(10 * time.Minute),
+				SessionID: "empty",
+				Source:    "proxy",
+				Provider:  "codex_chatgpt",
+				Path:      "/backend-api/codex/responses",
+				Model:     "gpt-5.5",
+				Tokens:    dbg.TokenCounts{Original: 1200, Final: 800, Saved: 400},
+			},
+		}, nil
+	}
+	lookupCodexThreadMetadataForSavingsFn = func([]string) (map[string]codexthreads.Metadata, error) {
+		return map[string]codexthreads.Metadata{}, nil
+	}
+	lookupCodexThreadWindowForSavingsFn = func(time.Time, time.Time) ([]codexthreads.Metadata, error) {
+		return []codexthreads.Metadata{
+			{
+				ID:        "thread-local",
+				Title:     "› check project",
+				CWD:       "/Users/me/CODE/Golem",
+				Source:    "cli",
+				Model:     "gpt-5.5",
+				CreatedAt: now.Add(-30 * time.Minute),
+				UpdatedAt: now.Add(20 * time.Minute),
+			},
+			{
+				ID:        "thread-too-late",
+				Source:    "cli",
+				Model:     "gpt-5.5",
+				CreatedAt: now.Add(6 * time.Minute),
+				UpdatedAt: now.Add(20 * time.Minute),
+			},
+		}, nil
+	}
+
+	var got SavingsSummary
+	accumulateDecisionMechanismsFromDecisionLog(&got, cfg, "today", now.Add(20*time.Minute))
+	if got.DecisionCodexRequests != 3 ||
+		got.DecisionCodexAttributedRequests != 3 ||
+		got.DecisionCodexUnattributedRequests != 0 ||
+		got.DecisionCodexAttributionStatus != "ok" {
+		t.Fatalf("anonymous fallback should resolve cleanly: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	session := got.DecisionSessions[0]
+	if session.SessionID != "codex-local:thread-local" ||
+		session.DisplayName != "check project" ||
+		session.ProjectPath != "/Users/me/CODE/Golem" ||
+		session.ClientFamily != "codex_cli" ||
+		session.Requests != 3 {
+		t.Fatalf("bad resolved anonymous session: %+v", session)
+	}
+}
+
+func TestSavingsKeepsAmbiguousAnonymousCodexFallbackUnattributed(t *testing.T) {
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	facts := savingsSessionFacts{
+		SessionID:              "no-session:proxy",
+		Model:                  "gpt-5.5",
+		CandidateFirstSeen:     now,
+		CandidateLastSeen:      now.Add(10 * time.Minute),
+		CodexCandidateRequests: 2,
+	}
+	candidates := []codexthreads.Metadata{
+		{ID: "thread-a", Source: "cli", Model: "gpt-5.5", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)},
+		{ID: "thread-b", Source: "vscode", Model: "gpt-5.5", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)},
+	}
+	if _, ok := resolveLocalCodexFallbackMetadata(facts, candidates); ok {
+		t.Fatalf("ambiguous anonymous fallback must stay unattributed")
 	}
 }
 

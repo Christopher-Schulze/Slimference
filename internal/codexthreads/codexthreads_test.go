@@ -38,15 +38,16 @@ CREATE TABLE threads (
 	title TEXT NOT NULL,
 	cwd TEXT NOT NULL,
 	source TEXT NOT NULL,
-	thread_source TEXT,
-	model TEXT,
-	first_user_message TEXT,
-	updated_at INTEGER NOT NULL,
-	updated_at_ms INTEGER
-)`)
+		thread_source TEXT,
+		model TEXT,
+		first_user_message TEXT,
+		created_at_ms INTEGER,
+		updated_at INTEGER NOT NULL,
+		updated_at_ms INTEGER
+	)`)
 	execTestSQL(t, db, `
-INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, updated_at, updated_at_ms)
-VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 'first prompt', 1760000000, 1760000000123)`)
+	INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, created_at_ms, updated_at, updated_at_ms)
+	VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 'first prompt', 1759999999123, 1760000000, 1760000000123)`)
 	db.Close()
 
 	got, err := Lookup(home, []string{"codex-wss:thread-1", "codex-wss:thread-1", "missing", ""})
@@ -59,6 +60,10 @@ VALUES ('thread-1', 'Check status', '/tmp/project', 'cli', 'cli', 'gpt-5.5', 'fi
 	}
 	if meta.Title != "Check status" || meta.CWD != "/tmp/project" || meta.Source != "cli" || meta.ThreadSource != "cli" || meta.Model != "gpt-5.5" || meta.FirstUserMessage != "first prompt" {
 		t.Fatalf("bad metadata: %+v", meta)
+	}
+	wantCreated := time.UnixMilli(1759999999123).UTC()
+	if !meta.CreatedAt.Equal(wantCreated) {
+		t.Fatalf("created_at=%s want %s", meta.CreatedAt, wantCreated)
 	}
 	wantTime := time.UnixMilli(1760000000123).UTC()
 	if !meta.UpdatedAt.Equal(wantTime) {
@@ -77,18 +82,20 @@ CREATE TABLE threads (
 	id TEXT PRIMARY KEY,
 	title TEXT,
 	cwd TEXT,
-	source TEXT,
-	thread_source TEXT,
-	model TEXT,
-	first_user_message TEXT,
-	updated_at_ms INTEGER
-)`)
+		source TEXT,
+		thread_source TEXT,
+		model TEXT,
+		first_user_message TEXT,
+		created_at_ms INTEGER,
+		updated_at_ms INTEGER
+	)`)
 	execTestSQL(t, db, `
-INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, updated_at_ms)
-VALUES
-	('old-thread', 'Old', '/tmp/old', 'cli', 'user', 'gpt-5.5', 'old prompt', 1759999999000),
-	('thread-1', 'One', '/tmp/one', 'cli', 'user', 'gpt-5.5', 'first prompt', 1760000000100),
-	('thread-2', 'Two', '/tmp/two', 'vscode', '', 'gpt-5.5', 'second prompt', 1760000000200)`)
+	INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, created_at_ms, updated_at_ms)
+	VALUES
+		('old-thread', 'Old', '/tmp/old', 'cli', 'user', 'gpt-5.5', 'old prompt', 1759999998000, 1759999999000),
+		('thread-1', 'One', '/tmp/one', 'cli', 'user', 'gpt-5.5', 'first prompt', 1759999999000, 1760000000100),
+		('thread-2', 'Two', '/tmp/two', 'vscode', '', 'gpt-5.5', 'second prompt', 1760000000200, 1760000000400),
+		('future-thread', 'Future', '/tmp/future', 'cli', 'user', 'gpt-5.5', 'future prompt', 1760000000400, 1760000000500)`)
 	db.Close()
 
 	got, err := LookupWindow(home, time.UnixMilli(1760000000000).UTC(), time.UnixMilli(1760000000300).UTC())
@@ -100,6 +107,9 @@ VALUES
 	}
 	if got[0].ID != "thread-2" || got[0].FirstUserMessage != "second prompt" {
 		t.Fatalf("rows should be newest first with first_user_message: %+v", got)
+	}
+	if !got[0].CreatedAt.Equal(time.UnixMilli(1760000000200).UTC()) || !got[0].UpdatedAt.Equal(time.UnixMilli(1760000000400).UTC()) {
+		t.Fatalf("thread-2 times: %+v", got[0])
 	}
 	if got[1].ID != "thread-1" || got[1].Source != "cli" {
 		t.Fatalf("second row: %+v", got[1])
@@ -134,6 +144,9 @@ VALUES ('thread-2', NULL, '/tmp/old', 'desktop', 1760000001)`)
 		t.Fatalf("bad fallback metadata: %+v", meta)
 	}
 	wantTime := time.Unix(1760000001, 0).UTC()
+	if !meta.CreatedAt.Equal(wantTime) {
+		t.Fatalf("created_at fallback=%s want %s", meta.CreatedAt, wantTime)
+	}
 	if !meta.UpdatedAt.Equal(wantTime) {
 		t.Fatalf("updated_at=%s want %s", meta.UpdatedAt, wantTime)
 	}
