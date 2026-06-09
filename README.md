@@ -8,7 +8,6 @@
   <a href="https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml/badge.svg"></a>
   <a href="go.mod"><img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white"></a>
   <a href="#quick-start"><img alt="macOS" src="https://img.shields.io/badge/platform-macOS-black?logo=apple&logoColor=white"></a>
-  <a href="#development"><img alt="Coverage 95.3%" src="https://img.shields.io/badge/coverage-95.3%25-brightgreen"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
 
