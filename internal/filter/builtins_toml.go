@@ -17,8 +17,8 @@ import (
 // that are ignored by FilterRule decoding; they exist as live snapshot
 // fixtures for porting validation under builtins_toml_snapshot_test.go).
 //
-// License: each file in builtins_toml/ that originates from RTK
-// (github.com/rtk-ai/rtk) is MIT-licensed; see docs/rtk-parity.md.
+// License: embedded TOML filter files that originate from RTK
+// (github.com/rtk-ai/rtk) are MIT-licensed.
 //
 //go:embed builtins_toml/*.toml
 var builtinsTOMLFS embed.FS

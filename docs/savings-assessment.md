@@ -1,7 +1,7 @@
 # Slimference - Savings Assessment
 
-Date: 2026-06-06
-Scope: current product architecture after Layer 2 removal
+Date: 2026-06-09
+Scope: v0.6.0 product architecture after Layer 2 removal
 Method: repository evidence, checked-in fixtures, current local release proof,
 and product safety policy
 
@@ -31,18 +31,19 @@ lossy memory replacement.
 | Layer 2 | Response cache and provider-cache steering/accounting | Yes | No model-content loss: local replay is fail-closed, provider steering does not rewrite prompt content | repeated effective requests and reusable stable prefixes |
 | Layer 3 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
 
-## Realistic Savings Range
+## Realistic Per-Session Savings Range
 
 The current stack is workload-dependent. The strongest savings appear when the
 agent repeats expensive tool surfaces: reads, searches, git status/diff, tests,
 logs, and long command outputs.
 
-| Workload | Realistic product savings |
-| --- | --- |
-| Tool-heavy Codex coding with repeated reads/searches/tests | 30-60% |
-| Very repeat-heavy sessions with proven readcache/chunk/cache hits | 60-80%+ |
-| Mixed coding and chat with moderate tools | 15-40% |
-| Linear greenfield/chat with little repeated tool output | 5-20% |
+| Routed Codex session shape | Realistic product savings | Strong-session upside |
+| --- | ---: | ---: |
+| Normal tool-heavy coding with repeated reads/searches/tests | 25-50% | 50-60% |
+| Long refactor/debug loops | 35-65% | 65-75% |
+| Search/read/log-heavy loops | 45-70% | 70%+ bursts |
+| Mixed coding and chat with moderate tools | 15-40% | 40-50% |
+| Linear greenfield/chat with little repeated tool output | 0-15% | 20% |
 
 These ranges must not be marketed as universal. The current local release proof
 backs concrete corpus/resource claims, not a universal average across every
@@ -59,8 +60,10 @@ What is proven by the repository:
 - The benchmark and release-proof scripts fail closed on missing metadata,
   missed validators, safety counters, and weak promotion evidence.
 - Go source no longer contains the retired Layer 2 implementation.
-- The 2026-06-06 refresh passed the checked-in live-corpus normal, promotion,
-  and maxx gates. It also passed the strict content-free release proof over 70
+- The 2026-06-09 v0.6.0 refresh passed the checked-in live-corpus normal,
+  promotion, and maxx gates: 55 requests, 51 real sessions, `codex_cli=34`,
+  `codex_desktop=17`.
+- The 2026-06-06 strict content-free release proof passed over 70
   clean release matrix rows with CLI and Desktop resource bundles:
   `gate_passed=true`, `resource_profile_proof_ok=true`,
   `local_billable_input_tokens_saved=330518`,

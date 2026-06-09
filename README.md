@@ -174,18 +174,23 @@ the built-in reports.
 
 ## Expected Savings
 
-Real savings depend on how you work, but the shape is predictable:
+Savings are reported per routed Codex session and split by source: local input
+reduction, provider-cache effects, output-wire accounting, and tool-surface
+pruning. The realistic but optimistic target zone is:
 
-| Workflow | Realistic range | Why |
-|---|---:|---|
-| Long coding sessions with repeated reads/search/tests | 30-60% input-token reduction | Readcache, tool archive, search/log/test reducers, provider-cache leverage |
-| Heavy refactor/debug loops | 40-70% on routed text/tool traffic | Same files and same command surfaces repeat many times |
-| Short one-off prompts | 0-20% | Less repeated context means less deterministic waste to remove |
-| Output tokens | Usually modest | Slimference avoids weakening the model's answer quality just to force shorter replies |
+| Routed Codex session shape | Realistic session range | Strong-session upside | Why |
+|---|---:|---:|---|
+| Normal tool-heavy coding | 25-50% input-token reduction | 50-60% | Repeated reads, search results, git/test output, and cache-stable context |
+| Long refactor/debug loop | 35-65% input-token reduction | 65-75% | Same files, failures, commands, and repo slices recur across turns |
+| Search/read/log heavy loop | 45-70% input-token reduction | 70%+ bursts | Layer-0 reducers remove the most repeated tool bytes before they enter context |
+| Short one-off prompt | 0-15% | 20% | Little repeated context means little deterministic waste |
+| Output tokens | Usually modest | High only on exact-answer/chat shapes | Slimference keeps answer quality ahead of aggressive brevity |
 
-Those are not billing guarantees. They are the realistic target zone for
-Codex-heavy text workflows where the same project context gets touched again
-and again.
+Those are not billing guarantees and not a promise for every project. They are
+the expected range for Codex-heavy text sessions that repeat project context.
+Checked-in v0.6.0 gates currently pass on 55 live-corpus requests and 51 real
+Codex CLI/Desktop sessions; the synthetic smoke corpus stays at 57.14% only as
+a regression fixture, not as a production average.
 
 ## Design Boundaries
 

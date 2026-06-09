@@ -375,7 +375,7 @@ Emit a bash completion script. Pipe to your completion dir.
 	case "trust":
 		return `slimference trust <subcmd>
 
-Tools around the trust model ported from RTK. See docs/rtk-parity.md.
+Tools around the trust model ported from the embedded filter catalog.
 `
 	case "integrate":
 		return `slimference integrate <status|install|remove|emergency-off> [flags]
