@@ -189,7 +189,7 @@ Fresh configs expose active product surfaces only:
 - legacy `layer3_enabled` may be read as `layer2_enabled` only for old config
   compatibility and must not revive removed semantic Layer 2 behavior;
 - no `min_tokens_for_layer2`;
-- no `[compression.minimax]`;
+- no removed external model compression section;
 - no `[compression.summary]`;
 - no `[compression.ocrl]`.
 
