@@ -6,17 +6,21 @@ It runs on your machine, routes only the Codex sessions you explicitly launch
 through it, and reduces wasted input tokens from repeated reads, noisy command
 output, logs, search results, cache misses, and duplicated tool context.
 
-The core rule is simple: **near-zero drawdown for savings**. Slimference is
-designed to avoid the failure modes that make token savers dangerous:
-hallucinations, weaker model reasoning, worse context memory, stale repo state,
-tool/workflow regressions, confusing routing, or any user-visible "why did the
-agent get worse?" moment. Default product paths are deterministic, guarded,
-reversible, and fail open.
+The core rule is simple: **near-zero drawdown for savings**. Slimference treats
+model quality as an invariant, not a tradeoff. A token saving is only a product
+feature when it preserves context truth, file reality, recovery, tool behavior,
+and the model's ability to reason. If a reducer can make the agent hallucinate,
+forget relevant context, miss recency, or work from stale repo state, it is not
+allowed in the default path.
 
 Slimference does **not** use external summarization, does **not** ask a smaller
 model to rewrite your context, and does **not** replace conversation memory with
 lossy summaries. If a savings mechanism cannot be made safe enough to run
 automatically, it does not belong in the default product path.
+
+That is the product bet: get as much token reduction as possible from
+deterministic waste, cache leverage, and recoverable tool-output handling while
+keeping Codex's actual task performance intact.
 
 ## The Short Version
 
@@ -91,7 +95,8 @@ Most token savers chase compression. Slimference chases **safe context
 economics**.
 
 The goal is not to summarize everything harder. The goal is to attack waste at
-the places where the model does not need the full bytes again:
+the places where the model does not need the full bytes again, while preserving
+the information it still needs to do the job:
 
 - repeated file reads after the model already saw the content;
 - repeated search/test/git/log output with stable evidence;
@@ -143,6 +148,8 @@ savings route as the CLI without changing normal Finder/Spotlight launches.
 Slimference only turns savings into a normal product path when the reducer is
 deterministic and bounded:
 
+- **Quality invariant:** savings cannot buy hallucination risk, stale context,
+  weaker reasoning, worse tool recovery, or confusing routing.
 - **Fail open:** parser errors, unknown payloads, schema drift, daemon failure,
   or unsafe proof state send the original data or launch direct Codex.
 - **No lossy summaries:** the retired semantic summary path is not a default
@@ -165,7 +172,7 @@ safety contract.
 | Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, read, and WSS tool output before or as it enters model-visible context | Parser guards, evidence preservation, archive recovery, fail open |
 | Layer 1 | Deterministic compression | Removes deterministic waste from safe prefix/tool content | Shorter-than-original guard, schema checks, safety tiers, no semantic paraphrase |
 | Layer 2 | Response and provider-cache leverage | Avoids repeat work and accounts provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation, negative-net visibility |
-| Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, no risky model-facing directive unless proof-gated |
+| Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition/chat overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, no risky model-facing directive unless proof-gated |
 
 Typical wins come from repeated file reads, search outputs, test logs, git
 output, JSON/log compaction, archive-backed tool references, and provider cache
@@ -183,7 +190,7 @@ pruning. The realistic but optimistic target zone is:
 | Layer 0: tool-output reducers | 15-45% | 50%+ bursts | Biggest lever when reads, search, git, tests, logs, or WSS tool output repeat |
 | Layer 1: deterministic compression | 3-15% | 20-30% | Helps on structured/repeated context; never semantic paraphrase |
 | Layer 2: response/provider-cache leverage | 0-25% | 30-50% | Workload-dependent and reported separately from local input deletion |
-| Layer 3: output/tool-surface reduction | 0-8% | 10-20% | Conservative by default; higher only on exact-answer or tool-heavy shapes |
+| Layer 3: output/chat/tool-surface reduction | 0-8% | 10-20% | Conservative by default; concise chat hints only on safe answer shapes |
 
 Layer contributions overlap and are not additive. The combined session outcome
 depends on how much repeated project/tool context exists:

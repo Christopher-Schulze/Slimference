@@ -17,10 +17,12 @@ Slimference now has four active product layers:
 The old semantic summary path is retired. Slimference does not use another
 external model, a local LLM, OCRL, or context-ledger insertion as a product
 savings path. That choice is intentional: replacing old context with any
-summary can remove details and create model-quality drawdown. The remaining
-product stack saves tokens by removing repeated, noisy, structurally redundant,
-or recoverably archived tool output, not by asking the model to reason from a
-lossy memory replacement.
+summary can remove details and create model-quality drawdown. The product rule
+is maximum practical savings under a near-zero-drawdown policy: context truth,
+recency, tool recovery, and model reasoning are not spendable budget. The
+remaining stack saves tokens by removing repeated, noisy, structurally
+redundant, or recoverably archived tool output, not by asking the model to
+reason from a lossy memory replacement.
 
 ## Current Product Layers
 
@@ -29,7 +31,7 @@ lossy memory replacement.
 | Layer 0 | Pre-entry and WSS/Codex tool-output reducers | Yes | Fail-open and proof-gated for recoverable refs | read/ranged-read/search/git/test/log/repeated/chunk outputs |
 | Layer 1 | Deterministic compression of safe conversation/tool prefix content | Yes | Safe tiers only in default product path; archive-backed where needed | ANSI/JSON/dedup/delta/structure/repeated collapse |
 | Layer 2 | Response cache and provider-cache steering/accounting | Yes | No model-content loss: local replay is fail-closed, provider steering does not rewrite prompt content | repeated effective requests and reusable stable prefixes |
-| Layer 3 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
+| Layer 3 | Output discipline, concise-chat hints, and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter safe answer shapes and smaller tool surface |
 
 ## Realistic Per-Session Savings Range
 
@@ -48,7 +50,7 @@ separate.
 | Layer 0 | 15-45% | 50%+ bursts | Main source on repeated reads/search/git/test/log/WSS tool output |
 | Layer 1 | 3-15% | 20-30% | Deterministic structure/dedup/delta wins only; no semantic paraphrase |
 | Layer 2 | 0-25% | 30-50% | Provider-cache and response-cache effects, reported separately |
-| Layer 3 | 0-8% | 10-20% | Conservative default profile; exact-answer/tool-heavy upside only |
+| Layer 3 | 0-8% | 10-20% | Conservative default profile; safe concise-chat/exact-answer/tool-heavy upside only |
 
 | Routed Codex session shape | Realistic product savings | Strong-session upside |
 | --- | ---: | ---: |
