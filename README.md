@@ -1,56 +1,43 @@
 # Slimference
 
-**Slimference is a local, Codex-first token-savings layer for coding agents.**
+[![CI](https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml/badge.svg)](https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple&logoColor=white)](#quick-start)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-It runs on your machine, routes only the Codex sessions you explicitly launch
-through it, and reduces wasted input tokens from repeated reads, noisy command
-output, logs, search results, cache misses, and duplicated tool context.
+**Cut repeated Codex context without making the model worse.**
 
-The core rule is simple: **near-zero drawdown for savings**. Slimference treats
-model quality as an invariant, not a tradeoff. A token saving is only a product
-feature when it preserves context truth, file reality, recovery, tool behavior,
-and the model's ability to reason. If a reducer can make the agent hallucinate,
-forget relevant context, miss recency, or work from stale repo state, it is not
-allowed in the default path.
+Slimference is a local, macOS-first token-savings layer for Codex CLI and
+Codex Desktop. It routes only the sessions you explicitly launch through it,
+then removes deterministic waste from repeated file reads, noisy command
+output, logs, search results, cache misses, duplicated tool context, and
+recoverable tool archives.
 
-Slimference does **not** use external summarization, does **not** ask a smaller
-model to rewrite your context, and does **not** replace conversation memory with
-lossy summaries. If a savings mechanism cannot be made safe enough to run
-automatically, it does not belong in the default product path.
+The product rule is strict: **savings are not allowed to buy quality loss**.
+Slimference keeps model quality, context truth, file reality, tool recovery,
+and routing clarity ahead of raw compression. If a reducer could make Codex
+hallucinate, miss recency, forget relevant context, or work from stale repo
+state, it is not allowed in the default path.
 
-That is the product bet: get as much token reduction as possible from
-deterministic waste, cache leverage, and recoverable tool-output handling while
-keeping Codex's actual task performance intact.
+## Why It Exists
 
-## The Short Version
+Coding agents burn a lot of tokens on the same project facts again and again:
+the same files, the same test failures, the same git output, the same search
+results, the same logs, and the same tool schemas. Slimference attacks that
+waste locally, deterministically, and with recovery paths instead of asking
+another model to summarize your context.
 
-Slimference is built for one high-value surface first: **Codex text workflows**.
+What you get today:
 
-- Codex CLI support is first-class.
-- Codex Desktop support is first-class through a scoped app-server launch path.
-- Browser ChatGPT, ordinary ChatGPT.app launches, voice, realtime, vision,
-  and computer-use surfaces are left alone by default.
-- The expensive, repetitive part of coding-agent work is usually text and tool
-  context. That is where Slimference spends its engineering budget.
-
-## Included Today
-
-- Launches Codex CLI or Codex Desktop in a scoped Slimference mode.
-- Leaves normal Codex launches direct unless you start them through Slimference.
-- Compacts deterministic tool output before it bloats the model context.
-- Routes Codex traffic through a local daemon for cache-aware, proof-gated
-  savings.
-- Supports WSS-first scoped Codex routing with automatic safe fallback.
-- Repairs WSS certification drift after Codex updates through daemon/TUI/CLI
-  recert paths.
-- Applies conservative user-facing chat brevity hints only on safe answer
-  shapes.
-- Tracks savings, cache impact, routed activity, logs, and diagnostics locally.
-- Falls back to direct Codex when the daemon or a proof gate is not safe.
-
-Slimference is built for long coding sessions where agents repeatedly inspect
-the same files, run the same tests, search the same repo, and carry lots of
-tool output across turns.
+| Capability | Status |
+|---|---|
+| Scoped Codex CLI launch | First-class |
+| Scoped Codex Desktop launch | First-class |
+| WSS-first Codex routing | Default with safe fallback |
+| Deterministic tool-output reduction | Default-on when shape-safe |
+| Provider-cache and savings accounting | Built in |
+| User-facing chat brevity hints | Conservative and shape-gated |
+| Normal Codex / ChatGPT launches | Left direct unless explicitly launched through Slimference |
 
 ## Quick Start
 
@@ -60,16 +47,10 @@ Requirements:
 - Go 1.25+
 - Codex CLI or Codex Desktop already installed and logged in
 
-Build, install, and verify:
+Build, install, and open the TUI:
 
 ```bash
 ./install.sh
-slimference
-```
-
-Open the TUI:
-
-```bash
 slimference
 ```
 
@@ -82,12 +63,29 @@ slimference codex run --transport=auto -- "check this project"
 Update an existing source checkout:
 
 ```bash
-go run ./scripts/build --restart
+./install.sh
 ~/.local/bin/slimference status --preflight
 ```
 
 Normal `codex` in a shell and normal Codex.app launches stay direct unless you
 launch them through Slimference or explicitly enable the advanced shared route.
+
+## What Slimference Does
+
+- Launches Codex CLI or Codex Desktop in scoped Slimference mode.
+- Leaves normal Codex launches direct unless you start them through Slimference.
+- Compacts deterministic tool output before it bloats model-visible context.
+- Routes Codex traffic through a local daemon for cache-aware, proof-gated
+  savings.
+- Supports WSS-first scoped Codex routing with automatic safe fallback.
+- Repairs WSS certification drift after Codex updates through daemon/TUI/CLI
+  recert paths.
+- Tracks savings, cache impact, routed activity, logs, and diagnostics locally.
+- Falls back to direct Codex when the daemon or a proof gate is not safe.
+
+Slimference is built for long coding sessions where agents repeatedly inspect
+the same files, run the same tests, search the same repo, and carry lots of
+tool output across turns.
 
 ## Core Approach
 
@@ -399,8 +397,8 @@ git diff --check
 Build the installed binary:
 
 ```bash
-go build -o ~/.local/bin/slimference ./cmd/slimference
-slimference --version
+go run ./scripts/build --install
+~/.local/bin/slimference --version
 ```
 
 Project docs:
