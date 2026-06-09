@@ -4,9 +4,9 @@ Version: 0.6.0
 Last updated: 2026-06-07
 
 Comprehensive reference for the Slimference token-savings proxy. This
-document is re-written for the 2.3 line; sections follow current code
-layout, each with file:line pointers so readers can jump from prose to
-source in one hop.
+document tracks the current v0.6.0 macOS-first product line; sections follow
+current code layout, each with file:line pointers so readers can jump from
+prose to source in one hop.
 
 ---
 
@@ -196,9 +196,10 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
    passthrough.
 6. **Version negotiation** (T62): unknown `anthropic-version` downgrades
    to `PipelineConservative` or `PipelinePassthrough`.
-7. **Layer 0 hooks** — handled *out of process* by Claude Code / Codex
-   before the HTTP request is ever sent, but the results appear as
-   compressed tool outputs in the body we now receive.
+7. **Layer 0 hooks** — handled *out of process* by Codex hooks before the
+   HTTP request is ever sent, but the results appear as compressed tool
+   outputs in the body we now receive. Claude hook code is parked and not part
+   of the product path.
 8. **Layer 1 compression** — deterministic, 15 sub-layers plus preview
    passes.
 9. **Prompt-cache breakpoints** (T45) — up to 4 `ephemeral` markers
@@ -1506,9 +1507,10 @@ Codex-first and scoped:
   `supports_websockets=true`
 
 The normal user-facing commands are `slimference install`,
-`status --preflight`, `codex run`, `codex enable`, `codex disable`,
-`codex status`, `codex certify wss`, `uninstall`, and
-`status`. Global transparent lab commands are `cert-trust`,
+`status --preflight`, `codex run`, `codex status`, `codex certify wss`,
+`uninstall`, and `status`. `codex enable` / `codex disable` are advanced
+shared-route controls, not required for the default scoped workflow. Global
+transparent lab commands are `cert-trust`,
 `root-arm --global-chatgpt-hosts`, transparent `enable`, transparent `disable`, and
 `root-disarm`.
 Default install is Codex-only. Claude Code remains in tree, but is parked:
@@ -2922,7 +2924,7 @@ internal/integrate/           Auto-integration (T65).
 internal/daemon/              launchd plumbing (macOS).
   daemon.go                   InstallLaunchd + plist + FormatStatus (T68).
 
-internal/hooks/               Claude + Codex hook installers.
+internal/hooks/               Codex hook installers plus parked Claude hook code.
 internal/filter/              Layer-0 pipeline + parser reducers + SQLite.
 internal/security/            Secrets detector + per-session suspend (T59).
 internal/tui/                 BubbleTea UI + keybinding registry (T64).
