@@ -2708,6 +2708,19 @@ reported token saving exact.
 
 ## 16. Installation
 
+### From GitHub releases
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/Slimference/main/install.sh | bash
+~/.local/bin/slimference install
+~/.local/bin/slimference status --preflight
+```
+
+The raw GitHub installer resolves the latest release, downloads the matching
+macOS archive for the current architecture, installs only the local binary, and
+leaves scoped Codex setup to the explicit `slimference install` or TUI Setup
+step.
+
 ### From source (macOS M-series, recommended)
 
 ```bash
@@ -2725,8 +2738,8 @@ observe a partially copied executable.
 
 ```bash
 curl -fsSL <url>/slimference_<version>_darwin_arm64.tar.gz | tar -xz -C /tmp
-install -Dm755 /tmp/slimference_<version>_darwin_arm64/slimference \
-    "$HOME/.local/bin/slimference"
+cd /tmp/slimference_<version>_darwin_arm64
+./install.sh
 ```
 
 ## 17. Build and Release

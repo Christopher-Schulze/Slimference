@@ -55,17 +55,24 @@ Requirements:
 - Go 1.25+
 - Codex CLI or Codex Desktop already installed and logged in
 
-Build, install, and open the TUI:
+Install and open the TUI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/Slimference/main/install.sh | bash
+~/.local/bin/slimference
+```
+
+Build from a source checkout:
 
 ```bash
 ./install.sh
-slimference
+~/.local/bin/slimference
 ```
 
 Run one scoped Codex CLI prompt:
 
 ```bash
-slimference codex run --transport=auto -- "check this project"
+~/.local/bin/slimference codex run --transport=auto -- "check this project"
 ```
 
 Update an existing source checkout:
@@ -261,9 +268,16 @@ proxy.
 When WSS proof is stale, degraded, or unsafe, Slimference downgrades to bridge,
 HTTP, or direct behavior instead of forcing a risky mutation.
 
-## Install From Source
+## Install
 
-Build and install the TUI/CLI binary:
+Install the latest GitHub release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/Slimference/main/install.sh | bash
+~/.local/bin/slimference
+```
+
+Build and install from a source checkout:
 
 ```bash
 git clone https://github.com/Christopher-Schulze/Slimference.git
@@ -281,7 +295,7 @@ Update a local source checkout:
 Open the TUI:
 
 ```bash
-slimference
+~/.local/bin/slimference
 ```
 
 The installer only installs the local binary and prints PATH guidance. It does
@@ -297,7 +311,7 @@ Download the macOS archive from
 tar -xzf slimference_0.6.0_darwin_arm64.tar.gz
 cd slimference_0.6.0_darwin_arm64
 ./install.sh
-slimference
+~/.local/bin/slimference
 ```
 
 ## Daily Use

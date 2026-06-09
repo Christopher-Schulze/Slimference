@@ -4,9 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to build, for example v0.6.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -22,15 +32,60 @@ jobs:
           go-version: "1.25.x"
           cache: true
 
+      - name: Resolve release version
+        id: version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+          fi
+          case "$version" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "Release version must look like v0.6.0, got: $version" >&2
+              exit 2
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Run CI
         run: go run ./scripts/ci
 
       - name: Build macOS artifacts
-        run: go run ./scripts/release --version "$GITHUB_REF_NAME" --targets=darwin/arm64,darwin/amd64
+        run: go run ./scripts/release --version "${{ steps.version.outputs.version }}" --targets=darwin/arm64,darwin/amd64
+
+      - name: Verify release artifacts
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          version="${version#v}"
+          test -f "dist/slimference_${version}_darwin_arm64.tar.gz"
+          test -f "dist/slimference_${version}_darwin_amd64.tar.gz"
+          test -s dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          for archive in dist/*.tar.gz; do
+            tar -tzf "$archive" | grep -q '/slimference$'
+            tar -tzf "$archive" | grep -q '/install.sh$'
+            tar -tzf "$archive" | grep -q '/README.md$'
+            tar -tzf "$archive" | grep -q '/LICENSE$'
+          done
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: slimference-${{ steps.version.outputs.version }}-macos
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS

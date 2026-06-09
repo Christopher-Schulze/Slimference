@@ -5,13 +5,18 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: Go CI
+  gate:
+    name: Full Go gate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -25,3 +30,57 @@ jobs:
 
       - name: Run Slimference CI
         run: go run ./scripts/ci
+
+  release-smoke:
+    name: Release artifact smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Check release dry-run
+        run: go run ./scripts/release --version v0.0.0-ci --targets=darwin/arm64,darwin/amd64 --dry-run
+
+      - name: Build release artifacts
+        run: go run ./scripts/release --version v0.0.0-ci --targets=darwin/arm64,darwin/amd64
+
+      - name: Verify release artifacts
+        run: |
+          set -euo pipefail
+          test -f dist/slimference_0.0.0-ci_darwin_arm64.tar.gz
+          test -f dist/slimference_0.0.0-ci_darwin_amd64.tar.gz
+          test -s dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          for archive in dist/*.tar.gz; do
+            tar -tzf "$archive" | grep -q '/slimference$'
+            tar -tzf "$archive" | grep -q '/install.sh$'
+            tar -tzf "$archive" | grep -q '/README.md$'
+            tar -tzf "$archive" | grep -q '/LICENSE$'
+          done
+
+  install-smoke:
+    name: macOS installer smoke
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Install from source checkout
+        run: SLIMFERENCE_INSTALL_DIR="$RUNNER_TEMP/bin" ./install.sh --no-path-hint
+
+      - name: Verify installed binary
+        run: |
+          "$RUNNER_TEMP/bin/slimference" --version
+          SLIMFERENCE_INSTALL_DIR="$RUNNER_TEMP/bin" ./install.sh --verify-only --no-path-hint

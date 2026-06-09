@@ -54,6 +54,14 @@ explicit `slimference lab ...` commands.
 
 ## Fresh machine install
 
+GitHub release installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/Slimference/main/install.sh | bash
+~/.local/bin/slimference install
+~/.local/bin/slimference status --preflight
+```
+
 Release archive path:
 
 ```bash
