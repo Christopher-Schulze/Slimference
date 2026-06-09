@@ -415,7 +415,7 @@ func (m *Model) renderStatusView() string {
 		" " + s.PanelTitle.Render("INSTALL"),
 		"",
 		renderStatusInstallLine(s, "Codex CLI", statusCLIReady(m.codexRouteStatus), statusCLIDetail(m.codexRouteStatus)),
-		renderStatusInstallLine(s, "Codex App", statusDesktopReady(m.codexDesktopStatus), statusDesktopDetail(m.codexDesktopStatus)),
+		renderStatusInstallLine(s, "Codex App", statusDesktopReady(m.codexDesktopStatus), statusDesktopDetail(m.codexDesktopStatus, m.codexRouteStatus)),
 		renderStatusInstallLine(s, "Local CA", transparent.CAExists, statusCADetail(transparent)),
 		renderStatusInstallLine(s, "Autostart", transparent.AutoStartInstalled, statusAutostartDetail(transparent)),
 	}
@@ -489,13 +489,14 @@ func statusCLIReady(status CodexRouteStatus) bool {
 }
 
 func statusCLIDetail(status CodexRouteStatus) string {
+	version := codexWSSVersionDetail(status)
 	switch {
 	case status.NeedsRecert:
-		return "repair needed"
+		return joinStatusDetails("repair needed", version)
 	case status.WSSCertified:
-		return "WSS savings ready"
+		return joinStatusDetails("WSS savings ready", version)
 	case status.WSSBridgeAvailable:
-		return "bridge ready"
+		return joinStatusDetails("bridge ready", version)
 	case status.Complete:
 		return "launch ready"
 	case status.Exists:
@@ -507,6 +508,34 @@ func statusCLIDetail(status CodexRouteStatus) string {
 	}
 }
 
+func codexWSSVersionDetail(status CodexRouteStatus) string {
+	current := strings.TrimSpace(status.CurrentCodex)
+	certified := strings.TrimSpace(status.CertifiedCodex)
+	switch {
+	case current != "" && certified != "" && current == certified:
+		return "Codex " + current + " verified, no stale proof"
+	case current != "" && certified != "":
+		return "stale proof: current Codex " + current + ", certified " + certified
+	case current != "":
+		return "current Codex " + current
+	case certified != "":
+		return "certified Codex " + certified
+	default:
+		return ""
+	}
+}
+
+func joinStatusDetails(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, " · ")
+}
+
 func statusDesktopReady(status CodexDesktopStatus) bool {
 	return status.AppServerActive ||
 		status.Mode == "desktop_app_server_phasef_proven" ||
@@ -514,20 +543,21 @@ func statusDesktopReady(status CodexDesktopStatus) bool {
 		status.Mode == "desktop_app_server_route_ready"
 }
 
-func statusDesktopDetail(status CodexDesktopStatus) string {
+func statusDesktopDetail(status CodexDesktopStatus, route CodexRouteStatus) string {
+	version := codexWSSVersionDetail(route)
 	switch {
 	case status.FailureClass != "":
-		return status.FailureClass
+		return joinStatusDetails(status.FailureClass, version)
 	case status.AppServerActive:
-		return "app launch active"
+		return joinStatusDetails("app launch active", version)
 	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
-		return "savings ready"
+		return joinStatusDetails("savings ready", version)
 	case status.Mode == "desktop_app_server_route_ready":
-		return "launch ready"
+		return joinStatusDetails("launch ready", version)
 	case status.Mode == "desktop_wss_bridge_only":
-		return "bridge fallback"
+		return joinStatusDetails("bridge fallback", version)
 	case status.Mode != "":
-		return "proof pending"
+		return joinStatusDetails("proof pending", version)
 	default:
 		return "run Setup"
 	}
@@ -1577,12 +1607,21 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 	case status.WSSCertified && (status.AutoMode == "wss_phasef" || (status.AutoMode == "" && mode == "wss")):
 		stateText = "WSS savings active"
 		modeText += " · savings proof green"
+		if version := codexWSSVersionDetail(status); version != "" {
+			modeText += " · " + version
+		}
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
 		stateText = "WSS native bridge"
 		modeText += " · no mutation until repair"
+		if version := codexWSSVersionDetail(status); version != "" {
+			modeText += " · " + version
+		}
 	case status.NeedsRecert:
 		stateText = "WSS repair needed"
 		modeText += " · repair needed"
+		if version := codexWSSVersionDetail(status); version != "" {
+			modeText += " · " + version
+		}
 	}
 	switch {
 	case status.Complete && status.DaemonReachable:

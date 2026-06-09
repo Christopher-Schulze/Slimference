@@ -2013,6 +2013,42 @@ func TestView_SetupView_executeStep_alreadyDone(t *testing.T) {
 	}
 }
 
+func TestView_SetupView_refreshesReadyWSSProof(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{
+		transparentStatus: TransparentStatus{
+			CAExists:           true,
+			CATrusted:          true,
+			AutoStartInstalled: true,
+		},
+		codexRouteStatus: CodexRouteStatus{
+			WSSCertified: true,
+			AutoMode:     "wss_phasef",
+		},
+	}
+	m.SetServiceControl(svc)
+	m.hookStatus = HookStatus{Claude: true, Codex: true}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	model2 := updated2.(Model)
+
+	updated3, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e', 'n', 't', 'e', 'r'}})
+	model3 := updated3.(Model)
+	if !svc.codexWSSRepaired {
+		t.Fatal("ready WSS proof step should allow manual refresh")
+	}
+	if !strings.Contains(model3.flashMsg, "Done: CLI savings route") {
+		t.Fatalf("flash=%q", model3.flashMsg)
+	}
+}
+
 func TestView_SetupView_executeStep_invalidStep(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()

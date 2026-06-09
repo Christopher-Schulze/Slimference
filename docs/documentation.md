@@ -132,6 +132,8 @@ routine use, it stays out of the product path.
 - **Autonomous WSS repair**: daemon startup checks Codex WSS proof drift and
   can launch the same lock/backoff-gated background recert used by scoped
   `codex run --transport=auto`, TUI startup/status refresh, and TUI repair.
+  TUI Status shows the current/certified Codex tuple, and Setup can force a
+  manual `CLI savings route` proof refresh even when the route is already green.
 - **Passthrough on failure**: if any layer errors, the original body is
   forwarded. See section 10.
 - **Bypass switch**: a single atomic flag collapses every provider + layer

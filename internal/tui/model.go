@@ -235,32 +235,36 @@ type TransparentStatus struct {
 // CodexRouteStatus is the TUI-facing snapshot of the scoped
 // marker-owned Codex provider route in ~/.codex/config.toml.
 type CodexRouteStatus struct {
-	Exists              bool
-	Enabled             bool
-	Complete            bool
-	Conflict            string
-	LegacyKeys          bool
-	DaemonReachable     bool
-	Transport           string
-	AutoTransport       string
-	AutoMode            string
-	WSSCertified        bool
-	WSSBridgeAvailable  bool
-	NeedsRecert         bool
-	FallbackReason      string
-	CertificationPath   string
-	BridgeProofPath     string
-	RecertStatePath     string
-	RecertLogPath       string
-	RecertStatus        string
-	RecertAttemptID     string
-	RecertStartedAt     time.Time
-	RecertFinishedAt    time.Time
-	RecertLastSuccessAt time.Time
-	RecertRetryAfter    time.Time
-	RecertLastError     string
-	RecertCommand       string
-	Detail              string
+	Exists               bool
+	Enabled              bool
+	Complete             bool
+	Conflict             string
+	LegacyKeys           bool
+	DaemonReachable      bool
+	Transport            string
+	AutoTransport        string
+	AutoMode             string
+	WSSCertified         bool
+	WSSBridgeAvailable   bool
+	NeedsRecert          bool
+	CurrentCodex         string
+	CurrentSlimference   string
+	CertifiedCodex       string
+	CertifiedSlimference string
+	FallbackReason       string
+	CertificationPath    string
+	BridgeProofPath      string
+	RecertStatePath      string
+	RecertLogPath        string
+	RecertStatus         string
+	RecertAttemptID      string
+	RecertStartedAt      time.Time
+	RecertFinishedAt     time.Time
+	RecertLastSuccessAt  time.Time
+	RecertRetryAfter     time.Time
+	RecertLastError      string
+	RecertCommand        string
+	Detail               string
 }
 
 // CodexDesktopStatus is the TUI-facing Codex.app proxy capability state.
@@ -929,10 +933,11 @@ func (m *Model) copyDebugLog() string {
 
 // setupStep describes a single wizard step with an action.
 type setupStep struct {
-	label   string               // display label
-	check   func() bool          // true = already done
-	action  func(m *Model) error // execute this step
-	confirm string               // "Press Enter to <confirm>"
+	label          string               // display label
+	check          func() bool          // true = already done
+	action         func(m *Model) error // execute this step
+	confirm        string               // "Press Enter to <confirm>"
+	allowWhenReady bool                 // true = action can refresh a green proof
 }
 
 type dashboardAction struct {
@@ -1388,8 +1393,9 @@ func (m *Model) setupSteps() []setupStep {
 			check: func() bool {
 				return m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef"
 			},
-			action:  func(m *Model) error { _, err := m.svc.RepairCodexWSS(); return err },
-			confirm: "Repair CLI WSS certification",
+			action:         func(m *Model) error { _, err := m.svc.RepairCodexWSS(); return err },
+			confirm:        "Refresh CLI WSS certification",
+			allowWhenReady: true,
 		},
 		{
 			label: "Autostart daemon",
@@ -1412,7 +1418,7 @@ func (m *Model) executeSetupStep() {
 		return
 	}
 	step := steps[m.setupStep-1]
-	if step.check() {
+	if step.check() && !step.allowWhenReady {
 		m.setFlash("Already done: " + step.label)
 		return
 	}

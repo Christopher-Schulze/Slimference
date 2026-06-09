@@ -226,9 +226,12 @@ func TestRenderCodexRouteStatusLineBranches(t *testing.T) {
 				Complete:        true,
 				DaemonReachable: true,
 				AutoTransport:   "wss",
+				AutoMode:        "wss_phasef",
 				WSSCertified:    true,
+				CurrentCodex:    "0.138.0",
+				CertifiedCodex:  "0.138.0",
 			},
-			want: "WSS savings active",
+			want: "no stale proof",
 		},
 		{
 			name:   "daemon unreachable",
@@ -266,6 +269,40 @@ func TestRenderCodexRouteStatusLineBranches(t *testing.T) {
 				t.Fatalf("line=%q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStatusCLIDetailShowsStaleProofTruth(t *testing.T) {
+	fresh := statusCLIDetail(CodexRouteStatus{
+		WSSCertified:   true,
+		CurrentCodex:   "0.138.0",
+		CertifiedCodex: "0.138.0",
+	})
+	if !strings.Contains(fresh, "no stale proof") {
+		t.Fatalf("fresh detail=%q", fresh)
+	}
+
+	stale := statusCLIDetail(CodexRouteStatus{
+		NeedsRecert:    true,
+		CurrentCodex:   "0.139.0",
+		CertifiedCodex: "0.138.0",
+	})
+	if !strings.Contains(stale, "stale proof") {
+		t.Fatalf("stale detail=%q", stale)
+	}
+}
+
+func TestStatusDesktopDetailShowsSharedWSSFreshness(t *testing.T) {
+	detail := statusDesktopDetail(
+		CodexDesktopStatus{Mode: "desktop_app_server_proven"},
+		CodexRouteStatus{
+			NeedsRecert:    true,
+			CurrentCodex:   "0.139.0",
+			CertifiedCodex: "0.138.0",
+		},
+	)
+	if !strings.Contains(detail, "savings ready") || !strings.Contains(detail, "stale proof") {
+		t.Fatalf("desktop detail=%q", detail)
 	}
 }
 

@@ -194,6 +194,10 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	out.WSSCertified = auto.WSSCertified
 	out.WSSBridgeAvailable = auto.WSSBridgeAvailable
 	out.NeedsRecert = auto.NeedsRecert
+	out.CurrentCodex = auto.CurrentCodex
+	out.CurrentSlimference = auto.CurrentSlimference
+	out.CertifiedCodex = auto.CertifiedCodex
+	out.CertifiedSlimference = auto.CertifiedSlimference
 	out.FallbackReason = auto.FallbackReason
 	out.BridgeProofPath = auto.BridgeProofPath
 	out.RecertStatePath = auto.RecertStatePath

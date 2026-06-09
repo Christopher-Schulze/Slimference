@@ -323,7 +323,9 @@ tuple, `auto.needs_recert=true`, the recert state path, and
 `auto.recert_command`.
 
 Repair is shared by daemon startup, scoped CLI auto transport, background
-auto-recert, TUI startup/status refresh, and the TUI Setup action:
+auto-recert, TUI startup/status refresh, and the TUI Setup action. In Setup,
+the `CLI savings route` step can also be run when it is already green to force
+a fresh version-bound proof after a local Codex/Desktop update check:
 
 ```bash
 slimference codex recertify wss --dry-run --json
