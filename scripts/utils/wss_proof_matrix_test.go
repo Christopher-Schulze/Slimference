@@ -752,7 +752,7 @@ func writeProofRepeatReadFrames(t *testing.T, path, session string) {
 				"arguments": `{"path":"src/proof.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(session+"-read-1", session, session+"-resp-1", file.String())),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(session+"-read-1", session, "", file.String())),
 		wssABReplayTestRecord("server_to_client", map[string]any{
 			"type": "response.output_item.done",
 			"item": map[string]any{
@@ -762,7 +762,7 @@ func writeProofRepeatReadFrames(t *testing.T, path, session string) {
 				"arguments": `{"path":"src/proof.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(session+"-read-2", session, session+"-resp-2", file.String())),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(session+"-read-2", session, "", file.String())),
 	)
 }
 

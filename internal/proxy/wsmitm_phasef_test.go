@@ -266,9 +266,8 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	bodyText := bodyBuilder.String()
 	bodyForTurn := func(turnID, callID string) []byte {
 		return mustMarshal(map[string]any{
-			"model":                "gpt-5-codex",
-			"prompt_cache_key":     "restore-session",
-			"previous_response_id": turnID,
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "restore-session",
 			"input": []map[string]any{
 				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": "src/x.go"}},
 				{"type": "function_call_output", "call_id": callID, "output": bodyText},
@@ -295,7 +294,7 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFRecentReadFullPassConfig(t *testing.T) {
+func TestWSPhaseFPreviousResponseReadDeltaFullPassesBeforeRecencyPolicy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Defaults()
@@ -320,14 +319,15 @@ func TestWSPhaseFRecentReadFullPassConfig(t *testing.T) {
 		})
 	}
 
-	if _, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-1", "read-1")); changed || stats.ReadDeltaMisses != 1 {
-		t.Fatalf("first read should seed, changed=%v stats=%+v", changed, stats)
+	first, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-1", "read-1"))
+	if changed || stats.ReadDeltaMisses != 0 || !strings.Contains(string(first), "recency protected read line") {
+		t.Fatalf("previous-response first read should full-pass before read-delta, changed=%v stats=%+v body=%s", changed, stats, first)
 	}
 	second, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-2", "read-2"))
-	if changed || stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+	if changed || stats.ReadDeltaAttempts != 0 || stats.ReadDeltaMisses != 0 || stats.ReadDeltaBlocks != 0 ||
 		!strings.Contains(string(second), "recency protected read line") ||
 		strings.Contains(string(second), "local-archive://") {
-		t.Fatalf("recent cross-turn read should full-pass, changed=%v stats=%+v body=%s", changed, stats, second)
+		t.Fatalf("previous-response reread should full-pass before recency policy, changed=%v stats=%+v body=%s", changed, stats, second)
 	}
 }
 
@@ -668,22 +668,24 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected Layer 0 to compact response_item tool output")
+	if replace {
+		t.Fatalf("previous-response tool-output turn must full-pass after the WSS Responses-chain guard: %s", env.Body)
 	}
 	body := string(env.Body)
-	if !strings.Contains(body, "[git status]") || strings.Contains(body, "synthetic_layer0_output_reduce_guard_139.go") {
-		t.Fatalf("response_item tool output was not compacted: %s", body)
+	if strings.Contains(body, "[git status]") || !strings.Contains(body, "synthetic_layer0_output_reduce_guard_139.go") {
+		t.Fatalf("response_item tool output did not full-pass: %s", body)
 	}
 	if strings.Contains(body, "#slimference-output-rules") {
-		t.Fatalf("Layer-0-compacted tool-output turn must not receive output-reduce instructions: %s", body)
+		t.Fatalf("tool-output turn must not receive output-reduce instructions: %s", body)
 	}
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 {
 		t.Fatalf("expected one debug summary, got %d", len(summaries))
 	}
-	if summaries[0].OutputReduce.Applied || summaries[0].OutputReduce.Reason != "disabled" {
-		t.Fatalf("Layer-0-compacted WSS turn must not be recorded as output-reduce applied: %+v", summaries[0].OutputReduce)
+	if summaries[0].BypassReason != "wss_previous_response_tool_output_full_pass" ||
+		summaries[0].OutputReduce.Applied ||
+		summaries[0].OutputReduce.Reason != "disabled" {
+		t.Fatalf("previous-response tool-output summary must be a no-savings full-pass: %+v", summaries[0])
 	}
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
@@ -801,14 +803,14 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 		t.Fatalf("expected one debug summary, got %d", len(summaries))
 	}
 	summary := summaries[0]
-	if summary.BypassReason != "wss_previous_response_source_tool_output_full_pass" ||
+	if summary.BypassReason != "wss_previous_response_tool_output_full_pass" ||
 		summary.Tokens.Saved != 0 ||
 		summary.MessagesCompressed != 0 {
 		t.Fatalf("source guard summary should be a no-savings full-pass: %+v", summary)
 	}
 	if summary.DebugFacts["wss.previous_response_id"] != "true" ||
 		summary.DebugFacts["wss.source_tool_results"] != "1" ||
-		summary.DebugFacts["wss.bypass_reason"] != "wss_previous_response_source_tool_output_full_pass" {
+		summary.DebugFacts["wss.bypass_reason"] != "wss_previous_response_tool_output_full_pass" {
 		t.Fatalf("source guard facts missing: %+v", summary.DebugFacts)
 	}
 	if summary.Plan == nil || hasPlanAction(summary.Plan.Decisions, "websocket", "mutate", "known_shape_and_high_corpus_confidence") {
@@ -816,7 +818,7 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFPreviousResponseSourceToolOutputGuardIsSizeScoped(t *testing.T) {
+func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 	meta := wssRequestMeta{PreviousResponseID: "resp_source_guard"}
 	smallSource := []types.Message{{
 		Role: "tool",
@@ -825,8 +827,8 @@ func TestWSPhaseFPreviousResponseSourceToolOutputGuardIsSizeScoped(t *testing.T)
 			Text: "package main\nfunc main() {}\n",
 		}},
 	}}
-	if wssRiskyPreviousResponseSourceToolOutput(meta, smallSource) {
-		t.Fatal("small source snippets should not force full-pass")
+	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(smallSource)) {
+		t.Fatal("small tool-result continuations after previous_response_id must full-pass")
 	}
 
 	largeSource := []types.Message{{
@@ -836,8 +838,11 @@ func TestWSPhaseFPreviousResponseSourceToolOutputGuardIsSizeScoped(t *testing.T)
 			Text: strings.Repeat("package main\nfunc main() {}\n", 220),
 		}},
 	}}
-	if !wssRiskyPreviousResponseSourceToolOutput(meta, largeSource) {
-		t.Fatal("large source continuations after previous_response_id must full-pass")
+	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(largeSource)) {
+		t.Fatal("large tool-result continuations after previous_response_id must full-pass")
+	}
+	if wssPreviousResponseToolOutputFullPass(wssRequestMeta{}, true) {
+		t.Fatal("tool outputs without previous_response_id may still use the safe WSS savings path")
 	}
 }
 
@@ -2107,6 +2112,7 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+	cleanupPhaseFTempHome(t, tmp, "codex-wss:t248-planner-session")
 
 	cfg := config.Defaults()
 	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "high"
@@ -2135,9 +2141,8 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	}
 	runRead := func(callID string) bool {
 		env := parseWSJSON(t, map[string]any{
-			"model":                "gpt-5-codex",
-			"previous_response_id": "resp_t248_planner",
-			"prompt_cache_key":     "t248-planner-session",
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "t248-planner-session",
 			"input": []map[string]any{{
 				"type":    "function_call_output",
 				"call_id": callID,
@@ -2163,7 +2168,7 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	if summary.RouteMode != "websocket_phasef" || summary.Provider != types.CodexChatGPT.String() {
 		t.Fatalf("bad WSS body summary identity: %+v", summary)
 	}
-	if !summary.PreviousResponseIDUsed || summary.TotalMessages != 1 || summary.MessagesCompressed != 1 {
+	if summary.PreviousResponseIDUsed || summary.TotalMessages != 1 || summary.MessagesCompressed != 1 {
 		t.Fatalf("bad WSS body summary counters: %+v", summary)
 	}
 	if summary.ReReadCount != 1 {

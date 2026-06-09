@@ -216,8 +216,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.degraded_reason"] = reason
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
-		if wssRiskyPreviousResponseSourceToolOutput(meta, messages) {
-			meta.BypassReason = "wss_previous_response_source_tool_output_full_pass"
+		if wssPreviousResponseToolOutputFullPass(meta, requestContainsToolOutput) {
+			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
@@ -796,6 +796,10 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 }
 
 const wssSourceToolResultFullPassMinBytes = 4096
+
+func wssPreviousResponseToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool) bool {
+	return meta.PreviousResponseID != "" && requestContainsToolOutput
+}
 
 func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {
 	_, maxBytes := wssSourceToolResultBytes(messages)

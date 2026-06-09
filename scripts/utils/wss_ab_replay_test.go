@@ -28,7 +28,7 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 				"arguments": `{"path":"src/a.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-1", "ab-session", "resp-1", file.String())),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-1", "ab-session", "", file.String())),
 		wssABReplayTestRecord("server_to_client", map[string]any{
 			"type": "response.output_item.done",
 			"item": map[string]any{
@@ -38,7 +38,7 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 				"arguments": `{"path":"src/a.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-2", "ab-session", "resp-2", file.String())),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-2", "ab-session", "", file.String())),
 	)
 
 	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
@@ -141,7 +141,7 @@ func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
 				"arguments": `{"path":"src/a.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-chunk-session", "resp-a", first)),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-chunk-session", "", first)),
 		wssABReplayTestRecord("server_to_client", map[string]any{
 			"type": "response.output_item.done",
 			"item": map[string]any{
@@ -151,7 +151,7 @@ func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
 				"arguments": `{"path":"src/b.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-chunk-session", "resp-b", second)),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-chunk-session", "", second)),
 	)
 
 	report, err := loadWSSABReplayReport(wssABReplayFlags{
@@ -200,7 +200,7 @@ func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 				"arguments": `{"path":"src/a.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-auto-session", "resp-a", shared+tailA)),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-auto-session", "", shared+tailA)),
 		wssABReplayTestRecord("server_to_client", map[string]any{
 			"type": "response.output_item.done",
 			"item": map[string]any{
@@ -210,7 +210,7 @@ func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 				"arguments": `{"path":"src/b.md"}`,
 			},
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-auto-session", "resp-b", shared+tailB)),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-auto-session", "", shared+tailB)),
 	)
 
 	report, err := loadWSSABReplayReport(wssABReplayFlags{
@@ -280,10 +280,9 @@ func wssABReplayTestRecord(direction string, payload any) map[string]any {
 }
 
 func wssABReplayTestOutputBody(callID string, promptCacheKey string, previousResponseID string, output string) map[string]any {
-	return map[string]any{
-		"model":                "gpt-5-codex",
-		"prompt_cache_key":     promptCacheKey,
-		"previous_response_id": previousResponseID,
+	body := map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": promptCacheKey,
 		"input": []map[string]any{{
 			"type":    "function_call_output",
 			"call_id": callID,
@@ -291,4 +290,8 @@ func wssABReplayTestOutputBody(callID string, promptCacheKey string, previousRes
 		}},
 		"stream": true,
 	}
+	if previousResponseID != "" {
+		body["previous_response_id"] = previousResponseID
+	}
+	return body
 }

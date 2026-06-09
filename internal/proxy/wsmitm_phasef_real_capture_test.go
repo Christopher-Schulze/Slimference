@@ -92,9 +92,8 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 
 	runReadWithOutput := func(callID string, output any) (preLen, postLen int, replaced bool, rawAfter []byte) {
 		body := mustMarshal(map[string]any{
-			"model":                "gpt-5-codex",
-			"previous_response_id": "resp_test",
-			"prompt_cache_key":     promptCacheKey,
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": promptCacheKey,
 			"input": []map[string]any{
 				{
 					"type":    "function_call_output",
@@ -345,11 +344,10 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			}
 			runOutput := func(callID string, text string) (int, int, bool, []byte) {
 				body := mustMarshal(map[string]any{
-					"model":                "gpt-5-codex",
-					"previous_response_id": "resp_" + fixture.name,
-					"prompt_cache_key":     promptCacheKey,
-					"input":                []map[string]any{fixture.outputItem(callID, text)},
-					"stream":               true,
+					"model":            "gpt-5-codex",
+					"prompt_cache_key": promptCacheKey,
+					"input":            []map[string]any{fixture.outputItem(callID, text)},
+					"stream":           true,
 				})
 				env, err := wsmitm.Parse(body)
 				if err != nil {

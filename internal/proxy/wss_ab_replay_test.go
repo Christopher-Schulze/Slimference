@@ -24,9 +24,9 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	}
 	frames := []WSSABReplayFrame{
 		wssReplayServerToolCallFrame("read-1", "read_file", map[string]any{"path": "src/replay.md"}),
-		wssReplayClientToolOutputFrame("read-1", "replay-session", "resp-1", file.String()),
+		wssReplayClientToolOutputFrame("read-1", "replay-session", "", file.String()),
 		wssReplayServerToolCallFrame("read-2", "read_file", map[string]any{"path": "src/replay.md"}),
-		wssReplayClientToolOutputFrame("read-2", "replay-session", "resp-2", file.String()),
+		wssReplayClientToolOutputFrame("read-2", "replay-session", "", file.String()),
 	}
 
 	got, err := RunWSSPhaseFABReplay(cfg, frames)
@@ -75,9 +75,9 @@ func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
 	}
 	frames := []WSSABReplayFrame{
 		wssReplayServerToolCallFrame("read-1", "read_file", map[string]any{"path": "src/replay-delta.md"}),
-		wssReplayClientToolOutputFrame("read-1", "replay-delta-session", "resp-1", before.String()),
+		wssReplayClientToolOutputFrame("read-1", "replay-delta-session", "", before.String()),
 		wssReplayServerToolCallFrame("read-2", "read_file", map[string]any{"path": "src/replay-delta.md"}),
-		wssReplayClientToolOutputFrame("read-2", "replay-delta-session", "resp-2", after.String()),
+		wssReplayClientToolOutputFrame("read-2", "replay-delta-session", "", after.String()),
 	}
 
 	got, err := RunWSSPhaseFABReplay(cfg, frames)
@@ -241,19 +241,22 @@ func wssReplayServerToolCallFrame(callID string, name string, arguments map[stri
 }
 
 func wssReplayClientToolOutputFrame(callID string, promptCacheKey string, previousResponseID string, output string) WSSABReplayFrame {
+	body := map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": promptCacheKey,
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": callID,
+			"output":  output,
+		}},
+		"stream": true,
+	}
+	if previousResponseID != "" {
+		body["previous_response_id"] = previousResponseID
+	}
 	return WSSABReplayFrame{
 		Direction: wsmitm.DirClientToServer,
-		Payload: mustMarshal(map[string]any{
-			"model":                "gpt-5-codex",
-			"prompt_cache_key":     promptCacheKey,
-			"previous_response_id": previousResponseID,
-			"input": []map[string]any{{
-				"type":    "function_call_output",
-				"call_id": callID,
-				"output":  output,
-			}},
-			"stream": true,
-		}),
+		Payload:   mustMarshal(body),
 	}
 }
 
