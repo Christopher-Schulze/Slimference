@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/toolusecache"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/toolusecache"
 )
 
 // TestWSPhaseFRealCodexMultiReadProducesDeltaMarker locks in the behaviour

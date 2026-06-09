@@ -8,14 +8,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/proxy/sniroute"
-	"github.com/slimference/slimference/internal/proxy/transparent"
-	"github.com/slimference/slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 )
 
 // startProxyAppsManager is the last apps.Manager that startProxyFn (or

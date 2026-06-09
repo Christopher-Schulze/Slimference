@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/repetition"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/repetition"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestAdminStatusSnapshot_RepetitionPopulated(t *testing.T) {

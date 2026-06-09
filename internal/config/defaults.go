@@ -68,17 +68,19 @@ func defaultsRaw() *Config {
 			},
 			DedupSimilarityThreshold: 0.85,
 			OutputReduce: OutputReduceConfig{
-				Enabled:              true,
-				Profile:              "auto",
-				SignatureMarker:      "#slimference-output-rules",
-				MaxAddedBytes:        1400,
-				MinInputTokens:       400,
-				AutoDisableThreshold: 30,
-				AutoTuneEnabled:      true,
-				AutoTuneMinSamples:   30,
-				MinNetSavingsPct:     15,
-				MaxFailureRateDelta:  0.05,
-				CooldownTurns:        50,
+				Enabled:                   true,
+				Profile:                   "auto",
+				SignatureMarker:           "#slimference-output-rules",
+				MaxAddedBytes:             1400,
+				MinInputTokens:            400,
+				AutoDisableThreshold:      30,
+				AutoTuneEnabled:           true,
+				AutoTuneMinSamples:        30,
+				MinNetSavingsPct:          15,
+				MaxFailureRateDelta:       0.05,
+				CooldownTurns:             50,
+				ConciseChatEnabled:        true,
+				ConciseChatMinInputTokens: 400,
 				// T165/T166/T167: deterministic output-token
 				// reductions default-on. Operators can disable
 				// individually via env or TOML.
@@ -245,6 +247,14 @@ auto_tune_min_samples = 30
 min_net_savings_pct = 15
 max_failure_rate_delta = 0.05
 cooldown_turns = 50
+# Conservative user-facing chat style hint. Applies only to direct-answer /
+# explanation turns and full-passes code, docs, JSON, logs, diffs, repair,
+# review, planning, and tool-output turns.
+concise_chat_enabled = true
+# Below this request size, the concise-chat hint overhead dominates likely
+# output savings. Set 0 only for explicit operator experiments.
+concise_chat_min_input_tokens = 400
+concise_chat_text = ""
 # T249 recovery contract. Default off until comprehension A/B certifies it:
 # when enabled, Codex WSS gets one neutral session note explaining how to
 # request full archived content by local-archive id.
@@ -271,7 +281,7 @@ codex_chunk_dedup_max_session_reference_percent = 70
 
 [compression.tuning]
 # Aggressive sliding window used only when upstream reports a context
-# overflow (spec+.md §17.4).
+# overflow (docs/spec.md §17.4).
 overflow_sliding_window = 2
 
 # T24: allow Layer 1 structure extraction on large tool_result blocks even

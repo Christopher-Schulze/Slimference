@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 )
 
 // staticCertProvider yields one fixed leaf for every SNI - sufficient

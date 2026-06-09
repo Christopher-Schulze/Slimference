@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // buildUniformMsgs returns n user messages each with `big`-sized text so the

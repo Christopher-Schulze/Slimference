@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
 )
 
 // TestAggregateFromSnapshots_Empty verifies that an empty slice returns zero stats.

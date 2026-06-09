@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func msg(texts ...string) []types.Message {
@@ -53,7 +53,7 @@ func TestCompare_CodexExecEnvelopeRepeatReadIsRecoverableByPayload(t *testing.T)
 	payload := strings.Repeat("FILE CONTENT LINE\n", 50)
 	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
 	secondBefore := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
-	secondAfter := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[context-elided kind=file-read status=unchanged path=\"AGENTS.md\"]"
+	secondAfter := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[context-elided kind=file-read status=unchanged path=\"agents.md\"]"
 	rep := Compare([]Turn{
 		{Before: msg(first), After: msg(first)},
 		{Before: msg(secondBefore), After: msg(secondAfter)},

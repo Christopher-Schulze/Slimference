@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)([A-Za-z0-9_\-]+)`)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestAnalytics_RecentRequests(t *testing.T) {

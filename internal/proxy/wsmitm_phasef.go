@@ -11,20 +11,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/slimference/slimference/internal/beterse"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/outputreduce"
-	"github.com/slimference/slimference/internal/outstop"
-	"github.com/slimference/slimference/internal/outstop/repdet"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
-	"github.com/slimference/slimference/internal/qualityab"
-	"github.com/slimference/slimference/internal/servermirror"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/staleread"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/toolusecache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/beterse"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/servermirror"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/staleread"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/toolusecache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type wsPhaseFAdapter struct {
@@ -401,6 +401,9 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput 
 	if blockedByToolOutput || wssBodyContainsToolOutput(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
+	if wssBodyHasPromptCachePrefix(body) {
+		return body, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"}
+	}
 	if !wssBodyHasUserPromptInput(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
@@ -412,6 +415,25 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput 
 	taskShape := outputreduce.DetectTaskShape(types.CodexChatGPT, body)
 	if taskShape == outputreduce.ShapeExactReply {
 		return body, outputreduce.Stats{Profile: "wss_phasef", Reason: "exact_reply", TaskShape: taskShape}
+	}
+	if a.p.config.Compression.OutputReduce.ConciseChatEnabled {
+		if shape, reason := outputreduce.ConciseChatEligibility(types.CodexChatGPT, body, taskShape); reason == "" {
+			if inputTokens < a.p.config.Compression.OutputReduce.ConciseChatMinInputTokens {
+				return body, outputreduce.Stats{Profile: string(outputreduce.ProfileConciseChat), Reason: "concise_chat_low_roi", TaskShape: shape}
+			}
+			hint := beterse.ConciseChatHint(a.p.config.Compression.OutputReduce.ConciseChatText)
+			if injected, res := beterse.Inject(types.CodexChatGPT, body, hint); res.Applied {
+				return injected, outputreduce.Stats{
+					Applied:     true,
+					Profile:     string(outputreduce.ProfileConciseChat),
+					AddedBytes:  res.Bytes,
+					AddedTokens: tokens.ForProvider(types.CodexChatGPT).CountString(hint),
+					Reason:      "applied",
+					TaskShape:   shape,
+				}
+			}
+			return body, outputreduce.Stats{Profile: string(outputreduce.ProfileConciseChat), Reason: "unsupported_shape", TaskShape: shape}
+		}
 	}
 	if reason := outputreduce.LowROISkipReason(taskShape, inputTokens); reason != "" {
 		return body, outputreduce.Stats{Profile: "wss_phasef", Reason: reason, TaskShape: taskShape}
@@ -438,6 +460,23 @@ func messagesContainToolResult(messages []types.Message) bool {
 		if message.HasToolResult() {
 			return true
 		}
+	}
+	return false
+}
+
+func wssBodyHasPromptCachePrefix(body []byte) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	if rawJSONString(root["prompt_cache_key"]) == "" {
+		return false
+	}
+	if _, ok := root["instructions"]; ok {
+		return true
+	}
+	if _, ok := root["tools"]; ok {
+		return true
 	}
 	return false
 }

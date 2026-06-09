@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestParseOutputFlag(t *testing.T) {

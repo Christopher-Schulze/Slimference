@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/planner"
+	"github.com/Christopher-Schulze/Slimference/internal/planner"
 )
 
 func TestPlanInspect_TextAndJSON(t *testing.T) {

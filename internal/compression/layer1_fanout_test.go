@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestShouldUseCoordinatorParallelAutoGate(t *testing.T) {

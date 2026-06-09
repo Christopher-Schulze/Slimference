@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 )
 
 // ReReadDetector maintains a per-session map of tool keys with the turn

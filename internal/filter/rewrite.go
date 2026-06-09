@@ -9,7 +9,7 @@ import (
 )
 
 // filterableCommands is the set of base-command names that have a built-in
-// or TOML-based filter in the pipeline (spec+.md §4.2, §4.4, §4.6).
+// or TOML-based filter in the pipeline (docs/spec.md §4.2, §4.4, §4.6).
 // Commands not in this set are passed through unchanged by RewriteCommand.
 var filterableCommands = map[string]bool{
 	// Git (F01-F05)
@@ -79,7 +79,7 @@ var findAlwaysCommands = map[string]bool{
 	"find": true, "fd": true,
 }
 
-// RewriteCommand rewrites cmd for slimference filtering (spec+.md §4.2).
+// RewriteCommand rewrites cmd for slimference filtering (docs/spec.md §4.2).
 //
 // It splits compound commands (&&, ||, ;) and prefixes each filterable
 // segment with "slimference filter". The right-hand side of a pipe is

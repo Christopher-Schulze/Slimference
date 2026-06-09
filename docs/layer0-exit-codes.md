@@ -3,7 +3,7 @@
 Normative reference for what `slimference filter -- <cmd>` returns in every
 scenario. Derived from `cmd/slimference/main.go::handleFilterCmd` and
 `internal/filter/pipeline.go::RunPipeline`. Kept here as a standalone doc so
-spec+.md stays lean. Verified by T63 regression tests under
+`docs/spec.md` stays lean. Verified by T63 regression tests under
 `internal/filter/` and `cmd/slimference/`.
 
 ## Invariant

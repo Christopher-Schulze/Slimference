@@ -16,12 +16,12 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/install"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/proxy/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/install"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/transparent"
 )
 
 // withTempHostsFile redirects install.HostsPlan defaults to a temp

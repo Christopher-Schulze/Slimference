@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func TestRecorder_RecordAndLast(t *testing.T) {

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/tlsca"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 )
 
 // safeBuffer is a sync.Mutex-protected bytes.Buffer for use as a slog

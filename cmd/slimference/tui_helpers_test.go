@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/tui"
-	"github.com/slimference/slimference/internal/types"
 )
 
 func TestConfigAdapter_GetPrefillSpeed(t *testing.T) {

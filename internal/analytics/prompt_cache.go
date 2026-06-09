@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type promptCacheCSVWriter interface {

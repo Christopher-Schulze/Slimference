@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/daemon"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/tui"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type remoteProxyAdapter struct {

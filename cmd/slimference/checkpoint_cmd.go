@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/checkpoints"
-	"github.com/slimference/slimference/internal/codecompact"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/toolarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/checkpoints"
+	"github.com/Christopher-Schulze/Slimference/internal/codecompact"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
 )
 
 func handleCheckpointCmd(args []string) {

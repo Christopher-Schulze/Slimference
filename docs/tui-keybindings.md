@@ -18,7 +18,7 @@ run the generator or rerun the TUI key tests to regenerate.
 | Setup | `a` | app routing |
 | Setup | `p` | start/stop daemon |
 | Setup | `o` | restart/repair daemon |
-| Providers | `c` | toggle Claude Code |
+| Providers | `c` | Claude Code parked |
 | Providers | `x` | toggle Codex |
 | Actions | `f` | flush caches |
 | Actions | `b, B` | back |

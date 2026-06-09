@@ -3,7 +3,7 @@ package outputreduce
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestDetectTaskShape(t *testing.T) {

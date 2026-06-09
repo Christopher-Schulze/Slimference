@@ -1,46 +1,49 @@
-# `scripts/` — Thematisches Go-Tooling (Slimference)
+# `scripts/` - Slimference Go Tooling
 
-Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) liegen **hier** in **Unterordnern nach Thema** — nicht im Repository-Root.
+All repository tools (coverage gates, benchmark helpers, utilities, and one-off
+maintenance commands) live here in topic-specific subdirectories, not in the
+repository root.
 
-## Unterordner
+## Subdirectories
 
-| Pfad | Zweck |
+| Path | Purpose |
 |------|--------|
-| `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`); `--install` ersetzt die Ziel-Binary per temp-file + atomic rename |
-| `coverage/` | Coverage auswerten, Schwellen (aktuell 95.0 % aggregate) prüfen, CI-lokal spiegeln |
-| `benchmarks/` | Benchmarks bündeln, `go test -bench` auswerten |
-| `release/` | Portable Release-Artefakte mit SHA256SUMS bauen; default Ziel ist macOS darwin/arm64 |
-| `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren; `utils/indist_probe` ist das tshark-basierte Capture/Diff-Werkzeug für T224 |
+| `build/` | Builds a local single-file Slimference binary with release flags (`-trimpath -ldflags "-s -w"`); `--install` replaces the target binary via temp file plus atomic rename |
+| `coverage/` | Evaluates coverage, enforces the current 95.0% aggregate gate, and mirrors local CI behavior |
+| `benchmarks/` | Groups benchmarks and evaluates `go test -bench` output |
+| `release/` | Builds portable release artifacts with SHA256SUMS; the default target is macOS darwin/arm64 |
+| `utils/` | Small helper CLIs, one-off maintenance commands, and generators; `utils/indist_probe` is the tshark-based capture/diff tool for T224 |
 
-Weitere Unterordner nur bei **klarem Thema** (z. B. `lint/`, `release/`).
+Add more subdirectories only for a clear topic, for example `lint/`.
 
-## Regeln
+## Rules
 
-- Implementierung: **Go** (`.go`), siehe **`AGENTS.md`** §3.
-- **`rtk-master/`** gehört **nicht** hierher — Fremdreferenz, nicht verschieben.
+- Implementation: **Go** (`.go`), see `agents.md` section 3.
+- Removed reference trees and retired third-party snapshots must not be
+  recreated here.
 
-## Ausführung
+## Usage
 
-Vom Modulroot (`Slimference/`):
+From the module root (`Slimference/`):
 
 ```bash
 go run ./scripts/coverage/...    # sobald ein entrypoint existiert
 ```
 
-Konkrete Kommandozeilen:
+Concrete commands:
 
 ```bash
-go run ./scripts/build --install                # Optimiertes Binary nach ~/.local/bin/slimference
-go run ./scripts/build --restart                # Sicheres lokales Update: stop -> build -> atomic install -> start
-go run ./scripts/build --out ./slimference      # Optimiertes lokales Binary
-go run ./scripts/release --version v2.0.2       # Portable macOS-arm64 Release-Tarball + SHA256SUMS
-go run ./scripts/release --version v2.0.2 --targets=all  # Alle aktuell unterstützten Targets
+go run ./scripts/build --install                # Optimized binary to ~/.local/bin/slimference
+go run ./scripts/build --restart                # Safe local update: stop -> build -> atomic install -> start
+go run ./scripts/build --out ./slimference      # Optimized local binary
+go run ./scripts/release --version v0.6.0       # Portable macOS-arm64 release tarball + SHA256SUMS
+go run ./scripts/release --version v0.6.0 --targets=darwin/arm64,darwin/amd64  # Public macOS release set
 go run ./scripts/coverage -min=95.0              # Coverage-Gate (aggregate)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s): compression/filter/proxy/readcache/archive/chunk/planner
-go run ./scripts/benchmarks -benchtime=1s        # Schneller Durchlauf
-go run ./scripts/benchmarks -count=3             # 3 Runden für Stabilität
-go run ./scripts/benchmarks -pkg=compression     # Nur compression-Paket
-go run ./scripts/benchmarks -pkg=proxy           # Nur Codex/WSS Layer-0 Hotpath
+go run ./scripts/benchmarks -benchtime=1s        # Faster run
+go run ./scripts/benchmarks -count=3             # Three rounds for stability
+go run ./scripts/benchmarks -pkg=compression     # Compression package only
+go run ./scripts/benchmarks -pkg=proxy           # Codex/WSS Layer-0 hot path only
 go run ./scripts/benchmarks session-report tests/fixtures/codex
 go run ./scripts/benchmarks session-report --markdown tests/fixtures/codex
 go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex   # CI-enforced regression gate
@@ -60,7 +63,7 @@ go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
-go run ./scripts/utils codex-capture-run --binary ~/.local/bin/slimference --capture ~/.slimference/captures/repeat.jsonl --matrix-row /tmp/proof-matrix.jsonl --id cli-repeat --workload-class repeat_full_read --expected-reducer read_delta --codex-timeout=180s --exit-marker CAPTURE_DONE --exit-marker-count=2 --quiet-codex-output -- exec "Run exactly two shell tool calls and do not modify files. First tool call cmd exactly: cat AGENTS.md Second tool call cmd exactly: cat AGENTS.md Then final message exactly CAPTURE_DONE" # records live billable input-token delta plus replay lost=0 bytes; --expected-reducer is enforced against live admin-state before PASS, but the evidence row is still appended for failed expected-reducer runs; marker exit watches both the PTY log and captured function_call_output frames
+go run ./scripts/utils codex-capture-run --binary ~/.local/bin/slimference --capture ~/.slimference/captures/repeat.jsonl --matrix-row /tmp/proof-matrix.jsonl --id cli-repeat --workload-class repeat_full_read --expected-reducer read_delta --codex-timeout=180s --exit-marker CAPTURE_DONE --exit-marker-count=2 --quiet-codex-output -- exec "Run exactly two shell tool calls and do not modify files. First tool call cmd exactly: cat agents.md Second tool call cmd exactly: cat agents.md Then final message exactly CAPTURE_DONE" # records live billable input-token delta plus replay lost=0 bytes; --expected-reducer is enforced against live admin-state before PASS, but the evidence row is still appended for failed expected-reducer runs; marker exit watches both the PTY log and captured function_call_output frames
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # offline Phase-F comprehension A/B replay
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost --json # auto-policy WSS reducer replay; known output-reduce instruction suffixes are audited as expected extras, unknown instruction rewrites still fail lost gate
@@ -81,6 +84,6 @@ SLIMFERENCE_TOOL_PRUNE_ENABLED=1 SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS=1 g
 go run ./scripts/utils codex-capture-run --transport=wss --matrix-row /tmp/chunk-proof.jsonl --expected-reducer chunk_dedup --expected-reducer chunk_dedup_refs --expected-reducer host_budget_ok -- exec <prompt> # focused mechanism proofs can force wss; matrix rows can gate chunk refs, tool_prune, tool_prune_tokens_saved, output_reduce_skipped/downgraded, stop_seq, streamcut, repdet, stale_read, obsolete_prune, beterse, provider_cache_read/create, and host_budget_ok
 go run ./scripts/utils codex-capture-run --transport=wss --matrix-row /tmp/chunk-policy.jsonl --expected-reducer chunk_dedup -- exec <prompt> # prints live proxy_layer0_policy/cache deltas so zero live savings can be attributed to allow/block/full_pass/miss reasons without raw payloads
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
-go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
-go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json
+go run ./scripts/utils/indist_probe capture --label codex-native-direct --out ~/.slimference/captures/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
+go run ./scripts/utils/indist_probe diff ~/.slimference/captures/indist/codex-native-direct.json ~/.slimference/captures/indist/slimference-scoped-wss.json
 ```

@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/integrate"
-	"github.com/slimference/slimference/internal/tlsca"
-	"github.com/slimference/slimference/internal/tlsdial"
-	"github.com/slimference/slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/integrate"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 )
 
 // handleProxyCmd implements

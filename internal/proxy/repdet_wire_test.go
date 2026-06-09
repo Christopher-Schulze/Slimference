@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/outstop/repdet"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // errReader returns an error on every Read - exercises the

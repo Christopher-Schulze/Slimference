@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
 )
 
 // binaryOnPath returns the first PATH entry that contains `name`, or "".

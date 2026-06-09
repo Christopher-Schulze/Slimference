@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/slimference/slimference/internal/outstop/repdet"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // passthroughAnthropicWithRepdet buffers the upstream non-streaming

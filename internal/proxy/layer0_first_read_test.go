@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/chunkdedup"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/chunkdedup"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestReduceCodexLayer0NeverElidesFirstRead proves the product invariant:

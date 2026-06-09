@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/toolusecache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/toolusecache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type repeatingBody struct {

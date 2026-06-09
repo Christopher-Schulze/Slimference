@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestHandlePassthrough_upstreamConnectionFails(t *testing.T) {

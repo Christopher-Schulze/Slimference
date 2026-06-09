@@ -3,7 +3,7 @@ package compression
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestClassifyToolResult(t *testing.T) {
@@ -164,7 +164,7 @@ func TestClassifyToolResultWithInput_UsesCodexShellCommand(t *testing.T) {
 			name:      "go test command",
 			toolName:  "exec_command",
 			toolInput: `{"cmd":"go test ./internal/proxy"}`,
-			content:   "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n",
+			content:   "ok  github.com/Christopher-Schulze/Slimference/internal/proxy  0.041s\nPASS\n",
 			want:      types.ToolTypeTestOutput,
 		},
 		{

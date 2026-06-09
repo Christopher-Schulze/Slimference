@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	dbg "github.com/slimference/slimference/internal/debug"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 // sessionReportAggregate holds the running totals we care about.

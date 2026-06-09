@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/beterse"
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/beterse"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
 )
 
 func drainAnalyticsQueueForTest(p *Proxy) {

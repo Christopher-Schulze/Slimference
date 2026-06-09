@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func msg(texts ...string) []types.Message {

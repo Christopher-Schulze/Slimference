@@ -33,7 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 )
 
 // Dispatcher decides what to do with an accepted, TLS-terminated

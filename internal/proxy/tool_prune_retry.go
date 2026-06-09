@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/slimference/slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
 )
 
 func peekMissingToolDefinitionError(resp *http.Response) bool {

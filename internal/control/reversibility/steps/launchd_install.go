@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 // LaunchdInstall is the install step that registers the Slimference

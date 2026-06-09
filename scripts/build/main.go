@@ -95,7 +95,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 func buildCommandArgs(out, version string) []string {
 	ldflags := "-s -w"
 	if strings.TrimSpace(version) != "" {
-		ldflags += " -X github.com/slimference/slimference/internal/buildinfo.Version=" + strings.TrimSpace(version)
+		ldflags += " -X github.com/Christopher-Schulze/Slimference/internal/buildinfo.Version=" + strings.TrimSpace(version)
 	}
 	return []string{
 		"build",

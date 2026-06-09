@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 	"github.com/klauspost/compress/zstd"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/types"
-	"github.com/slimference/slimference/internal/wscompact"
 )
 
 var errReadBodyTest = errors.New("read body failed")

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 // appendMarker is a trivial idempotent patch used in tests: it

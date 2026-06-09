@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // Bases holds the per-provider upstream base URLs. The sidecar constructs

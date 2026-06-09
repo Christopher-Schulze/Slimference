@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 func TestCodexRecertifyHappyPathWritesCertOnly(t *testing.T) {
@@ -519,6 +519,48 @@ func TestCodexRecertifyBackoffExpiredDoesNotBlock(t *testing.T) {
 	}
 }
 
+func TestDaemonCodexAutoRecertStartsOnlyOnDrift(t *testing.T) {
+	withCodexCmdStubs(t)
+	home := t.TempDir()
+	codexRouteHomeFn = func() (string, error) { return home, nil }
+	daemonAutoRecertAllowedFn = func() bool { return true }
+	codexAutoFn = func(gotHome string) codexroute.AutoDecision {
+		if gotHome != home {
+			t.Fatalf("auto home=%q want %q", gotHome, home)
+		}
+		return codexroute.AutoDecision{
+			Transport:      codexroute.TransportHTTP,
+			NeedsRecert:    true,
+			FallbackReason: "codex version drift",
+		}
+	}
+	var gotHome, gotHost, gotPort string
+	var gotDecision codexroute.AutoDecision
+	codexAutoRecertFn = func(home, host, port string, decision codexroute.AutoDecision) {
+		gotHome, gotHost, gotPort, gotDecision = home, host, port, decision
+	}
+
+	maybeStartDaemonCodexAutoRecert(9444)
+	if gotHome != home || gotHost != "127.0.0.1" || gotPort != "9444" || !gotDecision.NeedsRecert {
+		t.Fatalf("auto recert call home=%q host=%q port=%q decision=%+v", gotHome, gotHost, gotPort, gotDecision)
+	}
+}
+
+func TestDaemonCodexAutoRecertRespectsDisableEnv(t *testing.T) {
+	withCodexCmdStubs(t)
+	t.Setenv("SLIMFERENCE_DAEMON_AUTO_RECERT", "0")
+	daemonAutoRecertAllowedFn = func() bool { return true }
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	codexAutoFn = func(string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{NeedsRecert: true}
+	}
+	codexAutoRecertFn = func(string, string, string, codexroute.AutoDecision) {
+		t.Fatal("disabled daemon auto recert must not start")
+	}
+
+	maybeStartDaemonCodexAutoRecert(9444)
+}
+
 func TestCodexRecertifyForceDoesNotBypassActiveLock(t *testing.T) {
 	withCodexCmdStubs(t)
 	home := t.TempDir()
@@ -652,11 +694,11 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 			break
 		}
 	}
-	if gotCD != cwd {
-		t.Fatalf("recert trigger must start Codex from stable cwd to avoid temp project trust writes, --cd=%q want %q", gotCD, cwd)
+	if gotCD == cwd {
+		t.Fatalf("recert trigger must avoid the caller cwd so daemon startup cannot write proof artifacts into the repo, --cd=%q cwd=%q", gotCD, cwd)
 	}
-	if strings.Contains(gotCD, "slimference-codex-recert") {
-		t.Fatalf("recert trigger must not --cd into the temp repo: %q", gotCD)
+	if !strings.Contains(gotCD, "slimference-codex-recert") {
+		t.Fatalf("recert trigger must --cd into the disposable proof repo: %q", gotCD)
 	}
 }
 

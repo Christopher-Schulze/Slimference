@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/buildinfo"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/buildinfo"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/hooks"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
 )
 
 var userHomeDirFn = os.UserHomeDir

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // previewFlags captures parsed `slimference compress-preview` flags. T82.

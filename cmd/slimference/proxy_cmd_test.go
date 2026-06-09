@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/tlsca"
-	"github.com/slimference/slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 )
 
 // fakeNetworkManager / fakeKeychain / fakeLaunchAgent are the test

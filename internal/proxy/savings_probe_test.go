@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/outputreduce"
-	"github.com/slimference/slimference/internal/qualityab"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestSavingsProbeNilSafe(t *testing.T) {

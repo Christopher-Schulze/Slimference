@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // healthHandler responds to GET /health with full proxy status JSON.

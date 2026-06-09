@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 // DaemonProbe reports the in-process daemon state for /admin/state. It avoids

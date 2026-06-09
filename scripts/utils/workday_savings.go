@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 type workdaySavingsFlags struct {

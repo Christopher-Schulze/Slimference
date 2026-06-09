@@ -60,6 +60,12 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.SignatureMarker == "" {
 		t.Fatal("signature marker must be non-empty")
 	}
+	if !cfg.Compression.OutputReduce.ConciseChatEnabled {
+		t.Fatal("concise chat hint should default on")
+	}
+	if cfg.Compression.OutputReduce.ConciseChatMinInputTokens != 400 {
+		t.Fatalf("concise chat min input tokens = %d", cfg.Compression.OutputReduce.ConciseChatMinInputTokens)
+	}
 	if cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled {
 		t.Fatal("explicit archive recovery note toggle must stay default-off; auto policy injects it only when needed")
 	}
@@ -125,6 +131,9 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS", "123")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT", "true")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT", "be terse")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT", "false")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT_MIN_INPUT_TOKENS", "77")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT_TEXT", "answer tight")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE", "true")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT", "request archive ids")
 	t.Setenv("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS", "2")
@@ -150,6 +159,7 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	if or.Profile != "codex_aggressive" || or.MinInputTokens != 123 ||
 		!or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
 		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
+		or.ConciseChatEnabled || or.ConciseChatMinInputTokens != 77 || or.ConciseChatText != "answer tight" ||
 		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
 		or.ReadDeltaRecentFullPassTurns != 2 || or.CodexSavingsPolicyMode != "max" || !or.CodexChunkDedupEnabled ||
 		or.CodexChunkDedupProofLevel != "replay" ||
@@ -471,6 +481,8 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"failure_rate", func(c *Config) { c.Compression.OutputReduce.MaxFailureRateDelta = 2 }},
 		{"cooldown", func(c *Config) { c.Compression.OutputReduce.CooldownTurns = -1 }},
 		{"archive_note_text", func(c *Config) { c.Compression.OutputReduce.ArchiveRecoveryNoteText = strings.Repeat("x", 1001) }},
+		{"concise_chat_text", func(c *Config) { c.Compression.OutputReduce.ConciseChatText = strings.Repeat("x", 1001) }},
+		{"concise_chat_min_input", func(c *Config) { c.Compression.OutputReduce.ConciseChatMinInputTokens = -1 }},
 		{"read_delta_recency", func(c *Config) { c.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = -1 }},
 		{"codex_policy", func(c *Config) { c.Compression.OutputReduce.CodexSavingsPolicyMode = "reckless" }},
 		{"chunk_proof_level", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupProofLevel = "rumor" }},

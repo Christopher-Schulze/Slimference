@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/slimference/slimference/internal/planner"
-	"github.com/slimference/slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/planner"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
 type planInspectFlags struct {

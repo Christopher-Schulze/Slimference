@@ -3,7 +3,7 @@ package compression
 import (
 	"log/slog"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // structurePreviewPass walks compressible-prefix messages and replaces the

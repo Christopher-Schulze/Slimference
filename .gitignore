@@ -3,6 +3,11 @@
 .env.*.local
 .secrets/
 
+# Local agent and project-history notes.
+# Keep these files on disk for local re-entry, but do not publish them.
+docs/todo.md
+docs/todo/
+
 # Build artifacts
 /benchmarks
 /ci
@@ -20,7 +25,6 @@
 .DS_Store
 .idea/
 .vscode/
-AGENTS.md
 rtk-master/
 research/
 repos/

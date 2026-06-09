@@ -3,7 +3,7 @@ package proxy
 import (
 	"time"
 
-	"github.com/slimference/slimference/internal/compactsignal"
+	"github.com/Christopher-Schulze/Slimference/internal/compactsignal"
 )
 
 // precompactSignalTTL is how recently a Codex PreCompact hook must

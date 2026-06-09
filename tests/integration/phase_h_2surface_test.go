@@ -30,11 +30,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/proxy/sniroute"
-	"github.com/slimference/slimference/internal/proxy/transparent"
-	"github.com/slimference/slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 )
 
 type phaseHFixture struct {

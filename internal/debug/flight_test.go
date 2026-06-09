@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func TestBuildFlightRequestSummary(t *testing.T) {

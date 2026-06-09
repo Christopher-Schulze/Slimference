@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // newProxyForQueueTest constructs a minimal Proxy with just the analytics

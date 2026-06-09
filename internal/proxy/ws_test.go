@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 func TestIsWebSocketUpgrade_Positive(t *testing.T) {

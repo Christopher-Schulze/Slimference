@@ -3,8 +3,8 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/promptcache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/promptcache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestObservePromptCacheStability_NilProxy(t *testing.T) {

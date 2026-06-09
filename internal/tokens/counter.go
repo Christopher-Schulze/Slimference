@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"sync"
 
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tiktoken "github.com/pkoukk/tiktoken-go"
 	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
-	"github.com/slimference/slimference/internal/types"
 )
 
 // Counter holds a lazily-initialized, goroutine-safe tiktoken encoder for one

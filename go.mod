@@ -1,4 +1,4 @@
-module github.com/slimference/slimference
+module github.com/Christopher-Schulze/Slimference
 
 go 1.25.0
 

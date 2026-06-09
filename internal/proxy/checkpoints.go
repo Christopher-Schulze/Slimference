@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/slimference/slimference/internal/checkpoints"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/checkpoints"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func (p *Proxy) maybeCaptureCheckpoint(event types.AnalyticsEvent) {

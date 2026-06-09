@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 )
 
 func withTransparentAdapterStubs(t *testing.T, net *fakeNetworkManager, kc *fakeKeychain, la *fakeLaunchAgent) {

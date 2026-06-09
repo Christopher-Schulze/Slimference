@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestPersister_snapshotRoundTrip(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestRenderHealthDot verifies that renderHealthDot returns a non-empty string

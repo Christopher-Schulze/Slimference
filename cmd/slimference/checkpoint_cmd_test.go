@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/toolarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
 )
 
 func TestHandleCheckpointCmd_CaptureAndRestore(t *testing.T) {

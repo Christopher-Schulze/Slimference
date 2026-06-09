@@ -37,7 +37,7 @@ func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		ToggleClaude: key.NewBinding(
 			key.WithKeys("c"),
-			key.WithHelp("c", "toggle Claude Code"),
+			key.WithHelp("c", "Claude Code parked"),
 		),
 		ToggleCodex: key.NewBinding(
 			key.WithKeys("x"),

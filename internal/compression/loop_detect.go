@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // Loop detection (T37, ported in spirit from token-optimizer's

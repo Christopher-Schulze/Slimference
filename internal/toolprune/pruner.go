@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // ExtractToolNames parses the request body and returns the names of all

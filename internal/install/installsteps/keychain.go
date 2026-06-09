@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 )
 
 // KeychainScope mirrors transparent.Scope so callers don't have to

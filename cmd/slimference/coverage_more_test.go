@@ -12,17 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/checkpoints"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/hooks"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/toolarchive"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/checkpoints"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestHandleCheckpointCmd_ErrorAndExtraPaths(t *testing.T) {

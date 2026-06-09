@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/checkpoints"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/toolarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/checkpoints"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
 )
 
 func TestAdminStatusSnapshot_CheckpointsAndArchive(t *testing.T) {

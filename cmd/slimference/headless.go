@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 // Injected for tests.

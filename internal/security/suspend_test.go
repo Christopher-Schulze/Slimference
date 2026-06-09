@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func detectorForSuspendTest(t *testing.T) *Detector {

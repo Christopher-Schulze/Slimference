@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/chunkdedup"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/savingspolicy"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/chunkdedup"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestApplyProxyLayer0Branches(t *testing.T) {
@@ -1256,10 +1256,10 @@ func TestProxyReadDeltaIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T) {
 	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
 	second := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
 
-	if out, changed := compactProxyReadDelta("sess-envelope", "turn-1", "cat AGENTS.md", first, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
+	if out, changed := compactProxyReadDelta("sess-envelope", "turn-1", "cat agents.md", first, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("first envelope read must seed without mutation, changed=%v out=%q", changed, out)
 	}
-	out, changed := compactProxyReadDelta("sess-envelope", "turn-2", "cat AGENTS.md", second, filter.FileReadContext{Mode: "scan"}, 0)
+	out, changed := compactProxyReadDelta("sess-envelope", "turn-2", "cat agents.md", second, filter.FileReadContext{Mode: "scan"}, 0)
 	if !changed {
 		t.Fatalf("second envelope read should delta despite volatile header")
 	}
@@ -1277,8 +1277,8 @@ func TestProxyRepeatedOutputIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T)
 	payload := strings.Repeat("internal/proxy/example.go:42:stable search result\n", 40)
 	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
 	second := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
-	key := "search:rg\t-n\tstable\t/Users/christopher/CODE/Slimference/internal/proxy"
-	command := "rg -n stable /Users/christopher/CODE/Slimference/internal/proxy"
+	key := "search:rg\t-n\tstable\t/Users/example/CODE/Slimference/internal/proxy"
+	command := "rg -n stable /Users/example/CODE/Slimference/internal/proxy"
 
 	if out, ok := compactProxyRepeatedToolOutputWithKey("sess-repeated-envelope", key, command, first); ok || out != "" {
 		t.Fatalf("first envelope output must seed without mutation, ok=%v out=%q", ok, out)

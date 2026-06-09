@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/compactsignal"
+	"github.com/Christopher-Schulze/Slimference/internal/compactsignal"
 )
 
 func TestPrecompactShrinkWindow(t *testing.T) {

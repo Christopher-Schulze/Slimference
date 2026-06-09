@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/abharness"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/abharness"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
 func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {

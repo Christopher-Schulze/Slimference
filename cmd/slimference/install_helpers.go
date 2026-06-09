@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 // patchSNIPeekMode surgically edits the slimference config.toml so

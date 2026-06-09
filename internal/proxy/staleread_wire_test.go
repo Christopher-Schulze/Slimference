@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // TestStaleReadAgingWiredIntoHandler proves the T170 aging runs

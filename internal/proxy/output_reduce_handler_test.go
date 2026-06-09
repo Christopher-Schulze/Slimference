@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 )
 
 func TestServeHTTP_OutputReduceInjectsBeforeUpstream(t *testing.T) {
@@ -69,6 +69,7 @@ func TestServeHTTP_OutputReduceSkipsBelowMinTokens(t *testing.T) {
 	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.MinInputTokens = 10_000
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -93,6 +94,89 @@ func TestServeHTTP_OutputReduceSkipsBelowMinTokens(t *testing.T) {
 	}
 	if _, ok := root["system"]; ok {
 		t.Fatalf("unexpected system field: %s", captured)
+	}
+}
+
+func TestServeHTTP_ConciseChatInjectsBelowMinTokens(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"output_tokens":4}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.OpenAI.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.OutputReduce.Enabled = true
+	cfg.Compression.OutputReduce.MinInputTokens = 10_000
+	cfg.Compression.OutputReduce.ConciseChatMinInputTokens = 1
+	cfg.Compression.OutputReduce.ConciseChatText = "answer tight but keep important details"
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"gpt-5","messages":[{"role":"user","content":"what is the current status?"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if !strings.Contains(string(captured), "answer tight but keep important details") {
+		t.Fatalf("concise chat hint not injected: %s", captured)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 1 || snap.LastReason != "applied" || snap.LastAddedTokens == 0 {
+		t.Fatalf("concise chat snapshot: %+v", snap)
+	}
+}
+
+func TestServeHTTP_ConciseChatFullPassesCodeAndToolContext(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.OutputReduce.Enabled = true
+	cfg.Compression.OutputReduce.MinInputTokens = 10_000
+	cfg.Compression.OutputReduce.ConciseChatText = "answer tight"
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude","messages":[{"role":"user","content":"implement this fix"},{"role":"user","content":[{"type":"tool_result","text":"file output"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if strings.Contains(string(captured), "answer tight") {
+		t.Fatalf("concise chat hint must not inject into code/tool context: %s", captured)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 {
+		t.Fatalf("concise chat should full-pass code/tool context: %+v", snap)
 	}
 }
 

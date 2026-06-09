@@ -3,7 +3,7 @@ package staleread
 import (
 	"fmt"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // DefaultMutateTools lists the tool names that mutate a file's

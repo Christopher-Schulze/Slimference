@@ -3,28 +3,18 @@
 # fill in VERSION + each SHA from dist/SHA256SUMS before each release.
 
 class Slimference < Formula
-  desc "Claude/Codex token-optimising proxy"
-  homepage "https://github.com/slimference/slimference"
+  desc "Codex token-savings proxy"
+  homepage "https://github.com/Christopher-Schulze/Slimference"
   version "VERSION"
-  license "see the project repository"
+  license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_darwin_arm64.tar.gz"
+      url "https://github.com/Christopher-Schulze/Slimference/releases/download/vVERSION/slimference_VERSION_darwin_arm64.tar.gz"
       sha256 "DARWIN_ARM64_SHA256"
     else
-      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_darwin_amd64.tar.gz"
+      url "https://github.com/Christopher-Schulze/Slimference/releases/download/vVERSION/slimference_VERSION_darwin_amd64.tar.gz"
       sha256 "DARWIN_AMD64_SHA256"
-    end
-  end
-
-  on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_linux_arm64.tar.gz"
-      sha256 "LINUX_ARM64_SHA256"
-    else
-      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_linux_amd64.tar.gz"
-      sha256 "LINUX_AMD64_SHA256"
     end
   end
 

@@ -46,6 +46,12 @@ app-server proof is green it launches through the same WSS Phase-F route as
 Codex CLI; otherwise it reports the exact proof/repair reason and makes no
 savings claim.
 
+`slimference install` may create local CA files under Slimference state for
+legacy/lab diagnostics, but that is not global MITM installation. The normal
+install does not trust the CA in Keychain, does not edit `/etc/hosts`, does not
+touch pfctl, and does not enable a system proxy. Those actions exist only behind
+explicit `slimference lab ...` commands.
+
 ## Fresh machine install
 
 Release archive path:
@@ -208,7 +214,7 @@ CLI and Codex Desktop.
 | CA missing during Desktop proxy diagnostics | The current Desktop app-server shim diagnostic does not need CA trust. Legacy proxy diagnostics refuse before a savings claim and print the repair command. Direct Codex.app remains native. |
 | Codex Desktop already running during scoped proof/TUI launch | `codex desktop prove` and TUI Launch Codex App use `--replace-existing`: they quit the existing Codex.app main process, verify it is gone, then spawn the scoped Slimference instance so macOS cannot reuse a stale env. Raw `codex launch-desktop` still refuses unless `--replace-existing` is passed. Direct Codex.app remains native. |
 | Codex Desktop app-server shim fails proof | Desktop proof exits non-zero with an explicit failure class. TUI Launch Codex App blocks instead of opening direct or a broken Slimference session, because the TUI item means "Slimference mode". Normal Finder/Spotlight Codex.app remains direct. CLI savings continue. |
-| Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert tries to restore Phase-F savings without blocking the user. |
+| Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert can start from daemon startup, scoped `codex run --transport=auto`, TUI startup/status refresh, or TUI repair, and it never blocks the user path. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
 | `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
 | CA removed from Keychain externally | Only global lab MITM is affected. Scoped Codex provider routing does not need Keychain trust. |
@@ -308,7 +314,8 @@ the current observation cycle is green. When Codex or Slimference updates,
 tuple, `auto.needs_recert=true`, the recert state path, and
 `auto.recert_command`.
 
-Repair is shared by CLI, background auto-recert, and the TUI Setup action:
+Repair is shared by daemon startup, scoped CLI auto transport, background
+auto-recert, TUI startup/status refresh, and the TUI Setup action:
 
 ```bash
 slimference codex recertify wss --dry-run --json
@@ -782,7 +789,7 @@ Current scoped proof stack (2026-05-18):
   through the normal HTTP server, and the T224 parser can parse a
   synthetic WSS capture without tshark.
 - Historical live scoped Codex CLI WSS certification is complete for Codex CLI
-  `0.130.0` plus Slimference `2.0.2`: real WSS Phase-F mutation produced
+  `0.130.0` plus Slimference `0.6.0`: real WSS Phase-F mutation produced
   `frames_reencoded=1`, `compressed_messages_mutated=1`,
   `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`, and
   `transport=auto` resolves to WSS for that tuple. New Codex CLI versions need
@@ -928,9 +935,5 @@ slimference status [flags]
 
 ## See also
 
-- [`AGENTS.md`](../AGENTS.md) — repository-wide rules for agents and
-  human developers.
-- `docs/transparent-mode.md` — internals, schema details, debugging
-  the transparent MITM layer.
-- `docs/todo/t200-phase-h-single-entry-point-epic.md` — design history
-  for the 2-surface consolidation.
+- [`docs/documentation.md`](documentation.md) — technical reference.
+- [`docs/spec.md`](spec.md) — current implementation contract.

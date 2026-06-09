@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestHealthMonitor_initialIdle(t *testing.T) {

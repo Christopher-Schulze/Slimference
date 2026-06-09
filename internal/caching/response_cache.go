@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // CacheEntry holds a cached HTTP response with metadata.

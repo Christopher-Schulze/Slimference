@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	dbg "github.com/slimference/slimference/internal/debug"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {

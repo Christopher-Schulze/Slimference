@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/toolusecache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/toolusecache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // GetAnalytics returns a snapshot of the current analytics state.

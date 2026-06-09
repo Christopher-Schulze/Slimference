@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/install"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/install"
 )
 
 // regexpMustCompile / regexpQuoteMeta are tiny wrappers so the

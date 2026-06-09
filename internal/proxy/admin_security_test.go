@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/security"
+	"github.com/Christopher-Schulze/Slimference/internal/security"
 )
 
 // testProxyWithDetector returns a Proxy with only the fields the

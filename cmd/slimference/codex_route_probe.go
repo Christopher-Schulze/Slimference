@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 // codexRouteProbe projects the scoped Codex provider route into

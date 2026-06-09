@@ -3,10 +3,10 @@ package proxy
 import (
 	"encoding/json"
 
-	"github.com/slimference/slimference/internal/compression"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // PreviewResult captures what the proxy would do to a request body if it

@@ -23,7 +23,7 @@ package sniroute
 import (
 	"strings"
 
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 // Decision is what the router emits per request.

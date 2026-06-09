@@ -11,7 +11,7 @@ import (
 )
 
 const aggregateSampleAdminState = `{
-  "daemon": {"running": true, "pid": 1234, "version": "2.0.2"},
+  "daemon": {"running": true, "pid": 1234, "version": "0.6.0"},
   "codex_route": {
     "daemon_reachable": true,
     "auto_mode": "wss_phasef",

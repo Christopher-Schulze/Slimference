@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func handleOutputReduceCmd(args []string) {

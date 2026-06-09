@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 )
 
 const (

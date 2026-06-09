@@ -3,8 +3,8 @@ package compression
 import (
 	"log/slog"
 
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func (c *DeterministicCompressor) toolOutputInWindowPass(messages []types.Message, startIdx int, toolUses map[string]toolUseInfo) int {

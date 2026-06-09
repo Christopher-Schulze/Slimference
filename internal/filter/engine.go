@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/slimference/slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
 // RunCommand runs argv[0] with argv[1:] in workDir, capturing combined stdout/stderr.

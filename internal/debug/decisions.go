@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func writeDecisionLine(f *os.File, line []byte) error {

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/servermirror"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/servermirror"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func shadowMsg(text string) []types.Message {

@@ -122,8 +122,8 @@ func findModuleRoot() (string, error) {
 
 // runGofmtCheck runs `gofmt -l` against the supervised dirs (cmd,
 // internal, scripts) and fails when any file would be reformatted.
-// rtk-master is intentionally excluded because it is a vendored
-// upstream copy.
+// Only repository-owned Go tooling is checked here; removed reference trees are
+// intentionally outside the supervised script layout.
 func runGofmtCheck(root string, stdout *os.File) error {
 	c := exec.Command("gofmt", "-l", "./cmd", "./internal", "./scripts")
 	c.Dir = root

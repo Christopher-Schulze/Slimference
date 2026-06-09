@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
 )
 
 var promptCacheMarshalIndent = json.MarshalIndent

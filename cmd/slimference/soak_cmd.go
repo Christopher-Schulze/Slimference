@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // soakFlags captures the CLI flags for `slimference soak`. T100b / T103c.

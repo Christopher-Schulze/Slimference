@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
 )
 
 func TestShellFlavor_String(t *testing.T) {

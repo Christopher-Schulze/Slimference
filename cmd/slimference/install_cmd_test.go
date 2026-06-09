@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/install"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/install"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func newTestPrinter() (installPrinter, *bytes.Buffer, *bytes.Buffer) {
@@ -859,7 +859,7 @@ func TestRenderStatusCAMaterialIsNotKeychainGated(t *testing.T) {
 		CA: control.CAState{Installed: true, InKeychain: false, Fingerprint: "abc"},
 	})
 	text := out.String()
-	if !strings.Contains(text, "CA       ✓ installed=true in_keychain=false") {
+	if !strings.Contains(text, "CA files ✓ present=true keychain_trusted=false") {
 		t.Fatalf("CA material should be green without Keychain trust: %q", text)
 	}
 }

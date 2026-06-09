@@ -18,7 +18,7 @@ import (
 // fixtures for porting validation under builtins_toml_snapshot_test.go).
 //
 // License: each file in builtins_toml/ that originates from RTK
-// (github.com/rtk-ai/rtk) is MIT-licensed; see NOTICE.md at repo root.
+// (github.com/rtk-ai/rtk) is MIT-licensed; see docs/rtk-parity.md.
 //
 //go:embed builtins_toml/*.toml
 var builtinsTOMLFS embed.FS

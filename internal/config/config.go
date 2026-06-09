@@ -29,7 +29,7 @@ type Config struct {
 	Debug       DebugConfig       `toml:"debug"`
 }
 
-// DebugConfig holds debug and observability settings (spec+.md §13).
+// DebugConfig holds debug and observability settings (docs/spec.md §13).
 type DebugConfig struct {
 	// DecisionsLog is the optional path for the proxy decision JSONL log (one line per request).
 	DecisionsLog string `toml:"decisions_log"`
@@ -41,13 +41,13 @@ type DebugConfig struct {
 	MaxEntries int `toml:"max_entries"`
 }
 
-// HooksConfig affects generated hook scripts and AGENTS.md snippets.
+// HooksConfig affects generated hook scripts and agent-rule snippets.
 type HooksConfig struct {
 	// SlimferenceCommand is the executable name or path embedded in hooks (default "slimference").
 	SlimferenceCommand string `toml:"slimference_command"`
 	// ExcludeCommands is a list of base command names (argv[0]) that are
 	// never rewritten by "slimference rewrite", regardless of filter rules.
-	// Corresponds to [hooks] exclude_commands in config.toml (spec+.md §4.9).
+	// Corresponds to [hooks] exclude_commands in config.toml (docs/spec.md §4.9).
 	ExcludeCommands []string `toml:"exclude_commands"`
 	// CodexPostToolTimeoutSeconds is the fail-open watchdog for Codex PostToolUse.
 	// It prevents a hung output compactor from reaching Codex' 600s hook timeout.
@@ -65,7 +65,7 @@ type FilterConfig struct {
 	TeeDir string `toml:"tee_dir"`
 	// DenyPatterns are extra regexes (RE2) matched against the full command line; invalid entries are ignored at runtime.
 	DenyPatterns []string `toml:"deny_patterns"`
-	// PassthroughMaxChars caps filtered stdout length in Unicode code points after built-in/TOML (spec+.md §4.6).
+	// PassthroughMaxChars caps filtered stdout length in Unicode code points after built-in/TOML (docs/spec.md §4.6).
 	// 0 means no limit. Default from Defaults() is 2000.
 	PassthroughMaxChars int `toml:"passthrough_max_chars"`
 }
@@ -198,6 +198,19 @@ type OutputReduceConfig struct {
 	MinNetSavingsPct     float64 `toml:"min_net_savings_pct"`
 	MaxFailureRateDelta  float64 `toml:"max_failure_rate_delta"`
 	CooldownTurns        int     `toml:"cooldown_turns"`
+	// ConciseChatEnabled injects a conservative user-facing chat style
+	// hint only for direct-answer / explanation turns. It is intentionally
+	// separate from the older A/B be-terse hint and full output-reduce
+	// directive path: code, docs, JSON, command-output relay, repair,
+	// planning, review, and tool-output turns full-pass.
+	ConciseChatEnabled bool `toml:"concise_chat_enabled"`
+	// ConciseChatMinInputTokens prevents the concise-chat hint from expanding
+	// tiny prompts where the instruction overhead would dominate likely
+	// output savings. Set 0 only for explicit operator experiments.
+	ConciseChatMinInputTokens int `toml:"concise_chat_min_input_tokens"`
+	// ConciseChatText overrides the default chat style hint. Empty falls
+	// back to the built-in conservative wording.
+	ConciseChatText string `toml:"concise_chat_text"`
 	// StopSequencesEnabled (T165) injects a curated trailing-commentary
 	// stop-sequence list into every Anthropic/OpenAI request so the
 	// model halts at the API boundary before emitting "Hope this
@@ -298,7 +311,7 @@ type OutputReduceConfig struct {
 // [compression.tuning].
 type TuningConfig struct {
 	// OverflowSlidingWindow is the aggressive sliding window used when the
-	// upstream reports a context overflow (spec+.md §17.4). Default 2.
+	// upstream reports a context overflow (docs/spec.md §17.4). Default 2.
 	OverflowSlidingWindow int `toml:"overflow_sliding_window"`
 	// StructureInWindow enables Layer 1 structure extraction (signature-only
 	// compression) for tool_result blocks inside the sliding window. Default
@@ -702,6 +715,17 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT")); v != "" {
 		cfg.Compression.OutputReduce.BeTerseHintText = v
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.ConciseChatEnabled = b
+		}
+	}
+	if n, ok := envIntOK("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT_MIN_INPUT_TOKENS"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.ConciseChatMinInputTokens = n
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT_TEXT")); v != "" {
+		cfg.Compression.OutputReduce.ConciseChatText = v
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = b
@@ -857,6 +881,12 @@ func validate(cfg *Config) error {
 	}
 	if len(or.ArchiveRecoveryNoteText) > 1000 {
 		return fmt.Errorf("compression.output_reduce.archive_recovery_note_text must be <= 1000 bytes")
+	}
+	if len(or.ConciseChatText) > 1000 {
+		return fmt.Errorf("compression.output_reduce.concise_chat_text must be <= 1000 bytes")
+	}
+	if or.ConciseChatMinInputTokens < 0 {
+		return fmt.Errorf("compression.output_reduce.concise_chat_min_input_tokens must be >= 0, got %d", or.ConciseChatMinInputTokens)
 	}
 	if or.ReadDeltaRecentFullPassTurns < 0 {
 		return fmt.Errorf("compression.output_reduce.read_delta_recent_full_pass_turns must be >= 0, got %d", or.ReadDeltaRecentFullPassTurns)

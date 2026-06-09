@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 func TestLayer0PermissionCheck(t *testing.T) {
@@ -152,7 +152,7 @@ func TestHandleSubcommand_rewrite_stdinHookJSON(t *testing.T) {
 }
 
 // TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter covers the exit-1 path when
-// the command read from hook JSON has no matching filter (spec+.md §4.2 exit code 1 = passthrough).
+// the command read from hook JSON has no matching filter (docs/spec.md §4.2 exit code 1 = passthrough).
 func TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter(t *testing.T) {
 	if os.Getenv("TP_REWRITE_NOFIL") == "1" {
 		handleSubcommand([]string{"rewrite"})
@@ -364,7 +364,7 @@ func TestHandleFilterCmd_sudoExits3(t *testing.T) {
 }
 
 // TestHandleRewriteCmd_dashDashSkip covers the `if a == "--" { continue }` branch.
-// Uses a filterable command so exit 0 with rewritten output is expected (spec+.md §4.2).
+// Uses a filterable command so exit 0 with rewritten output is expected (docs/spec.md §4.2).
 func TestHandleRewriteCmd_dashDashSkip(t *testing.T) {
 	if os.Getenv("TP_RW_DASHDASH") == "1" {
 		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
@@ -383,7 +383,7 @@ func TestHandleRewriteCmd_dashDashSkip(t *testing.T) {
 }
 
 // TestHandleRewriteCmd_dashDashSkip_NoFilter covers the exit-1 path when "--" skips
-// the separator but the resulting command has no matching filter (spec+.md §4.2 exit 1 = passthrough).
+// the separator but the resulting command has no matching filter (docs/spec.md §4.2 exit 1 = passthrough).
 func TestHandleRewriteCmd_dashDashSkip_NoFilter(t *testing.T) {
 	if os.Getenv("TP_RW_DASHDASH_NF") == "1" {
 		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))

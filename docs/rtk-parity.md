@@ -1,54 +1,27 @@
-# RTK Parity Summary
+# RTK Filter Provenance
 
-Date: 2026-06-05
+Slimference no longer carries an embedded reference checkout for RTK. RTK is
+not a runtime dependency, not an install prerequisite, and not a source tree
+agents should restore during normal work.
 
-This is the short closure companion to `docs/rtk-audit.md`.
+RTK remains relevant only as provenance for filter ideas that have already been
+ported into Slimference-owned Go code and embedded TOML fixtures:
 
-## Imported into Slimference
+- trust-model helpers in `internal/filter/trust.go`
+- Terraform coverage in `internal/filter/builtin_terraform.go`
+- Python traceback coverage in `internal/filter/builtin_python.go`
+- RTK-derived TOML catalog fixtures under `internal/filter/builtins_toml/`
+- safe `wc`, `find`/`fd`, and search-output shape hardening in the Layer-0
+  reducers
 
-- Trust-model port: `internal/filter/trust.go`
-- Terraform filter coverage: `internal/filter/builtin_terraform.go`
-- Python traceback coverage: `internal/filter/builtin_python.go`
-- Current RTK TOML catalog parity: 59 RTK filter files, 59 Slimference bundled
-  TOML files, filename diff empty.
-- Safe RTK-inspired `wc` compaction: deterministic count/unit/path formatting
-  with shorter-than-original and fail-open guards.
-- Safe RTK-inspired `find`/`fd` path-list grouping: no command replacement,
-  no result cap, preserves every path component and order, fail-open on
-  ambiguous lines.
-- Search output-shape hardening: `rg -0`, GNU `grep -Z`, `--null`,
-  `--null-data`, and `--path-separator` full-pass before grouped search
-  compaction.
+Closed product decisions:
 
-## Already Covered Better in Slimference
+- Claude Code optimization is parked outside the Slimference product path.
+- RTK aggressive code-signature summaries are not default product behavior
+  because they can remove implementation details the model may need.
+- RTK discover/learn/advisory surfaces are not part of the current Codex-first
+  token-savings product.
 
-- Layer-0 pipeline, hook install/verify, analytics gain tracking, and ANSI
-  stripping all have first-class Go equivalents.
-- Slimference also adds the proxy, active Layer 0/1/3/4 stack, TUI, daemon service,
-  prompt-cache visibility, and operating modes, which RTK never had.
-- Codex support is materially stronger in Slimference: current RTK Codex
-  support is prompt-level awareness, while Slimference owns Codex hooks plus
-  HTTP/WSS proxy mutation and Phase-F reducers.
-
-## Explicitly Not Ported
-
-- `discover/`
-- `learn/`
-- niche long-tail TOML filters with little hot-path value
-- `openclaw/` as a separate companion tool
-- RTK aggressive code-signature summaries as default product behavior; they
-  remove implementation details and therefore violate Slimference's default
-  drawdown bar unless exact recovery and live quality proof exist.
-- RTK transparent rewrite prefixes and Claude built-in tool hooks as Codex
-  product work; those are command-mutation or Claude-specific surfaces, while
-  Slimference's Codex savings happen through Codex hooks, HTTP/WSS proxy
-  mutation, and tool-output reducers.
-
-## Outcome
-
-- RTK has been reduced to an audit/reference exercise, not a live dependency.
-- The valuable in-scope Codex ideas are already landed in Slimference.
-- Non-ported RTK surfaces are closed product decisions, not pending hidden work.
-- `research/rtk-ai/rtk/` remains an embedded read-only foreign reference per
-  `AGENTS.md`; it is not a live dependency and must not be edited as part of
-  Slimference work.
+Future RTK-related work should start from the Slimference-owned implementations
+above and current live product constraints, not from recreating a vendored
+reference tree.

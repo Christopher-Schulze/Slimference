@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/types"
 )
 
 func findDashboardActionIndex(actions []dashboardAction, id string) int {

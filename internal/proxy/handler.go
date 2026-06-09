@@ -15,24 +15,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/beterse"
+	"github.com/Christopher-Schulze/Slimference/internal/caching"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/streamcut"
+	"github.com/Christopher-Schulze/Slimference/internal/planner"
+	"github.com/Christopher-Schulze/Slimference/internal/promptcache"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/resilience"
+	"github.com/Christopher-Schulze/Slimference/internal/security"
+	"github.com/Christopher-Schulze/Slimference/internal/staleread"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	"github.com/klauspost/compress/zstd"
-	"github.com/slimference/slimference/internal/beterse"
-	"github.com/slimference/slimference/internal/caching"
-	"github.com/slimference/slimference/internal/compression"
-	"github.com/slimference/slimference/internal/contentarchive"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/outputreduce"
-	"github.com/slimference/slimference/internal/outstop"
-	"github.com/slimference/slimference/internal/outstop/streamcut"
-	"github.com/slimference/slimference/internal/planner"
-	"github.com/slimference/slimference/internal/promptcache"
-	"github.com/slimference/slimference/internal/qualityab"
-	"github.com/slimference/slimference/internal/resilience"
-	"github.com/slimference/slimference/internal/security"
-	"github.com/slimference/slimference/internal/staleread"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/types"
 )
 
 var reconstructBodyFn = reconstructBody
@@ -472,7 +472,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	compressedTokens := tokens.CountMessages(compressedMessages)
 
-	// Zero-downside guarantee (spec+.md §1): if compression expanded the output,
+	// Zero-downside guarantee (docs/spec.md §1): if compression expanded the output,
 	// revert to original messages so the proxy never makes things worse.
 	if origTokens > 0 && compressedTokens > origTokens {
 		log.Debug("compression expanded output, reverting to original",
@@ -581,10 +581,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	outputReduceStats := outputreduce.Stats{Reason: "disabled"}
 	outputReduceCooldown := false
 	outputReduceMinTokens := p.config.Compression.OutputReduce.MinInputTokens
-	if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) && compressedTokens < outputReduceMinTokens {
-		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
-	} else if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) {
-		taskShape := outputreduce.DetectTaskShape(provider, newBody)
+	taskShape := outputreduce.DetectTaskShape(provider, newBody)
+	if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) && compressedTokens >= outputReduceMinTokens {
 		profileName := p.config.Compression.OutputReduce.Profile
 		if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
 			effective := outputreduce.ResolveProfile(provider, configuredProfile)
@@ -618,11 +616,27 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				)
 			}
 		}
+	} else if injectedBody, stats := p.injectConciseChatHint(provider, newBody, taskShape, messages, compressedTokens); stats.Applied {
+		newBody = injectedBody
+		outputReduceStats = stats
+		compressedTokens += stats.AddedTokens
+		totalSaved = origTokens - compressedTokens
+		if origTokens > 0 {
+			compressionRatio = float64(compressedTokens) / float64(origTokens)
+		}
+		log.Debug("concise-chat hint injected",
+			"profile", stats.Profile,
+			"added_tokens", stats.AddedTokens,
+			"added_bytes", stats.AddedBytes,
+			"shape", stats.TaskShape,
+		)
+	} else if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) && compressedTokens < outputReduceMinTokens {
+		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
 	}
 	if p.outputReduce != nil {
 		p.outputReduce.ObserveInjection(outputReduceStats)
 	}
-	if outputReduceStats.Applied && outputReduceStats.AddedTokens > 0 {
+	if outputReduceStats.Applied && outputReduceStats.Profile != string(outputreduce.ProfileConciseChat) && outputReduceStats.AddedTokens > 0 {
 		compressedTokens += outputReduceStats.AddedTokens
 		totalSaved = origTokens - compressedTokens
 		if origTokens > 0 {
@@ -1531,6 +1545,38 @@ func resolveToolPruneSessionKey(sessionID string, reqID string) string {
 		return sessionID
 	}
 	return reqID
+}
+
+func (p *Proxy) injectConciseChatHint(provider types.Provider, body []byte, taskShape outputreduce.TaskShape, messages []types.Message, inputTokens int) ([]byte, outputreduce.Stats) {
+	stats := outputreduce.Stats{Reason: "disabled", Profile: string(outputreduce.ProfileConciseChat), TaskShape: taskShape}
+	if p == nil || p.config == nil || !p.config.Compression.OutputReduce.Enabled || !p.config.Compression.OutputReduce.ConciseChatEnabled || !p.isLayerEnabled(3) {
+		return body, stats
+	}
+	if messagesContainToolResult(messages) {
+		stats.Reason = "tool_context_full_pass"
+		return body, stats
+	}
+	shape, reason := outputreduce.ConciseChatEligibility(provider, body, taskShape)
+	stats.TaskShape = shape
+	if reason != "" {
+		stats.Reason = reason
+		return body, stats
+	}
+	if inputTokens < p.config.Compression.OutputReduce.ConciseChatMinInputTokens {
+		stats.Reason = "concise_chat_low_roi"
+		return body, stats
+	}
+	hint := beterse.ConciseChatHint(p.config.Compression.OutputReduce.ConciseChatText)
+	injected, res := beterse.Inject(provider, body, hint)
+	if !res.Applied {
+		stats.Reason = "unsupported_shape"
+		return body, stats
+	}
+	stats.Applied = true
+	stats.Reason = "applied"
+	stats.AddedBytes = res.Bytes
+	stats.AddedTokens = estimateTokensFromText(hint)
+	return injected, stats
 }
 
 func (p *Proxy) rewriteToolPruneRetryBody(provider types.Provider, preToolPruneBody []byte, serverStateUsed bool, serverStateKey string) []byte {

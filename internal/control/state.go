@@ -14,8 +14,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 // SetupState is the aggregate snapshot returned to the TUI / admin

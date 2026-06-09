@@ -3,7 +3,7 @@ package filter
 import (
 	"strings"
 
-	"github.com/slimference/slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
 )
 
 // CompactCapturedOutput applies deterministic Layer-0 compaction to already captured

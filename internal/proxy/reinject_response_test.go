@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 )
 
 // TestServeHTTP_T76c_RecordsReInjectOnUpstreamEcho verifies that the

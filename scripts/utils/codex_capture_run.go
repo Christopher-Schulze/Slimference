@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/compression"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 )
 
 type codexCaptureRunFlags struct {

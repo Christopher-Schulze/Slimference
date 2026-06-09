@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
 )
 
 func TestStartProxyForDaemon_TickerSuccessAndServerClosedIgnored(t *testing.T) {

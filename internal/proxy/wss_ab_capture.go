@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
 const wssABCaptureEnv = "SLIMFERENCE_WSS_AB_CAPTURE"

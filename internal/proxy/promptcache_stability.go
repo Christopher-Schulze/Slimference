@@ -3,8 +3,8 @@ package proxy
 import (
 	"crypto/sha256"
 
-	"github.com/slimference/slimference/internal/promptcache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/promptcache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // observePromptCacheStability hashes the bytes of the stable prefix

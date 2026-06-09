@@ -14,7 +14,7 @@ func TestCompactSemanticTestFailureGoPanic(t *testing.T) {
 	sb.WriteString("panic: expected cached value, got stale value\n")
 	sb.WriteString("goroutine 19 [running]:\n")
 	sb.WriteString("github.com/acme/project/internal/cache.TestExplodes(0x140001)\n")
-	sb.WriteString("\t/Users/christopher/CODE/project/internal/cache/cache_test.go:42 +0x20\n")
+	sb.WriteString("\t/Users/example/CODE/project/internal/cache/cache_test.go:42 +0x20\n")
 	sb.WriteString("testing.tRunner(0x140001)\n")
 	sb.WriteString("\t/usr/local/go/src/testing/testing.go:1689 +0x120\n")
 	sb.WriteString("runtime.gopanic()\n")
@@ -33,7 +33,7 @@ func TestCompactSemanticTestFailureGoPanic(t *testing.T) {
 	for _, want := range []string{
 		"TestExplodes",
 		"panic: expected cached value",
-		"/Users/christopher/CODE/project/internal/cache/cache_test.go:42",
+		"/Users/example/CODE/project/internal/cache/cache_test.go:42",
 		"FAIL\tgithub.com/acme/project/internal/cache",
 		"framework/vendor stack frame",
 	} {
@@ -100,7 +100,7 @@ func TestCompactSemanticTestFailureOverflowMarkersAndBranches(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		sb.WriteString("at crate::module::case(src/lib.rs:12:3)\n")
 	}
-	sb.WriteString("at helper (/Users/christopher/project/node_modules/pkg/index.js:1:1)\n")
+	sb.WriteString("at helper (/Users/example/project/node_modules/pkg/index.js:1:1)\n")
 	for i := 0; i < 25; i++ {
 		sb.WriteString("    repeated diagnostic context\n")
 	}
@@ -116,7 +116,7 @@ func TestCompactSemanticTestFailureOverflowMarkersAndBranches(t *testing.T) {
 			t.Fatalf("compacted output missing %q:\n%s", want, got)
 		}
 	}
-	if isApplicationFrame("at helper (/Users/christopher/project/node_modules/pkg/index.js:1:1)") {
+	if isApplicationFrame("at helper (/Users/example/project/node_modules/pkg/index.js:1:1)") {
 		t.Fatal("framework frame must not be treated as application frame")
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 const FlightSchemaVersion = 1

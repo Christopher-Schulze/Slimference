@@ -79,7 +79,7 @@ func TestFindStringForKey_deterministicSiblingTraversal(t *testing.T) {
 	}
 }
 
-// --- RewriteCommand tests (spec+.md §4.2) ---
+// --- RewriteCommand tests (docs/spec.md §4.2) ---
 
 func TestRewriteCommand_SimpleGit(t *testing.T) {
 	t.Parallel()
@@ -289,7 +289,7 @@ func TestRewriteCommand_DisabledEnvVar(t *testing.T) {
 
 func TestRewriteCommand_CompoundSpecExample(t *testing.T) {
 	t.Parallel()
-	// Exact example from spec+.md §4.2
+	// Exact example from docs/spec.md §4.2
 	got, ok := RewriteCommand("cargo fmt --all && cargo test 2>&1 | tail -20", nil)
 	if !ok {
 		t.Fatal("expected filter match")

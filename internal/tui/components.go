@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/slimference/slimference/internal/types"
 )
 
 // renderProgressBar renders a horizontal progress bar for a given ratio (0.0-1.0).

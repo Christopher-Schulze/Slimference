@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/control"
-	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 type wssAuditReport struct {

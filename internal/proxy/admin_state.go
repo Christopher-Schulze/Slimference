@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 // adminStateProvider holds the lazily-constructed control.Probes used

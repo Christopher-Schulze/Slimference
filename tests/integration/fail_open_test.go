@@ -36,7 +36,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/daemon/hookproto"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon/hookproto"
 )
 
 func TestFailOpen_EngineDown_PassthroughAnthropic(t *testing.T) {
@@ -216,7 +216,7 @@ func buildSidecar(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	bin := filepath.Join(dir, "slimference-sidecar")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/slimference/slimference/cmd/slimference-sidecar")
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/Christopher-Schulze/Slimference/cmd/slimference-sidecar")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

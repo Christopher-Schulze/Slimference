@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // peekUnknownPreviousIDError inspects a 4xx upstream response for the

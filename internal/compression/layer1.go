@@ -9,9 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // Layer1Result carries the compressed message list and per-sub-layer savings metrics.
@@ -404,7 +404,7 @@ func shouldUseCoordinatorParallel(enabled bool, messages []types.Message, prefix
 	return false
 }
 
-// Pipeline order (spec+.md §5): ANSI → JSON compact OR comment strip → dedup (exact + MinHash)
+// Pipeline order (docs/spec.md §5): ANSI → JSON compact OR comment strip → dedup (exact + MinHash)
 // → regex structure → delta → classifier → tool compressor → success short-circuit → image.
 // L1.12 (repeated collapse) and L1.13 (graph pruning) run cross-message after this loop.
 func (c *DeterministicCompressor) compressMessage(

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // FileOpType classifies a file operation.

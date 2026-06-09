@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestInjectBody_AnthropicStringSystem(t *testing.T) {
@@ -313,6 +313,26 @@ func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	}
 	if got := SafeProfileForShape(ProfileMild, ShapeCodeEdit); got != ProfileMild {
 		t.Fatalf("mild code edit should stay mild, got %s", got)
+	}
+}
+
+func TestConciseChatEligibility(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"messages":[{"role":"user","content":"what is this?"}]}`)
+	if shape, reason := ConciseChatEligibility(types.OpenAI, body, ""); shape != ShapeDirectAnswer || reason != "" {
+		t.Fatalf("direct answer eligibility shape=%s reason=%q", shape, reason)
+	}
+	body = []byte(`{"messages":[{"role":"user","content":"explain why this works"}]}`)
+	if shape, reason := ConciseChatEligibility(types.OpenAI, body, ""); shape != ShapeExplanation || reason != "" {
+		t.Fatalf("explanation eligibility shape=%s reason=%q", shape, reason)
+	}
+	body = []byte(`{"messages":[{"role":"user","content":"implement this fix"}]}`)
+	if shape, reason := ConciseChatEligibility(types.OpenAI, body, ""); shape != ShapeCodeEdit || reason != "non_chat_shape_full_pass" {
+		t.Fatalf("code edit eligibility shape=%s reason=%q", shape, reason)
+	}
+	body = []byte(`{"messages":[{"role":"user","content":"reply only: OK"}]}`)
+	if shape, reason := ConciseChatEligibility(types.OpenAI, body, ""); shape != ShapeExactReply || reason != "exact_reply" {
+		t.Fatalf("exact eligibility shape=%s reason=%q", shape, reason)
 	}
 }
 

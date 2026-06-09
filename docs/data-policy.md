@@ -27,8 +27,8 @@ external compression provider.
 
 - **What happens**: Nothing. The old semantic-summary code path has been
   removed.
-- **Data destination**: No data is sent to MiniMax, a local LLM, or any other
-  side-channel summarization provider by Slimference.
+- **Data destination**: No data is sent to a local LLM or any side-channel
+  summarization provider by Slimference.
 - **Reason**: Any summary that replaces old context can remove details and create
   product drawdown: worse model memory, weaker context consistency, or wrong
   reconstruction. Slimference keeps default product savings on deterministic,
@@ -75,4 +75,4 @@ layer2_enabled = true   # response cache (safe, local)
 
 ## Further Reading
 
-- Spec: `spec+.md` (normative)
+- Spec: `docs/spec.md` (normative)

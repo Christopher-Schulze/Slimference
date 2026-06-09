@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy/sniroute"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/staleread"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/types"
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/staleread"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 func TestWSPhaseFRequestSkipsStopOnResponsesShape(t *testing.T) {
@@ -372,6 +372,7 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
@@ -425,6 +426,52 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	}
 	if summaries[0].DebugFacts["wss.changed"] != "false" || summaries[0].DebugFacts["wss.output_reduce_applied"] != "false" {
 		t.Fatalf("unexpected WSS debug facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
+func TestWSPhaseFConciseChatInjectsOnlyChatHint(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatText = "answer tight but keep important details"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	cfg.Compression.OutputReduce.ConciseChatMinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "concise-chat-session",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "What is the current status?",
+			}},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected concise chat request mutation")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "answer tight but keep important details") {
+		t.Fatalf("concise chat hint missing: %s", body)
+	}
+	if strings.Contains(body, "#slimference-output-rules") || strings.Contains(body, `"role":"system"`) {
+		t.Fatalf("concise chat must not use generic directive/system input: %s", body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 1 || snap.LastReason != "applied" || snap.LastAddedTokens == 0 {
+		t.Fatalf("output-reduce tracker = %+v, want concise chat injection", snap)
 	}
 }
 

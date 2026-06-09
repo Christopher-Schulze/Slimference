@@ -86,7 +86,7 @@ MORE:
   Config: ~/.config/slimference/config.toml (override via SLIMFERENCE_CONFIG)
   Install docs: docs/install.md
   Docs:   docs/documentation.md
-  Spec:   spec+.md
+  Spec:   docs/spec.md
 `, version)
 }
 
@@ -409,8 +409,6 @@ Verbs:
   install          Idempotent wire-up.
   remove           Clean tear-down (undo install).
   emergency-off    Panic button: unwire everything + stop the daemon.
-
-See docs/integration.md for the failure-mode matrix.
 `
 	case "bypass":
 		return `slimference bypass <on|off|status> [--duration=Ns|--next-request[=N]]

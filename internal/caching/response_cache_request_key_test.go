@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestResponseCache_ComputeRequestKey_canonicalizesFullBody(t *testing.T) {
@@ -46,7 +46,7 @@ func TestExtractDependencyPaths_scansWholeBody(t *testing.T) {
 	t.Parallel()
 
 	body := []byte(`{
-	  "system":"Read docs/spec+.md before editing internal/proxy/handler.go",
+	  "system":"Read docs/spec.md before editing internal/proxy/handler.go",
 	  "messages":[
 	    {"role":"user","content":"Open internal/hooks/claude.go and src/app.tsx"},
 	    {"role":"assistant","content":[{"type":"text","text":"Check ./scripts/coverage/main.go and ../shared/types.ts too"}]}
@@ -55,7 +55,7 @@ func TestExtractDependencyPaths_scansWholeBody(t *testing.T) {
 
 	paths := ExtractDependencyPaths(body)
 	want := map[string]bool{
-		"docs/spec+.md":              true,
+		"docs/spec.md":               true,
 		"internal/proxy/handler.go":  true,
 		"internal/hooks/claude.go":   true,
 		"src/app.tsx":                true,

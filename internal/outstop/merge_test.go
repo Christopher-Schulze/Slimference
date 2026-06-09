@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func unmarshalStop(t *testing.T, body []byte, field string) []string {

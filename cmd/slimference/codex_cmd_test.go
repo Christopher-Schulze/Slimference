@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func withCodexCmdStubs(t *testing.T) {
@@ -37,6 +37,8 @@ func withCodexCmdStubs(t *testing.T) {
 	oldRecertTrigger := codexRecertTriggerFn
 	oldRecertLog := codexRecertLogFn
 	oldRecertRunCommand := recertRunCommandFn
+	oldDaemonAutoRecert := daemonCodexAutoRecertFn
+	oldDaemonAutoRecertAllowed := daemonAutoRecertAllowedFn
 	oldSetupState := codexSetupStateFn
 	oldVersionOut := codexVersionOutFn
 	oldNow := codexNowFn
@@ -68,6 +70,8 @@ func withCodexCmdStubs(t *testing.T) {
 		return codexRecertTriggerResult{}, nil
 	}
 	codexRecertLogFn = func(string, string) {}
+	daemonCodexAutoRecertFn = func(int) {}
+	daemonAutoRecertAllowedFn = func() bool { return false }
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		return passingCodexCertificationState(), nil
 	}
@@ -116,6 +120,8 @@ func withCodexCmdStubs(t *testing.T) {
 		codexRecertTriggerFn = oldRecertTrigger
 		codexRecertLogFn = oldRecertLog
 		recertRunCommandFn = oldRecertRunCommand
+		daemonCodexAutoRecertFn = oldDaemonAutoRecert
+		daemonAutoRecertAllowedFn = oldDaemonAutoRecertAllowed
 		codexSetupStateFn = oldSetupState
 		codexVersionOutFn = oldVersionOut
 		codexNowFn = oldNow
@@ -1075,16 +1081,16 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 			Transport:            codexroute.TransportHTTP,
 			NeedsRecert:          true,
 			CurrentCodex:         "0.131.0",
-			CurrentSlimference:   "2.0.2",
+			CurrentSlimference:   "0.6.0",
 			CertifiedCodex:       "0.130.0",
-			CertifiedSlimference: "2.0.2",
+			CertifiedSlimference: "0.6.0",
 			FallbackReason:       "codex version changed since wss certification",
 			RecertCommand:        "slimference codex recertify wss",
 		}
 	}
 	if rc := runCodexCmd([]string{"status"}, p); rc != 0 ||
-		!strings.Contains(out.String(), "current codex=0.131.0 slimference=2.0.2") ||
-		!strings.Contains(out.String(), "certified codex=0.130.0 slimference=2.0.2") ||
+		!strings.Contains(out.String(), "current codex=0.131.0 slimference=0.6.0") ||
+		!strings.Contains(out.String(), "certified codex=0.130.0 slimference=0.6.0") ||
 		!strings.Contains(out.String(), "WSS savings repair needed") ||
 		!strings.Contains(out.String(), "slimference codex recertify wss") {
 		t.Fatalf("recert status rc=%d out=%q", rc, out.String())
@@ -1103,9 +1109,9 @@ func TestCodexStatusJSONIncludesRecertState(t *testing.T) {
 			Transport:            codexroute.TransportHTTP,
 			NeedsRecert:          true,
 			CurrentCodex:         "0.131.0",
-			CurrentSlimference:   "2.0.2",
+			CurrentSlimference:   "0.6.0",
 			CertifiedCodex:       "0.130.0",
-			CertifiedSlimference: "2.0.2",
+			CertifiedSlimference: "0.6.0",
 			CertificationPath:    "/tmp/home/.slimference/codex-wss-cert.json",
 			FallbackReason:       "codex version changed since wss certification",
 			RecertCommand:        "slimference codex recertify wss",

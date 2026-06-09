@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // shutdownTestProxy returns a minimal *Proxy with just enough state for the

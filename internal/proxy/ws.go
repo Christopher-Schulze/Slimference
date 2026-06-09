@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 // WebSocketDialer captures the upstream-dial dependency that the
@@ -95,7 +95,7 @@ func (t *WebSocketTunnel) IsAudioBypassPath(p string) bool {
 // stream from the MITM dispatch; the original Request carries the
 // upgrade headers as written by the app.
 //
-// Provider-Invisibility (spec+.md §16.4): we do NOT add Slimference-
+// Provider-Invisibility (docs/spec.md §16.4): we do NOT add Slimference-
 // identifying headers, do NOT override Connection / Host, and do NOT
 // rewrite the WebSocket-Key. Headers go through verbatim.
 func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, host string) {

@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync/atomic"
 
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 // Direction names the half of a bridged session.

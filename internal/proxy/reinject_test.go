@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func writeArchiveEntry(t *testing.T, home, original string) string {
@@ -157,7 +157,9 @@ func TestReinjectArchivedContent_RespectsMaxBudget(t *testing.T) {
 func TestReinjectArchivedContent_HomeUnavailableReturnsInput(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("USERPROFILE", "")
-	p := New(config.Defaults())
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = ""
+	p := New(cfg)
 	msgs := []types.Message{{Content: []types.ContentBlock{{Text: "irrelevant"}}}}
 	got := p.reinjectArchivedContent(msgs)
 	if len(got) != len(msgs) {

@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/indist"
+	"github.com/Christopher-Schulze/Slimference/internal/indist"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func printUsage() {
 
 capture       snapshot a real TLS connection into JSON via tshark
 diff          compare two capture JSON files; exit 1 on drift
-lock-golden   copy a capture JSON to research/indist/<target>/
+	lock-golden   copy a capture JSON to tests/fixtures/indist/<target>/
 
 Run capture from the operator machine before enabling MITM, then once
 after. Diff the two — non-empty drift means the proxy's wire shape is
@@ -105,6 +105,12 @@ func runCapture(args []string) int {
 		fmt.Fprintf(os.Stderr, "capture: marshal: %v\n", err)
 		return 1
 	}
+	if dir := filepath.Dir(outPath); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "capture: mkdir %s: %v\n", dir, err)
+			return 1
+		}
+	}
 	if err := os.WriteFile(outPath, append(data, '\n'), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "capture: write %s: %v\n", outPath, err)
 		return 1
@@ -143,10 +149,10 @@ func runDiff(args []string) int {
 	return 0
 }
 
-// runLockGolden copies a capture JSON into research/indist/<target>/.
+// runLockGolden copies a capture JSON into tests/fixtures/indist/<target>/.
 func runLockGolden(args []string) int {
 	fs := flag.NewFlagSet("lock-golden", flag.ContinueOnError)
-	target := fs.String("target", "", "subdirectory under research/indist/")
+	target := fs.String("target", "", "subdirectory under tests/fixtures/indist/")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -160,7 +166,7 @@ func runLockGolden(args []string) int {
 		fmt.Fprintf(os.Stderr, "lock-golden: load: %v\n", err)
 		return 1
 	}
-	dstDir := filepath.Join("research", "indist", *target)
+	dstDir := filepath.Join("tests", "fixtures", "indist", *target)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "lock-golden: mkdir: %v\n", err)
 		return 1

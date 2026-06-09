@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 )
 
 func TestLoadLatestHookTurnDebugStatusFromDir(t *testing.T) {

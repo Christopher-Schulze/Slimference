@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
 )
 
 func TestReplaceOrAppendBlock_AppendsWhenMissing(t *testing.T) {

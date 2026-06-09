@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 // makeStubLaunchctl creates a tiny shell script that exits 0 - safe

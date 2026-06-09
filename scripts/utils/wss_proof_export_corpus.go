@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	dbg "github.com/slimference/slimference/internal/debug"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 type wssProofCorpusExportReport struct {

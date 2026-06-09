@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/codexthreads"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/daemon"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/codexthreads"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func TestParseSavingsArgs_Defaults(t *testing.T) {
@@ -642,7 +642,7 @@ func TestSavingsSessionsUseCodexThreadMetadata(t *testing.T) {
 			"thread-123": {
 				ID:     "thread-123",
 				Title:  "› check project status",
-				CWD:    "/Users/me/CODE/Golem",
+				CWD:    "/Users/me/CODE/Demo",
 				Source: "cli",
 				Model:  "gpt-5.5",
 			},
@@ -655,11 +655,11 @@ func TestSavingsSessionsUseCodexThreadMetadata(t *testing.T) {
 		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
 	}
 	session := got.DecisionSessions[0]
-	if session.DisplayName != "check project status" || session.ProjectPath != "/Users/me/CODE/Golem" || session.ClientFamily != "codex_cli" {
+	if session.DisplayName != "check project status" || session.ProjectPath != "/Users/me/CODE/Demo" || session.ClientFamily != "codex_cli" {
 		t.Fatalf("bad enriched session: %+v", session)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Codex CLI", "check project status", "/Users/me/CODE/Golem", "cache=500"} {
+	for _, want := range []string{"Codex CLI", "check project status", "/Users/me/CODE/Demo", "cache=500"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
@@ -699,7 +699,7 @@ func TestSavingsSessionsUseCodexHTTPThreadMetadata(t *testing.T) {
 			"thread-http": {
 				ID:     "thread-http",
 				Title:  "› current goal",
-				CWD:    "/Users/me/CODE/Golem",
+				CWD:    "/Users/me/CODE/Demo",
 				Source: "cli",
 			},
 		}, nil
@@ -711,7 +711,7 @@ func TestSavingsSessionsUseCodexHTTPThreadMetadata(t *testing.T) {
 		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
 	}
 	session := got.DecisionSessions[0]
-	if session.DisplayName != "current goal" || session.ProjectPath != "/Users/me/CODE/Golem" || session.ClientFamily != "codex_cli" {
+	if session.DisplayName != "current goal" || session.ProjectPath != "/Users/me/CODE/Demo" || session.ClientFamily != "codex_cli" {
 		t.Fatalf("bad enriched HTTP session: %+v", session)
 	}
 	if label := savingsSessionFallbackLabel(session); !strings.Contains(label, "thread-http") {
@@ -757,7 +757,7 @@ func TestSavingsSessionsKeepParallelCodexThreadsSeparate(t *testing.T) {
 			t.Fatalf("thread lookup ids=%v", ids)
 		}
 		return map[string]codexthreads.Metadata{
-			"thread-a": {ID: "thread-a", Title: "› Golem status", CWD: "/Users/me/CODE/Golem", Source: "cli"},
+			"thread-a": {ID: "thread-a", Title: "› Project status", CWD: "/Users/me/CODE/Demo", Source: "cli"},
 			"thread-b": {ID: "thread-b", Title: "› Slimference audit", CWD: "/Users/me/CODE/Slimference", Source: "desktop"},
 		}, nil
 	}
@@ -768,8 +768,8 @@ func TestSavingsSessionsKeepParallelCodexThreadsSeparate(t *testing.T) {
 		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
 	}
 	if got.DecisionSessions[0].SessionID != "codex-wss:thread-a" ||
-		got.DecisionSessions[0].DisplayName != "Golem status" ||
-		got.DecisionSessions[0].ProjectPath != "/Users/me/CODE/Golem" ||
+		got.DecisionSessions[0].DisplayName != "Project status" ||
+		got.DecisionSessions[0].ProjectPath != "/Users/me/CODE/Demo" ||
 		got.DecisionSessions[0].ClientFamily != "codex_cli" {
 		t.Fatalf("bad first session: %+v", got.DecisionSessions[0])
 	}
@@ -823,7 +823,7 @@ func TestSavingsResolvesHashFallbackToLocalCodexThread(t *testing.T) {
 			{
 				ID:               "thread-local",
 				Title:            "› check project status",
-				CWD:              "/Users/me/CODE/Golem",
+				CWD:              "/Users/me/CODE/Demo",
 				Source:           "cli",
 				ThreadSource:     "user",
 				Model:            "gpt-5.5",
@@ -847,7 +847,7 @@ func TestSavingsResolvesHashFallbackToLocalCodexThread(t *testing.T) {
 	session := got.DecisionSessions[0]
 	if session.SessionID != "codex-local:thread-local" ||
 		session.DisplayName != "check project status" ||
-		session.ProjectPath != "/Users/me/CODE/Golem" ||
+		session.ProjectPath != "/Users/me/CODE/Demo" ||
 		session.ClientFamily != "codex_cli" {
 		t.Fatalf("bad resolved session: %+v", session)
 	}
@@ -971,7 +971,7 @@ func TestSavingsResolvesAnonymousCodexFallbackByUniqueActivityEnvelope(t *testin
 			{
 				ID:        "thread-local",
 				Title:     "› check project",
-				CWD:       "/Users/me/CODE/Golem",
+				CWD:       "/Users/me/CODE/Demo",
 				Source:    "cli",
 				Model:     "gpt-5.5",
 				CreatedAt: now.Add(-30 * time.Minute),
@@ -1001,7 +1001,7 @@ func TestSavingsResolvesAnonymousCodexFallbackByUniqueActivityEnvelope(t *testin
 	session := got.DecisionSessions[0]
 	if session.SessionID != "codex-local:thread-local" ||
 		session.DisplayName != "check project" ||
-		session.ProjectPath != "/Users/me/CODE/Golem" ||
+		session.ProjectPath != "/Users/me/CODE/Demo" ||
 		session.ClientFamily != "codex_cli" ||
 		session.Requests != 3 {
 		t.Fatalf("bad resolved anonymous session: %+v", session)

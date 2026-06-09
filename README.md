@@ -15,9 +15,8 @@ reversible, and fail open.
 
 Slimference does **not** use external summarization, does **not** ask a smaller
 model to rewrite your context, and does **not** replace conversation memory with
-lossy summaries. The product philosophy is blunt: if a savings mechanism cannot
-be made safe enough to run automatically, it does not belong in the default
-product path.
+lossy summaries. If a savings mechanism cannot be made safe enough to run
+automatically, it does not belong in the default product path.
 
 ## The Short Version
 
@@ -30,13 +29,18 @@ Slimference is built for one high-value surface first: **Codex text workflows**.
 - The expensive, repetitive part of coding-agent work is usually text and tool
   context. That is where Slimference spends its engineering budget.
 
-## What Slimference Does
+## Included Today
 
 - Launches Codex CLI or Codex Desktop in a scoped Slimference mode.
 - Leaves normal Codex launches direct unless you start them through Slimference.
 - Compacts deterministic tool output before it bloats the model context.
 - Routes Codex traffic through a local daemon for cache-aware, proof-gated
   savings.
+- Supports WSS-first scoped Codex routing with automatic safe fallback.
+- Repairs WSS certification drift after Codex updates through daemon/TUI/CLI
+  recert paths.
+- Applies conservative user-facing chat brevity hints only on safe answer
+  shapes.
 - Tracks savings, cache impact, routed activity, logs, and diagnostics locally.
 - Falls back to direct Codex when the daemon or a proof gate is not safe.
 
@@ -44,13 +48,50 @@ Slimference is built for long coding sessions where agents repeatedly inspect
 the same files, run the same tests, search the same repo, and carry lots of
 tool output across turns.
 
-## The Secret Sauce
+## Quick Start
+
+Requirements:
+
+- macOS
+- Go 1.25+
+- Codex CLI or Codex Desktop already installed and logged in
+
+Build, install, and verify:
+
+```bash
+./install.sh
+slimference
+```
+
+Open the TUI:
+
+```bash
+slimference
+```
+
+Run one scoped Codex CLI prompt:
+
+```bash
+slimference codex run --transport=auto -- "check this project"
+```
+
+Update an existing source checkout:
+
+```bash
+go run ./scripts/build --restart
+~/.local/bin/slimference status --preflight
+```
+
+Normal `codex` in a shell and normal Codex.app launches stay direct unless you
+launch them through Slimference or explicitly enable the advanced shared route.
+
+## Core Approach
 
 Most token savers chase compression. Slimference chases **safe context
 economics**.
 
-The trick is not to summarize everything harder. The trick is to attack waste at
-the places where the model never needed the full bytes again:
+The goal is not to summarize everything harder. The goal is to attack waste at
+the places where the model does not need the full bytes again:
 
 - repeated file reads after the model already saw the content;
 - repeated search/test/git/log output with stable evidence;
@@ -59,9 +100,8 @@ the places where the model never needed the full bytes again:
 - provider-cache misses caused by avoidable volatility;
 - output/tool-surface overhead where the turn shape proves it is safe.
 
-That gives Slimference an unusually strong tradeoff: high savings on real
-coding sessions without depending on a second model, probabilistic memory, or a
-"trust me, retrieve it later" workflow.
+This keeps the default product path local, deterministic, and recoverable while
+still producing meaningful savings on repeated coding-agent work.
 
 ## Current Product Scope
 
@@ -75,6 +115,10 @@ coding sessions without depending on a second model, probabilistic memory, or a
 | Vision / computer-use | Direct | Not optimized by default |
 | Claude Code | Parked | Code exists for reference, not installed by default |
 | Global MITM / hosts / pfctl | Lab only | Explicit advanced path, not product default |
+
+Default install may keep local CA files for isolated diagnostics, but it does
+not trust that CA in Keychain and does not arm hosts, pfctl, or system proxy
+routing.
 
 ## Why Codex Hooks First
 
@@ -121,7 +165,7 @@ safety contract.
 | Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, read, and WSS tool output before or as it enters model-visible context | Parser guards, evidence preservation, archive recovery, fail open |
 | Layer 1 | Deterministic compression | Removes deterministic waste from safe prefix/tool content | Shorter-than-original guard, schema checks, safety tiers, no semantic paraphrase |
 | Layer 2 | Response and provider-cache leverage | Avoids repeat work and accounts provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation, negative-net visibility |
-| Layer 4 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition overhead where the turn shape is proven safe | Exact-answer/repair guards, provider-shape validation, auto-demotion |
+| Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, no risky model-facing directive unless proof-gated |
 
 Typical wins come from repeated file reads, search outputs, test logs, git
 output, JSON/log compaction, archive-backed tool references, and provider cache
@@ -143,21 +187,18 @@ Those are not billing guarantees. They are the realistic target zone for
 Codex-heavy text workflows where the same project context gets touched again
 and again.
 
-## How It Compares
+## Design Boundaries
 
-Slimference borrows good ideas from the broader token-savings space, but draws
-a harder product boundary.
+Slimference is intentionally conservative about what becomes a default product
+feature.
 
-| Tool / approach | Strong at | Slimference position |
-|---|---|---|
-| RTK | Broad agent wrapping, especially Claude/OpenCode-style surfaces | Great reference for tool breadth and parser ideas; Slimference currently focuses harder on Codex CLI + Codex Desktop and near-zero-drawdown routing |
-| Headroom | Aggressive compression research, cache/relevance experiments, local model ideas | Useful inspiration for deterministic signals, parser hardening, cache validation, and observability; Slimference does not default-enable lossy Kompress/local-model/context-retrieval paths |
-| Generic proxy/MITM | Capturing many clients through one network layer | Powerful for labs, too broad for default UX; Slimference keeps global routing out of the normal product path |
-| Manual prompt discipline | Asking the model to be shorter or remember less | Cheap but unreliable; Slimference prefers deterministic byte/path/tool economics around the model |
-
-The bet is simple: win the Codex coding workflow first, make the safe path feel
-native, and only expand to other agents when the same no-drawdown bar can be
-met.
+| Boundary | Product rule |
+|---|---|
+| No semantic context replacement | No external summarizer, local LLM summarizer, OCRL ledger, or lossy memory replacement |
+| No global routing by default | No `/etc/hosts`, pfctl, macOS system proxy, or machine-wide `chatgpt.com` interception in normal use |
+| No fake Desktop signal | Route truth is shown in Slimference status/TUI/logs, not by mutating Codex model names or service tiers |
+| No quality trade for output savings | Output reducers are shape-gated, low-ROI guarded, and fail open |
+| No hidden lock-in | `slimference disable` and `slimference uninstall` revert marker-owned state |
 
 ## How It Works
 
@@ -198,30 +239,41 @@ HTTP, or direct behavior instead of forcing a risky mutation.
 
 ## Install From Source
 
-Requirements:
-
-- macOS
-- Go 1.25+
-- Codex CLI / Codex Desktop already installed and logged in
-
-Build and install:
+Build and install the TUI/CLI binary:
 
 ```bash
-go run ./scripts/build --install
-~/.local/bin/slimference install
-~/.local/bin/slimference status --preflight
+git clone https://github.com/Christopher-Schulze/Slimference.git
+cd Slimference
+./install.sh
 ```
 
 Update a local source checkout:
 
 ```bash
-go run ./scripts/build --restart
+./install.sh
 ~/.local/bin/slimference status --preflight
 ```
 
 Open the TUI:
 
 ```bash
+slimference
+```
+
+The installer only installs the local binary and prints PATH guidance. It does
+not arm global routing, trust a CA, patch hosts, or change system proxy
+settings. Use the TUI Setup view or `slimference install` when you want the
+scoped Codex service/hooks.
+
+### Install From a Release Archive
+
+Download the macOS archive from
+<https://github.com/Christopher-Schulze/Slimference/releases>, then:
+
+```bash
+tar -xzf slimference_0.6.0_darwin_arm64.tar.gz
+cd slimference_0.6.0_darwin_arm64
+./install.sh
 slimference
 ```
 
@@ -338,13 +390,12 @@ Project docs:
 
 - [`docs/install.md`](docs/install.md) is the install/uninstall source of truth.
 - [`docs/documentation.md`](docs/documentation.md) is the technical reference.
-- [`spec+.md`](spec+.md) is the implementation-driving specification.
-- [`docs/todo.md`](docs/todo.md) tracks active engineering work.
+- [`docs/spec.md`](docs/spec.md) is the implementation-driving specification.
 
 ## Reality Check
 
-Slimference is not a magic output-token reducer and it does not make a model
-smarter. It saves tokens by removing deterministic waste around the model:
+Slimference is not a general-purpose model optimizer and it does not make a
+model smarter. It saves tokens by removing deterministic waste around the model:
 redundant tool data, repeated reads, noisy logs, cache-hostile formatting, and
 avoidable request bloat.
 
@@ -354,5 +405,4 @@ scheme, it is not a default Slimference product feature.
 
 ## License
 
-License file is not present in this checkout yet. Add one before publishing a
-public release.
+Slimference is released under the MIT License. See [`LICENSE`](LICENSE).

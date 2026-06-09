@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/planner"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/planner"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type plannerInput struct {

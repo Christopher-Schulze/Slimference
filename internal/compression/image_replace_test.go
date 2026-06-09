@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // buildPNGHeader returns a minimal PNG header with the given width and height.

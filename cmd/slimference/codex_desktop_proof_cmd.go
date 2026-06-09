@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 type codexDesktopStatusFlags struct {

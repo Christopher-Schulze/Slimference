@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func boolStr(cond bool, ifTrue, ifFalse string) string {

@@ -3,8 +3,8 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 )
 
 func TestOutputReduceRepairSignalLifecycle(t *testing.T) {

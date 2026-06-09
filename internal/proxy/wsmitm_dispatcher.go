@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy/sniroute"
-	"github.com/slimference/slimference/internal/proxy/transparent"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 // PhaseFDispatcher implements transparent.Dispatcher. It receives a

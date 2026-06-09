@@ -14,12 +14,13 @@ Slimference now has four active product layers:
 - Layer 2: response and provider-cache leverage
 - Layer 3: output and tool-surface reduction
 
-The old semantic summary path is retired. Slimference does not use MiniMax, another external model, a
-local LLM, OCRL, or context-ledger insertion as a product savings path. That
-choice is intentional: replacing old context with any summary can remove details
-and create model-quality drawdown. The remaining product stack saves tokens by
-removing repeated, noisy, structurally redundant, or recoverably archived tool
-output, not by asking the model to reason from a lossy memory replacement.
+The old semantic summary path is retired. Slimference does not use another
+external model, a local LLM, OCRL, or context-ledger insertion as a product
+savings path. That choice is intentional: replacing old context with any
+summary can remove details and create model-quality drawdown. The remaining
+product stack saves tokens by removing repeated, noisy, structurally redundant,
+or recoverably archived tool output, not by asking the model to reason from a
+lossy memory replacement.
 
 ## Current Product Layers
 

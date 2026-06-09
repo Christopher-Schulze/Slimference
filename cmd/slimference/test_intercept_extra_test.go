@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func TestTestIntercept_listenErrorExits1(t *testing.T) {

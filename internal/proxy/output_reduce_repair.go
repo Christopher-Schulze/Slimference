@@ -3,7 +3,7 @@ package proxy
 import (
 	"strings"
 
-	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 )
 
 type pendingOutputReduceSignal struct {

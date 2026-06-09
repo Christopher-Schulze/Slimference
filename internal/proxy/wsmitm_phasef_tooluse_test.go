@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestWSPhaseF_ToolUsePersistenceSurvivesReconnect proves item 15: the per-socket

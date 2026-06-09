@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/codexthreads"
-	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/codexthreads"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 type codexThreadMetadata = codexthreads.Metadata

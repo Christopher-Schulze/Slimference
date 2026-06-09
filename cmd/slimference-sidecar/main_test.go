@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/daemon/hookproto"
-	"github.com/slimference/slimference/internal/proxy/upstream"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon/hookproto"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/upstream"
 )
 
 // shortSockPath returns a short Unix-socket path that fits the

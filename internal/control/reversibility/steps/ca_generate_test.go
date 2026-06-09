@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 func TestCAGenerateApplyMaterialisesCA(t *testing.T) {

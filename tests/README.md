@@ -1,16 +1,19 @@
-# `tests/` — Integration, Fixtures, TypeScript-Testsuites
+# `tests/` - Integration, fixtures, TypeScript suites
 
 ## Layout
 
-| Pfad | Inhalt |
+| Path | Contents |
 |------|--------|
-| `integration/` | **Go**-Integrationstests (mehrere Pakete, ggf. `//go:build integration`) |
-| `fixtures/` | Gemeinsame Testdaten für Go- und/oder TS-Tests |
-| `ts/` | **TypeScript**-Testsuites (z. B. Vitest/Jest) — siehe **`AGENTS.md` §4.2 |
+| `integration/` | **Go** integration tests across packages, including optional `//go:build integration` suites. |
+| `fixtures/` | Shared test data for Go and/or TypeScript tests. |
+| `ts/` | **TypeScript** test suites, for example Vitest or Jest; see `agents.md` Section 6.2. |
 
 ## Go vs. TypeScript
 
-- **100 %-Coverage** auf `internal/` und `cmd/` wird über **`*_test.go`** neben dem Code erreicht (**Pflicht**).
-- **`tests/ts/`** ist für **zusätzliche** TS-Tests (E2E, Contracts, …), **nicht** als Ersatz für Go-Pakettests.
+- The project coverage target for `internal/` and `cmd/` is enforced through
+  package-local Go `*_test.go` files.
+- `tests/ts/` is for additional TypeScript tests such as E2E or contract
+  coverage. It does not replace Go package tests.
 
-Paketnahe kleine Dateien: weiterhin `testdata/` neben dem jeweiligen Paket.
+Small package-specific fixtures stay in `testdata/` next to the relevant Go
+package.

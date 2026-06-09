@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy/sniroute"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
 // fakePair returns two connected net.Pipe conns. closeWrite is

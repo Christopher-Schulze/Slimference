@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/slimference/slimference/internal/indist"
+	"github.com/Christopher-Schulze/Slimference/internal/indist"
 )
 
 // tsharkPacket is the shape of one element in tshark's `-T json`

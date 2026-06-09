@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/hooks"
-	"github.com/slimference/slimference/internal/integrate"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/integrate"
 )
 
 // handleIntegrateCmd dispatches the legacy/config-patch integration surface.

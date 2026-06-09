@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/outstop/streamcut"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/streamcut"
 )
 
 var errPassthroughRead = errors.New("upstream body read fail")

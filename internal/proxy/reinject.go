@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // archiveURIPattern matches `local-archive://<id>` and the legacy

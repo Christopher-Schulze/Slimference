@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/slimference/slimference/internal/beterse"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/beterse"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
 )
 
 // findTreatmentOrgUserPair iterates org/user pairs until the

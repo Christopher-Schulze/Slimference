@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // TestOutstopWiredIntoAnthropicUpstream proves the T165 injection

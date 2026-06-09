@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/tlsca"
-	"github.com/slimference/slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 )
 
 var (

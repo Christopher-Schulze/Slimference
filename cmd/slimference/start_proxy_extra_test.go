@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func TestStartProxyFn_DefaultClosureStartsAndStopsProxy(t *testing.T) {

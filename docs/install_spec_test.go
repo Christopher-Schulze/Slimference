@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/install"
+	"github.com/Christopher-Schulze/Slimference/internal/install"
 )
 
 // TestInstallSpecMatchesPlan parses the YAML spec block, extracts

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 // TestRunHeadlessSIGHUPReloadsApps drives runHeadless with both SIGHUP

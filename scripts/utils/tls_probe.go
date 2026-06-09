@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsproof"
 	utls "github.com/refraction-networking/utls"
-	"github.com/slimference/slimference/internal/tlsdial"
-	"github.com/slimference/slimference/internal/tlsproof"
 )
 
 const (

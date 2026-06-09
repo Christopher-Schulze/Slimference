@@ -24,11 +24,11 @@ func TestBuildCommandArgsDefault(t *testing.T) {
 }
 
 func TestBuildCommandArgsVersionInjection(t *testing.T) {
-	got := strings.Join(buildCommandArgs("bin/slimference", " v2.3.0 "), " ")
+	got := strings.Join(buildCommandArgs("bin/slimference", " v0.6.0 "), " ")
 	if !strings.Contains(got, "-trimpath") || !strings.Contains(got, "-s -w") {
 		t.Fatalf("missing release flags: %s", got)
 	}
-	if !strings.Contains(got, "github.com/slimference/slimference/internal/buildinfo.Version=v2.3.0") {
+	if !strings.Contains(got, "github.com/Christopher-Schulze/Slimference/internal/buildinfo.Version=v0.6.0") {
 		t.Fatalf("missing buildinfo version injection: %s", got)
 	}
 }

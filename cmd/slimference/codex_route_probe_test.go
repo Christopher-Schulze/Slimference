@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
 )
 
 func TestCodexRouteProbeReportsRouteAndAutoDecision(t *testing.T) {

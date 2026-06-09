@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // watchFlags captures `slimference watch` flag input. T79.

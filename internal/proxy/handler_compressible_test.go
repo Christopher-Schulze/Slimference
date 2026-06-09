@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/slimference/slimference/internal/compactsignal"
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/compactsignal"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // TestServeHTTP_compressibleAnthropic exercises handleCompressibleRequest → upstream round-trip.

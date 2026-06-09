@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 // SetAppsManager installs (or replaces) the per-app policy manager.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestExtractToolCallKey_preferFilepath prefers a filepath when present.

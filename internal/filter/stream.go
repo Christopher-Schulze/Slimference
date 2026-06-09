@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
 )
 
 // StreamOptions configures the streaming-aware Layer 0 filter. T94.

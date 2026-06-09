@@ -16,7 +16,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/slimference/slimference/internal/outstop"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop"
 )
 
 // Cutter inspects SSE deltas as they flow upstream→client and decides

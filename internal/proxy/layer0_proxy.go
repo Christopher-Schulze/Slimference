@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/chunkdedup"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/evidence"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/savingspolicy"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/tokens"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/chunkdedup"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type proxyLayer0Mechanism string

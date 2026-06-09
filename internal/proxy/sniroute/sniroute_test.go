@@ -3,7 +3,7 @@ package sniroute
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 func newResolverWithDefaults(t *testing.T) *Resolver {

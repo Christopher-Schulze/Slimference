@@ -3,8 +3,8 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 func TestObserveQualityToolKey_RoundTrip(t *testing.T) {

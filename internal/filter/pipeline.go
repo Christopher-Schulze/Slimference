@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/slimference/slimference/internal/compression"
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 // Layer0ReducerSafetyClass describes how much information a default reducer is
@@ -70,7 +70,7 @@ type PipelineResult struct {
 
 // RunPipeline executes the subprocess, strips ANSI from stdout/stderr, applies
 // Layer-0 compaction to both streams, and computes rough savings.
-// passthroughMaxRunes caps final stdout (0 = unlimited); applied after built-in/TOML (spec+.md §4.6).
+// passthroughMaxRunes caps final stdout (0 = unlimited); applied after built-in/TOML (docs/spec.md §4.6).
 func RunPipeline(ctx context.Context, workDir string, argv []string, passthroughMaxRunes int) PipelineResult {
 	argv0 := ""
 	if len(argv) > 0 {
@@ -122,7 +122,7 @@ func RunPipeline(ctx context.Context, workDir string, argv []string, passthrough
 }
 
 // applyLayer0AfterANSI applies built-in filters first, then TOML if no built-in handled
-// the output (spec+.md §4.6: built-in > TOML > generic cleanup).
+// the output (docs/spec.md §4.6: built-in > TOML > generic cleanup).
 // Logs which filter matched (or passthrough) at debug level.
 func applyLayer0AfterANSI(workDir string, argv []string, stdout []byte) []byte {
 	out, filterName := applyLayer0FiltersWithContext(workDir, argv, stdout, FileReadContext{Mode: "scan"})
@@ -201,7 +201,7 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		})
 		return out, "toml_rule"
 	}
-	// Embedded RTK-derived filter catalog (MIT, see NOTICE.md). Loaded
+	// Embedded RTK-derived filter catalog (MIT, see docs/rtk-parity.md). Loaded
 	// once via //go:embed. Sits BELOW the user/project TOML so explicit
 	// user overrides always win, and BELOW the Go built-ins so curated
 	// hand-written compactors (git-status etc.) win over generic

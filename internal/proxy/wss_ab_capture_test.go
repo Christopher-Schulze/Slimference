@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
 func TestWSSABReplayCaptureWritesReplayCompatibleFrame(t *testing.T) {

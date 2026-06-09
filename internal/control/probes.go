@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 // FileCAProbe implements CAProbe by reading the on-disk CA cert at

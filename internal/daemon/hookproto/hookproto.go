@@ -3,7 +3,7 @@
 // hookserver). The protocol is newline-delimited JSON over a Unix domain
 // socket; one connection carries one or more request/response pairs.
 //
-// encoding/json only (spec+.md "Document authority"). No third-party
+// encoding/json only (docs/spec.md "Document authority"). No third-party
 // codecs.
 //
 // Versioning: every Envelope carries Version. Bumping is additive: a

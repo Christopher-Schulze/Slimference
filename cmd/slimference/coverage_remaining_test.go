@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/proxy/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/transparent"
 )
 
 func TestControlledExitMarkerMethod(t *testing.T) {

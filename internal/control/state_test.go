@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 type fakeCAProbe struct {

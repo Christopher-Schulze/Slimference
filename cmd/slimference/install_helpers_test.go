@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/daemon"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon"
 )
 
 func TestPatchSNIPeekModeCreatesNewFile(t *testing.T) {

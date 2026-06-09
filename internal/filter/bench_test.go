@@ -8,7 +8,7 @@ import (
 var (
 	benchGitStatusOut = []byte(`M  internal/filter/pipeline.go
  M internal/filter/builtin_git.go
-?? docs/context.md
+?? docs/spec.md
 ?? docs/todo.md
 R  internal/filter/old.go -> internal/filter/new.go
 UU internal/filter/conflict.go
@@ -16,8 +16,8 @@ UU internal/filter/conflict.go
 	benchGitStatusArgv = []string{"git", "status", "--porcelain=v1"}
 
 	benchBuildSuccessOut = []byte(`go: downloading github.com/foo/bar v1.2.3
-ok github.com/slimference/slimference/internal/filter (cached)
-ok github.com/slimference/slimference/internal/compression (cached)
+ok github.com/Christopher-Schulze/Slimference/internal/filter (cached)
+ok github.com/Christopher-Schulze/Slimference/internal/compression (cached)
 `)
 	benchBuildArgv = []string{"go", "test", "./..."}
 

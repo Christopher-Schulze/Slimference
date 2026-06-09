@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/slimference/slimference/internal/types"
 )
 
 func TestConfigPath_EnvOverride(t *testing.T) {

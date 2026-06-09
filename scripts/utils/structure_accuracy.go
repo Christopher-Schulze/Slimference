@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slimference/slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
 )
 
 // T35: structure-extract accuracy measurement scaffolding.

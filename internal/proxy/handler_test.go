@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/caching"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/caching"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestIsContextOverflow(t *testing.T) {

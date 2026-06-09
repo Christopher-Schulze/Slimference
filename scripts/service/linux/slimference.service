@@ -1,6 +1,6 @@
 [Unit]
-Description=Slimference - Claude/Codex token-optimising proxy
-Documentation=https://github.com/slimference/slimference
+Description=Slimference - Codex token-savings proxy
+Documentation=https://github.com/Christopher-Schulze/Slimference
 After=network-online.target
 Wants=network-online.target
 

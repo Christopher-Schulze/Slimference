@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
 )
 
 func TestBuildLayer1DecisionsMapsCompressionRecords(t *testing.T) {

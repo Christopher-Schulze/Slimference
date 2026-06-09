@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/slimference/slimference/internal/outstop/streamcut"
+	"github.com/Christopher-Schulze/Slimference/internal/outstop/streamcut"
 )
 
 var errUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")

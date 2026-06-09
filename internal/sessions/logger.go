@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // LogEntry represents a single log line captured during a session.

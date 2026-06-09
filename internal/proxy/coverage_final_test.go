@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestMaybeCaptureCheckpoint_ErrorPath(t *testing.T) {
@@ -31,7 +31,9 @@ func TestMaybeCaptureCheckpoint_ErrorPath(t *testing.T) {
 func TestMaybeCaptureCheckpoint_NoHomePath(t *testing.T) {
 	t.Setenv("HOME", "")
 
-	p := New(config.Defaults())
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = ""
+	p := New(cfg)
 	p.maybeCaptureCheckpoint(types.AnalyticsEvent{Type: types.EventOverflowRetry})
 }
 

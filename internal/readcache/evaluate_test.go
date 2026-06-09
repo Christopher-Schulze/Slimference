@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 )
 
 func TestEvaluate_FirstReadAllowsAndStores(t *testing.T) {

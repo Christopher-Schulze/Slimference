@@ -16,7 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // DefaultMinTurnGap is the minimum number of messages between an old

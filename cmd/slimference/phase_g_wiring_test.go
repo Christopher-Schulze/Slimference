@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func TestPhaseGAppsPathHomeMissing(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/wscompact"
+	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
 
 // duplexBuffer connects two pipe ends; each side reads from one

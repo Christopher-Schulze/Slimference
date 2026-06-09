@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 // FilterGainSummary aggregates rows from filter_runs (Layer 0 SQLite tracking).

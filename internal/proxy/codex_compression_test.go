@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestExtractMessages_CodexResponsesInput(t *testing.T) {
@@ -263,11 +263,11 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("function output fallback mapping: ok=%v msg=%#v", ok, msg)
 	}
 
-	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","id":"call_wrapped","output":{"stdout":"ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n","exit_code":0}}`))
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","id":"call_wrapped","output":{"stdout":"ok  github.com/Christopher-Schulze/Slimference/internal/proxy  0.041s\nPASS\n","exit_code":0}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok || msg.Content[0].Text != "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n" {
+	if !ok || msg.Content[0].Text != "ok  github.com/Christopher-Schulze/Slimference/internal/proxy  0.041s\nPASS\n" {
 		t.Fatalf("wrapped stdout should be extracted as tool text: ok=%v msg=%#v", ok, msg)
 	}
 	msg.Content[0].Text = "ok\n"

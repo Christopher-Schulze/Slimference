@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // replaceImageBase64 replaces base64 image data in old messages with a compact placeholder.

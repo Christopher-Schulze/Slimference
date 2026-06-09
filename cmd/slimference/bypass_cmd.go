@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 // bypassProxyURL is overridable in tests.

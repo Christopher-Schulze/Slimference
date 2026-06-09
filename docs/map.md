@@ -4,7 +4,7 @@ Last updated: 2026-06-05
 
 ## Module
 
-`github.com/slimference/slimference`
+`github.com/Christopher-Schulze/Slimference`
 
 ## Active Product Layers
 
@@ -17,8 +17,8 @@ Last updated: 2026-06-05
 
 The old semantic summary path is retired. There is no
 `internal/summarization`, no `internal/contextledger`, no summary CLI, no
-MiniMax provider path, and no model-facing context summary or OCRL insertion in
-the product.
+side-channel summarization provider path, and no model-facing context summary
+or OCRL insertion in the product.
 
 ## Dependency Graph
 

@@ -3,8 +3,8 @@ package proxy
 import (
 	"context"
 
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
 )
 
 // SavingsProbe maps the proxy's Phase F counters into the

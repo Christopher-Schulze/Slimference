@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
 )
 
 // SessionStats is a consolidated summary of a completed or in-progress session.

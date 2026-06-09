@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	dbg "github.com/slimference/slimference/internal/debug"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 // ProxyFlightGainSummary aggregates provider-reported request accounting from

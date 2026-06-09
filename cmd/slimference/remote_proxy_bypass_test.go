@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func TestRemoteProxyAdapter_Bypass_ReflectsCachedStatus(t *testing.T) {

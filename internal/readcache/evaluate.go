@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 )
 
 const (

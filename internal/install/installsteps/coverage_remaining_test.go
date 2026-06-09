@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
 )
 
 func TestCertSHA1FingerprintRejectsInvalidDER(t *testing.T) {

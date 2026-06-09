@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // detectProvider determines the upstream provider from the HTTP request.

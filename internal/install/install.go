@@ -25,9 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/control/reversibility/steps"
-	"github.com/slimference/slimference/internal/install/installsteps"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility/steps"
+	"github.com/Christopher-Schulze/Slimference/internal/install/installsteps"
 )
 
 var (

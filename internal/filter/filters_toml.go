@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
-	"github.com/slimference/slimference/internal/compression"
+	"github.com/Christopher-Schulze/Slimference/internal/compression"
 )
 
 // FiltersFile is the root document for .slimference/filters.toml (project or user-global).
@@ -33,7 +33,7 @@ type MatchOutputRule struct {
 	Unless  string `toml:"unless"`
 }
 
-// FilterRule is one [filters.NAME] block (spec+.md §4.5 eight-stage pipeline).
+// FilterRule is one [filters.NAME] block (docs/spec.md §4.5 eight-stage pipeline).
 type FilterRule struct {
 	Description        string            `toml:"description"`
 	MatchCommand       string            `toml:"match_command"`

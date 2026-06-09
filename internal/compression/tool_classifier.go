@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // classifyToolResult classifies a tool_result content block by type.

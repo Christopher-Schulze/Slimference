@@ -3,8 +3,8 @@ package proxy
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/toolprune"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestMessageMentionsAnyPrunedTool_NilTracker covers the early-return

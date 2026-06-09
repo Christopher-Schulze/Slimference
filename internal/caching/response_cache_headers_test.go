@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestResponseCache_ComputeRequestKeyWithHeaders_partitionsBySemanticHeaders(t *testing.T) {

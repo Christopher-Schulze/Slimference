@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 )
 
 // writeTestCA generates a fresh CA + writes root.crt to dir. Returns

@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 // SetWSSDispatcher installs the active WebSocket dispatcher for

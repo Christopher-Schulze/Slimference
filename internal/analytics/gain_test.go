@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	_ "modernc.org/sqlite"
 )
 

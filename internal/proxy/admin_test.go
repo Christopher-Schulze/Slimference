@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestAdminStatusHandler(t *testing.T) {

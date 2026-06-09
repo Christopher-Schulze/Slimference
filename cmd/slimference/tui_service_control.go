@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/tlsca"
-	"github.com/slimference/slimference/internal/transparent"
-	"github.com/slimference/slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
 )
 
 // serviceControlAdapter implements tui.ServiceControlInterface by calling daemon package functions

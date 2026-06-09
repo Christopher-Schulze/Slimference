@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func TestRawScopedWSSListenerInterceptsBeforeNetHTTP(t *testing.T) {

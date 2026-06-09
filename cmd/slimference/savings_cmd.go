@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/codexthreads"
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/codexthreads"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 var _ = config.Defaults // keep config import alive even if no direct calls remain

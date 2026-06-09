@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/daemon"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon"
 )
 
 func TestServiceControlAdapter_StartDaemon(t *testing.T) {

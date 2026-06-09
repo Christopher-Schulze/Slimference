@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/planner"
-	"github.com/slimference/slimference/internal/tlsca"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/planner"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 )
 
 // ConnectInterceptor terminates `CONNECT host:port` tunnels by either:

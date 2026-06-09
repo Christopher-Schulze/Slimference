@@ -48,29 +48,29 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/buildinfo"
+	"github.com/Christopher-Schulze/Slimference/internal/compactsignal"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/crosstool"
+	"github.com/Christopher-Schulze/Slimference/internal/daemon"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/integrate"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/repetition"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/slogutil"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsproof"
+	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/transparent"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/buildinfo"
-	"github.com/slimference/slimference/internal/compactsignal"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/crosstool"
-	"github.com/slimference/slimference/internal/daemon"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/hooks"
-	"github.com/slimference/slimference/internal/integrate"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/repetition"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/slogutil"
-	"github.com/slimference/slimference/internal/tlsdial"
-	"github.com/slimference/slimference/internal/tlsproof"
-	"github.com/slimference/slimference/internal/toolarchive"
-	"github.com/slimference/slimference/internal/transparent"
-	"github.com/slimference/slimference/internal/tui"
-	"github.com/slimference/slimference/internal/types"
 	"golang.org/x/term"
 )
 
@@ -675,7 +675,7 @@ func syncPermissionDeny(wd string) {
 	filter.SetExtraDenyPatterns(out)
 }
 
-// layer0PermissionCheck implements spec+.md Layer-0 permission outcomes before running
+// layer0PermissionCheck implements docs/spec.md Layer-0 permission outcomes before running
 // or rewriting a command: deny → exit 2, ask (sudo) → exit 3, else allow (0, "").
 func layer0PermissionCheck(cmdLine string) (exitCode int, msg string) {
 	wd, _ := os.Getwd()
@@ -3626,11 +3626,13 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 		case <-ticker.C:
 			if hasListener(p) {
 				startProxyPIDCleanup = writePIDFileFn()
+				go daemonCodexAutoRecertFn(cfg.Proxy.ListenPort)
 				return cfg.Proxy.ListenPort, p.Shutdown, nil
 			}
 		case <-deadline:
 			if hasListener(p) {
 				startProxyPIDCleanup = writePIDFileFn()
+				go daemonCodexAutoRecertFn(cfg.Proxy.ListenPort)
 				return cfg.Proxy.ListenPort, p.Shutdown, nil
 			}
 			return 0, nil, fmt.Errorf("proxy start: timeout after %s", proxyStartTimeout)

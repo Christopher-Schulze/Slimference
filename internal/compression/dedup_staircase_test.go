@@ -3,7 +3,7 @@ package compression
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func TestResolveDedupThreshold_StaircaseSteps(t *testing.T) {

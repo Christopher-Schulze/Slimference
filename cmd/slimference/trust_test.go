@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 // writeTrustFile is a small helper to create a filter file for trust tests.

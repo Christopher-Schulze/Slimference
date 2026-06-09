@@ -18,13 +18,26 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // DefaultHint is the curated be-terse instruction. Operators can
 // override via config; this constant captures the wording we
 // validated as having the smallest quality drawdown.
 const DefaultHint = "Reply concisely. No preambles, no closing remarks. Show your work directly."
+
+// DefaultConciseChatHint is the default always-on-safe chat style hint. It is
+// deliberately conservative: it asks for less filler without allowing the model
+// to omit important facts, caveats, paths, errors, or user-requested context.
+const DefaultConciseChatHint = "Answer the user directly and concisely. Be precise, on point, and easy to scan. Avoid preambles, tangents, and closing remarks. Preserve important details, caveats, exact facts, paths, errors, and requested context."
+
+// ConciseChatHint returns the configured chat hint or the safe default.
+func ConciseChatHint(text string) string {
+	if text == "" {
+		return DefaultConciseChatHint
+	}
+	return text
+}
 
 // Result describes the outcome of Inject. Applied=true means the
 // outbound body was mutated; FieldUsed names the JSON field we

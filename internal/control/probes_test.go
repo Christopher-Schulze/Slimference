@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	cappapps "github.com/slimference/slimference/internal/control/apps"
+	cappapps "github.com/Christopher-Schulze/Slimference/internal/control/apps"
 )
 
 func writeTestCert(t *testing.T, dir string, notBefore, notAfter time.Time) {

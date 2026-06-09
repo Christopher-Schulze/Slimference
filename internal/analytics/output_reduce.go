@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // OutputReduceReport summarizes persisted T130 output-discipline telemetry.

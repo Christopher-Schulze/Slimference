@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 func isolateDebugNoConfig(t *testing.T) string {
@@ -149,7 +149,7 @@ decisions_log = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := filter.RecordFilterRun(db, "cat /secret/path.txt", "/Users/christopher/private-project", 1000, 100, 90, time.Now()); err != nil {
+	if err := filter.RecordFilterRun(db, "cat /secret/path.txt", "/Users/example/sensitive-project", 1000, 100, 90, time.Now()); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}

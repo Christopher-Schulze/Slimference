@@ -11,7 +11,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/slimference/slimference/internal/readcache"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
 )
 
 // ErrShutdownTimeout is returned by Shutdown when ctx was cancelled before

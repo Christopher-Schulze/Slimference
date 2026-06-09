@@ -61,14 +61,14 @@ func TestCacheEntryDependsOnPath_MatchModes(t *testing.T) {
 		DependencyPaths: []string{
 			"",
 			"src/main.go",
-			"/Users/christopher/CODE/Slimference/src/lib/util.go",
+			"/Users/example/CODE/Slimference/src/lib/util.go",
 		},
 	}
 
 	if !cacheEntryDependsOnPath(entry, "src/main.go") {
 		t.Fatal("expected exact relative match")
 	}
-	if !cacheEntryDependsOnPath(entry, "/Users/christopher/CODE/Slimference/src/main.go") {
+	if !cacheEntryDependsOnPath(entry, "/Users/example/CODE/Slimference/src/main.go") {
 		t.Fatal("expected absolute changed path to match relative dependency")
 	}
 	if !cacheEntryDependsOnPath(entry, "src/lib/util.go") {

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/slimference/slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 // handleTrustCmd implements `slimference trust [add|list|remove|status] [path]`.
-// Ported from rtk-master (T18). Project-local filters are a prompt-injection
+// Ported from the RTK reference catalog. Project-local filters are a prompt-injection
 // vector when committed to repositories; this command manages the trust
 // store that gates their loading.
 func handleTrustCmd(args []string) {

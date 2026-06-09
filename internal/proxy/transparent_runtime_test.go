@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
 )
 
 func TestNewUpstreamTransport_ProfiledTLSAlwaysOn(t *testing.T) {

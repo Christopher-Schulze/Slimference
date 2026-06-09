@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/slimference/slimference/internal/analytics"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/evidence"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
 )
 
 // mockProxy implements ProxyInterface for testing the TUI model.
@@ -158,26 +158,29 @@ func (c *mockConfig) GetPrefillSpeed() int { return c.speed }
 
 // mockServiceControl implements ServiceControlInterface for testing.
 type mockServiceControl struct {
-	started              bool
-	stopped              bool
-	restarted            bool
-	installed            bool
-	removed              bool
-	running              bool
-	transparentInstalled bool
-	transparentEnabled   bool
-	transparentDisabled  bool
-	transparentRemoved   bool
-	transparentStatus    TransparentStatus
-	codexRouteEnabled    bool
-	codexRouteDisabled   bool
-	codexRouteStatus     CodexRouteStatus
-	codexDesktopStatus   CodexDesktopStatus
-	codexCLILaunched     bool
-	codexAppLaunched     bool
-	codexWSSRepaired     bool
-	daemonNotice         string
-	err                  error
+	started                 bool
+	stopped                 bool
+	restarted               bool
+	installed               bool
+	removed                 bool
+	running                 bool
+	transparentInstalled    bool
+	transparentEnabled      bool
+	transparentDisabled     bool
+	transparentRemoved      bool
+	transparentStatus       TransparentStatus
+	transparentStatusCalls  int
+	codexRouteEnabled       bool
+	codexRouteDisabled      bool
+	codexRouteStatus        CodexRouteStatus
+	codexRouteStatusCalls   int
+	codexDesktopStatus      CodexDesktopStatus
+	codexDesktopStatusCalls int
+	codexCLILaunched        bool
+	codexAppLaunched        bool
+	codexWSSRepaired        bool
+	daemonNotice            string
+	err                     error
 }
 
 func (m *mockServiceControl) StartDaemon() error {
@@ -221,8 +224,11 @@ func (m *mockServiceControl) DaemonStatus() (bool, int, int) {
 	}
 	return false, 0, 0
 }
-func (m *mockServiceControl) DaemonNotice() string                 { return m.daemonNotice }
-func (m *mockServiceControl) TransparentStatus() TransparentStatus { return m.transparentStatus }
+func (m *mockServiceControl) DaemonNotice() string { return m.daemonNotice }
+func (m *mockServiceControl) TransparentStatus() TransparentStatus {
+	m.transparentStatusCalls++
+	return m.transparentStatus
+}
 func (m *mockServiceControl) InstallTransparent() error {
 	if m.err != nil {
 		return m.err
@@ -257,8 +263,12 @@ func (m *mockServiceControl) UninstallTransparent() error {
 	m.transparentStatus = TransparentStatus{}
 	return nil
 }
-func (m *mockServiceControl) CodexRouteStatus() CodexRouteStatus { return m.codexRouteStatus }
+func (m *mockServiceControl) CodexRouteStatus() CodexRouteStatus {
+	m.codexRouteStatusCalls++
+	return m.codexRouteStatus
+}
 func (m *mockServiceControl) CodexDesktopStatus() CodexDesktopStatus {
+	m.codexDesktopStatusCalls++
 	return m.codexDesktopStatus
 }
 func (m *mockServiceControl) LaunchCodexCLI() (string, error) {
@@ -375,6 +385,31 @@ func TestUpdate_SetupCodexRouteToggleIsCLIOnly(t *testing.T) {
 	model := updated.(Model)
 	if svc.codexRouteEnabled || svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "CLI-only") {
 		t.Fatalf("route key should be CLI-only: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+}
+
+func TestSetServiceControlRefreshesCodexRouteOnTUIStart(t *testing.T) {
+	p := newMockProxy()
+	svc := &mockServiceControl{
+		transparentStatus: TransparentStatus{CAExists: true},
+		codexRouteStatus: CodexRouteStatus{
+			DaemonReachable: true,
+			NeedsRecert:     true,
+			RecertStatus:    "running",
+			AutoMode:        "http",
+		},
+		codexDesktopStatus: CodexDesktopStatus{AppServerActive: true},
+	}
+	m := NewModel(p)
+
+	m.SetServiceControl(svc)
+
+	if svc.transparentStatusCalls != 1 || svc.codexRouteStatusCalls != 1 || svc.codexDesktopStatusCalls != 1 {
+		t.Fatalf("SetServiceControl should force exactly one startup refresh per service surface: transparent=%d codex=%d desktop=%d",
+			svc.transparentStatusCalls, svc.codexRouteStatusCalls, svc.codexDesktopStatusCalls)
+	}
+	if !m.codexRouteStatus.NeedsRecert || m.codexRouteStatus.RecertStatus != "running" {
+		t.Fatalf("startup codex route status not captured: %+v", m.codexRouteStatus)
 	}
 }
 
@@ -792,10 +827,10 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	if err := sessions.StartHookSession(dir, "stale-hook-session"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := sessions.ObserveHookGitPathList(dir, "stale-hook-session", "/Users/me/CODE/Golem", "git status", []string{"cmd/slimference/main.go"}); err != nil {
+	if _, _, err := sessions.ObserveHookGitPathList(dir, "stale-hook-session", "/Users/me/CODE/Demo", "git status", []string{"cmd/slimference/main.go"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sessions.ObserveHookFile(dir, "stale-hook-session", "/Users/me/CODE/Golem/cmd/slimference/main.go", "read"); err != nil {
+	if err := sessions.ObserveHookFile(dir, "stale-hook-session", "/Users/me/CODE/Demo/cmd/slimference/main.go", "read"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -805,8 +840,8 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 		return map[string]codexThreadMetadata{
 			"019ea3fe-85bc-78f2-af43-ad3d2d76d820": {
 				ID:        "019ea3fe-85bc-78f2-af43-ad3d2d76d820",
-				Title:     "› okay chekc das projekt wie weit sind wir",
-				CWD:       home + "/CODE/Golem",
+				Title:     "› check project status",
+				CWD:       home + "/CODE/Demo",
 				Source:    "cli",
 				Model:     "gpt-5.5",
 				UpdatedAt: time.Now(),
@@ -824,7 +859,7 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "Codex CLI", "okay chekc das projekt", "~/CODE/Golem", "gpt-5.5", "Slimference route", "42 saved"} {
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "Codex CLI", "check project status", "~/CODE/Demo", "gpt-5.5", "Slimference route", "42 saved"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity view missing %q in:\n%s", want, output)
 		}
@@ -834,7 +869,7 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 			t.Fatalf("activity view leaked internal label %q in:\n%s", blocked, output)
 		}
 	}
-	for _, stale := range []string{"ACTIVE SESSIONS", "stale-hook-session", "/Users/me/CODE/Golem"} {
+	for _, stale := range []string{"ACTIVE SESSIONS", "stale-hook-session", "/Users/me/CODE/Demo"} {
 		if strings.Contains(output, stale) {
 			t.Fatalf("activity view leaked stale hook data %q in:\n%s", stale, output)
 		}

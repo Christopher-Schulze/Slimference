@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
 )
 
 func TestHandleSubcommand_doctor_smoke(t *testing.T) {

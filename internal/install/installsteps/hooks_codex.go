@@ -5,8 +5,8 @@ import (
 	"errors"
 	"os"
 
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/hooks"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/hooks"
 )
 
 // HooksCodex wraps internal/hooks.InstallCodex / RemoveCodex into a

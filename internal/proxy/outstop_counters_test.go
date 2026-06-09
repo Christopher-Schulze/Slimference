@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/savingspolicy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
 )
 
 func TestOutputReduceCountersStopSeqInjection(t *testing.T) {

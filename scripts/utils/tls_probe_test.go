@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/tlsdial"
+	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
 )
 
 func TestParseTLSProbeArgs(t *testing.T) {

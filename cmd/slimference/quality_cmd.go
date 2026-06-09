@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 // qualityFlags captures the CLI flags for `slimference quality`. T77.

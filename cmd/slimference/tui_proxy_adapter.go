@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control/apps"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/proxy"
-	"github.com/slimference/slimference/internal/tui"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // proxyAdapter adapts proxy.Proxy to tui.ProxyInterface to avoid import cycle.

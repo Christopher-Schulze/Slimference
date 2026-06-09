@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func TestSetBypassFor_AutoRevertsOnDeadline(t *testing.T) {

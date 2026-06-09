@@ -20,7 +20,7 @@ import (
 	"encoding/hex"
 	"sync"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // maxBlocksPerSession bounds the per-session hash set so a long conversation

@@ -3,9 +3,9 @@ package main
 import (
 	"sort"
 
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/filter"
-	"github.com/slimference/slimference/internal/tui"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/tui"
 )
 
 func layer0StatusFromSnapshots(snaps map[string]filter.FilterSnapshot) tui.Layer0Status {

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestUsageTracker_Record_IncrementsCounters verifies basic counter accumulation.

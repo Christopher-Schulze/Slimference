@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	dbg "github.com/slimference/slimference/internal/debug"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 func TestSummarizeProxyFlights(t *testing.T) {

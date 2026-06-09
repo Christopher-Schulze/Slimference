@@ -9,12 +9,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/slimference/slimference/internal/abharness"
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/outputreduce"
-	"github.com/slimference/slimference/internal/proxy/wsmitm"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/abharness"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // WSSABReplayFrame is one decompressed Codex WSS envelope in replay order.

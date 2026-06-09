@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slimference/slimference/internal/integrate"
+	"github.com/Christopher-Schulze/Slimference/internal/integrate"
 )
 
 func captureIntegrate(t *testing.T, fn func()) (stdout, stderr string) {

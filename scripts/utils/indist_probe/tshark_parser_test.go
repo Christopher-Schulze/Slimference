@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -202,6 +204,40 @@ func TestParseTSharkJSONSyntheticWSSCapture(t *testing.T) {
 	}
 	if !strings.Contains(cap.WSExtensions, "permessage-deflate") {
 		t.Fatalf("WSExtensions=%q", cap.WSExtensions)
+	}
+}
+
+func TestRunLockGoldenWritesFixturePath(t *testing.T) {
+	tmp := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+
+	srcPath := filepath.Join(tmp, "capture.json")
+	src := `{"label":"codex-native","ja3":"abc","ja4":"def","sni":"chatgpt.com"}`
+	if err := os.WriteFile(srcPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := runLockGolden([]string{"--target=codex-native", srcPath}); code != 0 {
+		t.Fatalf("runLockGolden exit=%d", code)
+	}
+	dstPath := filepath.Join(tmp, "tests", "fixtures", "indist", "codex-native", "baseline.json")
+	data, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"label": "codex-native"`) {
+		t.Fatalf("baseline content: %s", data)
 	}
 }
 

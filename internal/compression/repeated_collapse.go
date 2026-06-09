@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // ToolCallIndex tracks tool_use calls to detect repeated identical calls in old messages.

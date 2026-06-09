@@ -292,22 +292,22 @@ func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 func TestCodexDesktopDirectOpenEnvSetsLaunchPWDAndDropsThreadState(t *testing.T) {
 	got := codexDesktopDirectOpenEnv([]string{
 		"PATH=/usr/bin",
-		"PWD=/Users/christopher/CODE/ClankWork-main",
+		"PWD=/Users/example/CODE/OldProject",
 		"OLDPWD=/tmp",
 		"CODEX_THREAD_ID=old-thread",
 		"CODEX_CI=1",
-		"HOME=/Users/christopher",
-	}, "/Users/christopher/CODE/Slimference")
+		"HOME=/Users/example",
+	}, "/Users/example/CODE/Slimference")
 	joined := strings.Join(got, "\n")
-	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_CI=", "OLDPWD=", "PWD=/Users/christopher/CODE/ClankWork-main"} {
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_CI=", "OLDPWD=", "PWD=/Users/example/CODE/OldProject"} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("direct open env leaked %s in %v", forbidden, got)
 		}
 	}
-	if !strings.Contains(joined, "PWD=/Users/christopher/CODE/Slimference") {
+	if !strings.Contains(joined, "PWD=/Users/example/CODE/Slimference") {
 		t.Fatalf("direct open env did not pin launch PWD: %v", got)
 	}
-	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "HOME=/Users/christopher") {
+	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "HOME=/Users/example") {
 		t.Fatalf("direct open env lost ordinary environment: %v", got)
 	}
 }

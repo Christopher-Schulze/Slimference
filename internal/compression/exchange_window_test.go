@@ -3,7 +3,7 @@ package compression
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func msg(role, text string) types.Message {

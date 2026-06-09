@@ -51,7 +51,7 @@
     {
       "type": "function_call_output",
       "call_id": "call_2",
-      "output": "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n"
+      "output": "ok  github.com/Christopher-Schulze/Slimference/internal/proxy  0.041s\nPASS\n"
     },
     {
       "type": "message",

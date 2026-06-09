@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/codexroute"
-	"github.com/slimference/slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 const codexRecertLogMaxBytes int64 = 2 << 20
@@ -292,13 +292,6 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 	if err := seedCodexRecertRepo(dir); err != nil {
 		return codexRecertTriggerResult{}, err
 	}
-	workdir, err := os.Getwd()
-	if err != nil {
-		return codexRecertTriggerResult{}, fmt.Errorf("resolve recert workdir: %w", err)
-	}
-	if workdir == "" {
-		return codexRecertTriggerResult{}, errors.New("resolve recert workdir: empty")
-	}
 	statusCmd := "git -C " + shellQuote(dir) + " status --short"
 	prompts := []string{
 		"Run exactly `" + statusCmd + "`, then reply exactly RECERT_DONE.",
@@ -306,7 +299,7 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 	for i, prompt := range prompts {
 		args := []string{"codex", "run", "--transport=wss", "--host=" + input.Host, "--port=" + input.Port, "--"}
 		if i == 0 {
-			args = append(args, "exec", "--ignore-user-config", "--ephemeral", "--cd", workdir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
+			args = append(args, "exec", "--ignore-user-config", "--ephemeral", "--cd", dir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
 		} else {
 			args = append(args, "exec", "resume", "--last", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
 		}
@@ -339,9 +332,24 @@ func runRecertCommand(timeout time.Duration, args ...string) error {
 	if err != nil {
 		return err
 	}
+	stateDir, err := os.MkdirTemp("", "slimference-codex-recert-state-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stateDir)
+	childConfigPath := filepath.Join(stateDir, "config.toml")
+	childAnalyticsDir := filepath.Join(stateDir, "analytics")
+	if err := os.MkdirAll(childAnalyticsDir, 0o700); err != nil {
+		return err
+	}
+	childConfig := fmt.Sprintf("[analytics]\nlog_dir = %q\n\n[logging]\nfile = %q\n", childAnalyticsDir, "")
+	if err := os.WriteFile(childConfigPath, []byte(childConfig), 0o600); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(os.Environ(), "SLIMFERENCE_CONFIG="+childConfigPath)
 	var stdout strings.Builder
 	var stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -579,6 +587,28 @@ func startCodexAutoRecert(home, host, port string, decision codexroute.AutoDecis
 	if devNull != nil {
 		_ = devNull.Close()
 	}
+}
+
+var (
+	daemonCodexAutoRecertFn   = maybeStartDaemonCodexAutoRecert
+	daemonAutoRecertAllowedFn = func() bool {
+		return !strings.HasSuffix(os.Args[0], ".test")
+	}
+)
+
+func maybeStartDaemonCodexAutoRecert(port int) {
+	if os.Getenv("SLIMFERENCE_DAEMON_AUTO_RECERT") == "0" || !daemonAutoRecertAllowedFn() {
+		return
+	}
+	home, err := codexRouteHomeFn()
+	if err != nil || home == "" {
+		return
+	}
+	decision := codexAutoFn(home)
+	if !decision.NeedsRecert {
+		return
+	}
+	codexAutoRecertFn(home, "127.0.0.1", fmt.Sprint(port), decision)
 }
 
 func appendCodexRecertLog(home, line string) {

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func TestTestUpstream_ok(t *testing.T) {
@@ -40,7 +40,7 @@ func TestTestUpstream_ok(t *testing.T) {
 	}
 }
 
-func TestHandleTestCmd_upstreamAndMinimax(t *testing.T) {
+func TestHandleTestCmd_UpstreamAndSummaryProviderFlags(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

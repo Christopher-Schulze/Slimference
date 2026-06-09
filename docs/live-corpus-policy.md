@@ -188,7 +188,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
 
 ## Tightening the gate as the corpus grows (T118b)
 
-The shipping seed (`synthetic_smoke/`) accepts a wide ratio band (0.30 to 0.85) by design - it is not real-session data. Real captures with known denominators should set tighter `expected_savings_min` / `expected_savings_max` brackets so a regression is caught quickly. Proof-matrix exports without known denominators should use `expected_saved_tokens_min` plus mechanism-specific validators instead. T118b in `docs/todo.md` tracks the operator-driven expansion to >=10 real-session categories.
+The shipping seed (`synthetic_smoke/`) accepts a wide ratio band (0.30 to 0.85) by design - it is not real-session data. Real captures with known denominators should set tighter `expected_savings_min` / `expected_savings_max` brackets so a regression is caught quickly. Proof-matrix exports without known denominators should use `expected_saved_tokens_min` plus mechanism-specific validators instead. Future corpus expansion should add at least 10 real-session categories before any broad production-median savings claim.
 
 ## Removal
 

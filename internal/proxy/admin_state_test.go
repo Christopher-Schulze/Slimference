@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/apps"
-	"github.com/slimference/slimference/internal/hostmetrics"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
+	"github.com/Christopher-Schulze/Slimference/internal/hostmetrics"
 )
 
 func newProxyForAdminTest(t *testing.T) *Proxy {

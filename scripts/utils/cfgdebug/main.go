@@ -8,7 +8,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/slimference/slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 )
 
 func main() {

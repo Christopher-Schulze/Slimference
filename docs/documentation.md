@@ -1,9 +1,9 @@
 # Slimference - Technical Documentation
 
-Version: 2.3.0
+Version: 0.6.0
 Last updated: 2026-06-07
 
-Comprehensive reference for the Slimference token-optimising proxy. This
+Comprehensive reference for the Slimference token-savings proxy. This
 document is re-written for the 2.3 line; sections follow current code
 layout, each with file:line pointers so readers can jump from prose to
 source in one hop.
@@ -126,6 +126,12 @@ routine use, it stays out of the product path.
 - **Scoped before global**: the default Codex CLI path is per-process and
   does not use `/etc/hosts`, pfctl, System Proxy settings, or persistent
   env vars. Transparent MITM is explicit global lab mode only.
+- **Local CA files are not global MITM**: default install may keep local CA
+  material for isolated legacy/lab diagnostics, but Keychain trust, hosts,
+  pfctl, and system-proxy routing are never part of the normal install path.
+- **Autonomous WSS repair**: daemon startup checks Codex WSS proof drift and
+  can launch the same lock/backoff-gated background recert used by scoped
+  `codex run --transport=auto`, TUI startup/status refresh, and TUI repair.
 - **Passthrough on failure**: if any layer errors, the original body is
   forwarded. See section 10.
 - **Bypass switch**: a single atomic flag collapses every provider + layer
@@ -207,7 +213,7 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
     tool-surface reductions are applied only when policy and proof gates allow.
 12. **Upstream call** via the per-provider HTTP client. Streaming is
     preserved.
-13. **Overflow recovery** (spec+.md §17.4): on HTTP 400 with context-
+13. **Overflow recovery** (`docs/spec.md`): on HTTP 400 with context-
     too-large signal, retry with aggressive re-compression, then raw.
 14. **Layer 2 response cache** — stores by request hash; `FileWatcher`
     invalidates on change.
@@ -238,8 +244,7 @@ and `slimference readhook codex`. Claude hook code remains in-tree but no
 public install path writes `~/.claude`.
 
 Slimference hook install/remove is scoped to Slimference-owned hook entries and
-preserves other Codex hooks, including Reconc repo-local policy hooks in
-`.codex/hooks.json`.
+preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
 
 ### Pipeline
 
@@ -291,7 +296,7 @@ preserves other Codex hooks, including Reconc repo-local policy hooks in
    omitted-line marker. User and project TOML rules keep their literal DSL
    semantics, because they are operator-owned configuration.
 5. Truncate with a short `[truncated …]` hint to
-   `passthrough_max_chars` (default 4000; spec+.md §4.6).
+   `passthrough_max_chars` (default 2000; `docs/spec.md`).
 6. Emit to stdout + write the raw bytes to the tee dir for recovery.
 7. Record the run in `filter.db` (SQLite) with local-tokenizer counts for
    input/output tokens, falling back to byte/4 only if the tokenizer is
@@ -352,6 +357,26 @@ feedback, and German `fehlt`/`nochmal ausführlicher` style re-asks are stored b
 session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
 window.
+Runtime controls live under `[compression.output_reduce]`. Directive injection
+uses `enabled`, `profile`, `custom_directive_path`, `signature_marker`,
+`max_added_bytes`, `min_input_tokens`, and auto-tune thresholds. The conservative
+concise-chat hint is controlled by `concise_chat_enabled`,
+`concise_chat_min_input_tokens`, and `concise_chat_text`. It applies only to
+direct-answer/explanation turns, full-passes code, docs, JSON, logs, diffs,
+repair, review, planning, and tool-output contexts, and is gated so tiny prompts
+do not pay more input overhead than the hint can plausibly save in output. On
+HTTP routes the established output-reduce profile keeps priority for requests at
+or above `min_input_tokens`; concise-chat fills the guarded smaller-chat gap. On
+Codex WSS, prompt-cache-prefix frames stay byte-equal. Stop sequences, HTTP/SSE
+streamcut, repetition detection, stale-read aging, obsolete-read pruning, and
+the default-off be-terse hint are independent toggles so operators can keep
+deterministic response-side guards without forcing prompt-directive injection.
+The output status/admin payload reports injected/skipped turns, directive input
+overhead, observed output tokens, last skip reason, auto-tune downgrades,
+stop-sequence additions, streamcut fires, repetition rewrites, stale/obsolete
+read replacements, and be-terse injections. `slimference gain --output` reads
+those persisted counters and deliberately reports observable telemetry only;
+concrete output-token savings claims require paired A/B proof.
 Task-shape detection reads only model instructions: user, system, developer,
 top-level `instructions`, top-level `system`, and top-level prompt/input text.
 It deliberately ignores prior Codex `function_call`, `function_call_output`,
@@ -364,15 +389,23 @@ written only to the top-level `instructions` string. The injector does not
 rewrite `input` and never creates `input` items with `role=system`, because Codex
 rejects those and because output-reduce must not alter the model's task/tool
 context while trying to save output tokens. On the Codex WSS Phase-F path,
-model-facing output-reduce directive injection is disabled. Live Golem sessions
-showed recurrent upstream `invalid_request_error` after a prior WSS user-turn
-directive rewrite, while the directly rejected follow-up frame was byte-equal.
+model-facing output-reduce directive injection is disabled except for the
+separate conservative concise-chat hint on eligible non-prefix chat frames. Live
+scoped WSS sessions showed recurrent upstream `invalid_request_error` after a
+prior WSS user-turn directive rewrite, while the directly rejected follow-up
+frame was byte-equal.
 The product rule wins: a speculative output-token reducer that can poison WSS
 conversation state is not a default product path. Read/git/test/repeated-output,
 tool-prune, stale-read, archive-recovery, and chunk reducers remain separate and
 can still alter WSS input only under their own deterministic guards. WSS debug
 telemetry records such skipped output-reduce candidates as
 `codex_wss_directive_disabled`.
+Layer 3 product work follows a lower-savings, zero-drawdown profile: default-on
+mechanisms must be deterministic, shape-bounded, recoverable or auto-demoted,
+and must not require the model to reinterpret extra behavioral instructions.
+Model-facing directive variants stay shadow/proof-gated until paired A/B rows
+show positive net savings with no repair, re-ask, host-budget, or safety
+regression for that exact workload shape.
 Streaming provider usage is accounted by field semantics, not by blind addition:
 if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
 replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`
@@ -465,9 +498,9 @@ provider-cache read, create/warmup, observed, and negative-net situations stay
 visible. It does not summarize or retrieve content for the model; it only makes
 deterministic reducer decisions auditable and catches negative-net/cache
 regressions.
-Headroom-derived ideas are limited to deterministic parser/evidence/reporting
-hardening. Slimference does not product-enable Headroom-style Kompress/local
-model compression, lossy code/text summaries, CCR retrieve-on-demand, memory
+Research-derived compression ideas are limited to deterministic parser,
+evidence, and reporting hardening. Slimference does not product-enable local
+model compression, lossy code/text summaries, retrieve-on-demand memory
 injection, or learning loops, because those require the model to recover omitted
 context and do not meet the no-drawdown rule.
 After any WSS upstream `error`, `response.failed`, or `response.incomplete`
@@ -613,12 +646,12 @@ introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
 search-output reducer paths currently fail open before first-pass grouping and
 repeated search delta, including grep-style search, path-list tools such as
 `find` / `fd`, empty-result search tools, and output-inferred search payloads.
-Fresh live Golem sessions on 2026-06-07 showed upstream `invalid_request_error`
-after WSS search-output mutation even with output-reduce disabled, and a later
-retest proved the narrower search-key gate was insufficient. HTTP, hook, and
-non-WSS routes keep the deterministic search reducers; WSS search/path-list
-savings must be re-certified with live captures before returning to the default
-WSS product path.
+Fresh live scoped WSS sessions on 2026-06-07 showed upstream
+`invalid_request_error` after WSS search-output mutation even with output-reduce
+disabled, and a later retest proved the narrower search-key gate was
+insufficient. HTTP, hook, and non-WSS routes keep the deterministic search
+reducers; WSS search/path-list savings must be re-certified with live captures
+before returning to the default WSS product path.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -680,17 +713,17 @@ guarded continuation shape stops claiming read-delta/chunk savings until live
 evidence proves OpenAI's current WSS contract accepts that mutation without
 400s.
 
-Reconc command output is treated as policy/workflow evidence and passes through
-unchanged on every Codex Layer-0 route. The guard recognizes direct `reconc`,
-packaged `reconc-*` binaries, shell-wrapped invocations, leading
-`cd <repo> && ...` forms, and `go run ./cmd/reconc ...` development commands.
-These outputs are intentionally not a savings surface: the token upside is small,
-while preserving exact policy, audit, hook, and task evidence avoids confusing
-Codex or the operator during workflow-state checks.
+Repo-local policy command output is treated as workflow evidence and passes
+through unchanged on every Codex Layer-0 route. The guard recognizes direct
+policy-tool binaries, packaged variants, shell-wrapped invocations, leading
+`cd <repo> && ...` forms, and Go development commands. These outputs are
+intentionally not a savings surface: the token upside is small, while preserving
+exact policy, audit, hook, and task evidence avoids confusing Codex or the
+operator during workflow-state checks.
 
-Slimference also preserves Reconc's Codex hooks during Slimference hook install
-and removal, so Reconc can remain the repo-local policy gate while Slimference
-handles scoped transport and safe output reduction.
+Slimference also preserves third-party Codex hooks during Slimference hook
+install and removal, so repo-local policy gates can remain active while
+Slimference handles scoped transport and safe output reduction.
 
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads
@@ -840,11 +873,11 @@ zero parse, degraded-session, or compression errors. The clean Desktop workday
 window historically saved 382 billable WSS-input tokens on an archive-backed
 `rg -n TODO` workload with `phasef_bridged=2`, `compressed_messages_mutated=1`,
 `frames_reencoded=1`, and zero parse, degraded-session, or compression errors.
-Fresh 2026-06-07 Golem sessions later showed upstream 400s after WSS
+Fresh 2026-06-07 scoped WSS sessions later showed upstream 400s after WSS
 search-output mutation, so that search-loop row is kept as historical evidence,
 not as a current default-WSS promotion claim. Current WSS search/path-list output
 fails open until re-certified, including inferred search payloads and
-`find`/`fd` path-list outputs such as Reconc file listings. The strict matrix
+`find`/`fd` path-list outputs such as policy-tool file listings. The strict matrix
 still proves representative WSS savings breadth for deterministic read,
 ranged-read, git, exec-envelope, no-savings, and mixed-workday reducers that
 remain in the product path. The
@@ -929,7 +962,7 @@ daemon, so this capture env var works through the normal lifecycle command.
 ## 5. Layer 1 - Deterministic Compression
 
 `internal/compression/layer1.go::DeterministicCompressor.Compress`
-orchestrates 15 sub-layers. Execution order per spec+.md §5 plus the T143
+orchestrates 15 sub-layers. Execution order follows `docs/spec.md` plus the T143
 semantic frontier:
 
 | # | Sub-layer                          | File                           |
@@ -1085,9 +1118,9 @@ original body locally retrievable.
 ## 6. Retired Semantic Summary Path
 
 The old semantic summary path has been removed from the product and codebase.
-Slimference no longer ships MiniMax summarization, external OpenAI-compatible
-summarization, local LLM summarization, OCRL full-history replacement, or
-context-ledger insertion as a model-facing savings path.
+Slimference no longer ships side-channel summarization, local LLM
+summarization, OCRL full-history replacement, or context-ledger insertion as a
+model-facing savings path.
 
 The reason is product safety: any semantic replacement of old context can drop a
 detail the model later needs, which violates the project drawdown rule. Savings
@@ -1683,15 +1716,13 @@ error to exit code 6 (T44). Nil `ctx` is tolerated
 
 ### Failure-mode matrix
 
-See `docs/integration.md` for the full table. Summary:
-
 | Scenario                    | Client impact                        | Recovery                          |
 |-----------------------------|--------------------------------------|-----------------------------------|
 | Daemon crashed              | 1× ECONNREFUSED, SDK retries         | none                              |
-| Restart loop                | some reqs fail                       | `integrate remove` + shell reload |
-| Binary moved / deleted      | persistent ECONNREFUSED              | manual cleanup from docs          |
+| Restart loop                | some requests fail                   | `slimference disable`, then restart or inspect daemon logs |
+| Binary moved / deleted      | persistent ECONNREFUSED              | reinstall from source/release, then uninstall if needed |
 | Want compression off        | —                                    | `bypass on` CLI                   |
-| Panic button                | —                                    | `integrate emergency-off`         |
+| Legacy config-patch panic button | —                              | `integrate emergency-off`         |
 
 ---
 
@@ -1728,8 +1759,9 @@ call after the deadline sees the cleared state.
 ### File permissions
 
 - Config file written with `0o644`.
-- launchd env file (`.env`) written with `0o600` — contains
-  `MINIMAX_API_KEY`.
+- launchd env file (`.env`) written with `0o600`; current product builds keep it
+  as a restrictive service-environment stub and do not export retired
+  side-channel summarization keys.
 - SQLite files (`filter.db`) created with standard perms.
 
 ### What Slimference does NOT do
@@ -2044,14 +2076,18 @@ anthropic_unknown_behavior = "conservative"   # conservative|passthrough|full
 [compression]
 layer1_enabled                       = true
 layer2_enabled                       = true
-sliding_window                       = 6
-min_messages_for_compression         = 5
+sliding_window                       = 5
+min_messages_for_compression         = 8
 structure_min_tokens                 = 500
 dedup_similarity_threshold           = 0.85               # scalar fallback
 
   [compression.tuning]
+  overflow_sliding_window = 2
+  overflow_target_ratio = 0.10
   loop_detection    = false                  # T37
   structure_preview = true                   # T76 archive-backed default
+  structure_in_window = false
+  structure_in_window_min_tokens = 1500
   incremental_staircase = [ ... ]            # T27
   dedup_staircase = [                        # T53
     { msg_count_le = 10,       threshold = 0.88 },
@@ -2079,7 +2115,7 @@ mode = "redact"              # off | warn | redact | block
 log_dir = "~/.slimference/analytics"
 
 [filter]
-passthrough_max_chars = 4000
+passthrough_max_chars = 2000
 filter_db             = ""
 tee_dir               = ""
 
@@ -2329,9 +2365,11 @@ present, and writes `~/.slimference/codex-wss-cert.json` only with
 `frames_reencoded>0`, `compressed_messages_mutated>0`, and daemon reachability.
 `--transport=auto` consumes that proof through `internal/codexroute` using the
 explicit ladder `wss_phasef -> wss_bridge -> http -> direct`. Version drift now
-sets `needs_recert=true` and starts the shared recert path after daemon health is
-green; if a clean byte-equal WSS bridge proof exists, the active user session
-stays on WSS bridge while repair runs instead of jumping directly to HTTP.
+sets `needs_recert=true`; daemon startup, scoped auto transport, TUI
+startup/status refresh, and TUI repair
+can start the shared recert path after the daemon listener is reachable. If a
+clean byte-equal WSS bridge proof exists, the active user session stays on WSS
+bridge while repair runs instead of jumping directly to HTTP.
 
 `slimference codex recertify wss` is the shared repair core for CLI, background
 auto-recert, and TUI Setup. It creates a temporary repo, runs real Codex CLI
@@ -2679,15 +2717,6 @@ install -Dm755 /tmp/slimference_<version>_darwin_arm64/slimference \
     "$HOME/.local/bin/slimference"
 ```
 
-### Linux systemd (community-supported path)
-
-```bash
-./scripts/service/linux/install.sh
-journalctl --user -u slimference -f
-```
-
-See `docs/deploy/linux-systemd.md` for the full walk-through.
-
 ### Docker (reference only)
 
 `scripts/service/docker/Dockerfile` ships a multi-stage distroless
@@ -2695,9 +2724,9 @@ image. Build:
 
 ```bash
 docker build -f scripts/service/docker/Dockerfile \
-    --build-arg VERSION=2.3.0 \
+    --build-arg VERSION=0.6.0 \
     --build-arg COMMIT=$(git rev-parse --short HEAD) \
-    -t slimference:2.3.0 .
+    -t slimference:0.6.0 .
 ```
 
 ---
@@ -2711,21 +2740,21 @@ script but is opt-in.
 ### Default build (primary target only)
 
 ```bash
-go run ./scripts/release --version v2.3.0
+go run ./scripts/release --version v0.6.0
 ```
 
 Produces:
 
 ```
-dist/slimference_2.3.0_darwin_arm64/slimference
-dist/slimference_2.3.0_darwin_arm64.tar.gz
+dist/slimference_0.6.0_darwin_arm64/slimference
+dist/slimference_0.6.0_darwin_arm64.tar.gz
 dist/SHA256SUMS
 ```
 
 ### All targets
 
 ```bash
-go run ./scripts/release --version v2.3.0 --targets=all
+go run ./scripts/release --version v0.6.0 --targets=all
 ```
 
 Adds `darwin_amd64`, `linux_arm64`, `linux_amd64`.
@@ -2733,14 +2762,14 @@ Adds `darwin_amd64`, `linux_arm64`, `linux_amd64`.
 ### Hand-picked subset
 
 ```bash
-go run ./scripts/release --version v2.3.0 \
+go run ./scripts/release --version v0.6.0 \
     --targets=darwin/arm64,linux/amd64
 ```
 
 ### `ldflags` injection
 
 Both `main.version` (for backward compat) and
-`github.com/slimference/slimference/internal/buildinfo.Version` (the
+`github.com/Christopher-Schulze/Slimference/internal/buildinfo.Version` (the
 canonical source read by `--version` and `doctor`) are set. Without
 the buildinfo injection, `--version` would print the compile-time
 default from `version.go` and ignore the tag.
@@ -2759,7 +2788,10 @@ default from `version.go` and ignore the tag.
 
 ### Release checklist
 
-Full process in `docs/release-process.md`.
+Before cutting artifacts, bump the version, update release notes if needed, run
+`go run ./scripts/ci`, build with `go run ./scripts/release --version <tag>`,
+verify SHA256 output, and smoke-test the produced binary with `--version`,
+`doctor`, and `status --preflight`.
 
 ---
 
@@ -2911,7 +2943,6 @@ internal/types/               Shared types (Provider, Message, ContentBlock).
 internal/util/                Generic helpers.
 
 scripts/release/              Cross-build + tar + SHA256 (T47).
-scripts/service/linux/        systemd unit + install.sh (T48).
 scripts/service/docker/       Distroless Dockerfile.
 scripts/benchmarks/           Benchmark runner.
 scripts/coverage/             Coverage gate.
@@ -2920,11 +2951,11 @@ scripts/utils/                Offline session/decision/filter/proof reports and
 
 docs/
   documentation.md            This file.
-  integration.md              Operator guide for integrate + bypass.
+  install.md                  Install/uninstall SSOT.
+  spec.md                     Current technical target specification.
   layer0-exit-codes.md        Layer-0 exit-code matrix (T63).
-  deploy/linux-systemd.md     Linux install walk-through (T48).
-  release-process.md          Release cut process (T47).
-  todo.md, todo/              Task tracker.
+  live-corpus-policy.md       Release-proof/live-corpus rules.
+  benchmarks.md               Reproducible benchmark and corpus reports.
 ```
 
 For the detailed dependency graph see `docs/map.md`.

@@ -10,7 +10,6 @@ import (
 func TestRenderSetupView_NoServiceControlAllChecksReady(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	cfgPath := filepath.Join(home, ".slimference", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
@@ -54,7 +53,6 @@ func TestRenderSetupView_NoServiceControlStoppedFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(home, ".slimference", "missing.toml"))
-	t.Setenv("MINIMAX_API_KEY", "")
 
 	model := NewModel(newMockProxy())
 	model.width = 100

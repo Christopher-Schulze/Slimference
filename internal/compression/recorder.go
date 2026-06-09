@@ -3,7 +3,7 @@ package compression
 import (
 	"strings"
 
-	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 )
 
 // MutationRecorder is the contract that lossy Layer 1 sub-layers use to

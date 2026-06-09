@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/slimference/slimference/internal/analytics"
-	dbg "github.com/slimference/slimference/internal/debug"
-	"github.com/slimference/slimference/internal/evidence"
-	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/types"
 )
 
 // renderMainView renders the five-item home menu.

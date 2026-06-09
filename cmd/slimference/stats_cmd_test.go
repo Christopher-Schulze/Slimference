@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slimference/slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
 )
 
 func TestHandleSubcommand_stats_today_withSnapshot(t *testing.T) {

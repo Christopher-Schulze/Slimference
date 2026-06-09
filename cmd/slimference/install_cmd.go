@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/control"
-	"github.com/slimference/slimference/internal/control/reversibility"
-	"github.com/slimference/slimference/internal/install"
-	"github.com/slimference/slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
+	"github.com/Christopher-Schulze/Slimference/internal/control/reversibility"
+	"github.com/Christopher-Schulze/Slimference/internal/install"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 // installFlags is the shared flag set for install/uninstall/enable/
@@ -355,7 +355,7 @@ func renderStatus(p installPrinter, s control.SetupState) {
 	}
 	fmt.Fprintln(p.Out, "Slimference status")
 	fmt.Fprintln(p.Out, "------------------")
-	fmt.Fprintf(p.Out, "  CA       %s installed=%v in_keychain=%v fingerprint=%s\n",
+	fmt.Fprintf(p.Out, "  CA files %s present=%v keychain_trusted=%v fingerprint=%s\n",
 		mark(s.CA.Installed), s.CA.Installed, s.CA.InKeychain, s.CA.Fingerprint)
 	fmt.Fprintf(p.Out, "  Daemon   %s running=%v pid=%d health=%v\n",
 		mark(s.Daemon.Running && s.Daemon.HealthOK), s.Daemon.Running, s.Daemon.PID, s.Daemon.HealthOK)

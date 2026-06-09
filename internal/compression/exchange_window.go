@@ -1,7 +1,7 @@
 package compression
 
 import (
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // CompressiblePrefixEnd returns the exclusive end index of the prefix that Layer 1 may

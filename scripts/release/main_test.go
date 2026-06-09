@@ -32,6 +32,25 @@ func TestCopyFile_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestCopyFile_PreservesExecutableMode(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "install.sh")
+	dst := filepath.Join(dir, "out.sh")
+	if err := os.WriteFile(src, []byte("#!/usr/bin/env bash\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile err: %v", err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode=%#o want 0755", info.Mode().Perm())
+	}
+}
+
 func TestCopyFile_MissingSource(t *testing.T) {
 	dir := t.TempDir()
 	err := copyFile(filepath.Join(dir, "nope"), filepath.Join(dir, "out"))

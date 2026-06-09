@@ -3,8 +3,8 @@
 //
 // Usage:
 //
-//	go run ./scripts/release --version v2.1.0
-//	go run ./scripts/release --version v2.1.0 --dry-run
+//	go run ./scripts/release --version v0.6.0
+//	go run ./scripts/release --version v0.6.0 --dry-run
 //
 // For each target the tool runs:
 //
@@ -12,7 +12,8 @@
 //	    -trimpath -ldflags "-s -w -X main.version=<v> -X main.commit=<sha>" \
 //	    -o dist/slimference_<version>_<os>_<arch>/slimference ./cmd/slimference
 //
-// then packages the binary, LICENSE, README.md, CHANGELOG.md into a
+// then packages the binary, LICENSE, README.md, install.sh, docs, and service
+// helpers into a
 // .tar.gz and emits a SHA256SUMS file next to the archives.
 package main
 
@@ -78,7 +79,7 @@ func resolveTargets(selector string) ([]target, error) {
 }
 
 func main() {
-	version := flag.String("version", "", "release tag, e.g. v2.1.0 (required)")
+	version := flag.String("version", "", "release tag, e.g. v0.6.0 (required)")
 	dryRun := flag.Bool("dry-run", false, "print commands instead of executing them")
 	outDir := flag.String("out", "dist", "output directory")
 	targetsFlag := flag.String("targets", defaultTargetSelector,
@@ -92,7 +93,7 @@ func main() {
 	}
 
 	if *version == "" {
-		fmt.Fprintln(os.Stderr, "--version is required (e.g. v2.1.0)")
+		fmt.Fprintln(os.Stderr, "--version is required (e.g. v0.6.0)")
 		os.Exit(2)
 	}
 	ver := strings.TrimPrefix(*version, "v")
@@ -133,7 +134,7 @@ func main() {
 		// main.commit symbol for diagnostic builds. main.version is also
 		// set for backwards compat with older code that read it directly.
 		ldflags := fmt.Sprintf(
-			"-s -w -X github.com/slimference/slimference/internal/buildinfo.Version=%s -X main.version=%s -X main.commit=%s",
+			"-s -w -X github.com/Christopher-Schulze/Slimference/internal/buildinfo.Version=%s -X main.version=%s -X main.commit=%s",
 			ver, ver, commit)
 		args := []string{"build", "-trimpath",
 			"-ldflags", ldflags,
@@ -157,8 +158,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Copy auxiliary docs into the bundle directory.
-		for _, extra := range []string{"README.md", "LICENSE", "docs/layer0-exit-codes.md"} {
+		// Copy auxiliary docs and helpers into the bundle directory.
+		for _, extra := range []string{"README.md", "LICENSE", "install.sh", "docs/layer0-exit-codes.md"} {
 			if _, err := os.Stat(extra); err != nil {
 				continue
 			}
@@ -207,6 +208,10 @@ func gitCommit() (string, error) {
 }
 
 func copyFile(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
 	s, err := os.Open(src)
 	if err != nil {
 		return err
@@ -218,7 +223,10 @@ func copyFile(src, dst string) error {
 	}
 	defer d.Close()
 	_, err = io.Copy(d, s)
-	return err
+	if err != nil {
+		return err
+	}
+	return d.Chmod(info.Mode().Perm())
 }
 
 func tarGzDir(dir, out string) error {

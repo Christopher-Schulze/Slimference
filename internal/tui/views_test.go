@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"github.com/slimference/slimference/internal/analytics"
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestProviderTTFTSaving verifies the TTFT saving helper for all branches.

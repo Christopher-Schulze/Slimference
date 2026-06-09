@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/slimference/slimference/internal/types"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 type Options struct {
