@@ -429,6 +429,16 @@ keeps representative match context plus the recovery path of re-running the sear
 On a real codebase-exploration session the default-auto reducers saved 36533
 billable tokens with zero parse/compression/degraded errors.
 
+Public savings claims are session-scoped, not universal averages. The realistic
+slightly optimistic contribution ranges are: Layer 0 usually 15-45% with 50%+
+bursts on repeated tool output; Layer 1 usually 3-15% with 20-30% on highly
+structured/repeated context; Layer 2 usually 0-25% with 30-50% when provider
+cache reuse is strong; Layer 3 usually 0-8% with 10-20% on exact-answer or
+tool-heavy shapes. These ranges overlap and must not be added together. Combined
+routed Codex sessions should be described as roughly 25-50% for normal
+tool-heavy coding, 35-65% for long refactor/debug loops, 45-70% for
+search/read/log-heavy loops, and 0-15% for short one-off prompts.
+
 Retired path: first-read AST/structure scan-mode elision is not part of the Codex
 product mode. It saved tokens in narrow probes, but it gave the model less file
 information on first sight and relied on the model noticing the missing detail and

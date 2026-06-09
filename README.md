@@ -178,6 +178,16 @@ Savings are reported per routed Codex session and split by source: local input
 reduction, provider-cache effects, output-wire accounting, and tool-surface
 pruning. The realistic but optimistic target zone is:
 
+| Layer | Typical contribution in routed sessions | Strong-case contribution | Notes |
+|---|---:|---:|---|
+| Layer 0: tool-output reducers | 15-45% | 50%+ bursts | Biggest lever when reads, search, git, tests, logs, or WSS tool output repeat |
+| Layer 1: deterministic compression | 3-15% | 20-30% | Helps on structured/repeated context; never semantic paraphrase |
+| Layer 2: response/provider-cache leverage | 0-25% | 30-50% | Workload-dependent and reported separately from local input deletion |
+| Layer 3: output/tool-surface reduction | 0-8% | 10-20% | Conservative by default; higher only on exact-answer or tool-heavy shapes |
+
+Layer contributions overlap and are not additive. The combined session outcome
+depends on how much repeated project/tool context exists:
+
 | Routed Codex session shape | Realistic session range | Strong-session upside | Why |
 |---|---:|---:|---|
 | Normal tool-heavy coding | 25-50% input-token reduction | 50-60% | Repeated reads, search results, git/test output, and cache-stable context |

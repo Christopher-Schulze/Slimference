@@ -37,6 +37,19 @@ The current stack is workload-dependent. The strongest savings appear when the
 agent repeats expensive tool surfaces: reads, searches, git status/diff, tests,
 logs, and long command outputs.
 
+Layer-level contribution ranges are useful for expectations, but they are not
+additive. The same repeated tool output can produce Layer 0 savings while also
+improving provider-cache behavior, so reports keep local input deletion,
+provider-cache economics, output-wire accounting, and tool-surface savings
+separate.
+
+| Layer | Typical contribution in routed sessions | Strong-case contribution | Claim boundary |
+| --- | ---: | ---: | --- |
+| Layer 0 | 15-45% | 50%+ bursts | Main source on repeated reads/search/git/test/log/WSS tool output |
+| Layer 1 | 3-15% | 20-30% | Deterministic structure/dedup/delta wins only; no semantic paraphrase |
+| Layer 2 | 0-25% | 30-50% | Provider-cache and response-cache effects, reported separately |
+| Layer 3 | 0-8% | 10-20% | Conservative default profile; exact-answer/tool-heavy upside only |
+
 | Routed Codex session shape | Realistic product savings | Strong-session upside |
 | --- | ---: | ---: |
 | Normal tool-heavy coding with repeated reads/searches/tests | 25-50% | 50-60% |
