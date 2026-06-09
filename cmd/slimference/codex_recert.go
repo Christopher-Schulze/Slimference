@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
@@ -528,7 +530,37 @@ func staleCodexRecertLock(path string) bool {
 	if err != nil {
 		return false
 	}
-	return codexNowFn().Sub(st.ModTime()) > 30*time.Minute
+	if codexNowFn().Sub(st.ModTime()) > 30*time.Minute {
+		return true
+	}
+	pid, ok := readCodexRecertLockPID(path)
+	if !ok || pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return true
+	}
+	err = proc.Signal(syscall.Signal(0))
+	return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
+}
+
+func readCodexRecertLockPID(path string) (int, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	for _, field := range strings.Fields(string(data)) {
+		if !strings.HasPrefix(field, "pid=") {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimPrefix(field, "pid="))
+		if err != nil {
+			return 0, false
+		}
+		return pid, true
+	}
+	return 0, false
 }
 
 func codexCriterionOutputs(in []codexCertCriterion) []codexCriterionOutput {

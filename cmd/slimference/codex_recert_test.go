@@ -569,7 +569,7 @@ func TestCodexRecertifyForceDoesNotBypassActiveLock(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("pid=999999\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("pid=%d\n", os.Getpid())), 0o600); err != nil {
 		t.Fatalf("write lock: %v", err)
 	}
 
@@ -599,6 +599,38 @@ func TestCodexRecertifyRemovesStaleLock(t *testing.T) {
 	old := now.Add(-time.Hour)
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatalf("chtimes: %v", err)
+	}
+	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
+		return codexRecertTriggerResult{}, nil
+	}
+	calls := 0
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		calls++
+		if calls == 1 {
+			return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
+		}
+		return recertPostState(7, 2), nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"recertify", "wss", "--no-write"}, p); rc != 0 {
+		t.Fatalf("rc=%d stdout=%s stderr=%s", rc, out.String(), errBuf.String())
+	}
+}
+
+func TestCodexRecertifyRemovesDeadPIDLock(t *testing.T) {
+	withCodexCmdStubs(t)
+	home := t.TempDir()
+	codexRouteHomeFn = func() (string, error) { return home, nil }
+	codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli 0.131.0\n"), nil }
+	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	codexNowFn = func() time.Time { return now }
+	path := codexroute.RecertLockPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("pid=999999\n"), 0o600); err != nil {
+		t.Fatalf("write lock: %v", err)
 	}
 	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
 		return codexRecertTriggerResult{}, nil
@@ -835,6 +867,16 @@ func TestRecertSmallHelpers(t *testing.T) {
 	}
 	if staleCodexRecertLock(filepath.Join(t.TempDir(), "missing.lock")) {
 		t.Fatal("missing lock must not be stale")
+	}
+	malformedLock := filepath.Join(t.TempDir(), "malformed.lock")
+	if err := os.WriteFile(malformedLock, []byte("pid=nope\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if staleCodexRecertLock(malformedLock) {
+		t.Fatal("malformed fresh lock must not be stale")
+	}
+	if pid, ok := readCodexRecertLockPID(malformedLock); ok || pid != 0 {
+		t.Fatalf("malformed pid parsed pid=%d ok=%v", pid, ok)
 	}
 	home := t.TempDir()
 	if blocked, reason := codexRecertBackoffActive(home, true); blocked || reason != "" {

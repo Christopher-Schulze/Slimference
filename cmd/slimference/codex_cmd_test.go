@@ -331,7 +331,7 @@ func TestCodexCmdRunAutoPromotesWSSWhenCertified(t *testing.T) {
 	}
 }
 
-func TestCodexCmdRunAutoUsesWSSBridgeBeforeHTTP(t *testing.T) {
+func TestCodexCmdRunAutoUsesHTTPWhenOnlyBridgeIsAvailable(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
 	startedRecert := false
@@ -340,12 +340,42 @@ func TestCodexCmdRunAutoUsesWSSBridgeBeforeHTTP(t *testing.T) {
 	}
 	codexAutoFn = func(home string) codexroute.AutoDecision {
 		return codexroute.AutoDecision{
+			Mode:               codexroute.AutoModeHTTP,
+			Transport:          codexroute.TransportHTTP,
+			WSSBridgeAvailable: true,
+			NeedsRecert:        true,
+			FallbackReason:     "codex version changed since wss certification; clean WSS bridge proof available; using HTTP savings path until Phase-F recertifies",
+			RecertCommand:      "slimference codex recertify wss",
+		}
+	}
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"run", "--transport=auto", "--", "exec", "hi"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	args := strings.Join(got, "\x00")
+	if !strings.Contains(args, "--proxied") || strings.Contains(args, "--proxied-wss") {
+		t.Fatalf("expected HTTP proxy args, got %#v", got)
+	}
+	if !startedRecert {
+		t.Fatal("auto WSS drift should start background recert")
+	}
+}
+
+func TestCodexCmdRunAutoHonorsBridgeDecision(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
 			Mode:               codexroute.AutoModeWSSBridge,
 			Transport:          codexroute.TransportWSS,
 			WSSBridgeAvailable: true,
-			NeedsRecert:        true,
-			FallbackReason:     "codex version changed since wss certification",
-			RecertCommand:      "slimference codex recertify wss",
 		}
 	}
 	codexRouteHealthFn = func(host, port string) error { return nil }
@@ -361,9 +391,6 @@ func TestCodexCmdRunAutoUsesWSSBridgeBeforeHTTP(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(got, "\x00"), "--proxied-wss-bridge") {
 		t.Fatalf("expected WSS bridge proxy args, got %#v", got)
-	}
-	if !startedRecert {
-		t.Fatal("auto WSS drift should start background recert")
 	}
 }
 

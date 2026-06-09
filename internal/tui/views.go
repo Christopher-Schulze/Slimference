@@ -1610,6 +1610,12 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 		if version := codexWSSVersionDetail(status); version != "" {
 			modeText += " · " + version
 		}
+	case status.WSSBridgeAvailable && status.AutoMode == "http" && status.NeedsRecert:
+		stateText = "HTTP savings fallback"
+		modeText += " · WSS repair needed · bridge proof clean"
+		if version := codexWSSVersionDetail(status); version != "" {
+			modeText += " · " + version
+		}
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
 		stateText = "WSS native bridge"
 		modeText += " · no mutation until repair"

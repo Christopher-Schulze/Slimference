@@ -2389,12 +2389,12 @@ sessions, compression errors, byte-bridge-only state, or missing mutation are
 present, and writes `~/.slimference/codex-wss-cert.json` only with
 `frames_reencoded>0`, `compressed_messages_mutated>0`, and daemon reachability.
 `--transport=auto` consumes that proof through `internal/codexroute` using the
-explicit ladder `wss_phasef -> wss_bridge -> http -> direct`. Version drift now
+savings-first safe ladder `wss_phasef -> http -> direct`. Version drift now
 sets `needs_recert=true`; daemon startup, scoped auto transport, TUI
-startup/status refresh, and TUI repair
-can start the shared recert path after the daemon listener is reachable. If a
-clean byte-equal WSS bridge proof exists, the active user session stays on WSS
-bridge while repair runs instead of jumping directly to HTTP.
+startup/status refresh, and TUI repair can start the shared recert path after
+the daemon listener is reachable. If a clean byte-equal WSS bridge proof exists,
+status reports it for diagnostics and explicit bridge runs, but auto keeps the
+HTTP savings fallback until Phase-F recertifies.
 
 `slimference codex recertify wss` is the shared repair core for CLI, background
 auto-recert, and TUI Setup. It creates a temporary repo, runs real Codex CLI

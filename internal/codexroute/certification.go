@@ -265,8 +265,10 @@ func SaveRecertState(home string, state RecertState) error {
 	return writeAtomic(path, data, 0o600)
 }
 
-// DecideAutoTransport resolves --transport=auto through the WSS-first ladder:
-// WSS Phase-F savings, WSS byte-equal bridge, then HTTP fallback.
+// DecideAutoTransport resolves --transport=auto through the savings-first safe
+// ladder: WSS Phase-F savings when certified, otherwise HTTP savings fallback.
+// A clean byte-equal WSS bridge proof is still reported for diagnostics and
+// explicit bridge runs, but auto does not prefer a no-mutation bridge over HTTP.
 func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDecision, error) {
 	decision := AutoDecision{
 		Mode:               AutoModeHTTP,
@@ -299,7 +301,7 @@ func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDec
 		decision.NeedsRecert = true
 		decision.RecertCommand = "slimference codex recertify wss"
 		decision.RejectedModes = append(decision.RejectedModes, RejectedAutoMode{Mode: AutoModeWSSPhaseF, Reason: decision.FallbackReason})
-		return decideBridgeOrHTTP(home, codexVersion, slimferenceVersion, decision), nil
+		return preferHTTPSavingsWithBridgeProof(home, codexVersion, slimferenceVersion, decision), nil
 	}
 	if exists {
 		decision.CertifiedCodex = state.CodexVersion
@@ -318,10 +320,10 @@ func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDec
 	decision.NeedsRecert = phaseNeedsRecert
 	decision.RecertCommand = "slimference codex recertify wss"
 	decision.RejectedModes = append(decision.RejectedModes, RejectedAutoMode{Mode: AutoModeWSSPhaseF, Reason: phaseReason})
-	return decideBridgeOrHTTP(home, codexVersion, slimferenceVersion, decision), nil
+	return preferHTTPSavingsWithBridgeProof(home, codexVersion, slimferenceVersion, decision), nil
 }
 
-func decideBridgeOrHTTP(home, codexVersion, slimferenceVersion string, decision AutoDecision) AutoDecision {
+func preferHTTPSavingsWithBridgeProof(home, codexVersion, slimferenceVersion string, decision AutoDecision) AutoDecision {
 	bridge, exists, err := LoadBridgeProof(home)
 	if err != nil {
 		decision.RejectedModes = append(decision.RejectedModes, RejectedAutoMode{Mode: AutoModeWSSBridge, Reason: "wss bridge proof unreadable"})
@@ -337,10 +339,11 @@ func decideBridgeOrHTTP(home, codexVersion, slimferenceVersion string, decision 
 		decision.RejectedModes = append(decision.RejectedModes, RejectedAutoMode{Mode: AutoModeWSSBridge, Reason: bridgeReason})
 		return decision
 	}
-	decision.Mode = AutoModeWSSBridge
-	decision.Transport = TransportWSS
 	decision.WSSBridgeAvailable = true
-	decision.FallbackReason = "phase-f savings proof not current; using current WSS bridge proof"
+	if decision.FallbackReason == "" {
+		decision.FallbackReason = "phase-f savings proof not current"
+	}
+	decision.FallbackReason += "; clean WSS bridge proof available; using HTTP savings path until Phase-F recertifies"
 	return decision
 }
 

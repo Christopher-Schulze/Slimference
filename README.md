@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  Scoped Codex CLI/Desktop routing · deterministic tool-output reduction · WSS-first fallback · local diagnostics
+  Scoped Codex CLI/Desktop routing · deterministic tool-output reduction · proof-gated fallback · local diagnostics
 </p>
 
 Slimference is a local token-savings layer for Codex CLI and Codex Desktop. It
@@ -39,7 +39,7 @@ What you get today:
 |---|---|
 | Scoped Codex CLI launch | First-class |
 | Scoped Codex Desktop launch | First-class |
-| WSS-first Codex routing | Default with safe fallback |
+| Proof-gated Codex routing | WSS Phase-F when certified; safe HTTP fallback while WSS repairs |
 | Deterministic tool-output reduction | Default-on when shape-safe |
 | Provider-cache and savings accounting | Built in |
 | User-facing chat brevity hints | Conservative and shape-gated |
@@ -93,7 +93,8 @@ launch them through Slimference or explicitly enable the advanced shared route.
 - Compacts deterministic tool output before it bloats model-visible context.
 - Routes Codex traffic through a local daemon for cache-aware, proof-gated
   savings.
-- Supports WSS-first scoped Codex routing with automatic safe fallback.
+- Uses certified WSS Phase-F when available and falls back to the safe HTTP
+  savings path while WSS certification repairs after Codex updates.
 - Repairs WSS certification drift after Codex updates through daemon/TUI/CLI
   recert paths.
 - Tracks savings, cache impact, routed activity, logs, and diagnostics locally.

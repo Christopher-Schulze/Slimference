@@ -181,7 +181,7 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 	}
 }
 
-func TestDecideAutoTransportUsesBridgeBeforeHTTP(t *testing.T) {
+func TestDecideAutoTransportPrefersHTTPSavingsWhenOnlyBridgeIsAvailable(t *testing.T) {
 	home := t.TempDir()
 	if err := SaveCertification(home, CertificationState{
 		CodexVersion:       "codex-1",
@@ -206,15 +206,18 @@ func TestDecideAutoTransportUsesBridgeBeforeHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecideAutoTransport: %v", err)
 	}
-	if decision.Mode != AutoModeWSSBridge || decision.Transport != TransportWSS || !decision.WSSBridgeAvailable {
+	if decision.Mode != AutoModeHTTP || decision.Transport != TransportHTTP || !decision.WSSBridgeAvailable {
 		t.Fatalf("decision=%+v", decision)
+	}
+	if !strings.Contains(decision.FallbackReason, "using HTTP savings path") {
+		t.Fatalf("fallback reason=%q", decision.FallbackReason)
 	}
 	if !decision.NeedsRecert || decision.RecertCommand != "slimference codex recertify wss" {
 		t.Fatalf("recert state=%+v", decision)
 	}
 }
 
-func TestDecideAutoTransportKeepsBridgeForRunningOrFailedRecert(t *testing.T) {
+func TestDecideAutoTransportReportsBridgeButPrefersHTTPForRunningOrFailedRecert(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		recert RecertState
@@ -267,8 +270,11 @@ func TestDecideAutoTransportKeepsBridgeForRunningOrFailedRecert(t *testing.T) {
 			if err != nil {
 				t.Fatalf("DecideAutoTransport: %v", err)
 			}
-			if decision.Mode != AutoModeWSSBridge || decision.Transport != TransportWSS || !decision.WSSBridgeAvailable {
+			if decision.Mode != AutoModeHTTP || decision.Transport != TransportHTTP || !decision.WSSBridgeAvailable {
 				t.Fatalf("decision=%+v", decision)
+			}
+			if !strings.Contains(decision.FallbackReason, "using HTTP savings path") {
+				t.Fatalf("fallback reason=%q", decision.FallbackReason)
 			}
 			if decision.RecertStatus != tc.recert.Status || decision.RecertAttemptID != tc.recert.AttemptID {
 				t.Fatalf("recert status missing: %+v", decision)
@@ -396,7 +402,7 @@ func TestDecideAutoTransportUnreadableCertificationFailsClosedToHTTP(t *testing.
 	}
 }
 
-func TestDecideAutoTransportUnreadableCertificationStillUsesCleanBridge(t *testing.T) {
+func TestDecideAutoTransportUnreadableCertificationReportsCleanBridgeButKeepsHTTP(t *testing.T) {
 	home := t.TempDir()
 	certPath := CertificationPath(home)
 	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
@@ -420,8 +426,12 @@ func TestDecideAutoTransportUnreadableCertificationStillUsesCleanBridge(t *testi
 	if err != nil {
 		t.Fatalf("DecideAutoTransport: %v", err)
 	}
-	if decision.Mode != AutoModeWSSBridge || decision.Transport != TransportWSS || !decision.WSSBridgeAvailable {
+	if decision.Mode != AutoModeHTTP || decision.Transport != TransportHTTP || !decision.WSSBridgeAvailable {
 		t.Fatalf("decision=%+v", decision)
+	}
+	if !strings.Contains(decision.FallbackReason, "unreadable") ||
+		!strings.Contains(decision.FallbackReason, "using HTTP savings path") {
+		t.Fatalf("fallback reason=%q", decision.FallbackReason)
 	}
 	if !decision.NeedsRecert || decision.LastWSSError == "" {
 		t.Fatalf("unreadable cert should be reported while bridge stays usable: %+v", decision)

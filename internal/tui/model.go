@@ -1047,6 +1047,8 @@ func (m *Model) codexCLIState() string {
 	switch {
 	case status.WSSCertified && status.AutoMode == "wss_phasef":
 		return "savings active"
+	case status.WSSBridgeAvailable && status.AutoMode == "http" && status.NeedsRecert:
+		return "HTTP savings"
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
 		return "safe fallback"
 	case status.NeedsRecert && status.RecertStatus == "running":
@@ -1124,6 +1126,9 @@ func (m *Model) statusState() string {
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
 		return "savings active"
 	}
+	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "http" && m.codexRouteStatus.NeedsRecert {
+		return "HTTP savings"
+	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
 		return "safe fallback"
 	}
@@ -1142,6 +1147,9 @@ func (m *Model) statusState() string {
 func (m *Model) statusDescription() string {
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
 		return "Show detailed route, daemon, Desktop, CA, lab, and proof state." + m.recertStatusSuffix()
+	}
+	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "http" && m.codexRouteStatus.NeedsRecert {
+		return "Show HTTP savings fallback and WSS repair details." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
 		return "Show safe fallback and repair details." + m.recertStatusSuffix()

@@ -677,7 +677,7 @@ Transport:
   http    stable scoped Responses path, WebSockets disabled
   wss     scoped Responses WebSocket path with Phase-F frame mutation
   wss-bridge scoped Responses WebSocket path with byte-equal frame bridge
-  auto    WSS-first ladder: wss_phasef -> wss_bridge -> http -> direct
+  auto    savings-first ladder: wss_phasef -> http -> direct; bridge is diagnostic
   direct  no Slimference route
 `
 
@@ -741,7 +741,9 @@ Writes ~/.slimference/codex-wss-cert.json only when the live daemon has
 already observed scoped Codex WSS Phase-F mutation with zero parser,
 degradation, or compression errors. The proof is local and version-bound;
 auto starts recert repair after Codex or Slimference version drift and uses
-WSS bridge before HTTP when bridge proof is available.
+HTTP savings fallback while WSS Phase-F is stale. A clean WSS bridge proof is
+reported for diagnostics and explicit bridge runs, but auto does not prefer a
+byte-equal bridge over HTTP savings.
 `
 
 const codexRecertifyHelpText = `usage: slimference codex recertify wss [--dry-run] [--no-write] [--force] [--json] [--operator NAME] [--notes TEXT] [--timeout=180s] [--host=127.0.0.1] [--port=8990]
@@ -749,6 +751,6 @@ const codexRecertifyHelpText = `usage: slimference codex recertify wss [--dry-ru
 Runs the guided Codex CLI WSS repair sequence. A green Phase-F proof writes
 ~/.slimference/codex-wss-cert.json and restores max-savings auto=WSS. If
 Phase-F mutation does not fire but WSS bytes/frames are clean, the command
-writes ~/.slimference/codex-wss-bridge.json so auto can keep native WSS
-instead of falling straight to HTTP.
+writes ~/.slimference/codex-wss-bridge.json so status can report a safe native
+bridge while auto keeps the HTTP savings path until Phase-F recertifies.
 `

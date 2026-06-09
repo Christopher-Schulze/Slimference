@@ -147,8 +147,10 @@ Default product routing is scoped Codex:
 - the TUI Launch view and `slimference codex run -- <prompt>` affect only the
   spawned Codex CLI process and fail open to direct Codex if the daemon route is
   unavailable;
-- `slimference codex run --transport=auto -- <prompt>` uses the ladder
-  `wss_phasef -> wss_bridge -> http -> direct`;
+- `slimference codex run --transport=auto -- <prompt>` uses the savings-first
+  ladder `wss_phasef -> http -> direct`; a clean `wss_bridge` proof remains
+  visible for diagnostics and explicit bridge runs, but auto does not prefer a
+  byte-equal bridge over HTTP savings;
 - the daemon checks Codex WSS proof drift after startup, and TUI startup/status
   refreshes read the Codex route state; either path may launch background
   recertification through the same lock/backoff-gated recert path;

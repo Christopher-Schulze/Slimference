@@ -13,7 +13,7 @@ go run ./scripts/build --install && ~/.local/bin/slimference install
 slimference status       # see what's currently armed
 slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
-slimference codex run --transport=auto -- <prompt> # WSS-first scoped Codex CLI
+slimference codex run --transport=auto -- <prompt> # proof-gated scoped Codex CLI
 slimference codex certify wss --dry-run  # inspect WSS auto-promotion proof
 slimference codex recertify wss --dry-run # inspect update repair plan
 slimference codex desktop status      # Desktop app-server shim readiness / proof status
@@ -222,7 +222,7 @@ focuses on Codex CLI and Codex Desktop.
 | CA missing during Desktop proxy diagnostics | The current Desktop app-server shim diagnostic does not need CA trust. Legacy proxy diagnostics refuse before a savings claim and print the repair command. Direct Codex.app remains native. |
 | Codex Desktop already running during scoped proof/TUI launch | `codex desktop prove` and TUI Launch Codex App use `--replace-existing`: they quit the existing Codex.app main process, verify it is gone, then spawn the scoped Slimference instance so macOS cannot reuse a stale env. Raw `codex launch-desktop` still refuses unless `--replace-existing` is passed. Direct Codex.app remains native. |
 | Codex Desktop app-server shim fails proof | Desktop proof exits non-zero with an explicit failure class. TUI Launch Codex App blocks instead of opening direct or a broken Slimference session, because the TUI item means "Slimference mode". Normal Finder/Spotlight Codex.app remains direct. CLI savings continue. |
-| Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert can start from daemon startup, scoped `codex run --transport=auto`, TUI startup/status refresh, or TUI repair, and it never blocks the user path. |
+| Codex CLI/Desktop updates | `transport=auto` is savings-first safe. It uses certified WSS Phase-F when green, safe HTTP savings fallback when Phase-F is stale, and direct only when the daemon cannot serve the scoped run. A clean WSS byte-equal bridge proof is still reported for diagnostics and explicit bridge runs, but auto does not prefer a no-mutation bridge over HTTP savings. Background recert can start from daemon startup, scoped `codex run --transport=auto`, TUI startup/status refresh, or TUI repair, and it never blocks the user path. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
 | `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
 | CA removed from Keychain externally | Only global lab MITM is affected. Scoped Codex provider routing does not need Keychain trust. |
@@ -289,17 +289,18 @@ adapter. Known Codex request/response frames can be compacted, including
 Responses `response_item.payload` wrappers and split WSS tool-call state;
 unknown, binary, control, or malformed frames degrade to byte-equal forwarding.
 
-`--transport=auto` is WSS-first. It evaluates the current Codex/Slimference
-tuple and chooses the safest high-savings mode in this order:
+`--transport=auto` is savings-first safe. It evaluates the current
+Codex/Slimference tuple and chooses the safest high-savings mode in this order:
 
 1. `wss_phasef`: certified WSS Phase-F mutation for the current tuple. This is
    the max-savings target.
-2. `wss_bridge`: native WSS byte-equal bridge when Phase-F proof is stale but a
-   clean bridge proof exists. This keeps Codex on WSS and starts repair instead
-   of jumping straight to HTTP.
-3. `http`: stable scoped Responses HTTP fallback when WSS bridge is unavailable
-   or unsafe.
-4. `direct`: final fail-open when the daemon cannot serve the scoped run.
+2. `http`: stable scoped Responses HTTP fallback while WSS Phase-F recertifies
+   or when WSS mutation proof is unavailable.
+3. `direct`: final fail-open when the daemon cannot serve the scoped run.
+
+A clean `wss_bridge` proof is still written and reported for diagnostics and
+explicit bridge runs. Auto does not prefer that byte-equal bridge over HTTP,
+because bridge mode is safety proof, not savings proof.
 
 T224 capture/diff remains the gate for indistinguishability wording; the local
 auto selector is gated by local proof files and never treats an uncertified
@@ -784,7 +785,9 @@ The scoped product route block is under `/admin/state.codex_route`:
   proof files consumed by `slimference codex certify wss`,
   `slimference codex recertify wss`, and `--transport=auto`.
 - `daemon_error` or `fallback_reason` non-empty: do not promote WSS by default
-  until the reason is cleared or live-certified.
+  until the reason is cleared or live-certified. If `auto_mode=http` and
+  `wss_bridge_available=true`, the CLI is using the HTTP savings fallback while
+  WSS recertification is pending.
 
 Current scoped proof stack (2026-05-18):
 
@@ -804,7 +807,8 @@ Current scoped proof stack (2026-05-18):
   `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`, and
   `transport=auto` resolves to WSS for that tuple. New Codex CLI versions need
   `slimference codex recertify wss` to restore `wss_phasef`; until then auto
-  prefers `wss_bridge` if a current clean bridge proof exists, then HTTP. Do not
+  uses the HTTP savings fallback and reports any current clean bridge proof for
+  diagnostics. Do not
   run global lab commands (`lab cert-trust`, `lab root-arm
   --global-chatgpt-hosts`, `lab enable`) from the active Codex Desktop
   development session.
@@ -903,7 +907,7 @@ slimference uninstall [flags]
 
 slimference enable | disable [flags]
   --transport=auto|http|wss  advanced shared Codex route transport. auto resolves
-                    wss_phasef -> wss_bridge -> http -> direct.
+                    wss_phasef -> http -> direct; bridge proof is diagnostic.
   --host=HOST       Slimference daemon host (default 127.0.0.1)
   --port=PORT       Slimference daemon port (default 8990)
   --dry-run         print marker-owned Codex config block only
