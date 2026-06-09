@@ -50,7 +50,7 @@ SUBCOMMANDS:
   config       Config file tools (init|show)
   test         Upstream connectivity tests (anthropic|openai|intercept)
   completion   Emit shell completion script (bash)
-  trust        Trust-model tools (from RTK port)
+  trust        Trust-model tools for project-local filters
   version      Print version
 
 GLOBAL FLAGS:
@@ -142,7 +142,7 @@ Examples:
 	status    Report installed / missing / drifted state.
 check-upstream   Compare installed CLI version against the supported range.
 
-Claude Code hooks are parked in Slimference. Use RTK for Claude Code.
+Claude Code hooks are parked in Slimference.
 `
 	case "codex":
 		return codexHelpText
@@ -394,7 +394,7 @@ route writes a separate marker-owned provider block. Every integrate edit uses
 a fenced marker block so re-running install is a no-op and remove is exact.
 
 Claude Code is parked: integrate no longer writes ANTHROPIC_BASE_URL or
-~/.claude hooks. Use RTK for Claude Code.
+~/.claude hooks.
 
 Flags:
   --dry-run            Print intended writes without touching anything.

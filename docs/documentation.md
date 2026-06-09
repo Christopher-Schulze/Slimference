@@ -283,7 +283,7 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    `psql` covers SQL-shell table-border compaction for psql, MySQL/MariaDB,
    SQLite, and SQLite3 outputs.
    The hook rewrite gate now reaches every safe built-in reducer family
-   surfaced by the RTK registry audit, including direct build/lint/format/search
+   surfaced by the filter coverage audit, including direct build/lint/format/search
    binaries such as `ninja`, `cmake`, `next`, `vite`, `webpack`,
    `staticcheck`, `semgrep`, `stylelint`, `dprint`, `taplo`, `shfmt`,
    `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, and `wget`. Arbitrary
@@ -1093,7 +1093,7 @@ Empty staircase or invalid step falls back to
 
 ### Tool-compressor tuning (T61)
 
-RTK-inspired heuristics now live in
+Tool-compressor heuristics now live in
 `[compression.tuning.tool_compressor]`:
 
 | Field                          | Default |
@@ -1597,7 +1597,7 @@ entrypoint activates it. `slimference hook install claude`,
 `slimference readhook claude`, and top-level `slimference claudeposttool`
 are parked/rejected. The TUI row is parked, the apps manager refuses
 `claude_code=true`, and `api.anthropic.com` remains outside the hosts patch.
-Claude Code optimization is intentionally delegated to RTK for now.
+Claude Code optimization is intentionally out of scope for now.
 
 Persistent hook/read-cache/repetition/tool-archive storage now uses the shared
 `internal/sessions.SafeSessionID` convention for non-empty session ids and
@@ -2192,7 +2192,7 @@ slimference help [subcommand]
 | `config`      | init, show.                                                            |
 | `test`        | anthropic, openai, intercept.                                          |
 | `completion`  | Emit bash completion.                                                  |
-| `trust`       | Trust-model tools (from RTK port).                                     |
+| `trust`       | Trust-model tools for project-local filters.                           |
 | `version`     | Print version.                                                         |
 
 ### Flight recorder

@@ -201,7 +201,7 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		})
 		return out, "toml_rule"
 	}
-	// Embedded RTK-derived filter catalog (MIT). Loaded once via //go:embed.
+	// Embedded TOML filter catalog. Loaded once via //go:embed.
 	// Sits BELOW the user/project TOML so explicit
 	// user overrides always win, and BELOW the Go built-ins so curated
 	// hand-written compactors (git-status etc.) win over generic

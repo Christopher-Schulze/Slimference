@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Trust model for project-local filters, ported from the RTK reference catalog.
+// Trust model for project-local filters.
 //
 // `.slimference/filters.toml` is loaded from the current working directory.
 // An attacker who commits a malicious filters.toml to a public repository

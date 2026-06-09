@@ -16,8 +16,8 @@ import (
 // which tool produced it) and replaces it with a compact summary like
 // "[sarif: clippy] 12 results (3 errors, 9 warnings)\nfoo.rs:10:5
 // E0001 unused variable …". This is a **universal Tier-1 parser**:
-// one implementation handles every SARIF-emitting tool, where RTK
-// would need 10+ per-tool regex compactors.
+// one implementation handles every SARIF-emitting tool without per-tool
+// regex compactors.
 //
 // Strictness: we require the SARIF top-level "$schema" or "version"
 // + "runs" array. Anything else falls through to Tier-2/3.

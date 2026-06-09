@@ -248,7 +248,7 @@ func TestRewriteCommand_RTKBreadthCommands(t *testing.T) {
 			t.Parallel()
 			got, ok := RewriteCommand(cmd, nil)
 			if !ok {
-				t.Fatalf("expected RTK-breadth command to be rewritten: %q", cmd)
+				t.Fatalf("expected broad command to be rewritten: %q", cmd)
 			}
 			if want := "slimference filter " + cmd; got != want {
 				t.Fatalf("rewrite mismatch: got %q want %q", got, want)

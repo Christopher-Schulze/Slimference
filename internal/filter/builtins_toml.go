@@ -11,14 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// builtinsTOMLFS embeds the entire RTK-derived filter catalog under
-// internal/filter/builtins_toml/. Each file is one TOML document with a
-// single [filters.NAME] section (plus optional [[tests.NAME]] blocks
-// that are ignored by FilterRule decoding; they exist as live snapshot
-// fixtures for porting validation under builtins_toml_snapshot_test.go).
-//
-// License: embedded TOML filter files that originate from RTK
-// (github.com/rtk-ai/rtk) are MIT-licensed.
+// builtinsTOMLFS embeds the built-in filter catalog under
+// internal/filter/builtins_toml/. Each file is one TOML document with a single
+// [filters.NAME] section plus optional [[tests.NAME]] blocks that are ignored
+// by FilterRule decoding and used as live snapshot fixtures.
 //
 //go:embed builtins_toml/*.toml
 var builtinsTOMLFS embed.FS
@@ -39,10 +35,9 @@ var (
 	builtinsTOMLFSys fs.FS = builtinsTOMLFS
 )
 
-// loadedBuiltinTOMLs returns every embedded RTK-style filter, parsed
-// and ready for matching. The slice order is deterministic
-// (alphabetical by filename) so two binary builds match the same
-// command in the same way.
+// loadedBuiltinTOMLs returns every embedded TOML filter, parsed and ready for
+// matching. The slice order is deterministic (alphabetical by filename) so two
+// binary builds match the same command in the same way.
 func loadedBuiltinTOMLs() []compiledBuiltinTOML {
 	builtinsTOMLOnce.Do(func() {
 		entries, err := fs.ReadDir(builtinsTOMLFSys, "builtins_toml")
@@ -91,10 +86,10 @@ func loadedBuiltinTOMLs() []compiledBuiltinTOML {
 	return builtinsTOMLAll
 }
 
-// FirstMatchingBuiltinTOMLRule returns the first embedded RTK-style
-// filter whose match_command regex matches the joined argv. Used by
-// the Layer-0 pipeline between Go built-ins and user TOML so the
-// catalog ships out-of-box, no config required.
+// FirstMatchingBuiltinTOMLRule returns the first embedded TOML filter whose
+// match_command regex matches the joined argv. Used by the Layer-0 pipeline
+// between Go built-ins and user TOML so the catalog ships out-of-box, no
+// config required.
 func FirstMatchingBuiltinTOMLRule(argv []string) (string, *FilterRule) {
 	cmd := strings.Join(argv, " ")
 	for _, b := range loadedBuiltinTOMLs() {

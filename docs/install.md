@@ -202,8 +202,8 @@ Claude Code is deliberately **not** part of the product install. Its
 hook/parser code stays in tree for reference and possible future work,
 but `slimference install` does not write `~/.claude`, does not install
 Claude hooks, and `--with-claude` is accepted only as a parked no-op for
-old scripts. Use RTK for Claude Code while Slimference focuses on Codex
-CLI and Codex Desktop.
+old scripts. Claude Code optimization is out of scope while Slimference
+focuses on Codex CLI and Codex Desktop.
 
 ## Fail-open guarantees
 

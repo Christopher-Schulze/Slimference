@@ -103,7 +103,7 @@ func runIntegrateInstall(opts integrate.Options, extra integrateExtra) {
 	var ok bool
 	opts, ok = codexOnlyIntegrateOptions(opts)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed. Use RTK for Claude Code.")
+		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed.")
 		return
 	}
 	rep := integrate.Install(opts)
@@ -145,7 +145,7 @@ func runIntegrateRemove(opts integrate.Options, extra integrateExtra) {
 	var ok bool
 	opts, ok = codexOnlyIntegrateOptions(opts)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed. Use RTK for Claude Code.")
+		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed.")
 		return
 	}
 	rep := integrate.Remove(opts)

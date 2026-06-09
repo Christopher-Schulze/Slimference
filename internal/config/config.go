@@ -378,10 +378,10 @@ type TuningConfig struct {
 	// wins; an empty staircase falls back to the scalar
 	// Compression.DedupSimilarityThreshold. See T53.
 	DedupStaircase []StaircaseStep `toml:"dedup_staircase"`
-	// ToolCompressor holds the RTK-derived heuristic knobs that used to
-	// live as local `const` declarations inside
-	// internal/compression/tool_compressor.go. Exposing them via config
-	// unblocks data-driven tuning without a rebuild. See T61.
+	// ToolCompressor holds heuristic knobs that used to live as local
+	// `const` declarations inside internal/compression/tool_compressor.go.
+	// Exposing them via config unblocks data-driven tuning without a rebuild.
+	// See T61.
 	ToolCompressor ToolCompressorTuning `toml:"tool_compressor"`
 	// AdaptiveWindowEnabled (T112) gates the adaptive sliding window: when
 	// on, the proxy computes a complexity score per request and adjusts the
@@ -403,9 +403,9 @@ type TuningConfig struct {
 	PlannerLiveCorpusMetadataPath string `toml:"planner_live_corpus_metadata_path"`
 }
 
-// ToolCompressorTuning bundles RTK-style heuristic thresholds for the
-// type-aware tool-output compressor. Zero values fall back to the
-// compile-time defaults so legacy configs keep byte-equal behaviour.
+// ToolCompressorTuning bundles heuristic thresholds for the type-aware
+// tool-output compressor. Zero values fall back to the compile-time defaults
+// so legacy configs keep byte-equal behaviour.
 type ToolCompressorTuning struct {
 	// AggressiveAfterMultiplier controls when a message is considered
 	// "old enough" for aggressive (more lossy) compression. Age is the

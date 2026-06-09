@@ -2015,7 +2015,7 @@ func testIntercept(cfg *config.Config, provider string) {
 
 	switch provider {
 	case "claude":
-		fmt.Fprintln(os.Stderr, "test intercept: Claude Code is parked; use RTK for Claude Code")
+		fmt.Fprintln(os.Stderr, "test intercept: Claude Code is parked")
 		exitFn(2)
 	case "codex":
 		fmt.Println("Add to ~/.codex/config.toml:")

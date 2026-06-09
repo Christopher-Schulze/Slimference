@@ -11,13 +11,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// TestBuiltinTOMLCatalog_Loaded checks the //go:embed scoop actually
-// picked up the RTK-derived filter catalog. If this drops to zero,
-// something broke the embed.FS path.
+// TestBuiltinTOMLCatalog_Loaded checks the //go:embed scoop actually picked
+// up the embedded filter catalog. If this drops to zero, something broke the
+// embed.FS path.
 func TestBuiltinTOMLCatalog_Loaded(t *testing.T) {
 	n := BuiltinTOMLCount()
 	if n < 50 {
-		t.Fatalf("expected >=50 embedded RTK filters, got %d", n)
+		t.Fatalf("expected >=50 embedded filters, got %d", n)
 	}
 }
 
@@ -80,8 +80,8 @@ func TestFirstMatchingBuiltinTOMLRule_NoMatchReturnsNil(t *testing.T) {
 // TestPipelineRoutesThroughEmbeddedCatalog wires the full pipeline:
 // run a fake command whose argv matches an embedded filter (and is
 // NOT covered by any Go built-in compactor), and verify the embedded
-// catalog kicks in. `helm` is in the RTK catalog but not in our Go
-// built-in dispatch table, so it isolates the embedded-TOML branch.
+// catalog kicks in. `helm` is in the embedded catalog but not in our Go
+// built-in dispatch table, so it isolates the embedded TOML branch.
 func TestPipelineRoutesThroughEmbeddedCatalog(t *testing.T) {
 	argv := []string{"helm", "list"}
 	in := []byte("\n\n\n")
@@ -123,17 +123,16 @@ max_lines = 5
 	}
 }
 
-// TestBuiltinTOMLSnapshots runs the [[tests.X]] blocks embedded in the
-// RTK-derived TOML files as table-driven Go tests. Catches regressions
-// when we touch filter parsing or DSL semantics. RTK ships these as
-// "insta" snapshots; we port them as Go assertions.
+// TestBuiltinTOMLSnapshots runs the [[tests.X]] blocks embedded in the TOML
+// filter files as table-driven Go tests. Catches regressions when we touch
+// filter parsing or DSL semantics.
 //
 // Notes:
 //   - Tests are loaded with a separate toml.Decode pass into a private
 //     struct so they don't pollute the public FilterRule shape.
-//   - When an RTK test asserts equality verbatim with a literal "\n"
-//     in `expected`, we apply the same matching: ApplyTOMLRule should
-//     produce the same bytes.
+//   - When a snapshot asserts equality verbatim with a literal "\n" in
+//     `expected`, we apply the same matching: ApplyTOMLRule should produce the
+//     same bytes.
 func TestBuiltinTOMLSnapshots(t *testing.T) {
 	// Load every embedded TOML again, this time also parsing the
 	// [[tests.X]] blocks.
@@ -160,15 +159,11 @@ func TestBuiltinTOMLSnapshots(t *testing.T) {
 			for _, c := range cases {
 				t.Run(c.Name, func(t *testing.T) {
 					got := string(ApplyTOMLRule([]byte(c.Input), &b.rule))
-					// Normalize trailing newline divergence: RTK
-					// preserves the final '\n' on multi-line output;
-					// our ApplyTOMLRule strips it during line-split +
-					// rejoin. The byte-difference is semantically
-					// neutral for downstream consumers (a one-byte
-					// trailing whitespace) so we treat trailing-\n as
-					// equivalent for snapshot conformance. The
-					// pipeline itself is unaffected because Codex /
-					// the model sees both shapes as identical text.
+					// Normalize trailing newline divergence: some
+					// snapshots preserve the final '\n' on multi-line
+					// output; our ApplyTOMLRule strips it during
+					// line-split + rejoin. The byte-difference is
+					// semantically neutral for downstream consumers.
 					if rtrim(got) != rtrim(c.Expected) {
 						t.Fatalf("snapshot drift\nfilter: %s\ncase:   %s\ninput:  %q\nwant:   %q\ngot:    %q", b.name, c.Name, c.Input, c.Expected, got)
 					}
@@ -187,9 +182,8 @@ func readEmbeddedTOML(t *testing.T, name string) []byte {
 	return data
 }
 
-// rtrim strips trailing '\n' / '\r' from s. Used by the RTK snapshot
-// porter to neutralise trailing-newline differences between RTK's and
-// our line-rejoin semantics (functionally identical for the consumer).
+// rtrim strips trailing '\n' / '\r' from s. Used by snapshot tests to
+// neutralise trailing-newline differences in line-rejoin semantics.
 func rtrim(s string) string {
 	for len(s) > 0 {
 		c := s[len(s)-1]

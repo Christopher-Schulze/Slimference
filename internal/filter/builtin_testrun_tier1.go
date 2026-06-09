@@ -10,9 +10,8 @@ import (
 // if the input does not match the expected JSON shape exactly, it
 // returns (stdout, false) so the pipeline falls through to Tier-2
 // (regex via embedded TOML) and finally Tier-3 (truncate). This
-// fail-clean discipline mirrors RTK's parser layering but goes further:
-// Tier-1 JSON parsing means we surface "5 tests, 0 failed" instead of
-// the multi-kilobyte raw stream that even regex compaction cannot trim.
+// fail-clean discipline means we surface "5 tests, 0 failed" instead of the
+// multi-kilobyte raw stream that even regex compaction cannot trim.
 
 // TryCompactVitestJSON compacts `vitest --reporter=json` and
 // `jest --json` output (identical reporter schema). The schema is
