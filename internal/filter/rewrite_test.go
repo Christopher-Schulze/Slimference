@@ -163,7 +163,7 @@ func TestRewriteCommand_NoFilterMatch(t *testing.T) {
 	}
 }
 
-func TestRewriteCommand_RTKBreadthCommands(t *testing.T) {
+func TestRewriteCommand_BroadToolCommands(t *testing.T) {
 	t.Parallel()
 
 	tests := []string{
