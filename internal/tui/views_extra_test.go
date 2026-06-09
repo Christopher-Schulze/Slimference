@@ -12,6 +12,7 @@ func TestRenderSetupView_NoServiceControlAllChecksReady(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfgPath := filepath.Join(home, ".slimference", "config.toml")
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

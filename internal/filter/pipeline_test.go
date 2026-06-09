@@ -1432,6 +1432,25 @@ func TestRunPipeline_passthroughMax(t *testing.T) {
 	}
 }
 
+func writeExecutableScript(t *testing.T, path string, script string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(script); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Chmod(0o755); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunPipeline_CompactsStderr(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -1440,9 +1459,7 @@ func TestRunPipeline_CompactsStderr(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "git")
 	script := "#!/bin/sh\nfor i in $(seq 1 40); do printf '?? generated_%03d.txt\\n' \"$i\"; done >&2\n"
-	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeExecutableScript(t, bin, script)
 	pr := RunPipeline(context.Background(), dir, []string{bin, "status", "--short"}, 0)
 	if pr.Err != nil {
 		t.Fatal(pr.Err)
@@ -1491,9 +1508,7 @@ Caused by:
 OUT
 exit 101
 `
-	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeExecutableScript(t, bin, script)
 	pr := RunPipeline(context.Background(), dir, []string{bin, "check", "-vv"}, 0)
 	if pr.Err != nil {
 		t.Fatal(pr.Err)
@@ -1525,9 +1540,7 @@ func TestRunPipeline_EmptySuccessCompactsOnlyStdout(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "cargo")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeExecutableScript(t, bin, "#!/bin/sh\nexit 0\n")
 	pr := RunPipeline(context.Background(), dir, []string{bin, "check"}, 0)
 	if pr.Err != nil {
 		t.Fatal(pr.Err)
