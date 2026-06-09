@@ -7,7 +7,6 @@
 <p align="center">
   <a href="https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Christopher-Schulze/Slimference/actions/workflows/ci.yml/badge.svg"></a>
   <a href="go.mod"><img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white"></a>
-  <a href="#quick-start"><img alt="macOS" src="https://img.shields.io/badge/platform-macOS-black?logo=apple&logoColor=white"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
 
@@ -15,11 +14,10 @@
   Scoped Codex CLI/Desktop routing · deterministic tool-output reduction · WSS-first fallback · local diagnostics
 </p>
 
-Slimference is a local, macOS-first token-savings layer for Codex CLI and
-Codex Desktop. It routes only the sessions you explicitly launch through it,
-then removes deterministic waste from repeated file reads, noisy command
-output, logs, search results, cache misses, duplicated tool context, and
-recoverable tool archives.
+Slimference is a local token-savings layer for Codex CLI and Codex Desktop. It
+routes only the sessions you explicitly launch through it, then removes
+deterministic waste from repeated file reads, noisy command output, logs, search
+results, cache misses, duplicated tool context, and recoverable tool archives.
 
 The product rule is strict: **savings are not allowed to buy quality loss**.
 Slimference keeps model quality, context truth, file reality, tool recovery,
@@ -51,9 +49,12 @@ What you get today:
 
 Requirements:
 
-- macOS
 - Go 1.25+
 - Codex CLI or Codex Desktop already installed and logged in
+
+Current prebuilt GitHub releases are built and verified for macOS. The core Go
+code is intentionally kept portable where practical, but Linux and Windows are
+not release-certified yet.
 
 Install and open the TUI:
 
@@ -304,7 +305,7 @@ not change system network settings. Use the TUI Setup view or
 
 ### Install From a Release Archive
 
-Download the macOS archive from
+Download the release archive from
 <https://github.com/Christopher-Schulze/Slimference/releases>, then:
 
 ```bash
@@ -313,6 +314,8 @@ cd slimference_0.6.0_darwin_arm64
 ./install.sh
 ~/.local/bin/slimference
 ```
+
+Current public archives use the `darwin/arm64` and `darwin/amd64` target names.
 
 ## Daily Use
 
