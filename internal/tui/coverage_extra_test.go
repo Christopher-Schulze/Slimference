@@ -301,7 +301,7 @@ func TestStatusDesktopDetailShowsSharedWSSFreshness(t *testing.T) {
 			CertifiedCodex: "0.138.0",
 		},
 	)
-	if !strings.Contains(detail, "savings ready") || !strings.Contains(detail, "stale proof") {
+	if !strings.Contains(detail, "launch ready") || !strings.Contains(detail, "stale proof") {
 		t.Fatalf("desktop detail=%q", detail)
 	}
 }

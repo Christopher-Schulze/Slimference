@@ -38,6 +38,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -319,6 +320,7 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 			cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+			cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 			p := New(cfg)
 			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 

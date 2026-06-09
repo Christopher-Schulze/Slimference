@@ -550,9 +550,9 @@ func statusDesktopDetail(status CodexDesktopStatus, route CodexRouteStatus) stri
 		return joinStatusDetails(status.FailureClass, version)
 	case status.AppServerActive:
 		return joinStatusDetails("app launch active", version)
-	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
+	case status.Mode == "desktop_app_server_phasef_proven":
 		return joinStatusDetails("savings ready", version)
-	case status.Mode == "desktop_app_server_route_ready":
+	case status.Mode == "desktop_app_server_proven" || status.Mode == "desktop_app_server_route_ready":
 		return joinStatusDetails("launch ready", version)
 	case status.Mode == "desktop_wss_bridge_only":
 		return joinStatusDetails("bridge fallback", version)
@@ -1650,10 +1650,10 @@ func renderCodexDesktopStatusLine(s Styles, status CodexDesktopStatus) string {
 	case status.AppServerActive:
 		state = "scoped app active"
 		style = s.Saved
-	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
+	case status.Mode == "desktop_app_server_phasef_proven":
 		state = "savings active"
 		style = s.Saved
-	case status.Mode == "desktop_app_server_route_ready":
+	case status.Mode == "desktop_app_server_proven" || status.Mode == "desktop_app_server_route_ready":
 		state = "route ready"
 		style = s.Saved
 	case status.Mode == "desktop_wss_bridge_only":

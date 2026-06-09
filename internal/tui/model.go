@@ -1069,9 +1069,9 @@ func (m *Model) codexAppState() string {
 	switch {
 	case status.AppServerActive:
 		return "scoped active"
-	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
+	case status.Mode == "desktop_app_server_phasef_proven":
 		return "savings active"
-	case status.Mode == "desktop_app_server_route_ready":
+	case status.Mode == "desktop_app_server_proven" || status.Mode == "desktop_app_server_route_ready":
 		return "route ready"
 	case status.Mode == "desktop_wss_bridge_only":
 		return "fallback"
@@ -1091,10 +1091,10 @@ func (m *Model) codexAppDescription() string {
 	if status.AppServerActive {
 		return "Codex.app is running with Slimference app-server shim; first prompt proves live traffic."
 	}
-	if status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven" {
+	if status.Mode == "desktop_app_server_phasef_proven" {
 		return "Open Codex.app in Slimference mode; Desktop savings are proven."
 	}
-	if status.Mode == "desktop_app_server_route_ready" {
+	if status.Mode == "desktop_app_server_proven" || status.Mode == "desktop_app_server_route_ready" {
 		return "Open Codex.app in Slimference mode. Normal Finder/Spotlight launches stay direct."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {

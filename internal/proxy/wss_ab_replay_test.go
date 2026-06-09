@@ -17,6 +17,7 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 
 	var file strings.Builder
 	for i := 0; i < 160; i++ {
@@ -61,6 +62,7 @@ func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 
 	var before strings.Builder
 	var after strings.Builder

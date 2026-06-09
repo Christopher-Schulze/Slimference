@@ -221,6 +221,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
+		if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled) {
+			meta.BypassReason = "wss_tool_output_state_full_pass"
+			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
+			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
+		}
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
 				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
@@ -462,6 +467,13 @@ func messagesContainToolResult(messages []types.Message) bool {
 		}
 	}
 	return false
+}
+
+func wssToolOutputStateFullPass(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool) bool {
+	if !containsToolOutput || mutationEnabled {
+		return false
+	}
+	return meta.SessionID != "" || meta.PreviousResponseID != ""
 }
 
 func wssBodyHasPromptCachePrefix(body []byte) bool {

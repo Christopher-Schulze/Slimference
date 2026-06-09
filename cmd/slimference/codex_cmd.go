@@ -593,12 +593,19 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 		if auto.CertifiedCodex != "" || auto.CertifiedSlimference != "" {
 			fmt.Fprintf(w, "           certified codex=%s slimference=%s\n", auto.CertifiedCodex, auto.CertifiedSlimference)
 		}
+		if auto.BridgeCodex != "" || auto.BridgeSlimference != "" {
+			fmt.Fprintf(w, "           bridge codex=%s slimference=%s\n", auto.BridgeCodex, auto.BridgeSlimference)
+		}
 	}
 	if auto.FallbackReason != "" {
 		fmt.Fprintf(w, "           %s\n", auto.FallbackReason)
 	}
 	if auto.NeedsRecert {
-		fmt.Fprintf(w, "           WSS savings repair needed; recert action: %s\n", auto.RecertCommand)
+		if auto.WSSBridgeAvailable {
+			fmt.Fprintf(w, "           Phase-F savings repair available; bridge is current; recert action: %s\n", auto.RecertCommand)
+		} else {
+			fmt.Fprintf(w, "           WSS savings repair needed; recert action: %s\n", auto.RecertCommand)
+		}
 	}
 	if auto.RecertStatus != "" {
 		fmt.Fprintf(w, "           recert status=%s attempt=%s\n", auto.RecertStatus, auto.RecertAttemptID)

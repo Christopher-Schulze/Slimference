@@ -340,6 +340,7 @@ func decideBridgeOrHTTP(home, codexVersion, slimferenceVersion string, decision 
 	decision.Mode = AutoModeWSSBridge
 	decision.Transport = TransportWSS
 	decision.WSSBridgeAvailable = true
+	decision.FallbackReason = "phase-f savings proof not current; using current WSS bridge proof"
 	return decision
 }
 

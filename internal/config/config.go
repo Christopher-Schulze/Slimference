@@ -276,6 +276,11 @@ type OutputReduceConfig struct {
 	// prerequisites are present; conservative keeps only the low-risk
 	// lossless reducers unless a mechanism is explicitly enabled.
 	CodexSavingsPolicyMode string `toml:"codex_savings_policy_mode"`
+	// CodexWSSToolOutputMutationEnabled is a lab/proof switch for mutating
+	// Codex WSS request bodies that carry tool output. Product default is
+	// false because current Codex Desktop Responses chains can reject later
+	// previous_response_id turns after a prior WSS tool-output rewrite.
+	CodexWSSToolOutputMutationEnabled bool `toml:"codex_wss_tool_output_mutation_enabled"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
@@ -725,6 +730,11 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_CONCISE_CHAT_TEXT")); v != "" {
 		cfg.Compression.OutputReduce.ConciseChatText = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_TOOL_OUTPUT_MUTATION")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = b
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE")); v != "" {
 		if b, ok := parseEnvBool(v); ok {

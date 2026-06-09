@@ -267,6 +267,10 @@ read_delta_recent_full_pass_turns = 0
 # enables aggressive recoverable reducers only when their safety prerequisites
 # are present and loosens automatically on recency/context-risk signals.
 codex_savings_policy_mode = "auto"
+# Lab/proof switch only. Product default full-passes Codex WSS request bodies
+# that carry tool output because current Codex Desktop Responses chains can
+# reject later previous_response_id turns after a prior WSS tool-output rewrite.
+codex_wss_tool_output_mutation_enabled = false
 # T255 content-defined chunk dedup. This explicit toggle remains for operators
 # who want to force the mechanism under conservative policy; auto policy can
 # enable it without this field.

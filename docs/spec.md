@@ -53,9 +53,13 @@ Requirements:
 - changed repeated searches must show added/removed evidence or full-pass;
 - HTTP must not emit archive-backed chunk references unless explicitly proven
   safe for that route;
-- WSS recoverable chunk dedup requires route/workload/proof policy allow;
-- Codex WSS search-output reduction remains risk-gated and full-passes when
-  first-pass evidence or source attribution would become ambiguous;
+- Codex WSS tool-output request mutation is default-off for stateful session
+  frames and requires explicit lab/proof opt-in;
+- WSS recoverable chunk dedup requires route/workload/proof policy allow plus
+  Codex WSS tool-output mutation opt-in;
+- Codex WSS search/path-list/tool-output reduction remains risk-gated and
+  full-passes when first-pass evidence, source attribution, or upstream session
+  state could become ambiguous;
 - every reducer records enough local telemetry to prove hit, miss, block, and
   fail-open reasons without logging raw private payloads.
 

@@ -255,6 +255,7 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	var bodyBuilder strings.Builder
@@ -302,6 +303,7 @@ func TestWSPhaseFPreviousResponseReadDeltaFullPassesBeforeRecencyPolicy(t *testi
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = 1
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
@@ -777,6 +779,7 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	sourceOutput := strings.Repeat("package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"slimference\") }\n", 240)
@@ -842,7 +845,47 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 		t.Fatal("large tool-result continuations after previous_response_id must full-pass")
 	}
 	if wssPreviousResponseToolOutputFullPass(wssRequestMeta{}, true) {
-		t.Fatal("tool outputs without previous_response_id may still use the safe WSS savings path")
+		t.Fatal("previous_response_id-specific guard must not cover non-continuation tool output")
+	}
+}
+
+func TestWSPhaseFToolOutputStateGuardFullPassesDefaultWSSMutation(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	output := strings.Repeat("?? state_guard_file.go\n", 240)
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "state-guard-session",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_status", "name": "exec_command", "arguments": map[string]any{"cmd": "git status --short"}},
+				{"type": "function_call_output", "call_id": "call_status", "output": output},
+			},
+			"stream": true,
+		},
+	})
+
+	if replace := adapter.handleRequest(&env); replace {
+		t.Fatalf("default Codex WSS tool-output request must full-pass: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "[git status]") || !strings.Contains(string(env.Body), "state_guard_file.go") {
+		t.Fatalf("tool output was unexpectedly compacted: %s", env.Body)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one debug summary, got %d", len(summaries))
+	}
+	if summaries[0].BypassReason != "wss_tool_output_state_full_pass" ||
+		summaries[0].Tokens.Saved != 0 ||
+		summaries[0].DebugFacts["wss.bypass_reason"] != "wss_tool_output_state_full_pass" {
+		t.Fatalf("state guard summary missing: %+v", summaries[0])
 	}
 }
 
@@ -1173,6 +1216,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
@@ -1220,6 +1264,7 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
@@ -1698,6 +1743,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
 	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p = New(cfg)
 	adapter = (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	if !adapter.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
@@ -1730,6 +1776,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p = New(cfg)
 	adapter = (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	prunedBody := codexWSObsoleteReadBody(strings.Repeat("obsolete file content ", 80))
@@ -1748,6 +1795,7 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -1788,6 +1836,7 @@ func TestWSPhaseFResponseCreateInfersUnresolvedToolOutput(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -1839,6 +1888,7 @@ func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -1907,6 +1957,7 @@ func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) 
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -1974,6 +2025,7 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -2120,6 +2172,7 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
