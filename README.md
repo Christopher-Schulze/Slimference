@@ -118,12 +118,9 @@ still producing meaningful savings on repeated coding-agent work.
 | ChatGPT.app direct launch | Direct | Not touched by default |
 | Voice / realtime | Direct | Not optimized by default |
 | Vision / computer-use | Direct | Not optimized by default |
-| Claude Code | Parked | Code exists for reference, not installed by default |
-| Global MITM / hosts / pfctl | Lab only | Explicit advanced path, not product default |
 
-Default install may keep local CA files for isolated diagnostics, but it does
-not trust that CA in Keychain and does not arm hosts, pfctl, or system proxy
-routing.
+Default install does not change system network settings and does not route
+unrelated apps.
 
 ## Why Codex Hooks First
 
@@ -159,8 +156,8 @@ deterministic and bounded:
 - **No fake Desktop indicator:** current Codex Desktop builds do not expose a
   stable process-local text chip contract, so Slimference reports route truth in
   the TUI and logs instead of mutating model names or service tiers.
-- **Scoped by default:** no system proxy, no persistent OpenAI base URL, no
-  machine-wide `chatgpt.com` route.
+- **Scoped by default:** normal use routes only the Codex process you launch
+  through Slimference.
 
 ## Savings Layers
 
@@ -217,7 +214,7 @@ feature.
 | Boundary | Product rule |
 |---|---|
 | No semantic context replacement | No external summarizer, local LLM summarizer, OCRL ledger, or lossy memory replacement |
-| No global routing by default | No `/etc/hosts`, pfctl, macOS system proxy, or machine-wide `chatgpt.com` interception in normal use |
+| No global routing by default | Normal install does not change system network settings or unrelated apps |
 | No fake Desktop signal | Route truth is shown in Slimference status/TUI/logs, not by mutating Codex model names or service tiers |
 | No quality trade for output savings | Output reducers are shape-gated, low-ROI guarded, and fail open |
 | No hidden lock-in | `slimference disable` and `slimference uninstall` revert marker-owned state |
@@ -235,8 +232,7 @@ feature.
 7. The TUI shows activity, savings, logs, status, and setup health.
 
 Normal Browser ChatGPT, normal ChatGPT.app, voice/realtime, vision, and
-computer-use flows are not the target path and are not globally intercepted by
-default.
+computer-use flows are not the target path and are left direct by default.
 
 ## WebSocket And Desktop Routing
 
@@ -283,9 +279,8 @@ slimference
 ```
 
 The installer only installs the local binary and prints PATH guidance. It does
-not arm global routing, trust a CA, patch hosts, or change system proxy
-settings. Use the TUI Setup view or `slimference install` when you want the
-scoped Codex service/hooks.
+not change system network settings. Use the TUI Setup view or
+`slimference install` when you want the scoped Codex service/hooks.
 
 ### Install From a Release Archive
 

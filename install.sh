@@ -64,7 +64,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "This installer is macOS-first. Linux users should use scripts/service/linux/install.sh after installing the binary." >&2
+  echo "Slimference v${VERSION} is currently supported on macOS only." >&2
   exit 1
 fi
 

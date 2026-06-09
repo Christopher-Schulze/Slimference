@@ -6,7 +6,7 @@ import "fmt"
 // stays scannable in a standard terminal window. Deeper detail lives in the
 // per-subcommand help and in docs/documentation.md.
 func helpTopLevel() string {
-	return fmt.Sprintf(`slimference - Codex token-optimizing proxy (v%s)
+	return fmt.Sprintf(`slimference - Codex token-optimizing proxy for macOS (v%s)
 
 USAGE:
   slimference                        Start TUI + proxy (requires TTY)
@@ -42,7 +42,7 @@ SUBCOMMANDS:
   stats        Print analytics snapshots (today|week|month|prompt-cache)
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
-  daemon       Run as a long-lived daemon (invoked by launchd/systemd)
+  daemon       Run as a long-lived daemon (invoked by launchd)
   proxy        Legacy transparent/System-HTTPS-Proxy lifecycle and CLI env helpers
   integrate    Legacy advanced client wiring (status|install|remove|emergency-off)
   bypass       Toggle the master bypass flag (on|off|status)
@@ -119,7 +119,7 @@ wrapper internally, and humans can use it for manual diagnostics.
 Flags:
   --stream             T94 streaming-aware mode: ANSI strip + dedup
                        consecutive identical lines on the fly. Suitable
-                       for tail -f / docker logs --follow style inputs.
+                       for long-running log streams.
 
 The child's exit code is propagated verbatim.
 
@@ -127,7 +127,7 @@ Examples:
   slimference filter -- git status --short
   slimference filter -- go test ./...
   slimference filter -- rg "TODO|FIXME" .
-  slimference filter --stream -- docker logs --follow app
+  slimference filter --stream -- tail -f app.log
 `
 	case "hook":
 		return `slimference hook <install|remove|verify|status|check-upstream> [codex]
@@ -287,13 +287,12 @@ bundle              Export bounded content-free diagnostics to
 		return `slimference service <install|uninstall|start|stop|restart|status|logs>
 
 macOS: manages the slimference.plist launchd user agent.
-Linux: manages the user-scoped systemd unit (when available).
 'logs' tails stderr / stdout via the platform log sink.
 `
 	case "daemon":
 		return `slimference daemon
 
-Invoked by the OS service supervisor (launchd/systemd). Runs the proxy
+Invoked by the macOS launchd service supervisor. Runs the proxy
 foreground with JSON logging and platform-specific integration. Users
 should prefer 'slimference service <verb>' or '--no-tui' instead.
 `

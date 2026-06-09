@@ -11,7 +11,7 @@ repository root.
 | `build/` | Builds a local single-file Slimference binary with release flags (`-trimpath -ldflags "-s -w"`); `--install` replaces the target binary via temp file plus atomic rename |
 | `coverage/` | Evaluates coverage, enforces the current 95.0% aggregate gate, and mirrors local CI behavior |
 | `benchmarks/` | Groups benchmarks and evaluates `go test -bench` output |
-| `release/` | Builds portable release artifacts with SHA256SUMS; the default target is macOS darwin/arm64 |
+| `release/` | Builds macOS release artifacts with SHA256SUMS; the default target is darwin/arm64 |
 | `utils/` | Small helper CLIs, one-off maintenance commands, and generators; `utils/indist_probe` is the tshark-based capture/diff tool for T224 |
 
 Add more subdirectories only for a clear topic, for example `lint/`.
@@ -36,7 +36,7 @@ Concrete commands:
 go run ./scripts/build --install                # Optimized binary to ~/.local/bin/slimference
 go run ./scripts/build --restart                # Safe local update: stop -> build -> atomic install -> start
 go run ./scripts/build --out ./slimference      # Optimized local binary
-go run ./scripts/release --version v0.6.0       # Portable macOS-arm64 release tarball + SHA256SUMS
+go run ./scripts/release --version v0.6.0       # macOS arm64 release tarball + SHA256SUMS
 go run ./scripts/release --version v0.6.0 --targets=darwin/arm64,darwin/amd64  # Public macOS release set
 go run ./scripts/coverage -min=95.0              # Coverage-Gate (aggregate)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s): compression/filter/proxy/readcache/archive/chunk/planner

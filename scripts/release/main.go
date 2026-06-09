@@ -1,5 +1,5 @@
-// Package main - scripts/release cross-builds the slimference binary for
-// every supported OS/arch target and assembles a release bundle under dist/.
+// Package main - scripts/release builds macOS Slimference release bundles under
+// dist/.
 //
 // Usage:
 //
@@ -12,9 +12,8 @@
 //	    -trimpath -ldflags "-s -w -X main.version=<v> -X main.commit=<sha>" \
 //	    -o dist/slimference_<version>_<os>_<arch>/slimference ./cmd/slimference
 //
-// then packages the binary, LICENSE, README.md, install.sh, docs, and service
-// helpers into a
-// .tar.gz and emits a SHA256SUMS file next to the archives.
+// then packages the binary, LICENSE, README.md, install.sh, and selected docs
+// into a .tar.gz and emits a SHA256SUMS file next to the archives.
 package main
 
 import (
@@ -36,21 +35,17 @@ type target struct {
 	arch string
 }
 
-// allTargets is the full matrix of platforms the release script CAN build.
-// Kept as a complete list so cross-platform support stays available; the
-// default --targets selection ships only the primary target (macOS on
-// M-series Apple silicon).
+// allTargets is the public macOS release matrix. Linux, Windows, and container
+// builds are intentionally not part of v0.6.0 support.
 var allTargets = []target{
 	{"darwin", "arm64"}, // primary, default build target
 	{"darwin", "amd64"},
-	{"linux", "arm64"},
-	{"linux", "amd64"},
 }
 
 // defaultTargetSelector names the default build matrix. "primary" emits only
-// darwin_arm64 (the supported macOS-on-M-series build). "all" emits every
-// target in allTargets. Any comma-separated list of `os/arch` pairs is also
-// accepted, e.g. "darwin/arm64,linux/amd64".
+// darwin_arm64 (the supported macOS-on-M-series build). "all" emits the public
+// macOS release set. Any comma-separated list of `os/arch` pairs is also
+// accepted when every pair is in the public macOS matrix.
 const defaultTargetSelector = "primary"
 
 func resolveTargets(selector string) ([]target, error) {
@@ -70,7 +65,11 @@ func resolveTargets(selector string) ([]target, error) {
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid target %q (want os/arch)", spec)
 		}
-		out = append(out, target{parts[0], parts[1]})
+		candidate := target{parts[0], parts[1]}
+		if !isSupportedTarget(candidate) {
+			return nil, fmt.Errorf("unsupported target %q (supported: darwin/arm64,darwin/amd64)", spec)
+		}
+		out = append(out, candidate)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("empty --targets list")
@@ -78,12 +77,21 @@ func resolveTargets(selector string) ([]target, error) {
 	return out, nil
 }
 
+func isSupportedTarget(candidate target) bool {
+	for _, supported := range allTargets {
+		if candidate == supported {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
 	version := flag.String("version", "", "release tag, e.g. v0.6.0 (required)")
 	dryRun := flag.Bool("dry-run", false, "print commands instead of executing them")
 	outDir := flag.String("out", "dist", "output directory")
 	targetsFlag := flag.String("targets", defaultTargetSelector,
-		`target selector: "primary" (darwin/arm64 only, default), "all" (every supported target), or a comma-separated list like "darwin/arm64,linux/amd64"`)
+		`target selector: "primary" (darwin/arm64 only, default), "all" (darwin/arm64 + darwin/amd64), or a comma-separated macOS list`)
 	flag.Parse()
 
 	targets, err := resolveTargets(*targetsFlag)
@@ -166,15 +174,6 @@ func main() {
 			dst := filepath.Join(tgtDir, filepath.Base(extra))
 			if err := copyFile(extra, dst); err != nil {
 				fmt.Fprintf(os.Stderr, "copy %s: %v\n", extra, err)
-			}
-		}
-
-		// Linux bundles get the systemd unit template.
-		if t.os == "linux" {
-			unit := "scripts/service/linux/slimference.service"
-			if _, err := os.Stat(unit); err == nil {
-				dst := filepath.Join(tgtDir, "slimference.service")
-				_ = copyFile(unit, dst)
 			}
 		}
 

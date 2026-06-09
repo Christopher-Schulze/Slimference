@@ -289,7 +289,7 @@ type ServiceControlInterface interface {
 	StopDaemon() error
 	// RestartDaemon stops and starts the daemon.
 	RestartDaemon() error
-	// InstallService installs the launchd/systemd auto-start service.
+	// InstallService installs the launchd auto-start service.
 	InstallService() error
 	// UninstallService removes the auto-start service.
 	UninstallService() error

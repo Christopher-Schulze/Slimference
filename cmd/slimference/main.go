@@ -234,7 +234,7 @@ func main() {
 	}
 
 	// No args: on a non-TTY we refuse to launch the TUI and emit help with exit 2
-	// so Docker / systemd / CI paths surface a clear signal instead of a TTY error.
+	// so headless/CI paths surface a clear signal instead of a TTY error.
 	if len(args) == 0 && !termIsTerminalFn(int(os.Stdout.Fd())) {
 		fmt.Fprintln(os.Stderr, "slimference: no TTY detected. Use --no-tui for headless mode or --help.")
 		printHelp(nil)

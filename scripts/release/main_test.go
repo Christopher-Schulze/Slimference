@@ -210,14 +210,14 @@ func TestResolveTargets_All(t *testing.T) {
 }
 
 func TestResolveTargets_Custom(t *testing.T) {
-	ts, err := resolveTargets("darwin/arm64,linux/amd64")
+	ts, err := resolveTargets("darwin/arm64,darwin/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ts) != 2 {
 		t.Fatalf("custom = %d, want 2", len(ts))
 	}
-	if ts[1].os != "linux" || ts[1].arch != "amd64" {
+	if ts[1].os != "darwin" || ts[1].arch != "amd64" {
 		t.Fatalf("second target = %+v", ts[1])
 	}
 }
@@ -228,6 +228,9 @@ func TestResolveTargets_InvalidSpec(t *testing.T) {
 	}
 	if _, err := resolveTargets(","); err == nil {
 		t.Fatal("expected error on empty list")
+	}
+	if _, err := resolveTargets("linux/amd64"); err == nil {
+		t.Fatal("expected error on unsupported target")
 	}
 }
 

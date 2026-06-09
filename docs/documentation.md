@@ -274,7 +274,7 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    (ruff/pylint/flake8/mypy/pyright/pytest/unittest matching), Zig, SQL/DB
    client diagnostics (psql/sqlite/mysql/mariadb/Prisma/Drizzle/SQLFluff/
    Sqruff), Markdown, and practical ecosystem compilers (Java/Kotlin/Swift/
-   Dart/Flutter/PHP, Docker/Kubernetes/Helm, and adjacent wrappers).
+   Dart/Flutter/PHP, container/orchestration tooling, and adjacent wrappers).
    `lint-output` also calls the shared parser after exact success compactors
    so non-empty Python lint/type-check output is reduced without losing the
    older ok-paths.
@@ -1064,14 +1064,14 @@ application when the legend would create a negative saving.
 
 Structure extraction now covers the main code stacks plus high-volume text and
 config formats. `structure_more.go` adds Markdown, SQL, GraphQL, HCL,
-Dockerfile, and Makefile summaries on top of Go, TypeScript/JavaScript,
-Rust, Python, C/C++, Java, Ruby, shell, Zig, Swift, Kotlin, PHP, Dart,
-Scala, Elixir, Solidity, and Svelte.
+container build files, and Makefile summaries on top of Go,
+TypeScript/JavaScript, Rust, Python, C/C++, Java, Ruby, shell, Zig, Swift,
+Kotlin, PHP, Dart, Scala, Elixir, Solidity, and Svelte.
 
 The new text/config summaries are deliberately lossy but recoverable through
 the existing content archive. They keep only structural markers: Markdown
 headings/lists/tables/fences, SQL DDL/DML/constraint clauses, GraphQL/HCL
-top-level blocks, Dockerfile image/control instructions with `RUN` chains
+top-level blocks, container build image/control instructions with run chains
 collapsed to a command count, and Makefile includes/variables/targets.
 The `structure_min_tokens` gate is evaluated with the local tokenizer, falling
 back to byte/4 only if tokenizer initialization fails. Negative-saving bypass
@@ -2727,25 +2727,12 @@ install -Dm755 /tmp/slimference_<version>_darwin_arm64/slimference \
     "$HOME/.local/bin/slimference"
 ```
 
-### Docker (reference only)
-
-`scripts/service/docker/Dockerfile` ships a multi-stage distroless
-image. Build:
-
-```bash
-docker build -f scripts/service/docker/Dockerfile \
-    --build-arg VERSION=0.6.0 \
-    --build-arg COMMIT=$(git rev-parse --short HEAD) \
-    -t slimference:0.6.0 .
-```
-
----
-
 ## 17. Build and Release
 
-Primary target is **macOS on Apple M-series (darwin/arm64)**. Cross-
-build support for the other three combinations stays in the release
-script but is opt-in.
+Slimference v0.6.0 is a **macOS-first** product. The primary target is
+Apple silicon (`darwin/arm64`); Intel macOS (`darwin/amd64`) is available as
+an explicit release target. Linux, Windows, and container images are not part
+of the public support surface.
 
 ### Default build (primary target only)
 
@@ -2761,19 +2748,19 @@ dist/slimference_0.6.0_darwin_arm64.tar.gz
 dist/SHA256SUMS
 ```
 
-### All targets
+### Public macOS set
 
 ```bash
-go run ./scripts/release --version v0.6.0 --targets=all
+go run ./scripts/release --version v0.6.0 --targets=darwin/arm64,darwin/amd64
 ```
 
-Adds `darwin_amd64`, `linux_arm64`, `linux_amd64`.
+Adds the Intel macOS archive next to the default Apple-silicon archive.
 
-### Hand-picked subset
+### Hand-picked macOS subset
 
 ```bash
 go run ./scripts/release --version v0.6.0 \
-    --targets=darwin/arm64,linux/amd64
+    --targets=darwin/arm64
 ```
 
 ### `ldflags` injection
@@ -2952,8 +2939,7 @@ internal/buildinfo/           Build-time Version + Commit (ldflags-set).
 internal/types/               Shared types (Provider, Message, ContentBlock).
 internal/util/                Generic helpers.
 
-scripts/release/              Cross-build + tar + SHA256 (T47).
-scripts/service/docker/       Distroless Dockerfile.
+scripts/release/              macOS release tarballs + SHA256 (T47).
 scripts/benchmarks/           Benchmark runner.
 scripts/coverage/             Coverage gate.
 scripts/utils/                Offline session/decision/filter/proof reports and
