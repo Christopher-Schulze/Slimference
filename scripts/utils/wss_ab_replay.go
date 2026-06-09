@@ -21,6 +21,7 @@ type wssABReplayFlags struct {
 	failOnLost             bool
 	archiveRecoveryNote    bool
 	allowRecoveryNoteExtra bool
+	toolOutputMutation     bool
 	codexChunkDedup        bool
 	chunkDedupMinBytes     int
 	help                   bool
@@ -44,6 +45,7 @@ type wssABReplayReport struct {
 	ReducerChunkRefs       int                 `json:"reducer_chunk_dedup_references"`
 	ReducerChunkRefBytes   int                 `json:"reducer_chunk_dedup_referenced_bytes"`
 	ReducerChunkInputBytes int                 `json:"reducer_chunk_dedup_input_bytes"`
+	ToolOutputMutation     bool                `json:"tool_output_mutation_enabled"`
 	Lost                   int                 `json:"lost"`
 	ExpectedExtras         int                 `json:"expected_extras,omitempty"`
 	Elisions               []abharness.Elision `json:"elisions,omitempty"`
@@ -64,10 +66,14 @@ Flags:
   --allow-recovery-note-extra
                            Do not fail the gate for the expected once-per-session
                            recovery-note extra block
+  --tool-output-mutation    Enable lab/proof Codex WSS tool-output mutation
+                           during replay; product default keeps stateful
+                           WSS tool-output request bodies byte-equal
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
-                           --archive-recovery-note plus
-                           --allow-recovery-note-extra
+                           --archive-recovery-note,
+                           --allow-recovery-note-extra, and
+                           --tool-output-mutation
   --chunk-dedup-min-bytes N Set the replay chunk-dedup minimum input bytes
 
 Input format: JSONL records with direction and payload:
@@ -85,7 +91,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]")
+		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]")
 		return 2
 	}
 	report, err := loadWSSABReplayReport(flags)
@@ -127,10 +133,13 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 			flags.archiveRecoveryNote = true
 		case arg == "--allow-recovery-note-extra":
 			flags.allowRecoveryNoteExtra = true
+		case arg == "--tool-output-mutation" || arg == "--codex-wss-tool-output-mutation":
+			flags.toolOutputMutation = true
 		case arg == "--codex-chunk-dedup":
 			flags.codexChunkDedup = true
 			flags.archiveRecoveryNote = true
 			flags.allowRecoveryNoteExtra = true
+			flags.toolOutputMutation = true
 		case arg == "--chunk-dedup-min-bytes":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("--chunk-dedup-min-bytes requires a value")
@@ -165,7 +174,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		return wssABReplayReport{}, err
 	}
 	cfg := config.Defaults()
+	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = toolOutputMutation
 	if flags.codexChunkDedup {
 		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 		if flags.chunkDedupMinBytes >= 0 {
@@ -194,6 +205,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		ReducerChunkRefs:       result.ReducerStats.ChunkDedupReferences,
 		ReducerChunkRefBytes:   result.ReducerStats.ChunkDedupRefBytes,
 		ReducerChunkInputBytes: result.ReducerStats.ChunkDedupInputBytes,
+		ToolOutputMutation:     toolOutputMutation,
 		Lost:                   result.Report.Lost(),
 		Elisions:               result.Report.Elisions,
 		GatePassed:             true,
@@ -203,6 +215,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	if flags.archiveRecoveryNote {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
+	}
+	if toolOutputMutation {
+		report.Notes = append(report.Notes, "Codex WSS tool-output mutation was enabled for this lab/proof replay; product default keeps stateful WSS tool-output request bodies byte-equal")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
@@ -359,6 +374,7 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)
 	fmt.Fprintf(w, "  bytes_saved:      %d\n", report.BytesSaved)
 	fmt.Fprintf(w, "  reducer_tokens:   %d\n", report.ReducerTokensSaved)
+	fmt.Fprintf(w, "  tool_output_mut:  %t\n", report.ToolOutputMutation)
 	if report.ReducerBlocksModified > 0 {
 		fmt.Fprintf(w, "  reducer_blocks:   modified=%d read_delta=%d repeated=%d chunk=%d captured=%d envelope=%d\n",
 			report.ReducerBlocksModified, report.ReducerReadDeltaBlocks, report.ReducerRepeatedBlocks,

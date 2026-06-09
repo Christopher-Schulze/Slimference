@@ -126,11 +126,11 @@ Usage:
 Input JSONL rows:
   {"id":"cli-repeat-1","client":"cli","workload_class":"repeat_full_read","frames_path":"/tmp/frames.jsonl","decisions_path":"~/.slimference/debug/decisions.jsonl","expected_reducers":["read_delta"]}
 
-The tool replays each frames file with wss-ab-replay semantics, optionally audits
-the matching decisions log, and emits a content-free PASS/FAIL matrix. Use
---require-live-token-delta for release proofs where replay bytes are not allowed
-to stand in for real billable token deltas. Raw frame payloads stay local and are
-not copied into the report.
+The tool replays each frames file with wss-ab-replay lab/proof tool-output
+mutation enabled, optionally audits the matching decisions log, and emits a
+content-free PASS/FAIL matrix. Use --require-live-token-delta for release proofs
+where replay bytes are not allowed to stand in for real billable token deltas.
+Raw frame payloads stay local and are not copied into the report.
 
 Optional focused-proof gates:
   --required-workload=<class>     Require one workload class; repeatable.
@@ -343,7 +343,11 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		}
 		capture.GateFailures = validateWSSProofMetadata(capture)
 
-		replay, err := loadWSSABReplayReport(wssABReplayFlags{path: capture.FramesPath, failOnLost: true})
+		replay, err := loadWSSABReplayReport(wssABReplayFlags{
+			path:               capture.FramesPath,
+			failOnLost:         true,
+			toolOutputMutation: true,
+		})
 		if err != nil {
 			capture.GateFailures = append(capture.GateFailures, fmt.Sprintf("replay failed: %v", err))
 		} else {

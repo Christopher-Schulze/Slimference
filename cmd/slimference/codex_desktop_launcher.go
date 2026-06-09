@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
 )
 
 // Codex Desktop scoped launcher (T228/T238).
@@ -26,8 +28,10 @@ import (
 // Electron starts this slimference binary as if it were `codex app-server`,
 // and the hidden app-server shim execs the real Codex binary with process-local
 // provider overrides that point only that app-server at Slimference's local
-// Codex WSS endpoint. Browser ChatGPT, ChatGPT.app, Claude Code, and any
-// Codex.app launched later via Finder / Spotlight remain unaffected.
+// Codex endpoint. WSS is used only when Phase-F is freshly certified; otherwise
+// the provider uses the HTTP Responses savings path. Browser ChatGPT,
+// ChatGPT.app, Claude Code, and any Codex.app launched later via Finder /
+// Spotlight remain unaffected.
 //
 // EMPIRICAL FINDING (2026-05-18, against Codex.app 0.131.0-alpha.9 at
 // /Applications/Codex.app/Contents/Resources/codex):
@@ -138,6 +142,7 @@ var codexDesktopAppServerEnvKeys = []string{
 	"SLIMFERENCE_CODEX_DESKTOP_ACTIVE",
 	"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN",
 	"SLIMFERENCE_CODEX_DESKTOP_BASE_URL",
+	"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS",
 	"NO_PROXY",
 	"no_proxy",
 }
@@ -165,6 +170,12 @@ type codexDesktopCAState struct {
 	Exists  bool   `json:"exists"`
 	Trusted bool   `json:"trusted"`
 	Error   string `json:"error,omitempty"`
+}
+
+type codexDesktopAppServerRoute struct {
+	SupportsWebSockets bool
+	Mode               string
+	Reason             string
 }
 
 func handleCodexLaunchDesktopCmd(args []string) {
@@ -210,7 +221,8 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 			fmt.Fprintf(p.Err, "codex launch-desktop: resolve upstream codex binary: %v\n", err)
 			return 1
 		}
-		env = buildCodexDesktopAppServerEnv(overrideURL, slimferenceBin, upstreamBin, codexDesktopBaseEnvFn(), flags.extra)
+		route := resolveCodexDesktopAppServerRoute()
+		env = buildCodexDesktopAppServerEnv(overrideURL, slimferenceBin, upstreamBin, route.SupportsWebSockets, codexDesktopBaseEnvFn(), flags.extra)
 		ca = codexDesktopCAState{}
 	case codexDesktopTransportProxy:
 		env = buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
@@ -297,6 +309,31 @@ func codexDesktopLaunchArgs(transport, proxyURL string) []string {
 	}
 }
 
+func resolveCodexDesktopAppServerRoute() codexDesktopAppServerRoute {
+	route := codexDesktopAppServerRoute{
+		SupportsWebSockets: false,
+		Mode:               string(codexroute.AutoModeHTTP),
+		Reason:             "wss phase-f proof is not current; using HTTP savings path",
+	}
+	home, err := codexRouteHomeFn()
+	if err != nil || strings.TrimSpace(home) == "" {
+		route.Reason = "home unresolved; using HTTP savings path"
+		return route
+	}
+	decision := codexAutoFn(home)
+	if decision.Mode != "" {
+		route.Mode = string(decision.Mode)
+	}
+	if decision.FallbackReason != "" {
+		route.Reason = decision.FallbackReason
+	}
+	if decision.Mode == codexroute.AutoModeWSSPhaseF && decision.Transport == codexroute.TransportWSS && decision.WSSCertified {
+		route.SupportsWebSockets = true
+		route.Reason = "wss phase-f certified"
+	}
+	return route
+}
+
 // buildCodexDesktopLaunchEnv constructs the env for the spawned
 // Codex.app. It removes any existing entries for the override keys
 // from the base env, appends our overrides, then appends operator
@@ -370,7 +407,7 @@ func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) [
 	return out
 }
 
-func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin string, base []string, extra []string) []string {
+func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin string, supportsWebSockets bool, base []string, extra []string) []string {
 	base = sanitizeCodexDesktopBaseEnv(base)
 	overrideKeys := make(map[string]struct{}, len(codexDesktopAppServerEnvKeys)+len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys)+len(codexDesktopCAEnvKeys))
 	for _, k := range codexDesktopAppServerEnvKeys {
@@ -404,6 +441,7 @@ func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin str
 		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN="+upstreamCodexBin,
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL="+baseURL,
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS="+strconv.FormatBool(supportsWebSockets),
 		"NO_PROXY="+noProxy,
 		"no_proxy="+noProxy,
 	)
@@ -812,7 +850,9 @@ const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--t
 Spawns Codex.app's main binary with a scoped env. Default transport=app-server
 sets CODEX_CLI_PATH only on the launched app process. Codex Desktop then starts
 Slimference as its app-server shim, and the shim execs the real Codex app-server
-with process-local provider overrides pointed at Slimference's local WSS route.
+with process-local provider overrides pointed at Slimference's local route. The
+provider enables WebSockets only when the local WSS Phase-F proof is fresh;
+otherwise it uses the HTTP Responses savings path.
 Browser ChatGPT, ChatGPT.app, Claude Code, and any Codex.app relaunched from
 Finder/Spotlight remain on direct routing.
 

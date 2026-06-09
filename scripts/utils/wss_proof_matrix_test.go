@@ -87,6 +87,9 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 	if got := report.CaptureReports[0].ExpectedReducerHits["read_delta"]; got != 1 {
 		t.Fatalf("expected reducer hit not recorded: %+v", report.CaptureReports[0].ExpectedReducerHits)
 	}
+	if !report.CaptureReports[0].Replay.ToolOutputMutation {
+		t.Fatalf("proof matrix replay must disclose lab/proof tool-output mutation: %+v", report.CaptureReports[0].Replay)
+	}
 }
 
 func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {

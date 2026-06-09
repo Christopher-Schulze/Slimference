@@ -158,6 +158,9 @@ Default product routing is scoped Codex:
   `slimference codex launch-desktop --transport=app-server --replace-existing`
   affect only the launched Codex.app process tree through the process-local
   app-server shim;
+- the Desktop app-server shim sets provider WebSocket support from the same
+  savings-first auto decision as the CLI: fresh `wss_phasef` enables WSS,
+  stale or missing Phase-F uses HTTP Responses savings;
 - Desktop route/savings truth comes from TUI Activity/Status, daemon decisions,
   app-server shim flight logs, and Desktop proof status; current Codex Desktop
   builds do not expose a stable external Slimference text-chip contract;

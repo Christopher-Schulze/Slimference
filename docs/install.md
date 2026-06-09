@@ -337,8 +337,11 @@ slimference codex recertify wss --operator "operator-name" --notes "current tupl
 `slimference codex run --transport=wss`, snapshots `/admin/state` before and
 after, and evaluates only the delta window. If Phase-F mutation is green it
 writes the normal WSS certification. If mutation is not green but byte-equal
-WSS is clean, it writes `~/.slimference/codex-wss-bridge.json` and leaves
-`transport=auto` on WSS bridge rather than HTTP. Failed repairs persist
+WSS is clean, it writes `~/.slimference/codex-wss-bridge.json` for diagnostics
+while `transport=auto` keeps the HTTP savings path until Phase-F recertifies.
+The scoped Desktop app-server launcher follows the same rule: it enables
+WebSockets only for fresh Phase-F and otherwise launches the provider with
+`supports_websockets=false` for HTTP Responses savings. Failed repairs persist
 `~/.slimference/codex-wss-recert.json` and a bounded
 `~/.slimference/logs/codex-wss-recert.log` with one rotation at 2 MiB. Prompt
 bodies, auth tokens, and large tool outputs are not logged.

@@ -17,6 +17,7 @@ func TestBuildCodexDesktopAppServerShimExec(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=" + codexBin,
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex/",
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=true",
 		"FOO=bar",
 	}
 	argv0, argv, childEnv, err := buildCodexDesktopAppServerShimExec([]string{"--analytics-default-enabled"}, env)
@@ -49,13 +50,46 @@ func TestBuildCodexDesktopAppServerShimExec(t *testing.T) {
 		}
 	}
 	joinedEnv := strings.Join(childEnv, "\n")
-	for _, forbidden := range []string{"CODEX_CLI_PATH=", "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=", "SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=", "SLIMFERENCE_CODEX_DESKTOP_BASE_URL="} {
+	for _, forbidden := range []string{"CODEX_CLI_PATH=", "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=", "SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=", "SLIMFERENCE_CODEX_DESKTOP_BASE_URL=", "SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS="} {
 		if strings.Contains(joinedEnv, forbidden) {
 			t.Fatalf("child env leaked %s in %v", forbidden, childEnv)
 		}
 	}
 	if !strings.Contains(joinedEnv, "PATH=/usr/bin") || !strings.Contains(joinedEnv, "FOO=bar") {
 		t.Fatalf("child env lost ordinary entries: %v", childEnv)
+	}
+}
+
+func TestBuildCodexDesktopAppServerShimExecSupportsHTTPFallback(t *testing.T) {
+	codexBin := writeFakeExecutable(t, "codex")
+	env := []string{
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=" + codexBin,
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=false",
+	}
+	_, argv, childEnv, err := buildCodexDesktopAppServerShimExec(nil, env)
+	if err != nil {
+		t.Fatalf("build exec: %v", err)
+	}
+	if joined := strings.Join(argv, "\n"); !strings.Contains(joined, "model_providers.slimference-codex.supports_websockets=false") {
+		t.Fatalf("argv did not disable websocket support: %v", argv)
+	}
+	if joined := strings.Join(childEnv, "\n"); strings.Contains(joined, "SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=") {
+		t.Fatalf("child env leaked websocket support env: %v", childEnv)
+	}
+}
+
+func TestBuildCodexDesktopAppServerShimExecRejectsInvalidWebSocketFlag(t *testing.T) {
+	codexBin := writeFakeExecutable(t, "codex")
+	_, _, _, err := buildCodexDesktopAppServerShimExec(nil, []string{
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=" + codexBin,
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=maybe",
+	})
+	if err == nil || !strings.Contains(err.Error(), "SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS") {
+		t.Fatalf("expected websocket bool validation error, got %v", err)
 	}
 }
 
@@ -183,7 +217,8 @@ func TestMediateCodexDesktopAppServerStdin(t *testing.T) {
 
 func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
-		baseURL: "http://127.0.0.1:8990/backend-api/codex",
+		baseURL:            "http://127.0.0.1:8990/backend-api/codex",
+		supportsWebSockets: true,
 	})
 
 	response := `{"id":"cfg1","result":{"config":{"model":"gpt-5.5","model_provider":"openai","mcp_servers":{"filesystem":{"command":"node","args":["server.js"]}},"mcpServers":{"github":{"command":"uvx"}}},"origins":{}}}` + "\n"
@@ -279,7 +314,8 @@ func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 
 func TestCodexDesktopAppServerStdoutPassesNonConfigResponsesByteIdentical(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
-		baseURL: "http://127.0.0.1:8990/backend-api/codex",
+		baseURL:            "http://127.0.0.1:8990/backend-api/codex",
+		supportsWebSockets: true,
 	})
 	in := `{"id":"cfg1","result":{"origins":{}}}` + "\n" +
 		`{"method":"account/updated","params":{}}` + "\n" +
@@ -327,7 +363,7 @@ func TestRewriteCodexDesktopConfigReadResponseRequiresConfigShape(t *testing.T) 
 		`not-json`,
 	}
 	for _, input := range tests {
-		out, changed := rewriteCodexDesktopConfigReadResponse([]byte(input), codexDesktopProviderConfig{baseURL: "http://127.0.0.1:8990/backend-api/codex"})
+		out, changed := rewriteCodexDesktopConfigReadResponse([]byte(input), codexDesktopProviderConfig{baseURL: "http://127.0.0.1:8990/backend-api/codex", supportsWebSockets: true})
 		if changed || string(out) != input {
 			t.Fatalf("input should pass through unchanged: changed=%v out=%q input=%q", changed, out, input)
 		}
@@ -340,10 +376,15 @@ func TestCodexDesktopProviderConfigFromArgv(t *testing.T) {
 		"app-server",
 		"-c",
 		`model_providers.slimference-codex.base_url="http://127.0.0.1:8990/backend-api/codex"`,
+		"-c",
+		`model_providers.slimference-codex.supports_websockets=false`,
 	}
 	got := codexDesktopProviderConfigFromArgv(argv)
 	if got.baseURL != "http://127.0.0.1:8990/backend-api/codex" {
 		t.Fatalf("baseURL=%q", got.baseURL)
+	}
+	if got.supportsWebSockets {
+		t.Fatal("supportsWebSockets=true, want false from argv")
 	}
 }
 

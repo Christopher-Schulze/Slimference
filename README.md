@@ -270,8 +270,11 @@ route, and keeps ordinary Codex.app launches direct. This is why Slimference can
 support both Codex CLI and Codex Desktop without turning on a machine-wide
 proxy.
 
-When WSS proof is stale, degraded, or unsafe, Slimference downgrades to bridge,
-HTTP, or direct behavior instead of forcing a risky mutation.
+The Desktop app-server route uses the same savings-first safety rule as the
+CLI: WSS is enabled only when the local Phase-F proof is fresh; otherwise the
+scoped Desktop provider disables WebSockets and uses the HTTP Responses savings
+path instead of a byte-equal WSS bridge. Direct Desktop launches outside
+Slimference remain untouched.
 
 ## Install
 

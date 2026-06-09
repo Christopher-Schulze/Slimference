@@ -10,7 +10,7 @@
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils codex-capture-run [flags] -- <codex run args...>
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
-//	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
+//	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 //	go run ./scripts/utils wss-proof-inventory <dir-or-matrix.jsonl> [--json]
 //	go run ./scripts/utils wss-proof-export-corpus <matrix.jsonl> <live-corpus-root>

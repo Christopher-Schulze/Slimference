@@ -41,7 +41,7 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-2", "ab-session", "", file.String())),
 	)
 
-	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path, toolOutputMutation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +53,27 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 	}
 	if len(report.Elisions) != 1 || report.Elisions[0].Severity != "recoverable_prior_full" {
 		t.Fatalf("repeat read should be recoverable, got %+v", report.Elisions)
+	}
+	if !report.ToolOutputMutation {
+		t.Fatalf("proof replay must report explicit tool-output mutation: %+v", report)
+	}
+}
+
+func TestWSSABReplayProductDefaultKeepsToolOutputByteEqual(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, path, "product-default")
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.MutatedRequests != 0 || report.BytesSaved != 0 || report.ToolOutputMutation {
+		t.Fatalf("product-default replay should keep stateful WSS tool-output byte-equal: %+v", report)
+	}
+	if report.Lost != 0 || !report.GatePassed {
+		t.Fatalf("byte-equal product replay should pass comprehension gate: %+v", report)
 	}
 }
 
@@ -214,13 +235,14 @@ func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 	)
 
 	report, err := loadWSSABReplayReport(wssABReplayFlags{
-		path:       path,
-		failOnLost: true,
+		path:               path,
+		failOnLost:         true,
+		toolOutputMutation: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 ||
+	if !report.GatePassed || !report.ToolOutputMutation || report.ExpectedExtras != 1 || report.BytesSaved <= 0 ||
 		report.ReducerTokensSaved <= 0 || report.ReducerChunkBlocks != 1 {
 		t.Fatalf("auto policy replay should pass while separating the recovery note: %+v", report)
 	}
@@ -267,8 +289,15 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !flags.codexChunkDedup || !flags.archiveRecoveryNote || !flags.allowRecoveryNoteExtra || flags.chunkDedupMinBytes != 123 {
+	if !flags.codexChunkDedup || !flags.archiveRecoveryNote || !flags.allowRecoveryNoteExtra || !flags.toolOutputMutation || flags.chunkDedupMinBytes != 123 {
 		t.Fatalf("bad parsed flags: %+v", flags)
+	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--codex-wss-tool-output-mutation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flags.toolOutputMutation {
+		t.Fatalf("explicit WSS tool-output mutation flag not parsed: %+v", flags)
 	}
 }
 

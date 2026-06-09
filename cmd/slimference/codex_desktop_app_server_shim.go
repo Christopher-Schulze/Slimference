@@ -24,6 +24,7 @@ const (
 	codexDesktopShimActiveEnv      = "SLIMFERENCE_CODEX_DESKTOP_ACTIVE"
 	codexDesktopShimUpstreamBinEnv = "SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN"
 	codexDesktopShimBaseURLEnv     = "SLIMFERENCE_CODEX_DESKTOP_BASE_URL"
+	codexDesktopShimWSSupportEnv   = "SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS"
 	// codexSlimferenceProviderID is the model provider the shim defines and
 	// the one it forces onto Codex Desktop's default (null) thread/start.
 	codexSlimferenceProviderID = "slimference-codex"
@@ -152,7 +153,8 @@ func mediateCodexDesktopAppServerStdout(in io.Reader, out io.Writer) {
 }
 
 type codexDesktopProviderConfig struct {
-	baseURL string
+	baseURL            string
+	supportsWebSockets bool
 }
 
 type codexDesktopAppServerMediator struct {
@@ -402,7 +404,7 @@ func rewriteCodexDesktopConfigReadResponse(content []byte, provider codexDesktop
 	config["model_provider"] = json.RawMessage(strconv.Quote(codexSlimferenceProviderID))
 	config["modelProvider"] = json.RawMessage(strconv.Quote(codexSlimferenceProviderID))
 	if provider.baseURL != "" {
-		providers := codexDesktopModelProvidersConfig(provider.baseURL)
+		providers := codexDesktopModelProvidersConfig(provider.baseURL, provider.supportsWebSockets)
 		config["model_providers"] = providers
 		config["modelProviders"] = providers
 	}
@@ -423,7 +425,7 @@ func rewriteCodexDesktopConfigReadResponse(content []byte, provider codexDesktop
 	return out, true
 }
 
-func codexDesktopModelProvidersConfig(baseURL string) json.RawMessage {
+func codexDesktopModelProvidersConfig(baseURL string, supportsWebSockets bool) json.RawMessage {
 	type providerEntry struct {
 		ID                      string `json:"id"`
 		Name                    string `json:"name"`
@@ -454,9 +456,9 @@ func codexDesktopModelProvidersConfig(baseURL string) json.RawMessage {
 			RequiresOpenAIAuth:      true,
 			RequiresOpenAIAuthCamel: true,
 			RequiresOpenAIAuthAlt:   true,
-			SupportsWebSockets:      true,
-			SupportsWebSocketsCamel: true,
-			SupportsWebsocketsAlt:   true,
+			SupportsWebSockets:      supportsWebSockets,
+			SupportsWebSocketsCamel: supportsWebSockets,
+			SupportsWebsocketsAlt:   supportsWebSockets,
 			WireAPI:                 "responses",
 			WireAPICamel:            "responses",
 			WireAPIInitialism:       "responses",
@@ -612,6 +614,10 @@ func buildCodexDesktopAppServerShimExec(args []string, env []string) (string, []
 	if err := validateCodexDesktopAppServerBaseURL(baseURL); err != nil {
 		return "", nil, nil, err
 	}
+	supportsWebSockets, err := parseCodexDesktopShimBoolEnv(env, codexDesktopShimWSSupportEnv, true)
+	if err != nil {
+		return "", nil, nil, err
+	}
 	argv := []string{
 		upstreamBin,
 		"app-server",
@@ -619,7 +625,7 @@ func buildCodexDesktopAppServerShimExec(args []string, env []string) (string, []
 		"-c", "model_providers.slimference-codex.name=" + strconv.Quote("Slimference"),
 		"-c", "model_providers.slimference-codex.base_url=" + strconv.Quote(baseURL),
 		"-c", "model_providers.slimference-codex.requires_openai_auth=true",
-		"-c", "model_providers.slimference-codex.supports_websockets=true",
+		"-c", "model_providers.slimference-codex.supports_websockets=" + strconv.FormatBool(supportsWebSockets),
 		"-c", "model_providers.slimference-codex.wire_api=" + strconv.Quote("responses"),
 	}
 	argv = append(argv, args...)
@@ -627,19 +633,27 @@ func buildCodexDesktopAppServerShimExec(args []string, env []string) (string, []
 }
 
 func codexDesktopProviderConfigFromArgv(argv []string) codexDesktopProviderConfig {
-	const prefix = "model_providers." + codexSlimferenceProviderID + ".base_url="
+	config := codexDesktopProviderConfig{supportsWebSockets: true}
+	const baseURLPrefix = "model_providers." + codexSlimferenceProviderID + ".base_url="
+	const supportsWSSPrefix = "model_providers." + codexSlimferenceProviderID + ".supports_websockets="
 	for _, arg := range argv {
-		if !strings.HasPrefix(arg, prefix) {
-			continue
+		switch {
+		case strings.HasPrefix(arg, baseURLPrefix):
+			raw := strings.TrimPrefix(arg, baseURLPrefix)
+			var baseURL string
+			if json.Unmarshal([]byte(raw), &baseURL) == nil && baseURL != "" {
+				config.baseURL = baseURL
+				continue
+			}
+			config.baseURL = strings.Trim(raw, `"`)
+		case strings.HasPrefix(arg, supportsWSSPrefix):
+			raw := strings.TrimSpace(strings.TrimPrefix(arg, supportsWSSPrefix))
+			if parsed, err := strconv.ParseBool(raw); err == nil {
+				config.supportsWebSockets = parsed
+			}
 		}
-		raw := strings.TrimPrefix(arg, prefix)
-		var baseURL string
-		if json.Unmarshal([]byte(raw), &baseURL) == nil && baseURL != "" {
-			return codexDesktopProviderConfig{baseURL: baseURL}
-		}
-		return codexDesktopProviderConfig{baseURL: strings.Trim(raw, `"`)}
 	}
-	return codexDesktopProviderConfig{}
+	return config
 }
 
 func validateCodexDesktopAppServerUpstream(path string) error {
@@ -679,6 +693,18 @@ func validateCodexDesktopAppServerBaseURL(raw string) error {
 		return fmt.Errorf("%s must point at loopback, got %q", codexDesktopShimBaseURLEnv, host)
 	}
 	return nil
+}
+
+func parseCodexDesktopShimBoolEnv(env []string, key string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(envValue(env, key))
+	if raw == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean, got %q", key, raw)
+	}
+	return parsed, nil
 }
 
 func sanitizeCodexDesktopAppServerShimEnv(env []string) []string {

@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Slimference/internal/codexroute"
 )
 
 func TestParseCodexLaunchDesktopFlagsDefaults(t *testing.T) {
@@ -227,6 +229,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		"http://127.0.0.1:8990/backend-api/codex",
 		"/usr/local/bin/slimference",
 		"/usr/local/bin/codex",
+		false,
 		base,
 		[]string{
 			"FOO=bar",
@@ -260,6 +263,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/usr/local/bin/codex",
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=false",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 		"FOO=bar",
 	} {
@@ -550,6 +554,7 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 		"CODEX_CLI_PATH=/tmp/slimference",
 		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/tmp/codex",
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=" + wantURL,
+		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=false",
 	} {
 		if !strings.Contains(joinedEnv, want) {
 			t.Fatalf("probe missing %s in %v", want, probe.EnvOverride)
@@ -557,6 +562,46 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	}
 	if probe.CATrust.Exists || probe.CATrust.Trusted || probe.CATrust.Path != "" {
 		t.Fatalf("app-server mode must not report CA gate: %+v", probe.CATrust)
+	}
+}
+
+func TestRunCodexLaunchDesktopAppServerProbeUsesWSSWhenCertified(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Mode:         codexroute.AutoModeWSSPhaseF,
+			Transport:    codexroute.TransportWSS,
+			WSSCertified: true,
+		}
+	}
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexDesktopAppPathFn = func() string { return app }
+	codexDesktopStatFn = os.Stat
+	codexDesktopUpstreamCodexFn = func(string) (string, error) { return "/tmp/codex", nil }
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--probe", "--app=" + app},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var probe codexLaunchDesktopProbe
+	if err := json.Unmarshal(out.Bytes(), &probe); err != nil {
+		t.Fatalf("json: %v\nraw: %s", err, out.String())
+	}
+	if joined := strings.Join(probe.EnvOverride, "\n"); !strings.Contains(joined, "SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=true") {
+		t.Fatalf("certified WSS launch should keep Desktop WSS enabled: %v", probe.EnvOverride)
 	}
 }
 

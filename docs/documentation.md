@@ -955,17 +955,19 @@ tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
 reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]`
-is the operator-facing report wrapper. With default config it runs the same
-`auto` policy as the product path, including T255 when the capture presents a
-safe recoverable candidate. `--codex-chunk-dedup` remains a force flag for
-threshold experiments; it implies the recovery note and separates the expected
-once-per-session recovery-note extra block from true loss-gate failures. The
-report separates two concepts: `bytes_saved` is the comprehension A/B byte delta
-after archive expansion and note alignment, while `reducer_tokens_saved` and the
-`reducer_*` mechanism counters report actual model-facing compressed request
-savings from the Phase-F reducer. Its JSONL input is content-bearing by
-definition, so it belongs in local/private
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]`
+is the operator-facing report wrapper. With default config it mirrors the
+product WSS guard and keeps stateful tool-output request bodies byte-equal.
+`--tool-output-mutation` enables the lab/proof replay path for historical and
+focused mechanism proofs; `--codex-chunk-dedup` remains a force flag for
+threshold experiments and implies tool-output mutation, the recovery note, and
+separation of the expected once-per-session recovery-note extra block from true
+loss-gate failures. The report separates two concepts: `bytes_saved` is the
+comprehension A/B byte delta after archive expansion and note alignment, while
+`reducer_tokens_saved`, `tool_output_mutation_enabled`, and the `reducer_*`
+mechanism counters report the model-facing compressed request savings from that
+specific replay mode. Its JSONL input is content-bearing by definition, so it
+belongs in local/private
 captures only; it does not read auth headers or WebSocket upgrade metadata. Each
 replay uses an isolated temporary home directory so disk-backed
 readcache/tooluse/archive state from prior live sessions cannot skew the A/B
@@ -2317,7 +2319,11 @@ Slimference binary only for the spawned Codex.app process. The hidden
 variables, and runs the real Codex binary as `codex app-server` with a
 process-local provider block
 (`model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
-`requires_openai_auth=true`, `supports_websockets=true`, `wire_api=responses`).
+`requires_openai_auth=true`, `wire_api=responses`). The launcher sets
+`supports_websockets=true` only when the current local Phase-F proof is fresh;
+when WSS proof is stale it sets `supports_websockets=false` so the spawned
+Desktop app-server uses the HTTP Responses savings path instead of a
+byte-equal WSS bridge.
 
 Implemented in `cmd/slimference/codex_desktop_app_server_shim.go`. The shim is a
 thin JSON-RPC mediator (not a bare exec): it spawns the real Codex app-server,

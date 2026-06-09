@@ -32,19 +32,22 @@ type codexDesktopProveFlags struct {
 }
 
 type codexDesktopStatusOutput struct {
-	Mode                 string                   `json:"mode"`
-	FailureClass         string                   `json:"failure_class,omitempty"`
-	ProxyURL             string                   `json:"proxy_url"`
-	CATrust              codexDesktopCAState      `json:"ca_trust"`
-	DaemonReachable      bool                     `json:"daemon_reachable"`
-	DaemonError          string                   `json:"daemon_error,omitempty"`
-	WSS                  control.WSSState         `json:"wss"`
-	WSSCountersScope     string                   `json:"wss_counters_scope"`
-	LiveProofRequired    bool                     `json:"live_proof_required"`
-	ConversationObserved bool                     `json:"conversation_observed"`
-	LaunchCommand        string                   `json:"launch_command"`
-	LastProof            *codexDesktopProofOutput `json:"last_proof,omitempty"`
-	Notes                []string                 `json:"notes,omitempty"`
+	Mode                        string                   `json:"mode"`
+	FailureClass                string                   `json:"failure_class,omitempty"`
+	ProxyURL                    string                   `json:"proxy_url"`
+	CATrust                     codexDesktopCAState      `json:"ca_trust"`
+	DaemonReachable             bool                     `json:"daemon_reachable"`
+	DaemonError                 string                   `json:"daemon_error,omitempty"`
+	WSS                         control.WSSState         `json:"wss"`
+	WSSCountersScope            string                   `json:"wss_counters_scope"`
+	AppServerSupportsWebSockets bool                     `json:"app_server_supports_websockets"`
+	AppServerAutoMode           string                   `json:"app_server_auto_mode"`
+	AppServerAutoReason         string                   `json:"app_server_auto_reason,omitempty"`
+	LiveProofRequired           bool                     `json:"live_proof_required"`
+	ConversationObserved        bool                     `json:"conversation_observed"`
+	LaunchCommand               string                   `json:"launch_command"`
+	LastProof                   *codexDesktopProofOutput `json:"last_proof,omitempty"`
+	Notes                       []string                 `json:"notes,omitempty"`
 }
 
 type codexDesktopProofOutput struct {
@@ -306,13 +309,20 @@ func parseCodexDesktopStatusFlags(args []string) (codexDesktopStatusFlags, error
 
 func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOutput {
 	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
+	appRoute := resolveCodexDesktopAppServerRoute()
 	out := codexDesktopStatusOutput{
-		Mode:              "not_ready",
-		ProxyURL:          proxyURL,
-		CATrust:           codexDesktopCATrustFn(),
-		WSSCountersScope:  "daemon_cumulative_not_desktop_proof",
-		LiveProofRequired: true,
-		LaunchCommand:     "slimference codex launch-desktop --transport=app-server --replace-existing",
+		Mode:                        "not_ready",
+		ProxyURL:                    proxyURL,
+		CATrust:                     codexDesktopCATrustFn(),
+		WSSCountersScope:            "daemon_cumulative_not_desktop_proof",
+		AppServerSupportsWebSockets: appRoute.SupportsWebSockets,
+		AppServerAutoMode:           appRoute.Mode,
+		AppServerAutoReason:         appRoute.Reason,
+		LiveProofRequired:           true,
+		LaunchCommand:               "slimference codex launch-desktop --transport=app-server --replace-existing",
+	}
+	if !appRoute.SupportsWebSockets {
+		out.Notes = append(out.Notes, "next Desktop app-server launch uses HTTP savings fallback until WSS Phase-F is freshly certified")
 	}
 	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
 		out.LastProof = last
@@ -662,6 +672,10 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 		out.WSS.MITMBridged, out.WSS.CompressedMessagesInspected, out.WSS.CompressedMessagesMutated,
 		out.WSS.ParseFailures, out.WSS.DegradedSessions, out.WSS.CompressionErrors)
 	fmt.Fprintf(w, "            scope=%s\n", out.WSSCountersScope)
+	fmt.Fprintf(w, "  AppSrv    supports_websockets=%v auto=%s\n", out.AppServerSupportsWebSockets, out.AppServerAutoMode)
+	if out.AppServerAutoReason != "" {
+		fmt.Fprintf(w, "            %s\n", out.AppServerAutoReason)
+	}
 	fmt.Fprintf(w, "  Proof     live_required=%v conversation_observed=%v\n", out.LiveProofRequired, out.ConversationObserved)
 	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
 	for _, note := range out.Notes {
