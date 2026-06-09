@@ -1753,12 +1753,14 @@ func TestServiceControlAdapterDesktopStatusNeedsGreenProofBlocksSlimferenceLaunc
 
 func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	withCodexCmdStubs(t)
-	oldGetwd := osGetwd
-	t.Cleanup(func() {
-		osGetwd = oldGetwd
-	})
-	dir := t.TempDir()
-	osGetwd = func() (string, error) { return dir, nil }
+	codexDesktopBaseEnvFn = func() []string {
+		return []string{
+			"PATH=/usr/bin",
+			"HOME=/Users/example",
+			"PWD=/Users/example/CODE/OldProject",
+			"OLDPWD=/Users/example/CODE/OlderProject",
+		}
+	}
 	writeCodexDesktopProofResult(&codexDesktopProofOutput{
 		Mode:           "desktop_app_server_phasef_proven",
 		Transport:      codexDesktopTransportAppServer,
@@ -1778,12 +1780,27 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 		cleaned = append(cleaned, pid)
 		return nil
 	}
+	var launchedEnv []string
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launchedEnv = append([]string(nil), env...)
+		fmt.Fprintln(p.Out, "started")
+		return 0
+	}
 	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
 	if err != nil {
 		t.Fatalf("LaunchCodexApp success: %v", err)
 	}
 	if !strings.Contains(msg, "Codex App started with Slimference") {
 		t.Fatalf("msg=%q", msg)
+	}
+	joinedEnv := strings.Join(launchedEnv, "\n")
+	for _, forbidden := range []string{"PWD=", "OLDPWD="} {
+		if strings.Contains(joinedEnv, forbidden) {
+			t.Fatalf("desktop TUI launch must not seed workspace env %s in %v", forbidden, launchedEnv)
+		}
+	}
+	if !strings.Contains(joinedEnv, "CODEX_CLI_PATH=") || !strings.Contains(joinedEnv, "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1") {
+		t.Fatalf("desktop TUI launch lost scoped app-server env: %v", launchedEnv)
 	}
 	if fmt.Sprint(cleaned) != "[44]" {
 		t.Fatalf("LaunchCodexApp must replace running Codex.app before scoped launch, cleaned=%v", cleaned)

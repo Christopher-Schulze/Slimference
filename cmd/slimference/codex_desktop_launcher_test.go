@@ -211,6 +211,8 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 	base := []string{
 		"PATH=/usr/bin",
 		"HOME=/Users/x",
+		"PWD=/Users/x/CODE/OldProject",
+		"OLDPWD=/Users/x/CODE/OlderProject",
 		"CODEX_THREAD_ID=old-thread",
 		"CODEX_HOME=/tmp/old-codex-home",
 		"CODEX_CLI_PATH=/old/codex",
@@ -241,6 +243,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		"CODEX_CA_CERTIFICATE=", "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=old",
 		"CODEX_CLI_PATH=/evil", "SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
 		"HTTPS_PROXY=http://evil-proxy", "CODEX_THREAD_ID=evil-thread",
+		"PWD=", "OLDPWD=",
 	} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("app-server env leaked %s in %v", forbidden, got)
@@ -270,6 +273,8 @@ func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 	got := sanitizeCodexDesktopBaseEnv([]string{
 		"PATH=/usr/bin",
 		"CODEX_THREAD_ID=old-thread",
+		"PWD=/Users/x/CODE/OldProject",
+		"OLDPWD=/Users/x/CODE/OlderProject",
 		"CODEX_HOME=/tmp/codex-home",
 		"CODEX_MCP_CONFIG=/tmp/mcp.json",
 		"CODEX_MANAGED_BY_NPM=1",
@@ -277,7 +282,7 @@ func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 		"NOEQUAL",
 	})
 	joined := strings.Join(got, "\n")
-	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_MANAGED_BY_NPM="} {
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_MANAGED_BY_NPM=", "PWD=", "OLDPWD="} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("sanitized env still contains %s in %v", forbidden, got)
 		}
@@ -289,7 +294,7 @@ func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 	}
 }
 
-func TestCodexDesktopDirectOpenEnvSetsLaunchPWDAndDropsThreadState(t *testing.T) {
+func TestCodexDesktopDirectOpenEnvDropsWorkspaceAndThreadState(t *testing.T) {
 	got := codexDesktopDirectOpenEnv([]string{
 		"PATH=/usr/bin",
 		"PWD=/Users/example/CODE/OldProject",
@@ -297,15 +302,12 @@ func TestCodexDesktopDirectOpenEnvSetsLaunchPWDAndDropsThreadState(t *testing.T)
 		"CODEX_THREAD_ID=old-thread",
 		"CODEX_CI=1",
 		"HOME=/Users/example",
-	}, "/Users/example/CODE/Slimference")
+	})
 	joined := strings.Join(got, "\n")
-	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_CI=", "OLDPWD=", "PWD=/Users/example/CODE/OldProject"} {
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_CI=", "OLDPWD=", "PWD="} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("direct open env leaked %s in %v", forbidden, got)
 		}
-	}
-	if !strings.Contains(joined, "PWD=/Users/example/CODE/Slimference") {
-		t.Fatalf("direct open env did not pin launch PWD: %v", got)
 	}
 	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "HOME=/Users/example") {
 		t.Fatalf("direct open env lost ordinary environment: %v", got)

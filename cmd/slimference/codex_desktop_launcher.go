@@ -447,15 +447,23 @@ func sanitizeCodexDesktopBaseEnv(base []string) []string {
 }
 
 func codexDesktopShouldDropInheritedEnv(key string) bool {
-	return codexShouldDropInheritedEnvKey(key)
+	if codexShouldDropInheritedEnvKey(key) {
+		return true
+	}
+	for _, workspaceKey := range codexDesktopWorkspaceEnvKeys {
+		if key == workspaceKey {
+			return true
+		}
+	}
+	return false
 }
 
-func codexDesktopDirectOpenEnv(base []string, dir string) []string {
+func codexDesktopDirectOpenEnv(base []string) []string {
 	drop := make(map[string]struct{}, len(codexDesktopWorkspaceEnvKeys))
 	for _, key := range codexDesktopWorkspaceEnvKeys {
 		drop[key] = struct{}{}
 	}
-	out := make([]string, 0, len(base)+1)
+	out := make([]string, 0, len(base))
 	for _, kv := range sanitizeCodexDesktopBaseEnv(base) {
 		eq := strings.IndexByte(kv, '=')
 		if eq >= 0 {
@@ -464,9 +472,6 @@ func codexDesktopDirectOpenEnv(base []string, dir string) []string {
 			}
 		}
 		out = append(out, kv)
-	}
-	if strings.TrimSpace(dir) != "" {
-		out = append(out, "PWD="+dir)
 	}
 	return out
 }

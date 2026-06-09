@@ -32,7 +32,7 @@ var (
 			args = append(args, dir)
 		}
 		cmd := exec.Command("open", args...)
-		cmd.Env = codexDesktopDirectOpenEnv(os.Environ(), dir)
+		cmd.Env = codexDesktopDirectOpenEnv(os.Environ())
 		return cmd.Run()
 	}
 	tuiLaunchCommandFn = func(name string, args ...string) error {
@@ -253,10 +253,6 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 }
 
 func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
-	dir, err := tuiLaunchDirectory()
-	if err != nil {
-		return "", err
-	}
 	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
 	launchable := status.Mode == "desktop_app_server_phasef_proven" ||
 		status.Mode == "desktop_app_server_proven" ||
@@ -270,7 +266,7 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 	}
 	var out, errBuf strings.Builder
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--transport=app-server", "--replace-existing", "--env=PWD=" + dir},
+		[]string{"--transport=app-server", "--replace-existing"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {
@@ -281,7 +277,7 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		return "", fmt.Errorf("launch Codex.app via Slimference: %s", msg)
 	}
 	_ = strings.TrimSpace(out.String())
-	return "Codex App started with Slimference in " + dir, nil
+	return "Codex App started with Slimference", nil
 }
 
 func tuiLaunchDirectory() (string, error) {
