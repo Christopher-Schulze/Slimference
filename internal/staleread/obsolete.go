@@ -2,6 +2,7 @@ package staleread
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
@@ -60,8 +61,8 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 		mutSet[n] = struct{}{}
 	}
 
-	// First pass: tool_use_id → path for Read uses;
-	// path → earliest mutation turn for Mutate uses.
+	// First pass: tool_use_id -> read identity for Read/safe shell reads;
+	// path -> earliest mutation turn for explicit file mutations.
 	idToPath := map[string]string{}
 	firstMutationTurn := map[string]int{}
 	for i, msg := range messages {
@@ -69,19 +70,24 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 			if blk.Type != "tool_use" {
 				continue
 			}
-			if _, isRead := readSet[blk.ToolName]; isRead {
-				if blk.ToolUseID != "" {
-					if path := extractPath(blk.ToolInput); path != "" {
-						idToPath[blk.ToolUseID] = path
-					}
+			if blk.ToolUseID != "" {
+				if path := extractReadIdentity(blk, readSet); path != "" {
+					idToPath[blk.ToolUseID] = path
 				}
-				continue
 			}
 			if _, isMut := mutSet[blk.ToolName]; isMut {
 				if path := extractPath(blk.ToolInput); path != "" {
 					// Iteration is monotonic in i, so the first
 					// time we observe a mutation of `path` is
 					// also the earliest. Skip later mutations.
+					if _, ok := firstMutationTurn[path]; !ok {
+						firstMutationTurn[path] = i
+					}
+				}
+				continue
+			}
+			if looksLikeShellToolName(blk.ToolName) {
+				for _, path := range shellMutationPaths(blk.ToolInput) {
 					if _, ok := firstMutationTurn[path]; !ok {
 						firstMutationTurn[path] = i
 					}
@@ -138,4 +144,49 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 	}
 	stats.PathsPruned = len(prunedPaths)
 	return out, stats
+}
+
+func shellMutationPaths(rawInput string) []string {
+	commandLine, workdir := shellCommandInput(rawInput)
+	if commandLine == "" || !strings.Contains(commandLine, "apply_patch") {
+		return nil
+	}
+	var out []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" || path == "/dev/null" {
+			return
+		}
+		path = strings.TrimPrefix(path, "a/")
+		path = strings.TrimPrefix(path, "b/")
+		out = append(out, pathWithWorkdir(path, workdir))
+	}
+	for _, line := range strings.Split(commandLine, "\n") {
+		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "+++ ", "--- "} {
+			if strings.HasPrefix(line, prefix) {
+				add(strings.TrimPrefix(line, prefix))
+			}
+		}
+	}
+	return compactPaths(out)
+}
+
+func compactPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
 }

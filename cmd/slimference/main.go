@@ -2344,20 +2344,29 @@ func handleStatsCmd(args []string) {
 
 	switch args[0] {
 	case "today":
+		periodStart := statsPeriodStart(time.Now(), 0)
 		snapshots, err := analytics.ReadDailyStats(logDir, time.Now())
 		if err != nil || len(snapshots) == 0 {
+			if printStatsTableForPeriod(snapshots, periodStart) {
+				return
+			}
 			fmt.Println("No stats for today yet.")
 			return
 		}
-		printStatsTable(snapshots)
+		printStatsTableForPeriod(snapshots, periodStart)
 	case "week":
+		periodStart := statsPeriodStart(time.Now(), -6)
 		snapshots, err := analytics.ReadWeeklyStats(logDir)
 		if err != nil || len(snapshots) == 0 {
+			if printStatsTableForPeriod(snapshots, periodStart) {
+				return
+			}
 			fmt.Println("No stats for this week.")
 			return
 		}
-		printStatsTable(snapshots)
+		printStatsTableForPeriod(snapshots, periodStart)
 	case "month":
+		periodStart := statsPeriodStart(time.Now(), -29)
 		var allSnapshots []analytics.AnalyticsSnapshot
 		for i := 0; i < 30; i++ {
 			day := time.Now().AddDate(0, 0, -i)
@@ -2367,10 +2376,13 @@ func handleStatsCmd(args []string) {
 			}
 		}
 		if len(allSnapshots) == 0 {
+			if printStatsTableForPeriod(allSnapshots, periodStart) {
+				return
+			}
 			fmt.Println("No stats for this month.")
 			return
 		}
-		printStatsTable(allSnapshots)
+		printStatsTableForPeriod(allSnapshots, periodStart)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown stats subcommand: %s\n", args[0])
 		exitFn(1)
@@ -3465,35 +3477,117 @@ func formatTokensPlain64(n int64) string {
 }
 
 func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {
-	if len(snapshots) == 0 {
-		return
-	}
+	printStatsTableForPeriod(snapshots, time.Time{})
+}
+
+func printStatsTableForPeriod(snapshots []analytics.AnalyticsSnapshot, periodStart time.Time) bool {
 	// Aggregate.
 	var total analytics.AnalyticsSnapshot
-	total.SessionStart = snapshots[0].SessionStart
-	for _, s := range snapshots {
-		total.TotalRequests += s.TotalRequests
-		total.TotalInputTokens += s.TotalInputTokens
-		total.SavedInputTokens += s.SavedInputTokens
-		total.TotalOutputTokens += s.TotalOutputTokens
-		total.CacheHits += s.CacheHits
-		total.SecretsRedacted += s.SecretsRedacted
+	if !periodStart.IsZero() {
+		total.SessionStart = periodStart
+	} else if len(snapshots) > 0 {
+		total.SessionStart = snapshots[0].SessionStart
+	}
+	for _, snapshot := range snapshots {
+		if total.SessionStart.IsZero() || (!snapshot.SessionStart.IsZero() && snapshot.SessionStart.Before(total.SessionStart)) {
+			total.SessionStart = snapshot.SessionStart
+		}
+		total.TotalRequests += snapshot.TotalRequests
+		total.TotalInputTokens += snapshot.TotalInputTokens
+		total.SavedInputTokens += snapshot.SavedInputTokens
+		total.TotalOutputTokens += snapshot.TotalOutputTokens
+		total.CacheHits += snapshot.CacheHits
+		total.SecretsRedacted += snapshot.SecretsRedacted
+	}
+	wssSavings := statsWSSDecisionSavingsSince(total.SessionStart)
+	totalSaved := total.SavedInputTokens + wssSavings.SavedTokens
+	totalInput := total.TotalInputTokens + wssSavings.OriginalTokens
+	if len(snapshots) == 0 && wssSavings.SavedTokens == 0 {
+		return false
 	}
 
 	ratio := 0
-	if total.TotalInputTokens > 0 {
-		ratio = int(float64(total.SavedInputTokens) / float64(total.TotalInputTokens) * 100)
+	if totalInput > 0 {
+		ratio = int(float64(totalSaved) / float64(totalInput) * 100)
 	}
 
 	fmt.Println("Slimference Stats")
 	fmt.Println(strings.Repeat("-", 50))
 	fmt.Printf("Messages sent:       %d\n", total.TotalRequests)
-	fmt.Printf("Input tokens (orig): %s\n", formatTokensPlain(total.TotalInputTokens))
-	fmt.Printf("Input tokens saved:  %s (%d%%)\n", formatTokensPlain(total.SavedInputTokens), ratio)
+	fmt.Printf("Input tokens (orig): %s\n", formatTokensPlain(totalInput))
+	fmt.Printf("Input tokens saved:  %s (%d%%)\n", formatTokensPlain(totalSaved), ratio)
+	if wssSavings.SavedTokens > 0 {
+		wssRatio := 0
+		if wssSavings.OriginalTokens > 0 {
+			wssRatio = int(float64(wssSavings.SavedTokens) / float64(wssSavings.OriginalTokens) * 100)
+		}
+		fmt.Printf("WSS decision saved:  %s (%d%%, %d req)\n", formatTokensPlain(wssSavings.SavedTokens), wssRatio, wssSavings.Requests)
+	}
 	fmt.Printf("Output tokens:       %s\n", formatTokensPlain(total.TotalOutputTokens))
 	fmt.Printf("Cache hits:          %d\n", total.CacheHits)
 	fmt.Printf("Secrets redacted:    %d\n", total.SecretsRedacted)
 	fmt.Println(strings.Repeat("-", 50))
+	return true
+}
+
+func statsPeriodStart(now time.Time, dayOffset int) time.Time {
+	start := now.AddDate(0, 0, dayOffset)
+	return time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+}
+
+type statsDecisionSavings struct {
+	Requests       int
+	OriginalTokens int
+	SavedTokens    int
+}
+
+func statsWSSDecisionSavingsSince(start time.Time) statsDecisionSavings {
+	cfg, err := configLoadFn()
+	if err != nil || cfg == nil {
+		return statsDecisionSavings{}
+	}
+	path := strings.TrimSpace(cfg.Debug.DecisionsLog)
+	if path == "" {
+		return statsDecisionSavings{}
+	}
+	summaries := readLastDecisionSummaries(filepath.Clean(config.ExpandHomePath(path)), 20000)
+	var out statsDecisionSavings
+	seen := make(map[string]struct{}, len(summaries))
+	for _, summary := range summaries {
+		if summary.RequestID == "" || !statsSummaryIsWSSDecision(summary) {
+			continue
+		}
+		if !start.IsZero() && !summary.Timestamp.IsZero() && summary.Timestamp.Before(start) {
+			continue
+		}
+		if _, ok := seen[summary.RequestID]; ok {
+			continue
+		}
+		seen[summary.RequestID] = struct{}{}
+		saved := summary.Tokens.Saved
+		if saved <= 0 {
+			saved = summary.NetSavedTokens
+		}
+		if saved <= 0 {
+			continue
+		}
+		original := summary.Tokens.Original
+		if original <= 0 {
+			original = summary.ProviderInputTokens
+		}
+		if original <= 0 {
+			original = saved
+		}
+		out.Requests++
+		out.OriginalTokens += original
+		out.SavedTokens += saved
+	}
+	return out
+}
+
+func statsSummaryIsWSSDecision(summary dbg.RequestSummary) bool {
+	routeMode := strings.ToLower(strings.TrimSpace(summary.RouteMode))
+	return strings.Contains(routeMode, "websocket") || strings.Contains(routeMode, "wss")
 }
 
 func formatTokensPlain(n int) string {

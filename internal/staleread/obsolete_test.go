@@ -162,6 +162,42 @@ func TestPruneCustomMutateToolNames(t *testing.T) {
 	}
 }
 
+func TestPruneShellReadThenShellApplyPatch(t *testing.T) {
+	patch := `apply_patch <<'PATCH'
+*** Begin Patch
+*** Update File: src/x.go
+@@
+-old
++new
+*** End Patch
+PATCH`
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{shellReadUse("r1", "cat src/x.go", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("old shell body ", 80))}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "think"}}},
+		{Content: []types.ContentBlock{shellReadUse("p1", patch, "/repo")}},
+	}
+	out, stats := PruneObsoleteReads(msgs, ObsoleteOptions{})
+	if stats.BlocksReplaced != 1 {
+		t.Fatalf("shell apply_patch should prune prior shell read, got %+v", stats)
+	}
+	if !strings.Contains(out[1].Content[0].Text, `/repo/src/x.go`) {
+		t.Fatalf("marker missing shell mutation path: %q", out[1].Content[0].Text)
+	}
+}
+
+func TestPruneShellMutationWithoutPatchPathFullPass(t *testing.T) {
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{shellReadUse("r1", "cat src/x.go", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("old shell body ", 80))}},
+		{Content: []types.ContentBlock{shellReadUse("p1", "apply_patch <<'PATCH'\nno path here\nPATCH", "/repo")}},
+	}
+	_, stats := PruneObsoleteReads(msgs, ObsoleteOptions{})
+	if stats.BlocksReplaced != 0 {
+		t.Fatalf("shell mutation without explicit patch path must full-pass, got %+v", stats)
+	}
+}
+
 func TestPruneMutationWithoutPath(t *testing.T) {
 	msgs := []types.Message{
 		{Content: []types.ContentBlock{readUse("r1", "x.go")}},

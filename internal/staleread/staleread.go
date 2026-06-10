@@ -15,7 +15,10 @@ package staleread
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
@@ -66,20 +69,18 @@ func AgeMessages(messages []types.Message, opts Options) ([]types.Message, Stats
 		readSet[n] = struct{}{}
 	}
 
-	// First pass: tool_use_id → path. Only Read-family tool uses.
+	// First pass: tool_use_id -> read identity. Read-family tools and
+	// exact shell read commands are accepted; ambiguous shell pipelines are not.
 	idToPath := map[string]string{}
 	for _, msg := range messages {
 		for _, blk := range msg.Content {
 			if blk.Type != "tool_use" {
 				continue
 			}
-			if _, isRead := readSet[blk.ToolName]; !isRead {
-				continue
-			}
 			if blk.ToolUseID == "" {
 				continue
 			}
-			if path := extractPath(blk.ToolInput); path != "" {
+			if path := extractReadIdentity(blk, readSet); path != "" {
 				idToPath[blk.ToolUseID] = path
 			}
 		}
@@ -188,6 +189,77 @@ func extractPath(rawInput string) string {
 				return s
 			}
 		}
+	}
+	return ""
+}
+
+func extractReadIdentity(block types.ContentBlock, readSet map[string]struct{}) string {
+	if _, isRead := readSet[block.ToolName]; isRead {
+		return extractPath(block.ToolInput)
+	}
+	if !looksLikeShellToolName(block.ToolName) {
+		return ""
+	}
+	commandLine, workdir := shellCommandInput(block.ToolInput)
+	if commandLine == "" {
+		return ""
+	}
+	req, ok := filter.ReadRequestFromCommandLine(commandLine)
+	if !ok || strings.TrimSpace(req.Path) == "" {
+		return ""
+	}
+	path := pathWithWorkdir(req.Path, workdir)
+	if req.Offset != 0 || req.Limit != 0 {
+		path += fmt.Sprintf(":range:%d:%d", req.Offset, req.Limit)
+	}
+	return path
+}
+
+func shellCommandInput(rawInput string) (string, string) {
+	rawInput = strings.TrimSpace(rawInput)
+	if rawInput == "" {
+		return "", ""
+	}
+	if raw := rawJSONString(json.RawMessage(rawInput)); raw != "" {
+		return raw, ""
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(rawInput), &obj); err != nil {
+		return rawInput, ""
+	}
+	workdir := strings.TrimSpace(rawJSONString(obj["workdir"]))
+	for _, key := range []string{"command", "cmd", "command_line", "cmdline", "commandLine", "shell_command", "shellCommand"} {
+		if s := strings.TrimSpace(rawJSONString(obj[key])); s != "" {
+			return s, workdir
+		}
+	}
+	return "", workdir
+}
+
+func looksLikeShellToolName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "bash", "shell", "sh", "zsh", "exec", "exec_command", "run_command", "terminal", "local_shell":
+		return true
+	default:
+		return false
+	}
+}
+
+func pathWithWorkdir(path, workdir string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || filepath.IsAbs(path) || strings.TrimSpace(workdir) == "" {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(filepath.Join(workdir, path))
+}
+
+func rawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
 	}
 	return ""
 }

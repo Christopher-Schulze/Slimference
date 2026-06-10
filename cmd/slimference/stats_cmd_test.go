@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/analytics"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 )
 
 func TestHandleSubcommand_stats_today_withSnapshot(t *testing.T) {
@@ -177,6 +178,112 @@ func TestPrintStatsTable_smoke(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "Slimference Stats") {
 		t.Fatalf("output: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_statsIncludesWSSDecisionSavings(t *testing.T) {
+	logDir := t.TempDir()
+	decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+
+	p, err := analytics.NewPersister(logDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.WriteSnapshot(analytics.AnalyticsSnapshot{
+		SessionStart:      time.Now().Add(-time.Minute),
+		TotalRequests:     1,
+		TotalInputTokens:  1000,
+		SavedInputTokens:  10,
+		TotalOutputTokens: 25,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.Close()
+
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "wss-saved",
+		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		RouteMode: "websocket_phasef",
+		Tokens: dbg.TokenCounts{
+			Original: 1000,
+			Final:    600,
+			Saved:    400,
+		},
+	})
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "http-already-in-analytics",
+		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		RouteMode: "http",
+		Tokens: dbg.TokenCounts{
+			Original: 1000,
+			Final:    100,
+			Saved:    900,
+		},
+	})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"stats", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Input tokens (orig): 2.0K") {
+		t.Fatalf("missing combined original input: %q", out)
+	}
+	if !strings.Contains(out, "Input tokens saved:  410 (20%)") {
+		t.Fatalf("missing combined savings: %q", out)
+	}
+	if !strings.Contains(out, "WSS decision saved:  400 (40%, 1 req)") {
+		t.Fatalf("missing WSS decision savings: %q", out)
+	}
+	if strings.Contains(out, "1.3K") {
+		t.Fatalf("HTTP decision savings should not be double-counted: %q", out)
+	}
+}
+
+func TestHandleSubcommand_statsWSSDecisionSavingsWithoutAnalytics(t *testing.T) {
+	logDir := t.TempDir()
+	decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "wss-only",
+		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		RouteMode: "websocket_phasef",
+		Tokens: dbg.TokenCounts{
+			Original: 2000,
+			Final:    1000,
+			Saved:    1000,
+		},
+	})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"stats", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if strings.Contains(out, "No stats") {
+		t.Fatalf("WSS-only decision stats should print a report: %q", out)
+	}
+	if !strings.Contains(out, "Input tokens saved:  1.0K (50%)") ||
+		!strings.Contains(out, "WSS decision saved:  1.0K (50%, 1 req)") {
+		t.Fatalf("missing WSS-only savings: %q", out)
 	}
 }
 

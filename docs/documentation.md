@@ -330,6 +330,13 @@ reads flight-recorder decision logs and reports provider-only proxied LLM
 requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
 
+`slimference stats [today|week|month]` prints the quick daily/period overview
+from analytics snapshots and, when the decision log is configured, folds in
+Codex WSS decision savings as a separate `WSS decision saved` line. WSS-only
+Desktop sessions therefore still produce a report even when no analytics
+snapshot exists yet, while HTTP decision rows are not double-counted over the
+normal analytics totals.
+
 ### Output-reduce quality governor
 
 Output reduction is a runtime-governed output-wire layer, not a billable-input

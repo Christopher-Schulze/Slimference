@@ -1,6 +1,7 @@
 package staleread
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -21,6 +22,20 @@ func readResult(id, text string) types.ContentBlock {
 		Type:         "tool_result",
 		ToolResultID: id,
 		Text:         text,
+	}
+}
+
+func shellReadUse(id, command, workdir string) types.ContentBlock {
+	payload := map[string]string{"cmd": command}
+	if workdir != "" {
+		payload["workdir"] = workdir
+	}
+	input, _ := json.Marshal(payload)
+	return types.ContentBlock{
+		Type:      "tool_use",
+		ToolUseID: id,
+		ToolName:  "exec_command",
+		ToolInput: string(input),
 	}
 }
 
@@ -216,6 +231,44 @@ func TestCustomReadToolNames(t *testing.T) {
 	_, stats := AgeMessages(msgs, Options{ReadToolNames: []string{"cat"}, MinTurnGap: 2})
 	if stats.BlocksReplaced != 1 {
 		t.Errorf("custom tool name should age, got %d", stats.BlocksReplaced)
+	}
+}
+
+func TestShellReadCommandAged(t *testing.T) {
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{shellReadUse("r1", "sed -n '1,20p' src/x.go", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("old shell read ", 80))}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{shellReadUse("r2", "sed -n '1,20p' src/x.go", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r2", "fresh shell read")}},
+	}
+	out, stats := AgeMessages(msgs, Options{MinTurnGap: 2})
+	if stats.BlocksReplaced != 1 {
+		t.Fatalf("shell read should age exactly once, got %+v", stats)
+	}
+	if !strings.Contains(out[1].Content[0].Text, `/repo/src/x.go:range:1:20`) {
+		t.Fatalf("marker missing shell read identity: %q", out[1].Content[0].Text)
+	}
+	if out[6].Content[0].Text != "fresh shell read" {
+		t.Fatalf("fresh shell read mutated: %q", out[6].Content[0].Text)
+	}
+}
+
+func TestShellPipelineReadNotAged(t *testing.T) {
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{shellReadUse("r1", "cat src/x.go | head -20", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("old ", 80))}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "filler"}}},
+		{Content: []types.ContentBlock{shellReadUse("r2", "cat src/x.go | head -20", "/repo")}},
+		{Content: []types.ContentBlock{readResult("r2", "fresh")}},
+	}
+	_, stats := AgeMessages(msgs, Options{MinTurnGap: 2})
+	if stats.BlocksReplaced != 0 {
+		t.Fatalf("ambiguous shell pipeline must full-pass, got %+v", stats)
 	}
 }
 

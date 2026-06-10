@@ -353,15 +353,16 @@ Slimference is built to prove what happened instead of guessing.
 | TUI Status | Daemon health, install health, scoped route readiness |
 | TUI Logs | Bounded diagnostic stream plus export |
 | `slimference savings` | Human-readable daily savings summary |
+| `slimference stats today` | Quick input-token stats, including WSS decision savings when available |
 | `slimference gain --proxy today` | Routed proxy/flight savings and cache economics |
 | `slimference gain --cache today` | Provider-cache read/create/cached-token accounting |
 | `slimference gain --output today` | Output-wire accounting where available |
 | `slimference debug bundle` | Content-bounded diagnostics package for later inspection |
 
-Reports separate local input savings, provider-cache read/create effects,
-output-token accounting, and negative-net cache impact. That separation matters:
-otherwise a cache tweak can look like savings while actually making the billable
-shape worse.
+Reports separate local input savings, WSS decision savings, provider-cache
+read/create effects, output-token accounting, and negative-net cache impact.
+That separation matters: otherwise a cache tweak can look like savings while
+actually making the billable shape worse.
 
 ## Useful Commands
 
@@ -378,6 +379,7 @@ slimference codex status
 
 # Savings reports
 slimference savings
+slimference stats today
 slimference gain today
 slimference gain --proxy today
 slimference gain --cache today
