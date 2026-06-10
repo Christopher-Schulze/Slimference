@@ -105,9 +105,10 @@ routine use, it stays out of the product path.
   direct `chatgpt.com` sockets, and the daemon decisions log records the Desktop
   conversation as `route_mode=websocket_phasef` for `/backend-api/codex/responses`
   - the same Phase-F route the certified CLI uses, with byte-identical
-  `permessage-deflate` frames. Desktop WSS routing is therefore proven; stateful
-  WSS tool-output mutation remains lab/proof opt-in until the current Codex WSS
-  contract is live-certified again. Voice (`thread/realtime/*`), Browser ChatGPT,
+  `permessage-deflate` frames. Desktop WSS routing is therefore proven;
+  proof-fresh WSS can compact state-safe status output after the tool call is
+  known; broader stateful WSS tool-output mutation remains lab/proof opt-in.
+  Voice (`thread/realtime/*`), Browser ChatGPT,
   ChatGPT.app, computer-use, and Claude Code are untouched. Note: the sampled
   `desktop status` WSS counters lag and must not be used to claim or deny
   savings; the decisions-log `route_mode` is the reliable signal.
@@ -462,13 +463,13 @@ Current product status:
 
 | Mechanism | Default status | Proof state | Drawdown position |
 |---|---|---|---|
-| WSS Phase-F routing for Codex CLI/Desktop | On when route proof is fresh; bridge/fallback on drift | CLI and Desktop route proofs recorded; auto-recert guards version drift | Fail-open; route-ready is distinct from WSS tool-output mutation |
+| WSS Phase-F routing for Codex CLI/Desktop | On when route proof is fresh; bridge/fallback on drift | CLI and Desktop route proofs recorded; auto-recert guards version drift | Fail-open; route-ready is distinct from state-safe WSS status compaction |
 | Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0`; 2026-06-02 strict release matrix covered CLI + Desktop repeat reads and the mixed Desktop workday | Low risk: first read was already sent in full |
 | Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix; 2026-06-02 strict release matrix covered CLI + Desktop ranged `sed -n` repeat reads | Low risk: first range full-passes, later same range collapses only after exact observation |
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; 2026-06-02 automatic CLI replay covered Codex exec-envelope repeated-output recovery with `lost=0`; 2026-06-02 Desktop search-delta proof recorded a live repeated-output hit with 14,973 billable input tokens saved | Low risk: exact same command/output only, archive-backed, fail-open on changes; search uses a stricter match-set delta when visible evidence changes |
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 strict release matrix covered CLI + Desktop search loops plus a mixed Desktop workday; 2026-06-02 Desktop search-delta proof passed live counters and replay `lost=0` | Low to medium: grouped first search keeps representative matches, changed repeated searches emit added/removed match evidence plus archive recovery, and ambiguous cwd full-passes for reusable keys |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
-| Content-defined chunk dedup | HTTP/non-WSS eligible through deterministic guards; WSS tool-output mutation requires explicit lab/proof opt-in | T255/T266 live CLI+Desktop proof, T256 policy wiring, T258 route/risk/proof gate | Medium but guarded: archive recovery and `live` proof required, recent/re-read risk loosens |
+| Content-defined chunk dedup | HTTP/non-WSS eligible through deterministic guards; WSS requires the state-safety gate or explicit lab/proof opt-in | T255/T266 live CLI+Desktop proof, T256 policy wiring, T258 route/risk/proof gate | Medium but guarded: archive recovery and `live` proof required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
 | Predictive post-edit file state | Closed | T253 closed | Rejected for default-auto: first post-edit read full-passes to preserve recency/context; later repeats dedup normally |
@@ -666,13 +667,14 @@ search-output reducer paths currently fail open before first-pass grouping and
 repeated search delta, including grep-style search, path-list tools such as
 `find` / `fd`, empty-result search tools, and output-inferred search payloads.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
-upstream `invalid_request_error` after WSS tool-output mutation even with
+upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and
 `previous_response_id`-only gates were insufficient because the next byte-equal
 turn can still fail after the session state was already poisoned. HTTP, hook,
-and non-WSS routes keep the deterministic search reducers; WSS tool-output
-savings must be re-certified with live captures before returning to the default
-WSS product path.
+and non-WSS routes keep the deterministic search reducers; WSS allows only
+proof-fresh, state-safe status compaction by default, while search/path-list and
+broader tool-output savings must be re-certified with live captures before
+returning to the default WSS product path.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -895,9 +897,10 @@ window historically saved 382 billable WSS-input tokens on an archive-backed
 Fresh 2026-06-07 scoped WSS sessions later showed upstream 400s after WSS
 search-output mutation, and later Desktop sessions showed the same class after
 broader WSS tool-output mutation. Those rows are kept as historical replay/proof
-evidence, not as current default-WSS promotion claims. Current WSS tool-output
-request mutation fails open until re-certified, including search/path-list,
-source-like, inferred search, and `find`/`fd` path-list payloads. The strict
+evidence, not as broad default-WSS promotion claims. Current WSS allows only
+proof-fresh, state-safe status compaction by default; search/path-list,
+source-like, inferred search, and `find`/`fd` path-list payloads still fail open
+until separately re-certified. The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,
 and mixed-workday reducers in the product path. The
@@ -2358,9 +2361,11 @@ CLI and the Desktop app-server (driven with the full Electron feature-flag
 `config`) as `route_mode=websocket_phasef` on `/backend-api/codex/responses`. The
 Desktop and CLI WSS frames are byte-identical `permessage-deflate`. So the
 Desktop conversation rides the same Phase-F route as the certified CLI. Current
-product default keeps stateful WSS tool-output request bodies byte-equal; token
-savings on those shapes are lab/proof opt-in until live certification proves the
-current Codex WSS contract accepts them without 400s. Earlier "zero-byte /
+product default keeps risky stateful WSS tool-output request bodies byte-equal,
+but proof-fresh WSS can compact state-safe status output after the tool call is
+known. Broader token savings on those shapes remain lab/proof opt-in until live
+certification proves the current Codex WSS contract accepts them without 400s.
+Earlier "zero-byte /
 `byte_bridge_only`" readings were sampled-counter artifacts plus trivial test
 prompts with nothing to mutate (the same caveat as the CLI smoke). Normal Desktop
 remains direct and no-drawback; Browser ChatGPT, ChatGPT.app, computer-use,

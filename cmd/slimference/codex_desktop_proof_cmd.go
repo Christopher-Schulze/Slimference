@@ -371,7 +371,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.FailureClass = ""
 		out.ConversationObserved = true
 		out.LiveProofRequired = false
-		out.Notes = append(out.Notes, "last Desktop app-server shim route proof was green; WSS tool-output mutation is lab/proof opt-in")
+		out.Notes = append(out.Notes, "last Desktop app-server shim route proof was green; state-safe WSS status compaction is allowed, broader WSS tool-output mutation remains lab/proof opt-in")
 	case "desktop_app_server_route_proven":
 		// Launch-eligible, but NOT a savings claim: the conversation reached the
 		// Phase-F route with zero errors, yet this proof saw no mutation. Kept as

@@ -53,10 +53,11 @@ Requirements:
 - changed repeated searches must show added/removed evidence or full-pass;
 - HTTP must not emit archive-backed chunk references unless explicitly proven
   safe for that route;
-- Codex WSS tool-output request mutation is default-off for stateful session
-  frames and requires explicit lab/proof opt-in;
+- Codex WSS stateful status-output compaction is allowed only after the tool
+  call is known and the WSS proof is fresh; broader tool-output request mutation
+  remains default-off and requires explicit lab/proof opt-in;
 - WSS recoverable chunk dedup requires route/workload/proof policy allow plus
-  Codex WSS tool-output mutation opt-in;
+  the same state-safety gate or explicit Codex WSS tool-output mutation opt-in;
 - Codex WSS search/path-list/tool-output reduction remains risk-gated and
   full-passes when first-pass evidence, source attribution, or upstream session
   state could become ambiguous;

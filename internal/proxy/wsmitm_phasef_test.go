@@ -830,7 +830,7 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 			Text: "package main\nfunc main() {}\n",
 		}},
 	}}
-	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(smallSource)) {
+	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(smallSource), false) {
 		t.Fatal("small tool-result continuations after previous_response_id must full-pass")
 	}
 
@@ -841,11 +841,33 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 			Text: strings.Repeat("package main\nfunc main() {}\n", 220),
 		}},
 	}}
-	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(largeSource)) {
+	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(largeSource), false) {
 		t.Fatal("large tool-result continuations after previous_response_id must full-pass")
 	}
-	if wssPreviousResponseToolOutputFullPass(wssRequestMeta{}, true) {
+	if wssPreviousResponseToolOutputFullPass(wssRequestMeta{}, true, false) {
 		t.Fatal("previous_response_id-specific guard must not cover non-continuation tool output")
+	}
+	statusMessages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_status",
+			Text:         "?? safe-status.go\n",
+		}},
+	}}
+	remembered := map[string]types.ContentBlock{
+		"call_status": {
+			Type:      "tool_use",
+			ToolUseID: "call_status",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git status --short"}`,
+		},
+	}
+	if !wssStatefulToolOutputMutationSafe(meta, true, statusMessages, remembered) {
+		t.Fatal("server-known compact git status output should be safe to mutate")
+	}
+	if wssPreviousResponseToolOutputFullPass(meta, true, true) {
+		t.Fatal("safe stateful tool output should not be forced through previous_response_id full-pass")
 	}
 }
 
@@ -2074,6 +2096,103 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFDefaultCompactsPreviousResponseGitStatusAfterServerToolCall(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_status",
+			"name":      "exec_command",
+			"arguments": map[string]any{"cmd": "git -C /tmp/slimf-l0-live status --short"},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("server tool item should only seed state, replace=%v err=%v", replace, err)
+	}
+
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString("?? previous_response_status_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	outputEnv := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-status",
+		"prompt_cache_key":     "wss-server-seeded-compaction",
+		"input": []map[string]any{
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_status",
+				"output":  status.String(),
+			}},
+		},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &outputEnv)
+	if err != nil {
+		t.Fatalf("tool-output request handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected default WSS compaction for server-known previous_response git status output")
+	}
+	if !strings.Contains(string(outputEnv.Raw), "[git status]") ||
+		!strings.Contains(string(outputEnv.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(outputEnv.Raw), "previous_response_status_119.go") {
+		t.Fatalf("previous_response git status output was not compacted: %s", outputEnv.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.BypassReason != "" || !summary.PreviousResponseIDUsed || summary.Tokens.Saved <= 0 {
+		t.Fatalf("expected positive WSS savings summary, got %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	output := strings.Repeat("?? unknown_previous_response.go\n", 240)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-unknown",
+		"prompt_cache_key":     "unknown-previous-response-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "call_missing",
+			"output":  output,
+		}},
+		"stream": true,
+	})
+	if replace := adapter.handleRequest(&env); replace {
+		t.Fatalf("unknown previous_response tool output must full-pass: %s", env.Raw)
+	}
+	if !strings.Contains(string(env.Raw), "unknown_previous_response.go") || strings.Contains(string(env.Raw), "[git status]") {
+		t.Fatalf("unknown tool output was unexpectedly compacted: %s", env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.BypassReason != "wss_previous_response_tool_output_full_pass" || summary.Tokens.Saved != 0 {
+		t.Fatalf("unknown previous_response output should be no-savings full-pass: %+v", summary)
 	}
 }
 

@@ -216,12 +216,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.degraded_reason"] = reason
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
-		if wssPreviousResponseToolOutputFullPass(meta, requestContainsToolOutput) {
+		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
+		if wssPreviousResponseToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe) {
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
-		if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled) {
+		if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
 			meta.BypassReason = "wss_tool_output_state_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
@@ -469,8 +470,8 @@ func messagesContainToolResult(messages []types.Message) bool {
 	return false
 }
 
-func wssToolOutputStateFullPass(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool) bool {
-	if !containsToolOutput || mutationEnabled {
+func wssToolOutputStateFullPass(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool) bool {
+	if !containsToolOutput || mutationEnabled || statefulMutationSafe {
 		return false
 	}
 	return meta.SessionID != "" || meta.PreviousResponseID != ""
@@ -807,10 +808,112 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.p.observeQuality(summary)
 }
 
-const wssSourceToolResultFullPassMinBytes = 4096
+const (
+	wssSourceToolResultFullPassMinBytes = 4096
+	wssSafeStatusToolOutputMaxBytes     = 2 * 1024 * 1024
+)
 
-func wssPreviousResponseToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool) bool {
-	return meta.PreviousResponseID != "" && requestContainsToolOutput
+func wssPreviousResponseToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool) bool {
+	return meta.PreviousResponseID != "" && requestContainsToolOutput && !statefulMutationSafe
+}
+
+func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolOutput bool, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) bool {
+	if !requestContainsToolOutput || (meta.SessionID == "" && meta.PreviousResponseID == "") {
+		return false
+	}
+	if len(rememberedToolUses) == 0 {
+		return false
+	}
+	seenToolResult := false
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			seenToolResult = true
+			toolUse, resolved := proxyResolveToolUseDetailed(block, rememberedToolUses)
+			if !resolved || !wssSafeStatefulStatusToolOutput(toolUse, block.Text) {
+				return false
+			}
+		}
+	}
+	return seenToolResult
+}
+
+func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
+	commandLine := proxyLayer0CommandLine(toolUse)
+	if !wssSafeGitStatusCommand(commandLine) {
+		return false
+	}
+	payload := output
+	if _, execPayload, ok := splitCodexExecEnvelope(output); ok {
+		payload = execPayload
+	}
+	payload = strings.TrimSpace(payload)
+	if payload == "" || len(payload) > wssSafeStatusToolOutputMaxBytes {
+		return false
+	}
+	if looksLikeSource(payload) || proxyToolResultLooksLikeSearchOutput(payload) {
+		return false
+	}
+	return true
+}
+
+func wssSafeGitStatusCommand(commandLine string) bool {
+	argv := strings.Fields(strings.TrimSpace(commandLine))
+	if len(argv) < 2 {
+		return false
+	}
+	bin := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(argv[0]), ".exe"))
+	if bin != "git" && !strings.HasSuffix(bin, "/git") {
+		return false
+	}
+	i := 1
+	for i < len(argv) {
+		arg := strings.TrimSpace(argv[i])
+		switch {
+		case arg == "-C" || arg == "-c" || arg == "--git-dir" || arg == "--work-tree":
+			i += 2
+			continue
+		case strings.HasPrefix(arg, "--git-dir="), strings.HasPrefix(arg, "--work-tree="), strings.HasPrefix(arg, "-c"):
+			i++
+			continue
+		case strings.HasPrefix(arg, "-"):
+			i++
+			continue
+		}
+		break
+	}
+	if i >= len(argv) || strings.ToLower(argv[i]) != "status" {
+		return false
+	}
+	i++
+	hasCompactStatusFlag := false
+	for i < len(argv) {
+		arg := strings.ToLower(strings.TrimSpace(argv[i]))
+		switch {
+		case arg == "--short" || arg == "-s" || arg == "--porcelain" || strings.HasPrefix(arg, "--porcelain="):
+			hasCompactStatusFlag = true
+		case arg == "--branch" || arg == "-b" ||
+			arg == "--ignored" || strings.HasPrefix(arg, "--ignored=") ||
+			arg == "--renames" || arg == "--no-renames" || strings.HasPrefix(arg, "--find-renames") ||
+			arg == "--ahead-behind" || arg == "--no-ahead-behind" ||
+			strings.HasPrefix(arg, "--untracked-files="):
+		case arg == "--untracked-files":
+			i++
+			if i >= len(argv) {
+				return false
+			}
+			value := strings.ToLower(strings.TrimSpace(argv[i]))
+			if value != "all" && value != "normal" && value != "no" {
+				return false
+			}
+		default:
+			return false
+		}
+		i++
+	}
+	return hasCompactStatusFlag
 }
 
 func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {
