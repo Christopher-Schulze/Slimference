@@ -23,6 +23,7 @@ const wssRecoveryMaxChains = 256
 type wssResponseChain []json.RawMessage
 
 type wssRecoveryCandidate struct {
+	RecoveryID         string
 	SessionID          string
 	PreviousResponseID string
 	Model              string
@@ -147,7 +148,6 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 	}
 	output := wssResponseOutputItems(env.Response)
 
-	var recovered *wssRecoveryCandidate
 	a.mu.Lock()
 	if len(output) == 0 {
 		output = cloneWSSRawItems(a.pendingOutput)
@@ -165,16 +165,8 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 			}
 		}
 	}
-	if a.activeRecovery != nil {
-		recovered = cloneWSSRecoveryCandidate(a.activeRecovery)
-		a.activeRecovery = nil
-	}
 	a.pendingOutput = nil
 	a.mu.Unlock()
-
-	if recovered != nil {
-		a.recordWSSRecoveryEvent("wss_upstream_recovery_succeeded", recovered, "", nil)
-	}
 }
 
 func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSummary string) bool {
@@ -192,8 +184,10 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	if candidate == nil || candidate.Used || len(candidate.RetryPayload) == 0 || writer == nil {
 		return false
 	}
+	candidate.RecoveryID = newRequestIDFn()
 	if err := writer(candidate.RetryPayload); err != nil {
 		a.recordWSSRecoveryEvent("wss_upstream_recovery_failed", candidate, errSummary, map[string]string{
+			"wss.recovery.phase": "send",
 			"wss.recovery.error": err.Error(),
 		})
 		return false
@@ -201,15 +195,100 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 
 	a.mu.Lock()
 	a.activeRecovery = cloneWSSRecoveryCandidate(candidate)
+	a.recoveryAccepted = false
+	a.recoveryResponseID = ""
 	a.mu.Unlock()
 
-	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, nil)
+	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, map[string]string{
+		"wss.recovery.phase": "retry_sent",
+	})
 	slog.Info("codex wss upstream error recovered by full-context retry",
+		"recovery_id", candidate.RecoveryID,
 		"session", candidate.SessionID,
 		"previous_response_id", candidate.PreviousResponseID,
 		"chain_items", candidate.ChainItems,
 		"current_input_items", candidate.CurrentInputItems,
 		"retry_bytes", candidate.RetryBytes)
+	return true
+}
+
+func (a *wsPhaseFAdapter) observeWSSRecoveryResponse(env *wsmitm.Envelope) {
+	if a == nil || env == nil {
+		return
+	}
+	if env.Kind == wsmitm.FrameKindUnknown || env.Kind.IsControl() ||
+		env.Kind == wsmitm.FrameKindError || env.Kind == wsmitm.FrameKindResponseFailed ||
+		env.Kind == wsmitm.FrameKindResponseIncomplete {
+		return
+	}
+
+	responseID := wssResponseID(env.Response)
+	var accepted *wssRecoveryCandidate
+	var succeeded *wssRecoveryCandidate
+	var acceptedFacts map[string]string
+	var succeededFacts map[string]string
+
+	a.mu.Lock()
+	if a.activeRecovery != nil {
+		if responseID != "" {
+			a.recoveryResponseID = responseID
+		}
+		if !a.recoveryAccepted {
+			a.recoveryAccepted = true
+			accepted = cloneWSSRecoveryCandidate(a.activeRecovery)
+			acceptedFacts = map[string]string{
+				"wss.recovery.phase":          "accepted",
+				"wss.recovery.accepted_frame": string(env.Kind),
+				"wss.recovery.accepted":       "true",
+				"wss.recovery.response_id":    a.recoveryResponseID,
+			}
+		}
+		if env.Kind == wsmitm.FrameKindResponseCompleted {
+			succeeded = cloneWSSRecoveryCandidate(a.activeRecovery)
+			succeededFacts = map[string]string{
+				"wss.recovery.phase":          "completed",
+				"wss.recovery.terminal_frame": string(env.Kind),
+				"wss.recovery.accepted":       strconv.FormatBool(a.recoveryAccepted),
+				"wss.recovery.response_id":    a.recoveryResponseID,
+			}
+			a.activeRecovery = nil
+			a.recoveryAccepted = false
+			a.recoveryResponseID = ""
+		}
+	}
+	a.mu.Unlock()
+
+	if accepted != nil {
+		a.recordWSSRecoveryEvent("wss_upstream_recovery_accepted", accepted, "", acceptedFacts)
+	}
+	if succeeded != nil {
+		a.recordWSSRecoveryEvent("wss_upstream_recovery_succeeded", succeeded, "", succeededFacts)
+	}
+}
+
+func (a *wsPhaseFAdapter) failActiveWSSRecovery(errSummary, status, errorType, message string, kind wsmitm.FrameKind) bool {
+	if a == nil {
+		return false
+	}
+	var failed *wssRecoveryCandidate
+	a.mu.Lock()
+	if a.activeRecovery != nil {
+		failed = cloneWSSRecoveryCandidate(a.activeRecovery)
+		a.activeRecovery = nil
+		a.recoveryAccepted = false
+		a.recoveryResponseID = ""
+	}
+	a.mu.Unlock()
+	if failed == nil {
+		return false
+	}
+	a.recordWSSRecoveryEvent("wss_upstream_recovery_failed", failed, errSummary, map[string]string{
+		"wss.recovery.phase":        "upstream_rejected_retry",
+		"wss.recovery.error_kind":   string(kind),
+		"wss.recovery.error_status": status,
+		"wss.recovery.error_type":   errorType,
+		"wss.recovery.error_msg":    message,
+	})
 	return true
 }
 
@@ -406,6 +485,7 @@ func (a *wsPhaseFAdapter) recordWSSRecoveryEvent(reason string, candidate *wssRe
 		return
 	}
 	facts := map[string]string{
+		"wss.recovery.id":                   candidate.RecoveryID,
 		"wss.recovery.previous_response_id": candidate.PreviousResponseID,
 		"wss.recovery.chain_items":          strconv.Itoa(candidate.ChainItems),
 		"wss.recovery.current_input_items":  strconv.Itoa(candidate.CurrentInputItems),

@@ -681,9 +681,11 @@ live captures before returning to the default WSS product path. If the upstream
 still returns the generic `invalid_request_error` for a `previous_response_id`
 chain and Slimference has the exact local chain, it consumes the error frame,
 retries once with the full reconstructed input chain, and records
-`wss_upstream_recovery_retry` / `wss_upstream_recovery_succeeded` or precise
-no-retry debug facts. Context-window, auth, rate-limit, and unknown-chain errors
-do not retry.
+`wss_upstream_recovery_retry`, `wss_upstream_recovery_accepted`, and
+`wss_upstream_recovery_succeeded` with one shared recovery id. If the retry is
+rejected, Slimference records `wss_upstream_recovery_failed`; if no safe retry
+candidate exists it records precise no-retry debug facts. Context-window, auth,
+rate-limit, and unknown-chain errors do not retry.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained

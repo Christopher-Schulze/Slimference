@@ -30,23 +30,25 @@ import (
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu              sync.Mutex
-	messages        []types.Message
-	repdetIndex     *repdet.Index
-	toolUses        map[string]types.ContentBlock
-	sessionID       string
-	degraded        bool
-	degradedReason  string
-	toolUseHydrated bool
-	collapsedKeys   map[string]struct{}
-	qualityCohort   qualityab.Cohort
-	responseChains  map[string]wssResponseChain
-	pendingChain    wssResponseChain
-	pendingOutput   []json.RawMessage
-	pendingRecovery *wssRecoveryCandidate
-	activeRecovery  *wssRecoveryCandidate
-	recoveryWriter  func([]byte) error
-	counters        wsPhaseFCounters
+	mu                 sync.Mutex
+	messages           []types.Message
+	repdetIndex        *repdet.Index
+	toolUses           map[string]types.ContentBlock
+	sessionID          string
+	degraded           bool
+	degradedReason     string
+	toolUseHydrated    bool
+	collapsedKeys      map[string]struct{}
+	qualityCohort      qualityab.Cohort
+	responseChains     map[string]wssResponseChain
+	pendingChain       wssResponseChain
+	pendingOutput      []json.RawMessage
+	pendingRecovery    *wssRecoveryCandidate
+	activeRecovery     *wssRecoveryCandidate
+	recoveryAccepted   bool
+	recoveryResponseID string
+	recoveryWriter     func([]byte) error
+	counters           wsPhaseFCounters
 }
 
 type wsPhaseFCounters struct {
@@ -1103,6 +1105,7 @@ func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) (bool, error) {
 	if a.recordWSSUpstreamError(env) {
 		return false, wsmitm.ErrFrameConsumed
 	}
+	a.observeWSSRecoveryResponse(env)
 	a.rememberWSSResponseState(env)
 	a.rememberToolUsesFromResponse(env)
 	a.recordWSSProviderUsage(env)
@@ -1137,6 +1140,11 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) bool {
 	errSummary := formatWSSUpstreamError(env.Kind, status, errorType, message)
 	if errSummary == "" {
 		errSummary = "upstream_error kind=" + string(env.Kind)
+	}
+	if a.failActiveWSSRecovery(errSummary, status, errorType, message, env.Kind) {
+		a.markDegraded(errSummary)
+		slog.Warn("codex wss recovery retry rejected", "kind", env.Kind, "status", status, "error_type", errorType)
+		return false
 	}
 	recoveryFacts := a.wssRecoveryDebugFacts(status, errorType, message)
 	if a.tryWSSRecoveryRetry(status, errorType, message, errSummary) {

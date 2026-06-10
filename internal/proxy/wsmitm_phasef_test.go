@@ -892,6 +892,27 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 		summaries[0].DebugFacts["wss.recovery.current_input_items"] != "1" {
 		t.Fatalf("bad recovery facts: %+v", summaries[0].DebugFacts)
 	}
+	recoveryID := summaries[0].DebugFacts["wss.recovery.id"]
+	if recoveryID == "" || summaries[0].DebugFacts["wss.recovery.phase"] != "retry_sent" {
+		t.Fatalf("retry summary should carry recovery id and phase: %+v", summaries[0].DebugFacts)
+	}
+
+	secondCreated := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCreated),
+		"response": map[string]any{"id": "resp-recovery-2"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &secondCreated); err != nil || replace {
+		t.Fatalf("second created replace=%v err=%v", replace, err)
+	}
+	summaries = p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_accepted" {
+		t.Fatalf("missing recovery accepted summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.id"] != recoveryID ||
+		summaries[0].DebugFacts["wss.recovery.phase"] != "accepted" ||
+		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" {
+		t.Fatalf("bad accepted facts: %+v", summaries[0].DebugFacts)
+	}
 
 	secondDone := parseWSJSON(t, map[string]any{
 		"type":     string(wsmitm.FrameKindResponseCompleted),
@@ -903,6 +924,92 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	summaries = p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_succeeded" {
 		t.Fatalf("missing recovery success summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.id"] != recoveryID ||
+		summaries[0].DebugFacts["wss.recovery.phase"] != "completed" ||
+		summaries[0].DebugFacts["wss.recovery.accepted"] != "true" ||
+		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" {
+		t.Fatalf("bad recovery success facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
+func TestWSPhaseFRecoverySuccessDoesNotRequireCompletedResponseID(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setRecoveryWriter(func([]byte) error { return nil })
+
+	adapter.pendingRecovery = &wssRecoveryCandidate{
+		SessionID:          "thread-no-id",
+		PreviousResponseID: "resp-prev",
+		Model:              "gpt-5.5",
+		RetryPayload:       []byte(`{"type":"request","body":{"input":[]}}`),
+		RetryBody:          []byte(`{"input":[]}`),
+		ChainItems:         2,
+		CurrentInputItems:  1,
+	}
+	errEnv := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error":  map[string]any{"type": "invalid_request_error", "message": "Invalid request"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &errEnv); !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
+		t.Fatalf("invalid request should be consumed for recovery, replace=%v err=%v", replace, err)
+	}
+
+	done := parseWSJSON(t, map[string]any{"type": string(wsmitm.FrameKindResponseCompleted)})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &done); err != nil || replace {
+		t.Fatalf("completion without id replace=%v err=%v", replace, err)
+	}
+	summaries := p.DebugRecorder().Last(2, false)
+	if len(summaries) != 2 ||
+		summaries[0].BypassReason != "wss_upstream_recovery_succeeded" ||
+		summaries[1].BypassReason != "wss_upstream_recovery_accepted" {
+		t.Fatalf("completion without response id should still mark accepted+succeeded: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.phase"] != "completed" ||
+		summaries[0].DebugFacts["wss.recovery.accepted"] != "true" {
+		t.Fatalf("bad completion-without-id success facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
+func TestWSPhaseFRecoveryFailureIsLoggedWhenRetryIsRejected(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setRecoveryWriter(func([]byte) error { return nil })
+	adapter.pendingRecovery = &wssRecoveryCandidate{
+		SessionID:          "thread-retry-fail",
+		PreviousResponseID: "resp-prev",
+		Model:              "gpt-5.5",
+		RetryPayload:       []byte(`{"type":"request","body":{"input":[]}}`),
+		RetryBody:          []byte(`{"input":[]}`),
+		ChainItems:         2,
+		CurrentInputItems:  1,
+	}
+	firstErr := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error":  map[string]any{"type": "invalid_request_error", "message": "Invalid request"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &firstErr); !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
+		t.Fatalf("first invalid request should be consumed for recovery, replace=%v err=%v", replace, err)
+	}
+	secondErr := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error":  map[string]any{"type": "invalid_request_error", "message": "Invalid request"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &secondErr); err != nil || replace {
+		t.Fatalf("rejected recovery retry should be forwarded, replace=%v err=%v", replace, err)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_failed" {
+		t.Fatalf("missing recovery failure summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.phase"] != "upstream_rejected_retry" ||
+		summaries[0].DebugFacts["wss.recovery.error_status"] != "400" {
+		t.Fatalf("bad recovery failure facts: %+v", summaries[0].DebugFacts)
 	}
 }
 
