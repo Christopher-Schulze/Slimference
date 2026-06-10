@@ -6,7 +6,7 @@
 |------|--------|
 | `integration/` | **Go** integration tests across packages, including optional `//go:build integration` suites. |
 | `fixtures/` | Shared test data for Go and/or TypeScript tests. |
-| `ts/` | **TypeScript** test suites, for example Vitest or Jest; see `agents.md` Section 6.2. |
+| `ts/` | **TypeScript** test suites, for example Vitest or Jest; see `AGENTS.md` Section 6.2. |
 
 ## Go vs. TypeScript
 

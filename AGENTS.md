@@ -18,7 +18,7 @@ require explicit project approval.
 ## 2. Local-Only Planning Surface
 
 `docs/todo.md` is a local planning surface and is not part of the public
-documentation set. Current agents start from `agents.md`, `docs/spec.md`, and
+documentation set. Current agents start from `AGENTS.md`, `docs/spec.md`, and
 `docs/install.md`; use `docs/todo.md` only when it exists in the local checkout.
 
 ---
@@ -303,4 +303,4 @@ description.
 
 ---
 
-*Changes to these rules are recorded in the Git history of `agents.md`.*
+*Changes to these rules are recorded in the Git history of `AGENTS.md`.*

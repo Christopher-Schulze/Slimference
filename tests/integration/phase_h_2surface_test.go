@@ -181,7 +181,7 @@ func TestUnknownSNIStillBridges(t *testing.T) {
 // (Removed TestNoLegacySurfacesInIntegrationTests: scanned the host
 // process environment, which is brittle — a developer or CI runner
 // with HTTPS_PROXY set in their shell for unrelated reasons would
-// fail it. The intent is now documented in agents.md §9: this fixture
+// fail it. The intent is now documented in AGENTS.md §9: this fixture
 // does not call t.Setenv on any legacy surface, and that contract is
 // enforced by code review rather than a runtime probe.)
 

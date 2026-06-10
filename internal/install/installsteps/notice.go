@@ -196,7 +196,7 @@ Look for "Hooks: ✓" rows in the table for this app.
 ## Where to learn more
 
 - Install / uninstall SSOT: docs/install.md inside your local Slimference repo.
-- Agent rules: agents.md inside your local Slimference repo.
+- Agent rules: AGENTS.md inside your local Slimference repo.
 - This file is generated; do not edit by hand.
 
 ---

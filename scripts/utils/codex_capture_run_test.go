@@ -208,7 +208,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"--id", "cli-repeat",
 		"--workload-class", "repeat_full_read",
 		"--expected-reducer", "read_delta",
-		"--", "Read agents.md twice",
+		"--", "Read AGENTS.md twice",
 	}, &stdout, &stderr, deps)
 	if code != 0 {
 		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
@@ -219,7 +219,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"health:127.0.0.1:8990",
 		"admin",
 		"resource-before:" + resourceDir,
-		"codex:wss:Read agents.md twice",
+		"codex:wss:Read AGENTS.md twice",
 		"admin",
 		"resource-after:" + resourceDir,
 		"stop",
