@@ -63,10 +63,11 @@ jobs:
           test -s dist/SHA256SUMS
           (cd dist && sha256sum -c SHA256SUMS)
           for archive in dist/*.tar.gz; do
-            tar -tzf "$archive" | grep -q '/slimference$'
-            tar -tzf "$archive" | grep -q '/install.sh$'
-            tar -tzf "$archive" | grep -q '/README.md$'
-            tar -tzf "$archive" | grep -q '/LICENSE$'
+            listing="$(tar -tzf "$archive")"
+            grep -Eq '/slimference$' <<< "$listing"
+            grep -Eq '/install.sh$' <<< "$listing"
+            grep -Eq '/README.md$' <<< "$listing"
+            grep -Eq '/LICENSE$' <<< "$listing"
           done
 
   install-smoke:
