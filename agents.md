@@ -50,6 +50,48 @@ fail-open behavior, and live proof. An optimization that only makes sense behind
 a manual experiment switch or risks model quality in normal operation is not a
 product feature.
 
+### 3.1 Savings Regression Discipline (Binding)
+
+Slimference's product goal is **maximum practical savings with zero or near-zero
+product drawdown**. Stability fixes must preserve as much of the current savings
+surface as possible. Agents must treat avoidable savings loss as a product
+regression, not as harmless cleanup.
+
+When fixing bugs, invalid requests, Codex drift, WSS/Desktop instability,
+routing instability, or any other savings-related failure:
+
+- Start from a clean, committed baseline. Check `git status` before edits. Do
+  not stack unrelated or uncommitted experiment state.
+- Use small local commits at meaningful hypothesis boundaries. Do not push
+  broken or unverified experiment commits. Push only after the repository is
+  back at a verified good state.
+- Identify the exact failing mechanism, route, workload, and guard condition
+  before disabling anything. Broad feature disables are forbidden unless the
+  exact blast radius proves they are the smallest safe fix.
+- Prefer the narrowest possible patch: exact predicate, exact route, exact
+  workload, exact request shape, exact Codex version drift, exact tool-output
+  class. Keep unrelated savings mechanisms active.
+- Quantify the tradeoff every time savings are reduced: which layer/mechanism
+  loses savings, which workloads are affected, whether input/output/cache
+  savings change, and the expected practical impact.
+- If a disabling or narrowing change does **not** fix the failure, revert that
+  change before trying the next hypothesis. Do not accumulate permanent savings
+  loss from disproven fixes.
+- After a stability fix works, immediately look for safe recovery of savings:
+  can the mechanism be re-enabled behind a tighter guard, exact state mirror,
+  retry/replay, validation, fail-open path, or route/workload-specific proof?
+- Never trade a small bug for a large permanent savings regression if a more
+  precise fix is feasible. Engineering effort is acceptable; product drawdown
+  and unnecessary savings loss are not.
+- Report the outcome plainly to the user: root cause, exact fix, remaining
+  disabled/narrowed behavior if any, savings impact, drawdown impact, tests run,
+  installed binary status, commit, and push status.
+- For every accepted good state after product-relevant changes, run the
+  required gates, build/install the latest local binary with
+  `go run ./scripts/build -restart`, verify `which slimference` and
+  `slimference status --preflight`, then commit and push unless the user
+  explicitly says not to push.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
