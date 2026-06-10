@@ -670,12 +670,12 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if replace {
-		t.Fatalf("previous-response tool-output turn must full-pass after the WSS Responses-chain guard: %s", env.Body)
+	if !replace {
+		t.Fatalf("previous-response state-safe tool-output turn should compact before output-reduce: %s", env.Body)
 	}
 	body := string(env.Body)
-	if strings.Contains(body, "[git status]") || !strings.Contains(body, "synthetic_layer0_output_reduce_guard_139.go") {
-		t.Fatalf("response_item tool output did not full-pass: %s", body)
+	if !strings.Contains(body, "[git status]") || strings.Contains(body, "synthetic_layer0_output_reduce_guard_139.go") {
+		t.Fatalf("response_item tool output did not compact safely: %s", body)
 	}
 	if strings.Contains(body, "#slimference-output-rules") {
 		t.Fatalf("tool-output turn must not receive output-reduce instructions: %s", body)
@@ -684,10 +684,11 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	if len(summaries) != 1 {
 		t.Fatalf("expected one debug summary, got %d", len(summaries))
 	}
-	if summaries[0].BypassReason != "wss_previous_response_tool_output_full_pass" ||
+	if summaries[0].BypassReason != "" ||
+		summaries[0].Tokens.Saved <= 0 ||
 		summaries[0].OutputReduce.Applied ||
 		summaries[0].OutputReduce.Reason != "disabled" {
-		t.Fatalf("previous-response tool-output summary must be a no-savings full-pass: %+v", summaries[0])
+		t.Fatalf("previous-response tool-output summary must be savings-positive without output-reduce: %+v", summaries[0])
 	}
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
@@ -871,7 +872,7 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFToolOutputStateGuardFullPassesDefaultWSSMutation(t *testing.T) {
+func TestWSPhaseFToolOutputStateGuardAllowsStateSafeDefaultWSSMutation(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -894,20 +895,20 @@ func TestWSPhaseFToolOutputStateGuardFullPassesDefaultWSSMutation(t *testing.T) 
 		},
 	})
 
-	if replace := adapter.handleRequest(&env); replace {
-		t.Fatalf("default Codex WSS tool-output request must full-pass: %s", env.Body)
+	if replace := adapter.handleRequest(&env); !replace {
+		t.Fatalf("default Codex WSS state-safe tool-output request should compact: %s", env.Body)
 	}
-	if strings.Contains(string(env.Body), "[git status]") || !strings.Contains(string(env.Body), "state_guard_file.go") {
-		t.Fatalf("tool output was unexpectedly compacted: %s", env.Body)
+	if !strings.Contains(string(env.Body), "[git status]") || strings.Contains(string(env.Body), "state_guard_file.go") {
+		t.Fatalf("tool output was not compacted safely: %s", env.Body)
 	}
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 {
 		t.Fatalf("expected one debug summary, got %d", len(summaries))
 	}
-	if summaries[0].BypassReason != "wss_tool_output_state_full_pass" ||
-		summaries[0].Tokens.Saved != 0 ||
-		summaries[0].DebugFacts["wss.bypass_reason"] != "wss_tool_output_state_full_pass" {
-		t.Fatalf("state guard summary missing: %+v", summaries[0])
+	if summaries[0].BypassReason != "" ||
+		summaries[0].Tokens.Saved <= 0 ||
+		summaries[0].DebugFacts["wss.bypass_reason"] != "" {
+		t.Fatalf("state-safe summary should report positive savings without bypass: %+v", summaries[0])
 	}
 }
 
@@ -1286,7 +1287,6 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
-	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
@@ -1314,6 +1314,46 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") ||
 		!strings.Contains(string(second), "If a tool result contains [context-archive") {
 		t.Fatalf("auto policy should enable recoverable chunk dedup and inject recovery note only when needed: changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+}
+
+func TestWSPhaseFDefaultPreviousResponseChunkDedupKeepsSavings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const promptCacheKey = "previous-response-chunk-session"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	shared := strings.Repeat("previous response shared region stays recoverable\n", 1000)
+	body := func(turnID, path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": turnID,
+			"prompt_cache_key":     promptCacheKey,
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	first, _, changed, stats, _ := adapter.applyInputPipeline(body("resp-a", "a.go", "read-a", shared+"tail a\n"))
+	if changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "local-archive://") {
+		t.Fatalf("first previous-response read should seed only: changed=%v stats=%+v body=%s", changed, stats, first)
+	}
+	second, _, changed, stats, _ := adapter.applyInputPipeline(body("resp-b", "b.go", "read-b", shared+"tail b\n"))
+	if !changed || stats.ChunkDedupBlocks != 1 || stats.TokensSaved <= 0 ||
+		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("default previous-response WSS should keep recoverable chunk savings: changed=%v stats=%+v body=%s", changed, stats, second)
 	}
 }
 

@@ -54,25 +54,26 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route                   codexLayer0Route
-	Messages                []types.Message
-	SessionID               string
-	TurnID                  string
-	RememberedToolUse       map[string]types.ContentBlock
-	SuppressedToolKey       map[string]struct{}
-	RecentFullPassTurns     int
-	ChunkDedupEnabled       bool
-	ExplicitChunkDedup      bool
-	ChunkDedupProof         savingspolicy.CodexProof
-	ChunkDedupMinBytes      int
-	ChunkDedupMaxRefPct     int
-	ChunkStore              *chunkdedup.Store
-	PolicyMode              string
-	ArchiveRecovery         bool
-	RecentEditUncertainty   bool
-	HostBudgetExceeded      bool
-	LatencyBudgetExceeded   bool
-	ChunkIntegrityBudgetHit bool
+	Route                     codexLayer0Route
+	Messages                  []types.Message
+	SessionID                 string
+	TurnID                    string
+	RememberedToolUse         map[string]types.ContentBlock
+	SuppressedToolKey         map[string]struct{}
+	RecentFullPassTurns       int
+	ChunkDedupEnabled         bool
+	ExplicitChunkDedup        bool
+	ChunkDedupProof           savingspolicy.CodexProof
+	ChunkDedupMinBytes        int
+	ChunkDedupMaxRefPct       int
+	ChunkStore                *chunkdedup.Store
+	PolicyMode                string
+	ArchiveRecovery           bool
+	RecentEditUncertainty     bool
+	HostBudgetExceeded        bool
+	LatencyBudgetExceeded     bool
+	ChunkIntegrityBudgetHit   bool
+	StructuredMutationBlocked bool
 }
 
 type codexLayer0Result struct {
@@ -368,6 +369,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
+			}
+			if changed && req.StructuredMutationBlocked &&
+				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard", 0, 0, workload))
+				changed = false
+				afterText = ""
 			}
 			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {

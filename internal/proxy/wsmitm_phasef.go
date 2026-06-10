@@ -217,13 +217,16 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
+		structuredMutationAllowed := true
 		if wssPreviousResponseToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe) {
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
-			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
-			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
-		}
-		if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
+			structuredMutationAllowed = false
+		} else if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
 			meta.BypassReason = "wss_tool_output_state_full_pass"
+			structuredMutationAllowed = false
+		}
+		if meta.BypassReason == "wss_previous_response_tool_output_full_pass" &&
+			a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns > 0 {
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
@@ -251,23 +254,24 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		chunkSettings := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:                 codexLayer0RouteWSSPhaseF,
-			Messages:              messages,
-			SessionID:             sessionID,
-			TurnID:                turnID,
-			RememberedToolUse:     rememberedToolUses,
-			SuppressedToolKey:     suppressedKeys,
-			RecentFullPassTurns:   a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:     chunkSettings.Enabled,
-			ExplicitChunkDedup:    chunkSettings.Explicit,
-			ChunkDedupProof:       chunkSettings.Proof,
-			ChunkDedupMinBytes:    chunkSettings.MinBytes,
-			ChunkDedupMaxRefPct:   chunkSettings.MaxRefPct,
-			ChunkStore:            chunkSettings.Store,
-			PolicyMode:            chunkSettings.PolicyMode,
-			ArchiveRecovery:       chunkSettings.ArchiveRecovery,
-			HostBudgetExceeded:    a.p.codexHostBudgetExceeded(),
-			LatencyBudgetExceeded: a.p.codexLayer0LatencyExceeded.Load(),
+			Route:                     codexLayer0RouteWSSPhaseF,
+			Messages:                  messages,
+			SessionID:                 sessionID,
+			TurnID:                    turnID,
+			RememberedToolUse:         rememberedToolUses,
+			SuppressedToolKey:         suppressedKeys,
+			RecentFullPassTurns:       a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:         chunkSettings.Enabled,
+			ExplicitChunkDedup:        chunkSettings.Explicit,
+			ChunkDedupProof:           chunkSettings.Proof,
+			ChunkDedupMinBytes:        chunkSettings.MinBytes,
+			ChunkDedupMaxRefPct:       chunkSettings.MaxRefPct,
+			ChunkStore:                chunkSettings.Store,
+			PolicyMode:                chunkSettings.PolicyMode,
+			ArchiveRecovery:           chunkSettings.ArchiveRecovery,
+			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
+			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -821,7 +825,13 @@ func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolO
 	if !requestContainsToolOutput || (meta.SessionID == "" && meta.PreviousResponseID == "") {
 		return false
 	}
-	if len(rememberedToolUses) == 0 {
+	toolUses := proxyToolUseIndex(messages)
+	for id, use := range rememberedToolUses {
+		if _, exists := toolUses[id]; !exists {
+			toolUses[id] = use
+		}
+	}
+	if len(toolUses) == 0 {
 		return false
 	}
 	seenToolResult := false
@@ -831,7 +841,7 @@ func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolO
 				continue
 			}
 			seenToolResult = true
-			toolUse, resolved := proxyResolveToolUseDetailed(block, rememberedToolUses)
+			toolUse, resolved := proxyResolveToolUseDetailed(block, toolUses)
 			if !resolved || !wssSafeStatefulStatusToolOutput(toolUse, block.Text) {
 				return false
 			}
