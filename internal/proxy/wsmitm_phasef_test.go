@@ -322,14 +322,18 @@ func TestWSPhaseFPreviousResponseReadDeltaFullPassesBeforeRecencyPolicy(t *testi
 	}
 
 	first, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-1", "read-1"))
-	if changed || stats.ReadDeltaMisses != 0 || !strings.Contains(string(first), "recency protected read line") {
-		t.Fatalf("previous-response first read should full-pass before read-delta, changed=%v stats=%+v body=%s", changed, stats, first)
+	if changed || stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 ||
+		stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+		!strings.Contains(string(first), "recency protected read line") {
+		t.Fatalf("previous-response first read should seed read-delta without mutation, changed=%v stats=%+v body=%s", changed, stats, first)
 	}
 	second, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-2", "read-2"))
-	if changed || stats.ReadDeltaAttempts != 0 || stats.ReadDeltaMisses != 0 || stats.ReadDeltaBlocks != 0 ||
+	if changed || stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 ||
+		stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+		len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Reason != "recent_full_pass_window" ||
 		!strings.Contains(string(second), "recency protected read line") ||
 		strings.Contains(string(second), "local-archive://") {
-		t.Fatalf("previous-response reread should full-pass before recency policy, changed=%v stats=%+v body=%s", changed, stats, second)
+		t.Fatalf("previous-response reread should honor recency policy without mutation, changed=%v stats=%+v body=%s", changed, stats, second)
 	}
 }
 
@@ -822,7 +826,7 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
+func TestWSPhaseFPreviousResponseToolOutputGuardRequiresKnownToolOutput(t *testing.T) {
 	meta := wssRequestMeta{PreviousResponseID: "resp_source_guard"}
 	smallSource := []types.Message{{
 		Role: "tool",
@@ -831,8 +835,8 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 			Text: "package main\nfunc main() {}\n",
 		}},
 	}}
-	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(smallSource), false) {
-		t.Fatal("small tool-result continuations after previous_response_id must full-pass")
+	if !wssPreviousResponseUnknownToolOutputFullPass(meta, messagesContainToolResult(smallSource), false, false) {
+		t.Fatal("unknown small tool-result continuations after previous_response_id must full-pass")
 	}
 
 	largeSource := []types.Message{{
@@ -842,10 +846,10 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 			Text: strings.Repeat("package main\nfunc main() {}\n", 220),
 		}},
 	}}
-	if !wssPreviousResponseToolOutputFullPass(meta, messagesContainToolResult(largeSource), false) {
-		t.Fatal("large tool-result continuations after previous_response_id must full-pass")
+	if !wssPreviousResponseUnknownToolOutputFullPass(meta, messagesContainToolResult(largeSource), false, false) {
+		t.Fatal("unknown large tool-result continuations after previous_response_id must full-pass")
 	}
-	if wssPreviousResponseToolOutputFullPass(wssRequestMeta{}, true, false) {
+	if wssPreviousResponseUnknownToolOutputFullPass(wssRequestMeta{}, true, false, false) {
 		t.Fatal("previous_response_id-specific guard must not cover non-continuation tool output")
 	}
 	statusMessages := []types.Message{{
@@ -867,8 +871,15 @@ func TestWSPhaseFPreviousResponseToolOutputGuardIsNotSizeScoped(t *testing.T) {
 	if !wssStatefulToolOutputMutationSafe(meta, true, statusMessages, remembered) {
 		t.Fatal("server-known compact git status output should be safe to mutate")
 	}
-	if wssPreviousResponseToolOutputFullPass(meta, true, true) {
+	if wssPreviousResponseUnknownToolOutputFullPass(meta, true, true, true) {
 		t.Fatal("safe stateful tool output should not be forced through previous_response_id full-pass")
+	}
+	if wssPreviousResponseUnknownToolOutputFullPass(meta, true, false, true) {
+		t.Fatal("known non-status tool output should keep exact/recoverable reducers available")
+	}
+	total, resolved := wssToolOutputResolutionStats(statusMessages, remembered)
+	if total != 1 || resolved != 1 {
+		t.Fatalf("known status tool output should resolve, total=%d resolved=%d", total, resolved)
 	}
 }
 
@@ -2200,6 +2211,79 @@ func TestWSPhaseFDefaultCompactsPreviousResponseGitStatusAfterServerToolCall(t *
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	seedToolCall := func(callID string) {
+		itemDone := parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindResponseOutputItemDone),
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cat docs/spec.md"},
+			},
+		})
+		if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+			t.Fatalf("server read tool item should only seed state, replace=%v err=%v", replace, err)
+		}
+	}
+	runOutput := func(callID string) (bool, []byte) {
+		env := parseWSJSON(t, map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-known-read",
+			"prompt_cache_key":     "known-read-session",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  "Chunk ID: " + callID + "\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + uniqueProxyReadPayload("known previous response read"),
+			}},
+			"stream": true,
+		})
+		replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+		if err != nil {
+			t.Fatalf("tool-output request handle: %v", err)
+		}
+		return replace, []byte(env.Raw)
+	}
+
+	seedToolCall("call_read_1")
+	if replace, raw := runOutput("call_read_1"); replace {
+		t.Fatalf("first known source read should seed only, raw=%s", raw)
+	}
+	firstSummary := p.DebugRecorder().Last(1, false)[0]
+	if firstSummary.BypassReason != "" ||
+		firstSummary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" ||
+		firstSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
+		t.Fatalf("first known read should be guarded but not full-pass-bypassed: %+v", firstSummary)
+	}
+
+	seedToolCall("call_read_2")
+	replace, raw := runOutput("call_read_2")
+	if !replace {
+		t.Fatalf("second known source read should save through read-delta, raw=%s", raw)
+	}
+	if !bytes.Contains(raw, []byte("[context-elided kind=file-read status=unchanged")) ||
+		bytes.Contains(raw, []byte("known previous response read unique payload line 119")) {
+		t.Fatalf("second read did not compact through read-delta: %s", raw)
+	}
+	secondSummary := p.DebugRecorder().Last(1, false)[0]
+	if secondSummary.BypassReason != "" ||
+		secondSummary.Tokens.Saved <= 0 ||
+		secondSummary.MessagesCompressed != 1 ||
+		secondSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
+		t.Fatalf("second known read should report positive Layer-0 savings: %+v", secondSummary)
 	}
 }
 

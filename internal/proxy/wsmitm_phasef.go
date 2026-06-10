@@ -216,19 +216,20 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.degraded_reason"] = reason
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
+		toolOutputResults, toolOutputResolved := wssToolOutputResolutionStats(messages, rememberedToolUses)
+		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved == toolOutputResults
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
 		structuredMutationAllowed := true
-		if wssPreviousResponseToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe) {
+		structuredMutationGuardReason := ""
+		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
-			structuredMutationAllowed = false
-		} else if wssToolOutputStateFullPass(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
-			meta.BypassReason = "wss_tool_output_state_full_pass"
-			structuredMutationAllowed = false
-		}
-		if meta.BypassReason == "wss_previous_response_tool_output_full_pass" &&
-			a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns > 0 {
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
+			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
+			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
+		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
+			structuredMutationAllowed = false
+			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
@@ -287,6 +288,19 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		} else {
 			a.p.recordCodexLayer0Stats(stats)
+		}
+		if structuredMutationGuardReason != "" {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.structured_mutation_guard"] = structuredMutationGuardReason
+		}
+		if toolOutputResults > 0 {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
+			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
 	}
 	if pruned, changed := a.applyWSSToolPrune(out, messages, meta.SessionID); changed {
@@ -475,7 +489,7 @@ func messagesContainToolResult(messages []types.Message) bool {
 	return false
 }
 
-func wssToolOutputStateFullPass(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool) bool {
+func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool) bool {
 	if !containsToolOutput || mutationEnabled || statefulMutationSafe {
 		return false
 	}
@@ -818,8 +832,8 @@ const (
 	wssSafeStatusToolOutputMaxBytes     = 2 * 1024 * 1024
 )
 
-func wssPreviousResponseToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool) bool {
-	return meta.PreviousResponseID != "" && requestContainsToolOutput && !statefulMutationSafe
+func wssPreviousResponseUnknownToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool, toolOutputKnown bool) bool {
+	return meta.PreviousResponseID != "" && requestContainsToolOutput && !statefulMutationSafe && !toolOutputKnown
 }
 
 func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolOutput bool, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) bool {
@@ -849,6 +863,29 @@ func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolO
 		}
 	}
 	return seenToolResult
+}
+
+func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (int, int) {
+	toolUses := proxyToolUseIndex(messages)
+	for id, use := range rememberedToolUses {
+		if _, exists := toolUses[id]; !exists {
+			toolUses[id] = use
+		}
+	}
+	total := 0
+	resolved := 0
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			total++
+			if use, ok := proxyResolveToolUseDetailed(block, toolUses); ok && proxyLayer0CommandLine(use) != "" {
+				resolved++
+			}
+		}
+	}
+	return total, resolved
 }
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
