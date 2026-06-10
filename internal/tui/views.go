@@ -598,7 +598,7 @@ func (m *Model) renderActivityView() string {
 	activityFlights := buildActivityFlightViews(flights)
 	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Activity"))
 	lines = append(lines, rule)
-	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderCurrentActivity(m, activityFlights)))
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderLiveInstances(m, activityFlights)))
 	lines = append(lines, "")
 	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderTrafficActivity(m, activityFlights)))
 	lines = append(lines, "")
@@ -625,36 +625,70 @@ func buildActivityFlightViews(flights []dbg.FlightRequestSummary) []activityFlig
 	return items
 }
 
-func renderCurrentActivity(m *Model, flights []activityFlightView) string {
+func renderLiveInstances(m *Model, flights []activityFlightView) string {
 	s := m.styles
-	body := []string{" " + s.PanelTitle.Render("NOW")}
+	body := []string{" " + s.PanelTitle.Render("LIVE INSTANCES")}
+
+	cliCount := m.codexRouteStatus.ActiveCLIProcesses
+	body = append(body, "", renderActivityInstanceLine(s, "Codex CLI", cliCount, m.codexCLIState()))
+	cliDetail := "scoped slimference codex run processes"
+	if cliCount == 0 && m.lastLaunchLabel == "Codex CLI" {
+		cliDetail = "launch pending · waiting for process · " + formatStatusTime(m.lastLaunchAt)
+	}
+	body = append(body, "  "+s.Muted.Render(cliDetail))
+
+	appCount := m.codexDesktopStatus.AppServerProcesses
+	if appCount == 0 && m.codexDesktopStatus.AppServerActive {
+		appCount = 1
+	}
+	body = append(body, "", renderActivityInstanceLine(s, "Codex App", appCount, m.codexAppState()))
+	body = append(body, "  "+s.Muted.Render(desktopActivityDetail(m, appCount)))
+
 	if len(flights) > 0 {
 		flight := flights[len(flights)-1]
-		body = append(body, "",
-			"  "+s.Saved.Render("● ROUTED")+"  "+activityFlightHeadline(flight),
-			"  "+s.Muted.Render(activityFlightDetail(flight)),
-		)
-		return strings.Join(body, "\n")
+		body = append(body, "", "  "+s.Muted.Render("last request: "+activityFlightHeadline(flight)))
 	}
-	if m.lastLaunchLabel != "" {
-		body = append(body, "",
-			"  "+s.Highlight.Render("● LAUNCHED")+"  "+m.lastLaunchLabel+" via Slimference",
-			"  "+s.Muted.Render("waiting for first routed request · "+formatStatusTime(m.lastLaunchAt)),
-		)
-		return strings.Join(body, "\n")
+	if cliCount == 0 && appCount == 0 && len(flights) == 0 {
+		body = append(body, "", "  "+s.Muted.Render("No Slimference-scoped Codex instance is running."))
 	}
-	if m.codexDesktopStatus.AppServerActive {
-		body = append(body, "",
-			"  "+s.Highlight.Render("● DESKTOP")+"  Codex App app-server active",
-			"  "+s.Muted.Render("waiting for first routed request"),
-		)
-		return strings.Join(body, "\n")
-	}
-	body = append(body, "",
-		"  "+s.Muted.Render("○ IDLE")+"  no Slimference-routed traffic detected",
-		"  "+s.Muted.Render("direct Codex windows are hidden here"),
-	)
 	return strings.Join(body, "\n")
+}
+
+func renderActivityInstanceLine(s Styles, label string, count int, state string) string {
+	dot := s.Muted.Render("○")
+	countLabel := fmt.Sprintf("%d running via Slimference", count)
+	if count > 0 {
+		dot = s.Saved.Render("●")
+		countLabel = fmt.Sprintf("%d via Slimference", count)
+	}
+	state = strings.TrimSpace(state)
+	if state == "" || state == "unknown" {
+		return "  " + dot + " " + s.Highlight.Render(label) + "  " + countLabel
+	}
+	return "  " + dot + " " + s.Highlight.Render(label) + "  " + countLabel + " · " + state
+}
+
+func desktopActivityDetail(m *Model, appServerCount int) string {
+	status := m.codexDesktopStatus
+	if appServerCount > 0 {
+		parts := []string{"app-server scoped"}
+		if status.ConversationObserved {
+			parts = append(parts, "conversation observed")
+		} else {
+			parts = append(parts, "waiting for first routed request")
+		}
+		return strings.Join(parts, " · ")
+	}
+	if m.lastLaunchLabel == "Codex App" {
+		return "launch pending · waiting for app-server · " + formatStatusTime(m.lastLaunchAt)
+	}
+	if status.AppProcesses > 0 {
+		return fmt.Sprintf("%d Codex.app process(es) direct/unknown, not counted as Slimference", status.AppProcesses)
+	}
+	if status.FailureClass != "" {
+		return "not running via Slimference · " + status.FailureClass
+	}
+	return "no scoped Desktop app-server process"
 }
 
 func activityFlightHeadline(flight activityFlightView) string {

@@ -1891,9 +1891,12 @@ Daemon PID/port/liveness is not rendered in the global header; it belongs to
 Status. Status is a daily operator check with four card families only: Daemon,
 Install, Using Now, and Health. It does not show Normal Codex, advanced route,
 provider-chip, lab, or transport vocabulary during normal scoped operation.
-Activity shows only explicit Slimference launch state and recent routed
-Slimference requests from daemon flight telemetry. When a routed Codex WSS
-session maps to Codex's local thread store (`~/.codex/state_5.sqlite`),
+Activity is the live route-confidence view. Its first card shows scoped live
+instances: active `slimference codex run` CLI process count, active
+process-local Desktop app-server count, and any running Codex.app process that
+is direct/unknown rather than counted as Slimference. Recent routed Slimference
+requests remain in a separate card from daemon flight telemetry. When a routed
+Codex WSS session maps to Codex's local thread store (`~/.codex/state_5.sqlite`),
 Activity shows the real surface (Codex CLI or Codex App), thread title, cwd,
 model, route state, and savings.
 Raw provider IDs, internal route modes, backend paths, direct Codex windows, and

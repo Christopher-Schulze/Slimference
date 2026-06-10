@@ -859,12 +859,12 @@ func TestView_ActivityRenderShowsSessionsAndTraffic(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"SLIMFERENCE", "/ Activity", "NOW", "RECENT ROUTES", "Codex CLI", "check project status", "~/CODE/Demo", "gpt-5.5", "Slimference route", "42 saved"} {
+	for _, want := range []string{"SLIMFERENCE", "/ Activity", "LIVE INSTANCES", "RECENT ROUTES", "Codex CLI", "Codex App", "0 running via Slimference", "check project status", "~/CODE/Demo", "gpt-5.5", "Slimference route", "42 saved"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity view missing %q in:\n%s", want, output)
 		}
 	}
-	for _, blocked := range []string{"codex_cli", "codex_chatgpt", "websocket_phasef", "/backend-api", "Codex App"} {
+	for _, blocked := range []string{"codex_cli", "codex_chatgpt", "websocket_phasef", "/backend-api"} {
 		if strings.Contains(output, blocked) {
 			t.Fatalf("activity view leaked internal label %q in:\n%s", blocked, output)
 		}
@@ -903,13 +903,71 @@ func TestView_ActivityRenderShowsLaunchPendingWithoutHookNoise(t *testing.T) {
 	m.noteSlimferenceLaunch("Codex App")
 
 	output := m.View()
-	for _, want := range []string{"NOW", "LAUNCHED", "Codex App via Slimference", "waiting for first routed request"} {
+	for _, want := range []string{"LIVE INSTANCES", "Codex App", "0 running via Slimference", "launch pending", "waiting for app-server"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("activity launch-pending view missing %q in:\n%s", want, output)
 		}
 	}
 	if strings.Contains(output, "old-direct-codex") || strings.Contains(output, "ACTIVE SESSIONS") {
 		t.Fatalf("activity launch-pending view leaked hook state:\n%s", output)
+	}
+}
+
+func TestView_ActivityRenderShowsDesktopInstanceAheadOfRecentCLIFlight(t *testing.T) {
+	p := newMockProxy()
+	p.recentFlights = []dbg.FlightRequestSummary{{
+		RequestID: "req-cli",
+		SessionID: "cli-session",
+		Provider:  "codex_chatgpt",
+		Source:    "codex_cli",
+		RouteMode: "passthrough",
+	}}
+	m := NewModel(p)
+	m.codexRouteStatus = CodexRouteStatus{ActiveCLIProcesses: 2, DaemonReachable: true, AutoMode: "wss_phasef", WSSCertified: true}
+	m.codexDesktopStatus = CodexDesktopStatus{
+		AppServerActive:      true,
+		AppServerProcesses:   1,
+		AppProcesses:         1,
+		ConversationObserved: true,
+		Mode:                 "desktop_app_server_phasef_proven",
+	}
+	m.view = ViewActivity
+	m.width = 120
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{
+		"LIVE INSTANCES",
+		"Codex CLI",
+		"2 via Slimference",
+		"Codex App",
+		"1 via Slimference",
+		"app-server scoped",
+		"conversation observed",
+		"RECENT ROUTES",
+		"safe fallback",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("activity desktop instance view missing %q in:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "NOW") {
+		t.Fatalf("activity must not render latest request as NOW:\n%s", output)
+	}
+}
+
+func TestView_ActivityRenderShowsDirectDesktopAsNotSlimference(t *testing.T) {
+	m := NewModel(newMockProxy())
+	m.codexDesktopStatus = CodexDesktopStatus{AppProcesses: 1}
+	m.view = ViewActivity
+	m.width = 120
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{"Codex App", "0 running via Slimference", "1 Codex.app process(es) direct/unknown"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("activity direct desktop view missing %q in:\n%s", want, output)
+		}
 	}
 }
 

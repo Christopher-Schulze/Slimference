@@ -163,7 +163,8 @@ Default product routing is scoped Codex:
   savings-first auto decision as the CLI: fresh `wss_phasef` enables WSS,
   stale or missing Phase-F uses HTTP Responses savings;
 - Desktop route/savings truth comes from TUI Activity/Status, daemon decisions,
-  app-server shim flight logs, and Desktop proof status; current Codex Desktop
+  app-server shim flight logs, and Desktop proof status; Activity separates live
+  scoped instance counts from recent routed requests, and current Codex Desktop
   builds do not expose a stable external Slimference text-chip contract;
 - `slimference enable` / `slimference disable` are the advanced shared Codex
   route and write/remove only marker-owned `slimference-codex` provider config;

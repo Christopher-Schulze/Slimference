@@ -265,6 +265,7 @@ type CodexRouteStatus struct {
 	RecertLastError      string
 	RecertCommand        string
 	Detail               string
+	ActiveCLIProcesses   int
 }
 
 // CodexDesktopStatus is the TUI-facing Codex.app proxy capability state.
@@ -273,6 +274,8 @@ type CodexDesktopStatus struct {
 	FailureClass         string
 	DaemonReachable      bool
 	AppServerActive      bool
+	AppServerProcesses   int
+	AppProcesses         int
 	CATrusted            bool
 	CAExists             bool
 	ConversationObserved bool

@@ -176,13 +176,14 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	proxyURL := codexroute.ProxyURL("127.0.0.1", "8990")
 	status, err := codexRouteInspectFn(home, proxyURL, codexroute.Options{})
 	out := tui.CodexRouteStatus{
-		Exists:            status.Exists,
-		Enabled:           status.Enabled,
-		Complete:          status.Complete,
-		Conflict:          status.Conflict,
-		LegacyKeys:        status.LegacyKeys,
-		Transport:         status.Transport,
-		CertificationPath: codexroute.CertificationPath(home),
+		Exists:             status.Exists,
+		Enabled:            status.Enabled,
+		Complete:           status.Complete,
+		Conflict:           status.Conflict,
+		LegacyKeys:         status.LegacyKeys,
+		Transport:          status.Transport,
+		CertificationPath:  codexroute.CertificationPath(home),
+		ActiveCLIProcesses: scopedCodexCLIActiveCountFn(),
 	}
 	if err != nil {
 		out.Detail = err.Error()
@@ -224,6 +225,14 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 
 func (sca *serviceControlAdapter) CodexDesktopStatus() tui.CodexDesktopStatus {
 	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
+	appServerProcesses := codexDesktopAppServerCountFn()
+	appProcesses := 0
+	if appPath := strings.TrimSpace(codexDesktopAppPathFn()); appPath != "" {
+		binary := filepath.Join(appPath, defaultCodexDesktopExecRelPath)
+		if pids, err := codexDesktopRunningFn(binary); err == nil {
+			appProcesses = len(pids)
+		}
+	}
 	detail := status.DaemonError
 	if detail == "" && len(status.Notes) > 0 {
 		detail = status.Notes[0]
@@ -232,7 +241,9 @@ func (sca *serviceControlAdapter) CodexDesktopStatus() tui.CodexDesktopStatus {
 		Mode:                 status.Mode,
 		FailureClass:         status.FailureClass,
 		DaemonReachable:      status.DaemonReachable,
-		AppServerActive:      codexDesktopAppServerActiveFn(),
+		AppServerActive:      appServerProcesses > 0 || codexDesktopAppServerActiveFn(),
+		AppServerProcesses:   appServerProcesses,
+		AppProcesses:         appProcesses,
 		CATrusted:            status.CATrust.Trusted,
 		CAExists:             status.CATrust.Exists,
 		ConversationObserved: status.ConversationObserved,

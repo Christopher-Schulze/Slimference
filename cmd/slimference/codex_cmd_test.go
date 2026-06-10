@@ -49,6 +49,8 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopCleanup := codexDesktopCleanupFn
 	oldDesktopRunning := codexDesktopRunningFn
 	oldDesktopAppServerActive := codexDesktopAppServerActiveFn
+	oldDesktopAppServerCount := codexDesktopAppServerCountFn
+	oldScopedCLIActiveCount := scopedCodexCLIActiveCountFn
 	oldExecutable := osExecutable
 	oldDesktopUpstream := codexDesktopUpstreamCodexFn
 	oldDesktopSession := codexDesktopSessionFn
@@ -99,6 +101,8 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopCleanupFn = func(int) error { return nil }
 	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
 	codexDesktopAppServerActiveFn = func() bool { return false }
+	codexDesktopAppServerCountFn = func() int { return 0 }
+	scopedCodexCLIActiveCountFn = func() int { return 0 }
 	sessionPath := filepath.Join(t.TempDir(), "desktop-proof.json")
 	codexDesktopSessionFn = func() string { return sessionPath }
 	resultPath := filepath.Join(t.TempDir(), "desktop-proof-result.json")
@@ -132,6 +136,8 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopCleanupFn = oldDesktopCleanup
 		codexDesktopRunningFn = oldDesktopRunning
 		codexDesktopAppServerActiveFn = oldDesktopAppServerActive
+		codexDesktopAppServerCountFn = oldDesktopAppServerCount
+		scopedCodexCLIActiveCountFn = oldScopedCLIActiveCount
 		osExecutable = oldExecutable
 		codexDesktopUpstreamCodexFn = oldDesktopUpstream
 		codexDesktopSessionFn = oldDesktopSession
