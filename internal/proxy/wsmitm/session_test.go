@@ -228,6 +228,36 @@ func TestSessionUpstreamHandlerSeesS2CDirection(t *testing.T) {
 	<-done
 }
 
+func TestSessionHandlerCanConsumeFrame(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	session := &Session{
+		Client: client, Upstream: upstream,
+		UpstreamHandler: func(_ context.Context, _ Direction, env *Envelope) (bool, error) {
+			if env.Kind == FrameKindError {
+				return false, ErrFrameConsumed
+			}
+			return false, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	writeTextFrame(t, upstreamPeer, `{"type":"error","error":{"message":"Invalid request"}}`)
+	writeTextFrame(t, upstreamPeer, `{"type":"response.created"}`)
+	got, _ := readOneTextFrame(t, clientPeer)
+	if got != `{"type":"response.created"}` {
+		t.Fatalf("consumed frame leaked or next frame changed: %q", got)
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+}
+
 func TestSessionForwardsNonTextFramesByteEqual(t *testing.T) {
 	client, clientPeer := newDuplexPair()
 	upstream, upstreamPeer := newDuplexPair()

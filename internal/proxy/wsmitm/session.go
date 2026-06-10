@@ -117,6 +117,10 @@ type SessionTelemetry struct {
 // branch.
 var ErrSessionClosed = errors.New("wsmitm: session closed by peer")
 
+// ErrFrameConsumed tells the pump that the handler intentionally handled the
+// frame out-of-band and that the original frame must not be forwarded.
+var ErrFrameConsumed = errors.New("wsmitm: frame consumed by handler")
+
 // Serve runs the bidirectional pump until either side closes or ctx
 // is cancelled. Returns as soon as the first direction terminates;
 // the other direction's goroutine will exit on its next Read once
@@ -226,6 +230,9 @@ func (s *Session) pump(ctx context.Context, dir Direction, src io.Reader,
 		}
 
 		replace, herr := handler(ctx, dir, &env)
+		if errors.Is(herr, ErrFrameConsumed) {
+			continue
+		}
 		if herr != nil {
 			return fmt.Errorf("handler: %w", herr)
 		}
@@ -313,6 +320,9 @@ func (s *Session) finishCompressedMessage(ctx context.Context, compressed *compr
 	}
 	s.counters.CompressedMessagesInspected.Add(1)
 	if handler == nil || len(plain) == 0 || !looksLikeJSONObject(plain) {
+		if compressed.forceReencode {
+			return s.reencodeCompressedMessage(dst, compressed, frames, plain)
+		}
 		if err := compressed.deflate.Observe(plain); err != nil {
 			compressed.blocked = true
 			s.counters.CompressionErrors.Add(1)
@@ -326,10 +336,17 @@ func (s *Session) finishCompressedMessage(ctx context.Context, compressed *compr
 		return s.forwardFrames(dst, frames, "write compressed frame raw after parse failure")
 	}
 	replace, herr := handler(ctx, compressed.dir, &env)
+	if errors.Is(herr, ErrFrameConsumed) {
+		compressed.forceReencode = true
+		return nil
+	}
 	if herr != nil {
 		return fmt.Errorf("handler: %w", herr)
 	}
 	if !replace {
+		if compressed.forceReencode {
+			return s.reencodeCompressedMessage(dst, compressed, frames, plain)
+		}
 		if err := compressed.deflate.Observe(plain); err != nil {
 			compressed.blocked = true
 			s.counters.CompressionErrors.Add(1)
@@ -355,6 +372,23 @@ func (s *Session) finishCompressedMessage(ctx context.Context, compressed *compr
 	return nil
 }
 
+func (s *Session) reencodeCompressedMessage(dst io.Writer, compressed *compressedMessageState,
+	frames []wscompact.Frame, plain []byte) error {
+	wirePayload, err := compressed.deflate.Deflate(plain)
+	if err != nil {
+		compressed.blocked = true
+		s.counters.CompressionErrors.Add(1)
+		return fmt.Errorf("forced compressed re-encode: %w", err)
+	}
+	written, err := writeCompressedDataFrames(dst, frames, wirePayload)
+	if err != nil {
+		return fmt.Errorf("write forced re-encoded compressed frame: %w", err)
+	}
+	s.counters.CompressedMessagesMutated.Add(1)
+	s.counters.FramesReencoded.Add(int64(written))
+	return nil
+}
+
 func (s *Session) forwardFrames(dst io.Writer, frames []wscompact.Frame, context string) error {
 	for _, frame := range frames {
 		if _, err := dst.Write(frame.Raw); err != nil {
@@ -366,13 +400,14 @@ func (s *Session) forwardFrames(dst io.Writer, frames []wscompact.Frame, context
 }
 
 type compressedMessageState struct {
-	dir          Direction
-	enabled      bool
-	blocked      bool
-	inflate      *wscompact.InflateContext
-	deflate      *wscompact.DeflateContext
-	fragments    []wscompact.Frame
-	payloadBytes int
+	dir           Direction
+	enabled       bool
+	blocked       bool
+	inflate       *wscompact.InflateContext
+	deflate       *wscompact.DeflateContext
+	fragments     []wscompact.Frame
+	payloadBytes  int
+	forceReencode bool
 }
 
 func newCompressedMessageState(profile wscompact.WSExtensionProfile, dir Direction) *compressedMessageState {

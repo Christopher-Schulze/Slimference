@@ -40,6 +40,12 @@ type wsPhaseFAdapter struct {
 	toolUseHydrated bool
 	collapsedKeys   map[string]struct{}
 	qualityCohort   qualityab.Cohort
+	responseChains  map[string]wssResponseChain
+	pendingChain    wssResponseChain
+	pendingOutput   []json.RawMessage
+	pendingRecovery *wssRecoveryCandidate
+	activeRecovery  *wssRecoveryCandidate
+	recoveryWriter  func([]byte) error
 	counters        wsPhaseFCounters
 }
 
@@ -102,7 +108,7 @@ func (a *wsPhaseFAdapter) handle(_ context.Context, dir wsmitm.Direction, env *w
 		if env.Kind == wsmitm.FrameKindUnknown {
 			return false, nil
 		}
-		return a.handleResponse(env), nil
+		return a.handleResponse(env)
 	default:
 		return false, nil
 	}
@@ -139,6 +145,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	}
 	a.counters.requestBodiesSeen.Add(1)
 	mutated, messages, changed, l0Stats, reReadCount, meta, outputReduceStats := a.applyInputPipelineDetailed(body)
+	a.prepareWSSRecoveryCandidate(env, body, meta)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -1092,8 +1099,11 @@ func wssPreviousResponseID(body []byte) string {
 	return wssPreviousResponseIDFromRaw(raw)
 }
 
-func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
-	a.recordWSSUpstreamError(env)
+func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) (bool, error) {
+	if a.recordWSSUpstreamError(env) {
+		return false, wsmitm.ErrFrameConsumed
+	}
+	a.rememberWSSResponseState(env)
 	a.rememberToolUsesFromResponse(env)
 	a.recordWSSProviderUsage(env)
 	if env.Kind.IsTextDelta() {
@@ -1113,23 +1123,30 @@ func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
 	if mutated {
 		a.counters.mutations.Add(1)
 	}
-	return mutated
+	return mutated, nil
 }
 
-func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
-	if a == nil || a.p == nil || a.p.debugRecorder == nil || env == nil {
-		return
+func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) bool {
+	if a == nil || a.p == nil || env == nil {
+		return false
 	}
 	if env.Kind != wsmitm.FrameKindError && env.Kind != wsmitm.FrameKindResponseFailed && env.Kind != wsmitm.FrameKindResponseIncomplete {
-		return
+		return false
 	}
 	status, errorType, message := wssUpstreamErrorFields(env)
 	errSummary := formatWSSUpstreamError(env.Kind, status, errorType, message)
 	if errSummary == "" {
 		errSummary = "upstream_error kind=" + string(env.Kind)
 	}
+	recoveryFacts := a.wssRecoveryDebugFacts(status, errorType, message)
+	if a.tryWSSRecoveryRetry(status, errorType, message, errSummary) {
+		return true
+	}
 	a.markDegraded(errSummary)
 	slog.Warn("codex wss upstream error", "kind", env.Kind, "status", status, "error_type", errorType)
+	if a.p.debugRecorder == nil {
+		return false
+	}
 	a.p.debugRecorder.Record(dbg.RequestSummary{
 		RequestID:    newRequestIDFn(),
 		Timestamp:    time.Now(),
@@ -1141,7 +1158,9 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) {
 		RouteMode:    "websocket_phasef",
 		BypassReason: "upstream_error",
 		Errors:       []string{errSummary},
+		DebugFacts:   recoveryFacts,
 	})
+	return false
 }
 
 func (a *wsPhaseFAdapter) markDegraded(reason string) {

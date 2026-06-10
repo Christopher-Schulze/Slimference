@@ -59,7 +59,7 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 	}
 }
 
-func TestWSSABReplayProductDefaultKeepsToolOutputByteEqual(t *testing.T) {
+func TestWSSABReplayProductDefaultKeepsSafeReadDeltaSavings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
@@ -69,11 +69,11 @@ func TestWSSABReplayProductDefaultKeepsToolOutputByteEqual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.MutatedRequests != 0 || report.BytesSaved != 0 || report.ToolOutputMutation {
-		t.Fatalf("product-default replay should keep stateful WSS tool-output byte-equal: %+v", report)
+	if report.MutatedRequests != 1 || report.BytesSaved <= 0 || report.ReducerReadDeltaBlocks != 1 || report.ToolOutputMutation {
+		t.Fatalf("product-default replay should keep safe read-delta savings without lab tool-output mutation: %+v", report)
 	}
 	if report.Lost != 0 || !report.GatePassed {
-		t.Fatalf("byte-equal product replay should pass comprehension gate: %+v", report)
+		t.Fatalf("product-default read-delta replay should pass comprehension gate: %+v", report)
 	}
 }
 

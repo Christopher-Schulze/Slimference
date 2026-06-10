@@ -674,10 +674,16 @@ upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and
 `previous_response_id`-only gates were insufficient because the next byte-equal
 turn can still fail after the session state was already poisoned. HTTP, hook,
-and non-WSS routes keep the deterministic search reducers; WSS allows only
-proof-fresh, state-safe status compaction by default, while search/path-list and
-broader tool-output savings must be re-certified with live captures before
-returning to the default WSS product path.
+and non-WSS routes keep the deterministic search reducers; WSS keeps exact or
+recoverable read-delta and state-safe status savings default-on when proof-fresh,
+while search/path-list and broader tool-output savings must be re-certified with
+live captures before returning to the default WSS product path. If the upstream
+still returns the generic `invalid_request_error` for a `previous_response_id`
+chain and Slimference has the exact local chain, it consumes the error frame,
+retries once with the full reconstructed input chain, and records
+`wss_upstream_recovery_retry` / `wss_upstream_recovery_succeeded` or precise
+no-retry debug facts. Context-window, auth, rate-limit, and unknown-chain errors
+do not retry.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -903,9 +909,9 @@ Fresh 2026-06-07 scoped WSS sessions later showed upstream 400s after WSS
 search-output mutation, and later Desktop sessions showed the same class after
 broader WSS tool-output mutation. Those rows are kept as historical replay/proof
 evidence, not as broad default-WSS promotion claims. Current WSS allows only
-proof-fresh, state-safe status compaction by default; search/path-list,
-source-like, inferred search, and `find`/`fd` path-list payloads still fail open
-until separately re-certified. The strict
+proof-fresh exact/recoverable read-delta and state-safe status compaction by
+default; search/path-list, source-like, inferred search, and `find`/`fd`
+path-list payloads still fail open until separately re-certified. The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,
 and mixed-workday reducers in the product path. The
@@ -965,12 +971,13 @@ reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
 `go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it mirrors the
-product WSS guard and keeps stateful tool-output request bodies byte-equal.
-`--tool-output-mutation` enables the lab/proof replay path for historical and
-focused mechanism proofs; `--codex-chunk-dedup` remains a force flag for
-threshold experiments and implies tool-output mutation, the recovery note, and
-separation of the expected once-per-session recovery-note extra block from true
-loss-gate failures. The report separates two concepts: `bytes_saved` is the
+product WSS guard: safe read-delta savings may fire, while unknown or unsafe
+stateful tool-output request bodies stay byte-equal.
+`--tool-output-mutation` enables the broader lab/proof replay path for
+historical and focused mechanism proofs; `--codex-chunk-dedup` remains a force
+flag for threshold experiments and implies tool-output mutation, the recovery
+note, and separation of the expected once-per-session recovery-note extra block
+from true loss-gate failures. The report separates two concepts: `bytes_saved` is the
 comprehension A/B byte delta after archive expansion and note alignment, while
 `reducer_tokens_saved`, `tool_output_mutation_enabled`, and the `reducer_*`
 mechanism counters report the model-facing compressed request savings from that

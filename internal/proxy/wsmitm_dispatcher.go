@@ -369,6 +369,10 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 		_ = upstream.SetDeadline(dl)
 	}
 	adapter := d.newWSPhaseFAdapter()
+	upstream = newLockedWriteConn(upstream)
+	adapter.setRecoveryWriter(func(payload []byte) error {
+		return writeMaskedWSTextFrame(upstream, payload)
+	})
 	capture := newWSSABReplayCaptureFromEnv()
 	defer capture.Close()
 	sess := &wsmitm.Session{

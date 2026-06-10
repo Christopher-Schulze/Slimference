@@ -181,7 +181,7 @@ safety contract.
 
 | Layer | What it does | Why it exists | Safety posture |
 |---|---|---|---|
-| Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, and read output before or as it enters model-visible context; proof-fresh WSS can compact state-safe status output, broader WSS tool-output mutation is experimental non-product lab/proof code | Parser guards, evidence preservation, archive recovery, fail open |
+| Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, and read output before or as it enters model-visible context; proof-fresh WSS can run safe read-delta/status reductions, broader WSS tool-output mutation is experimental non-product lab/proof code | Parser guards, evidence preservation, archive recovery, fail open |
 | Layer 1 | Deterministic compression | Removes deterministic waste from safe prefix/tool content | Shorter-than-original guard, schema checks, safety tiers, no semantic paraphrase |
 | Layer 2 | Response and provider-cache leverage | Avoids repeat work and accounts provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation, negative-net visibility |
 | Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition/chat overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, WSS model-facing directive injection is experimental non-product and disabled |

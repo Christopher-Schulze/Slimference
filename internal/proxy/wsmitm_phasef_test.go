@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -775,6 +776,163 @@ func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
 		!strings.Contains(summary.Errors[0], "type=invalid_request_error") ||
 		!strings.Contains(summary.Errors[0], "message=Invalid request") {
 		t.Fatalf("upstream error details not recorded: %+v", summary.Errors)
+	}
+}
+
+func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var retryPayloads [][]byte
+	adapter.setRecoveryWriter(func(payload []byte) error {
+		retryPayloads = append(retryPayloads, append([]byte(nil), payload...))
+		return nil
+	})
+
+	first := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model": "gpt-5.5",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-recovery","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "first prompt",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &first); err != nil || replace {
+		t.Fatalf("first request replace=%v err=%v", replace, err)
+	}
+	firstDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{
+			"id": "resp-recovery-1",
+			"output": []map[string]any{{
+				"type":    "message",
+				"role":    "assistant",
+				"content": "first answer",
+			}},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &firstDone); err != nil || replace {
+		t.Fatalf("first completion replace=%v err=%v", replace, err)
+	}
+
+	second := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5.5",
+			"previous_response_id": "resp-recovery-1",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-recovery","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "second prompt",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &second); err != nil || replace {
+		t.Fatalf("second request replace=%v err=%v", replace, err)
+	}
+	upstreamErr := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Invalid request",
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &upstreamErr)
+	if !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
+		t.Fatalf("invalid request should be consumed for recovery, replace=%v err=%v", replace, err)
+	}
+	if len(retryPayloads) != 1 {
+		t.Fatalf("retry payloads=%d want 1", len(retryPayloads))
+	}
+	retryEnv, parseErr := wsmitm.Parse(retryPayloads[0])
+	if parseErr != nil {
+		t.Fatalf("parse retry payload: %v", parseErr)
+	}
+	retryBody, _, ok := wsRequestBody(&retryEnv)
+	if !ok {
+		t.Fatalf("retry payload has no request body: %s", retryPayloads[0])
+	}
+	var retry map[string]json.RawMessage
+	if err := json.Unmarshal(retryBody, &retry); err != nil {
+		t.Fatalf("retry body json: %v", err)
+	}
+	if _, exists := retry["previous_response_id"]; exists {
+		t.Fatalf("retry must remove previous_response_id: %s", retryBody)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(retry["input"], &input); err != nil {
+		t.Fatalf("retry input json: %v", err)
+	}
+	if len(input) != 3 {
+		t.Fatalf("retry input len=%d want full chain of 3: %s", len(input), retryBody)
+	}
+
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_retry" {
+		t.Fatalf("missing recovery retry summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.chain_items"] != "2" ||
+		summaries[0].DebugFacts["wss.recovery.current_input_items"] != "1" {
+		t.Fatalf("bad recovery facts: %+v", summaries[0].DebugFacts)
+	}
+
+	secondDone := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-recovery-2"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &secondDone); err != nil || replace {
+		t.Fatalf("second completion replace=%v err=%v", replace, err)
+	}
+	summaries = p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_succeeded" {
+		t.Fatalf("missing recovery success summary: %+v", summaries)
+	}
+}
+
+func TestWSPhaseFRecoveryDoesNotRetryContextWindowErrors(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setRecoveryWriter(func([]byte) error {
+		t.Fatal("context-window errors must not retry")
+		return nil
+	})
+
+	errEnv := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindError),
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &errEnv)
+	if err != nil || replace {
+		t.Fatalf("context-window error replace=%v err=%v", replace, err)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "upstream_error" {
+		t.Fatalf("context-window error should be recorded normally: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.retryable"] != "false" ||
+		summaries[0].DebugFacts["wss.recovery.no_retry_reason"] != "not_retryable" {
+		t.Fatalf("context-window error should explain why recovery did not retry: %+v", summaries[0].DebugFacts)
 	}
 }
 

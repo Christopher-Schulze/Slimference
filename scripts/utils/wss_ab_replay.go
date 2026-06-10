@@ -66,9 +66,10 @@ Flags:
   --allow-recovery-note-extra
                            Do not fail the gate for the expected once-per-session
                            recovery-note extra block
-  --tool-output-mutation    Enable lab/proof Codex WSS tool-output mutation
-                           during replay; product default keeps stateful
-                           WSS tool-output request bodies byte-equal
+  --tool-output-mutation    Enable broader lab/proof Codex WSS tool-output
+                           mutation during replay; product default still
+                           allows safe read-delta savings and keeps unknown
+                           or unsafe stateful WSS tool-output bodies byte-equal
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
                            --archive-recovery-note,
@@ -217,7 +218,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
 	}
 	if toolOutputMutation {
-		report.Notes = append(report.Notes, "Codex WSS tool-output mutation was enabled for this lab/proof replay; product default keeps stateful WSS tool-output request bodies byte-equal")
+		report.Notes = append(report.Notes, "broader Codex WSS tool-output mutation was enabled for this lab/proof replay; product default keeps safe read-delta savings while unknown or unsafe stateful WSS tool-output bodies stay byte-equal")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
