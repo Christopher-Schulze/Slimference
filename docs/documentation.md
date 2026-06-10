@@ -107,7 +107,8 @@ routine use, it stays out of the product path.
   - the same Phase-F route the certified CLI uses, with byte-identical
   `permessage-deflate` frames. Desktop WSS routing is therefore proven;
   proof-fresh WSS can compact state-safe status output after the tool call is
-  known; broader stateful WSS tool-output mutation remains lab/proof opt-in.
+  known; broader stateful WSS tool-output mutation is experimental non-product
+  lab/proof code behind an explicit opt-in.
   Voice (`thread/realtime/*`), Browser ChatGPT,
   ChatGPT.app, computer-use, and Claude Code are untouched. Note: the sampled
   `desktop status` WSS counters lag and must not be used to claim or deny
@@ -394,20 +395,21 @@ written only to the top-level `instructions` string. The injector does not
 rewrite `input` and never creates `input` items with `role=system`, because Codex
 rejects those and because output-reduce must not alter the model's task/tool
 context while trying to save output tokens. On the Codex WSS Phase-F path,
-model-facing output-reduce directive injection is disabled except for the
-separate conservative concise-chat hint on eligible non-prefix chat frames. Live
-scoped WSS sessions showed recurrent upstream `invalid_request_error` after a
-prior WSS user-turn directive rewrite, while the directly rejected follow-up
-frame was byte-equal.
+model-facing output-reduce directive injection is an experimental non-product
+lab/proof path and is disabled in the product runtime except for the separate
+conservative concise-chat hint on eligible non-prefix chat frames. Live scoped
+WSS sessions showed recurrent upstream `invalid_request_error` after a prior
+WSS user-turn directive rewrite, while the directly rejected follow-up frame was
+byte-equal.
 The product rule wins: a speculative output-token reducer that can poison WSS
-conversation state is not a default product path. Stateful Codex WSS request
-bodies that carry tool output also full-pass by default, because live Desktop
-sessions showed later `invalid_request_error` failures after earlier WSS
-tool-output rewrites. HTTP, hook, and other non-WSS Codex routes keep the
-deterministic read/git/test/repeated-output, tool-prune, stale-read,
-archive-recovery, and chunk reducers. WSS debug telemetry records skipped
-output-reduce candidates as `codex_wss_directive_disabled` and guarded
-tool-output frames as `wss_tool_output_state_full_pass`.
+conversation state is not a default product path. Unknown or unsafe stateful
+Codex WSS tool-output bodies full-pass, while proof-fresh state-safe status
+outputs and recoverable chunk/read reducers can still save tokens. HTTP, hook,
+and other non-WSS Codex routes keep the deterministic
+read/git/test/repeated-output, tool-prune, stale-read, archive-recovery, and
+chunk reducers. WSS debug telemetry records skipped output-reduce candidates as
+`codex_wss_directive_disabled` and guarded tool-output frames with the relevant
+state guard reason.
 Layer 3 product work follows a lower-savings, zero-drawdown profile: default-on
 mechanisms must be deterministic, shape-bounded, recoverable or auto-demoted,
 and must not require the model to reinterpret extra behavioral instructions.
@@ -484,10 +486,11 @@ reads and searches via `rg`, never full `cat`, and truncates every exec output t
 token budget. So the original `cat`-only scan could not fire (extended to `sed`), and
 search grouping was defeated by the truncation tail (made robust). The recurring
 upstream `400 invalid_request` class is treated as a product safety signal, not
-as a savings opportunity. Current Codex WSS guards full-pass stateful tool-output
-request bodies, including search/path-list/source-like outputs, unless the
-operator explicitly enables the lab/proof mutation switch for that exact
-certification run.
+as a savings opportunity. Current Codex WSS full-passes unknown or unsafe
+stateful tool-output request bodies, including search/path-list/source-like
+outputs, while allowing proof-fresh state-safe status and recoverable reducers.
+Broader mutation requires the explicit experimental non-product lab/proof switch
+for that exact certification run.
 
 Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
 point and a central policy engine with route labels (`http`, `wss_phasef`),
@@ -726,13 +729,15 @@ inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
 search-token savings, but the product contract is stronger: no upstream 400s
 and no model-facing context loss.
 
-Stateful Codex WSS tool-output request bodies full-pass by default. The guard is
-route- and shape-scoped, not a global savings kill switch: WSS routing,
-byte-equal bridge/fallback, response-side diagnostics, concise-chat on eligible
-non-tool chat frames, and HTTP/non-WSS source reducers keep their existing
-gates. The guarded WSS tool-output shape stops claiming read-delta, search-delta,
-exact repeated-output, or chunk savings until live evidence proves OpenAI's
-current WSS contract accepts that mutation without 400s.
+Unknown or unsafe stateful Codex WSS tool-output request bodies full-pass by
+default. The guard is route- and shape-scoped, not a global savings kill switch:
+WSS routing, byte-equal bridge/fallback, response-side diagnostics,
+concise-chat on eligible non-tool chat frames, proof-fresh state-safe status
+compaction, recoverable chunk/read reducers, and HTTP/non-WSS source reducers
+keep their existing gates. The guarded unsafe WSS tool-output shape stops
+claiming read-delta, search-delta, exact repeated-output, or chunk savings until
+live evidence proves OpenAI's current WSS contract accepts that mutation without
+400s.
 
 Repo-local policy command output is treated as workflow evidence and passes
 through unchanged on every Codex Layer-0 route. The guard recognizes direct
@@ -2267,18 +2272,18 @@ Codex WSS conversation envelopes, `PhaseFDispatcher` attaches a Phase F
 adapter:
 
 - client-to-server request payloads run stale-read aging, obsolete-read prune,
-  stop-sequence guards, proxy Layer 0 captured-output compaction, and be-terse
-  when existing config/cohort gates allow; stateful Codex WSS request bodies
-  carrying tool output full-pass unless the lab/proof mutation switch is enabled
+  stop-sequence guards, proxy Layer 0 compaction, and be-terse when existing
+  config/cohort gates allow; unknown or unsafe stateful Codex WSS tool-output
+  bodies full-pass, while proof-fresh state-safe status and recoverable reducers
+  can still save tokens
 - server-to-client output item frames teach the adapter session-local tool-call
-  metadata, so lab/proof client-to-server `function_call_output` mutation can
-  preserve tool identity even when Codex splits the request state across WSS
-  messages
+  metadata, so state-safe compaction can preserve tool identity even when Codex
+  splits the request state across WSS messages
 - request-body summaries record repeated resolved read/tool keys as a re-read
   canary, so drift analysis can see context-recall pressure without logging raw
   tool output
-- tool-output request bodies in stateful Codex WSS sessions full-pass before
-  request mutation; edit/re-read observation still runs first
+- unsafe tool-output request bodies in stateful Codex WSS sessions full-pass
+  before request mutation; edit/re-read observation still runs first
 - server-to-client `error`, `response.failed`, and `response.incomplete` frames
   are forwarded byte-equal and recorded as content-free upstream-error
   summaries for diagnostics; after such an error the current adapter full-passes
@@ -2364,10 +2369,12 @@ CLI and the Desktop app-server (driven with the full Electron feature-flag
 `config`) as `route_mode=websocket_phasef` on `/backend-api/codex/responses`. The
 Desktop and CLI WSS frames are byte-identical `permessage-deflate`. So the
 Desktop conversation rides the same Phase-F route as the certified CLI. Current
-product default keeps risky stateful WSS tool-output request bodies byte-equal,
-but proof-fresh WSS can compact state-safe status output after the tool call is
-known. Broader token savings on those shapes remain lab/proof opt-in until live
-certification proves the current Codex WSS contract accepts them without 400s.
+product default keeps unknown or unsafe stateful WSS tool-output request bodies
+byte-equal, but proof-fresh WSS can compact state-safe status output after the
+tool call is known and can run recoverable chunk/read reducers under policy.
+Broader token savings on unsafe shapes remain experimental non-product
+lab/proof opt-in until live certification proves the current Codex WSS contract
+accepts them without 400s.
 Earlier "zero-byte /
 `byte_bridge_only`" readings were sampled-counter artifacts plus trivial test
 prompts with nothing to mutate (the same caveat as the CLI smoke). Normal Desktop
@@ -2644,7 +2651,8 @@ current release-corpus proof for the still-enabled mechanisms, not a universal
 average savings percentage. The WSS output-reduce directive rows in that older
 bundle are historical after T330; Codex WSS runtime now records
 `codex_wss_directive_disabled` instead of injecting model-facing output-reduce
-instructions.
+instructions. That WSS directive-injection path is experimental non-product
+lab/proof material, not a current product feature.
 `go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>
 --min-net-tokens=1 --json` is the content-free output-reduce counterfactual
 gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or

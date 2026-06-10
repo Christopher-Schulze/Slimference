@@ -150,6 +150,9 @@ func decideL3(f RequestFacts) LayerDecision {
 		return decision(Layer3, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
 	if isCodexWebSocketRoute(f) {
+		// Codex WSS model-facing directive injection is experimental
+		// non-product. Keep Layer-3 WSS planning explicit instead of presenting
+		// it as a default savings candidate.
 		return decision(Layer3, ActionBypass, "codex_wss_directive_disabled", 0, "none", "high")
 	}
 	if d, guarded := decideL3ShapeGuard(f); guarded {

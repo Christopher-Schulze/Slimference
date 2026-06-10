@@ -181,10 +181,10 @@ safety contract.
 
 | Layer | What it does | Why it exists | Safety posture |
 |---|---|---|---|
-| Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, and read output before or as it enters model-visible context; proof-fresh WSS can compact state-safe status output, broader WSS tool-output mutation remains lab/proof gated | Parser guards, evidence preservation, archive recovery, fail open |
+| Layer 0 | Pre-entry / Codex tool-output reducers | Shrinks shell, git, test, log, search, and read output before or as it enters model-visible context; proof-fresh WSS can compact state-safe status output, broader WSS tool-output mutation is experimental non-product lab/proof code | Parser guards, evidence preservation, archive recovery, fail open |
 | Layer 1 | Deterministic compression | Removes deterministic waste from safe prefix/tool content | Shorter-than-original guard, schema checks, safety tiers, no semantic paraphrase |
 | Layer 2 | Response and provider-cache leverage | Avoids repeat work and accounts provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation, negative-net visibility |
-| Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition/chat overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, no risky model-facing directive unless proof-gated |
+| Layer 3 | Output and tool-surface reduction | Cuts avoidable completion/tool-definition/chat overhead where the turn shape is proven safe | Exact-answer/repair guards, concise-chat low-ROI guard, provider-shape validation, auto-demotion, WSS model-facing directive injection is experimental non-product and disabled |
 
 Typical wins come from repeated file reads, search outputs, test logs, git
 output, JSON/log compaction, archive-backed tool references, and provider cache
@@ -254,11 +254,11 @@ computer-use flows are not the target path and are left direct by default.
 Codex traffic is not just plain HTTP. Modern Codex sessions use a Responses/WSS
 path for interactive turns. Slimference has a local WSS frontdoor on the daemon
 port and a Phase-F route that inspects known Codex frame shapes, preserves
-byte-equal forwarding on unknown or unsafe frames, and keeps risky stateful WSS
-tool-output request bodies byte-equal by default. HTTP and other non-WSS Codex
+byte-equal forwarding on unknown or unsafe frames. HTTP and other non-WSS Codex
 routes keep the deterministic tool-output reducers; proof-fresh WSS also
-compacts state-safe status output after the tool call is known. Broader WSS
-tool-output mutation stays behind the explicit lab/proof switch.
+compacts state-safe status output after the tool call is known, while unknown
+or unsafe stateful tool-output requests full-pass. Broader WSS tool-output
+mutation is experimental non-product lab/proof code behind an explicit switch.
 
 Codex CLI is straightforward: `slimference codex run --transport=auto -- ...`
 launches one Codex process with a scoped local provider route.

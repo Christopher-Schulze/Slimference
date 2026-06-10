@@ -130,8 +130,9 @@ Requirements:
 - default-on Layer 3 must be deterministic, shape-bounded, auto-demoted, and
   invisible to model reasoning unless proof shows no repair/re-ask or quality
   regression;
-- Codex WSS model-facing output-reduce directive injection stays disabled unless
-  a future proof gate demonstrates positive net savings without repair/re-ask
+- Codex WSS model-facing output-reduce directive injection is experimental
+  non-product lab/proof code and stays disabled in the product path unless a
+  future proof gate demonstrates positive net savings without repair/re-ask
   regressions;
 - tool-schema pruning must preserve selected/used tools, reattach safely on
   miss, and retry when upstream/tool behavior proves pruning unsafe;

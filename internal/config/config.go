@@ -276,10 +276,11 @@ type OutputReduceConfig struct {
 	// prerequisites are present; conservative keeps only the low-risk
 	// lossless reducers unless a mechanism is explicitly enabled.
 	CodexSavingsPolicyMode string `toml:"codex_savings_policy_mode"`
-	// CodexWSSToolOutputMutationEnabled is a lab/proof switch for broad
-	// Codex WSS request-body mutation on tool outputs. Product default is
-	// false; narrow state-safe status-output compaction is guarded separately
-	// after the tool call is known and the WSS proof is fresh.
+	// CodexWSSToolOutputMutationEnabled is an experimental non-product
+	// lab/proof switch for broad Codex WSS request-body mutation on tool
+	// outputs. It is not part of the default product path. Narrow state-safe
+	// status-output compaction is guarded separately after the tool call is
+	// known and the WSS proof is fresh.
 	CodexWSSToolOutputMutationEnabled bool `toml:"codex_wss_tool_output_mutation_enabled"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;

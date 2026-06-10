@@ -449,8 +449,9 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput 
 		return body, outputreduce.Stats{Profile: "wss_phasef", Reason: reason, TaskShape: taskShape}
 	}
 	// Codex WSS Phase-F rejects some model-facing request rewrites after a
-	// previously accepted turn. Keep deterministic input reducers, but do not
-	// inject output-shaping instructions into this websocket route.
+	// previously accepted turn. WSS output-shaping directive injection is an
+	// experimental non-product path; keep deterministic input reducers, but do
+	// not inject behavioral output directives into this websocket route.
 	return body, outputreduce.Stats{Profile: "wss_phasef", Reason: "codex_wss_directive_disabled", TaskShape: taskShape}
 }
 
