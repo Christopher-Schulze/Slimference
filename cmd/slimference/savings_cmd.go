@@ -1837,7 +1837,8 @@ func formatSavingsText(s SavingsSummary) string {
 				if i >= 6 {
 					break
 				}
-				sb.WriteString(fmt.Sprintf("  route %-32s sessions=%d requests=%d local_saved=%s effective_billed=%s cached_share=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s evidence=%s cache=%s/%.1f%%\n",
+				compoundedText := formatSavingsCompoundedSuffix(route.CompoundedEstimateTokens)
+				sb.WriteString(fmt.Sprintf("  route %-32s sessions=%d requests=%d local_saved=%s effective_billed=%s cached_share=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s evidence=%s cache=%s/%.1f%%%s\n",
 					truncateSavingsLabel(route.RouteKey, 32),
 					route.Sessions,
 					route.Requests,
@@ -1850,6 +1851,7 @@ func formatSavingsText(s SavingsSummary) string {
 					formatRouteEvidence(route.Evidence),
 					formatSignedInt64Plain(route.CacheNetTokens),
 					route.CacheHitRate*100,
+					compoundedText,
 				))
 			}
 		}

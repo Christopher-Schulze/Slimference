@@ -1768,6 +1768,11 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 		!nearFloat(route.Scorecard.VsUncachedSavingsRate, 840.0/2200.0) {
 		t.Fatalf("route scorecard dropped fallback-only session: %+v", route)
 	}
+	text := formatSavingsText(SavingsSummary{Period: "today", DecisionRequests: 1, DecisionRoutes: routes})
+	if !strings.Contains(text, "route codex_cli/websocket_phasef") ||
+		!strings.Contains(text, "cache=0/50.0% compounded_est=50") {
+		t.Fatalf("route text should surface compounded estimate: %s", text)
+	}
 }
 
 func TestComputeSavingsAccountsUpstreamRetryNegativeEvents(t *testing.T) {
