@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,44 @@ func TestTryCompactCargoNextest(t *testing.T) {
 	llvPnpm, ok := TryCompactCargoLlvmCov([]string{"pnpm", "exec", "cargo", "llvm-cov"}, []byte(""))
 	if !ok || string(llvPnpm) != "[cargo llvm-cov] ok\n" {
 		t.Fatalf("pnpm cargo llvm-cov: %q", llvPnpm)
+	}
+}
+
+func TestTryCompactGoTest_verboseAllPass(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&b, "=== RUN   TestAlpha%03d\n--- PASS: TestAlpha%03d (0.00s)\n", i, i)
+	}
+	b.WriteString("=== RUN   TestSkipped\n--- SKIP: TestSkipped (0.00s)\n")
+	b.WriteString("    helper_test.go:12: kept log line\n")
+	b.WriteString("PASS\nok  \tslimtest/lib\t0.006s\n")
+
+	out, ok := TryCompactGoTest([]string{"go", "test", "./...", "-v"}, []byte(b.String()))
+	if !ok {
+		t.Fatalf("verbose all-pass go test must compact")
+	}
+	s := string(out)
+	if !strings.Contains(s, "[go test] ok - 120 passed") ||
+		!strings.Contains(s, "ok  \tslimtest/lib\t0.006s") ||
+		!strings.Contains(s, "--- SKIP: TestSkipped") ||
+		!strings.Contains(s, "kept log line") {
+		t.Fatalf("compacted output lost evidence: %q", s)
+	}
+	if strings.Contains(s, "--- PASS: TestAlpha000") || strings.Contains(s, "=== RUN") {
+		t.Fatalf("pass roll-call must be elided: %q", s)
+	}
+	if len(out)*4 > len(b.String()) {
+		t.Fatalf("compaction too weak: %d of %d bytes", len(out), len(b.String()))
+	}
+
+	failure := "=== RUN   TestX\n--- FAIL: TestX (0.00s)\nFAIL\tslimtest/lib\t0.01s\n"
+	if _, ok := TryCompactGoTest([]string{"go", "test", "-v"}, []byte(failure)); ok {
+		t.Fatal("failure output must fail open to the full transcript")
+	}
+	racy := "=== RUN   TestY\nWARNING: DATA RACE\n--- PASS: TestY (0.00s)\nPASS\nok  \tx\t0.01s\n"
+	if _, ok := TryCompactGoTest([]string{"go", "test", "-v"}, []byte(racy)); ok {
+		t.Fatal("data-race output must fail open")
 	}
 }
 

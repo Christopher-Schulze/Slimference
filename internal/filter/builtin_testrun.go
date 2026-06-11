@@ -106,14 +106,58 @@ func isGoBinary(name string) bool {
 }
 
 // TryCompactGoTest collapses empty stdout from `go test …` / `npx|pnpm exec|yarn … go test …` (F08 partial — failure extraction TBD).
+// TryCompactGoTest compacts go test output. Empty all-pass stdout becomes a
+// single ok marker. Verbose all-pass output (-v) drops only the per-test
+// RUN/PASS/PAUSE/CONT noise lines and keeps every other line verbatim
+// (package ok rows, coverage, skips, t.Log output) plus the exact passed
+// count, so no evidence beyond the redundant pass roll-call is lost. Any
+// failure marker fails open to the full transcript.
 func TryCompactGoTest(argv []string, stdout []byte) ([]byte, bool) {
 	if !isGoTestArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[go test] ok\n"), true
+	}
+	return compactGoTestVerbosePass(stdout)
+}
+
+func compactGoTestVerbosePass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	for _, marker := range []string{"--- FAIL", "\nFAIL", "FAIL\t", "panic:", "DATA RACE", "--- TIMEOUT", "build failed"} {
+		if strings.Contains(s, marker) || strings.HasPrefix(s, "FAIL") {
+			return stdout, false
+		}
+	}
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	dropped := 0
+	sawRun := false
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "=== RUN"):
+			sawRun = true
+			dropped++
+		case strings.HasPrefix(t, "--- PASS:"):
+			passed++
+			dropped++
+		case strings.HasPrefix(t, "=== PAUSE"), strings.HasPrefix(t, "=== CONT"), t == "PASS":
+			dropped++
+		default:
+			kept = append(kept, line)
+		}
+	}
+	if !sawRun || passed == 0 {
 		return stdout, false
 	}
-	return []byte("[go test] ok\n"), true
+	out := fmt.Sprintf("[go test] ok - %d passed, per-test PASS lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 func isGoTestArgv(argv []string) bool {
