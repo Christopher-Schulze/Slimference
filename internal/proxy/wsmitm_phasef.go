@@ -158,6 +158,7 @@ type wssRequestMeta struct {
 	ClientFamily       string
 	SocketSeq          uint64
 	TurnSeq            int
+	HasUserPromptInput bool
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
 	RepdetIndex        *repdet.Index
@@ -399,7 +400,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		mergedToolUses := mergedProxyToolUseIndex(currentToolUses, rememberedToolUses)
 		meta.ToolUseIndex = mergedToolUses
 		meta.RepdetIndex = requestRepdetIndex
-		if !wssBodyHasUserPromptInput(out) {
+		if !meta.HasUserPromptInput {
 			a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, mergedToolUses)
 		}
 		reReadKeys, count := a.observeWSSQualityToolKeysForSessionWithToolUses(sessionID, turnID, messages, mergedToolUses)
@@ -612,7 +613,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta.ToolPrune = toolPrune.Summary
 	}
 	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
-	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce); stats.Reason != "disabled" {
+	toolOutputPresenceKnown := err == nil
+	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce, toolOutputPresenceKnown, toolOutputPresenceKnown, meta.HasUserPromptInput); stats.Reason != "disabled" {
 		outputReduceStats = stats
 		if stats.Applied {
 			out = injected
@@ -678,7 +680,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 		return body, false, wssToolPruneResult{}
 	}
 	sessionID := meta.SessionID
-	if sessionID == "" || !wssBodyHasUserPromptInput(body) {
+	if sessionID == "" || !meta.HasUserPromptInput {
 		return body, false, wssToolPruneResult{}
 	}
 	summary := dbg.ToolPruneSummary{
@@ -780,17 +782,21 @@ func wssBodyHasToolDefinitions(body []byte) bool {
 	return ok
 }
 
-func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool) ([]byte, outputreduce.Stats) {
+func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool) ([]byte, outputreduce.Stats) {
 	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
-	if blockedByToolOutput || wssBodyContainsToolOutput(body) {
+	if blockedByToolOutput || (!toolOutputPresenceKnown && wssBodyContainsToolOutputFn(body)) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	if wssBodyHasPromptCachePrefix(body) {
 		return body, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"}
 	}
-	if !wssBodyHasUserPromptInput(body) {
+	if userPromptInputKnown {
+		if !hasUserPromptInput {
+			return body, outputreduce.Stats{Reason: "disabled"}
+		}
+	} else if !wssBodyHasUserPromptInputFn(body) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	inputTokens := wssOutputReduceInputTokens(body)
@@ -841,6 +847,8 @@ func wssBodyContainsToolOutput(body []byte) bool {
 	}
 	return messagesContainToolResult(messages)
 }
+
+var wssBodyContainsToolOutputFn = wssBodyContainsToolOutput
 
 func messagesContainToolResult(messages []types.Message) bool {
 	for _, message := range messages {
@@ -929,12 +937,28 @@ func wssBodyHasUserPromptInput(body []byte) bool {
 	if err := json.Unmarshal(body, &root); err != nil || len(root.Input) == 0 {
 		return false
 	}
+	return wssInputHasUserPromptInput(root.Input)
+}
+
+var wssBodyHasUserPromptInputFn = wssBodyHasUserPromptInput
+
+func wssRawHasUserPromptInput(raw map[string]json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	return wssInputHasUserPromptInput(raw["input"])
+}
+
+func wssInputHasUserPromptInput(input json.RawMessage) bool {
+	if len(input) == 0 {
+		return false
+	}
 	var inputText string
-	if err := json.Unmarshal(root.Input, &inputText); err == nil {
+	if err := json.Unmarshal(input, &inputText); err == nil {
 		return strings.TrimSpace(inputText) != ""
 	}
 	var inputItems []map[string]json.RawMessage
-	if err := json.Unmarshal(root.Input, &inputItems); err != nil {
+	if err := json.Unmarshal(input, &inputItems); err != nil {
 		return false
 	}
 	for _, item := range inputItems {
@@ -2126,6 +2150,7 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 		PreviousResponseID: wssPreviousResponseIDFromRaw(raw),
 		Model:              wssPlannerModelFromRaw(raw),
 		ClientFamily:       wssCodexClientFamilyFromRaw(raw),
+		HasUserPromptInput: wssRawHasUserPromptInput(raw),
 	}
 }
 

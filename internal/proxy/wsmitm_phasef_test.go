@@ -389,6 +389,23 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
+	origToolOutputScan := wssBodyContainsToolOutputFn
+	origUserPromptScan := wssBodyHasUserPromptInputFn
+	toolOutputScans := 0
+	userPromptScans := 0
+	wssBodyContainsToolOutputFn = func(body []byte) bool {
+		toolOutputScans++
+		return origToolOutputScan(body)
+	}
+	wssBodyHasUserPromptInputFn = func(body []byte) bool {
+		userPromptScans++
+		return origUserPromptScan(body)
+	}
+	defer func() {
+		wssBodyContainsToolOutputFn = origToolOutputScan
+		wssBodyHasUserPromptInputFn = origUserPromptScan
+	}()
+
 	env := parseWSJSON(t, map[string]any{
 		"type": string(wsmitm.FrameKindRequest),
 		"body": map[string]any{
@@ -426,6 +443,12 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 1 || snap.LastReason != "codex_wss_directive_disabled" {
 		t.Fatalf("output-reduce tracker = %+v, want one WSS directive skip", snap)
 	}
+	if toolOutputScans != 0 {
+		t.Fatalf("known non-tool-output request did %d redundant tool-output body scans", toolOutputScans)
+	}
+	if userPromptScans != 0 {
+		t.Fatalf("known user-prompt request did %d redundant user-input body scans", userPromptScans)
+	}
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 {
 		t.Fatalf("expected one debug summary, got %d", len(summaries))
@@ -435,6 +458,152 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	}
 	if summaries[0].DebugFacts["wss.changed"] != "false" || summaries[0].DebugFacts["wss.output_reduce_applied"] != "false" {
 		t.Fatalf("unexpected WSS debug facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
+func TestWSPhaseFOutputReduceUnknownPresenceFallsBackToBodyScans(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	origToolOutputScan := wssBodyContainsToolOutputFn
+	origUserPromptScan := wssBodyHasUserPromptInputFn
+	toolOutputScans := 0
+	userPromptScans := 0
+	wssBodyContainsToolOutputFn = func(body []byte) bool {
+		toolOutputScans++
+		return origToolOutputScan(body)
+	}
+	wssBodyHasUserPromptInputFn = func(body []byte) bool {
+		userPromptScans++
+		return origUserPromptScan(body)
+	}
+	defer func() {
+		wssBodyContainsToolOutputFn = origToolOutputScan
+		wssBodyHasUserPromptInputFn = origUserPromptScan
+	}()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "output-reduce-fallback-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "What is the current status?",
+			}},
+			"stream": true,
+		},
+	})
+
+	_, stats := adapter.applyWSSOutputReduce(env.Body, false, false, false, false)
+	if stats.Reason != "codex_wss_directive_disabled" {
+		t.Fatalf("fallback output-reduce reason=%q, want codex_wss_directive_disabled", stats.Reason)
+	}
+	if toolOutputScans != 1 {
+		t.Fatalf("unknown tool-output presence scans=%d, want 1", toolOutputScans)
+	}
+	if userPromptScans != 1 {
+		t.Fatalf("unknown user-prompt presence scans=%d, want 1", userPromptScans)
+	}
+}
+
+func TestWSPhaseFOutputReduceKnownNoUserPromptSkipsUserInputBodyScan(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	origUserPromptScan := wssBodyHasUserPromptInputFn
+	userPromptScans := 0
+	wssBodyHasUserPromptInputFn = func(body []byte) bool {
+		userPromptScans++
+		return origUserPromptScan(body)
+	}
+	defer func() {
+		wssBodyHasUserPromptInputFn = origUserPromptScan
+	}()
+
+	body := []byte(`{"model":"gpt-5-codex","input":[{"type":"message","role":"assistant","content":"done"}],"stream":true}`)
+	_, stats := adapter.applyWSSOutputReduce(body, false, true, true, false)
+	if stats.Reason != "disabled" {
+		t.Fatalf("known no-user output-reduce reason=%q, want disabled", stats.Reason)
+	}
+	if userPromptScans != 0 {
+		t.Fatalf("known no-user request did %d redundant user-input body scans", userPromptScans)
+	}
+}
+
+func TestWSSUserPromptPresenceHelpers(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  map[string]json.RawMessage
+		want bool
+	}{
+		{
+			name: "nil_raw",
+			raw:  nil,
+			want: false,
+		},
+		{
+			name: "input_string",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`"summarize this"`)},
+			want: true,
+		},
+		{
+			name: "blank_input_string",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`"   "`)},
+			want: false,
+		},
+		{
+			name: "user_message_item",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"user","content":"status"}]`)},
+			want: true,
+		},
+		{
+			name: "assistant_message_item",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"assistant","content":"done"}]`)},
+			want: false,
+		},
+		{
+			name: "invalid_items",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`{"type":"message","role":"user","content":"status"}`)},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		if got := wssRawHasUserPromptInput(tt.raw); got != tt.want {
+			t.Fatalf("%s raw presence=%v, want %v", tt.name, got, tt.want)
+		}
+		if got := wssInputHasUserPromptInput(tt.raw["input"]); got != tt.want {
+			t.Fatalf("%s input presence=%v, want %v", tt.name, got, tt.want)
+		}
+		body, err := json.Marshal(tt.raw)
+		if err != nil {
+			t.Fatalf("%s marshal body: %v", tt.name, err)
+		}
+		if got := wssBodyHasUserPromptInput(body); got != tt.want {
+			t.Fatalf("%s body presence=%v, want %v", tt.name, got, tt.want)
+		}
+		meta := wssRequestMetaFromRaw(tt.raw)
+		if meta.HasUserPromptInput != tt.want {
+			t.Fatalf("%s meta user prompt=%v, want %v", tt.name, meta.HasUserPromptInput, tt.want)
+		}
 	}
 }
 
