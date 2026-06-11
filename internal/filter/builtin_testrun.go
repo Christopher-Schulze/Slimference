@@ -925,15 +925,58 @@ func TryCompactTurboTest(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
-// TryCompactPythonUnittest summarizes empty stdout from `python -m unittest` / `npx|pnpm exec|yarn … python … -m unittest` (F08 partial).
+// TryCompactPythonUnittest summarizes successful `python -m unittest` / `npx|pnpm exec|yarn … python … -m unittest` output (F08 partial).
 func TryCompactPythonUnittest(argv []string, stdout []byte) ([]byte, bool) {
 	if !isPythonUnittestArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[python -m unittest] ok\n"), true
+	}
+	return compactPythonUnittestAllPass(stdout)
+}
+
+func compactPythonUnittestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lower := strings.ToLower(s)
+	for _, marker := range []string{
+		"failed",
+		"failure",
+		"error",
+		"traceback",
+		"exception",
+		"warning",
+		"deprecated",
+		"cancelled",
+		"timed out",
+	} {
+		if strings.Contains(lower, marker) {
+			return stdout, false
+		}
+	}
+
+	ranLine := ""
+	okLine := ""
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lowerLine := strings.ToLower(trimmed)
+		if strings.HasPrefix(lowerLine, "ran ") && strings.Contains(lowerLine, " test") {
+			ranLine = trimmed
+			continue
+		}
+		if trimmed == "OK" || (strings.HasPrefix(trimmed, "OK (") && strings.HasSuffix(trimmed, ")")) {
+			okLine = trimmed
+		}
+	}
+	if ranLine == "" || okLine == "" {
 		return stdout, false
 	}
-	return []byte("[python -m unittest] ok\n"), true
+
+	out := fmt.Sprintf("[python -m unittest] ok (%s; %s)\n", ranLine, okLine)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 func isPythonUnittestArgv(argv []string) bool {

@@ -268,6 +268,29 @@ func TestTryCompactTestOutput_goCargo(t *testing.T) {
 	if !ok || string(puUniYarn) != "[python -m unittest] ok\n" {
 		t.Fatalf("yarn python -m unittest: %q", puUniYarn)
 	}
+	var unittestVerbose strings.Builder
+	for i := 0; i < 200; i++ {
+		unittestVerbose.WriteByte('.')
+		if (i+1)%80 == 0 {
+			unittestVerbose.WriteByte('\n')
+		}
+	}
+	unittestVerbose.WriteString("\n----------------------------------------------------------------------\n")
+	unittestVerbose.WriteString("Ran 200 tests in 0.321s\n\nOK\n")
+	puVerbose, ok := TryCompactPythonUnittest([]string{"python3", "-m", "unittest", "discover", "-v"}, []byte(unittestVerbose.String()))
+	if !ok {
+		t.Fatal("python unittest all-pass output should compact")
+	}
+	if string(puVerbose) != "[python -m unittest] ok (Ran 200 tests in 0.321s; OK)\n" {
+		t.Fatalf("python unittest all-pass summary: %q", puVerbose)
+	}
+	if strings.Contains(string(puVerbose), "................") {
+		t.Fatalf("python unittest summary leaked per-test roll-call: %q", puVerbose)
+	}
+	puFailure := strings.Replace(unittestVerbose.String(), "OK\n", "FAILED (failures=1)\n", 1)
+	if _, ok := TryCompactPythonUnittest([]string{"python3", "-m", "unittest", "discover", "-v"}, []byte(puFailure)); ok {
+		t.Fatal("python unittest failure output must stay unmodified")
+	}
 	pu, ok := TryCompactPhpunit([]string{"phpunit", "tests/"}, []byte(""))
 	if !ok || string(pu) != "[phpunit] ok\n" {
 		t.Fatalf("phpunit: %q", pu)
