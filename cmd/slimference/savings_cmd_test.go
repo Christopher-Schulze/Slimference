@@ -1294,6 +1294,107 @@ func TestComputeSavingsDetectsNegativeCacheNet(t *testing.T) {
 	}
 }
 
+func TestComputeSavingsAccountsUpstreamRetryNegativeEvents(t *testing.T) {
+	base := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)
+	reportNow := base.Add(10 * time.Second)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Analytics.GainUSDPerMillionTokens = 2.5
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID:              "delta-1",
+				Timestamp:              base,
+				SessionID:              "codex-wss:retry-thread",
+				Provider:               "codex_chatgpt",
+				PreviousResponseIDUsed: true,
+				Tokens:                 dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+			},
+			{
+				RequestID:              "delta-2",
+				Timestamp:              base.Add(time.Second),
+				SessionID:              "codex-wss:retry-thread",
+				Provider:               "codex_chatgpt",
+				PreviousResponseIDUsed: true,
+				Tokens:                 dbg.TokenCounts{Original: 1200, Final: 1100, Saved: 100},
+			},
+			{
+				RequestID:    "upstream-400",
+				Timestamp:    base.Add(2 * time.Second),
+				SessionID:    "codex-wss:retry-thread",
+				Provider:     "codex_chatgpt",
+				BypassReason: "upstream_error",
+			},
+			{
+				RequestID: "full-retry",
+				Timestamp: base.Add(3 * time.Second),
+				SessionID: "codex-wss:retry-thread",
+				Provider:  "codex_chatgpt",
+				Tokens:    dbg.TokenCounts{Original: 32000, Final: 32000},
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", reportNow)
+	if got.DecisionNegativeEvents != 1 || got.DecisionNegativeEventTokens != 30900 {
+		t.Fatalf("negative retry event not accounted: %+v", got)
+	}
+	if got.DecisionNetSavedTokens != -30700 {
+		t.Fatalf("decision net should subtract retry extra, got %+v", got)
+	}
+	if got.TotalSavedTokens != -30700 {
+		t.Fatalf("combined total should subtract retry extra, got %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 ||
+		got.DecisionSessions[0].NegativeEvents != 1 ||
+		got.DecisionSessions[0].NegativeEventTokens != 30900 ||
+		got.DecisionSessions[0].NetSavedTokens != -30700 {
+		t.Fatalf("session negative retry event not accounted: %+v", got.DecisionSessions)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Decision net saved tokens:   -30.7K", "Decision negative events", "1 (-30.9K tokens)", "negative=1/-30.9K", "net=-30.7K", "Total tokens saved:         -30.7K"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+	csv := formatSavingsCSV(got)
+	for _, want := range []string{"decision_negative_events", "decision_negative_event_tokens", "-30700,1,30900"} {
+		if !strings.Contains(csv, want) {
+			t.Fatalf("csv missing %q: %s", want, csv)
+		}
+	}
+}
+
+func TestSavingsNegativeEventsIgnoreLateRetry(t *testing.T) {
+	now := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)
+	events, tokens := savingsNegativeEventsForSession([]dbg.RequestSummary{
+		{
+			Timestamp:              now,
+			PreviousResponseIDUsed: true,
+			Tokens:                 dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+		},
+		{
+			Timestamp:    now.Add(time.Second),
+			BypassReason: "upstream_error",
+		},
+		{
+			Timestamp: now.Add(3 * time.Minute),
+			Tokens:    dbg.TokenCounts{Original: 32000, Final: 32000},
+		},
+	})
+	if events != 0 || tokens != 0 {
+		t.Fatalf("late retry must not count as negative event: events=%d tokens=%d", events, tokens)
+	}
+}
+
 func TestComputeSavings_FilterPathError(t *testing.T) {
 
 	cfg := config.Defaults()
