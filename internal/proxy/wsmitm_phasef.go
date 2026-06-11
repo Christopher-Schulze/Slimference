@@ -225,8 +225,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.degraded_reason"] = reason
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
-		toolOutputResults, toolOutputResolved := wssToolOutputResolutionStats(messages, rememberedToolUses)
-		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved == toolOutputResults
+		toolOutputResults, toolOutputResolved, toolOutputInferred := wssToolOutputResolutionStats(messages, rememberedToolUses)
+		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved+toolOutputInferred == toolOutputResults
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
 		chunkSettings := a.p.codexChunkDedupSettings()
 		// Structured mutations on this route are archived before replacement
@@ -241,6 +241,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
+			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
@@ -315,6 +316,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				meta.DebugFacts = make(map[string]string)
 			}
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
+			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
 	}
@@ -880,7 +882,7 @@ func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolO
 	return seenToolResult
 }
 
-func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (int, int) {
+func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (int, int, int) {
 	toolUses := proxyToolUseIndex(messages)
 	for id, use := range rememberedToolUses {
 		if _, exists := toolUses[id]; !exists {
@@ -889,6 +891,7 @@ func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses m
 	}
 	total := 0
 	resolved := 0
+	inferred := 0
 	for _, message := range messages {
 		for _, block := range message.Content {
 			if block.Type != "tool_result" {
@@ -897,10 +900,19 @@ func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses m
 			total++
 			if use, ok := proxyResolveToolUseDetailed(block, toolUses); ok && proxyLayer0CommandLine(use) != "" {
 				resolved++
+				continue
+			}
+			// The reducer resolves a command class from the payload shape when
+			// tool_use metadata is missing (evicted cache, reconnect, never
+			// seen); a gate stricter than the reducer it guards only withholds
+			// savings. Inference is deterministic per command class and the
+			// structured mutation stays archive-backed regardless.
+			if proxyInferCommandLineFromToolResult(block.Text) != "" {
+				inferred++
 			}
 		}
 	}
-	return total, resolved
+	return total, resolved, inferred
 }
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {

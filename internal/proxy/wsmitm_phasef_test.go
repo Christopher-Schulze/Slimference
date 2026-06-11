@@ -1142,9 +1142,9 @@ func TestWSPhaseFPreviousResponseToolOutputGuardRequiresKnownToolOutput(t *testi
 	if wssPreviousResponseUnknownToolOutputFullPass(meta, true, false, true) {
 		t.Fatal("known non-status tool output should keep exact/recoverable reducers available")
 	}
-	total, resolved := wssToolOutputResolutionStats(statusMessages, remembered)
-	if total != 1 || resolved != 1 {
-		t.Fatalf("known status tool output should resolve, total=%d resolved=%d", total, resolved)
+	total, resolved, inferred := wssToolOutputResolutionStats(statusMessages, remembered)
+	if total != 1 || resolved != 1 || inferred != 0 {
+		t.Fatalf("known status tool output should resolve via metadata, total=%d resolved=%d inferred=%d", total, resolved, inferred)
 	}
 }
 
@@ -2612,10 +2612,9 @@ func TestWSPhaseFDefaultStatefulUnresolvedToolOutputKeepsGuard(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
-		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&payload, "opaque worker line %03d without any tool shape markers\n", i)
 	}
-	payload.WriteString("--- FAIL: TestUnresolved (0.00s)\nFAIL\texample.test/unresolved\t0.015s\n")
 	envelope := "Chunk ID: unresolved\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
 	env := parseWSJSON(t, map[string]any{
 		"model":            "gpt-5-codex",
@@ -2636,6 +2635,60 @@ func TestWSPhaseFDefaultStatefulUnresolvedToolOutputKeepsGuard(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" {
 		t.Fatalf("unresolved stateful output should keep the structured guard, replace=%v facts=%+v", replace, summary.DebugFacts)
+	}
+}
+
+func TestWSPhaseFDefaultStatefulInferredToolOutputCompactsWithArchive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+	payload.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: inferred-stateful\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	// call_id was never seeded on this socket and is not in the tool-use cache:
+	// the evicted/reconnect/never-seen class. The payload shape alone resolves
+	// the command class, which must be enough for the archive-backed reducer.
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-inferred-stateful",
+		"prompt_cache_key":     "inferred-stateful-session",
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": "call_evicted", "output": envelope},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("stateful inferred tool-output handle: %v", err)
+	}
+	if !replace {
+		t.Fatalf("inferable stateful tool output should compact by default: %s", env.Raw)
+	}
+	mutated := string(env.Raw)
+	if !strings.Contains(mutated, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		strings.Contains(mutated, "TestPassing089") ||
+		!strings.Contains(mutated, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("inferred compaction lost failure detail or archive reference: %s", mutated)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.BypassReason != "" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.tool_results_inferred"] != "1" ||
+		summary.Tokens.Saved <= 0 {
+		t.Fatalf("inferred mutation must save without guard or bypass: %+v", summary)
 	}
 }
 
