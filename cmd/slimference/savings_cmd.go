@@ -205,13 +205,14 @@ type SavingsRouteSummary struct {
 }
 
 type SavingsScorecard struct {
-	CachedPriceRatio       float64 `json:"cached_price_ratio"`
-	CounterfactualTokens   int64   `json:"counterfactual_tokens"`
-	UncachedCounterfactual int64   `json:"uncached_counterfactual_tokens"`
-	EffectiveBilledTokens  int64   `json:"effective_billed_tokens"`
-	LocalSavingsRate       float64 `json:"s_local"`
-	CombinedSavingsRate    float64 `json:"s_combined"`
-	VsUncachedSavingsRate  float64 `json:"s_vs_uncached"`
+	CachedPriceRatio         float64 `json:"cached_price_ratio"`
+	CounterfactualTokens     int64   `json:"counterfactual_tokens"`
+	UncachedCounterfactual   int64   `json:"uncached_counterfactual_tokens"`
+	EffectiveBilledTokens    int64   `json:"effective_billed_tokens"`
+	CompoundedEstimateTokens int64   `json:"compounded_estimate_tokens,omitempty"`
+	LocalSavingsRate         float64 `json:"s_local"`
+	CombinedSavingsRate      float64 `json:"s_combined"`
+	VsUncachedSavingsRate    float64 `json:"s_vs_uncached"`
 }
 
 var lookupCodexThreadMetadataForSavingsFn = lookupCodexThreadMetadataForSavings
@@ -516,6 +517,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		row.CachedShare = savingsCachedShare(row.CacheReadTokens, row.ProviderInputTokens, row.FinalTokens)
 		row.EffectiveBilled = savingsEffectiveBilledTokens(row.ProviderInputTokens, row.FinalTokens, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, out.CachedPriceRatio)
 		scorecard := savingsBuildScorecard(row.ProviderInputTokens, row.FinalTokens, row.LocalSaved, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, out.CachedPriceRatio)
+		scorecard.CompoundedEstimateTokens = row.CompoundedEstimateTokens
 		row.Scorecard = &scorecard
 		out.DecisionSessions = append(out.DecisionSessions, *row)
 		out.DecisionEffectiveBilledTokens += scorecard.EffectiveBilledTokens
@@ -1434,6 +1436,7 @@ func savingsBuildRouteSummaries(sessions []SavingsSessionSummary, cachedPriceRat
 			row.Scorecard.CombinedSavingsRate = savingsRate(row.Scorecard.CounterfactualTokens-row.Scorecard.EffectiveBilledTokens, row.Scorecard.CounterfactualTokens)
 			row.Scorecard.VsUncachedSavingsRate = savingsRate(row.Scorecard.UncachedCounterfactual-row.Scorecard.EffectiveBilledTokens, row.Scorecard.UncachedCounterfactual)
 		}
+		row.Scorecard.CompoundedEstimateTokens = row.CompoundedEstimateTokens
 		row.EffectiveBilled = row.Scorecard.EffectiveBilledTokens
 		routeInputEquivalent := row.Scorecard.UncachedCounterfactual - row.LocalSaved
 		routeCacheRead := row.CacheReadTokens

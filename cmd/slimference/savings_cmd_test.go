@@ -559,6 +559,8 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 	}
 	if got.DecisionCompoundedEstimateTokens != 70 ||
 		got.DecisionSessions[0].CompoundedEstimateTokens != 70 ||
+		got.DecisionSessions[0].Scorecard == nil ||
+		got.DecisionSessions[0].Scorecard.CompoundedEstimateTokens != 70 ||
 		got.Mechanisms[0].CompoundedEstimateTokens != 70 {
 		t.Fatalf("bad compounded estimate: %+v sessions=%+v mechanisms=%+v", got, got.DecisionSessions, got.Mechanisms)
 	}
@@ -640,6 +642,9 @@ func TestComputeSavingsDecisionCompoundedEstimateUsesSessionRemainder(t *testing
 	}
 	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].CompoundedEstimateTokens != 70 {
 		t.Fatalf("session compounded estimate wrong: %+v", got.DecisionSessions)
+	}
+	if got.DecisionSessions[0].Scorecard == nil || got.DecisionSessions[0].Scorecard.CompoundedEstimateTokens != 70 {
+		t.Fatalf("session scorecard compounded estimate wrong: %+v", got.DecisionSessions[0].Scorecard)
 	}
 	byName := map[string]SavingsMechanismSummary{}
 	for _, mechanism := range got.Mechanisms {
@@ -1693,19 +1698,21 @@ func TestSavingsScorecardUsesConfiguredCachedPriceRatio(t *testing.T) {
 func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 	routes := savingsBuildRouteSummaries([]SavingsSessionSummary{
 		{
-			ClientFamily:        "codex_cli",
-			RouteMode:           "websocket_phasef",
-			Requests:            1,
-			ProviderInputTokens: 1000,
-			FinalTokens:         700,
-			LocalSaved:          200,
-			CacheReadTokens:     600,
-			CacheHitRequests:    1,
+			ClientFamily:             "codex_cli",
+			RouteMode:                "websocket_phasef",
+			Requests:                 1,
+			ProviderInputTokens:      1000,
+			FinalTokens:              700,
+			LocalSaved:               200,
+			CacheReadTokens:          600,
+			CacheHitRequests:         1,
+			CompoundedEstimateTokens: 40,
 			Scorecard: &SavingsScorecard{
-				CachedPriceRatio:       0.10,
-				CounterfactualTokens:   660,
-				UncachedCounterfactual: 1200,
-				EffectiveBilledTokens:  460,
+				CachedPriceRatio:         0.10,
+				CounterfactualTokens:     660,
+				UncachedCounterfactual:   1200,
+				EffectiveBilledTokens:    460,
+				CompoundedEstimateTokens: 40,
 			},
 			Evidence: &SavingsEvidenceSummary{
 				Decisions:     1,
@@ -1714,17 +1721,19 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 			},
 		},
 		{
-			ClientFamily:     "codex_cli",
-			RouteMode:        "websocket_phasef",
-			Requests:         1,
-			FinalTokens:      900,
-			LocalSaved:       100,
-			CacheHitRequests: 0,
+			ClientFamily:             "codex_cli",
+			RouteMode:                "websocket_phasef",
+			Requests:                 1,
+			FinalTokens:              900,
+			LocalSaved:               100,
+			CacheHitRequests:         0,
+			CompoundedEstimateTokens: 10,
 			Scorecard: &SavingsScorecard{
-				CachedPriceRatio:       0.10,
-				CounterfactualTokens:   1000,
-				UncachedCounterfactual: 1000,
-				EffectiveBilledTokens:  900,
+				CachedPriceRatio:         0.10,
+				CounterfactualTokens:     1000,
+				UncachedCounterfactual:   1000,
+				EffectiveBilledTokens:    900,
+				CompoundedEstimateTokens: 10,
 			},
 			Evidence: &SavingsEvidenceSummary{
 				Decisions:  1,
@@ -1743,7 +1752,9 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 		route.LocalSaved != 300 ||
 		route.CacheReadTokens != 600 ||
 		route.EffectiveBilled != 1360 ||
+		route.CompoundedEstimateTokens != 50 ||
 		route.Scorecard == nil ||
+		route.Scorecard.CompoundedEstimateTokens != 50 ||
 		route.Scorecard.CounterfactualTokens != 1660 ||
 		route.Scorecard.UncachedCounterfactual != 2200 ||
 		route.Evidence == nil ||
