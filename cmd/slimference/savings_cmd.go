@@ -132,74 +132,76 @@ type SavingsMechanismSummary struct {
 }
 
 type SavingsSessionSummary struct {
-	SessionID                string            `json:"session_id"`
-	DisplayName              string            `json:"display_name,omitempty"`
-	ProjectPath              string            `json:"project_path,omitempty"`
-	ClientFamily             string            `json:"client_family,omitempty"`
-	RouteMode                string            `json:"route_mode,omitempty"`
-	Requests                 int64             `json:"requests"`
-	ProviderInputTokens      int64             `json:"provider_input_tokens"`
-	OriginalTokens           int64             `json:"original_tokens"`
-	FinalTokens              int64             `json:"final_tokens"`
-	AddedTokens              int64             `json:"added_tokens"`
-	LocalSaved               int64             `json:"local_saved"`
-	NetSavedTokens           int64             `json:"net_saved_tokens"`
-	NegativeEvents           int64             `json:"negative_events,omitempty"`
-	NegativeEventTokens      int64             `json:"negative_event_tokens,omitempty"`
-	Layer0NetTokens          int64             `json:"layer0_net_tokens,omitempty"`
-	Layer1NetTokens          int64             `json:"layer1_net_tokens,omitempty"`
-	Layer2NetTokens          int64             `json:"layer2_net_tokens,omitempty"`
-	Layer3NetTokens          int64             `json:"layer3_net_tokens,omitempty"`
-	OutputReduceTokens       int64             `json:"output_reduce_tokens,omitempty"`
-	ToolPruneTokens          int64             `json:"tool_prune_tokens,omitempty"`
-	FootprintScore           int64             `json:"footprint_score,omitempty"`
-	FootprintBuckets         map[string]int64  `json:"footprint_score_buckets,omitempty"`
-	CompoundedEstimateTokens int64             `json:"compounded_estimate_tokens,omitempty"`
-	OutputTokens             int64             `json:"output_tokens"`
-	CacheReadTokens          int64             `json:"cache_read_tokens"`
-	CacheCreateTokens        int64             `json:"cache_create_tokens"`
-	CacheNetTokens           int64             `json:"cache_net_tokens"`
-	CacheHitRequests         int64             `json:"cache_hit_requests"`
-	CacheHitRate             float64           `json:"cache_hit_rate"`
-	CachedShare              float64           `json:"cached_share"`
-	EffectiveBilled          int64             `json:"effective_billed"`
-	Scorecard                *SavingsScorecard `json:"scorecard,omitempty"`
-	CostBeforeUSD            float64           `json:"cost_before_usd"`
-	CostAfterUSD             float64           `json:"cost_after_usd"`
-	CostSavedUSD             float64           `json:"cost_saved_usd"`
+	SessionID                string                  `json:"session_id"`
+	DisplayName              string                  `json:"display_name,omitempty"`
+	ProjectPath              string                  `json:"project_path,omitempty"`
+	ClientFamily             string                  `json:"client_family,omitempty"`
+	RouteMode                string                  `json:"route_mode,omitempty"`
+	Requests                 int64                   `json:"requests"`
+	ProviderInputTokens      int64                   `json:"provider_input_tokens"`
+	OriginalTokens           int64                   `json:"original_tokens"`
+	FinalTokens              int64                   `json:"final_tokens"`
+	AddedTokens              int64                   `json:"added_tokens"`
+	LocalSaved               int64                   `json:"local_saved"`
+	NetSavedTokens           int64                   `json:"net_saved_tokens"`
+	NegativeEvents           int64                   `json:"negative_events,omitempty"`
+	NegativeEventTokens      int64                   `json:"negative_event_tokens,omitempty"`
+	Layer0NetTokens          int64                   `json:"layer0_net_tokens,omitempty"`
+	Layer1NetTokens          int64                   `json:"layer1_net_tokens,omitempty"`
+	Layer2NetTokens          int64                   `json:"layer2_net_tokens,omitempty"`
+	Layer3NetTokens          int64                   `json:"layer3_net_tokens,omitempty"`
+	OutputReduceTokens       int64                   `json:"output_reduce_tokens,omitempty"`
+	ToolPruneTokens          int64                   `json:"tool_prune_tokens,omitempty"`
+	FootprintScore           int64                   `json:"footprint_score,omitempty"`
+	FootprintBuckets         map[string]int64        `json:"footprint_score_buckets,omitempty"`
+	CompoundedEstimateTokens int64                   `json:"compounded_estimate_tokens,omitempty"`
+	OutputTokens             int64                   `json:"output_tokens"`
+	CacheReadTokens          int64                   `json:"cache_read_tokens"`
+	CacheCreateTokens        int64                   `json:"cache_create_tokens"`
+	CacheNetTokens           int64                   `json:"cache_net_tokens"`
+	CacheHitRequests         int64                   `json:"cache_hit_requests"`
+	CacheHitRate             float64                 `json:"cache_hit_rate"`
+	CachedShare              float64                 `json:"cached_share"`
+	EffectiveBilled          int64                   `json:"effective_billed"`
+	Scorecard                *SavingsScorecard       `json:"scorecard,omitempty"`
+	Evidence                 *SavingsEvidenceSummary `json:"evidence,omitempty"`
+	CostBeforeUSD            float64                 `json:"cost_before_usd"`
+	CostAfterUSD             float64                 `json:"cost_after_usd"`
+	CostSavedUSD             float64                 `json:"cost_saved_usd"`
 }
 
 type SavingsRouteSummary struct {
-	RouteKey                 string            `json:"route_key"`
-	ClientFamily             string            `json:"client_family,omitempty"`
-	RouteMode                string            `json:"route_mode,omitempty"`
-	Sessions                 int64             `json:"sessions"`
-	Requests                 int64             `json:"requests"`
-	ProviderInputTokens      int64             `json:"provider_input_tokens"`
-	OriginalTokens           int64             `json:"original_tokens"`
-	FinalTokens              int64             `json:"final_tokens"`
-	LocalSaved               int64             `json:"local_saved"`
-	NetSavedTokens           int64             `json:"net_saved_tokens"`
-	NegativeEvents           int64             `json:"negative_events,omitempty"`
-	NegativeEventTokens      int64             `json:"negative_event_tokens,omitempty"`
-	Layer0NetTokens          int64             `json:"layer0_net_tokens,omitempty"`
-	Layer1NetTokens          int64             `json:"layer1_net_tokens,omitempty"`
-	Layer2NetTokens          int64             `json:"layer2_net_tokens,omitempty"`
-	Layer3NetTokens          int64             `json:"layer3_net_tokens,omitempty"`
-	OutputReduceTokens       int64             `json:"output_reduce_tokens,omitempty"`
-	ToolPruneTokens          int64             `json:"tool_prune_tokens,omitempty"`
-	FootprintScore           int64             `json:"footprint_score,omitempty"`
-	FootprintBuckets         map[string]int64  `json:"footprint_score_buckets,omitempty"`
-	CompoundedEstimateTokens int64             `json:"compounded_estimate_tokens,omitempty"`
-	OutputTokens             int64             `json:"output_tokens"`
-	CacheReadTokens          int64             `json:"cache_read_tokens"`
-	CacheCreateTokens        int64             `json:"cache_create_tokens"`
-	CacheNetTokens           int64             `json:"cache_net_tokens"`
-	CacheHitRequests         int64             `json:"cache_hit_requests"`
-	CacheHitRate             float64           `json:"cache_hit_rate"`
-	CachedShare              float64           `json:"cached_share"`
-	EffectiveBilled          int64             `json:"effective_billed"`
-	Scorecard                *SavingsScorecard `json:"scorecard,omitempty"`
+	RouteKey                 string                  `json:"route_key"`
+	ClientFamily             string                  `json:"client_family,omitempty"`
+	RouteMode                string                  `json:"route_mode,omitempty"`
+	Sessions                 int64                   `json:"sessions"`
+	Requests                 int64                   `json:"requests"`
+	ProviderInputTokens      int64                   `json:"provider_input_tokens"`
+	OriginalTokens           int64                   `json:"original_tokens"`
+	FinalTokens              int64                   `json:"final_tokens"`
+	LocalSaved               int64                   `json:"local_saved"`
+	NetSavedTokens           int64                   `json:"net_saved_tokens"`
+	NegativeEvents           int64                   `json:"negative_events,omitempty"`
+	NegativeEventTokens      int64                   `json:"negative_event_tokens,omitempty"`
+	Layer0NetTokens          int64                   `json:"layer0_net_tokens,omitempty"`
+	Layer1NetTokens          int64                   `json:"layer1_net_tokens,omitempty"`
+	Layer2NetTokens          int64                   `json:"layer2_net_tokens,omitempty"`
+	Layer3NetTokens          int64                   `json:"layer3_net_tokens,omitempty"`
+	OutputReduceTokens       int64                   `json:"output_reduce_tokens,omitempty"`
+	ToolPruneTokens          int64                   `json:"tool_prune_tokens,omitempty"`
+	FootprintScore           int64                   `json:"footprint_score,omitempty"`
+	FootprintBuckets         map[string]int64        `json:"footprint_score_buckets,omitempty"`
+	CompoundedEstimateTokens int64                   `json:"compounded_estimate_tokens,omitempty"`
+	OutputTokens             int64                   `json:"output_tokens"`
+	CacheReadTokens          int64                   `json:"cache_read_tokens"`
+	CacheCreateTokens        int64                   `json:"cache_create_tokens"`
+	CacheNetTokens           int64                   `json:"cache_net_tokens"`
+	CacheHitRequests         int64                   `json:"cache_hit_requests"`
+	CacheHitRate             float64                 `json:"cache_hit_rate"`
+	CachedShare              float64                 `json:"cached_share"`
+	EffectiveBilled          int64                   `json:"effective_billed"`
+	Scorecard                *SavingsScorecard       `json:"scorecard,omitempty"`
+	Evidence                 *SavingsEvidenceSummary `json:"evidence,omitempty"`
 }
 
 type SavingsScorecard struct {
@@ -446,6 +448,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		sessionRow.OutputReduceTokens += outputReduceSessionNetTokens(summary)
 		sessionRow.ToolPruneTokens += int64(summary.ToolPrune.SavedTokens)
 		accumulateSavingsEvidence(&out.Evidence, summary.EvidenceDecisions)
+		accumulateSavingsEvidencePtr(&sessionRow.Evidence, summary.EvidenceDecisions)
 		layerObserved := map[int]bool{}
 		for _, mechanism := range summary.Mechanisms {
 			if mechanism.Name == "" || mechanism.Name == "request_total" {
@@ -712,6 +715,73 @@ func accumulateSavingsEvidence(out *SavingsEvidenceSummary, decisions []evidence
 				out.ByFootprint = map[string]int64{}
 			}
 			out.ByFootprint[decision.FootprintScoreBucket]++
+		}
+	}
+}
+
+func accumulateSavingsEvidencePtr(out **SavingsEvidenceSummary, decisions []evidence.BlockDecision) {
+	if out == nil || len(decisions) == 0 {
+		return
+	}
+	if *out == nil {
+		*out = &SavingsEvidenceSummary{}
+	}
+	accumulateSavingsEvidence(*out, decisions)
+}
+
+func mergeSavingsEvidencePtr(dst **SavingsEvidenceSummary, src *SavingsEvidenceSummary) {
+	if dst == nil || src == nil || isSavingsEvidenceEmpty(*src) {
+		return
+	}
+	if *dst == nil {
+		*dst = &SavingsEvidenceSummary{}
+	}
+	mergeSavingsEvidence(*dst, *src)
+}
+
+func isSavingsEvidenceEmpty(summary SavingsEvidenceSummary) bool {
+	return summary.Decisions == 0 &&
+		summary.Applied == 0 &&
+		summary.FullPass == 0 &&
+		summary.FailedOpen == 0 &&
+		summary.Skipped == 0 &&
+		summary.NetTokens == 0 &&
+		summary.FootprintScore == 0 &&
+		len(summary.ByContentClass) == 0 &&
+		len(summary.BySafetyClass) == 0 &&
+		len(summary.BySignal) == 0 &&
+		len(summary.ByCacheImpact) == 0 &&
+		len(summary.ByFootprint) == 0
+}
+
+func mergeSavingsEvidence(dst *SavingsEvidenceSummary, src SavingsEvidenceSummary) {
+	if dst == nil {
+		return
+	}
+	dst.Decisions += src.Decisions
+	dst.Applied += src.Applied
+	dst.FullPass += src.FullPass
+	dst.FailedOpen += src.FailedOpen
+	dst.Skipped += src.Skipped
+	dst.NetTokens += src.NetTokens
+	dst.FootprintScore += src.FootprintScore
+	mergeSavingsCountMap(&dst.ByContentClass, src.ByContentClass)
+	mergeSavingsCountMap(&dst.BySafetyClass, src.BySafetyClass)
+	mergeSavingsCountMap(&dst.BySignal, src.BySignal)
+	mergeSavingsCountMap(&dst.ByCacheImpact, src.ByCacheImpact)
+	mergeSavingsCountMap(&dst.ByFootprint, src.ByFootprint)
+}
+
+func mergeSavingsCountMap(dst *map[string]int64, src map[string]int64) {
+	if dst == nil || len(src) == 0 {
+		return
+	}
+	if *dst == nil {
+		*dst = map[string]int64{}
+	}
+	for key, count := range src {
+		if key != "" && count != 0 {
+			(*dst)[key] += count
 		}
 	}
 }
@@ -1223,6 +1293,7 @@ func mergeSavingsSession(dst, src *SavingsSessionSummary) {
 	dst.CacheCreateTokens += src.CacheCreateTokens
 	dst.CacheNetTokens += src.CacheNetTokens
 	dst.CacheHitRequests += src.CacheHitRequests
+	mergeSavingsEvidencePtr(&dst.Evidence, src.Evidence)
 	if dst.ClientFamily == "" {
 		dst.ClientFamily = src.ClientFamily
 	}
@@ -1340,6 +1411,7 @@ func savingsBuildRouteSummaries(sessions []SavingsSessionSummary, cachedPriceRat
 		row.CacheCreateTokens += session.CacheCreateTokens
 		row.CacheNetTokens += session.CacheNetTokens
 		row.CacheHitRequests += session.CacheHitRequests
+		mergeSavingsEvidencePtr(&row.Evidence, session.Evidence)
 		if session.Scorecard != nil {
 			if row.Scorecard == nil {
 				row.Scorecard = &SavingsScorecard{CachedPriceRatio: cachedPriceRatio}
@@ -1762,7 +1834,7 @@ func formatSavingsText(s SavingsSummary) string {
 				if i >= 6 {
 					break
 				}
-				sb.WriteString(fmt.Sprintf("  route %-32s sessions=%d requests=%d local_saved=%s effective_billed=%s cached_share=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%%\n",
+				sb.WriteString(fmt.Sprintf("  route %-32s sessions=%d requests=%d local_saved=%s effective_billed=%s cached_share=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s evidence=%s cache=%s/%.1f%%\n",
 					truncateSavingsLabel(route.RouteKey, 32),
 					route.Sessions,
 					route.Requests,
@@ -1772,6 +1844,7 @@ func formatSavingsText(s SavingsSummary) string {
 					scorecardCombinedRateForRoute(route)*100,
 					scorecardVsUncachedRateForRoute(route)*100,
 					formatRouteLayerBreakdown(route),
+					formatRouteEvidence(route.Evidence),
 					formatSignedInt64Plain(route.CacheNetTokens),
 					route.CacheHitRate*100,
 				))
@@ -2164,6 +2237,18 @@ func formatRouteLayerBreakdown(route SavingsRouteSummary) string {
 		return "none"
 	}
 	return strings.Join(parts, ",")
+}
+
+func formatRouteEvidence(evidence *SavingsEvidenceSummary) string {
+	if evidence == nil || evidence.Decisions == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%d/%d/%d/%d",
+		evidence.Applied,
+		evidence.FullPass,
+		evidence.FailedOpen,
+		evidence.Skipped,
+	)
 }
 
 // formatSavingsCSV emits a single-row CSV summary.

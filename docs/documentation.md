@@ -2207,7 +2207,11 @@ local input stay in the same denominator instead of letting provider-cache rows
 inflate the route-wide rate. The same session scorecards are also grouped into
 `decision_routes[]` by `client_family` and `route_mode`, so WSS Desktop, WSS
 CLI, scoped HTTP, hook, and anonymous fallback traffic can be judged separately
-before any per-route product band is claimed. `S_local` is local input
+before any per-route product band is claimed. Session and route JSON rows carry
+`evidence` guard distributions for applied, full-pass, failed-open, skipped,
+cache-impact, signal, content-class, and safety-class decisions, making it clear
+which route earned savings and which route merely passed through safely.
+`S_local` is local input
 deletion over the no-local input counterfactual. `S_combined` compares effective
 billed tokens against a cache-as-is, no-local-reduction counterfactual.
 `S_vs_uncached` compares the same effective billed tokens against a fully

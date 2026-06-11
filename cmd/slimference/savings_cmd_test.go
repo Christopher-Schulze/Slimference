@@ -1607,6 +1607,10 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 				ClientFamily: "codex_desktop_app",
 				RouteMode:    "websocket_phasef",
 				Tokens:       dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+				EvidenceDecisions: []evidence.BlockDecision{{
+					Action:    evidence.ActionFullPass,
+					NetTokens: -100,
+				}},
 			},
 		}, nil
 	}
@@ -1637,8 +1641,12 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 		cli.CacheReadTokens != 600 ||
 		cli.EffectiveBilled != 460 ||
 		cli.Scorecard == nil ||
+		cli.Evidence == nil ||
+		cli.Evidence.Decisions != 1 ||
+		cli.Evidence.Applied != 1 ||
+		cli.Evidence.ByCacheImpact["provider_cache_read"] != 1 ||
 		!nearFloat(cli.Scorecard.CombinedSavingsRate, 200.0/660.0) {
-		t.Fatalf("bad cli route: %+v", cli)
+		t.Fatalf("bad cli route: %+v evidence=%+v", cli, cli.Evidence)
 	}
 	desktop := routes["codex_desktop_app/websocket_phasef"]
 	if desktop.Sessions != 1 ||
@@ -1646,8 +1654,11 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 		desktop.ProviderInputTokens != 0 ||
 		desktop.EffectiveBilled != 900 ||
 		desktop.Scorecard == nil ||
+		desktop.Evidence == nil ||
+		desktop.Evidence.Decisions != 1 ||
+		desktop.Evidence.FullPass != 1 ||
 		!nearFloat(desktop.Scorecard.CombinedSavingsRate, 100.0/1000.0) {
-		t.Fatalf("bad desktop route: %+v", desktop)
+		t.Fatalf("bad desktop route: %+v evidence=%+v", desktop, desktop.Evidence)
 	}
 	text := formatSavingsText(got)
 	for _, want := range []string{
@@ -1656,7 +1667,9 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 		"Decision scorecard:          S_local=13.6% S_combined=18.1% S_vs_uncached=38.2%",
 		"Decision route scorecards:",
 		"route codex_cli/websocket_phasef",
+		"evidence=1/0/0/0",
 		"route codex_desktop_app/websocket_p...",
+		"evidence=0/1/0/0",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
@@ -1694,6 +1707,11 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 				UncachedCounterfactual: 1200,
 				EffectiveBilledTokens:  460,
 			},
+			Evidence: &SavingsEvidenceSummary{
+				Decisions:     1,
+				Applied:       1,
+				ByCacheImpact: map[string]int64{"provider_cache_read": 1},
+			},
 		},
 		{
 			ClientFamily:     "codex_cli",
@@ -1707,6 +1725,11 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 				CounterfactualTokens:   1000,
 				UncachedCounterfactual: 1000,
 				EffectiveBilledTokens:  900,
+			},
+			Evidence: &SavingsEvidenceSummary{
+				Decisions:  1,
+				FailedOpen: 1,
+				BySignal:   map[string]int64{"schema_drift": 1},
 			},
 		},
 	}, 0.10)
@@ -1723,6 +1746,12 @@ func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
 		route.Scorecard == nil ||
 		route.Scorecard.CounterfactualTokens != 1660 ||
 		route.Scorecard.UncachedCounterfactual != 2200 ||
+		route.Evidence == nil ||
+		route.Evidence.Decisions != 2 ||
+		route.Evidence.Applied != 1 ||
+		route.Evidence.FailedOpen != 1 ||
+		route.Evidence.ByCacheImpact["provider_cache_read"] != 1 ||
+		route.Evidence.BySignal["schema_drift"] != 1 ||
 		!nearFloat(route.CachedShare, 600.0/1900.0) ||
 		!nearFloat(route.Scorecard.CombinedSavingsRate, 300.0/1660.0) ||
 		!nearFloat(route.Scorecard.VsUncachedSavingsRate, 840.0/2200.0) {
