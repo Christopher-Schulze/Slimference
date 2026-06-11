@@ -408,17 +408,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved+toolOutputInferred == toolOutputResults
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafeWithToolUses(meta, requestContainsToolOutput, messages, mergedToolUses)
 		chunkSettings := a.p.codexChunkDedupSettings()
-		// 2026-06-11 live A/B (loop runs 4-7): archive-backed structured
-		// mutations on the stateful WSS delta flow were accepted per turn,
-		// but on both full-workload runs a FOLLOWING byte-identical tool turn
-		// then hit upstream 400 invalid_request, while the byte-equal bridge
-		// control on the identical workload stayed clean. Resolution +
-		// archive recovery are therefore NOT sufficient proof on this route;
-		// captured/envelope mutation stays behind the explicit experimental
-		// flag until a B-side capture isolates the exact server-state
-		// divergence (T354 proof gate). Lossless read_delta/repeated keep
-		// their existing live proof and stay active.
-		structuredMutationRecoverable := false
+		deltaShape := wssRequestIsDeltaShape(messages)
+		// 2026-06-11 live A/B (loop runs 4-8, E1): archive-backed structured
+		// mutations on previous_response_id delta-shaped turns poison server
+		// state and surface as a follow-up 400. E5 then proved full-history
+		// resend mutation clean with lost=0, so resolved/inferred full-history
+		// tool-output is recoverable while delta-shaped continuations remain
+		// behind the proof gate.
+		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
@@ -432,7 +429,6 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
-		deltaShape := wssRequestIsDeltaShape(messages)
 		deltaMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled
 		statefulDeltaMutationBlocked := meta.PreviousResponseID != "" &&
 			deltaShape &&
@@ -535,8 +531,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed: a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled &&
-				!statefulDeltaMutationBlocked,
+			WSSSearchMutationAllowed: !statefulDeltaMutationBlocked &&
+				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable),
 			CacheBustDemotedMechanisms: cacheBustDemoted,
 			// Any wire mutation on a previous_response_id delta turn makes
 			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
@@ -849,6 +845,10 @@ func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOut
 		return false
 	}
 	return meta.SessionID != "" || meta.PreviousResponseID != ""
+}
+
+func wssStructuredMutationRecoverable(containsToolOutput bool, toolOutputKnown bool, deltaShape bool) bool {
+	return containsToolOutput && toolOutputKnown && !deltaShape
 }
 
 func wssBodyHasPromptCachePrefix(body []byte) bool {

@@ -163,8 +163,8 @@ type codexLayer0Request struct {
 	LatencyBudgetExceeded     bool
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
-	// WSSSearchMutationAllowed opens the proof/lab path for named search
-	// output only. It does not bypass StatefulDeltaMutationBlocked.
+	// WSSSearchMutationAllowed opens the E5-proven full-history or explicit lab
+	// path for named search output only. It does not bypass StatefulDeltaMutationBlocked.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// StatefulDeltaMutationBlocked suppresses every wire mutation while

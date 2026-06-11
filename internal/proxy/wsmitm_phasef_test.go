@@ -3583,12 +3583,23 @@ func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 	}
 	payload.WriteString("PASS\nok  \texample.test/liveproof\t0.015s\n")
 	envelope := "Chunk ID: default-guarded\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_tests",
+			"name":      "exec_command",
+			"arguments": map[string]any{"cmd": "go test ./... -v"},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("server tool item should only seed state, replace=%v err=%v", replace, err)
+	}
 	env := parseWSJSON(t, map[string]any{
 		"model":                "gpt-5-codex",
 		"previous_response_id": "resp-default-guarded",
 		"prompt_cache_key":     "default-guarded-session",
 		"input": []map[string]any{
-			{"type": "function_call", "call_id": "call_tests", "name": "exec_command", "arguments": map[string]any{"cmd": "go test ./... -v"}},
 			{"type": "function_call_output", "call_id": "call_tests", "output": envelope},
 		},
 		"stream": true,
@@ -3606,7 +3617,9 @@ func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 		t.Fatalf("default must not structurally mutate stateful WSS tool output: %s", env.Raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" {
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" ||
+		summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.delta_shape"] != "true" {
 		t.Fatalf("default must keep the structured guard: %+v", summary.DebugFacts)
 	}
 }
@@ -3827,6 +3840,56 @@ func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
 		t.Fatalf("WSS search output must not record Layer 0 search savings: %+v", snap)
+	}
+}
+
+func TestWSPhaseFDefaultFullHistorySearchOutputCompactsWithArchive(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-full-history",
+		"prompt_cache_key":     "search-full-history-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-full-history", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-full-history", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("full-history search output handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if !replace ||
+		!strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("default full-history search output should compact with archive recovery: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("full-history search output should save without guards: %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
+		t.Fatalf("full-history search output should record Layer 0 savings: %+v", snap)
 	}
 }
 
