@@ -394,6 +394,51 @@ func TestRecorder_FlushJSONL_KeepsHandleOpenAndReopensAfterRotation(t *testing.T
 	r.Close() // idempotent
 }
 
+func TestRecorder_AttachProviderUsageSupersedesRecord(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	r := NewRecorder(5, path)
+	defer r.Close()
+
+	r.Record(RequestSummary{RequestID: "req-a", Tokens: TokenCounts{Original: 1000, Final: 900, Saved: 100}})
+	r.Record(RequestSummary{RequestID: "req-b"})
+
+	if !r.AttachProviderUsage("req-a", 29093, 3456, 0, 240) {
+		t.Fatal("attach to known request must succeed")
+	}
+	if r.AttachProviderUsage("req-missing", 1, 1, 1, 1) {
+		t.Fatal("attach to unknown request must report false")
+	}
+
+	var ring *RequestSummary
+	for _, s := range r.Last(5, false) {
+		if s.RequestID == "req-a" {
+			clone := s
+			ring = &clone
+		}
+	}
+	if ring == nil || ring.ProviderInputTokens != 29093 || ring.ProviderCachedTokens != 3456 || ring.ProviderOutputTokens != 240 {
+		t.Fatalf("ring entry not enriched: %+v", ring)
+	}
+	if ring.Flight == nil || ring.Flight.TokenAccounting.ProviderCachedTokens != 3456 {
+		t.Fatalf("flight must carry provider cached tokens: %+v", ring.Flight)
+	}
+
+	summaries, err := ReplaySession(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("replay must dedupe superseded lines, got %d records", len(summaries))
+	}
+	if summaries[0].RequestID != "req-a" || summaries[0].ProviderCachedTokens != 3456 ||
+		summaries[0].Tokens.Saved != 100 {
+		t.Fatalf("replay must keep the newest line at the original position: %+v", summaries[0])
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		findStr(s, sub))

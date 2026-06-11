@@ -552,6 +552,54 @@ func (r *Recorder) closeLogLocked() {
 	}
 }
 
+// AttachProviderUsage enriches the recorded summary for requestID with the
+// provider-reported usage from the response (which arrives after the request
+// summary was recorded on streaming routes such as Codex WSS) and appends a
+// superseding JSONL line under the same request id. Readers keep the newest
+// line per request id (ReplaySession dedupes last-wins; tail readers iterate
+// newest-first), so the enriched record replaces the request-time one without
+// rewriting the log. Returns false when requestID is no longer in the ring.
+func (r *Recorder) AttachProviderUsage(requestID string, inputTokens, cachedTokens, createTokens, outputTokens int) bool {
+	if r == nil || requestID == "" {
+		return false
+	}
+	var updated *RequestSummary
+	r.mu.Lock()
+	for i := 0; i < r.count; i++ {
+		idx := ((r.head-1-i)%r.cap + r.cap) % r.cap
+		if r.summaries[idx].RequestID != requestID {
+			continue
+		}
+		s := &r.summaries[idx]
+		if inputTokens > 0 {
+			s.ProviderInputTokens = inputTokens
+		}
+		if cachedTokens > 0 {
+			s.ProviderCachedTokens = cachedTokens
+		}
+		if createTokens > 0 {
+			s.CacheCreateTokens = createTokens
+		}
+		if outputTokens > 0 {
+			s.ProviderOutputTokens = outputTokens
+		}
+		s.Flight = nil
+		s.EnsureFlight()
+		clone := *s
+		updated = &clone
+		break
+	}
+	path := r.decisionsLog
+	r.mu.Unlock()
+	if updated == nil {
+		return false
+	}
+	if path != "" {
+		r.flushJSONL(path, *updated)
+	}
+	return true
+}
+
 // Close releases the decisions-log handle. Safe to call multiple times and on
 // a recorder that never wrote.
 func (r *Recorder) Close() {

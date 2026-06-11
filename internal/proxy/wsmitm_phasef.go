@@ -48,7 +48,10 @@ type wsPhaseFAdapter struct {
 	recoveryAccepted   bool
 	recoveryResponseID string
 	recoveryWriter     func([]byte) error
-	counters           wsPhaseFCounters
+	// lastDecisionRequestID correlates the turn's response usage frame with
+	// the decision record written at request time (T352-A attribution).
+	lastDecisionRequestID string
+	counters              wsPhaseFCounters
 }
 
 type wsPhaseFCounters struct {
@@ -797,8 +800,12 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	for k, v := range meta.DebugFacts {
 		debugFacts[k] = v
 	}
+	requestID := newRequestIDFn()
+	a.mu.Lock()
+	a.lastDecisionRequestID = requestID
+	a.mu.Unlock()
 	summary := dbg.RequestSummary{
-		RequestID:              newRequestIDFn(),
+		RequestID:              requestID,
 		Timestamp:              time.Now(),
 		SessionID:              meta.SessionID,
 		TurnID:                 meta.PreviousResponseID,
@@ -1300,6 +1307,17 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	}
 	if a.p.outputReduce != nil {
 		a.p.outputReduce.ObserveOutput(usage.OutputTokens)
+	}
+	// Attribute the provider-reported usage (incl. server-side prompt-cache
+	// cached_tokens) to this turn's decision record so per-session savings
+	// carry the billable cache truth, not just local reduction (T352-A).
+	if a.p.debugRecorder != nil {
+		a.mu.Lock()
+		requestID := a.lastDecisionRequestID
+		a.mu.Unlock()
+		if requestID != "" {
+			a.p.debugRecorder.AttachProviderUsage(requestID, usage.InputTokens, usage.ReadTokens, usage.CreateTokens, usage.OutputTokens)
+		}
 	}
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,

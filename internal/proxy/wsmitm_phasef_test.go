@@ -2692,6 +2692,54 @@ func TestWSPhaseFDefaultStatefulInferredToolOutputCompactsWithArchive(t *testing
 	}
 }
 
+func TestWSPhaseFAttachesProviderUsageToDecisionRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "usage-attribution-session",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "hello"},
+		},
+		"stream": true,
+	})
+	if _, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env); err != nil {
+		t.Fatalf("request handle: %v", err)
+	}
+
+	done := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{
+			"id": "resp-usage-1",
+			"usage": map[string]any{
+				"input_tokens":         29093,
+				"input_tokens_details": map[string]any{"cached_tokens": 3456},
+				"output_tokens":        240,
+			},
+		},
+	})
+	if _, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &done); err != nil {
+		t.Fatalf("response handle: %v", err)
+	}
+
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.ProviderInputTokens != 29093 ||
+		summary.ProviderCachedTokens != 3456 ||
+		summary.ProviderOutputTokens != 240 {
+		t.Fatalf("decision record must carry provider usage: %+v", summary)
+	}
+	if summary.Flight == nil || summary.Flight.TokenAccounting.ProviderCachedTokens != 3456 {
+		t.Fatalf("flight must carry provider cached tokens: %+v", summary.Flight)
+	}
+}
+
 func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

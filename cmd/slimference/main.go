@@ -3369,11 +3369,18 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 	}
 	tail := lines[start:]
 
-	// Parse newest first.
+	// Parse newest first. A request id can appear in more than one line
+	// (response-time usage enrichment appends a superseding record); the
+	// newest line wins.
 	out := make([]dbg.RequestSummary, 0, len(tail))
+	seen := make(map[string]struct{}, len(tail))
 	for i := len(tail) - 1; i >= 0; i-- {
 		var s dbg.RequestSummary
 		if err := json.Unmarshal([]byte(tail[i]), &s); err == nil && s.RequestID != "" {
+			if _, ok := seen[s.RequestID]; ok {
+				continue
+			}
+			seen[s.RequestID] = struct{}{}
 			s.EnsureFlight()
 			out = append(out, s)
 		}

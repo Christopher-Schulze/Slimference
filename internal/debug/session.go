@@ -40,7 +40,11 @@ func SessionFileStats(path string) (nonEmptyLines int, size int64, err error) {
 }
 
 // ReplaySession reads all RequestSummary records from a JSONL decisions log file.
-// Returns records in file order (oldest first). Malformed or non-summary lines are silently skipped.
+// Returns records in file order (oldest first). Malformed or non-summary lines
+// are silently skipped. A request id can appear more than once: response-time
+// usage enrichment (AttachProviderUsage) appends a superseding line. The newest
+// line wins at the record's original position so aggregations never
+// double-count a request.
 func ReplaySession(path string) ([]RequestSummary, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -48,6 +52,7 @@ func ReplaySession(path string) ([]RequestSummary, error) {
 	}
 	defer f.Close()
 	var out []RequestSummary
+	index := make(map[string]int)
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
@@ -58,6 +63,11 @@ func ReplaySession(path string) ([]RequestSummary, error) {
 		var s RequestSummary
 		if json.Unmarshal([]byte(line), &s) == nil && s.RequestID != "" {
 			s.EnsureFlight()
+			if i, ok := index[s.RequestID]; ok {
+				out[i] = s
+				continue
+			}
+			index[s.RequestID] = len(out)
 			out = append(out, s)
 		}
 	}
