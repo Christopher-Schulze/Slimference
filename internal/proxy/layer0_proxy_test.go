@@ -1116,6 +1116,117 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupHighFootprintScalesMinBytes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("t359 high footprint shared chunk line\n", 700)
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "Read", ToolInput: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: shared + "tail a\n"}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "Read", ToolInput: `{"path":"b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: shared + "tail b\n"}}},
+	}
+	req := func(messages []types.Message, turnSeq int) codexLayer0Request {
+		return codexLayer0Request{
+			Messages:            messages,
+			SessionID:           "sess-t359-high-footprint",
+			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
+			ChunkDedupMinBytes:  32768,
+			ChunkDedupMaxRefPct: 100,
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			TurnSeq:             turnSeq,
+		}
+	}
+
+	seed := reduceCodexLayer0(req(first, 1))
+	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 {
+		t.Fatalf("first high-footprint output should seed only: %+v", seed.Stats)
+	}
+	out := reduceCodexLayer0(req(second, 2))
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(text, "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("early high-footprint output should scale threshold and chunk-dedup: stats=%+v text=%q", out.Stats, text)
+	}
+	if !hasEvidenceDecision(out.Stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("high-footprint chunk dedup should emit applied evidence: %+v", out.Stats.EvidenceDecisions)
+	}
+}
+
+func TestReduceCodexLayer0ChunkDedupLowFootprintKeepsConfiguredMinBytes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("t359 low footprint shared chunk line\n", 700)
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "Read", ToolInput: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: shared + "tail a\n"}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "Read", ToolInput: `{"path":"b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: shared + "tail b\n"}}},
+	}
+	req := func(messages []types.Message, turnSeq int) codexLayer0Request {
+		return codexLayer0Request{
+			Messages:            messages,
+			SessionID:           "sess-t359-low-footprint",
+			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
+			ChunkDedupMinBytes:  32768,
+			ChunkDedupMaxRefPct: 100,
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			TurnSeq:             turnSeq,
+		}
+	}
+
+	reduceCodexLayer0(req(first, 10))
+	out := reduceCodexLayer0(req(second, 11))
+	if out.Stats.TokensSaved != 0 || out.Stats.ChunkDedupBlocks != 0 ||
+		strings.Contains(out.Messages[1].Content[0].Text, "[context-chunk status=unchanged") {
+		t.Fatalf("low-footprint output below configured min must stay full-pass: stats=%+v text=%q", out.Stats, out.Messages[1].Content[0].Text)
+	}
+}
+
+func TestProxyScaledChunkDedupMinBytes(t *testing.T) {
+	tests := []struct {
+		name        string
+		base        int
+		outputBytes int
+		turnSeq     int
+		want        int
+	}{
+		{name: "disabled", base: 0, outputBytes: 64000, turnSeq: 1, want: 0},
+		{name: "missing_turn", base: 4096, outputBytes: 64000, turnSeq: 0, want: 4096},
+		{name: "high_early", base: 4096, outputBytes: 64000, turnSeq: 1, want: 2048},
+		{name: "mid_early_unchanged", base: 4096, outputBytes: 8192, turnSeq: 1, want: 4096},
+		{name: "late_unchanged", base: 4096, outputBytes: 64000, turnSeq: 12, want: 4096},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := proxyScaledChunkDedupMinBytes(tt.base, tt.outputBytes, tt.turnSeq)
+			if got != tt.want {
+				t.Fatalf("proxyScaledChunkDedupMinBytes(%d,%d,%d)=%d want %d", tt.base, tt.outputBytes, tt.turnSeq, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

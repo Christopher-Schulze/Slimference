@@ -400,6 +400,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
+			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq)
 			// Under the latency latch every block loosens to full pass, so the
 			// O(output) search-risk scan and the chunk-store budget probe would
 			// be pure overhead that keeps the latch from recovering.
@@ -410,7 +411,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
-				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
+				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), chunkMinBytes)
 			}
 			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
 			policy := savingspolicy.DecideCodexToolOutput(savingspolicy.CodexToolOutputInput{
@@ -421,7 +422,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				ExplicitChunkDedup:       req.ExplicitChunkDedup,
 				ChunkProof:               req.ChunkDedupProof,
 				OutputBytes:              len(block.Text),
-				ChunkMinBytes:            req.ChunkDedupMinBytes,
+				ChunkMinBytes:            chunkMinBytes,
 				IsRead:                   readCommand,
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
@@ -466,7 +467,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if readCommand && !changed {
 				if policy.ChunkDedup && chunkAllowed {
 					latencyStart := time.Now()
-					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
+					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, chunkMinBytes, req.ChunkDedupMaxRefPct)
 					stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 				}
 				if !changed {
@@ -554,7 +555,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !changed && policy.ChunkDedup && chunkAllowed {
 				latencyStart := time.Now()
-				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
+				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, chunkMinBytes, req.ChunkDedupMaxRefPct)
 				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
@@ -687,6 +688,26 @@ func proxyFootprintScoreBucketFromScore(score int) string {
 	default:
 		return "low"
 	}
+}
+
+func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq int) int {
+	if baseMinBytes <= 1 || outputBytes <= 0 || turnSeq <= 0 {
+		return baseMinBytes
+	}
+	// T359: only loosen on clearly high compounded footprint. Do not raise
+	// thresholds here; that needs a proven remaining-turn estimator.
+	estimatedTokens := outputBytes / 4
+	if estimatedTokens <= 0 {
+		estimatedTokens = 1
+	}
+	if proxyFootprintScoreBucket(estimatedTokens, 0, turnSeq) != "high" {
+		return baseMinBytes
+	}
+	scaled := baseMinBytes / 2
+	if scaled < 1 {
+		return 1
+	}
+	return scaled
 }
 
 func proxyLayer0EvidenceSafety(mechanism proxyLayer0Mechanism) evidence.SafetyClass {
