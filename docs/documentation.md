@@ -596,7 +596,11 @@ MADV_FREE pages until the kernel lazily reclaims them, so a pure-Go daemon's
 ps-RSS overstates real pressure and flaps the budget; budgeting on runtime
 retention removes the phantom demotion while real retention over 200 MiB still
 demotes. Both `rss_bytes` and `effective_rss_bytes` stay visible for
-transparency. The daemon/admin path uses an in-process
+transparency. The daemon additionally sets the Go runtime soft memory limit at
+startup to 7/8 of the RSS budget (explicit `GOMEMLIMIT` env wins; CLI
+invocations keep runtime defaults), so GC keeps retention bounded under bursts
+of large request bodies instead of ballooning into the budget. The daemon/admin
+path uses an in-process
 resource probe for PID, uptime, real RSS, runtime retention, process CPU time,
 disk I/O counters, and state size where the platform can provide it, avoiding a
 loopback self-health guess for the product budget. State-directory scans are entry-bound:
@@ -1092,6 +1096,17 @@ change compression output. It lets proofs separate "not attempted",
 "attempted but not applicable", "full-passed because archive recovery was
 unavailable", and "applied with positive savings and a concrete recovery
 record" per sub-layer.
+
+On the Codex WSS route the server reports prompt-cache usage in the
+`response.completed` frame (`usage.input_tokens_details.cached_tokens`). The
+proxy attributes that usage to the turn's decision record after the fact: the
+enriched record is appended as a superseding JSONL line under the same request
+id, and all decision-log readers keep the newest line per request id, so
+per-session savings carry the billable provider-cache truth (provider input,
+cached, and output tokens) without double-counting. The decisions log itself is
+written through one kept-open append handle (write-through per record, external
+rotation detected and reopened, released on shutdown) instead of an
+open/write/close cycle per request.
 The near-dedup regression fixture uses `DiskRecorder` plus
 `contentarchive.Get` to prove that a similar-but-changed omitted block expands
 back to exact original bytes. A broader Layer-1 corpus guard exercises multiple
