@@ -1592,17 +1592,21 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 				Timestamp:              base,
 				SessionID:              "codex-wss:cached",
 				Provider:               "codex_chatgpt",
+				ClientFamily:           "codex_cli",
+				RouteMode:              "websocket_phasef",
 				ProviderInputTokens:    1000,
 				ProviderCachedTokens:   600,
 				PreviousResponseIDUsed: true,
 				Tokens:                 dbg.TokenCounts{Original: 900, Final: 700, Saved: 200},
 			},
 			{
-				RequestID: "fallback-only",
-				Timestamp: base.Add(time.Second),
-				SessionID: "codex-wss:fallback",
-				Provider:  "codex_chatgpt",
-				Tokens:    dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+				RequestID:    "fallback-only",
+				Timestamp:    base.Add(time.Second),
+				SessionID:    "codex-wss:fallback",
+				Provider:     "codex_chatgpt",
+				ClientFamily: "codex_desktop_app",
+				RouteMode:    "websocket_phasef",
+				Tokens:       dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
 			},
 		}, nil
 	}
@@ -1619,11 +1623,40 @@ func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing
 		!nearFloat(got.DecisionVsUncachedSavingsRate, 840.0/2200.0) {
 		t.Fatalf("bad mixed aggregate rates: %+v", got)
 	}
+	if len(got.DecisionRoutes) != 2 {
+		t.Fatalf("routes=%d: %+v", len(got.DecisionRoutes), got.DecisionRoutes)
+	}
+	routes := map[string]SavingsRouteSummary{}
+	for _, route := range got.DecisionRoutes {
+		routes[route.RouteKey] = route
+	}
+	cli := routes["codex_cli/websocket_phasef"]
+	if cli.Sessions != 1 ||
+		cli.Requests != 1 ||
+		cli.ProviderInputTokens != 1000 ||
+		cli.CacheReadTokens != 600 ||
+		cli.EffectiveBilled != 460 ||
+		cli.Scorecard == nil ||
+		!nearFloat(cli.Scorecard.CombinedSavingsRate, 200.0/660.0) {
+		t.Fatalf("bad cli route: %+v", cli)
+	}
+	desktop := routes["codex_desktop_app/websocket_phasef"]
+	if desktop.Sessions != 1 ||
+		desktop.Requests != 1 ||
+		desktop.ProviderInputTokens != 0 ||
+		desktop.EffectiveBilled != 900 ||
+		desktop.Scorecard == nil ||
+		!nearFloat(desktop.Scorecard.CombinedSavingsRate, 100.0/1000.0) {
+		t.Fatalf("bad desktop route: %+v", desktop)
+	}
 	text := formatSavingsText(got)
 	for _, want := range []string{
 		"Decision effective billed:   1.4K",
 		"Decision cached share:       31.6%",
 		"Decision scorecard:          S_local=13.6% S_combined=18.1% S_vs_uncached=38.2%",
+		"Decision route scorecards:",
+		"route codex_cli/websocket_phasef",
+		"route codex_desktop_app/websocket_p...",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
@@ -1641,6 +1674,59 @@ func TestSavingsScorecardUsesConfiguredCachedPriceRatio(t *testing.T) {
 		!nearFloat(scorecard.CombinedSavingsRate, 200.0/825.0) ||
 		!nearFloat(scorecard.VsUncachedSavingsRate, 575.0/1200.0) {
 		t.Fatalf("scorecard: %+v", scorecard)
+	}
+}
+
+func TestSavingsRouteSummariesUseSessionScorecardMath(t *testing.T) {
+	routes := savingsBuildRouteSummaries([]SavingsSessionSummary{
+		{
+			ClientFamily:        "codex_cli",
+			RouteMode:           "websocket_phasef",
+			Requests:            1,
+			ProviderInputTokens: 1000,
+			FinalTokens:         700,
+			LocalSaved:          200,
+			CacheReadTokens:     600,
+			CacheHitRequests:    1,
+			Scorecard: &SavingsScorecard{
+				CachedPriceRatio:       0.10,
+				CounterfactualTokens:   660,
+				UncachedCounterfactual: 1200,
+				EffectiveBilledTokens:  460,
+			},
+		},
+		{
+			ClientFamily:     "codex_cli",
+			RouteMode:        "websocket_phasef",
+			Requests:         1,
+			FinalTokens:      900,
+			LocalSaved:       100,
+			CacheHitRequests: 0,
+			Scorecard: &SavingsScorecard{
+				CachedPriceRatio:       0.10,
+				CounterfactualTokens:   1000,
+				UncachedCounterfactual: 1000,
+				EffectiveBilledTokens:  900,
+			},
+		},
+	}, 0.10)
+	if len(routes) != 1 {
+		t.Fatalf("routes=%d: %+v", len(routes), routes)
+	}
+	route := routes[0]
+	if route.RouteKey != "codex_cli/websocket_phasef" ||
+		route.Requests != 2 ||
+		route.ProviderInputTokens != 1000 ||
+		route.LocalSaved != 300 ||
+		route.CacheReadTokens != 600 ||
+		route.EffectiveBilled != 1360 ||
+		route.Scorecard == nil ||
+		route.Scorecard.CounterfactualTokens != 1660 ||
+		route.Scorecard.UncachedCounterfactual != 2200 ||
+		!nearFloat(route.CachedShare, 600.0/1900.0) ||
+		!nearFloat(route.Scorecard.CombinedSavingsRate, 300.0/1660.0) ||
+		!nearFloat(route.Scorecard.VsUncachedSavingsRate, 840.0/2200.0) {
+		t.Fatalf("route scorecard dropped fallback-only session: %+v", route)
 	}
 }
 

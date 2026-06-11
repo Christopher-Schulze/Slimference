@@ -97,6 +97,7 @@ type SavingsSummary struct {
 	DecisionEstimatedCostSavedUSD     float64                   `json:"decision_estimated_cost_saved_usd"`
 	Mechanisms                        []SavingsMechanismSummary `json:"mechanisms,omitempty"`
 	Evidence                          SavingsEvidenceSummary    `json:"evidence,omitempty"`
+	DecisionRoutes                    []SavingsRouteSummary     `json:"decision_routes,omitempty"`
 	DecisionSessions                  []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
 }
 
@@ -135,6 +136,7 @@ type SavingsSessionSummary struct {
 	DisplayName              string            `json:"display_name,omitempty"`
 	ProjectPath              string            `json:"project_path,omitempty"`
 	ClientFamily             string            `json:"client_family,omitempty"`
+	RouteMode                string            `json:"route_mode,omitempty"`
 	Requests                 int64             `json:"requests"`
 	ProviderInputTokens      int64             `json:"provider_input_tokens"`
 	OriginalTokens           int64             `json:"original_tokens"`
@@ -165,6 +167,39 @@ type SavingsSessionSummary struct {
 	CostBeforeUSD            float64           `json:"cost_before_usd"`
 	CostAfterUSD             float64           `json:"cost_after_usd"`
 	CostSavedUSD             float64           `json:"cost_saved_usd"`
+}
+
+type SavingsRouteSummary struct {
+	RouteKey                 string            `json:"route_key"`
+	ClientFamily             string            `json:"client_family,omitempty"`
+	RouteMode                string            `json:"route_mode,omitempty"`
+	Sessions                 int64             `json:"sessions"`
+	Requests                 int64             `json:"requests"`
+	ProviderInputTokens      int64             `json:"provider_input_tokens"`
+	OriginalTokens           int64             `json:"original_tokens"`
+	FinalTokens              int64             `json:"final_tokens"`
+	LocalSaved               int64             `json:"local_saved"`
+	NetSavedTokens           int64             `json:"net_saved_tokens"`
+	NegativeEvents           int64             `json:"negative_events,omitempty"`
+	NegativeEventTokens      int64             `json:"negative_event_tokens,omitempty"`
+	Layer0NetTokens          int64             `json:"layer0_net_tokens,omitempty"`
+	Layer1NetTokens          int64             `json:"layer1_net_tokens,omitempty"`
+	Layer2NetTokens          int64             `json:"layer2_net_tokens,omitempty"`
+	Layer3NetTokens          int64             `json:"layer3_net_tokens,omitempty"`
+	OutputReduceTokens       int64             `json:"output_reduce_tokens,omitempty"`
+	ToolPruneTokens          int64             `json:"tool_prune_tokens,omitempty"`
+	FootprintScore           int64             `json:"footprint_score,omitempty"`
+	FootprintBuckets         map[string]int64  `json:"footprint_score_buckets,omitempty"`
+	CompoundedEstimateTokens int64             `json:"compounded_estimate_tokens,omitempty"`
+	OutputTokens             int64             `json:"output_tokens"`
+	CacheReadTokens          int64             `json:"cache_read_tokens"`
+	CacheCreateTokens        int64             `json:"cache_create_tokens"`
+	CacheNetTokens           int64             `json:"cache_net_tokens"`
+	CacheHitRequests         int64             `json:"cache_hit_requests"`
+	CacheHitRate             float64           `json:"cache_hit_rate"`
+	CachedShare              float64           `json:"cached_share"`
+	EffectiveBilled          int64             `json:"effective_billed"`
+	Scorecard                *SavingsScorecard `json:"scorecard,omitempty"`
 }
 
 type SavingsScorecard struct {
@@ -392,6 +427,9 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		if sessionRow.ClientFamily == "" {
 			sessionRow.ClientFamily = savingsClientFamily(summary)
 		}
+		if sessionRow.RouteMode == "" {
+			sessionRow.RouteMode = savingsRouteMode(summary)
+		}
 		sessionRow.Requests++
 		sessionRow.ProviderInputTokens += int64(summary.ProviderInputTokens)
 		sessionRow.OriginalTokens += int64(summary.Tokens.Original)
@@ -491,6 +529,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		out.DecisionCompoundedEstimateTokens += row.CompoundedEstimateTokens
 	}
 	enrichSavingsSessions(out.DecisionSessions)
+	out.DecisionRoutes = savingsBuildRouteSummaries(out.DecisionSessions, out.CachedPriceRatio)
 	sort.Slice(out.DecisionSessions, func(i, j int) bool {
 		if out.DecisionSessions[i].NetSavedTokens == out.DecisionSessions[j].NetSavedTokens {
 			return out.DecisionSessions[i].SessionID < out.DecisionSessions[j].SessionID
@@ -1187,6 +1226,9 @@ func mergeSavingsSession(dst, src *SavingsSessionSummary) {
 	if dst.ClientFamily == "" {
 		dst.ClientFamily = src.ClientFamily
 	}
+	if dst.RouteMode == "" {
+		dst.RouteMode = src.RouteMode
+	}
 	if dst.DisplayName == "" {
 		dst.DisplayName = src.DisplayName
 	}
@@ -1259,6 +1301,97 @@ func savingsInputEquivalent(providerInputTokens, fallbackInputTokens int64) int6
 	return 0
 }
 
+func savingsBuildRouteSummaries(sessions []SavingsSessionSummary, cachedPriceRatio float64) []SavingsRouteSummary {
+	if len(sessions) == 0 {
+		return nil
+	}
+	byRoute := map[string]*SavingsRouteSummary{}
+	for _, session := range sessions {
+		key, clientFamily, routeMode := savingsRouteKeyFromSession(session)
+		row := byRoute[key]
+		if row == nil {
+			row = &SavingsRouteSummary{
+				RouteKey:     key,
+				ClientFamily: clientFamily,
+				RouteMode:    routeMode,
+			}
+			byRoute[key] = row
+		}
+		row.Sessions++
+		row.Requests += session.Requests
+		row.ProviderInputTokens += session.ProviderInputTokens
+		row.OriginalTokens += session.OriginalTokens
+		row.FinalTokens += session.FinalTokens
+		row.LocalSaved += session.LocalSaved
+		row.NetSavedTokens += session.NetSavedTokens
+		row.NegativeEvents += session.NegativeEvents
+		row.NegativeEventTokens += session.NegativeEventTokens
+		row.Layer0NetTokens += session.Layer0NetTokens
+		row.Layer1NetTokens += session.Layer1NetTokens
+		row.Layer2NetTokens += session.Layer2NetTokens
+		row.Layer3NetTokens += session.Layer3NetTokens
+		row.OutputReduceTokens += session.OutputReduceTokens
+		row.ToolPruneTokens += session.ToolPruneTokens
+		row.FootprintScore += session.FootprintScore
+		mergeSavingsBucketCounts(&row.FootprintBuckets, session.FootprintBuckets)
+		row.CompoundedEstimateTokens += session.CompoundedEstimateTokens
+		row.OutputTokens += session.OutputTokens
+		row.CacheReadTokens += session.CacheReadTokens
+		row.CacheCreateTokens += session.CacheCreateTokens
+		row.CacheNetTokens += session.CacheNetTokens
+		row.CacheHitRequests += session.CacheHitRequests
+		if session.Scorecard != nil {
+			if row.Scorecard == nil {
+				row.Scorecard = &SavingsScorecard{CachedPriceRatio: cachedPriceRatio}
+			}
+			row.Scorecard.EffectiveBilledTokens += session.Scorecard.EffectiveBilledTokens
+			row.Scorecard.CounterfactualTokens += session.Scorecard.CounterfactualTokens
+			row.Scorecard.UncachedCounterfactual += session.Scorecard.UncachedCounterfactual
+		}
+	}
+	out := make([]SavingsRouteSummary, 0, len(byRoute))
+	for _, row := range byRoute {
+		if row.Requests > 0 {
+			row.CacheHitRate = float64(row.CacheHitRequests) / float64(row.Requests)
+		}
+		if row.Scorecard == nil {
+			scorecard := savingsBuildScorecard(row.ProviderInputTokens, row.FinalTokens, row.LocalSaved, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, cachedPriceRatio)
+			row.Scorecard = &scorecard
+		} else {
+			row.Scorecard.LocalSavingsRate = savingsRate(row.LocalSaved, row.Scorecard.UncachedCounterfactual)
+			row.Scorecard.CombinedSavingsRate = savingsRate(row.Scorecard.CounterfactualTokens-row.Scorecard.EffectiveBilledTokens, row.Scorecard.CounterfactualTokens)
+			row.Scorecard.VsUncachedSavingsRate = savingsRate(row.Scorecard.UncachedCounterfactual-row.Scorecard.EffectiveBilledTokens, row.Scorecard.UncachedCounterfactual)
+		}
+		row.EffectiveBilled = row.Scorecard.EffectiveBilledTokens
+		routeInputEquivalent := row.Scorecard.UncachedCounterfactual - row.LocalSaved
+		routeCacheRead := row.CacheReadTokens
+		if routeCacheRead > routeInputEquivalent {
+			routeCacheRead = routeInputEquivalent
+		}
+		row.CachedShare = savingsRate(routeCacheRead, routeInputEquivalent)
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NetSavedTokens == out[j].NetSavedTokens {
+			return out[i].RouteKey < out[j].RouteKey
+		}
+		return out[i].NetSavedTokens > out[j].NetSavedTokens
+	})
+	return out
+}
+
+func savingsRouteKeyFromSession(session SavingsSessionSummary) (routeKey string, clientFamily string, routeMode string) {
+	clientFamily = strings.TrimSpace(session.ClientFamily)
+	if clientFamily == "" {
+		clientFamily = "unknown_client"
+	}
+	routeMode = strings.TrimSpace(session.RouteMode)
+	if routeMode == "" {
+		routeMode = "unknown_route"
+	}
+	return clientFamily + "/" + routeMode, clientFamily, routeMode
+}
+
 func savingsCacheAwareBilledTokens(inputTokens, cacheReadTokens, cacheCreateTokens int64, cachedPriceRatio float64) int64 {
 	if inputTokens < 0 {
 		inputTokens = 0
@@ -1290,6 +1423,30 @@ func decisionSessionID(summary dbg.RequestSummary) string {
 		return "no-session:" + strings.TrimSpace(summary.Source)
 	}
 	return "no-session:unknown"
+}
+
+func savingsRouteMode(summary dbg.RequestSummary) string {
+	if routeMode := strings.ToLower(strings.TrimSpace(summary.RouteMode)); routeMode != "" {
+		return routeMode
+	}
+	sessionID := strings.ToLower(strings.TrimSpace(summary.SessionID))
+	switch {
+	case strings.HasPrefix(sessionID, "codex-wss:"):
+		return "websocket_phasef"
+	case strings.HasPrefix(sessionID, "codex-http:"):
+		return "codex_http"
+	case strings.HasPrefix(sessionID, "codex-local:"):
+		return "codex_local"
+	}
+	source := strings.ToLower(strings.TrimSpace(summary.Source))
+	switch {
+	case strings.Contains(source, "hook"):
+		return "hook"
+	case source != "":
+		return source
+	default:
+		return "unknown_route"
+	}
 }
 
 func isCodexDecisionSummary(summary dbg.RequestSummary, sessionID string) bool {
@@ -1599,6 +1756,27 @@ func formatSavingsText(s SavingsSummary) string {
 			}
 		}
 		sb.WriteString(fmt.Sprintf("Decision layer net:          %s\n", formatDecisionLayerBreakdown(s)))
+		if len(s.DecisionRoutes) > 0 {
+			sb.WriteString("Decision route scorecards:\n")
+			for i, route := range s.DecisionRoutes {
+				if i >= 6 {
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  route %-32s sessions=%d requests=%d local_saved=%s effective_billed=%s cached_share=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%%\n",
+					truncateSavingsLabel(route.RouteKey, 32),
+					route.Sessions,
+					route.Requests,
+					formatSignedInt64Plain(route.LocalSaved),
+					formatInt64Plain(route.EffectiveBilled),
+					route.CachedShare*100,
+					scorecardCombinedRateForRoute(route)*100,
+					scorecardVsUncachedRateForRoute(route)*100,
+					formatRouteLayerBreakdown(route),
+					formatSignedInt64Plain(route.CacheNetTokens),
+					route.CacheHitRate*100,
+				))
+			}
+		}
 		if s.DecisionFootprintScore > 0 || len(s.DecisionFootprintScoreBuckets) > 0 {
 			sb.WriteString(fmt.Sprintf("Decision footprint score:    %s (%s)\n",
 				formatInt64Plain(s.DecisionFootprintScore),
@@ -1753,6 +1931,20 @@ func scorecardVsUncachedRate(session SavingsSessionSummary) float64 {
 		return 0
 	}
 	return session.Scorecard.VsUncachedSavingsRate
+}
+
+func scorecardCombinedRateForRoute(route SavingsRouteSummary) float64 {
+	if route.Scorecard == nil {
+		return 0
+	}
+	return route.Scorecard.CombinedSavingsRate
+}
+
+func scorecardVsUncachedRateForRoute(route SavingsRouteSummary) float64 {
+	if route.Scorecard == nil {
+		return 0
+	}
+	return route.Scorecard.VsUncachedSavingsRate
 }
 
 func savingsSessionFallbackLabel(session SavingsSessionSummary) string {
@@ -1949,6 +2141,25 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 	appendLayer("L3", session.Layer3NetTokens)
 	appendLayer("out", session.OutputReduceTokens)
 	appendLayer("tools", session.ToolPruneTokens)
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatRouteLayerBreakdown(route SavingsRouteSummary) string {
+	parts := make([]string, 0, 6)
+	appendLayer := func(label string, value int64) {
+		if value != 0 {
+			parts = append(parts, label+"="+formatSignedInt64Plain(value))
+		}
+	}
+	appendLayer("L0", route.Layer0NetTokens)
+	appendLayer("L1", route.Layer1NetTokens)
+	appendLayer("L2", route.Layer2NetTokens)
+	appendLayer("L3", route.Layer3NetTokens)
+	appendLayer("out", route.OutputReduceTokens)
+	appendLayer("tools", route.ToolPruneTokens)
 	if len(parts) == 0 {
 		return "none"
 	}

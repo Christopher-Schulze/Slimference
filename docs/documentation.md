@@ -2204,7 +2204,10 @@ carries a nested `scorecard` with the same rate family plus per-session
 `compounded_estimate_tokens`. Aggregate scorecard fields are summed from the
 per-session scorecards so rows with provider-reported input and fallback-only
 local input stay in the same denominator instead of letting provider-cache rows
-inflate the route-wide rate. `S_local` is local input
+inflate the route-wide rate. The same session scorecards are also grouped into
+`decision_routes[]` by `client_family` and `route_mode`, so WSS Desktop, WSS
+CLI, scoped HTTP, hook, and anonymous fallback traffic can be judged separately
+before any per-route product band is claimed. `S_local` is local input
 deletion over the no-local input counterfactual. `S_combined` compares effective
 billed tokens against a cache-as-is, no-local-reduction counterfactual.
 `S_vs_uncached` compares the same effective billed tokens against a fully
