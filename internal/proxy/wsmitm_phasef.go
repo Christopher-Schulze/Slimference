@@ -152,20 +152,21 @@ type wsPhaseFTelemetry struct {
 }
 
 type wssRequestMeta struct {
-	SessionID          string
-	PreviousResponseID string
-	Model              string
-	ClientFamily       string
-	SocketSeq          uint64
-	TurnSeq            int
-	HasUserPromptInput bool
-	HasToolDefinitions bool
-	OriginalMessages   []types.Message
-	ToolUseIndex       map[string]types.ContentBlock
-	RepdetIndex        *repdet.Index
-	ToolPrune          dbg.ToolPruneSummary
-	BypassReason       string
-	DebugFacts         map[string]string
+	SessionID            string
+	PreviousResponseID   string
+	Model                string
+	ClientFamily         string
+	SocketSeq            uint64
+	TurnSeq              int
+	HasUserPromptInput   bool
+	HasToolDefinitions   bool
+	HasPromptCachePrefix bool
+	OriginalMessages     []types.Message
+	ToolUseIndex         map[string]types.ContentBlock
+	RepdetIndex          *repdet.Index
+	ToolPrune            dbg.ToolPruneSummary
+	BypassReason         string
+	DebugFacts           map[string]string
 }
 
 func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
@@ -615,7 +616,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	}
 	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
 	toolOutputPresenceKnown := err == nil
-	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce, toolOutputPresenceKnown, toolOutputPresenceKnown, meta.HasUserPromptInput); stats.Reason != "disabled" {
+	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce, toolOutputPresenceKnown, toolOutputPresenceKnown, meta.HasUserPromptInput, toolOutputPresenceKnown, meta.HasPromptCachePrefix); stats.Reason != "disabled" {
 		outputReduceStats = stats
 		if stats.Applied {
 			out = injected
@@ -774,14 +775,18 @@ func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMe
 	return "wss_tool_prune_delta_guard"
 }
 
-func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool) ([]byte, outputreduce.Stats) {
+func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool, promptCachePrefixKnown bool, hasPromptCachePrefix bool) ([]byte, outputreduce.Stats) {
 	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	if blockedByToolOutput || (!toolOutputPresenceKnown && wssBodyContainsToolOutputFn(body)) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
-	if wssBodyHasPromptCachePrefix(body) {
+	if promptCachePrefixKnown {
+		if hasPromptCachePrefix {
+			return body, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"}
+		}
+	} else if wssBodyHasPromptCachePrefixFn(body) {
 		return body, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"}
 	}
 	if userPromptInputKnown {
@@ -905,6 +910,8 @@ func wssBodyHasPromptCachePrefix(body []byte) bool {
 	}
 	return false
 }
+
+var wssBodyHasPromptCachePrefixFn = wssBodyHasPromptCachePrefix
 
 func wssBodyContainsFunctionCallOutput(body []byte) bool {
 	var root struct {
@@ -2138,13 +2145,27 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 		return wssRequestMeta{}
 	}
 	return wssRequestMeta{
-		SessionID:          wssCodexSessionIDFromRaw(raw),
-		PreviousResponseID: wssPreviousResponseIDFromRaw(raw),
-		Model:              wssPlannerModelFromRaw(raw),
-		ClientFamily:       wssCodexClientFamilyFromRaw(raw),
-		HasUserPromptInput: wssRawHasUserPromptInput(raw),
-		HasToolDefinitions: wssRawHasToolDefinitions(raw),
+		SessionID:            wssCodexSessionIDFromRaw(raw),
+		PreviousResponseID:   wssPreviousResponseIDFromRaw(raw),
+		Model:                wssPlannerModelFromRaw(raw),
+		ClientFamily:         wssCodexClientFamilyFromRaw(raw),
+		HasUserPromptInput:   wssRawHasUserPromptInput(raw),
+		HasToolDefinitions:   wssRawHasToolDefinitions(raw),
+		HasPromptCachePrefix: wssRawHasPromptCachePrefix(raw),
 	}
+}
+
+func wssRawHasPromptCachePrefix(raw map[string]json.RawMessage) bool {
+	if len(raw) == 0 || rawJSONString(raw["prompt_cache_key"]) == "" {
+		return false
+	}
+	if _, ok := raw["instructions"]; ok {
+		return true
+	}
+	if _, ok := raw["tools"]; ok {
+		return true
+	}
+	return false
 }
 
 func wssRawHasToolDefinitions(raw map[string]json.RawMessage) bool {

@@ -391,8 +391,10 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 
 	origToolOutputScan := wssBodyContainsToolOutputFn
 	origUserPromptScan := wssBodyHasUserPromptInputFn
+	origPromptCachePrefixScan := wssBodyHasPromptCachePrefixFn
 	toolOutputScans := 0
 	userPromptScans := 0
+	promptCachePrefixScans := 0
 	wssBodyContainsToolOutputFn = func(body []byte) bool {
 		toolOutputScans++
 		return origToolOutputScan(body)
@@ -401,9 +403,14 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 		userPromptScans++
 		return origUserPromptScan(body)
 	}
+	wssBodyHasPromptCachePrefixFn = func(body []byte) bool {
+		promptCachePrefixScans++
+		return origPromptCachePrefixScan(body)
+	}
 	defer func() {
 		wssBodyContainsToolOutputFn = origToolOutputScan
 		wssBodyHasUserPromptInputFn = origUserPromptScan
+		wssBodyHasPromptCachePrefixFn = origPromptCachePrefixScan
 	}()
 
 	env := parseWSJSON(t, map[string]any{
@@ -448,6 +455,9 @@ func TestWSPhaseFOutputReduceDoesNotInjectCodexWSSDirective(t *testing.T) {
 	}
 	if userPromptScans != 0 {
 		t.Fatalf("known user-prompt request did %d redundant user-input body scans", userPromptScans)
+	}
+	if promptCachePrefixScans != 0 {
+		t.Fatalf("known prompt-cache-prefix state did %d redundant body scans", promptCachePrefixScans)
 	}
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 {
@@ -505,7 +515,7 @@ func TestWSPhaseFOutputReduceUnknownPresenceFallsBackToBodyScans(t *testing.T) {
 		},
 	})
 
-	_, stats := adapter.applyWSSOutputReduce(env.Body, false, false, false, false)
+	_, stats := adapter.applyWSSOutputReduce(env.Body, false, false, false, false, false, false)
 	if stats.Reason != "codex_wss_directive_disabled" {
 		t.Fatalf("fallback output-reduce reason=%q, want codex_wss_directive_disabled", stats.Reason)
 	}
@@ -540,12 +550,76 @@ func TestWSPhaseFOutputReduceKnownNoUserPromptSkipsUserInputBodyScan(t *testing.
 	}()
 
 	body := []byte(`{"model":"gpt-5-codex","input":[{"type":"message","role":"assistant","content":"done"}],"stream":true}`)
-	_, stats := adapter.applyWSSOutputReduce(body, false, true, true, false)
+	_, stats := adapter.applyWSSOutputReduce(body, false, true, true, false, true, false)
 	if stats.Reason != "disabled" {
 		t.Fatalf("known no-user output-reduce reason=%q, want disabled", stats.Reason)
 	}
 	if userPromptScans != 0 {
 		t.Fatalf("known no-user request did %d redundant user-input body scans", userPromptScans)
+	}
+}
+
+func TestWSPhaseFOutputReduceKnownPromptCachePrefixSkipsBodyScan(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	origPromptCachePrefixScan := wssBodyHasPromptCachePrefixFn
+	promptCachePrefixScans := 0
+	wssBodyHasPromptCachePrefixFn = func(body []byte) bool {
+		promptCachePrefixScans++
+		return origPromptCachePrefixScan(body)
+	}
+	defer func() {
+		wssBodyHasPromptCachePrefixFn = origPromptCachePrefixScan
+	}()
+
+	body := []byte(`{"model":"gpt-5-codex","prompt_cache_key":"abc","instructions":"stable","input":[{"type":"message","role":"user","content":"status"}],"stream":true}`)
+	_, stats := adapter.applyWSSOutputReduce(body, false, true, true, true, true, true)
+	if stats.Reason != "prompt_cache_prefix_full_pass" {
+		t.Fatalf("known prompt-cache-prefix reason=%q, want prompt_cache_prefix_full_pass", stats.Reason)
+	}
+	if promptCachePrefixScans != 0 {
+		t.Fatalf("known prompt-cache-prefix request did %d redundant body scans", promptCachePrefixScans)
+	}
+}
+
+func TestWSPhaseFOutputReduceUnknownPromptCachePrefixFallsBackToBodyScan(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	origPromptCachePrefixScan := wssBodyHasPromptCachePrefixFn
+	promptCachePrefixScans := 0
+	wssBodyHasPromptCachePrefixFn = func(body []byte) bool {
+		promptCachePrefixScans++
+		return origPromptCachePrefixScan(body)
+	}
+	defer func() {
+		wssBodyHasPromptCachePrefixFn = origPromptCachePrefixScan
+	}()
+
+	body := []byte(`{"model":"gpt-5-codex","prompt_cache_key":"abc","instructions":"stable","input":[{"type":"message","role":"user","content":"status"}],"stream":true}`)
+	_, stats := adapter.applyWSSOutputReduce(body, false, true, true, true, false, false)
+	if stats.Reason != "prompt_cache_prefix_full_pass" {
+		t.Fatalf("unknown prompt-cache-prefix reason=%q, want prompt_cache_prefix_full_pass", stats.Reason)
+	}
+	if promptCachePrefixScans != 1 {
+		t.Fatalf("unknown prompt-cache-prefix scans=%d, want 1", promptCachePrefixScans)
 	}
 }
 
@@ -613,6 +687,30 @@ func TestWSSRawHasToolDefinitions(t *testing.T) {
 	}
 	if !wssRawHasToolDefinitions(map[string]json.RawMessage{"tools": json.RawMessage(`[]`)}) {
 		t.Fatal("tools key presence must report tool definitions")
+	}
+}
+
+func TestWSSRawHasPromptCachePrefix(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  map[string]json.RawMessage
+		want bool
+	}{
+		{name: "nil_raw", raw: nil, want: false},
+		{name: "missing_key", raw: map[string]json.RawMessage{"input": json.RawMessage(`[]`)}, want: false},
+		{name: "key_without_cacheable_fields", raw: map[string]json.RawMessage{"prompt_cache_key": json.RawMessage(`"abc"`)}, want: false},
+		{name: "instructions", raw: map[string]json.RawMessage{"prompt_cache_key": json.RawMessage(`"abc"`), "instructions": json.RawMessage(`"stable"`)}, want: true},
+		{name: "input_only", raw: map[string]json.RawMessage{"prompt_cache_key": json.RawMessage(`"abc"`), "input": json.RawMessage(`[]`)}, want: false},
+		{name: "tools", raw: map[string]json.RawMessage{"prompt_cache_key": json.RawMessage(`"abc"`), "tools": json.RawMessage(`[]`)}, want: true},
+	}
+	for _, tt := range tests {
+		if got := wssRawHasPromptCachePrefix(tt.raw); got != tt.want {
+			t.Fatalf("%s raw prompt-cache-prefix=%v, want %v", tt.name, got, tt.want)
+		}
+		meta := wssRequestMetaFromRaw(tt.raw)
+		if meta.HasPromptCachePrefix != tt.want {
+			t.Fatalf("%s meta prompt-cache-prefix=%v, want %v", tt.name, meta.HasPromptCachePrefix, tt.want)
+		}
 	}
 }
 
