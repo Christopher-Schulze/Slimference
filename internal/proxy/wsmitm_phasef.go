@@ -55,6 +55,7 @@ type wsPhaseFAdapter struct {
 	lastUsageSessionID         string
 	lastUsageMutatedMechanisms proxyLayer0MechanismMask
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
+	sessionTurnSeq             map[string]int
 	counters                   wsPhaseFCounters
 	socketSeq                  atomic.Uint64
 	socketDecisionRequestID    string
@@ -154,6 +155,7 @@ type wssRequestMeta struct {
 	Model              string
 	ClientFamily       string
 	SocketSeq          uint64
+	TurnSeq            int
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
 	BypassReason       string
@@ -182,6 +184,19 @@ func (a *wsPhaseFAdapter) setSocketSeq(seq uint64) {
 	if a != nil && seq > 0 {
 		a.socketSeq.Store(seq)
 	}
+}
+
+func (a *wsPhaseFAdapter) observeWSSRequestTurnSeq(sessionID string) int {
+	if a == nil || sessionID == "" {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sessionTurnSeq == nil {
+		a.sessionTurnSeq = make(map[string]int)
+	}
+	a.sessionTurnSeq[sessionID]++
+	return a.sessionTurnSeq[sessionID]
 }
 
 func (a *wsPhaseFAdapter) handle(_ context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
@@ -303,6 +318,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	if err == nil && len(messages) > 0 {
 		requestContainsToolOutput = requestContainsToolOutput || messagesContainToolResult(messages)
 		sessionID := meta.SessionID
+		meta.TurnSeq = a.observeWSSRequestTurnSeq(sessionID)
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
@@ -381,7 +397,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
 				})
 				if stats.BlocksReplaced > 0 {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, 0, 0))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, 0, 0, meta.TurnSeq))
 				}
 			} else {
 				beforeTokens := 0
@@ -399,7 +415,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.StaleReadBlocks = stats.BlocksReplaced
 					historyStats.StaleReadBytesSaved = stats.BytesReplaced
 					historyStats.StaleReadTokensSaved = beforeTokens - afterTokens
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq))
 				}
 			}
 		}
@@ -413,7 +429,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			if obsoleteGuardReason != "" {
 				_, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
 				if stats.BlocksReplaced > 0 {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, 0, 0))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, 0, 0, meta.TurnSeq))
 				}
 			} else {
 				beforeTokens := 0
@@ -429,7 +445,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.ObsoletePruneBlocks = stats.BlocksReplaced
 					historyStats.ObsoletePruneBytesSaved = stats.BytesReplaced
 					historyStats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq))
 				}
 			}
 		}
@@ -449,6 +465,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			ChunkStore:                 chunkSettings.Store,
 			PolicyMode:                 chunkSettings.PolicyMode,
 			ArchiveRecovery:            chunkSettings.ArchiveRecovery,
+			TurnSeq:                    meta.TurnSeq,
 			HostBudgetExceeded:         a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:      a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked:  !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
@@ -1370,6 +1387,7 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.final_bytes":            strconv.Itoa(len(mutated)),
 		"wss.changed":                strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
 		"wss.previous_response_id":   strconv.FormatBool(meta.PreviousResponseID != ""),
+		"wss.turn_seq":               strconv.Itoa(meta.TurnSeq),
 		"wss.request_shape":          wssRequestShape(meta, messages),
 		"wss.delta_shape":            strconv.FormatBool(deltaShape),
 		"wss.messages":               strconv.Itoa(len(messages)),

@@ -63,21 +63,22 @@ const (
 )
 
 type BlockDecision struct {
-	Layer             int          `json:"layer,omitempty"`
-	Mechanism         string       `json:"mechanism"`
-	ContentClass      ContentClass `json:"content_class"`
-	SafetyClass       SafetyClass  `json:"safety_class"`
-	Action            Action       `json:"action"`
-	Reason            string       `json:"reason"`
-	Signals           []Signal     `json:"signals,omitempty"`
-	PreservedEvidence []string     `json:"preserved_evidence,omitempty"`
-	Recovery          string       `json:"recovery,omitempty"`
-	OriginalTokens    int          `json:"original_tokens,omitempty"`
-	FinalTokens       int          `json:"final_tokens,omitempty"`
-	SavedTokens       int          `json:"saved_tokens,omitempty"`
-	AddedTokens       int          `json:"added_tokens,omitempty"`
-	NetTokens         int          `json:"net_tokens"`
-	CacheImpact       string       `json:"cache_impact,omitempty"`
+	Layer                int          `json:"layer,omitempty"`
+	Mechanism            string       `json:"mechanism"`
+	ContentClass         ContentClass `json:"content_class"`
+	SafetyClass          SafetyClass  `json:"safety_class"`
+	Action               Action       `json:"action"`
+	Reason               string       `json:"reason"`
+	Signals              []Signal     `json:"signals,omitempty"`
+	PreservedEvidence    []string     `json:"preserved_evidence,omitempty"`
+	Recovery             string       `json:"recovery,omitempty"`
+	OriginalTokens       int          `json:"original_tokens,omitempty"`
+	FinalTokens          int          `json:"final_tokens,omitempty"`
+	SavedTokens          int          `json:"saved_tokens,omitempty"`
+	AddedTokens          int          `json:"added_tokens,omitempty"`
+	NetTokens            int          `json:"net_tokens"`
+	CacheImpact          string       `json:"cache_impact,omitempty"`
+	FootprintScoreBucket string       `json:"footprint_score_bucket,omitempty"`
 }
 
 type Analysis struct {

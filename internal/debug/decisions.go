@@ -73,18 +73,19 @@ type Layer1DecisionSummary struct {
 // mechanism. Saved is gross reduction, Added is extra prompt/context cost, Net
 // is Saved-Added. Negative Net is allowed and explicitly marks regressions.
 type MechanismAccounting struct {
-	Name           string `json:"name"`
-	Layer          int    `json:"layer,omitempty"`
-	Source         string `json:"source,omitempty"`
-	Count          int    `json:"count"`
-	OriginalTokens int    `json:"original_tokens,omitempty"`
-	FinalTokens    int    `json:"final_tokens,omitempty"`
-	SavedTokens    int    `json:"saved_tokens,omitempty"`
-	AddedTokens    int    `json:"added_tokens,omitempty"`
-	NetTokens      int    `json:"net_tokens"`
-	Reason         string `json:"reason,omitempty"`
-	ContentClass   string `json:"content_class,omitempty"`
-	SafetyClass    string `json:"safety_class,omitempty"`
+	Name                 string `json:"name"`
+	Layer                int    `json:"layer,omitempty"`
+	Source               string `json:"source,omitempty"`
+	Count                int    `json:"count"`
+	OriginalTokens       int    `json:"original_tokens,omitempty"`
+	FinalTokens          int    `json:"final_tokens,omitempty"`
+	SavedTokens          int    `json:"saved_tokens,omitempty"`
+	AddedTokens          int    `json:"added_tokens,omitempty"`
+	NetTokens            int    `json:"net_tokens"`
+	Reason               string `json:"reason,omitempty"`
+	ContentClass         string `json:"content_class,omitempty"`
+	SafetyClass          string `json:"safety_class,omitempty"`
+	FootprintScoreBucket string `json:"footprint_score_bucket,omitempty"`
 }
 
 // TokenCounts holds before/after token totals for a request.
@@ -372,18 +373,19 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			continue
 		}
 		out = append(out, MechanismAccounting{
-			Name:           name,
-			Layer:          decision.Layer,
-			Source:         "evidence_decision",
-			Count:          1,
-			OriginalTokens: decision.OriginalTokens,
-			FinalTokens:    decision.FinalTokens,
-			SavedTokens:    decision.SavedTokens,
-			AddedTokens:    decision.AddedTokens,
-			NetTokens:      decision.NetTokens,
-			Reason:         decision.Reason,
-			ContentClass:   string(decision.ContentClass),
-			SafetyClass:    string(decision.SafetyClass),
+			Name:                 name,
+			Layer:                decision.Layer,
+			Source:               "evidence_decision",
+			Count:                1,
+			OriginalTokens:       decision.OriginalTokens,
+			FinalTokens:          decision.FinalTokens,
+			SavedTokens:          decision.SavedTokens,
+			AddedTokens:          decision.AddedTokens,
+			NetTokens:            decision.NetTokens,
+			Reason:               decision.Reason,
+			ContentClass:         string(decision.ContentClass),
+			SafetyClass:          string(decision.SafetyClass),
+			FootprintScoreBucket: decision.FootprintScoreBucket,
 		})
 	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {

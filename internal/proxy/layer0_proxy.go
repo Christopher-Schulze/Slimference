@@ -157,6 +157,7 @@ type codexLayer0Request struct {
 	ChunkStore                 *chunkdedup.Store
 	PolicyMode                 string
 	ArchiveRecovery            bool
+	TurnSeq                    int
 	RecentEditUncertainty      bool
 	HostBudgetExceeded         bool
 	LatencyBudgetExceeded      bool
@@ -417,7 +418,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload, req.TurnSeq))
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -480,7 +481,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if wssSearchOutputBlocked {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq))
 			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
@@ -489,12 +490,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if changed && req.StructuredMutationBlocked &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard", 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard", 0, 0, workload, req.TurnSeq))
 				changed = false
 				afterText = ""
 			}
 			if changed && req.CacheBustDemotedMechanisms.Has(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
 				changed = false
 				afterText = ""
 			}
@@ -541,11 +542,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			if req.CacheBustDemotedMechanisms.Has(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
 				continue
 			}
 			if req.StatefulDeltaMutationBlocked {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate", 0, 0, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate", 0, 0, workload, req.TurnSeq))
 				continue
 			}
 			before := countBeforeTokens()
@@ -572,9 +573,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				default:
 					stats.CapturedOutputBlocks++
 				}
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload, req.TurnSeq))
 			} else {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload, req.TurnSeq))
 			}
 		}
 	}
@@ -604,16 +605,46 @@ func (c *messageCow) setText(msgIdx int, blockIdx int, text string) {
 	c.out[msgIdx].Content[blockIdx].Text = text
 }
 
-func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload) evidence.BlockDecision {
+func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload, turnSeq int) evidence.BlockDecision {
 	argv := strings.Fields(commandLine)
 	analysis := evidence.Analyze(argv, []byte(beforeText))
 	preserved := proxyLayer0PreservedEvidence(mechanism, workload)
 	safety := proxyLayer0EvidenceSafety(mechanism)
 	recovery := proxyLayer0EvidenceRecovery(mechanism)
+	var decision evidence.BlockDecision
 	if afterText == "" && beforeTokens == 0 && afterTokens == 0 {
-		return evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, 0, 0)
+		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, 0, 0)
+	} else {
+		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
 	}
-	return evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
+	decision.FootprintScoreBucket = proxyFootprintScoreBucket(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	return decision
+}
+
+func proxyFootprintScoreBucket(originalTokens int, savedTokens int, turnSeq int) string {
+	tokens := savedTokens
+	if tokens <= 0 {
+		tokens = originalTokens
+	}
+	if tokens <= 0 {
+		return ""
+	}
+	multiplier := 1
+	switch {
+	case turnSeq > 0 && turnSeq <= 3:
+		multiplier = 8
+	case turnSeq > 3 && turnSeq <= 8:
+		multiplier = 4
+	}
+	score := tokens * multiplier
+	switch {
+	case score >= 32000:
+		return "high"
+	case score >= 8000:
+		return "mid"
+	default:
+		return "low"
+	}
 }
 
 func proxyLayer0EvidenceSafety(mechanism proxyLayer0Mechanism) evidence.SafetyClass {
@@ -669,12 +700,12 @@ func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savin
 	}
 }
 
-func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int) evidence.BlockDecision {
+func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, turnSeq int) evidence.BlockDecision {
 	analysis := evidence.Analysis{
 		ContentClass: evidence.ContentUnknown,
 		Signals:      []evidence.Signal{evidence.SignalPath, evidence.SignalRecency},
 	}
-	return evidence.DecisionFromObservation(
+	decision := evidence.DecisionFromObservation(
 		0,
 		string(mechanism),
 		proxyLayer0EvidenceSafety(mechanism),
@@ -686,6 +717,8 @@ func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action
 		beforeTokens,
 		afterTokens,
 	)
+	decision.FootprintScoreBucket = proxyFootprintScoreBucket(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	return decision
 }
 
 func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {

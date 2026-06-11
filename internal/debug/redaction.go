@@ -72,6 +72,7 @@ func RedactRequestSummary(s RequestSummary) RequestSummary {
 		decision.Mechanism = redact(decision.Mechanism)
 		decision.Reason = redact(decision.Reason)
 		decision.Recovery = redact(decision.Recovery)
+		decision.FootprintScoreBucket = redact(decision.FootprintScoreBucket)
 		for j := range decision.PreservedEvidence {
 			decision.PreservedEvidence[j] = redact(decision.PreservedEvidence[j])
 		}

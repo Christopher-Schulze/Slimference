@@ -100,16 +100,20 @@ func TestDecisionFromObservationAccountsPositiveAndNegative(t *testing.T) {
 
 func TestRedactDecisionClonesSlices(t *testing.T) {
 	in := BlockDecision{
-		Mechanism:         "search_output",
-		ContentClass:      ContentSearch,
-		Signals:           []Signal{SignalPath},
-		PreservedEvidence: []string{"file"},
+		Mechanism:            "search_output",
+		ContentClass:         ContentSearch,
+		Signals:              []Signal{SignalPath},
+		PreservedEvidence:    []string{"file"},
+		FootprintScoreBucket: "high",
 	}
 	out := RedactDecision(in)
 	out.Signals[0] = SignalWarning
 	out.PreservedEvidence[0] = "changed"
 	if in.Signals[0] != SignalPath || in.PreservedEvidence[0] != "file" {
 		t.Fatalf("redaction should clone slices: in=%+v out=%+v", in, out)
+	}
+	if out.FootprintScoreBucket != "high" {
+		t.Fatalf("redaction should preserve footprint bucket: %+v", out)
 	}
 }
 

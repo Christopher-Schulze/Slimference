@@ -19,6 +19,30 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
+func TestProxyFootprintScoreBucket(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		original int
+		saved    int
+		turnSeq  int
+		want     string
+	}{
+		{name: "none", original: 0, saved: 0, turnSeq: 1, want: ""},
+		{name: "early high", original: 9000, saved: 5000, turnSeq: 2, want: "high"},
+		{name: "mid session mid", original: 3000, saved: 3000, turnSeq: 6, want: "mid"},
+		{name: "late low", original: 3000, saved: 3000, turnSeq: 12, want: "low"},
+		{name: "full pass uses original", original: 1200, saved: 0, turnSeq: 1, want: "mid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := proxyFootprintScoreBucket(tt.original, tt.saved, tt.turnSeq); got != tt.want {
+				t.Fatalf("bucket=%q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyProxyLayer0Branches(t *testing.T) {
 	t.Parallel()
 

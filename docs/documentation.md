@@ -572,6 +572,12 @@ On WSS, tool-prune usage decisions use the same resolved call-id-to-tool map as
 Layer 0, including adapter-remembered tool uses after reconnect, so a current
 tool result keeps its tool active even when the matching function-call item is
 not present in the frame being pruned.
+WSS Layer-0 telemetry also records a deterministic per-session turn sequence and
+adds a content-free `footprint_score_bucket` (`low`, `mid`, or `high`) to
+evidence-backed reducer decisions. The bucket is observability only: it does not
+loosen thresholds or create a mutation path, but it gives the savings scorecard
+and later T359 calibration enough data to prioritize large early-session blocks
+without inspecting payloads.
 Cache-decision counters under `proxy_layer0_cache` separately record route,
 mechanism, `hit`/`miss`, reason, and count for read-delta and exact
 repeated-output. Those reasons make cold starts, first-seed full passes,
