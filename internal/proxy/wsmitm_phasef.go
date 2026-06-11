@@ -160,6 +160,7 @@ type wssRequestMeta struct {
 	TurnSeq            int
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
+	ToolPrune          dbg.ToolPruneSummary
 	BypassReason       string
 	DebugFacts         map[string]string
 }
@@ -589,13 +590,17 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
 	}
-	if pruned, changed, toolPruneGuard := a.applyWSSToolPrune(out, messages, meta); toolPruneGuard != "" {
+	if pruned, changed, toolPrune := a.applyWSSToolPrune(out, messages, meta); toolPrune.GuardReason != "" {
+		meta.ToolPrune = toolPrune.Summary
 		if meta.DebugFacts == nil {
 			meta.DebugFacts = make(map[string]string)
 		}
-		meta.DebugFacts["wss.tool_prune_guard"] = toolPruneGuard
+		meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
 	} else if changed {
+		meta.ToolPrune = toolPrune.Summary
 		out = pruned
+	} else {
+		meta.ToolPrune = toolPrune.Summary
 	}
 	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
 	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce); stats.Reason != "disabled" {
@@ -654,26 +659,37 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUsageWithToolUses(sessionID string,
 	a.p.toolPrune.ObserveTurn(sessionID, used)
 }
 
-func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, string) {
+type wssToolPruneResult struct {
+	Summary     dbg.ToolPruneSummary
+	GuardReason string
+}
+
+func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, wssToolPruneResult) {
 	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
-		return body, false, ""
+		return body, false, wssToolPruneResult{}
 	}
 	sessionID := meta.SessionID
 	if sessionID == "" || !wssBodyHasUserPromptInput(body) {
-		return body, false, ""
+		return body, false, wssToolPruneResult{}
+	}
+	summary := dbg.ToolPruneSummary{
+		Reason:        "no_tools",
+		SessionKeySet: true,
 	}
 	out := body
 	reattachedToolNames := []string(nil)
 	mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID)
 	if reason := wssToolPruneMutationGuardReason(body, messages, meta, mentions); reason != "" {
 		a.observeWSSToolPruneUserTurn(sessionID, messages)
-		return body, false, reason
+		summary.Reason = reason
+		return body, false, wssToolPruneResult{Summary: summary, GuardReason: reason}
 	}
 	if len(mentions) > 0 {
 		defs := a.p.toolPrune.PeekPrunedDefs(sessionID, mentions)
 		if reattached, n, err := toolprune.ReattachToolDefinitions(out, types.CodexChatGPT, defs); err == nil && n > 0 {
 			a.p.toolPrune.ForgetPrunedDefs(sessionID, mentions)
 			out = reattached
+			summary.Reattached += n
 			reattachedToolNames = make([]string, 0, len(defs))
 			for name := range defs {
 				reattachedToolNames = append(reattachedToolNames, name)
@@ -685,7 +701,10 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	}
 	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(out, types.CodexChatGPT)
 	if !schemaSafe || len(toolNames) == 0 {
-		return out, !bytes.Equal(body, out), ""
+		if !schemaSafe {
+			summary.Reason = "unknown_tool_schema_full_pass"
+		}
+		return out, !bytes.Equal(body, out), wssToolPruneResult{Summary: summary}
 	}
 	usedToolNames := extractUsedToolNamesWithResolvedToolUses(messages, meta.ToolUseIndex)
 	usedToolNames = append(usedToolNames, reattachedToolNames...)
@@ -694,9 +713,12 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 		MinKeep:    1,
 		AlwaysKeep: a.p.config.Compression.Tuning.ToolPruneAlwaysKeep,
 	})
+	summary.Reason = decision.Reason
+	summary.AlwaysKept = decision.AlwaysKept
+	summary.Cooldown = decision.Reason == "quality_cooldown"
 	a.p.toolPrune.MarkAlwaysKept(decision.AlwaysKept)
 	if len(decision.Pruned) == 0 {
-		return out, !bytes.Equal(body, out), ""
+		return out, !bytes.Equal(body, out), wssToolPruneResult{Summary: summary}
 	}
 	toPrune := make(map[string]bool, len(decision.Pruned))
 	for _, name := range decision.Pruned {
@@ -704,17 +726,20 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	}
 	prunedBody, removed, err := toolprune.PruneToolDefinitions(out, types.CodexChatGPT, toPrune)
 	if err != nil || len(removed) == 0 {
-		return out, !bytes.Equal(body, out), ""
+		return out, !bytes.Equal(body, out), wssToolPruneResult{Summary: summary}
 	}
 	saved := tokens.ForProvider(types.CodexChatGPT).CountString(string(out)) - tokens.ForProvider(types.CodexChatGPT).CountString(string(prunedBody))
 	if saved <= 0 {
-		return out, !bytes.Equal(body, out), ""
+		return out, !bytes.Equal(body, out), wssToolPruneResult{Summary: summary}
 	}
 	for name, def := range removed {
 		a.p.toolPrune.RememberPrunedDef(sessionID, name, def)
 	}
 	a.p.toolPrune.MarkPruned(saved)
-	return prunedBody, true, ""
+	summary.Applied = true
+	summary.PrunedTools = len(removed)
+	summary.SavedTokens = saved
+	return prunedBody, true, wssToolPruneResult{Summary: summary}
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUserTurn(sessionID string, messages []types.Message) {
@@ -1150,6 +1175,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Saved:       saved,
 			Ratio:       ratio,
 		},
+		ToolPrune:         meta.ToolPrune,
 		OutputReduce:      outputReduceSummary,
 		EvidenceDecisions: l0Stats.EvidenceDecisions,
 		DebugFacts:        debugFacts,

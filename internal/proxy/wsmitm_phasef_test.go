@@ -1724,6 +1724,24 @@ func TestWSPhaseFToolPrunePrunesIdleCodexTools(t *testing.T) {
 	if snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 || snap.AlwaysKeepTotal == 0 {
 		t.Fatalf("tool-prune snapshot = %+v, want one pruned tool with savings and always-keep", snap)
 	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.ToolPrune.PrunedTools != 1 ||
+		summary.ToolPrune.SavedTokens <= 0 ||
+		summary.ToolPrune.AlwaysKept == 0 {
+		t.Fatalf("WSS tool-prune summary did not account applied savings: %+v", summary.ToolPrune)
+	}
+	if summary.Flight == nil ||
+		!summary.Flight.ToolPrune.Applied ||
+		summary.Flight.ToolPrune.SavedTokens != summary.ToolPrune.SavedTokens {
+		t.Fatalf("WSS flight tool-prune accounting missing: %+v", summary.Flight)
+	}
+	toolPruneMechanism := mechanismByNameForTest(summary.Mechanisms, "tool_prune")
+	if toolPruneMechanism.SavedTokens != summary.ToolPrune.SavedTokens ||
+		toolPruneMechanism.NetTokens != summary.ToolPrune.SavedTokens {
+		t.Fatalf("WSS tool-prune mechanism accounting mismatch: %+v summary=%+v", toolPruneMechanism, summary.ToolPrune)
+	}
 }
 
 func TestWSPhaseFToolPruneAcceptsCodexDesktopSpecialToolShapes(t *testing.T) {
@@ -1834,6 +1852,11 @@ func TestWSPhaseFToolPruneSkipsPreviousResponseDeltaTurns(t *testing.T) {
 	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" || summary.Tokens.Saved != 0 {
 		t.Fatalf("delta tool-prune guard summary missing: %+v", summary)
 	}
+	if summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "wss_tool_prune_delta_guard" ||
+		summary.ToolPrune.SavedTokens != 0 {
+		t.Fatalf("delta tool-prune guard must be accounted without savings: %+v", summary.ToolPrune)
+	}
 }
 
 func TestWSPhaseFToolPruneAllowsPreviousResponseFullHistoryTurns(t *testing.T) {
@@ -1893,6 +1916,12 @@ func TestWSPhaseFToolPruneAllowsPreviousResponseFullHistoryTurns(t *testing.T) {
 		summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.delta_shape"] != "false" {
 		t.Fatalf("full-history tool-prune summary should save without delta guard: %+v", summary)
+	}
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.ToolPrune.PrunedTools != 1 ||
+		summary.ToolPrune.SavedTokens <= 0 {
+		t.Fatalf("full-history WSS tool-prune summary missing savings: %+v", summary.ToolPrune)
 	}
 }
 
@@ -2027,6 +2056,12 @@ func TestWSPhaseFToolPruneUnknownSchemaFullPasses(t *testing.T) {
 	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 0 {
 		t.Fatalf("unknown schema must not prune: %+v", snap)
 	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "unknown_tool_schema_full_pass" ||
+		summary.ToolPrune.SavedTokens != 0 {
+		t.Fatalf("unknown schema full-pass must be accounted without savings: %+v", summary.ToolPrune)
+	}
 }
 
 func TestWSPhaseFToolPruneReattachesMentionedTool(t *testing.T) {
@@ -2072,6 +2107,12 @@ func TestWSPhaseFToolPruneReattachesMentionedTool(t *testing.T) {
 	snap := p.toolPrune.Snapshot()
 	if snap.ReattachTotal != 1 || snap.PrunedTotal != 0 {
 		t.Fatalf("tool-prune snapshot = %+v, want one reattach and no same-turn prune", snap)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reattached != 1 ||
+		summary.ToolPrune.SavedTokens != 0 {
+		t.Fatalf("WSS reattach summary should account overhead without savings claim: %+v", summary.ToolPrune)
 	}
 }
 
@@ -2123,6 +2164,12 @@ func TestWSPhaseFToolPruneSkipsReattachOnPreviousResponseDeltaTurns(t *testing.T
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" || summary.Tokens.Saved != 0 {
 		t.Fatalf("delta reattach guard summary missing: %+v", summary)
+	}
+	if summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "wss_tool_prune_delta_guard" ||
+		summary.ToolPrune.Reattached != 0 ||
+		summary.ToolPrune.SavedTokens != 0 {
+		t.Fatalf("delta reattach guard must be accounted without mutation: %+v", summary.ToolPrune)
 	}
 }
 
@@ -2177,6 +2224,11 @@ func TestWSPhaseFToolPruneReattachesPreviousResponseFullHistoryTurns(t *testing.
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
 		summary.Tokens.Saved != 0 {
 		t.Fatalf("full-history reattach summary should mutate without savings claim or delta guard: %+v", summary)
+	}
+	if summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reattached != 1 ||
+		summary.ToolPrune.SavedTokens != 0 {
+		t.Fatalf("full-history WSS reattach summary should account overhead without savings claim: %+v", summary.ToolPrune)
 	}
 }
 
