@@ -100,6 +100,7 @@ var (
 )
 
 var codexDesktopStartProbeDelay = 750 * time.Millisecond
+var codexDesktopStartProbePollInterval = 25 * time.Millisecond
 
 // codexDesktopEnvOverrideKeys is the set of env names this launcher
 // injects. We set ALL candidates defensively because no single name
@@ -678,18 +679,31 @@ func startCodexDesktopProcess(p installPrinter, binary string, args []string, en
 	}
 	pid := cmd.Process.Pid
 	if codexDesktopStartProbeDelay > 0 {
-		time.Sleep(codexDesktopStartProbeDelay)
-		var status syscall.WaitStatus
-		waitedPID, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-		if err != nil {
-			_ = cmd.Process.Release()
-			fmt.Fprintf(p.Err, "codex launch-desktop: start verification failed for PID %d: %v\n", pid, err)
-			return 1
-		}
-		if waitedPID == pid {
-			_ = cmd.Process.Release()
-			fmt.Fprintf(p.Err, "codex launch-desktop: process exited during startup (PID %d, %s)\n", pid, formatCodexDesktopWaitStatus(status))
-			return 1
+		deadline := time.Now().Add(codexDesktopStartProbeDelay)
+		for {
+			var status syscall.WaitStatus
+			waitedPID, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+			if err != nil {
+				_ = cmd.Process.Release()
+				fmt.Fprintf(p.Err, "codex launch-desktop: start verification failed for PID %d: %v\n", pid, err)
+				return 1
+			}
+			if waitedPID == pid {
+				_ = cmd.Process.Release()
+				fmt.Fprintf(p.Err, "codex launch-desktop: process exited during startup (PID %d, %s)\n", pid, formatCodexDesktopWaitStatus(status))
+				return 1
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+			sleep := codexDesktopStartProbePollInterval
+			if remaining := time.Until(deadline); remaining < sleep {
+				sleep = remaining
+			}
+			if sleep <= 0 {
+				break
+			}
+			time.Sleep(sleep)
 		}
 	}
 	if err := cmd.Process.Release(); err != nil {

@@ -980,6 +980,60 @@ func TestTryCompactTestOutput_nonEmptyGoTestPass(t *testing.T) {
 	}
 }
 
+func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
+	t.Parallel()
+	ctest := strings.Join([]string{
+		"Test project /repo/build",
+		"      Start  1: alpha",
+		" 1/12 Test  #1: alpha ...........................   Passed    0.01 sec",
+		strings.Repeat(" 2/12 Test  #2: beta ............................   Passed    0.01 sec\n", 20),
+		"100% tests passed, 0 tests failed out of 12",
+	}, "\n")
+	out, ok := TryCompactTestOutput([]string{"ctest", "--output-on-failure"}, []byte(ctest))
+	if !ok || string(out) != "[ctest] ok (100% tests passed, 0 tests failed out of 12)\n" {
+		t.Fatalf("ctest all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+
+	phpunit := strings.Join([]string{
+		"PHPUnit 10.5.0 by Sebastian Bergmann and contributors.",
+		"",
+		strings.Repeat(".", 80) + " 80 / 80 (100%)",
+		"",
+		"Time: 00:00.123, Memory: 12.00 MB",
+		"",
+		"OK (80 tests, 240 assertions)",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"phpunit", "tests/"}, []byte(phpunit))
+	if !ok || string(out) != "[phpunit] ok (80 tests, 240 assertions)\n" {
+		t.Fatalf("phpunit all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+
+	gradle := strings.Join([]string{
+		"> Task :compileJava",
+		"> Task :test",
+		strings.Repeat("> Task :subproject:test\n", 40),
+		"BUILD SUCCESSFUL in 2s",
+		"12 actionable tasks: 12 executed",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"./gradlew", "test"}, []byte(gradle))
+	if !ok || string(out) != "[gradle test] ok (BUILD SUCCESSFUL in 2s)\n" {
+		t.Fatalf("gradle all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
+	t.Parallel()
+	if _, ok := TryCompactCtest([]string{"ctest"}, []byte("90% tests passed, 1 tests failed out of 10\nThe following tests FAILED:\n")); ok {
+		t.Fatal("ctest failure output must fail open")
+	}
+	if _, ok := TryCompactPhpunit([]string{"phpunit"}, []byte("OK, but there were issues!\nTests: 10, Assertions: 20, Warnings: 1.\n")); ok {
+		t.Fatal("phpunit warning output must fail open")
+	}
+	if _, ok := TryCompactGradleTest([]string{"gradle", "test"}, []byte("BUILD SUCCESSFUL in 1s\nDeprecated Gradle features were used in this build.\n")); ok {
+		t.Fatal("gradle deprecation output must fail open")
+	}
+}
+
 func TestTryCompactTestOutput_nonEmptyGoTestFail(t *testing.T) {
 	t.Parallel()
 	// go test with failing output

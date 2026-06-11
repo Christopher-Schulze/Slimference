@@ -1189,11 +1189,10 @@ func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
 	script := writeCodexDesktopTestScript(t, "#!/bin/sh\nexit 0\n")
 	oldDelay := codexDesktopStartProbeDelay
 	t.Cleanup(func() { codexDesktopStartProbeDelay = oldDelay })
-	// 250ms (not 25ms): the probe must reliably observe the forked shell's
-	// exit even under heavy parallel `go test ./...` load. A 25ms window gets
-	// starved before `exit 0` is scheduled, falsely reporting a launch (flaky).
-	// Production uses 750ms, so this neither weakens the check nor masks it.
-	codexDesktopStartProbeDelay = 250 * time.Millisecond
+	// Use the production deadline. Under full package load the forked shell can
+	// be scheduled after a short synthetic 250ms window, falsely reporting a
+	// launch even though the process exits immediately once it runs.
+	codexDesktopStartProbeDelay = 750 * time.Millisecond
 
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},

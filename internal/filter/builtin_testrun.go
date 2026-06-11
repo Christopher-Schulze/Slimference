@@ -357,9 +357,40 @@ func TryCompactGinkgo(argv []string, stdout []byte) ([]byte, bool) {
 	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "ginkgo")
 }
 
-// TryCompactCtest summarizes empty stdout from `ctest` / `npx|pnpm exec|yarn … ctest` (CMake; F08 partial).
+// TryCompactCtest summarizes `ctest` / `npx|pnpm exec|yarn ... ctest`.
 func TryCompactCtest(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "ctest")
+	if !isSingleBinarySubcmdArgv(argv, "ctest", "") {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[ctest] ok\n"), true
+	}
+	return compactCtestAllPass(stdout)
+}
+
+func compactCtestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	if !strings.Contains(low, "tests passed") || !strings.Contains(low, "0 tests failed") {
+		return stdout, false
+	}
+	for _, marker := range []string{"errors while running ctest", "the following tests failed", "timeout", "not run"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		tl := strings.ToLower(t)
+		if strings.Contains(tl, "tests passed") && strings.Contains(tl, "0 tests failed") {
+			out := fmt.Sprintf("[ctest] ok (%s)\n", t)
+			if len(out) >= len(s) {
+				return stdout, false
+			}
+			return []byte(out), true
+		}
+	}
+	return stdout, false
 }
 
 // TryCompactPytest summarizes empty stdout from `pytest` / `py.test` / `python -m pytest` / `npx|pnpm exec|yarn … pytest` (F08 partial).
@@ -410,26 +441,40 @@ func compactPytestVerbosePass(stdout []byte) ([]byte, bool) {
 	return []byte(out), true
 }
 
-// TryCompactPhpunit summarizes empty stdout from `phpunit` / `npx|pnpm exec|yarn … phpunit` (F08 partial).
+// TryCompactPhpunit summarizes `phpunit` / `npx|pnpm exec|yarn ... phpunit`.
 func TryCompactPhpunit(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isPhpunitArgv(argv) {
 		return stdout, false
 	}
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "phpunit" || b == "phpunit.phar" {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[phpunit] ok\n"), true
 	}
-	if npxMatches(argv, "phpunit") {
-		return []byte("[phpunit] ok\n"), true
+	return compactPhpunitAllPass(stdout)
+}
+
+func isPhpunitArgv(argv []string) bool {
+	return isSingleBinarySubcmdArgv(argv, "phpunit", "") ||
+		isSingleBinarySubcmdArgv(argv, "phpunit.phar", "")
+}
+
+func compactPhpunitAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failures!", "errors!", "warning", "risky", "skipped", "incomplete", "deprecation", "there was", "there were"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
 	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "phpunit" {
-		return []byte("[phpunit] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "phpunit" {
-		return []byte("[phpunit] ok\n"), true
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "OK (") && strings.HasSuffix(t, ")") {
+			summary := strings.TrimSuffix(strings.TrimPrefix(t, "OK ("), ")")
+			out := fmt.Sprintf("[phpunit] ok (%s)\n", summary)
+			if len(out) >= len(s) {
+				return stdout, false
+			}
+			return []byte(out), true
+		}
 	}
 	return stdout, false
 }
@@ -1095,29 +1140,61 @@ func isGradleTestBin(name string) bool {
 	return b == "gradle" || b == "gradle.bat" || b == "gradlew" || b == "gradlew.bat"
 }
 
-// TryCompactGradleTest summarizes empty stdout from `gradle test` / `gradlew test` / `npx|pnpm exec|yarn … gradle|gradlew …` when `test` appears as a task token (F08 partial).
+// TryCompactGradleTest summarizes `gradle test` / `gradlew test` /
+// `npx|pnpm exec|yarn ... gradle|gradlew ...` when `test` appears as a task token.
 func TryCompactGradleTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isGradleTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[gradle test] ok\n"), true
+	}
+	return compactGradleTestAllPass(stdout)
+}
+
+func isGradleTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	if !argvHasExactToken(argv, "test") {
-		return stdout, false
+		return false
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if isGradleTestBin(argv[0]) {
-		return []byte("[gradle test] ok\n"), true
+		return true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && isGradleTestBin(rest[0]) {
-		return []byte("[gradle test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isGradleTestBin(argv[2]) {
-		return []byte("[gradle test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isGradleTestBin(argv[1]) {
-		return []byte("[gradle test] ok\n"), true
+		return true
+	}
+	return false
+}
+
+func compactGradleTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	if !strings.Contains(low, "build successful") {
+		return stdout, false
+	}
+	for _, marker := range []string{"failed", "failure", "exception", "error", "warning", "deprecated", "problems report"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "BUILD SUCCESSFUL") {
+			out := fmt.Sprintf("[gradle test] ok (%s)\n", t)
+			if len(out) >= len(s) {
+				return stdout, false
+			}
+			return []byte(out), true
+		}
 	}
 	return stdout, false
 }
