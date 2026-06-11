@@ -1287,6 +1287,249 @@ func TestWSPhaseFCacheBustDemotionFullPassesMatchingLayer0Mechanism(t *testing.T
 	}
 }
 
+func TestWSPhaseFHistoryMutationsAreByteDeterministicAcrossReconnect(t *testing.T) {
+	sharedChunk := strings.Repeat("deterministic chunk shared region with cache stable bytes\n", 1000)
+	readOutput := strings.Repeat("deterministic read line with stable content\n", 120)
+	reportOutput := strings.Repeat("deterministic report row with unchanged non-file data\n", 100)
+	statusOutput := strings.Repeat("?? deterministic_status_file.go\n", 180)
+	envelopeOutput := deterministicCodexExecEnvelope("deterministic-envelope", false)
+	cases := []struct {
+		name        string
+		sessionID   string
+		configure   func(*config.Config)
+		seedBodies  [][]byte
+		body        []byte
+		assertStats func(*testing.T, proxyLayer0Stats)
+		assertBody  func(*testing.T, []byte)
+	}{
+		{
+			name:      "read_delta",
+			sessionID: "codex-wss:deterministic-read-delta",
+			seedBodies: [][]byte{wssToolOutputBody("deterministic-read-delta", "call_read_seed", "read_file",
+				map[string]any{"path": "src/deterministic.go"}, readOutput)},
+			body: wssToolOutputBody("deterministic-read-delta", "call_read_candidate", "read_file",
+				map[string]any{"path": "src/deterministic.go"}, readOutput),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.ReadDeltaBlocks != 1 || stats.TokensSaved <= 0 {
+					t.Fatalf("read_delta did not fire deterministically: %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("kind=file-read")) || !bytes.Contains(body, []byte("archive=local-archive://")) {
+					t.Fatalf("read_delta body missing recoverable marker: %s", body)
+				}
+			},
+		},
+		{
+			name:      "repeated_output",
+			sessionID: "codex-wss:deterministic-repeated-output",
+			seedBodies: [][]byte{wssToolOutputBody("deterministic-repeated-output", "call_report_seed", "exec_command",
+				map[string]any{"cmd": "python generate_report.py"}, reportOutput)},
+			body: wssToolOutputBody("deterministic-repeated-output", "call_report_candidate", "exec_command",
+				map[string]any{"cmd": "python generate_report.py"}, reportOutput),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.RepeatedOutputBlocks != 1 || stats.TokensSaved <= 0 {
+					t.Fatalf("repeated_output did not fire deterministically: %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("kind=tool-output")) || !bytes.Contains(body, []byte("archive=local-archive://")) {
+					t.Fatalf("repeated_output body missing recoverable marker: %s", body)
+				}
+			},
+		},
+		{
+			name:      "chunk_dedup",
+			sessionID: "codex-wss:deterministic-chunk-dedup",
+			configure: func(cfg *config.Config) {
+				cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+				cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+				cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+				cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+				cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
+			},
+			seedBodies: [][]byte{wssToolOutputBody("deterministic-chunk-dedup", "call_chunk_seed", "read_file",
+				map[string]any{"path": "src/chunk-a.go"}, sharedChunk+"tail a\n")},
+			body: wssToolOutputBody("deterministic-chunk-dedup", "call_chunk_candidate", "read_file",
+				map[string]any{"path": "src/chunk-b.go"}, sharedChunk+"tail b\n"),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.ChunkDedupBlocks != 1 || stats.TokensSaved <= 0 {
+					t.Fatalf("chunk_dedup did not fire deterministically: %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("[context-chunk status=unchanged uri=local-archive://")) {
+					t.Fatalf("chunk_dedup body missing recoverable chunk reference: %s", body)
+				}
+			},
+		},
+		{
+			name:      "captured_output",
+			sessionID: "codex-wss:deterministic-captured-output",
+			body: wssToolOutputBody("deterministic-captured-output", "call_status", "exec_command",
+				map[string]any{"cmd": "git status --short"}, statusOutput),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.CapturedOutputBlocks != 1 || stats.TokensSaved <= 0 {
+					t.Fatalf("captured_output did not fire deterministically: %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("[git status]")) || !bytes.Contains(body, []byte("local-archive://")) {
+					t.Fatalf("captured_output body missing compact status archive: %s", body)
+				}
+			},
+		},
+		{
+			name:      "codex_exec_envelope",
+			sessionID: "codex-wss:deterministic-codex-envelope",
+			body: wssToolOutputBody("deterministic-codex-envelope", "call_tests", "exec_command",
+				map[string]any{"cmd": "go test ./..."}, envelopeOutput),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.CodexExecEnvelopeBlocks != 1 || stats.TokensSaved <= 0 {
+					t.Fatalf("codex_exec_envelope did not fire deterministically: %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("SLIMFERENCE_TEST_FAILURE_SENTINEL")) ||
+					!bytes.Contains(body, []byte("local-archive://")) ||
+					bytes.Contains(body, []byte("TestPassing089")) {
+					t.Fatalf("codex_exec_envelope body lost failure detail or failed compaction: %s", body)
+				}
+			},
+		},
+		{
+			name:      "stale_read_aging",
+			sessionID: "codex-wss:deterministic-stale-read",
+			configure: func(cfg *config.Config) {
+				cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+				cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+			},
+			body: codexWSReadBody("Read", strings.Repeat("stale deterministic file content ", 80), "fresh deterministic file content"),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.TokensSaved != 0 || stats.BlocksModified != 0 {
+					t.Fatalf("stale_read_aging should mutate before Layer-0 stats, got %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("kind=stale-read")) || bytes.Contains(body, []byte("stale deterministic file content")) {
+					t.Fatalf("stale_read_aging body not deterministic/pruned: %s", body)
+				}
+			},
+		},
+		{
+			name:      "obsolete_read_prune",
+			sessionID: "codex-wss:deterministic-obsolete-read",
+			configure: func(cfg *config.Config) {
+				cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+			},
+			body: codexWSObsoleteReadBody(strings.Repeat("obsolete deterministic file content ", 80)),
+			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
+				t.Helper()
+				if stats.TokensSaved != 0 || stats.BlocksModified != 0 {
+					t.Fatalf("obsolete_read_prune should mutate before Layer-0 stats, got %+v", stats)
+				}
+			},
+			assertBody: func(t *testing.T, body []byte) {
+				t.Helper()
+				if !bytes.Contains(body, []byte("kind=obsolete-read")) || bytes.Contains(body, []byte("obsolete deterministic file content")) {
+					t.Fatalf("obsolete_read_prune body not deterministic/pruned: %s", body)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			first := runWSSDeterminismWorld(t, tc.sessionID, tc.configure, tc.seedBodies, tc.body)
+			second := runWSSDeterminismWorld(t, tc.sessionID, tc.configure, tc.seedBodies, tc.body)
+			if !first.changed || !second.changed {
+				t.Fatalf("determinism fixture must mutate in both worlds, first=%+v second=%+v", first.stats, second.stats)
+			}
+			if !bytes.Equal(first.body, second.body) {
+				t.Fatalf("mutation is not byte-deterministic across reconnect\nfirst:  %s\nsecond: %s", first.body, second.body)
+			}
+			tc.assertStats(t, first.stats)
+			tc.assertStats(t, second.stats)
+			tc.assertBody(t, first.body)
+			tc.assertBody(t, second.body)
+		})
+	}
+}
+
+type wssDeterminismRun struct {
+	body    []byte
+	stats   proxyLayer0Stats
+	changed bool
+}
+
+func runWSSDeterminismWorld(t *testing.T, sessionID string, configure func(*config.Config), seedBodies [][]byte, body []byte) wssDeterminismRun {
+	t.Helper()
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	defer func() { proxyUserHomeDir = oldHome }()
+	cleanupPhaseFTempHome(t, home, sessionID)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	if configure != nil {
+		configure(cfg)
+	}
+	p := New(cfg)
+	seedAdapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	for _, seedBody := range seedBodies {
+		_, _, _, _, _ = seedAdapter.applyInputPipeline(seedBody)
+	}
+	reconnectedAdapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	mutated, _, changed, stats, _ := reconnectedAdapter.applyInputPipeline(body)
+	return wssDeterminismRun{body: mutated, stats: stats, changed: changed}
+}
+
+func wssToolOutputBody(promptCacheKey, callID, toolName string, toolInput map[string]any, output string) []byte {
+	return mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": promptCacheKey,
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": callID, "name": toolName, "arguments": toolInput},
+			{"type": "function_call_output", "call_id": callID, "output": output},
+		},
+		"stream": true,
+	})
+}
+
+func deterministicCodexExecEnvelope(chunkID string, passing bool) string {
+	var payload strings.Builder
+	exitCode := "1"
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	if passing {
+		exitCode = "0"
+		payload.WriteString("PASS\nok  \texample.test/liveproof\t0.015s\n")
+	} else {
+		payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+		payload.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+		payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+		payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	}
+	return "Chunk ID: " + chunkID + "\nWall time: 0.0000 seconds\nProcess exited with code " + exitCode + "\nOriginal token count: 10000\nOutput:\n" + payload.String()
+}
+
 func TestWSPhaseFUpstreamErrorQuarantinesSessionMutations(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
