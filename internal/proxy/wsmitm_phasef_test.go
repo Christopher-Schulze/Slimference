@@ -1870,6 +1870,66 @@ func TestWSPhaseFToolPruneUsageObservesResolvedToolResults(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFToolPruneKeepsResolvedToolResultActive(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-resolved-active"
+	const callID = "call_cold_tool"
+	p.toolPrune.ObserveTurn(sessionID, []string{"ColdTool", "IdleTool"})
+	p.toolPrune.ObserveTurn(sessionID, nil)
+	adapter.mu.Lock()
+	adapter.sessionID = sessionID
+	adapter.toolUseHydrated = true
+	adapter.toolUses = map[string]types.ContentBlock{
+		callID: {Type: "tool_use", ToolUseID: callID, ToolName: "ColdTool"},
+	}
+	adapter.mu.Unlock()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-resolved-active",
+			"input": []map[string]any{
+				{"type": "function_call_output", "call_id": callID, "output": "cold tool result just arrived"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("ColdTool", strings.Repeat("Recently used expensive schema. ", 80)),
+				codexToolDefinition("IdleTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected WSS tool-prune mutation")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "ColdTool") {
+		t.Fatalf("resolved active tool was pruned: %s", body)
+	}
+	if strings.Contains(body, "IdleTool") {
+		t.Fatalf("idle tool should still be pruned: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 {
+		t.Fatalf("tool-prune snapshot = %+v, want one idle prune with savings", snap)
+	}
+}
+
 func TestWSPhaseFToolPruneUnknownSchemaFullPasses(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false

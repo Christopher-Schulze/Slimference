@@ -605,7 +605,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	if !schemaSafe || len(toolNames) == 0 {
 		return out, !bytes.Equal(body, out), ""
 	}
-	usedToolNames := extractUsedToolNames(messages)
+	usedToolNames := extractUsedToolNamesWithResolvedToolUses(messages, meta.ToolUseIndex)
 	usedToolNames = append(usedToolNames, reattachedToolNames...)
 	a.p.toolPrune.ObserveTurn(sessionID, usedToolNames)
 	decision := a.p.toolPrune.DecideWithOptions(sessionID, toolNames, toolprune.DecisionOptions{

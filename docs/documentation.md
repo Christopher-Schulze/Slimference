@@ -568,6 +568,10 @@ content-free policy counters under `proxy_layer0_policy` keyed by route,
 mechanism, action, reason, and block reason. Opportunity and miss fields make
 hit-rate visible without claiming savings. The modified-block and mechanism-hit
 fields are success counters and are only recorded with a positive token saving.
+On WSS, tool-prune usage decisions use the same resolved call-id-to-tool map as
+Layer 0, including adapter-remembered tool uses after reconnect, so a current
+tool result keeps its tool active even when the matching function-call item is
+not present in the frame being pruned.
 Cache-decision counters under `proxy_layer0_cache` separately record route,
 mechanism, `hit`/`miss`, reason, and count for read-delta and exact
 repeated-output. Those reasons make cold starts, first-seed full passes,
