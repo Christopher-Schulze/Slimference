@@ -25,6 +25,7 @@ func (p DaemonProbe) ProbeDaemon(_ context.Context) control.DaemonState {
 		HealthOK:          true,
 		PID:               os.Getpid(),
 		RSSBytes:          snap.RSSBytes,
+		GoRetainedBytes:   snap.GoRetainedBytes,
 		UptimeSec:         p.Proxy.uptimeSeconds(),
 		CPUUserSeconds:    snap.CPUUserSeconds,
 		CPUSystemSeconds:  snap.CPUSystemSeconds,

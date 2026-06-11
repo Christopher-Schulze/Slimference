@@ -3,6 +3,7 @@ package hostmetrics
 import (
 	"io/fs"
 	"os"
+	"runtime/metrics"
 )
 
 // ProcessSnapshot is a content-free resource sample for one local process.
@@ -10,6 +11,8 @@ type ProcessSnapshot struct {
 	PID               int
 	RSSBytes          int64
 	RSSKnown          bool
+	GoRetainedBytes   int64
+	GoRetainedKnown   bool
 	CPUUserSeconds    float64
 	CPUSystemSeconds  float64
 	CPUPercent        float64
@@ -35,6 +38,10 @@ func CurrentProcess(pid int) ProcessSnapshot {
 		s.RSSKnown = true
 	}
 	if pid == os.Getpid() {
+		if retained, ok := goRetainedBytes(); ok {
+			s.GoRetainedBytes = retained
+			s.GoRetainedKnown = true
+		}
 		if cpu, ok := currentCPUTime(); ok {
 			s.CPUUserSeconds = cpu.UserSeconds
 			s.CPUSystemSeconds = cpu.SystemSeconds
@@ -47,6 +54,27 @@ func CurrentProcess(pid int) ProcessSnapshot {
 		}
 	}
 	return s
+}
+
+// goRetainedBytes reports the memory the Go runtime actually retains from
+// the OS: everything it mapped minus pages already released back. ps-RSS on
+// macOS keeps counting MADV_FREE pages until the kernel lazily reclaims
+// them, so RSS alone overstates real memory pressure for a pure-Go daemon.
+func goRetainedBytes() (int64, bool) {
+	samples := []metrics.Sample{
+		{Name: "/memory/classes/total:bytes"},
+		{Name: "/memory/classes/heap/released:bytes"},
+	}
+	metrics.Read(samples)
+	if samples[0].Value.Kind() != metrics.KindUint64 || samples[1].Value.Kind() != metrics.KindUint64 {
+		return 0, false
+	}
+	total := samples[0].Value.Uint64()
+	released := samples[1].Value.Uint64()
+	if released > total {
+		return 0, false
+	}
+	return int64(total - released), true
 }
 
 // CPUTime is the process CPU time consumed so far.

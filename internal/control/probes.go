@@ -120,6 +120,7 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 		PID               int     `json:"pid"`
 		Version           string  `json:"version"`
 		RSSBytes          int64   `json:"rss_bytes"`
+		GoRetainedBytes   int64   `json:"go_retained_bytes"`
 		UptimeSec         int64   `json:"uptime_sec"`
 		CPUUserSeconds    float64 `json:"cpu_user_seconds"`
 		CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
@@ -135,6 +136,7 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	state.PID = body.PID
 	state.RSSBytes = body.RSSBytes
+	state.GoRetainedBytes = body.GoRetainedBytes
 	state.UptimeSec = body.UptimeSec
 	state.CPUUserSeconds = body.CPUUserSeconds
 	state.CPUSystemSeconds = body.CPUSystemSeconds

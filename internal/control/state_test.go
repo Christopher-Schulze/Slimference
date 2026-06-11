@@ -266,6 +266,25 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 			reasons: 1,
 		},
 		{
+			name: "lazy madv_free rss ignored when runtime retains less",
+			daemon: DaemonState{
+				RSSBytes:        DefaultHostRSSBudgetBytes * 2,
+				GoRetainedBytes: 64 * 1024 * 1024,
+			},
+			wss:  WSSState{EngineActive: true},
+			want: "ok",
+		},
+		{
+			name: "real runtime retention over budget still exceeds",
+			daemon: DaemonState{
+				RSSBytes:        DefaultHostRSSBudgetBytes * 2,
+				GoRetainedBytes: DefaultHostRSSBudgetBytes + 1,
+			},
+			wss:     WSSState{EngineActive: true},
+			want:    "attention",
+			reasons: 1,
+		},
+		{
 			name:    "state exceeded",
 			daemon:  DaemonState{RSSBytes: 64 * 1024 * 1024, StateBytes: DefaultHostStateBudgetBytes + 1},
 			wss:     WSSState{EngineActive: true},

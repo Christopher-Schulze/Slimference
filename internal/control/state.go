@@ -55,6 +55,7 @@ type DaemonState struct {
 	PID               int     `json:"pid"`
 	HealthOK          bool    `json:"health_ok"`
 	RSSBytes          int64   `json:"rss_bytes"`
+	GoRetainedBytes   int64   `json:"go_retained_bytes"`
 	UptimeSec         int64   `json:"uptime_sec"`
 	CPUUserSeconds    float64 `json:"cpu_user_seconds"`
 	CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
@@ -415,6 +416,8 @@ type HostBudgetState struct {
 	Status                  string   `json:"status"`
 	Exceeded                bool     `json:"exceeded"`
 	RSSBytes                int64    `json:"rss_bytes"`
+	GoRetainedBytes         int64    `json:"go_retained_bytes"`
+	EffectiveRSSBytes       int64    `json:"effective_rss_bytes"`
 	RSSLimitBytes           int64    `json:"rss_limit_bytes"`
 	CPUPercent              float64  `json:"cpu_percent"`
 	CPUWindowPercent        float64  `json:"cpu_window_percent"`
@@ -435,9 +438,19 @@ type HostBudgetState struct {
 }
 
 func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
+	// ps-RSS on macOS keeps counting MADV_FREE pages the kernel has not
+	// reclaimed yet, so it overstates real pressure for a pure-Go daemon and
+	// flaps the budget. When the runtime reports how much memory it actually
+	// retains, budget on that; ps-RSS stays visible for transparency.
+	effectiveRSS := daemon.RSSBytes
+	if daemon.GoRetainedBytes > 0 && daemon.GoRetainedBytes < effectiveRSS {
+		effectiveRSS = daemon.GoRetainedBytes
+	}
 	state := HostBudgetState{
 		Status:                  "ok",
 		RSSBytes:                daemon.RSSBytes,
+		GoRetainedBytes:         daemon.GoRetainedBytes,
+		EffectiveRSSBytes:       effectiveRSS,
 		RSSLimitBytes:           DefaultHostRSSBudgetBytes,
 		CPUPercent:              daemon.CPUPercent,
 		CPUWindowPercent:        daemon.CPUWindowPercent,
@@ -456,7 +469,7 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 		MutationActive:          wss.MutationActive,
 	}
 	resourceUnknown := daemon.RSSBytes <= 0
-	if daemon.RSSBytes > DefaultHostRSSBudgetBytes {
+	if effectiveRSS > DefaultHostRSSBudgetBytes {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "rss_budget_exceeded")
 	}

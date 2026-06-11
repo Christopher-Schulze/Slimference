@@ -21,6 +21,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Version           string          `json:"version"`
 		PID               int             `json:"pid"`
 		RSSBytes          int64           `json:"rss_bytes"`
+		GoRetainedBytes   int64           `json:"go_retained_bytes"`
 		UptimeSec         int64           `json:"uptime_sec"`
 		CPUUserSeconds    float64         `json:"cpu_user_seconds"`
 		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
@@ -42,6 +43,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Version:           Version,
 		PID:               os.Getpid(),
 		RSSBytes:          resource.RSSBytes,
+		GoRetainedBytes:   resource.GoRetainedBytes,
 		UptimeSec:         p.uptimeSeconds(),
 		CPUUserSeconds:    resource.CPUUserSeconds,
 		CPUSystemSeconds:  resource.CPUSystemSeconds,
