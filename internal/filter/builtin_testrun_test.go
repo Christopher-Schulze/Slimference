@@ -1126,3 +1126,61 @@ func TestTestToolLabel_switchCases(t *testing.T) {
 		}
 	}
 }
+
+func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
+	t.Parallel()
+
+	var cargo strings.Builder
+	cargo.WriteString("   Compiling slimtest v0.1.0\n    Finished test profile\n     Running unittests src/lib.rs\n\nrunning 80 tests\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&cargo, "test alpha::op_%03d ... ok\n", i)
+	}
+	cargo.WriteString("\ntest result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n")
+	out, ok := TryCompactCargoTest([]string{"cargo", "test"}, []byte(cargo.String()))
+	if !ok || !strings.Contains(string(out), "[cargo test] ok - 80 passed") ||
+		!strings.Contains(string(out), "test result: ok. 80 passed; 0 failed") ||
+		strings.Contains(string(out), "alpha::op_000") {
+		t.Fatalf("cargo verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactCargoTest([]string{"cargo", "test"}, []byte("running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n")); ok {
+		t.Fatal("cargo failure must fail open")
+	}
+
+	var py strings.Builder
+	py.WriteString("============================= test session starts ==============================\n")
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&py, "tests/test_alpha.py::test_op_%03d PASSED                                  [ %2d%%]\n", i, i)
+	}
+	py.WriteString("============================== 90 passed in 0.42s ===============================\n")
+	out, ok = TryCompactPytest([]string{"pytest", "-v"}, []byte(py.String()))
+	if !ok || !strings.Contains(string(out), "[pytest] ok - 90 passed") ||
+		!strings.Contains(string(out), "90 passed in 0.42s") ||
+		strings.Contains(string(out), "test_op_000") {
+		t.Fatalf("pytest verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactPytest([]string{"pytest", "-v"}, []byte("tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n")); ok {
+		t.Fatal("pytest failure must fail open")
+	}
+
+	var js strings.Builder
+	js.WriteString("PASS src/alpha.test.ts\n")
+	for i := 0; i < 70; i++ {
+		fmt.Fprintf(&js, "  ✓ renders op %03d (2 ms)\n", i)
+	}
+	js.WriteString("\nTests: 70 passed, 70 total\nTime: 1.2 s\n")
+	out, ok = TryCompactJest([]string{"jest"}, []byte(js.String()))
+	if !ok || !strings.Contains(string(out), "[jest] ok - 70 passed") ||
+		!strings.Contains(string(out), "Tests: 70 passed, 70 total") ||
+		strings.Contains(string(out), "renders op 000") {
+		t.Fatalf("jest verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactJest([]string{"jest"}, []byte("FAIL src/a.test.ts\n  ✕ broken (3 ms)\nTests: 1 failed, 1 total\n")); ok {
+		t.Fatal("jest failure must fail open")
+	}
+
+	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
+	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
+	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {
+		t.Fatalf("vitest verbose all-pass: ok=%v %q", ok, out)
+	}
+}

@@ -223,10 +223,63 @@ func TryCompactCargoTest(argv []string, stdout []byte) ([]byte, bool) {
 	if !isCargoTestArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[cargo test] ok\n"), true
+	}
+	return compactCargoTestVerbosePass(stdout)
+}
+
+// compactCargoTestVerbosePass drops only the per-test "test name ... ok"
+// roll-call from an all-pass cargo test transcript and keeps every other
+// line verbatim (compile lines, running headers, "test result: ok"
+// summaries, ignored/bench rows) plus the exact passed count. Any failure
+// marker fails open to the full transcript.
+func compactCargoTestVerbosePass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failed", "panicked", "error[", "error:", "warning: unused"} {
+		if strings.Contains(low, marker) && !strings.Contains(low, "0 failed") {
+			return stdout, false
+		}
+	}
+	if strings.Contains(low, "failed") && !allCargoFailureCountsZero(s) {
 		return stdout, false
 	}
-	return []byte("[cargo test] ok\n"), true
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "test ") && strings.HasSuffix(t, "... ok") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed == 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[cargo test] ok - %d passed, per-test ok lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+// allCargoFailureCountsZero accepts "test result: ok. N passed; 0 failed"
+// summary rows while rejecting any non-zero failure count.
+func allCargoFailureCountsZero(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, "test result:") {
+			continue
+		}
+		if !strings.HasPrefix(t, "test result: ok.") || !strings.Contains(t, " 0 failed") {
+			return false
+		}
+	}
+	return strings.Contains(s, "test result: ok.")
 }
 
 func isCargoNextestRunArgv(argv []string) bool {
@@ -311,33 +364,50 @@ func TryCompactCtest(argv []string, stdout []byte) ([]byte, bool) {
 
 // TryCompactPytest summarizes empty stdout from `pytest` / `py.test` / `python -m pytest` / `npx|pnpm exec|yarn … pytest` (F08 partial).
 func TryCompactPytest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isPytestArgv(argv) {
 		return stdout, false
 	}
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "pytest" || b == "py.test" || b == "pytest.exe" {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[pytest] ok\n"), true
 	}
-	if npxMatches(argv, "pytest") {
-		return []byte("[pytest] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && (argv[2] == "pytest" || argv[2] == "py.test") {
-		return []byte("[pytest] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && (argv[1] == "pytest" || argv[1] == "py.test") {
-		return []byte("[pytest] ok\n"), true
-	}
-	if b == "python" || b == "python3" || b == "python.exe" || b == "python3.exe" {
-		for i := 0; i < len(argv)-1; i++ {
-			if argv[i] == "-m" && (argv[i+1] == "pytest" || argv[i+1] == "py.test") {
-				return []byte("[pytest] ok\n"), true
-			}
+	return compactPytestVerbosePass(stdout)
+}
+
+// compactPytestVerbosePass drops only the per-test "path::name PASSED [ N%]"
+// roll-call from an all-pass pytest -v transcript and keeps every other line
+// verbatim (session header, warnings summary, the final "N passed" row) plus
+// the exact passed count. Any failure/error marker fails open.
+func compactPytestVerbosePass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failed", " error", "error ", "errors", "traceback"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
 		}
 	}
-	return stdout, false
+	if !strings.Contains(low, " passed") {
+		return stdout, false
+	}
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.Contains(t, "::") && (strings.HasSuffix(t, " PASSED") || strings.Contains(t, " PASSED ")) {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed == 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[pytest] ok - %d passed, per-test PASSED lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 // TryCompactPhpunit summarizes empty stdout from `phpunit` / `npx|pnpm exec|yarn … phpunit` (F08 partial).
@@ -366,25 +436,69 @@ func TryCompactPhpunit(argv []string, stdout []byte) ([]byte, bool) {
 
 // TryCompactVitest summarizes empty stdout from `vitest` / `npx vitest` / `pnpm exec vitest` / `yarn vitest` (F08 partial).
 func TryCompactVitest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isVitestCompactArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[vitest] ok\n"), true
+	}
+	return compactJSTestVerbosePass(stdout, "vitest")
+}
+
+func isVitestCompactArgv(argv []string) bool {
 	if len(argv) < 1 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	switch {
 	case b == "vitest" || b == "vitest.cmd":
-		return []byte("[vitest] ok\n"), true
+		return true
 	case npxMatches(argv, "vitest"):
-		return []byte("[vitest] ok\n"), true
+		return true
 	case len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "vitest":
-		return []byte("[vitest] ok\n"), true
+		return true
 	case len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "vitest":
-		return []byte("[vitest] ok\n"), true
+		return true
 	default:
+		return false
+	}
+}
+
+// compactJSTestVerbosePass drops only the per-test pass roll-call lines
+// (checkmark rows) from an all-pass jest/vitest transcript and keeps every
+// other line verbatim (PASS file rows, the "Tests: N passed" summary, timing,
+// warnings) plus the exact dropped count. Any failure marker fails open.
+func compactJSTestVerbosePass(stdout []byte, label string) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"fail", " error", "error:", "\u2715", "\u2716", "\u00d7"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	if !strings.Contains(low, "passed") {
 		return stdout, false
 	}
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "\u2713 ") || strings.HasPrefix(t, "\u2714 ") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed == 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[%s] ok - %d passed, per-test check lines elided\n", label, passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 // TryCompactKarma summarizes empty stdout from `karma start` / `npx|pnpm exec|yarn … karma start` (F08 partial).
@@ -413,26 +527,33 @@ func TryCompactKarma(argv []string, stdout []byte) ([]byte, bool) {
 
 // TryCompactJest summarizes empty stdout from `jest` / `npx|pnpm exec|yarn … jest` (F08 partial).
 func TryCompactJest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isJestCompactArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[jest] ok\n"), true
+	}
+	return compactJSTestVerbosePass(stdout, "jest")
+}
+
+func isJestCompactArgv(argv []string) bool {
 	if len(argv) < 1 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if b == "jest" || b == "jest.cmd" {
-		return []byte("[jest] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "jest") {
-		return []byte("[jest] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "jest" {
-		return []byte("[jest] ok\n"), true
+		return true
 	}
 	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "jest" {
-		return []byte("[jest] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
 }
 
 // TryCompactMocha summarizes empty stdout from `mocha` / `npx|pnpm exec|yarn … mocha` (F08 partial).
