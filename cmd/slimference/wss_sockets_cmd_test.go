@@ -109,13 +109,18 @@ func TestBuildWSSSocketReportCorrelatesReconnectFullHistory(t *testing.T) {
 	if report.CloseInitiators["client_eof"] != 1 || report.CloseInitiators["upstream_eof"] != 1 {
 		t.Fatalf("initiators mismatch: %+v", report.CloseInitiators)
 	}
-	if report.CauseClasses["upstream_full_history_reconnect"] != 1 ||
+	if report.CauseClasses["client_full_history_reconnect"] != 1 ||
 		report.CauseClasses["client_delta_safe_close"] != 1 ||
 		report.ActionableSockets != 1 {
 		t.Fatalf("cause classes mismatch: causes=%+v actionable=%d", report.CauseClasses, report.ActionableSockets)
 	}
 	if report.Sockets[0].SocketSeq != 2 || !report.Sockets[0].ReconnectFullHistory {
 		t.Fatalf("newest reconnect socket first: %+v", report.Sockets)
+	}
+	if report.Sockets[0].ReconnectPreviousCloseInitiator != "client_eof" ||
+		report.Sockets[0].ReconnectPreviousSocketKey != "codex-wss:thread#1.1" ||
+		report.Sockets[0].ReconnectAttribution != "observed_previous_socket" {
+		t.Fatalf("reconnect attribution mismatch: %+v", report.Sockets[0])
 	}
 	if report.Sockets[1].RootRequests != 1 || report.Sockets[1].DeltaRequests != 1 || report.Sockets[1].C2SFrames != 2 {
 		t.Fatalf("socket 1 aggregation mismatch: %+v", report.Sockets[1])
@@ -147,6 +152,33 @@ func TestBuildWSSSocketReportSplitsReusedSocketSeqAfterClose(t *testing.T) {
 	}
 	if report.Sockets[0].SocketInstance != 2 || !strings.Contains(report.Sockets[0].SocketKey, "#1.2") {
 		t.Fatalf("newest socket should be second instance: %+v", report.Sockets)
+	}
+	if report.Sockets[0].ReconnectGapMillis != 9000 ||
+		report.Sockets[0].ReconnectPreviousCloseInitiator != "client_eof" {
+		t.Fatalf("reused seq reconnect attribution mismatch: %+v", report.Sockets[0])
+	}
+}
+
+func TestBuildWSSSocketReportDoesNotAttributeReconnectToCurrentClose(t *testing.T) {
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	report := buildWSSSocketReport("decisions.jsonl", 100, []dbg.RequestSummary{
+		wssSocketTestSummary("req-2", "codex-wss:thread", 2, "full_history", base.Add(time.Second), 7000, 0, 0, map[string]string{
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+			"wss.socket_age_ms":          "1000",
+		}),
+	})
+	if report.ReconnectFullHistoryRequests != 1 || report.ActionableSockets != 1 {
+		t.Fatalf("reconnect should still be gated: %+v", report)
+	}
+	if report.CauseClasses["full_history_reconnect"] != 1 {
+		t.Fatalf("unobserved previous close should stay unattributed: %+v", report.CauseClasses)
+	}
+	got := report.Sockets[0]
+	if got.ReconnectPreviousCloseInitiator != "" ||
+		got.ReconnectAttribution != "unobserved_previous_socket" ||
+		got.Cause == "client_full_history_reconnect" {
+		t.Fatalf("current close was incorrectly used as reconnect cause: %+v", got)
 	}
 }
 
@@ -333,7 +365,11 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	tmp := t.TempDir()
 	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
 	lines := []string{
-		mustJSONLine(t, wssSocketTestSummary("req-1", "codex-wss:thread", 1, "root", time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC), 1000, 100, 20, nil)),
+		mustJSONLine(t, wssSocketTestSummary("req-1", "codex-wss:thread", 1, "root", time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC), 1000, 100, 20, map[string]string{
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+			"wss.socket_age_ms":          "500",
+		})),
 		mustJSONLine(t, wssSocketTestSummary("req-2", "codex-wss:thread", 2, "full_history", time.Date(2026, 6, 11, 10, 0, 1, 0, time.UTC), 8000, 0, 120, map[string]string{
 			"wss.socket_closed":          "true",
 			"wss.socket_close_initiator": "client_eof",
@@ -352,6 +388,7 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 		"seq=2",
 		"reconnect_full_history=1",
 		"cause=client_full_history_reconnect",
+		"reconnect_prev=codex-wss:thread#1.1",
 		"shapes=full_history:1",
 	} {
 		if !strings.Contains(text, want) {
@@ -369,6 +406,9 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	}
 	if report.Sockets[0].Cause != "client_full_history_reconnect" || !report.Sockets[0].Actionable {
 		t.Fatalf("json cause mismatch: %+v", report.Sockets[0])
+	}
+	if report.Sockets[0].ReconnectPreviousCloseInitiator != "client_eof" {
+		t.Fatalf("json reconnect attribution mismatch: %+v", report.Sockets[0])
 	}
 }
 

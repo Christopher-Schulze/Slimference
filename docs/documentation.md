@@ -2379,11 +2379,15 @@ store raw prompt, tool output, code, or auth material. `last`, `tail`, and
 or an `.csv` target path. `slimference debug wss-sockets [N] [--json]`
 groups the newest decision-log rows by `wss.socket_seq`, then correlates close
 initiator, socket age, frame counts, request shape (`root`/`delta`/`full_history`),
-provider input, provider cache, and local saved tokens. The report classifies
-each socket as a safe client/upstream close, local/upstream/client transport
-error, or actionable full-history reconnect cost before suggesting the next
-inspection path. `--session ID` and `--since RFC3339_OR_DURATION` scope owner
-sessions; `--fail-on-actionable`, `--fail-on-full-history`,
+provider input, provider cache, and local saved tokens. For reconnect
+full-history cost, the report attributes the new full-history socket to the
+previous observed socket close, including previous socket key, previous close
+initiator, and gap in milliseconds; if the previous close is outside the sampled
+window, the cost stays actionable but unattributed. The report classifies each
+socket as a safe client/upstream close, local/upstream/client transport error, or
+actionable full-history reconnect cost before suggesting the next inspection
+path. `--session ID` and `--since RFC3339_OR_DURATION` scope owner sessions;
+`--fail-on-actionable`, `--fail-on-full-history`,
 `--max-actionable=N`, `--max-reconnect-full-history=N`, and
 `--max-reconnect-full-history-input=N` make the same content-free analysis
 usable as a proof gate. It is diagnostic only and does not change product

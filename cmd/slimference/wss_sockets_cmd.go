@@ -72,6 +72,10 @@ type wssSocketSummary struct {
 	FullHistoryProviderInputTokens    int            `json:"full_history_provider_input_tokens"`
 	ReconnectFullHistory              bool           `json:"reconnect_full_history"`
 	ReconnectFullHistoryProviderInput int            `json:"reconnect_full_history_provider_input_tokens"`
+	ReconnectPreviousSocketKey        string         `json:"reconnect_previous_socket_key,omitempty"`
+	ReconnectPreviousCloseInitiator   string         `json:"reconnect_previous_close_initiator,omitempty"`
+	ReconnectGapMillis                int64          `json:"reconnect_gap_ms,omitempty"`
+	ReconnectAttribution              string         `json:"reconnect_attribution,omitempty"`
 	Cause                             string         `json:"cause"`
 	CauseReason                       string         `json:"cause_reason,omitempty"`
 	Actionable                        bool           `json:"actionable"`
@@ -280,33 +284,38 @@ func buildWSSSocketReportWithOptions(path string, summaries []dbg.RequestSummary
 		}
 		mergeWSSSocketSummary(socket, summary)
 	}
+	allSockets := make([]*wssSocketSummary, 0, len(wssSummaries))
 	for _, groups := range byBaseKey {
 		for _, socket := range groups {
 			finalizeWSSSocketSummary(socket)
-			classifyWSSSocketSummary(socket)
-			report.ProviderInputTokens += socket.ProviderInputTokens
-			report.ProviderCachedTokens += socket.ProviderCachedTokens
-			report.LocalSavedTokens += socket.LocalSavedTokens
-			report.FullHistoryRequests += socket.FullHistoryRequests
-			report.FullHistoryProviderInputTokens += socket.FullHistoryProviderInputTokens
-			if socket.ReconnectFullHistory {
-				report.ReconnectFullHistoryRequests += socket.FullHistoryRequests
-				report.ReconnectFullHistoryProviderInputTokens += socket.ReconnectFullHistoryProviderInput
-			}
-			if socket.Closed {
-				report.ClosedSockets++
-				initiator := socket.CloseInitiator
-				if initiator == "" {
-					initiator = "unknown"
-				}
-				report.CloseInitiators[initiator]++
-			}
-			report.CauseClasses[socket.Cause]++
-			if socket.Actionable {
-				report.ActionableSockets++
-			}
-			report.Sockets = append(report.Sockets, *socket)
+			allSockets = append(allSockets, socket)
 		}
+	}
+	correlateWSSSocketReconnects(allSockets)
+	for _, socket := range allSockets {
+		classifyWSSSocketSummary(socket)
+		report.ProviderInputTokens += socket.ProviderInputTokens
+		report.ProviderCachedTokens += socket.ProviderCachedTokens
+		report.LocalSavedTokens += socket.LocalSavedTokens
+		report.FullHistoryRequests += socket.FullHistoryRequests
+		report.FullHistoryProviderInputTokens += socket.FullHistoryProviderInputTokens
+		if socket.ReconnectFullHistory {
+			report.ReconnectFullHistoryRequests += socket.FullHistoryRequests
+			report.ReconnectFullHistoryProviderInputTokens += socket.ReconnectFullHistoryProviderInput
+		}
+		if socket.Closed {
+			report.ClosedSockets++
+			initiator := socket.CloseInitiator
+			if initiator == "" {
+				initiator = "unknown"
+			}
+			report.CloseInitiators[initiator]++
+		}
+		report.CauseClasses[socket.Cause]++
+		if socket.Actionable {
+			report.ActionableSockets++
+		}
+		report.Sockets = append(report.Sockets, *socket)
 	}
 	sort.Slice(report.Sockets, func(i, j int) bool {
 		left := report.Sockets[i]
@@ -375,10 +384,6 @@ func finalizeWSSSocketSummary(socket *wssSocketSummary) {
 	if socket.ProviderInputTokens > 0 {
 		socket.ProviderCachedRatio = float64(socket.ProviderCachedTokens) / float64(socket.ProviderInputTokens)
 	}
-	if (socket.SocketSeq > 1 || socket.SocketInstance > 1) && socket.FullHistoryRequests > 0 {
-		socket.ReconnectFullHistory = true
-		socket.ReconnectFullHistoryProviderInput = socket.FullHistoryProviderInputTokens
-	}
 }
 
 func wssSummaryStartsNewSocketInstance(socket *wssSocketSummary, summary dbg.RequestSummary) bool {
@@ -386,6 +391,61 @@ func wssSummaryStartsNewSocketInstance(socket *wssSocketSummary, summary dbg.Req
 		return false
 	}
 	return summary.Timestamp.After(socket.estimatedClosedAt.Add(2 * time.Second))
+}
+
+func correlateWSSSocketReconnects(sockets []*wssSocketSummary) {
+	bySession := make(map[string][]*wssSocketSummary)
+	for _, socket := range sockets {
+		if socket == nil {
+			continue
+		}
+		bySession[socket.SessionID] = append(bySession[socket.SessionID], socket)
+	}
+	for _, sessionSockets := range bySession {
+		sort.SliceStable(sessionSockets, func(i, j int) bool {
+			left := sessionSockets[i]
+			right := sessionSockets[j]
+			if !left.FirstTimestamp.Equal(right.FirstTimestamp) {
+				return left.FirstTimestamp.Before(right.FirstTimestamp)
+			}
+			if left.SocketSeq != right.SocketSeq {
+				return left.SocketSeq < right.SocketSeq
+			}
+			return left.SocketInstance < right.SocketInstance
+		})
+		var previous *wssSocketSummary
+		for _, socket := range sessionSockets {
+			if wssSocketReconnectFullHistoryCandidate(socket) {
+				socket.ReconnectFullHistory = true
+				socket.ReconnectFullHistoryProviderInput = socket.FullHistoryProviderInputTokens
+				if previous == nil {
+					socket.ReconnectAttribution = "unobserved_previous_socket"
+				} else {
+					socket.ReconnectPreviousSocketKey = previous.SocketKey
+					socket.ReconnectPreviousCloseInitiator = previous.CloseInitiator
+					socket.ReconnectAttribution = "observed_previous_socket"
+					socket.ReconnectGapMillis = wssSocketReconnectGapMillis(previous, socket)
+				}
+			}
+			previous = socket
+		}
+	}
+}
+
+func wssSocketReconnectFullHistoryCandidate(socket *wssSocketSummary) bool {
+	return socket != nil && socket.FullHistoryRequests > 0 &&
+		(socket.SocketSeq > 1 || socket.SocketInstance > 1)
+}
+
+func wssSocketReconnectGapMillis(previous, next *wssSocketSummary) int64 {
+	if previous == nil || next == nil || previous.estimatedClosedAt.IsZero() || next.FirstTimestamp.IsZero() {
+		return 0
+	}
+	gap := next.FirstTimestamp.Sub(previous.estimatedClosedAt)
+	if gap < 0 {
+		return 0
+	}
+	return gap.Milliseconds()
 }
 
 func classifyWSSSocketSummary(socket *wssSocketSummary) {
@@ -433,30 +493,38 @@ func classifyWSSSocketSummary(socket *wssSocketSummary) {
 
 func classifyWSSFullHistoryReconnect(socket *wssSocketSummary) {
 	socket.Actionable = true
-	switch socket.CloseInitiator {
+	initiator := socket.ReconnectPreviousCloseInitiator
+	if initiator == "" && socket.ReconnectAttribution == "" {
+		initiator = socket.CloseInitiator
+	}
+	switch initiator {
 	case "client_eof":
 		socket.Cause = "client_full_history_reconnect"
-		socket.CauseReason = "client closed or re-opened the socket and the later socket carried full-history input"
+		socket.CauseReason = "previous observed socket closed cleanly on the client side and the next socket carried full-history input"
 		socket.RecommendedAction = "verify whether previous_response_id is lost across client reconnect; preserve delta path before considering compression"
 	case "upstream_eof":
 		socket.Cause = "upstream_full_history_reconnect"
-		socket.CauseReason = "upstream clean close was followed by full-history input on a later socket"
+		socket.CauseReason = "previous observed socket closed cleanly on the upstream side and the next socket carried full-history input"
 		socket.RecommendedAction = "evaluate protocol-legal ping/pong keepalive only if repeated samples confirm this cost"
 	case "our_error", "context_cancel":
 		socket.Cause = "local_full_history_reconnect"
-		socket.CauseReason = "local lifecycle ended the socket and the later socket carried full-history input"
+		socket.CauseReason = "previous observed socket ended in local lifecycle code and the next socket carried full-history input"
 		socket.RecommendedAction = "fix local close/error path before changing reducers; this is the highest-signal zero-drawdown savings candidate"
 	case "client_error":
 		socket.Cause = "client_error_full_history_reconnect"
-		socket.CauseReason = "client-side transport error coincided with full-history input on a later socket"
+		socket.CauseReason = "previous observed socket ended with a client-side transport error and the next socket carried full-history input"
 		socket.RecommendedAction = "correlate with Codex process/app-server lifecycle before transport changes"
 	case "upstream_error":
 		socket.Cause = "upstream_error_full_history_reconnect"
-		socket.CauseReason = "upstream transport error coincided with full-history input on a later socket"
+		socket.CauseReason = "previous observed socket ended with an upstream transport error and the next socket carried full-history input"
 		socket.RecommendedAction = "correlate with upstream error frames and recovery retry decisions"
 	default:
 		socket.Cause = "full_history_reconnect"
-		socket.CauseReason = "a later socket carried full-history input after a reconnect-like boundary"
+		if socket.ReconnectAttribution == "unobserved_previous_socket" {
+			socket.CauseReason = "socket carried full-history input across a sequence boundary, but the previous socket close was outside the observed window"
+		} else {
+			socket.CauseReason = "a later socket carried full-history input after a reconnect-like boundary"
+		}
 		socket.RecommendedAction = "classify close initiator before implementing a fix"
 	}
 }
@@ -608,7 +676,7 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 		fmt.Printf("causes=%s actionable=%d\n", formatWSSSocketShapeCounts(report.CauseClasses), report.ActionableSockets)
 	}
 	for _, socket := range report.Sockets {
-		fmt.Printf("socket=%s seq=%d session=%s close=%s cause=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d turns=%d\n",
+		fmt.Printf("socket=%s seq=%d session=%s close=%s cause=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d reconnect_prev=%s reconnect_prev_close=%s reconnect_gap_ms=%d turns=%d\n",
 			socket.SocketKey,
 			socket.SocketSeq,
 			emptyDash(socket.SessionID),
@@ -620,6 +688,9 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 			socket.ProviderInputTokens,
 			socket.ProviderCachedTokens,
 			socket.FullHistoryProviderInputTokens,
+			emptyDash(socket.ReconnectPreviousSocketKey),
+			emptyDash(socket.ReconnectPreviousCloseInitiator),
+			socket.ReconnectGapMillis,
 			socket.TurnsCompleted)
 	}
 }
