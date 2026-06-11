@@ -102,6 +102,11 @@ func TestWSSAuditReport(t *testing.T) {
 	if report.RequestShapes["full_history"] != 1 || report.RequestShapes["delta"] != 1 {
 		t.Fatalf("bad request shape counts: %+v", report.RequestShapes)
 	}
+	if report.ResolvedRequestShapes["full_history"] != 1 ||
+		report.ResolvedRequestShapes["delta"] != 1 ||
+		report.RequestShapeSources["fact"] != 2 {
+		t.Fatalf("bad resolved request shape counts: shapes=%+v sources=%+v", report.ResolvedRequestShapes, report.RequestShapeSources)
+	}
 	if report.FullHistory == nil ||
 		report.FullHistory.Requests != 1 ||
 		report.FullHistory.Sessions != 1 ||
@@ -203,6 +208,79 @@ func TestWSSAuditGateFailures(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(report.GateFailures, "\n"), "full-history") {
 		t.Fatalf("expected full-history gate failure, got %+v", report.GateFailures)
+	}
+}
+
+func TestWSSAuditResolvesLegacyUnknownDeltaOnly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID:              "legacy-delta",
+			SessionID:              "codex-wss:s1",
+			Path:                   "/backend-api/codex/responses",
+			RouteMode:              "websocket_phasef",
+			PreviousResponseIDUsed: true,
+		},
+		dbg.RequestSummary{
+			RequestID: "legacy-no-prev",
+			SessionID: "codex-wss:s1",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+		},
+		dbg.RequestSummary{
+			RequestID: "legacy-delta-fact",
+			SessionID: "codex-wss:s2",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			DebugFacts: map[string]string{
+				"wss.previous_response_id": "true",
+			},
+		},
+		dbg.RequestSummary{
+			RequestID: "observed-root",
+			SessionID: "codex-wss:s2",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			DebugFacts: map[string]string{
+				"wss.request_shape": "root",
+			},
+		},
+	)
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if report.RequestShapes["unknown"] != 3 || report.RequestShapes["root"] != 1 {
+		t.Fatalf("observed shapes should preserve unknown legacy rows: %+v", report.RequestShapes)
+	}
+	if report.ResolvedRequestShapes["delta"] != 2 ||
+		report.ResolvedRequestShapes["root"] != 1 ||
+		report.ResolvedRequestShapes["unknown"] != 1 {
+		t.Fatalf("bad resolved shapes: %+v", report.ResolvedRequestShapes)
+	}
+	if report.RequestShapeSources["legacy_previous_response_id"] != 1 ||
+		report.RequestShapeSources["legacy_previous_response_id_fact"] != 1 ||
+		report.RequestShapeSources["fact"] != 1 ||
+		report.RequestShapeSources["unresolved"] != 1 {
+		t.Fatalf("bad shape sources: %+v", report.RequestShapeSources)
+	}
+	var s1 wssAuditSessionSummary
+	for _, session := range report.Sessions {
+		if session.SessionID == "codex-wss:s1" {
+			s1 = session
+		}
+	}
+	if s1.ResolvedRequestShapes["delta"] != 1 || s1.ResolvedRequestShapes["unknown"] != 1 {
+		t.Fatalf("session resolved shapes missing: %+v", s1)
+	}
+	notes := strings.Join(report.Notes, "\n")
+	if !strings.Contains(notes, "conservatively resolved as delta") ||
+		!strings.Contains(notes, "remain shape-unresolved") {
+		t.Fatalf("legacy inference notes missing: %+v", report.Notes)
 	}
 }
 
@@ -323,6 +401,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
 		!strings.Contains(stdout.String(), "request shapes:") ||
+		!strings.Contains(stdout.String(), "resolved request shapes:") ||
+		!strings.Contains(stdout.String(), "request-shape sources:") ||
 		!strings.Contains(stdout.String(), "full_history:1") ||
 		!strings.Contains(stdout.String(), "Full-history Class-B:") ||
 		!strings.Contains(stdout.String(), "provider in/cache/out:   44 / 22 / 6") ||
@@ -365,6 +445,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.RequestShapes["full_history"] != 1 {
 		t.Fatalf("request shape JSON missing: %+v", report.RequestShapes)
+	}
+	if report.ResolvedRequestShapes["full_history"] != 1 || report.RequestShapeSources["fact"] != 1 {
+		t.Fatalf("resolved request shape JSON missing: shapes=%+v sources=%+v", report.ResolvedRequestShapes, report.RequestShapeSources)
 	}
 	if report.FullHistory == nil ||
 		report.FullHistory.ProviderInputTokens != 44 ||

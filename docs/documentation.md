@@ -1010,6 +1010,10 @@ The same audit includes request-shape coverage from `wss.request_shape`
 `--min-full-history` as a fresh-capture gate. T354 Class-B widening claims must
 use captures with actual `full_history` rows; delta-only sessions prove only the
 Class-A proof gate and must not be treated as reconnect/full-resend evidence.
+For legacy rows that predate `wss.request_shape`, the report keeps observed
+`request_shapes` separate from `resolved_request_shapes`. The only conservative
+legacy resolution is `delta` from an existing `previous_response_id` signal;
+absence of a previous response id never proves `root` or `full_history`.
 For observed `full_history` rows, the audit emits a dedicated `full_history`
 Class-B summary with unique sessions, missing session ids, previous-response-id
 usage, provider input/cache/output tokens, local original/final/saved/net

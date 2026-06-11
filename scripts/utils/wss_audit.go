@@ -25,6 +25,8 @@ type wssAuditReport struct {
 	MissingSessionID       int                              `json:"missing_session_id"`
 	PreviousResponseIDUsed int                              `json:"previous_response_id_used"`
 	RequestShapes          map[string]int                   `json:"request_shapes,omitempty"`
+	ResolvedRequestShapes  map[string]int                   `json:"resolved_request_shapes,omitempty"`
+	RequestShapeSources    map[string]int                   `json:"request_shape_sources,omitempty"`
 	ReReadRequests         int                              `json:"re_read_requests"`
 	ReReadCount            int                              `json:"re_read_count"`
 	PositiveSavings        int                              `json:"positive_savings_requests"`
@@ -53,6 +55,7 @@ type wssAuditSessionSummary struct {
 	PhaseFRequests         int            `json:"phasef_requests"`
 	PreviousResponseIDUsed int            `json:"previous_response_id_used"`
 	RequestShapes          map[string]int `json:"request_shapes,omitempty"`
+	ResolvedRequestShapes  map[string]int `json:"resolved_request_shapes,omitempty"`
 	ReReadCount            int            `json:"re_read_count"`
 	TokensSaved            int            `json:"tokens_saved"`
 	FirstSeen              time.Time      `json:"first_seen,omitempty"`
@@ -84,6 +87,11 @@ type wssFullHistoryClassBSummary struct {
 type wssFullHistoryClassBAccumulator struct {
 	summary  wssFullHistoryClassBSummary
 	sessions map[string]struct{}
+}
+
+type wssAuditRequestShapeResolution struct {
+	Shape  string
+	Source string
 }
 
 type wssHistoryReducerSummary struct {
@@ -165,7 +173,9 @@ Phase-F request counts, session-key continuity, previous_response_id usage,
 request-shape coverage, full-history Class-B cost/error/socket correlation,
 positive input-token savings, T353 history-reducer evidence, and T355 server-state shadow-mirror density. With --admin-state-file it also prints
 content-free policy and cache hit/miss counters from the matching admin snapshot.
-It does not inspect payload text or auth headers.`
+Legacy rows without request-shape facts are resolved only when an existing
+previous_response_id signal proves delta shape; root/full-history rows are never
+guessed from absence alone. It does not inspect payload text or auth headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSAuditFlags(args)
@@ -308,11 +318,13 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		return wssAuditReport{}, fmt.Errorf("read decisions %s: %w", flags.path, err)
 	}
 	report := wssAuditReport{
-		Path:           flags.path,
-		GatePassed:     true,
-		RouteModes:     make(map[string]int),
-		ContentClasses: make(map[string]int),
-		RequestShapes:  make(map[string]int),
+		Path:                  flags.path,
+		GatePassed:            true,
+		RouteModes:            make(map[string]int),
+		ContentClasses:        make(map[string]int),
+		RequestShapes:         make(map[string]int),
+		ResolvedRequestShapes: make(map[string]int),
+		RequestShapeSources:   make(map[string]int),
 	}
 	if !flags.since.IsZero() {
 		since := flags.since
@@ -345,6 +357,9 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			if shape != "" {
 				report.RequestShapes[shape]++
 			}
+			resolvedShape := wssAuditResolveRequestShape(summary)
+			report.ResolvedRequestShapes[resolvedShape.Shape]++
+			report.RequestShapeSources[resolvedShape.Source]++
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
@@ -384,6 +399,8 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			if shape != "" {
 				addWSSAuditCount(&stats.RequestShapes, shape)
 			}
+			resolvedShape := wssAuditResolveRequestShape(summary)
+			addWSSAuditCount(&stats.ResolvedRequestShapes, resolvedShape.Shape)
 		}
 		if summary.PreviousResponseIDUsed {
 			stats.PreviousResponseIDUsed++
@@ -764,6 +781,30 @@ func wssAuditRequestShape(summary dbg.RequestSummary) string {
 	}
 }
 
+func wssAuditResolveRequestShape(summary dbg.RequestSummary) wssAuditRequestShapeResolution {
+	shape := wssAuditRequestShape(summary)
+	if shape != "" && shape != "unknown" {
+		return wssAuditRequestShapeResolution{Shape: shape, Source: "fact"}
+	}
+	if summary.PreviousResponseIDUsed {
+		return wssAuditRequestShapeResolution{Shape: "delta", Source: "legacy_previous_response_id"}
+	}
+	if summary.DebugFacts != nil {
+		if parseBoolFact(summary.DebugFacts["wss.previous_response_id"]) {
+			return wssAuditRequestShapeResolution{Shape: "delta", Source: "legacy_previous_response_id_fact"}
+		}
+		if parseBoolFact(summary.DebugFacts["wss.delta_shape"]) {
+			return wssAuditRequestShapeResolution{Shape: "delta", Source: "legacy_delta_shape_fact"}
+		}
+	}
+	return wssAuditRequestShapeResolution{Shape: "unknown", Source: "unresolved"}
+}
+
+func parseBoolFact(value string) bool {
+	ok, err := strconv.ParseBool(strings.TrimSpace(value))
+	return err == nil && ok
+}
+
 func wssAuditNotes(report wssAuditReport) []string {
 	var notes []string
 	if report.WSSRequests == 0 {
@@ -783,6 +824,12 @@ func wssAuditNotes(report wssAuditReport) []string {
 	}
 	if report.PhaseFRequests > 0 && report.RequestShapes["unknown"] > 0 {
 		notes = append(notes, "Some Phase-F rows have unknown request shape; use a fresh capture before treating shape percentages as complete.")
+	}
+	if report.ResolvedRequestShapes["delta"] > report.RequestShapes["delta"] {
+		notes = append(notes, "Some legacy unknown Phase-F rows were conservatively resolved as delta from previous_response_id evidence; observed request-shape facts remain separate.")
+	}
+	if report.ResolvedRequestShapes["unknown"] > 0 {
+		notes = append(notes, "Some Phase-F rows remain shape-unresolved after conservative legacy inference; do not use them for root/full-history guard widening.")
 	}
 	if report.RequestShapes["full_history"] > 0 {
 		notes = append(notes, "Full-history Class-B rows observed; correlate them with savings, socket lifecycle, and upstream-error counters before widening guards.")
@@ -849,6 +896,12 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	fmt.Fprintf(w, "previous_response_id:     %d\n", report.PreviousResponseIDUsed)
 	if len(report.RequestShapes) > 0 {
 		fmt.Fprintf(w, "request shapes:           %s\n", formatWSSAuditCounts(report.RequestShapes))
+	}
+	if len(report.ResolvedRequestShapes) > 0 {
+		fmt.Fprintf(w, "resolved request shapes:  %s\n", formatWSSAuditCounts(report.ResolvedRequestShapes))
+	}
+	if len(report.RequestShapeSources) > 0 {
+		fmt.Fprintf(w, "request-shape sources:    %s\n", formatWSSAuditCounts(report.RequestShapeSources))
 	}
 	fmt.Fprintf(w, "re-read requests/count:   %d / %d\n", report.ReReadRequests, report.ReReadCount)
 	fmt.Fprintf(w, "positive savings reqs:    %d\n", report.PositiveSavings)
@@ -965,9 +1018,10 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.Sessions) > 0 {
 		fmt.Fprintln(w, "\nSessions:")
 		for _, session := range report.Sessions {
-			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d shapes=%s reread=%d saved=%d\n",
+			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d shapes=%s resolved=%s reread=%d saved=%d\n",
 				truncateMiddle(session.SessionID, 32), session.Requests, session.PhaseFRequests,
-				session.PreviousResponseIDUsed, formatWSSAuditCounts(session.RequestShapes), session.ReReadCount, session.TokensSaved)
+				session.PreviousResponseIDUsed, formatWSSAuditCounts(session.RequestShapes),
+				formatWSSAuditCounts(session.ResolvedRequestShapes), session.ReReadCount, session.TokensSaved)
 		}
 	}
 	if len(report.Notes) > 0 {
