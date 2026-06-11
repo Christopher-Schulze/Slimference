@@ -151,6 +151,7 @@ type wssRequestMeta struct {
 	Model              string
 	ClientFamily       string
 	OriginalMessages   []types.Message
+	ToolUseIndex       map[string]types.ContentBlock
 	BypassReason       string
 	DebugFacts         map[string]string
 }
@@ -228,13 +229,17 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
+	toolUses := meta.ToolUseIndex
+	if len(toolUses) == 0 {
+		toolUses = proxyToolUseIndex(messages)
+	}
 	a.mu.Lock()
 	a.messages = messages
 	a.repdetIndex = buildRepdetIndex(messages)
 	if a.toolUses == nil {
 		a.toolUses = make(map[string]types.ContentBlock)
 	}
-	for id, use := range proxyToolUseIndex(messages) {
+	for id, use := range toolUses {
 		a.toolUses[id] = use
 	}
 	a.mu.Unlock()
@@ -290,22 +295,25 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
+		currentToolUses := proxyToolUseIndex(messages)
+		mergedToolUses := mergedProxyToolUseIndex(currentToolUses, rememberedToolUses)
+		meta.ToolUseIndex = mergedToolUses
 		if !wssBodyHasUserPromptInput(out) {
-			a.observeWSSToolPruneUsage(sessionID, messages, rememberedToolUses)
+			a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, mergedToolUses)
 		}
-		reReadKeys, count := a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
+		reReadKeys, count := a.observeWSSQualityToolKeysForSessionWithToolUses(sessionID, turnID, messages, mergedToolUses)
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
-		a.observeWSSRecentEditsForSession(sessionID, messages, rememberedToolUses)
+		a.observeWSSRecentEditsForSessionWithToolUses(sessionID, messages, mergedToolUses)
 		if degraded, reason := a.degradedState(); degraded {
 			meta.BypassReason = "wss_session_degraded_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			meta.DebugFacts["wss.degraded_reason"] = reason
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
-		toolOutputResults, toolOutputResolved, toolOutputInferred := wssToolOutputResolutionStats(messages, rememberedToolUses)
+		toolOutputResults, toolOutputResolved, toolOutputInferred := wssToolOutputResolutionStatsWithToolUses(messages, mergedToolUses)
 		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved+toolOutputInferred == toolOutputResults
-		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
+		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafeWithToolUses(meta, requestContainsToolOutput, messages, mergedToolUses)
 		chunkSettings := a.p.codexChunkDedupSettings()
 		// 2026-06-11 live A/B (loop runs 4-7): archive-backed structured
 		// mutations on the stateful WSS delta flow were accepted per turn,
@@ -367,9 +375,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                      codexLayer0RouteWSSPhaseF,
 			Messages:                   stagedMessages,
+			ToolUseIndex:               mergedToolUses,
 			SessionID:                  sessionID,
 			TurnID:                     turnID,
-			RememberedToolUse:          rememberedToolUses,
 			SuppressedToolKey:          suppressedKeys,
 			RecentFullPassTurns:        a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
 			ChunkDedupEnabled:          chunkSettings.Enabled,
@@ -488,10 +496,15 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, toolUses)
+}
+
+func (a *wsPhaseFAdapter) observeWSSToolPruneUsageWithToolUses(sessionID string, messages []types.Message, toolUses map[string]types.ContentBlock) {
 	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
 		return
 	}
-	used := extractUsedToolNamesWithResolved(messages, rememberedToolUses)
+	used := extractUsedToolNamesWithResolvedToolUses(messages, toolUses)
 	if len(used) == 0 {
 		return
 	}
@@ -758,10 +771,15 @@ func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Me
 }
 
 func (a *wsPhaseFAdapter) observeWSSRecentEditsForSession(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	a.observeWSSRecentEditsForSessionWithToolUses(sessionID, messages, toolUses)
+}
+
+func (a *wsPhaseFAdapter) observeWSSRecentEditsForSessionWithToolUses(sessionID string, messages []types.Message, toolUses map[string]types.ContentBlock) {
 	if sessionID == "" {
 		return
 	}
-	paths := proxyEditedPathsFromMessages(messages, rememberedToolUses)
+	paths := proxyEditedPathsFromMessagesWithToolUses(messages, toolUses)
 	if len(paths) == 0 {
 		return
 	}
@@ -782,14 +800,13 @@ func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []type
 }
 
 func (a *wsPhaseFAdapter) observeWSSQualityToolKeysForSession(sessionID, turnID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	return a.observeWSSQualityToolKeysForSessionWithToolUses(sessionID, turnID, messages, toolUses)
+}
+
+func (a *wsPhaseFAdapter) observeWSSQualityToolKeysForSessionWithToolUses(sessionID, turnID string, messages []types.Message, toolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	if sessionID == "" || a == nil || a.p == nil {
 		return nil, 0
-	}
-	toolUses := proxyToolUseIndex(messages)
-	for id, use := range rememberedToolUses {
-		if _, ok := toolUses[id]; !ok {
-			toolUses[id] = use
-		}
 	}
 	seen := make(map[string]struct{})
 	reReadKeys := make(map[string]struct{})
@@ -1016,14 +1033,13 @@ func wssPreviousResponseUnknownToolOutputFullPass(meta wssRequestMeta, requestCo
 }
 
 func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolOutput bool, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) bool {
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	return wssStatefulToolOutputMutationSafeWithToolUses(meta, requestContainsToolOutput, messages, toolUses)
+}
+
+func wssStatefulToolOutputMutationSafeWithToolUses(meta wssRequestMeta, requestContainsToolOutput bool, messages []types.Message, toolUses map[string]types.ContentBlock) bool {
 	if !requestContainsToolOutput || (meta.SessionID == "" && meta.PreviousResponseID == "") {
 		return false
-	}
-	toolUses := proxyToolUseIndex(messages)
-	for id, use := range rememberedToolUses {
-		if _, exists := toolUses[id]; !exists {
-			toolUses[id] = use
-		}
 	}
 	if len(toolUses) == 0 {
 		return false
@@ -1045,12 +1061,11 @@ func wssStatefulToolOutputMutationSafe(meta wssRequestMeta, requestContainsToolO
 }
 
 func wssToolOutputResolutionStats(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (int, int, int) {
-	toolUses := proxyToolUseIndex(messages)
-	for id, use := range rememberedToolUses {
-		if _, exists := toolUses[id]; !exists {
-			toolUses[id] = use
-		}
-	}
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	return wssToolOutputResolutionStatsWithToolUses(messages, toolUses)
+}
+
+func wssToolOutputResolutionStatsWithToolUses(messages []types.Message, toolUses map[string]types.ContentBlock) (int, int, int) {
 	total := 0
 	resolved := 0
 	inferred := 0

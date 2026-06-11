@@ -76,6 +76,11 @@ func extractUsedToolNames(messages []types.Message) []string {
 }
 
 func extractUsedToolNamesWithResolved(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	return extractUsedToolNamesWithResolvedToolUses(messages, toolUses)
+}
+
+func extractUsedToolNamesWithResolvedToolUses(messages []types.Message, toolUses map[string]types.ContentBlock) []string {
 	seen := make(map[string]bool)
 	var names []string
 	for _, msg := range messages {
@@ -85,7 +90,7 @@ func extractUsedToolNamesWithResolved(messages []types.Message, rememberedToolUs
 			case "tool_use":
 				toolName = block.ToolName
 			case "tool_result":
-				if use, ok := proxyResolveToolUseDetailed(block, rememberedToolUses); ok {
+				if use, ok := proxyResolveToolUseDetailed(block, toolUses); ok {
 					toolName = use.ToolName
 				}
 			}

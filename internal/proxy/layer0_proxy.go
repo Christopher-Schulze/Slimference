@@ -127,6 +127,7 @@ const (
 type codexLayer0Request struct {
 	Route                      codexLayer0Route
 	Messages                   []types.Message
+	ToolUseIndex               map[string]types.ContentBlock
 	SessionID                  string
 	TurnID                     string
 	RememberedToolUse          map[string]types.ContentBlock
@@ -305,15 +306,14 @@ func (p *Proxy) codexHTTPChunkDedupSettings() codexChunkDedupSettings {
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	started := time.Now()
-	toolUses := proxyToolUseIndex(req.Messages)
-	for id, use := range req.RememberedToolUse {
-		if _, ok := toolUses[id]; !ok {
-			toolUses[id] = use
-		}
+	baseToolUses := req.ToolUseIndex
+	if baseToolUses == nil {
+		baseToolUses = proxyToolUseIndex(req.Messages)
 	}
+	toolUses := mergedProxyToolUseIndex(baseToolUses, req.RememberedToolUse)
 	var out []types.Message
 	stats := proxyLayer0Stats{Route: req.Route}
-	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessages(req.Messages, req.RememberedToolUse)) > 0
+	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessagesWithToolUses(req.Messages, toolUses)) > 0
 
 	for msgIdx, msg := range req.Messages {
 		for blockIdx, block := range msg.Content {
@@ -689,12 +689,11 @@ func proxyToolResultLooksLikeSearchOutput(text string) bool {
 }
 
 func proxyEditedPathsFromMessages(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {
-	toolUses := proxyToolUseIndex(messages)
-	for id, use := range rememberedToolUses {
-		if _, ok := toolUses[id]; !ok {
-			toolUses[id] = use
-		}
-	}
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
+	return proxyEditedPathsFromMessagesWithToolUses(messages, toolUses)
+}
+
+func proxyEditedPathsFromMessagesWithToolUses(messages []types.Message, toolUses map[string]types.ContentBlock) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	add := func(path string) {
@@ -1591,6 +1590,32 @@ func proxyToolUseIndex(messages []types.Message) map[string]types.ContentBlock {
 		}
 	}
 	return index
+}
+
+func mergedProxyToolUseIndex(index map[string]types.ContentBlock, remembered map[string]types.ContentBlock) map[string]types.ContentBlock {
+	if len(index) == 0 {
+		if len(remembered) == 0 {
+			return nil
+		}
+		out := make(map[string]types.ContentBlock, len(remembered))
+		for id, use := range remembered {
+			out[id] = use
+		}
+		return out
+	}
+	if len(remembered) == 0 {
+		return index
+	}
+	out := make(map[string]types.ContentBlock, len(index)+len(remembered))
+	for id, use := range index {
+		out[id] = use
+	}
+	for id, use := range remembered {
+		if _, ok := out[id]; !ok {
+			out[id] = use
+		}
+	}
+	return out
 }
 
 func proxyResolveToolUse(block types.ContentBlock, toolUses map[string]types.ContentBlock) types.ContentBlock {
