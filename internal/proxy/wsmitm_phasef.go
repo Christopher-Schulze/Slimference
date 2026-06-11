@@ -57,6 +57,7 @@ type wsPhaseFAdapter struct {
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
 	counters                   wsPhaseFCounters
 	socketSeq                  atomic.Uint64
+	socketDecisionRequestID    string
 }
 
 const (
@@ -1035,6 +1036,9 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.lastDecisionRequestID = requestID
 	a.lastUsageSessionID = meta.SessionID
 	a.lastUsageMutatedMechanisms = mutatedMechanisms
+	if a.socketDecisionRequestID == "" && meta.SocketSeq > 0 {
+		a.socketDecisionRequestID = requestID
+	}
 	a.mu.Unlock()
 	summary := dbg.RequestSummary{
 		RequestID:              requestID,
@@ -1081,6 +1085,32 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	}
 	a.p.debugRecorder.Record(summary)
 	a.p.observeQuality(summary)
+}
+
+func (a *wsPhaseFAdapter) attachWSSSocketLifecycle(snap wsmitm.SessionTelemetry, phaseF wsPhaseFTelemetry) {
+	if a == nil || a.p == nil || a.p.debugRecorder == nil || snap.CloseInitiator == "" {
+		return
+	}
+	a.mu.Lock()
+	requestID := a.socketDecisionRequestID
+	a.mu.Unlock()
+	if requestID == "" {
+		return
+	}
+	facts := map[string]string{
+		"wss.socket_closed":          "true",
+		"wss.socket_close_initiator": snap.CloseInitiator,
+		"wss.socket_age_ms":          strconv.FormatInt(snap.AgeMillis, 10),
+		"wss.socket_c2s_frames":      strconv.FormatInt(snap.C2SFrames, 10),
+		"wss.socket_s2c_frames":      strconv.FormatInt(snap.S2CFrames, 10),
+		"wss.socket_c2s_bytes":       strconv.FormatInt(snap.C2SBytes, 10),
+		"wss.socket_s2c_bytes":       strconv.FormatInt(snap.S2CBytes, 10),
+		"wss.socket_turns_completed": strconv.FormatInt(phaseF.TerminalResponsesSeen, 10),
+	}
+	if snap.CloseError != "" {
+		facts["wss.socket_close_error"] = snap.CloseError
+	}
+	a.p.debugRecorder.AttachDebugFacts(requestID, facts)
 }
 
 const (

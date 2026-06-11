@@ -462,6 +462,59 @@ func TestRecorder_AttachProviderUsageSupersedesRecord(t *testing.T) {
 	}
 }
 
+func TestRecorder_AttachDebugFactsSupersedesRecord(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	r := NewRecorder(5, path)
+	defer r.Close()
+
+	r.Record(RequestSummary{
+		RequestID:  "req-socket",
+		DebugFacts: map[string]string{"wss.socket_seq": "7"},
+	})
+
+	if !r.AttachDebugFacts("req-socket", map[string]string{
+		"wss.socket_close_initiator": "client_eof",
+		"wss.socket_age_ms":          "12",
+		"":                           "ignored",
+	}) {
+		t.Fatal("attach to known request must succeed")
+	}
+	if r.AttachDebugFacts("req-missing", map[string]string{"x": "y"}) {
+		t.Fatal("attach to unknown request must report false")
+	}
+
+	var ring *RequestSummary
+	for _, s := range r.Last(5, false) {
+		if s.RequestID == "req-socket" {
+			clone := s
+			ring = &clone
+		}
+	}
+	if ring == nil ||
+		ring.DebugFacts["wss.socket_seq"] != "7" ||
+		ring.DebugFacts["wss.socket_close_initiator"] != "client_eof" ||
+		ring.DebugFacts["wss.socket_age_ms"] != "12" {
+		t.Fatalf("ring entry not enriched: %+v", ring)
+	}
+	if _, ok := ring.DebugFacts[""]; ok {
+		t.Fatalf("empty fact key must be ignored: %+v", ring.DebugFacts)
+	}
+
+	summaries, err := ReplaySession(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("replay must dedupe superseded lines, got %d records", len(summaries))
+	}
+	if got := summaries[0].DebugFacts["wss.socket_close_initiator"]; got != "client_eof" {
+		t.Fatalf("replayed close initiator=%q", got)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		findStr(s, sub))

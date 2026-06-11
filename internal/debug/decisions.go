@@ -620,6 +620,48 @@ func (r *Recorder) AttachProviderUsage(requestID string, inputTokens, cachedToke
 	return true
 }
 
+// AttachDebugFacts merges content-free diagnostic facts into a recorded summary
+// and appends a superseding JSONL line under the same request id. This keeps
+// request counts stable while allowing later-arriving transport facts, such as
+// WSS socket closure metadata, to persist in the decision log.
+func (r *Recorder) AttachDebugFacts(requestID string, facts map[string]string) bool {
+	if r == nil || requestID == "" || len(facts) == 0 {
+		return false
+	}
+	var updated *RequestSummary
+	r.mu.Lock()
+	for i := 0; i < r.count; i++ {
+		idx := ((r.head-1-i)%r.cap + r.cap) % r.cap
+		if r.summaries[idx].RequestID != requestID {
+			continue
+		}
+		s := &r.summaries[idx]
+		if s.DebugFacts == nil {
+			s.DebugFacts = make(map[string]string, len(facts))
+		}
+		for k, v := range facts {
+			if strings.TrimSpace(k) == "" {
+				continue
+			}
+			s.DebugFacts[k] = v
+		}
+		s.Flight = nil
+		s.EnsureFlight()
+		clone := *s
+		updated = &clone
+		break
+	}
+	path := r.decisionsLog
+	r.mu.Unlock()
+	if updated == nil {
+		return false
+	}
+	if path != "" {
+		r.flushJSONL(path, *updated)
+	}
+	return true
+}
+
 // Close releases the decisions-log handle. Safe to call multiple times and on
 // a recorder that never wrote.
 func (r *Recorder) Close() {

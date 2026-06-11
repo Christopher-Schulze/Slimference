@@ -479,11 +479,13 @@ func (d *PhaseFDispatcher) finishActiveWSMITMSession(id uint64, snap wsmitm.Sess
 	if d == nil {
 		return
 	}
+	var adapter *wsPhaseFAdapter
 	d.activeMu.Lock()
-	defer d.activeMu.Unlock()
 	if id != 0 && d.activeSessions != nil {
+		adapter = d.activeSessions[id].adapter
 		delete(d.activeSessions, id)
 	}
+	d.activeMu.Unlock()
 	d.counters.wsmitmC2SFrames.Add(snap.C2SFrames)
 	d.counters.wsmitmS2CFrames.Add(snap.S2CFrames)
 	d.counters.wsmitmParseFailures.Add(snap.ParseFailures)
@@ -498,7 +500,12 @@ func (d *PhaseFDispatcher) finishActiveWSMITMSession(id uint64, snap wsmitm.Sess
 	if snap.Degraded {
 		d.counters.wsmitmDegraded.Add(1)
 	}
+	if adapter != nil {
+		adapter.attachWSSSocketLifecycle(snap, phaseF)
+	}
+	d.activeMu.Lock()
 	d.recordSocketLifecycleLocked(id, snap, phaseF)
+	d.activeMu.Unlock()
 	addPhaseFTelemetryToCounters(&d.counters, phaseF)
 }
 

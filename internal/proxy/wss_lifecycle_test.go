@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/control"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
@@ -101,5 +102,50 @@ func TestWSSRequestDebugFactsIncludeSocketSeq(t *testing.T) {
 	}, outputreduce.Stats{})
 	if got := facts["wss.socket_seq"]; got != "99" {
 		t.Fatalf("wss.socket_seq=%q want 99", got)
+	}
+}
+
+func TestDispatcherAttachesSocketLifecycleFactsToFirstSocketRequest(t *testing.T) {
+	rec := dbg.NewRecorder(5, "")
+	p := &Proxy{debugRecorder: rec}
+	d := &PhaseFDispatcher{}
+	adapter := &wsPhaseFAdapter{p: p}
+	activeID := d.registerActiveWSMITMSession(&wsmitm.Session{}, adapter)
+
+	rec.Record(dbg.RequestSummary{
+		RequestID:  "req-first",
+		DebugFacts: map[string]string{"wss.socket_seq": "1"},
+	})
+	adapter.mu.Lock()
+	adapter.socketDecisionRequestID = "req-first"
+	adapter.mu.Unlock()
+
+	d.finishActiveWSMITMSession(activeID, wsmitm.SessionTelemetry{
+		CloseInitiator: "upstream_eof",
+		AgeMillis:      25,
+		C2SFrames:      3,
+		S2CFrames:      4,
+		C2SBytes:       300,
+		S2CBytes:       400,
+	}, wsPhaseFTelemetry{TerminalResponsesSeen: 2})
+
+	summaries := rec.Last(5, false)
+	if len(summaries) != 1 {
+		t.Fatalf("lifecycle attach must not create request records: %d", len(summaries))
+	}
+	facts := summaries[0].DebugFacts
+	want := map[string]string{
+		"wss.socket_close_initiator": "upstream_eof",
+		"wss.socket_age_ms":          "25",
+		"wss.socket_c2s_frames":      "3",
+		"wss.socket_s2c_frames":      "4",
+		"wss.socket_c2s_bytes":       "300",
+		"wss.socket_s2c_bytes":       "400",
+		"wss.socket_turns_completed": "2",
+	}
+	for k, v := range want {
+		if facts[k] != v {
+			t.Fatalf("%s=%q want %q in %+v", k, facts[k], v, facts)
+		}
 	}
 }
