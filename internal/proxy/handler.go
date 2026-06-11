@@ -36,6 +36,7 @@ import (
 )
 
 var reconstructBodyFn = reconstructBody
+var extractMessagesFn = extractMessages
 var newRequestWithContextFn = http.NewRequestWithContext
 var newRequestIDFn = newRequestID
 var newZstdReaderFn = zstd.NewReader

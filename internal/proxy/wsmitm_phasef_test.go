@@ -2958,13 +2958,20 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 	body := codexWSStaleObsoleteLayer0Body()
 
 	origReconstruct := reconstructBodyFn
+	origExtract := extractMessagesFn
 	reconstructCalls := 0
+	extractCalls := 0
 	reconstructBodyFn = func(provider types.Provider, originalBody []byte, messages []types.Message) ([]byte, error) {
 		reconstructCalls++
 		return origReconstruct(provider, originalBody, messages)
 	}
+	extractMessagesFn = func(provider types.Provider, body []byte) ([]types.Message, map[string]json.RawMessage, error) {
+		extractCalls++
+		return origExtract(provider, body)
+	}
 	defer func() {
 		reconstructBodyFn = origReconstruct
+		extractMessagesFn = origExtract
 	}()
 
 	mutated, _, changed, l0Stats, _ := adapter.applyInputPipeline(body)
@@ -2974,6 +2981,9 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 	}
 	if reconstructCalls != 1 {
 		t.Fatalf("expected exactly one reconstruct for staged mutations, got %d", reconstructCalls)
+	}
+	if extractCalls != 1 {
+		t.Fatalf("expected exactly one extract for staged mutations, got %d", extractCalls)
 	}
 	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
 		t.Fatalf("stale-read mutation missing: %s", mutatedText)

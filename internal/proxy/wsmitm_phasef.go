@@ -379,15 +379,17 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	reReadCount := 0
 	var meta wssRequestMeta
 	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
-	requestContainsToolOutput := wssBodyContainsFunctionCallOutput(out)
-	messages, raw, err := extractMessages(types.CodexChatGPT, out)
+	requestContainsToolOutput := false
+	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
 		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
+	} else {
+		requestContainsToolOutput = wssBodyContainsFunctionCallOutput(out)
 	}
 	if err == nil && len(messages) > 0 {
-		requestContainsToolOutput = requestContainsToolOutput || messagesContainToolResult(messages)
+		requestContainsToolOutput = messagesContainToolResult(messages)
 		sessionID := meta.SessionID
 		meta.TurnSeq = a.observeWSSRequestTurnSeq(sessionID)
 		turnID := meta.PreviousResponseID
