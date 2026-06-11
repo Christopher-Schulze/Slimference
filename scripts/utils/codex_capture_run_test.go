@@ -42,6 +42,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--model", "gpt-5.5",
 		"--exit-marker", "DONE",
 		"--exit-marker-count=2",
+		"--restart-after-completion=2",
 		"--restart-after-mutated-completion=1",
 		"--quiet-codex-output",
 		"--", "Run", "git status",
@@ -78,6 +79,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 	if flags.exitMarkerCount != 2 {
 		t.Fatalf("exitMarkerCount = %d", flags.exitMarkerCount)
+	}
+	if flags.restartAfterCompletion != 2 {
+		t.Fatalf("restartAfterCompletion = %d", flags.restartAfterCompletion)
 	}
 	if flags.restartAfterMutatedCompletion != 1 {
 		t.Fatalf("restartAfterMutatedCompletion = %d", flags.restartAfterMutatedCompletion)
@@ -283,6 +287,117 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 }
 
+func TestRunCodexCaptureRunRestartsAfterCompletion(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	var mu sync.Mutex
+	var calls []string
+	restarted := make(chan struct{})
+	closeRestarted := sync.Once{}
+	starts := 0
+	deps := codexCaptureRunDeps{
+		now: func() time.Time {
+			return time.Date(2026, 6, 11, 12, 0, starts, 0, time.UTC)
+		},
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, "preflight")
+			return nil
+		},
+		startDaemon: func(ctx context.Context, flags codexCaptureRunFlags, stderr io.Writer) (*codexCaptureDaemon, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			starts++
+			calls = append(calls, "start")
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(ctx context.Context, flags codexCaptureRunFlags, daemonDone <-chan error) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, "health")
+			if starts == 2 {
+				closeRestarted.Do(func() { close(restarted) })
+			}
+			return nil
+		},
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, "admin")
+			return codexCaptureAdminSnapshot{}, nil
+		},
+		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
+			mu.Lock()
+			calls = append(calls, "codex-start")
+			mu.Unlock()
+			writeJSONLFile(t, capturePath,
+				map[string]any{
+					"direction": "server_to_client",
+					"payload":   map[string]any{"type": "response.completed"},
+				},
+			)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-restarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("daemon was not restarted after completion")
+			}
+			mu.Lock()
+			calls = append(calls, "codex-end")
+			mu.Unlock()
+			return nil
+		},
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, "stop")
+			return nil
+		},
+		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, "replay")
+			return wssABReplayReport{Path: flags.path, Frames: 1, RequestTurns: 1, GatePassed: true}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--restart-after-completion", "1",
+		"--", "Run full-history reconnect harness",
+	}, &stdout, &stderr, deps)
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	mu.Lock()
+	got := strings.Join(calls, ",")
+	mu.Unlock()
+	for _, want := range []string{"preflight", "start", "health", "admin", "codex-start", "stop", "start", "health", "codex-end", "admin", "stop", "replay"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("calls missing %s: %s", want, got)
+		}
+	}
+	startCount := 0
+	stopCount := 0
+	for _, call := range strings.Split(got, ",") {
+		if call == "start" {
+			startCount++
+		}
+		if call == "stop" {
+			stopCount++
+		}
+	}
+	if startCount != 2 || stopCount != 2 {
+		t.Fatalf("restart lifecycle should have exactly two starts and stops: %s", got)
+	}
+	if !strings.Contains(stderr.String(), "capture daemon restarted after completion 1") {
+		t.Fatalf("restart note missing from stderr: %s", stderr.String())
+	}
+}
+
 func TestRunCodexCaptureRunRestartsAfterMutatedCompletion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -408,6 +523,35 @@ func TestRunCodexCaptureRunRestartsAfterMutatedCompletion(t *testing.T) {
 	}
 }
 
+func TestCodexCaptureHasCompletion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.jsonl")
+	writeJSONLFile(t, path,
+		map[string]any{
+			"direction": "client_to_server",
+			"payload":   map[string]any{"type": "response.create"},
+		},
+		map[string]any{
+			"direction": "server_to_client",
+			"payload":   map[string]any{"type": "response.in_progress"},
+		},
+	)
+	if codexCaptureHasCompletion(path, 1) {
+		t.Fatal("non-completion server frames must not satisfy the restart trigger")
+	}
+	appendJSONLFile(t, path,
+		map[string]any{
+			"direction": "server_to_client",
+			"payload":   map[string]any{"type": "response.completed"},
+		},
+	)
+	if !codexCaptureHasCompletion(path, 1) {
+		t.Fatal("first completion should satisfy target 1")
+	}
+	if codexCaptureHasCompletion(path, 2) {
+		t.Fatal("target 2 should not fire with only one completion")
+	}
+}
+
 func TestCodexCaptureHasMutatedCompletion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capture.jsonl")
 	writeJSONLFile(t, path,
@@ -463,6 +607,35 @@ func TestRunCodexCaptureRunRejectsRestartWithResourceProof(t *testing.T) {
 	})
 	if code != 2 || !strings.Contains(stderr.String(), "cannot be combined with --resource-profile-proof") {
 		t.Fatalf("expected restart/resource validation failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runCodexCaptureRunWithDeps([]string{
+		"--resource-profile-proof", filepath.Join(t.TempDir(), "resource"),
+		"--restart-after-completion", "1",
+		"--workload-class", "host_resource_long_workday",
+		"--", "prompt",
+	}, &stdout, &stderr, codexCaptureRunDeps{
+		now: func() time.Time { return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC) },
+	})
+	if code != 2 || !strings.Contains(stderr.String(), "cannot be combined with --resource-profile-proof") {
+		t.Fatalf("expected completion restart/resource validation failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunCodexCaptureRunRejectsCombinedRestartModes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--restart-after-completion", "1",
+		"--restart-after-mutated-completion", "1",
+		"--", "prompt",
+	}, &stdout, &stderr, codexCaptureRunDeps{
+		now: func() time.Time { return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC) },
+	})
+	if code != 2 || !strings.Contains(stderr.String(), "cannot be combined with --restart-after-mutated-completion") {
+		t.Fatalf("expected combined restart validation failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
 

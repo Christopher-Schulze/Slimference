@@ -420,12 +420,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafeWithToolUses(meta, requestContainsToolOutput, messages, mergedToolUses)
 		chunkSettings := a.p.codexChunkDedupSettings()
 		deltaShape := wssRequestIsDeltaShape(messages)
-		// 2026-06-11 live A/B (loop runs 4-8, E1): archive-backed structured
-		// mutations on previous_response_id delta-shaped turns poison server
-		// state and surface as a follow-up 400. E5 then proved full-history
-		// resend mutation clean with lost=0, so resolved/inferred full-history
-		// tool-output is recoverable while delta-shaped continuations remain
-		// behind the proof gate.
+		// 2026-06-11 live A/B: archive-backed structured mutations on
+		// previous_response_id delta-shaped turns poison server state and
+		// surface as a follow-up 400. Later full-history history-reducer
+		// captures showed the same downstream-delta failure class, so keep
+		// history reducers behind a narrower shape guard while structured
+		// archive-backed full-history search output stays on its own proof path.
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
@@ -444,6 +444,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		statefulDeltaMutationBlocked := meta.PreviousResponseID != "" &&
 			deltaShape &&
 			!deltaMutationLabEnabled
+		historyMutationGuardReason := ""
+		if statefulDeltaMutationBlocked {
+			historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+		} else if meta.SocketSeq > 0 && wssRequestShape(meta, messages) == "full_history" {
+			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
+		}
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
 		if cacheBustDemoted != 0 {
 			if meta.DebugFacts == nil {
@@ -460,8 +466,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		obsoleteBytesPruned := 0
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			staleGuardReason := ""
-			if statefulDeltaMutationBlocked {
-				staleGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			if historyMutationGuardReason != "" {
+				staleGuardReason = historyMutationGuardReason
 			} else if cacheBustDemoted.Has(proxyLayer0MechanismStaleRead) {
 				staleGuardReason = "cache_bust_guard"
 			}
@@ -494,8 +500,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
 			obsoleteGuardReason := ""
-			if statefulDeltaMutationBlocked {
-				obsoleteGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			if historyMutationGuardReason != "" {
+				obsoleteGuardReason = historyMutationGuardReason
 			} else if cacheBustDemoted.Has(proxyLayer0MechanismObsoletePrune) {
 				obsoleteGuardReason = "cache_bust_guard"
 			}
@@ -544,14 +550,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
 			WSSSearchMutationAllowed: !statefulDeltaMutationBlocked &&
 				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable),
-			CacheBustDemotedMechanisms: cacheBustDemoted,
-			// Any wire mutation on a previous_response_id delta turn makes
-			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
-			// loop runs 4-8; bridge control clean). E5 restart proof showed
-			// accepted full-history resend mutation, so suppress only that
-			// delta flow while reducers keep observing and seeding. The
-			// broad tool-output lab switch does not bypass this gate; only
-			// the env-only delta failure-reproduction switch bypasses it.
+			CacheBustDemotedMechanisms:   cacheBustDemoted,
+			HistoryMutationGuardReason:   historyMutationGuardReason,
 			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
 		})
 		l0Messages, stats := result.Messages, result.Stats

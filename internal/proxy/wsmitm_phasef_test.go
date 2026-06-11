@@ -2622,6 +2622,51 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFFullHistoryChunkDedupFullPassOnLiveSocket(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const promptCacheKey = "chunk-wss-full-history-guard"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	shared := strings.Repeat("full-history guarded chunk region keeps exact context recoverable\n", 1000)
+	body := func(path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": promptCacheKey,
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	_, _, _, stats, _ := adapter.applyInputPipeline(body("a.go", "read-a", shared+"tail a\n"))
+	if stats.ChunkDedupBlocks != 0 {
+		t.Fatalf("first full-history read should seed chunks only: %+v", stats)
+	}
+	second, _, _, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+"tail b\n"))
+	if stats.ChunkDedupBlocks != 0 || stats.TokensSaved != 0 || strings.Contains(string(second), "[context-chunk status=unchanged") {
+		t.Fatalf("live-socket full-history chunk dedup must full-pass: stats=%+v body=%s", stats, second)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("guarded full-history chunk dedup must emit precise evidence: %+v", stats.EvidenceDecisions)
+	}
+}
+
 func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -3205,6 +3250,42 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	}
 	if got := p.OutputReduceCountersSnapshot().ObsoleteReadBlocksPruned; got == 0 {
 		t.Fatalf("obsolete counter not incremented: %+v", p.OutputReduceCountersSnapshot())
+	}
+}
+
+func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	body := codexWSStaleObsoleteLayer0Body()
+
+	mutated, _, changed, stats, _ := adapter.applyInputPipeline(body)
+	mutatedText := string(mutated)
+	if !changed {
+		t.Fatal("live-socket fixture should still allow non-history savings")
+	}
+	if !strings.Contains(mutatedText, "stale x content") || strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("live-socket full-history stale-read must full-pass original content: %s", mutatedText)
+	}
+	if !strings.Contains(mutatedText, "obsolete y content") || strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("live-socket full-history obsolete-prune must full-pass original content: %s", mutatedText)
+	}
+	if !strings.Contains(mutatedText, "[git status]") || !strings.Contains(mutatedText, "context-archive kind=tool-output") || strings.Contains(mutatedText, "single_reconstruct_179.go") {
+		t.Fatalf("live-socket full-history guard must not block captured-output savings: %s", mutatedText)
+	}
+	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 {
+		t.Fatalf("guarded history reducers must not count applied savings: %+v", stats)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("guarded full-history reducers must emit precise evidence: %+v", stats.EvidenceDecisions)
 	}
 }
 

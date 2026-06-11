@@ -167,6 +167,12 @@ type codexLayer0Request struct {
 	// path for named search output only. It does not bypass StatefulDeltaMutationBlocked.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
+	// HistoryMutationGuardReason suppresses history/chunk reducers that can
+	// perturb Codex server state and break the following previous_response_id
+	// delta turn. It is intentionally narrower than the structured/output
+	// mutation guards so archive-backed search/output paths can keep their own
+	// proof gates.
+	HistoryMutationGuardReason string
 	// StatefulDeltaMutationBlocked suppresses every wire mutation while
 	// keeping reducers observing/seeding. Live A/B (2026-06-11, loop runs
 	// 4-8): any mutated function_call_output on a previous_response_id
@@ -502,6 +508,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
+			if changed && req.HistoryMutationGuardReason != "" && proxyLayer0DownstreamStateMechanism(mechanism) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason, 0, 0, workload, req.TurnSeq))
+				changed = false
+				afterText = ""
+			}
 			if changed && req.CacheBustDemotedMechanisms.Has(mechanism) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
 				changed = false
@@ -553,6 +564,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
 				continue
 			}
+			if req.HistoryMutationGuardReason != "" && proxyLayer0DownstreamStateMechanism(mechanism) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason, 0, 0, workload, req.TurnSeq))
+				continue
+			}
 			if req.StatefulDeltaMutationBlocked {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate", 0, 0, workload, req.TurnSeq))
 				continue
@@ -592,6 +607,15 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
 	return codexLayer0Result{Messages: cow.out, Stats: stats.finish(started)}
+}
+
+func proxyLayer0DownstreamStateMechanism(mechanism proxyLayer0Mechanism) bool {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta, proxyLayer0MechanismStaleRead, proxyLayer0MechanismObsoletePrune, proxyLayer0MechanismChunkDedup:
+		return true
+	default:
+		return false
+	}
 }
 
 type messageCow struct {

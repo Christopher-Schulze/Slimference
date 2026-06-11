@@ -46,6 +46,7 @@ type codexCaptureRunFlags struct {
 	exitMarker                    string
 	exitMarkerCount               int
 	quietCodexOutput              bool
+	restartAfterCompletion        int
 	restartAfterMutatedCompletion int
 	expectedReducers              []string
 	expectedZeroSavings           bool
@@ -291,6 +292,12 @@ Flags:
                              frames, so quiet TUI output cannot hide it.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
+  --restart-after-completion N
+                             Lab/proof only: restart the managed daemon after
+                             the Nth server response.completed frame, even if
+                             no request mutated. This forces a Codex reconnect
+                             under product-default delta guards so WSS
+                             full-history resend tolerance can be proven.
   --restart-after-mutated-completion N
                              Lab/proof only: restart the managed daemon after the
                              Nth mutated client request is followed by a server
@@ -341,8 +348,12 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		fmt.Fprintln(stderr, "--workload-class is required with --matrix-row")
 		return 2
 	}
-	if flags.restartAfterMutatedCompletion > 0 && flags.resourceProfileProof != "" {
-		fmt.Fprintln(stderr, "--restart-after-mutated-completion cannot be combined with --resource-profile-proof because the daemon PID intentionally changes mid-run")
+	if flags.restartAfterCompletion > 0 && flags.restartAfterMutatedCompletion > 0 {
+		fmt.Fprintln(stderr, "--restart-after-completion cannot be combined with --restart-after-mutated-completion")
+		return 2
+	}
+	if (flags.restartAfterCompletion > 0 || flags.restartAfterMutatedCompletion > 0) && flags.resourceProfileProof != "" {
+		fmt.Fprintln(stderr, "restart proof flags cannot be combined with --resource-profile-proof because the daemon PID intentionally changes mid-run")
 		return 2
 	}
 	if err := ensureCodexCaptureDir(flags.capturePath); err != nil {
@@ -403,7 +414,7 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	}
 	after, err := deps.adminSnapshot(ctx, flags)
 	if err != nil {
-		if flags.restartAfterMutatedCompletion <= 0 {
+		if flags.restartAfterCompletion <= 0 && flags.restartAfterMutatedCompletion <= 0 {
 			fmt.Fprintf(stderr, "read final admin state: %v\n", err)
 			return 1
 		}
@@ -675,6 +686,19 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 				return flags, fmt.Errorf("--restart-after-mutated-completion must be > 0")
 			}
 			flags.restartAfterMutatedCompletion = n
+		case arg == "--restart-after-completion":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("%s requires a value", arg)
+			}
+			i++
+			n, err := parseNonNegativeIntFlag("--restart-after-completion", args[i])
+			if err != nil {
+				return flags, err
+			}
+			if n == 0 {
+				return flags, fmt.Errorf("--restart-after-completion must be > 0")
+			}
+			flags.restartAfterCompletion = n
 		case strings.HasPrefix(arg, "--exit-marker-count="):
 			n, err := parseNonNegativeIntFlag("--exit-marker-count", strings.TrimPrefix(arg, "--exit-marker-count="))
 			if err != nil {
@@ -693,6 +717,15 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 				return flags, fmt.Errorf("--restart-after-mutated-completion must be > 0")
 			}
 			flags.restartAfterMutatedCompletion = n
+		case strings.HasPrefix(arg, "--restart-after-completion="):
+			n, err := parseNonNegativeIntFlag("--restart-after-completion", strings.TrimPrefix(arg, "--restart-after-completion="))
+			if err != nil {
+				return flags, err
+			}
+			if n == 0 {
+				return flags, fmt.Errorf("--restart-after-completion must be > 0")
+			}
+			flags.restartAfterCompletion = n
 		case strings.HasPrefix(arg, "--"):
 			name, value, ok := strings.Cut(arg, "=")
 			if !ok {
@@ -1353,7 +1386,7 @@ func codexCaptureCacheEntryKey(entry control.ProxyLayer0CacheEntry) string {
 }
 
 func runCodexCaptureWithOptionalRestart(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, stdout, stderr, log io.Writer) (*codexCaptureDaemon, error) {
-	if flags.restartAfterMutatedCompletion <= 0 {
+	if flags.restartAfterCompletion <= 0 && flags.restartAfterMutatedCompletion <= 0 {
 		return daemon, deps.runCodex(ctx, flags, stdout, stderr)
 	}
 	if deps.runCodex == nil || deps.stopDaemon == nil || deps.startDaemon == nil || deps.waitHealth == nil {
@@ -1368,7 +1401,7 @@ func runCodexCaptureWithOptionalRestart(ctx context.Context, flags codexCaptureR
 
 	restartDone := make(chan codexCaptureRestartResult, 1)
 	go func() {
-		next, err := restartCodexCaptureDaemonAfterMutatedCompletion(runCtx, flags, daemon, deps, log)
+		next, err := restartCodexCaptureDaemonAfterConfiguredCompletion(runCtx, flags, daemon, deps, log)
 		restartDone <- codexCaptureRestartResult{daemon: next, err: err}
 	}()
 
@@ -1402,6 +1435,34 @@ type codexCaptureRestartResult struct {
 	err    error
 }
 
+func restartCodexCaptureDaemonAfterConfiguredCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) (*codexCaptureDaemon, error) {
+	if flags.restartAfterCompletion > 0 {
+		return restartCodexCaptureDaemonAfterCompletion(ctx, flags, daemon, deps, log)
+	}
+	return restartCodexCaptureDaemonAfterMutatedCompletion(ctx, flags, daemon, deps, log)
+}
+
+func restartCodexCaptureDaemonAfterCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) (*codexCaptureDaemon, error) {
+	if err := waitCodexCaptureCompletion(ctx, flags.capturePath, flags.restartAfterCompletion); err != nil {
+		return daemon, err
+	}
+	if err := deps.stopDaemon(ctx, daemon); err != nil {
+		return daemon, fmt.Errorf("restart capture daemon after completion: stop old daemon: %w", err)
+	}
+	next, err := deps.startDaemon(ctx, flags, log)
+	if err != nil {
+		return daemon, fmt.Errorf("restart capture daemon after completion: start new daemon: %w", err)
+	}
+	if err := deps.waitHealth(ctx, flags, next.done); err != nil {
+		_ = deps.stopDaemon(context.Background(), next)
+		return daemon, fmt.Errorf("restart capture daemon after completion: wait health: %w", err)
+	}
+	if log != nil {
+		fmt.Fprintf(log, "capture daemon restarted after completion %d\n", flags.restartAfterCompletion)
+	}
+	return next, nil
+}
+
 func restartCodexCaptureDaemonAfterMutatedCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) (*codexCaptureDaemon, error) {
 	if err := waitCodexCaptureMutatedCompletion(ctx, flags.capturePath, flags.restartAfterMutatedCompletion); err != nil {
 		return daemon, err
@@ -1423,6 +1484,24 @@ func restartCodexCaptureDaemonAfterMutatedCompletion(ctx context.Context, flags 
 	return next, nil
 }
 
+func waitCodexCaptureCompletion(ctx context.Context, path string, target int) error {
+	if target <= 0 {
+		return nil
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if codexCaptureHasCompletion(path, target) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func waitCodexCaptureMutatedCompletion(ctx context.Context, path string, target int) error {
 	if target <= 0 {
 		return nil
@@ -1439,6 +1518,37 @@ func waitCodexCaptureMutatedCompletion(ctx context.Context, path string, target 
 		case <-ticker.C:
 		}
 	}
+}
+
+func codexCaptureHasCompletion(path string, target int) bool {
+	if strings.TrimSpace(path) == "" || target <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	completed := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var frame struct {
+			Direction string          `json:"direction"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(line), &frame); err != nil {
+			continue
+		}
+		if codexCaptureFrameFromServer(frame.Direction) && codexCapturePayloadType(frame.Payload) == "response.completed" {
+			completed++
+			if completed >= target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func codexCaptureHasMutatedCompletion(path string, target int) bool {

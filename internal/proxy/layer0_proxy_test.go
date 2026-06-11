@@ -843,6 +843,75 @@ func proxyLayer0EvidenceHasReason(decisions []evidence.BlockDecision, reason str
 	return false
 }
 
+func TestProxyLayer0DownstreamStateMechanismSet(t *testing.T) {
+	tests := []struct {
+		name      string
+		mechanism proxyLayer0Mechanism
+		want      bool
+	}{
+		{name: "read_delta", mechanism: proxyLayer0MechanismReadDelta, want: true},
+		{name: "stale_read", mechanism: proxyLayer0MechanismStaleRead, want: true},
+		{name: "obsolete_prune", mechanism: proxyLayer0MechanismObsoletePrune, want: true},
+		{name: "chunk_dedup", mechanism: proxyLayer0MechanismChunkDedup, want: true},
+		{name: "captured_output", mechanism: proxyLayer0MechanismCapturedOut, want: false},
+		{name: "codex_envelope", mechanism: proxyLayer0MechanismCodexEnvelope, want: false},
+		{name: "repeated_output", mechanism: proxyLayer0MechanismRepeatedOut, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := proxyLayer0DownstreamStateMechanism(tt.mechanism); got != tt.want {
+				t.Fatalf("proxyLayer0DownstreamStateMechanism(%s)=%v want %v", tt.mechanism, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
+	stats := proxyLayer0Stats{
+		TokensSaved:              100,
+		BlocksModified:           2,
+		ReadDeltaBlocks:          1,
+		CapturedOutputBlocks:     1,
+		CodexExecEnvelopeBlocks:  1,
+		RepeatedOutputBlocks:     1,
+		ChunkDedupBlocks:         1,
+		ChunkDedupReferences:     4,
+		ChunkDedupRefBytes:       800,
+		ChunkDedupInputBytes:     1200,
+		StaleReadBlocks:          1,
+		StaleReadBytesSaved:      400,
+		StaleReadTokensSaved:     50,
+		ObsoletePruneBlocks:      1,
+		ObsoletePruneBytesSaved:  300,
+		ObsoletePruneTokensSaved: 40,
+		ReadDeltaKeys:            []string{"read:a.go"},
+		PolicyDecisions:          []savingspolicy.CodexMechanismDecision{{Mechanism: savingspolicy.CodexMechanismReadDelta}},
+		CacheEvents:              []proxyLayer0CacheEvent{{Mechanism: savingspolicy.CodexMechanismReadDelta, Action: proxyLayer0CacheHit}},
+		EvidenceDecisions:        []evidence.BlockDecision{{Mechanism: string(proxyLayer0MechanismReadDelta), Action: evidence.ActionApplied}},
+		TotalLatencyNs:           11,
+		ReadDeltaLatencyNs:       12,
+		FilterLatencyNs:          13,
+		RepeatedOutputLatencyNs:  14,
+		ChunkDedupLatencyNs:      15,
+	}
+	got := stats.withoutSavings()
+	if got.TokensSaved != 0 || got.BlocksModified != 0 || got.ReadDeltaBlocks != 0 ||
+		got.CapturedOutputBlocks != 0 || got.CodexExecEnvelopeBlocks != 0 ||
+		got.RepeatedOutputBlocks != 0 || got.ChunkDedupBlocks != 0 ||
+		got.ChunkDedupReferences != 0 || got.ChunkDedupRefBytes != 0 ||
+		got.ChunkDedupInputBytes != 0 || got.StaleReadBlocks != 0 ||
+		got.StaleReadBytesSaved != 0 || got.StaleReadTokensSaved != 0 ||
+		got.ObsoletePruneBlocks != 0 || got.ObsoletePruneBytesSaved != 0 ||
+		got.ObsoletePruneTokensSaved != 0 || got.ReadDeltaKeys != nil ||
+		got.PolicyDecisions != nil || got.CacheEvents != nil || got.EvidenceDecisions != nil {
+		t.Fatalf("withoutSavings left applied accounting: %+v", got)
+	}
+	if got.TotalLatencyNs != 11 || got.ReadDeltaLatencyNs != 12 || got.FilterLatencyNs != 13 ||
+		got.RepeatedOutputLatencyNs != 14 || got.ChunkDedupLatencyNs != 15 {
+		t.Fatalf("withoutSavings must preserve latency accounting: %+v", got)
+	}
+}
+
 func TestReduceCodexLayer0ReconcCommandsPassThrough(t *testing.T) {
 	commands := []string{
 		"reconc check .",
