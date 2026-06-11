@@ -22,20 +22,24 @@ import (
 func TestProxyFootprintScoreBucket(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		original int
-		saved    int
-		turnSeq  int
-		want     string
+		name      string
+		original  int
+		saved     int
+		turnSeq   int
+		wantScore int
+		want      string
 	}{
-		{name: "none", original: 0, saved: 0, turnSeq: 1, want: ""},
-		{name: "early high", original: 9000, saved: 5000, turnSeq: 2, want: "high"},
-		{name: "mid session mid", original: 3000, saved: 3000, turnSeq: 6, want: "mid"},
-		{name: "late low", original: 3000, saved: 3000, turnSeq: 12, want: "low"},
-		{name: "full pass uses original", original: 1200, saved: 0, turnSeq: 1, want: "mid"},
+		{name: "none", original: 0, saved: 0, turnSeq: 1, wantScore: 0, want: ""},
+		{name: "early high", original: 9000, saved: 5000, turnSeq: 2, wantScore: 40000, want: "high"},
+		{name: "mid session mid", original: 3000, saved: 3000, turnSeq: 6, wantScore: 12000, want: "mid"},
+		{name: "late low", original: 3000, saved: 3000, turnSeq: 12, wantScore: 3000, want: "low"},
+		{name: "full pass uses original", original: 1200, saved: 0, turnSeq: 1, wantScore: 9600, want: "mid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if got := proxyFootprintScore(tt.original, tt.saved, tt.turnSeq); got != tt.wantScore {
+				t.Fatalf("score=%d want %d", got, tt.wantScore)
+			}
 			if got := proxyFootprintScoreBucket(tt.original, tt.saved, tt.turnSeq); got != tt.want {
 				t.Fatalf("bucket=%q want %q", got, tt.want)
 			}

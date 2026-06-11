@@ -573,11 +573,13 @@ Layer 0, including adapter-remembered tool uses after reconnect, so a current
 tool result keeps its tool active even when the matching function-call item is
 not present in the frame being pruned.
 WSS Layer-0 telemetry also records a deterministic per-session turn sequence and
-adds a content-free `footprint_score_bucket` (`low`, `mid`, or `high`) to
-evidence-backed reducer decisions. The bucket is observability only: it does not
-loosen thresholds or create a mutation path, but it gives the savings scorecard
-and later T359 calibration enough data to prioritize large early-session blocks
-without inspecting payloads.
+adds content-free `footprint_score` plus `footprint_score_bucket` (`low`, `mid`,
+or `high`) to evidence-backed reducer decisions. The score is saved tokens
+weighted by early-session reuse potential; the bucket is the coarse display
+class. Both are observability only: they do not loosen thresholds or create a
+mutation path, but they give the savings scorecard and later T359 calibration
+enough data to prioritize large early-session blocks without inspecting
+payloads.
 Cache-decision counters under `proxy_layer0_cache` separately record route,
 mechanism, `hit`/`miss`, reason, and count for read-delta and exact
 repeated-output. Those reasons make cold starts, first-seed full passes,
@@ -2152,15 +2154,18 @@ assumption, default `0.10` and overridable with
 `SLIMFERENCE_CACHED_PRICE_RATIO`. Aggregate JSON/CSV fields expose
 `cached_price_ratio`, `decision_counterfactual_tokens`,
 `decision_uncached_counterfactual_tokens`, `decision_s_local`,
-`decision_s_combined`, and `decision_s_vs_uncached`; each
-`decision_sessions[]` JSON row also carries a nested `scorecard` with the same
-rate family. `S_local` is local input deletion over the no-local input
-counterfactual. `S_combined` compares effective billed tokens against a
-cache-as-is, no-local-reduction counterfactual. `S_vs_uncached` compares the
-same effective billed tokens against a fully uncached no-local-reduction
-counterfactual. Negative retry costs and cache-create tokens are included in
-effective billed, so retries and cache warmup reduce the reported rates instead
-of inflating savings.
+`decision_s_combined`, `decision_s_vs_uncached`, `decision_footprint_score`,
+and `decision_footprint_score_buckets`; each `decision_sessions[]` JSON row also
+carries a nested `scorecard` with the same rate family plus per-session
+`footprint_score` and `footprint_score_buckets`. `S_local` is local input
+deletion over the no-local input counterfactual. `S_combined` compares effective
+billed tokens against a cache-as-is, no-local-reduction counterfactual.
+`S_vs_uncached` compares the same effective billed tokens against a fully
+uncached no-local-reduction counterfactual. Negative retry costs and
+cache-create tokens are included in effective billed, so retries and cache
+warmup reduce the reported rates instead of inflating savings. Footprint score
+is reported separately from billed-token savings: it ranks where a local saving
+matters most for future context pressure, not a provider-bill estimate.
 
 ---
 

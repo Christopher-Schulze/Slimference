@@ -138,6 +138,7 @@ func TestBuildMechanismAccounting(t *testing.T) {
 			SavedTokens:          280,
 			NetTokens:            280,
 			FootprintScoreBucket: "mid",
+			FootprintScore:       2240,
 		}, {
 			Layer:       2,
 			Mechanism:   "provider_prompt_cache",
@@ -171,6 +172,9 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 	if byName["stale_read"].FootprintScoreBucket != "mid" {
 		t.Fatalf("evidence footprint bucket missing: %+v", byName["stale_read"])
+	}
+	if byName["stale_read"].FootprintScore != 2240 {
+		t.Fatalf("evidence footprint score missing: %+v", byName["stale_read"])
 	}
 	if byName["provider_prompt_cache"].NetTokens != 100 || byName["tool_prune"].NetTokens != 100 {
 		t.Fatalf("cache/tool accounting missing: %+v", byName)

@@ -79,6 +79,7 @@ type BlockDecision struct {
 	NetTokens            int          `json:"net_tokens"`
 	CacheImpact          string       `json:"cache_impact,omitempty"`
 	FootprintScoreBucket string       `json:"footprint_score_bucket,omitempty"`
+	FootprintScore       int          `json:"footprint_score,omitempty"`
 }
 
 type Analysis struct {

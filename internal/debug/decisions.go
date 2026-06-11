@@ -86,6 +86,7 @@ type MechanismAccounting struct {
 	ContentClass         string `json:"content_class,omitempty"`
 	SafetyClass          string `json:"safety_class,omitempty"`
 	FootprintScoreBucket string `json:"footprint_score_bucket,omitempty"`
+	FootprintScore       int    `json:"footprint_score,omitempty"`
 }
 
 // TokenCounts holds before/after token totals for a request.
@@ -386,6 +387,7 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			ContentClass:         string(decision.ContentClass),
 			SafetyClass:          string(decision.SafetyClass),
 			FootprintScoreBucket: decision.FootprintScoreBucket,
+			FootprintScore:       decision.FootprintScore,
 		})
 	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {

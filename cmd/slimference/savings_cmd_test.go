@@ -462,21 +462,23 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 					Saved:    750,
 				},
 				Mechanisms: []dbg.MechanismAccounting{
-					{Name: "codex_posttool_compaction", Layer: 1, Source: "decision_entry", Count: 1, OriginalTokens: 1000, FinalTokens: 300, SavedTokens: 700, NetTokens: 700},
+					{Name: "codex_posttool_compaction", Layer: 1, Source: "decision_entry", Count: 1, OriginalTokens: 1000, FinalTokens: 300, SavedTokens: 700, NetTokens: 700, FootprintScoreBucket: "high", FootprintScore: 56000},
 					{Name: "codex_archive_replacement", Layer: 1, Source: "decision_entry", Count: 1, OriginalTokens: 300, FinalTokens: 250, SavedTokens: 50, NetTokens: 50},
 					{Name: "provider_prompt_cache", Source: "cache_accounting", Count: 1, SavedTokens: 4, AddedTokens: 2, NetTokens: 2},
 					{Name: "zero_effect"},
 					{Name: "request_total", Count: 1, OriginalTokens: 1000, FinalTokens: 250, SavedTokens: 750, NetTokens: 750},
 				},
 				EvidenceDecisions: []evidence.BlockDecision{{
-					Layer:        1,
-					Mechanism:    "codex_posttool_compaction",
-					ContentClass: evidence.ContentTest,
-					SafetyClass:  evidence.SafetyDiagnosticPriority,
-					Action:       evidence.ActionApplied,
-					Signals:      []evidence.Signal{evidence.SignalErrorKeyword, evidence.SignalStacktrace},
-					NetTokens:    700,
-					CacheImpact:  "provider_cache_read",
+					Layer:                1,
+					Mechanism:            "codex_posttool_compaction",
+					ContentClass:         evidence.ContentTest,
+					SafetyClass:          evidence.SafetyDiagnosticPriority,
+					Action:               evidence.ActionApplied,
+					Signals:              []evidence.Signal{evidence.SignalErrorKeyword, evidence.SignalStacktrace},
+					NetTokens:            700,
+					CacheImpact:          "provider_cache_read",
+					FootprintScoreBucket: "high",
+					FootprintScore:       56000,
 				}},
 			},
 			{
@@ -549,10 +551,17 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		got.DecisionOutputReduceTokens != -2 || got.DecisionToolPruneTokens != 3 {
 		t.Fatalf("bad aggregate layer totals: %+v", got)
 	}
+	if got.DecisionFootprintScore != 56000 || got.DecisionFootprintScoreBuckets["high"] != 1 ||
+		got.DecisionSessions[0].FootprintScore != 56000 || got.DecisionSessions[0].FootprintBuckets["high"] != 1 ||
+		got.Mechanisms[0].FootprintScore != 56000 || got.Mechanisms[0].FootprintBuckets["high"] != 1 {
+		t.Fatalf("bad footprint scorecard: %+v sessions=%+v mechanisms=%+v", got, got.DecisionSessions, got.Mechanisms)
+	}
 	if got.Evidence.Decisions != 3 || got.Evidence.Applied != 2 || got.Evidence.FullPass != 1 ||
 		got.Evidence.ByContentClass[string(evidence.ContentTest)] != 1 ||
 		got.Evidence.BySignal[string(evidence.SignalCacheHotZone)] != 1 ||
 		got.Evidence.ByCacheImpact["provider_cache_read"] != 2 ||
+		got.Evidence.ByFootprint["high"] != 1 ||
+		got.Evidence.FootprintScore != 56000 ||
 		got.Evidence.NetTokens != 700 {
 		t.Fatalf("bad evidence totals: %+v", got.Evidence)
 	}
@@ -566,7 +575,7 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		t.Fatalf("top mechanism: %+v", got.Mechanisms)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Evidence decisions", "cache_hot_zone=1", "Evidence cache impact", "provider_cache_read=2", "Decision cost before/after", "codex_posttool_compaction", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision footprint score", "56.0K (high=1)", "Evidence decisions", "cache_hot_zone=1", "Evidence cache impact", "provider_cache_read=2", "Evidence footprint score", "codex_posttool_compaction", "footprint=56.0K/high=1", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}

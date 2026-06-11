@@ -617,17 +617,22 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	} else {
 		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
 	}
-	decision.FootprintScoreBucket = proxyFootprintScoreBucket(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScore = proxyFootprintScore(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
 }
 
 func proxyFootprintScoreBucket(originalTokens int, savedTokens int, turnSeq int) string {
+	return proxyFootprintScoreBucketFromScore(proxyFootprintScore(originalTokens, savedTokens, turnSeq))
+}
+
+func proxyFootprintScore(originalTokens int, savedTokens int, turnSeq int) int {
 	tokens := savedTokens
 	if tokens <= 0 {
 		tokens = originalTokens
 	}
 	if tokens <= 0 {
-		return ""
+		return 0
 	}
 	multiplier := 1
 	switch {
@@ -636,8 +641,13 @@ func proxyFootprintScoreBucket(originalTokens int, savedTokens int, turnSeq int)
 	case turnSeq > 3 && turnSeq <= 8:
 		multiplier = 4
 	}
-	score := tokens * multiplier
+	return tokens * multiplier
+}
+
+func proxyFootprintScoreBucketFromScore(score int) string {
 	switch {
+	case score <= 0:
+		return ""
 	case score >= 32000:
 		return "high"
 	case score >= 8000:
@@ -717,7 +727,8 @@ func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action
 		beforeTokens,
 		afterTokens,
 	)
-	decision.FootprintScoreBucket = proxyFootprintScoreBucket(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScore = proxyFootprintScore(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
 }
 

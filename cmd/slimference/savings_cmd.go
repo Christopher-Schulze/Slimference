@@ -88,6 +88,8 @@ type SavingsSummary struct {
 	DecisionLayer3NetTokens           int64                     `json:"decision_layer3_net_tokens"`
 	DecisionOutputReduceTokens        int64                     `json:"decision_output_reduce_tokens"`
 	DecisionToolPruneTokens           int64                     `json:"decision_tool_prune_tokens"`
+	DecisionFootprintScore            int64                     `json:"decision_footprint_score,omitempty"`
+	DecisionFootprintScoreBuckets     map[string]int64          `json:"decision_footprint_score_buckets,omitempty"`
 	DecisionEstimatedCostBeforeUSD    float64                   `json:"decision_estimated_cost_before_usd"`
 	DecisionEstimatedCostAfterUSD     float64                   `json:"decision_estimated_cost_after_usd"`
 	DecisionEstimatedCostSavedUSD     float64                   `json:"decision_estimated_cost_saved_usd"`
@@ -103,22 +105,26 @@ type SavingsEvidenceSummary struct {
 	FailedOpen     int64            `json:"failed_open,omitempty"`
 	Skipped        int64            `json:"skipped,omitempty"`
 	NetTokens      int64            `json:"net_tokens,omitempty"`
+	FootprintScore int64            `json:"footprint_score,omitempty"`
 	ByContentClass map[string]int64 `json:"by_content_class,omitempty"`
 	BySafetyClass  map[string]int64 `json:"by_safety_class,omitempty"`
 	BySignal       map[string]int64 `json:"by_signal,omitempty"`
 	ByCacheImpact  map[string]int64 `json:"by_cache_impact,omitempty"`
+	ByFootprint    map[string]int64 `json:"by_footprint_score_bucket,omitempty"`
 }
 
 type SavingsMechanismSummary struct {
-	Name           string `json:"name"`
-	Layer          int    `json:"layer,omitempty"`
-	Source         string `json:"source,omitempty"`
-	Count          int64  `json:"count"`
-	OriginalTokens int64  `json:"original_tokens"`
-	FinalTokens    int64  `json:"final_tokens"`
-	SavedTokens    int64  `json:"saved_tokens"`
-	AddedTokens    int64  `json:"added_tokens"`
-	NetTokens      int64  `json:"net_tokens"`
+	Name             string           `json:"name"`
+	Layer            int              `json:"layer,omitempty"`
+	Source           string           `json:"source,omitempty"`
+	Count            int64            `json:"count"`
+	OriginalTokens   int64            `json:"original_tokens"`
+	FinalTokens      int64            `json:"final_tokens"`
+	SavedTokens      int64            `json:"saved_tokens"`
+	AddedTokens      int64            `json:"added_tokens"`
+	NetTokens        int64            `json:"net_tokens"`
+	FootprintScore   int64            `json:"footprint_score,omitempty"`
+	FootprintBuckets map[string]int64 `json:"footprint_score_buckets,omitempty"`
 }
 
 type SavingsSessionSummary struct {
@@ -141,6 +147,8 @@ type SavingsSessionSummary struct {
 	Layer3NetTokens     int64             `json:"layer3_net_tokens,omitempty"`
 	OutputReduceTokens  int64             `json:"output_reduce_tokens,omitempty"`
 	ToolPruneTokens     int64             `json:"tool_prune_tokens,omitempty"`
+	FootprintScore      int64             `json:"footprint_score,omitempty"`
+	FootprintBuckets    map[string]int64  `json:"footprint_score_buckets,omitempty"`
 	OutputTokens        int64             `json:"output_tokens"`
 	CacheReadTokens     int64             `json:"cache_read_tokens"`
 	CacheCreateTokens   int64             `json:"cache_create_tokens"`
@@ -408,6 +416,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			row.NetTokens += int64(mechanism.NetTokens)
 			out.DecisionAddedTokens += int64(mechanism.AddedTokens)
 			sessionRow.AddedTokens += int64(mechanism.AddedTokens)
+			accumulateSavingsFootprint(sessionRow, row, mechanism)
 			if layer, ok := savingsMechanismLayer(mechanism); ok {
 				layerObserved[layer] = true
 				addSessionLayerNet(sessionRow, layer, int64(mechanism.NetTokens))
@@ -453,6 +462,8 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		out.DecisionLayer3NetTokens += row.Layer3NetTokens
 		out.DecisionOutputReduceTokens += row.OutputReduceTokens
 		out.DecisionToolPruneTokens += row.ToolPruneTokens
+		out.DecisionFootprintScore += row.FootprintScore
+		mergeSavingsBucketCounts(&out.DecisionFootprintScoreBuckets, row.FootprintBuckets)
 	}
 	enrichSavingsSessions(out.DecisionSessions)
 	sort.Slice(out.DecisionSessions, func(i, j int) bool {
@@ -593,6 +604,7 @@ func accumulateSavingsEvidence(out *SavingsEvidenceSummary, decisions []evidence
 	for _, decision := range decisions {
 		out.Decisions++
 		out.NetTokens += int64(decision.NetTokens)
+		out.FootprintScore += int64(decision.FootprintScore)
 		switch decision.Action {
 		case evidence.ActionApplied:
 			out.Applied++
@@ -629,6 +641,48 @@ func accumulateSavingsEvidence(out *SavingsEvidenceSummary, decisions []evidence
 			}
 			out.ByCacheImpact[decision.CacheImpact]++
 		}
+		if decision.FootprintScoreBucket != "" {
+			if out.ByFootprint == nil {
+				out.ByFootprint = map[string]int64{}
+			}
+			out.ByFootprint[decision.FootprintScoreBucket]++
+		}
+	}
+}
+
+func accumulateSavingsFootprint(session *SavingsSessionSummary, mechanism *SavingsMechanismSummary, item dbg.MechanismAccounting) {
+	score := int64(item.FootprintScore)
+	bucket := strings.TrimSpace(item.FootprintScoreBucket)
+	if score <= 0 && bucket == "" {
+		return
+	}
+	if mechanism != nil {
+		mechanism.FootprintScore += score
+		addSavingsBucketCount(&mechanism.FootprintBuckets, bucket, 1)
+	}
+	if session != nil {
+		session.FootprintScore += score
+		addSavingsBucketCount(&session.FootprintBuckets, bucket, 1)
+	}
+}
+
+func addSavingsBucketCount(counts *map[string]int64, bucket string, n int64) {
+	bucket = strings.TrimSpace(bucket)
+	if counts == nil || bucket == "" || n <= 0 {
+		return
+	}
+	if *counts == nil {
+		*counts = map[string]int64{}
+	}
+	(*counts)[bucket] += n
+}
+
+func mergeSavingsBucketCounts(dst *map[string]int64, src map[string]int64) {
+	if len(src) == 0 {
+		return
+	}
+	for bucket, count := range src {
+		addSavingsBucketCount(dst, bucket, count)
 	}
 }
 
@@ -939,6 +993,8 @@ func mergeSavingsSession(dst, src *SavingsSessionSummary) {
 	dst.Layer3NetTokens += src.Layer3NetTokens
 	dst.OutputReduceTokens += src.OutputReduceTokens
 	dst.ToolPruneTokens += src.ToolPruneTokens
+	dst.FootprintScore += src.FootprintScore
+	mergeSavingsBucketCounts(&dst.FootprintBuckets, src.FootprintBuckets)
 	dst.OutputTokens += src.OutputTokens
 	dst.CacheReadTokens += src.CacheReadTokens
 	dst.CacheCreateTokens += src.CacheCreateTokens
@@ -1359,6 +1415,12 @@ func formatSavingsText(s SavingsSummary) string {
 			}
 		}
 		sb.WriteString(fmt.Sprintf("Decision layer net:          %s\n", formatDecisionLayerBreakdown(s)))
+		if s.DecisionFootprintScore > 0 || len(s.DecisionFootprintScoreBuckets) > 0 {
+			sb.WriteString(fmt.Sprintf("Decision footprint score:    %s (%s)\n",
+				formatInt64Plain(s.DecisionFootprintScore),
+				formatSavingsBucketCounts(s.DecisionFootprintScoreBuckets),
+			))
+		}
 		if s.Evidence.Decisions > 0 {
 			sb.WriteString(fmt.Sprintf("Evidence decisions:          %d (%d applied, %d full-pass, %d failed-open, net=%s)\n",
 				s.Evidence.Decisions,
@@ -1374,6 +1436,12 @@ func formatSavingsText(s SavingsSummary) string {
 			if len(s.Evidence.ByCacheImpact) > 0 {
 				sb.WriteString(fmt.Sprintf("Evidence cache impact:       %s\n", formatSavingsTopCounts(s.Evidence.ByCacheImpact, 4)))
 			}
+			if s.Evidence.FootprintScore > 0 || len(s.Evidence.ByFootprint) > 0 {
+				sb.WriteString(fmt.Sprintf("Evidence footprint score:    %s (%s)\n",
+					formatInt64Plain(s.Evidence.FootprintScore),
+					formatSavingsBucketCounts(s.Evidence.ByFootprint),
+				))
+			}
 		}
 		if s.DecisionEstimatedCostBeforeUSD > 0 || s.DecisionEstimatedCostAfterUSD > 0 || s.DecisionEstimatedCostSavedUSD > 0 {
 			sb.WriteString(fmt.Sprintf("Decision cost before/after:  ~$%.4f / ~$%.4f (saved ~$%.4f)\n",
@@ -1386,12 +1454,14 @@ func formatSavingsText(s SavingsSummary) string {
 			if i >= 8 {
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  mechanism %-28s net=%s saved=%s added=%s count=%d\n",
+			footprintText := formatSavingsFootprintSuffix(mechanism.FootprintScore, mechanism.FootprintBuckets)
+			sb.WriteString(fmt.Sprintf("  mechanism %-28s net=%s saved=%s added=%s count=%d%s\n",
 				mechanism.Name,
 				formatSignedInt64Plain(mechanism.NetTokens),
 				formatInt64Plain(mechanism.SavedTokens),
 				formatInt64Plain(mechanism.AddedTokens),
 				mechanism.Count,
+				footprintText,
 			))
 		}
 		for i, session := range s.DecisionSessions {
@@ -1405,7 +1475,7 @@ func formatSavingsText(s SavingsSummary) string {
 				negativeText = fmt.Sprintf(" negative=%d/-%s", session.NegativeEvents, formatInt64Plain(session.NegativeEventTokens))
 			}
 			if session.CostBeforeUSD > 0 || session.CostAfterUSD > 0 || session.CostSavedUSD > 0 {
-				sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s cost=~$%.4f/~$%.4f requests=%d\n",
+				sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s cost=~$%.4f/~$%.4f%s requests=%d\n",
 					label,
 					formatSignedInt64Plain(session.NetSavedTokens),
 					formatSignedInt64Plain(session.LocalSaved),
@@ -1422,11 +1492,12 @@ func formatSavingsText(s SavingsSummary) string {
 					negativeText,
 					session.CostBeforeUSD,
 					session.CostAfterUSD,
+					formatSavingsFootprintSuffix(session.FootprintScore, session.FootprintBuckets),
 					session.Requests,
 				))
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s requests=%d\n",
+			sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s%s requests=%d\n",
 				label,
 				formatSignedInt64Plain(session.NetSavedTokens),
 				formatSignedInt64Plain(session.LocalSaved),
@@ -1441,6 +1512,7 @@ func formatSavingsText(s SavingsSummary) string {
 				formatInt64Plain(session.OriginalTokens),
 				formatInt64Plain(session.FinalTokens),
 				negativeText,
+				formatSavingsFootprintSuffix(session.FootprintScore, session.FootprintBuckets),
 				session.Requests,
 			))
 		}
@@ -1577,6 +1649,53 @@ func formatSavingsTopCounts(counts map[string]int64, limit int) string {
 	return strings.Join(parts, ", ")
 }
 
+func formatSavingsFootprintSuffix(score int64, buckets map[string]int64) string {
+	if score <= 0 && len(buckets) == 0 {
+		return ""
+	}
+	return " footprint=" + formatInt64Plain(score) + "/" + formatSavingsBucketCounts(buckets)
+}
+
+func formatSavingsBucketCounts(counts map[string]int64) string {
+	return formatSavingsBucketCountsWithSeparator(counts, ", ")
+}
+
+func formatSavingsBucketCountsCSV(counts map[string]int64) string {
+	return formatSavingsBucketCountsWithSeparator(counts, "|")
+}
+
+func formatSavingsBucketCountsWithSeparator(counts map[string]int64, separator string) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(counts))
+	seen := map[string]bool{}
+	for _, key := range []string{"high", "mid", "low"} {
+		if counts[key] > 0 {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	other := make([]string, 0, len(counts))
+	for key, count := range counts {
+		key = strings.TrimSpace(key)
+		if key == "" || count <= 0 || seen[key] {
+			continue
+		}
+		other = append(other, key)
+	}
+	sort.Strings(other)
+	keys = append(keys, other...)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, separator)
+}
+
 func compactSavingsPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -1641,8 +1760,8 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,cached_price_ratio,decision_requests,decision_provider_input_tokens,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_local_saved_tokens,decision_net_saved_tokens,decision_negative_events,decision_negative_event_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cached_share,decision_effective_billed_tokens,decision_counterfactual_tokens,decision_uncached_counterfactual_tokens,decision_s_local,decision_s_combined,decision_s_vs_uncached,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_unattributed_reasons,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%d,%d,%d,%.6f,%.6f,%.6f,%d,%d,%s,%d,%d,%d,%s,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,cached_price_ratio,decision_requests,decision_provider_input_tokens,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_local_saved_tokens,decision_net_saved_tokens,decision_negative_events,decision_negative_event_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cached_share,decision_effective_billed_tokens,decision_counterfactual_tokens,decision_uncached_counterfactual_tokens,decision_s_local,decision_s_combined,decision_s_vs_uncached,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_unattributed_reasons,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_footprint_score,decision_footprint_score_buckets,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%d,%d,%d,%.6f,%.6f,%.6f,%d,%d,%s,%d,%d,%d,%s,%.6f,%s,%d,%d,%d,%d,%d,%d,%d,%s,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -1697,6 +1816,8 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.DecisionLayer3NetTokens,
 		s.DecisionOutputReduceTokens,
 		s.DecisionToolPruneTokens,
+		s.DecisionFootprintScore,
+		formatSavingsBucketCountsCSV(s.DecisionFootprintScoreBuckets),
 		s.DecisionEstimatedCostBeforeUSD,
 		s.DecisionEstimatedCostAfterUSD,
 		s.DecisionEstimatedCostSavedUSD,
