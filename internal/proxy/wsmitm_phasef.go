@@ -418,7 +418,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
 	}
-	if pruned, changed := a.applyWSSToolPrune(out, messages, meta.SessionID); changed {
+	if pruned, changed, toolPruneGuard := a.applyWSSToolPrune(out, messages, meta); toolPruneGuard != "" {
+		if meta.DebugFacts == nil {
+			meta.DebugFacts = make(map[string]string)
+		}
+		meta.DebugFacts["wss.tool_prune_guard"] = toolPruneGuard
+	} else if changed {
 		out = pruned
 		if refreshed, _, err := extractMessages(types.CodexChatGPT, out); err == nil {
 			messages = refreshed
@@ -476,16 +481,22 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []
 	a.p.toolPrune.ObserveTurn(sessionID, used)
 }
 
-func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, sessionID string) ([]byte, bool) {
+func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, string) {
 	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
-		return body, false
+		return body, false, ""
 	}
+	sessionID := meta.SessionID
 	if sessionID == "" || !wssBodyHasUserPromptInput(body) {
-		return body, false
+		return body, false, ""
 	}
 	out := body
 	reattachedToolNames := []string(nil)
-	if mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID); len(mentions) > 0 {
+	mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID)
+	if reason := wssToolPruneMutationGuardReason(body, meta, mentions); reason != "" {
+		a.observeWSSToolPruneUserTurn(sessionID, messages)
+		return body, false, reason
+	}
+	if len(mentions) > 0 {
 		defs := a.p.toolPrune.PeekPrunedDefs(sessionID, mentions)
 		if reattached, n, err := toolprune.ReattachToolDefinitions(out, types.CodexChatGPT, defs); err == nil && n > 0 {
 			a.p.toolPrune.ForgetPrunedDefs(sessionID, mentions)
@@ -501,7 +512,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	}
 	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(out, types.CodexChatGPT)
 	if !schemaSafe || len(toolNames) == 0 {
-		return out, !bytes.Equal(body, out)
+		return out, !bytes.Equal(body, out), ""
 	}
 	usedToolNames := extractUsedToolNames(messages)
 	usedToolNames = append(usedToolNames, reattachedToolNames...)
@@ -512,7 +523,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	})
 	a.p.toolPrune.MarkAlwaysKept(decision.AlwaysKept)
 	if len(decision.Pruned) == 0 {
-		return out, !bytes.Equal(body, out)
+		return out, !bytes.Equal(body, out), ""
 	}
 	toPrune := make(map[string]bool, len(decision.Pruned))
 	for _, name := range decision.Pruned {
@@ -520,17 +531,43 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	}
 	prunedBody, removed, err := toolprune.PruneToolDefinitions(out, types.CodexChatGPT, toPrune)
 	if err != nil || len(removed) == 0 {
-		return out, !bytes.Equal(body, out)
+		return out, !bytes.Equal(body, out), ""
 	}
 	saved := tokens.ForProvider(types.CodexChatGPT).CountString(string(out)) - tokens.ForProvider(types.CodexChatGPT).CountString(string(prunedBody))
 	if saved <= 0 {
-		return out, !bytes.Equal(body, out)
+		return out, !bytes.Equal(body, out), ""
 	}
 	for name, def := range removed {
 		a.p.toolPrune.RememberPrunedDef(sessionID, name, def)
 	}
 	a.p.toolPrune.MarkPruned(saved)
-	return prunedBody, true
+	return prunedBody, true, ""
+}
+
+func (a *wsPhaseFAdapter) observeWSSToolPruneUserTurn(sessionID string, messages []types.Message) {
+	if a == nil || a.p == nil || a.p.toolPrune == nil || sessionID == "" {
+		return
+	}
+	a.p.toolPrune.ObserveTurn(sessionID, extractUsedToolNames(messages))
+}
+
+func wssToolPruneMutationGuardReason(body []byte, meta wssRequestMeta, reattachMentions []string) string {
+	if meta.PreviousResponseID == "" {
+		return ""
+	}
+	if !wssBodyHasToolDefinitions(body) && len(reattachMentions) == 0 {
+		return ""
+	}
+	return "wss_tool_prune_delta_guard"
+}
+
+func wssBodyHasToolDefinitions(body []byte) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	_, ok := root["tools"]
+	return ok
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool) ([]byte, outputreduce.Stats) {

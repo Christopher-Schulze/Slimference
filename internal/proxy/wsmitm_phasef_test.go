@@ -1689,6 +1689,61 @@ func TestWSPhaseFToolPruneAcceptsCodexDesktopSpecialToolShapes(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFToolPruneSkipsPreviousResponseDeltaTurns(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-delta"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-delta",
+			"prompt_cache_key":     "wss-tool-prune-delta",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue with the available tools.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("previous_response_id delta must not prune tool prefix: %s", env.Body)
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("delta guard must preserve full tool prefix: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.PrunedTotal != 0 || snap.TokensSavedSum != 0 {
+		t.Fatalf("delta guard must not book tool-prune savings: %+v", snap)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" || summary.Tokens.Saved != 0 {
+		t.Fatalf("delta tool-prune guard summary missing: %+v", summary)
+	}
+}
+
 func TestWSPhaseFToolPruneUsageObservesResolvedToolResults(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
@@ -1805,6 +1860,57 @@ func TestWSPhaseFToolPruneReattachesMentionedTool(t *testing.T) {
 	snap := p.toolPrune.Snapshot()
 	if snap.ReattachTotal != 1 || snap.PrunedTotal != 0 {
 		t.Fatalf("tool-prune snapshot = %+v, want one reattach and no same-turn prune", snap)
+	}
+}
+
+func TestWSPhaseFToolPruneSkipsReattachOnPreviousResponseDeltaTurns(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-delta-reattach"
+	p.toolPrune.RememberPrunedDef(sessionID, "ColdTool", mustMarshal(codexToolDefinition("ColdTool", "Recovered schema")))
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-delta-reattach",
+			"prompt_cache_key":     "wss-tool-prune-delta-reattach",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Please use ColdTool now.",
+			}},
+			"tools":  []map[string]any{codexToolDefinition("Bash", "Run a shell command")},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("previous_response_id delta must not reattach tool prefix: %s", env.Body)
+	}
+	body := string(env.Body)
+	if strings.Contains(body, `"name":"ColdTool"`) || !strings.Contains(body, `"name":"Bash"`) {
+		t.Fatalf("delta guard must preserve current tool prefix byte-shape: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.ReattachTotal != 0 || snap.PrunedTotal != 0 {
+		t.Fatalf("delta guard must not book tool-prune mutation counters: %+v", snap)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" || summary.Tokens.Saved != 0 {
+		t.Fatalf("delta reattach guard summary missing: %+v", summary)
 	}
 }
 
