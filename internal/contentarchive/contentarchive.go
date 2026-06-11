@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -185,17 +186,40 @@ func Put(dir string, input Input, limits Limits) (*Entry, error) {
 		stats.Evictions += evicted
 		_ = SaveStats(dir, stats)
 	}
-	if snap, err := Snapshot(dir); err == nil {
-		snap.Archived = stats.Archived
-		snap.Expanded = stats.Expanded
-		snap.ReInjectCount = stats.ReInjectCount
-		snap.Evictions = stats.Evictions
-		snap.LastArchived = stats.LastArchived
-		snap.LastExpanded = stats.LastExpanded
-		snap.LastReInjected = stats.LastReInjected
-		_ = SaveStats(dir, snap)
+	// The Snapshot reconcile reads and parses every entry's metadata JSON
+	// (O(whole archive)); per-put it doubled the eviction scan cost for a
+	// purely cosmetic stats correction. Reconcile at most once per interval;
+	// counters stay incrementally correct between reconciles.
+	if putSnapshotReconcileDue() {
+		if snap, err := Snapshot(dir); err == nil {
+			snap.Archived = stats.Archived
+			snap.Expanded = stats.Expanded
+			snap.ReInjectCount = stats.ReInjectCount
+			snap.Evictions = stats.Evictions
+			snap.LastArchived = stats.LastArchived
+			snap.LastExpanded = stats.LastExpanded
+			snap.LastReInjected = stats.LastReInjected
+			_ = SaveStats(dir, snap)
+		}
 	}
 	return entry, nil
+}
+
+const putSnapshotReconcileInterval = 60 * time.Second
+
+var putSnapshotReconcile struct {
+	mu     sync.Mutex
+	lastAt time.Time
+}
+
+func putSnapshotReconcileDue() bool {
+	putSnapshotReconcile.mu.Lock()
+	defer putSnapshotReconcile.mu.Unlock()
+	if time.Since(putSnapshotReconcile.lastAt) < putSnapshotReconcileInterval {
+		return false
+	}
+	putSnapshotReconcile.lastAt = time.Now()
+	return true
 }
 
 // OutputSize is a small helper so callers don't import json tag names.
@@ -432,31 +456,62 @@ func compareEntries(a, b Entry) int {
 }
 
 func enforceLimits(dir string, limits Limits) (int, error) {
-	items, err := List(dir)
+	// Evict on directory metadata (name, size, modtime) without reading or
+	// parsing any entry JSON. At the default 5000-entry cap the archive sits
+	// in eviction steady state, so a parse-everything List() here made every
+	// archive write O(whole archive) and held the Layer-0 latency budget
+	// latched on read-heavy sessions. Payload modtime equals the entry's
+	// CreatedAt (idempotent re-puts never rewrite), and payload file size is
+	// the entry's StoredSize, so the eviction order and byte accounting stay
+	// identical to the metadata-based walk.
+	dirents, err := readDir(entriesDir(dir))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
+	type payloadFile struct {
+		id   string
+		size int64
+		mod  time.Time
+	}
+	items := make([]payloadFile, 0, len(dirents)/2+1)
+	cumulativeBytes := int64(0)
+	for _, dirent := range dirents {
+		name := dirent.Name()
+		if dirent.IsDir() || !strings.HasSuffix(name, ".txt.gz") {
+			continue
+		}
+		info, err := dirent.Info()
+		if err != nil {
+			continue
+		}
+		items = append(items, payloadFile{
+			id:   strings.TrimSuffix(name, ".txt.gz"),
+			size: info.Size(),
+			mod:  info.ModTime(),
+		})
+		cumulativeBytes += info.Size()
+	}
+	// Newest first, evict from the tail.
+	slices.SortFunc(items, func(a, b payloadFile) int { return b.mod.Compare(a.mod) })
 	maxEntries := limits.maxEntries()
 	maxBytes := limits.maxBytes()
 
 	evicted := 0
-	cumulativeBytes := int64(0)
-	for _, item := range items {
-		cumulativeBytes += item.StoredSize
-	}
-	// Walk oldest-to-newest from the tail; List() returns newest first.
 	for i := len(items) - 1; i >= 0; i-- {
 		if len(items)-evicted <= maxEntries && cumulativeBytes <= maxBytes {
 			break
 		}
 		item := items[i]
-		if err := removeFile(filepath.Join(entriesDir(dir), item.ID+".json")); err != nil && !os.IsNotExist(err) {
+		if err := removeFile(filepath.Join(entriesDir(dir), item.id+".json")); err != nil && !os.IsNotExist(err) {
 			return evicted, err
 		}
-		if err := removeFile(filepath.Join(entriesDir(dir), item.ID+".txt.gz")); err != nil && !os.IsNotExist(err) {
+		if err := removeFile(filepath.Join(entriesDir(dir), item.id+".txt.gz")); err != nil && !os.IsNotExist(err) {
 			return evicted, err
 		}
-		cumulativeBytes -= item.StoredSize
+		cumulativeBytes -= item.size
 		evicted++
 	}
 	return evicted, nil

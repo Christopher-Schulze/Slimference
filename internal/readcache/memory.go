@@ -52,14 +52,14 @@ func loadSessionCached(dir string, sessionID string) (*SessionState, error) {
 }
 
 // SaveSessionAsync updates the in-memory readcache session state and schedules a
-// bounded write-behind flush. It validates the session can be marshalled before
-// returning, but it deliberately keeps disk writes off the hot path.
+// bounded write-behind flush, keeping disk writes off the hot path. No
+// validation marshal here: SessionState is plain data (json.Marshal cannot
+// fail on it), and a hot-path indent-marshal of a multi-megabyte session
+// state per evaluation was a major Layer-0 latency driver; the async flush
+// already re-marks the state dirty on a real write error.
 func SaveSessionAsync(dir string, state *SessionState) error {
 	normalized := cloneSessionState(state)
 	normalizeSessionState(normalized)
-	if _, err := readCacheMarshalIndent(normalized, "", "  "); err != nil {
-		return err
-	}
 
 	key := memorySessionKey(dir, normalized.SessionID)
 	readCacheMemory.mu.Lock()
