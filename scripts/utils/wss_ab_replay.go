@@ -28,32 +28,34 @@ type wssABReplayFlags struct {
 }
 
 type wssABReplayReport struct {
-	Path                   string              `json:"path"`
-	Frames                 int                 `json:"frames"`
-	RequestTurns           int                 `json:"request_turns"`
-	MutatedRequests        int                 `json:"mutated_requests"`
-	RequestShapes          replayShapeCounts   `json:"request_shapes"`
-	MutatedShapes          replayShapeCounts   `json:"mutated_shapes"`
-	BytesBefore            int                 `json:"bytes_before"`
-	BytesAfter             int                 `json:"bytes_after"`
-	BytesSaved             int                 `json:"bytes_saved"`
-	ReducerTokensSaved     int                 `json:"reducer_tokens_saved"`
-	ReducerBlocksModified  int                 `json:"reducer_blocks_modified"`
-	ReducerReadDeltaBlocks int                 `json:"reducer_read_delta_blocks"`
-	ReducerRepeatedBlocks  int                 `json:"reducer_repeated_output_blocks"`
-	ReducerChunkBlocks     int                 `json:"reducer_chunk_dedup_blocks"`
-	ReducerCapturedBlocks  int                 `json:"reducer_captured_output_blocks"`
-	ReducerEnvelopeBlocks  int                 `json:"reducer_codex_envelope_blocks"`
-	ReducerChunkRefs       int                 `json:"reducer_chunk_dedup_references"`
-	ReducerChunkRefBytes   int                 `json:"reducer_chunk_dedup_referenced_bytes"`
-	ReducerChunkInputBytes int                 `json:"reducer_chunk_dedup_input_bytes"`
-	ToolOutputMutation     bool                `json:"tool_output_mutation_enabled"`
-	Lost                   int                 `json:"lost"`
-	ExpectedExtras         int                 `json:"expected_extras,omitempty"`
-	Elisions               []abharness.Elision `json:"elisions,omitempty"`
-	GatePassed             bool                `json:"gate_passed"`
-	GateFailures           []string            `json:"gate_failures,omitempty"`
-	Notes                  []string            `json:"notes,omitempty"`
+	Path                    string              `json:"path"`
+	Frames                  int                 `json:"frames"`
+	RequestTurns            int                 `json:"request_turns"`
+	MutatedRequests         int                 `json:"mutated_requests"`
+	CapturedMutatedRequests int                 `json:"captured_mutated_requests,omitempty"`
+	RequestShapes           replayShapeCounts   `json:"request_shapes"`
+	MutatedShapes           replayShapeCounts   `json:"mutated_shapes"`
+	CapturedMutatedShapes   replayShapeCounts   `json:"captured_mutated_shapes,omitempty"`
+	BytesBefore             int                 `json:"bytes_before"`
+	BytesAfter              int                 `json:"bytes_after"`
+	BytesSaved              int                 `json:"bytes_saved"`
+	ReducerTokensSaved      int                 `json:"reducer_tokens_saved"`
+	ReducerBlocksModified   int                 `json:"reducer_blocks_modified"`
+	ReducerReadDeltaBlocks  int                 `json:"reducer_read_delta_blocks"`
+	ReducerRepeatedBlocks   int                 `json:"reducer_repeated_output_blocks"`
+	ReducerChunkBlocks      int                 `json:"reducer_chunk_dedup_blocks"`
+	ReducerCapturedBlocks   int                 `json:"reducer_captured_output_blocks"`
+	ReducerEnvelopeBlocks   int                 `json:"reducer_codex_envelope_blocks"`
+	ReducerChunkRefs        int                 `json:"reducer_chunk_dedup_references"`
+	ReducerChunkRefBytes    int                 `json:"reducer_chunk_dedup_referenced_bytes"`
+	ReducerChunkInputBytes  int                 `json:"reducer_chunk_dedup_input_bytes"`
+	ToolOutputMutation      bool                `json:"tool_output_mutation_enabled"`
+	Lost                    int                 `json:"lost"`
+	ExpectedExtras          int                 `json:"expected_extras,omitempty"`
+	Elisions                []abharness.Elision `json:"elisions,omitempty"`
+	GatePassed              bool                `json:"gate_passed"`
+	GateFailures            []string            `json:"gate_failures,omitempty"`
+	Notes                   []string            `json:"notes,omitempty"`
 }
 
 type replayShapeCounts struct {
@@ -197,29 +199,31 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
 	}
 	report := wssABReplayReport{
-		Path:                   flags.path,
-		Frames:                 len(frames),
-		RequestTurns:           result.RequestTurns,
-		MutatedRequests:        result.MutatedRequests,
-		RequestShapes:          replayShapeCountsFromProxy(result.RequestShapes),
-		MutatedShapes:          replayShapeCountsFromProxy(result.MutatedShapes),
-		BytesBefore:            result.Report.BytesBefore,
-		BytesAfter:             result.Report.BytesAfter,
-		BytesSaved:             result.Report.Saved(),
-		ReducerTokensSaved:     result.ReducerStats.TokensSaved,
-		ReducerBlocksModified:  result.ReducerStats.BlocksModified,
-		ReducerReadDeltaBlocks: result.ReducerStats.ReadDeltaBlocks,
-		ReducerRepeatedBlocks:  result.ReducerStats.RepeatedOutputBlocks,
-		ReducerChunkBlocks:     result.ReducerStats.ChunkDedupBlocks,
-		ReducerCapturedBlocks:  result.ReducerStats.CapturedOutputBlocks,
-		ReducerEnvelopeBlocks:  result.ReducerStats.CodexEnvelopeBlocks,
-		ReducerChunkRefs:       result.ReducerStats.ChunkDedupReferences,
-		ReducerChunkRefBytes:   result.ReducerStats.ChunkDedupRefBytes,
-		ReducerChunkInputBytes: result.ReducerStats.ChunkDedupInputBytes,
-		ToolOutputMutation:     toolOutputMutation,
-		Lost:                   result.Report.Lost(),
-		Elisions:               result.Report.Elisions,
-		GatePassed:             true,
+		Path:                    flags.path,
+		Frames:                  len(frames),
+		RequestTurns:            result.RequestTurns,
+		MutatedRequests:         result.MutatedRequests,
+		CapturedMutatedRequests: result.CapturedMutatedRequests,
+		RequestShapes:           replayShapeCountsFromProxy(result.RequestShapes),
+		MutatedShapes:           replayShapeCountsFromProxy(result.MutatedShapes),
+		CapturedMutatedShapes:   replayShapeCountsFromProxy(result.CapturedMutatedShapes),
+		BytesBefore:             result.Report.BytesBefore,
+		BytesAfter:              result.Report.BytesAfter,
+		BytesSaved:              result.Report.Saved(),
+		ReducerTokensSaved:      result.ReducerStats.TokensSaved,
+		ReducerBlocksModified:   result.ReducerStats.BlocksModified,
+		ReducerReadDeltaBlocks:  result.ReducerStats.ReadDeltaBlocks,
+		ReducerRepeatedBlocks:   result.ReducerStats.RepeatedOutputBlocks,
+		ReducerChunkBlocks:      result.ReducerStats.ChunkDedupBlocks,
+		ReducerCapturedBlocks:   result.ReducerStats.CapturedOutputBlocks,
+		ReducerEnvelopeBlocks:   result.ReducerStats.CodexEnvelopeBlocks,
+		ReducerChunkRefs:        result.ReducerStats.ChunkDedupReferences,
+		ReducerChunkRefBytes:    result.ReducerStats.ChunkDedupRefBytes,
+		ReducerChunkInputBytes:  result.ReducerStats.ChunkDedupInputBytes,
+		ToolOutputMutation:      toolOutputMutation,
+		Lost:                    result.Report.Lost(),
+		Elisions:                result.Report.Elisions,
+		GatePassed:              true,
 	}
 	if result.ExpectedInstructionExtras > 0 {
 		report.Notes = append(report.Notes, "known output-reduce instruction additions were audited as expected extras; unknown instruction changes still fail the lost-comprehension gate")
@@ -333,6 +337,7 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 		Dir       string          `json:"dir"`
 		Payload   json.RawMessage `json:"payload"`
 		Frame     json.RawMessage `json:"frame"`
+		Mutated   bool            `json:"mutated"`
 	}
 	if err := json.Unmarshal(line, &rec); err != nil {
 		return proxy.WSSABReplayFrame{}, fmt.Errorf("decode replay record: %w", err)
@@ -349,7 +354,7 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 	if err != nil {
 		return proxy.WSSABReplayFrame{}, err
 	}
-	return proxy.WSSABReplayFrame{Direction: direction, Payload: body}, nil
+	return proxy.WSSABReplayFrame{Direction: direction, Payload: body, Mutated: rec.Mutated}, nil
 }
 
 func parseWSSABReplayDirection(raw string) (wsmitm.Direction, bool) {
@@ -389,10 +394,17 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	fmt.Fprintf(w, "  frames:           %d\n", report.Frames)
 	fmt.Fprintf(w, "  request_turns:    %d\n", report.RequestTurns)
 	fmt.Fprintf(w, "  mutated_requests: %d\n", report.MutatedRequests)
+	if report.CapturedMutatedRequests > 0 {
+		fmt.Fprintf(w, "  captured_mutated: %d\n", report.CapturedMutatedRequests)
+	}
 	fmt.Fprintf(w, "  request_shapes:   root=%d delta=%d full_history=%d\n",
 		report.RequestShapes.Root, report.RequestShapes.Delta, report.RequestShapes.FullHistory)
 	fmt.Fprintf(w, "  mutated_shapes:   root=%d delta=%d full_history=%d\n",
 		report.MutatedShapes.Root, report.MutatedShapes.Delta, report.MutatedShapes.FullHistory)
+	if report.CapturedMutatedRequests > 0 {
+		fmt.Fprintf(w, "  captured_shapes:  root=%d delta=%d full_history=%d\n",
+			report.CapturedMutatedShapes.Root, report.CapturedMutatedShapes.Delta, report.CapturedMutatedShapes.FullHistory)
+	}
 	fmt.Fprintf(w, "  bytes_before:     %d\n", report.BytesBefore)
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)
 	fmt.Fprintf(w, "  bytes_saved:      %d\n", report.BytesSaved)

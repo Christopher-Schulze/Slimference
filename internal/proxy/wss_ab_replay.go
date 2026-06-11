@@ -21,6 +21,7 @@ import (
 type WSSABReplayFrame struct {
 	Direction wsmitm.Direction
 	Payload   []byte
+	Mutated   bool
 }
 
 // WSSABReplayResult is the offline comprehension report plus basic reducer
@@ -29,8 +30,10 @@ type WSSABReplayResult struct {
 	Report                    abharness.Report
 	RequestTurns              int
 	MutatedRequests           int
+	CapturedMutatedRequests   int
 	RequestShapes             WSSABReplayShapeCounts
 	MutatedShapes             WSSABReplayShapeCounts
+	CapturedMutatedShapes     WSSABReplayShapeCounts
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
 }
@@ -113,6 +116,11 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			shape, err := wssReplayRequestShape(frame.Payload)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("classify request shape %d: %w", i, err)
+			}
+			if frame.Mutated {
+				out.CapturedMutatedRequests++
+				out.CapturedMutatedShapes.add(shape)
+				continue
 			}
 			out.RequestShapes.add(shape)
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)

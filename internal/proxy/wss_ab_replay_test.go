@@ -181,6 +181,22 @@ func TestRunWSSPhaseFABReplayCountsMutatedFullHistoryShape(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayCountsCapturedMutatedFullHistoryShape(t *testing.T) {
+	frame := wssReplayFullHistoryToolOutputFrame("read-1", "captured-full-history-session", "", "src/full.go", "captured output")
+	frame.Mutated = true
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{frame})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestTurns != 0 || got.MutatedRequests != 0 {
+		t.Fatalf("captured B-side frames should be counted but not replayed as fresh turns: %+v", got)
+	}
+	if got.CapturedMutatedRequests != 1 || got.CapturedMutatedShapes.FullHistory != 1 ||
+		got.CapturedMutatedShapes.Root != 0 || got.CapturedMutatedShapes.Delta != 0 {
+		t.Fatalf("captured full-history mutation not counted: requests=%d shapes=%+v", got.CapturedMutatedRequests, got.CapturedMutatedShapes)
+	}
+}
+
 func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

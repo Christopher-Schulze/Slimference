@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/compression"
@@ -24,32 +25,33 @@ import (
 )
 
 type codexCaptureRunFlags struct {
-	binary               string
-	capturePath          string
-	host                 string
-	port                 string
-	transport            string
-	healthTimeout        time.Duration
-	codexTimeout         time.Duration
-	matrixPath           string
-	resourceProfileProof string
-	id                   string
-	client               string
-	workloadClass        string
-	codexVersion         string
-	slimferenceCommit    string
-	repo                 string
-	model                string
-	abPairID             string
-	abVariant            string
-	exitMarker           string
-	exitMarkerCount      int
-	quietCodexOutput     bool
-	expectedReducers     []string
-	expectedZeroSavings  bool
-	captureExplicit      bool
-	help                 bool
-	codexArgs            []string
+	binary                        string
+	capturePath                   string
+	host                          string
+	port                          string
+	transport                     string
+	healthTimeout                 time.Duration
+	codexTimeout                  time.Duration
+	matrixPath                    string
+	resourceProfileProof          string
+	id                            string
+	client                        string
+	workloadClass                 string
+	codexVersion                  string
+	slimferenceCommit             string
+	repo                          string
+	model                         string
+	abPairID                      string
+	abVariant                     string
+	exitMarker                    string
+	exitMarkerCount               int
+	quietCodexOutput              bool
+	restartAfterMutatedCompletion int
+	expectedReducers              []string
+	expectedZeroSavings           bool
+	captureExplicit               bool
+	help                          bool
+	codexArgs                     []string
 }
 
 type codexCaptureRunDeps struct {
@@ -285,6 +287,12 @@ Flags:
                              frames, so quiet TUI output cannot hide it.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
+  --restart-after-mutated-completion N
+                             Lab/proof only: restart the managed daemon after the
+                             Nth mutated client request is followed by a server
+                             response.completed frame. This forces Codex to
+                             reconnect after an accepted mutation so WSS
+                             full-history resend tolerance can be proven.
 
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
 set, waits for /health, runs "slimference codex run --transport=<value> -- ...",
@@ -326,6 +334,10 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	}
 	if flags.matrixPath != "" && flags.workloadClass == "" {
 		fmt.Fprintln(stderr, "--workload-class is required with --matrix-row")
+		return 2
+	}
+	if flags.restartAfterMutatedCompletion > 0 && flags.resourceProfileProof != "" {
+		fmt.Fprintln(stderr, "--restart-after-mutated-completion cannot be combined with --resource-profile-proof because the daemon PID intentionally changes mid-run")
 		return 2
 	}
 	if err := ensureCodexCaptureDir(flags.capturePath); err != nil {
@@ -378,7 +390,7 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		runStderr = io.Discard
 	}
 	runCtx, cancelRun := context.WithTimeout(ctx, flags.codexTimeout)
-	err = deps.runCodex(runCtx, flags, runStdout, runStderr)
+	daemon, err = runCodexCaptureWithOptionalRestart(runCtx, flags, daemon, deps, runStdout, runStderr, stderr)
 	cancelRun()
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -386,8 +398,12 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	}
 	after, err := deps.adminSnapshot(ctx, flags)
 	if err != nil {
-		fmt.Fprintf(stderr, "read final admin state: %v\n", err)
-		return 1
+		if flags.restartAfterMutatedCompletion <= 0 {
+			fmt.Fprintf(stderr, "read final admin state: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "read final admin state after restart proof failed; continuing with replay-only live delta: %v\n", err)
+		after = before
 	}
 	if resourceProof != nil {
 		if err := deps.resourceAfter(ctx, flags, daemon, resourceProof); err != nil {
@@ -641,6 +657,19 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 				return flags, fmt.Errorf("--exit-marker-count must be > 0")
 			}
 			flags.exitMarkerCount = n
+		case arg == "--restart-after-mutated-completion":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("%s requires a value", arg)
+			}
+			i++
+			n, err := parseNonNegativeIntFlag("--restart-after-mutated-completion", args[i])
+			if err != nil {
+				return flags, err
+			}
+			if n == 0 {
+				return flags, fmt.Errorf("--restart-after-mutated-completion must be > 0")
+			}
+			flags.restartAfterMutatedCompletion = n
 		case strings.HasPrefix(arg, "--exit-marker-count="):
 			n, err := parseNonNegativeIntFlag("--exit-marker-count", strings.TrimPrefix(arg, "--exit-marker-count="))
 			if err != nil {
@@ -650,6 +679,15 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 				return flags, fmt.Errorf("--exit-marker-count must be > 0")
 			}
 			flags.exitMarkerCount = n
+		case strings.HasPrefix(arg, "--restart-after-mutated-completion="):
+			n, err := parseNonNegativeIntFlag("--restart-after-mutated-completion", strings.TrimPrefix(arg, "--restart-after-mutated-completion="))
+			if err != nil {
+				return flags, err
+			}
+			if n == 0 {
+				return flags, fmt.Errorf("--restart-after-mutated-completion must be > 0")
+			}
+			flags.restartAfterMutatedCompletion = n
 		case strings.HasPrefix(arg, "--"):
 			name, value, ok := strings.Cut(arg, "=")
 			if !ok {
@@ -1005,6 +1043,7 @@ func ensureNoCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags)
 func startCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags, stderr io.Writer) (*codexCaptureDaemon, error) {
 	cmd := exec.CommandContext(ctx, flags.binary, "daemon")
 	cmd.Env = append(os.Environ(), "SLIMFERENCE_WSS_AB_CAPTURE="+flags.capturePath)
+	prepareCodexCaptureDaemonCommand(cmd)
 	cmd.Stdout = stderr
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -1016,6 +1055,13 @@ func startCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags, st
 		close(done)
 	}()
 	return &codexCaptureDaemon{cmd: cmd, done: done}, nil
+}
+
+func prepareCodexCaptureDaemonCommand(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
 func waitCodexCaptureHealth(ctx context.Context, flags codexCaptureRunFlags, daemonDone <-chan error) error {
@@ -1295,6 +1341,158 @@ func deltaCodexCaptureCacheEntries(base, current []control.ProxyLayer0CacheEntry
 
 func codexCaptureCacheEntryKey(entry control.ProxyLayer0CacheEntry) string {
 	return entry.Route + "\x00" + entry.Mechanism + "\x00" + entry.Action + "\x00" + entry.Reason
+}
+
+func runCodexCaptureWithOptionalRestart(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, stdout, stderr, log io.Writer) (*codexCaptureDaemon, error) {
+	if flags.restartAfterMutatedCompletion <= 0 {
+		return daemon, deps.runCodex(ctx, flags, stdout, stderr)
+	}
+	if deps.runCodex == nil || deps.stopDaemon == nil || deps.startDaemon == nil || deps.waitHealth == nil {
+		return daemon, errors.New("restart capture dependencies are not configured")
+	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- deps.runCodex(runCtx, flags, stdout, stderr)
+	}()
+
+	restartDone := make(chan codexCaptureRestartResult, 1)
+	go func() {
+		next, err := restartCodexCaptureDaemonAfterMutatedCompletion(runCtx, flags, daemon, deps, log)
+		restartDone <- codexCaptureRestartResult{daemon: next, err: err}
+	}()
+
+	current := daemon
+	for {
+		select {
+		case err := <-runDone:
+			cancelRun()
+			return current, err
+		case result := <-restartDone:
+			if result.err != nil {
+				cancelRun()
+				runErr := <-runDone
+				if runErr != nil && !errors.Is(runErr, context.Canceled) {
+					return current, fmt.Errorf("%w; codex run also failed: %v", result.err, runErr)
+				}
+				return current, result.err
+			}
+			current = result.daemon
+			// One forced reconnect is the proof shape. More would blur the
+			// capture, hide root cause, and make E5 harder to interpret.
+			err := <-runDone
+			cancelRun()
+			return current, err
+		}
+	}
+}
+
+type codexCaptureRestartResult struct {
+	daemon *codexCaptureDaemon
+	err    error
+}
+
+func restartCodexCaptureDaemonAfterMutatedCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) (*codexCaptureDaemon, error) {
+	if err := waitCodexCaptureMutatedCompletion(ctx, flags.capturePath, flags.restartAfterMutatedCompletion); err != nil {
+		return daemon, err
+	}
+	if err := deps.stopDaemon(ctx, daemon); err != nil {
+		return daemon, fmt.Errorf("restart capture daemon after mutated completion: stop old daemon: %w", err)
+	}
+	next, err := deps.startDaemon(ctx, flags, log)
+	if err != nil {
+		return daemon, fmt.Errorf("restart capture daemon after mutated completion: start new daemon: %w", err)
+	}
+	if err := deps.waitHealth(ctx, flags, next.done); err != nil {
+		_ = deps.stopDaemon(context.Background(), next)
+		return daemon, fmt.Errorf("restart capture daemon after mutated completion: wait health: %w", err)
+	}
+	if log != nil {
+		fmt.Fprintf(log, "capture daemon restarted after mutated completion %d\n", flags.restartAfterMutatedCompletion)
+	}
+	return next, nil
+}
+
+func waitCodexCaptureMutatedCompletion(ctx context.Context, path string, target int) error {
+	if target <= 0 {
+		return nil
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if codexCaptureHasMutatedCompletion(path, target) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func codexCaptureHasMutatedCompletion(path string, target int) bool {
+	if strings.TrimSpace(path) == "" || target <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	mutated := 0
+	armed := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var frame struct {
+			Direction string          `json:"direction"`
+			Mutated   bool            `json:"mutated"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(line), &frame); err != nil {
+			continue
+		}
+		if codexCaptureFrameFromClient(frame.Direction) && frame.Mutated {
+			mutated++
+			if mutated >= target {
+				armed = true
+			}
+			continue
+		}
+		if armed && codexCaptureFrameFromServer(frame.Direction) && codexCapturePayloadType(frame.Payload) == "response.completed" {
+			return true
+		}
+	}
+	return false
+}
+
+func codexCaptureFrameFromClient(direction string) bool {
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	return direction == "c2s" || direction == "client_to_server" || direction == "client" || direction == "request"
+}
+
+func codexCapturePayloadType(payload json.RawMessage) string {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return ""
+	}
+	if payload[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload, &encoded); err != nil {
+			return ""
+		}
+		payload = []byte(encoded)
+	}
+	var env struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return ""
+	}
+	return env.Type
 }
 
 func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
@@ -1603,6 +1801,15 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 	fmt.Fprintf(w, "  frames:        %d\n", result.Replay.Frames)
 	fmt.Fprintf(w, "  request_turns: %d\n", result.Replay.RequestTurns)
 	fmt.Fprintf(w, "  mutated:       %d\n", result.Replay.MutatedRequests)
+	fmt.Fprintf(w, "  shapes:        root=%d delta=%d full_history=%d\n",
+		result.Replay.RequestShapes.Root, result.Replay.RequestShapes.Delta, result.Replay.RequestShapes.FullHistory)
+	fmt.Fprintf(w, "  mutated_shapes root=%d delta=%d full_history=%d\n",
+		result.Replay.MutatedShapes.Root, result.Replay.MutatedShapes.Delta, result.Replay.MutatedShapes.FullHistory)
+	if result.Replay.CapturedMutatedRequests > 0 {
+		fmt.Fprintf(w, "  captured:      %d\n", result.Replay.CapturedMutatedRequests)
+		fmt.Fprintf(w, "  captured_shapes root=%d delta=%d full_history=%d\n",
+			result.Replay.CapturedMutatedShapes.Root, result.Replay.CapturedMutatedShapes.Delta, result.Replay.CapturedMutatedShapes.FullHistory)
+	}
 	if result.LiveDelta != nil {
 		fmt.Fprintf(w, "  billable_input_tokens_saved: %d\n", result.LiveDelta.BillableInputTokensSaved)
 		fmt.Fprintf(w, "  input_tokens_saved:          %d\n", result.LiveDelta.InputTokensSaved)

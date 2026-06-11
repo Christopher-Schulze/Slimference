@@ -94,6 +94,11 @@ func TestWSSABReplayReportIncludesRequestShapes(t *testing.T) {
 		}),
 		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("delta-call", "shape-session", "resp-delta", "delta tool output")),
 		wssABReplayTestRecord("client_to_server", wssABReplayTestFullHistoryBody("full-call", "shape-session", "resp-full", "src/shape.go", "full-history output")),
+		map[string]any{
+			"direction": "client_to_server",
+			"mutated":   true,
+			"payload":   wssABReplayTestFullHistoryBody("full-captured", "shape-session", "", "src/shape.go", "captured full-history output"),
+		},
 	)
 
 	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
@@ -106,13 +111,18 @@ func TestWSSABReplayReportIncludesRequestShapes(t *testing.T) {
 	if report.MutatedShapes.Root != 0 || report.MutatedShapes.Delta != 0 || report.MutatedShapes.FullHistory != 0 {
 		t.Fatalf("shape-only report should not include mutations: %+v", report.MutatedShapes)
 	}
+	if report.CapturedMutatedRequests != 1 || report.CapturedMutatedShapes.FullHistory != 1 {
+		t.Fatalf("captured mutated shape not reported: requests=%d shapes=%+v", report.CapturedMutatedRequests, report.CapturedMutatedShapes)
+	}
 
 	var stdout, stderr bytes.Buffer
 	code := runWSSABReplay([]string{path}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("runWSSABReplay code=%d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "request_shapes:") || !strings.Contains(stdout.String(), "full_history=1") {
+	if !strings.Contains(stdout.String(), "request_shapes:") ||
+		!strings.Contains(stdout.String(), "full_history=1") ||
+		!strings.Contains(stdout.String(), "captured_shapes:") {
 		t.Fatalf("text output missing request shape summary:\n%s", stdout.String())
 	}
 }
@@ -303,6 +313,13 @@ func TestParseWSSABReplayFrameLine(t *testing.T) {
 	}
 	if frame.Direction != "c2s" || !bytes.Contains(frame.Payload, []byte(`"input":[]`)) {
 		t.Fatalf("bad parsed frame: %+v payload=%s", frame, frame.Payload)
+	}
+	mutatedFrame, err := parseWSSABReplayFrameLine([]byte(`{"dir":"c2s","mutated":true,"payload":{"type":"request","input":[]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mutatedFrame.Mutated {
+		t.Fatalf("mutated capture marker not parsed: %+v", mutatedFrame)
 	}
 	for _, line := range [][]byte{
 		[]byte(`{"dir":"sideways","payload":{}}`),

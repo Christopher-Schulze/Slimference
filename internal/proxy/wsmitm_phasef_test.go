@@ -1123,8 +1123,19 @@ func TestWSPhaseFRequestShapeFactsClassifyFullHistory(t *testing.T) {
 		t.Fatalf("bad request-shape facts: %+v", facts)
 	}
 	rootFacts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{}, false, "", wssRequestMeta{}, outputreduce.Stats{Reason: "disabled"})
-	if rootFacts["wss.request_shape"] != "root" {
-		t.Fatalf("request without previous_response_id should classify as root: %+v", rootFacts)
+	if rootFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("history resend without previous_response_id should classify as full_history: %+v", rootFacts)
+	}
+	initialMessages := []types.Message{{
+		Role: "user",
+		Content: []types.ContentBlock{{
+			Type: "text",
+			Text: "start",
+		}},
+	}}
+	initialFacts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), initialMessages, proxyLayer0Stats{}, false, "", wssRequestMeta{}, outputreduce.Stats{Reason: "disabled"})
+	if initialFacts["wss.request_shape"] != "root" {
+		t.Fatalf("initial request without history should classify as root: %+v", initialFacts)
 	}
 }
 
@@ -2111,14 +2122,13 @@ func TestWSPhaseFDefaultPreviousResponseChunkDedupKeepsSavings(t *testing.T) {
 	if changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "local-archive://") {
 		t.Fatalf("first previous-response read should seed only: changed=%v stats=%+v body=%s", changed, stats, first)
 	}
-	// Live A/B 2026-06-11 (loop runs 4-8): any wire mutation on a
-	// previous_response_id delta turn made the following tool turn fail
-	// upstream with 400 while the byte-equal bridge stayed clean. Delta
-	// turns therefore full-pass by default (proof gate); the reducers keep
-	// seeding so recovery state stays warm.
+	// Live E5 restart proof 2026-06-11: full-history resend mutation
+	// continued cleanly with lost=0. Delta-only previous_response_id turns
+	// still full-pass elsewhere; history-shaped requests can take the
+	// recoverable savings path.
 	second, _, changed, stats, _ := adapter.applyInputPipeline(body("resp-b", "b.go", "read-b", shared+"tail b\n"))
-	if changed || strings.Contains(string(second), "[context-chunk") {
-		t.Fatalf("previous-response delta turns must not mutate by default: changed=%v stats=%+v body=%s", changed, stats, second)
+	if !changed || stats.ChunkDedupBlocks != 1 || !strings.Contains(string(second), "[context-chunk") {
+		t.Fatalf("previous-response full-history turns should mutate by default: changed=%v stats=%+v body=%s", changed, stats, second)
 	}
 	gated := false
 	for _, decision := range stats.EvidenceDecisions {
@@ -2126,8 +2136,8 @@ func TestWSPhaseFDefaultPreviousResponseChunkDedupKeepsSavings(t *testing.T) {
 			gated = true
 		}
 	}
-	if !gated {
-		t.Fatalf("suppressed delta mutation must carry the proof-gate evidence reason: %+v", stats.EvidenceDecisions)
+	if gated {
+		t.Fatalf("full-history mutation must not carry the delta proof-gate reason: %+v", stats.EvidenceDecisions)
 	}
 }
 

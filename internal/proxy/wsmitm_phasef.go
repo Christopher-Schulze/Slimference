@@ -372,6 +372,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
 		}
+		deltaShape := wssRequestIsDeltaShape(messages)
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                      codexLayer0RouteWSSPhaseF,
 			Messages:                   stagedMessages,
@@ -394,11 +395,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			CacheBustDemotedMechanisms: cacheBustDemoted,
 			// Any wire mutation on a previous_response_id delta turn makes
 			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
-			// loop runs 4-8; bridge control clean). Suppress mutations on
-			// that flow while reducers keep observing/seeding, unless the
-			// explicit experimental flag or the proven state-safe
+			// loop runs 4-8; bridge control clean). E5 restart proof showed
+			// accepted full-history resend mutation, so suppress only that
+			// delta flow while reducers keep observing and seeding, unless
+			// the explicit experimental flag or the proven state-safe
 			// whitelist applies.
 			StatefulDeltaMutationBlocked: meta.PreviousResponseID != "" &&
+				deltaShape &&
 				!statefulToolOutputMutationSafe &&
 				!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
 		})
@@ -1210,19 +1213,38 @@ func wssRequestIsDeltaShape(messages []types.Message) bool {
 		return false
 	}
 	for _, message := range messages {
-		if message.Role == "assistant" {
+		if wssMessageHasHistoryShape(message) {
 			return false
-		}
-		for _, block := range message.Content {
-			if block.Type == "tool_use" {
-				return false
-			}
 		}
 	}
 	return true
 }
 
+func wssRequestHasHistoryShape(messages []types.Message) bool {
+	for _, message := range messages {
+		if wssMessageHasHistoryShape(message) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssMessageHasHistoryShape(message types.Message) bool {
+	if message.Role == "assistant" {
+		return true
+	}
+	for _, block := range message.Content {
+		if block.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
+}
+
 func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
+	if wssRequestHasHistoryShape(messages) {
+		return "full_history"
+	}
 	if meta.PreviousResponseID == "" {
 		return "root"
 	}
