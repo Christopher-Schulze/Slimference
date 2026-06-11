@@ -130,6 +130,65 @@ func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
 	}
 }
 
+func TestCodexLayer0LatencyBudgetProductivePassUsesHigherBudget(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	productiveSlow := proxyLayer0Stats{
+		Route:          codexLayer0RouteWSSPhaseF,
+		TokensSaved:    1200,
+		TotalLatencyNs: int64(codexLayer0LatencyBudget + 10*time.Millisecond),
+	}
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit+2; i++ {
+		p.observeCodexLayer0LatencyBudget(productiveSlow)
+	}
+	if p.codexRuntimeBudgetExceeded() {
+		t.Fatal("reducer passes that saved tokens under the productive budget must not demote")
+	}
+	if got := p.codexLayer0LatencyStrikes.Load(); got != 0 {
+		t.Fatalf("productive passes accumulated %d strikes, want 0", got)
+	}
+
+	pathological := proxyLayer0Stats{
+		Route:          codexLayer0RouteWSSPhaseF,
+		TokensSaved:    1200,
+		TotalLatencyNs: int64(codexLayer0LatencyProductiveBudget + time.Millisecond),
+	}
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+		p.observeCodexLayer0LatencyBudget(pathological)
+	}
+	if !p.codexRuntimeBudgetExceeded() {
+		t.Fatal("productive passes above the productive ceiling must still demote")
+	}
+}
+
+func TestCodexLayer0LatencyBudgetDeadZoneDecays(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}
+	deadZone := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyRecoveryBudget + time.Millisecond)}
+
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+		p.observeCodexLayer0LatencyBudget(slow)
+	}
+	if !p.codexRuntimeBudgetExceeded() {
+		t.Fatal("strikes should latch the gate")
+	}
+
+	p.observeCodexLayer0LatencyBudget(deadZone)
+	if got := p.codexLayer0LatencyStrikes.Load(); got != codexLayer0LatencyStrikeLimit {
+		t.Fatalf("dead-zone sample right after a breach decayed strikes to %d", got)
+	}
+
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+		p.codexLayer0LatencyLastBreach.Store(time.Now().Add(-codexLayer0LatencyDecayAfter - time.Second).UnixNano())
+		p.observeCodexLayer0LatencyBudget(deadZone)
+	}
+	if p.codexRuntimeBudgetExceeded() {
+		t.Fatal("dead-zone samples without recent breaches must decay the latch")
+	}
+	if got := p.codexLayer0LatencyStrikes.Load(); got != 0 {
+		t.Fatalf("strikes after full decay = %d, want 0", got)
+	}
+}
+
 func TestCodexLayer0LatencyBudgetPersistsAcrossProxyRestart(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

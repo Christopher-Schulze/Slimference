@@ -85,9 +85,20 @@ type Analysis struct {
 	Signals      []Signal     `json:"signals,omitempty"`
 }
 
+// analyzeMaxBytes bounds the content scanned for telemetry classification.
+// Classes and signals are heuristics that trigger on patterns present in a
+// bounded prefix; scanning the full text makes evidence emission O(output)
+// per block, which keeps demoted full-pass passes expensive enough to hold
+// the Layer-0 latency budget latched.
+const analyzeMaxBytes = 64 * 1024
+
 func Analyze(argv []string, content []byte) Analysis {
+	truncated := len(content) > analyzeMaxBytes
+	if truncated {
+		content = content[:analyzeMaxBytes]
+	}
 	text := strings.TrimSpace(string(content))
-	class := classify(argv, text)
+	class := classify(argv, text, truncated)
 	signals := detectSignals(text)
 	if class == ContentDiff {
 		signals = appendSignal(signals, SignalChangedHunk)
@@ -134,7 +145,7 @@ func RedactDecision(in BlockDecision) BlockDecision {
 	return out
 }
 
-func classify(argv []string, text string) ContentClass {
+func classify(argv []string, text string, truncated bool) ContentClass {
 	head := commandHead(argv)
 	switch head {
 	case "go", "pytest", "cargo", "npm", "pnpm", "yarn", "bun", "vitest", "jest":
@@ -151,7 +162,13 @@ func classify(argv []string, text string) ContentClass {
 	if text == "" {
 		return ContentPlain
 	}
-	if json.Valid([]byte(text)) {
+	if truncated {
+		// A truncated prefix of valid JSON cannot pass json.Valid; classify
+		// by shape instead of scanning megabytes.
+		if strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[") {
+			return ContentJSON
+		}
+	} else if json.Valid([]byte(text)) {
 		return ContentJSON
 	}
 	if looksLikeStacktrace(text) {

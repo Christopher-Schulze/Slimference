@@ -1,6 +1,9 @@
 package evidence
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAnalyzeClassifiesCoreContent(t *testing.T) {
 	tests := []struct {
@@ -26,6 +29,32 @@ func TestAnalyzeClassifiesCoreContent(t *testing.T) {
 				t.Fatalf("class=%s want %s signals=%v", got.ContentClass, tc.want, got.Signals)
 			}
 		})
+	}
+}
+
+func TestAnalyzeBoundsLargeContent(t *testing.T) {
+	jsonBody := []byte(`{"items":[`)
+	for len(jsonBody) < analyzeMaxBytes*4 {
+		jsonBody = append(jsonBody, []byte(`{"k":"v"},`)...)
+	}
+	jsonBody = append(jsonBody, []byte(`{"k":"v"}]}`)...)
+	if got := Analyze(nil, jsonBody); got.ContentClass != ContentJSON {
+		t.Fatalf("large JSON classified as %s, want %s", got.ContentClass, ContentJSON)
+	}
+
+	logLine := "2026-06-08 error failed\n2026-06-08 warn degraded\n"
+	logBody := []byte(strings.Repeat(logLine, analyzeMaxBytes/len(logLine)*3))
+	if got := Analyze(nil, logBody); got.ContentClass != ContentLog {
+		t.Fatalf("large log classified as %s, want %s", got.ContentClass, ContentLog)
+	}
+
+	small := []byte(`{"ok":true}`)
+	if got := Analyze(nil, small); got.ContentClass != ContentJSON {
+		t.Fatalf("small JSON classified as %s, want %s", got.ContentClass, ContentJSON)
+	}
+	notJSON := []byte("{ this is not json at all")
+	if got := Analyze(nil, notJSON); got.ContentClass == ContentJSON {
+		t.Fatal("small invalid JSON must not classify as JSON")
 	}
 }
 

@@ -57,6 +57,16 @@ const (
 	codexLayer0LatencyRecoveryBudget = 12 * time.Millisecond
 	codexLayer0LatencyStrikeLimit    = int64(3)
 	codexLayer0LatencyStateTTL       = 30 * time.Minute
+	// codexLayer0LatencyProductiveBudget applies when the reducer pass saved
+	// tokens: time spent producing real savings is not overhead pressure and
+	// is invisible next to multi-second inference; only pathological
+	// productive passes count as breaches.
+	codexLayer0LatencyProductiveBudget = 250 * time.Millisecond
+	// codexLayer0LatencyDecayAfter lets one strike decay on a dead-zone
+	// sample (between recovery and breach budgets) once no breach happened
+	// for this long, so the gate cannot latch permanently when demoted
+	// passes never get under the recovery budget.
+	codexLayer0LatencyDecayAfter = 60 * time.Second
 )
 
 // Version is the binary version string exposed by health/status surfaces.
@@ -148,9 +158,12 @@ type Proxy struct {
 	// optional Codex reducers before local overhead can become UX-visible.
 	codexLayer0LatencyExceeded atomic.Bool
 	codexLayer0LatencyStrikes  atomic.Int64
-	resourceWindowMu           sync.Mutex
-	lastResourceSample         hostmetrics.ProcessSnapshot
-	lastResourceSampleAt       time.Time
+	// codexLayer0LatencyLastBreach holds the unixnano of the last breach (or
+	// rate-limited dead-zone decay) so strikes can decay when breaches stop.
+	codexLayer0LatencyLastBreach atomic.Int64
+	resourceWindowMu             sync.Mutex
+	lastResourceSample           hostmetrics.ProcessSnapshot
+	lastResourceSampleAt         time.Time
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the
@@ -590,7 +603,12 @@ func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
 		return
 	}
 	latency := time.Duration(stats.TotalLatencyNs)
-	if latency > codexLayer0LatencyBudget {
+	budget := codexLayer0LatencyBudget
+	if stats.TokensSaved > 0 {
+		budget = codexLayer0LatencyProductiveBudget
+	}
+	if latency > budget {
+		p.codexLayer0LatencyLastBreach.Store(time.Now().UnixNano())
 		strikes := p.codexLayer0LatencyStrikes.Add(1)
 		if strikes > codexLayer0LatencyStrikeLimit {
 			strikes = codexLayer0LatencyStrikeLimit
@@ -603,7 +621,13 @@ func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
 		return
 	}
 	if latency > codexLayer0LatencyRecoveryBudget {
-		return
+		lastBreach := p.codexLayer0LatencyLastBreach.Load()
+		if p.codexLayer0LatencyStrikes.Load() <= 0 ||
+			(lastBreach > 0 && time.Since(time.Unix(0, lastBreach)) < codexLayer0LatencyDecayAfter) {
+			return
+		}
+		// Rate-limit dead-zone decay to one strike per decay window.
+		p.codexLayer0LatencyLastBreach.Store(time.Now().UnixNano())
 	}
 	for {
 		strikes := p.codexLayer0LatencyStrikes.Load()

@@ -275,9 +275,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
-			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			// Under the latency latch every block loosens to full pass, so the
+			// O(output) search-risk scan and the chunk-store budget probe would
+			// be pure overhead that keeps the latch from recovering.
+			wssSearchOutputBlocked := !req.LatencyBudgetExceeded && req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
-			if !chunkIntegrityBudgetHit && req.ChunkStore != nil {
+			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
 			}
 			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
