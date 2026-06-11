@@ -100,6 +100,10 @@ type proxyLayer0Stats struct {
 	CommandUnresolvedBlocks int
 	ReadDeltaAttempts       int
 	ReadDeltaMisses         int
+	// ToolResultBytes is the total tool-result payload the reducer pass had
+	// to process; the latency budget scales with it so legitimate work on
+	// large outputs does not count as overhead pressure.
+	ToolResultBytes         int
 	TokensSaved             int
 	BlocksModified          int
 	ReadDeltaBlocks         int
@@ -236,6 +240,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			stats.ToolResultBlocks++
+			stats.ToolResultBytes += len(block.Text)
 			use, toolUseResolved := proxyResolveToolUseDetailed(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
 			if commandLine == "" {

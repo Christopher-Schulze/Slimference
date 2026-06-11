@@ -160,6 +160,53 @@ func TestCodexLayer0LatencyBudgetProductivePassUsesHigherBudget(t *testing.T) {
 	}
 }
 
+func TestCodexLayer0LatencyBudgetScalesWithPayload(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	// 60ms on a 128KB payload is legitimate O(bytes) work (scaled budget
+	// 25ms + 64ms), not overhead pressure.
+	heavyUnproductive := proxyLayer0Stats{
+		Route:           codexLayer0RouteWSSPhaseF,
+		ToolResultBytes: 128 * 1024,
+		TotalLatencyNs:  int64(60 * time.Millisecond),
+	}
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit+2; i++ {
+		p.observeCodexLayer0LatencyBudget(heavyUnproductive)
+	}
+	if p.codexRuntimeBudgetExceeded() {
+		t.Fatal("payload-proportional latency must not demote")
+	}
+
+	// The same 60ms on a tiny payload is real overhead and must strike.
+	slowSmall := proxyLayer0Stats{
+		Route:           codexLayer0RouteWSSPhaseF,
+		ToolResultBytes: 2 * 1024,
+		TotalLatencyNs:  int64(60 * time.Millisecond),
+	}
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+		p.observeCodexLayer0LatencyBudget(slowSmall)
+	}
+	if !p.codexRuntimeBudgetExceeded() {
+		t.Fatal("slow passes on small payloads must still demote")
+	}
+}
+
+func TestCodexLayer0LatencyBudgetIgnoresVersion1State(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".slimference", "runtime-budget")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := `{"version":1,"strikes":3,"exceeded":true,"updated_at":"` + time.Now().Format(time.RFC3339Nano) + `"}`
+	if err := os.WriteFile(filepath.Join(dir, "codex-layer0-latency.json"), []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := New(config.Defaults())
+	if p.codexRuntimeBudgetExceeded() || p.codexLayer0LatencyStrikes.Load() != 0 {
+		t.Fatal("version-1 strike debt from pre-unlatch binaries must not load")
+	}
+}
+
 func TestCodexLayer0LatencyBudgetDeadZoneDecays(t *testing.T) {
 	p := newProxyForAdminTest(t)
 	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}

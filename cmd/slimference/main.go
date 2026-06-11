@@ -68,6 +68,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/slogutil"
 	"github.com/Christopher-Schulze/Slimference/internal/tlsdial"
 	"github.com/Christopher-Schulze/Slimference/internal/tlsproof"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/transparent"
 	"github.com/Christopher-Schulze/Slimference/internal/tui"
@@ -3716,6 +3717,13 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	if limit := applyDaemonGoMemoryLimit(os.Getenv, rtdebug.SetMemoryLimit); limit > 0 {
 		slog.Info("daemon go memory limit set", "limit_bytes", limit)
 	}
+	// Warm the BPE encoders off the request path: the first token count
+	// otherwise pays the encoder load inside the Layer-0 latency window and
+	// strikes the budget on the session's first real tool output.
+	go func() {
+		_ = tokens.ForProvider(types.CodexChatGPT).CountString("warmup")
+		_ = tokens.ForProvider(types.Anthropic).CountString("warmup")
+	}()
 	p := newProxyFn(cfg)
 	ensureSlimDataDir()
 	startProxyInstance = p

@@ -604,6 +604,16 @@ func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
 	}
 	latency := time.Duration(stats.TotalLatencyNs)
 	budget := codexLayer0LatencyBudget
+	// Scale the budget with the payload the pass actually had to process
+	// (token counting and filters are O(bytes)); a flat budget turns
+	// legitimate work on large tool outputs into false overhead strikes.
+	// Normal small frames keep the strict base budget.
+	if stats.ToolResultBytes > 0 {
+		budget += time.Duration(stats.ToolResultBytes/2048) * time.Millisecond
+		if budget > codexLayer0LatencyProductiveBudget {
+			budget = codexLayer0LatencyProductiveBudget
+		}
+	}
 	if stats.TokensSaved > 0 {
 		budget = codexLayer0LatencyProductiveBudget
 	}
@@ -672,6 +682,13 @@ func (p *Proxy) loadCodexLayer0LatencyBudgetState() {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return
 	}
+	// Version 1 strike debt was accumulated by binaries whose demoted passes
+	// could not recover (pre-unlatch) and whose budget did not scale with
+	// payload size; loading it would re-latch a healed gate. Only trust
+	// state written by the current accounting.
+	if state.Version < 2 {
+		return
+	}
 	if state.UpdatedAt.IsZero() || time.Since(state.UpdatedAt) > codexLayer0LatencyStateTTL {
 		return
 	}
@@ -695,7 +712,7 @@ func (p *Proxy) saveCodexLayer0LatencyBudgetState() {
 	}
 	path := codexLayer0LatencyBudgetStatePath(home)
 	state := codexLayer0LatencyBudgetState{
-		Version:   1,
+		Version:   2,
 		Strikes:   p.codexLayer0LatencyStrikes.Load(),
 		Exceeded:  p.codexLayer0LatencyExceeded.Load(),
 		UpdatedAt: time.Now(),
