@@ -1,0 +1,389 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+)
+
+const (
+	defaultWSSSocketRequestLimit = 20000
+	maxWSSSocketRequestLimit     = 200000
+)
+
+type wssSocketDebugArgs struct {
+	Limit   int
+	JSONOut bool
+}
+
+type wssSocketReport struct {
+	DecisionsLog                            string             `json:"decisions_log,omitempty"`
+	RequestLimit                            int                `json:"request_limit"`
+	RequestsScanned                         int                `json:"requests_scanned"`
+	WSSRequests                             int                `json:"wss_requests"`
+	SocketCount                             int                `json:"socket_count"`
+	ClosedSockets                           int                `json:"closed_sockets"`
+	CloseInitiators                         map[string]int     `json:"close_initiators,omitempty"`
+	ProviderInputTokens                     int                `json:"provider_input_tokens"`
+	ProviderCachedTokens                    int                `json:"provider_cached_tokens"`
+	LocalSavedTokens                        int                `json:"local_saved_tokens"`
+	FullHistoryRequests                     int                `json:"full_history_requests"`
+	FullHistoryProviderInputTokens          int                `json:"full_history_provider_input_tokens"`
+	ReconnectFullHistoryRequests            int                `json:"reconnect_full_history_requests"`
+	ReconnectFullHistoryProviderInputTokens int                `json:"reconnect_full_history_provider_input_tokens"`
+	Sockets                                 []wssSocketSummary `json:"sockets"`
+}
+
+type wssSocketSummary struct {
+	SocketKey                         string         `json:"socket_key"`
+	SocketSeq                         uint64         `json:"socket_seq"`
+	SocketInstance                    int            `json:"socket_instance"`
+	SessionID                         string         `json:"session_id,omitempty"`
+	FirstRequestID                    string         `json:"first_request_id,omitempty"`
+	LastRequestID                     string         `json:"last_request_id,omitempty"`
+	FirstTimestamp                    time.Time      `json:"first_ts,omitempty"`
+	LastTimestamp                     time.Time      `json:"last_ts,omitempty"`
+	Requests                          int            `json:"requests"`
+	RequestShapes                     map[string]int `json:"request_shapes,omitempty"`
+	RootRequests                      int            `json:"root_requests"`
+	DeltaRequests                     int            `json:"delta_requests"`
+	FullHistoryRequests               int            `json:"full_history_requests"`
+	UnknownShapeRequests              int            `json:"unknown_shape_requests"`
+	ProviderInputTokens               int            `json:"provider_input_tokens"`
+	ProviderCachedTokens              int            `json:"provider_cached_tokens"`
+	ProviderCachedRatio               float64        `json:"provider_cached_ratio"`
+	LocalSavedTokens                  int            `json:"local_saved_tokens"`
+	FullHistoryProviderInputTokens    int            `json:"full_history_provider_input_tokens"`
+	ReconnectFullHistory              bool           `json:"reconnect_full_history"`
+	ReconnectFullHistoryProviderInput int            `json:"reconnect_full_history_provider_input_tokens"`
+	Closed                            bool           `json:"closed"`
+	CloseInitiator                    string         `json:"close_initiator,omitempty"`
+	CloseError                        string         `json:"close_error,omitempty"`
+	AgeMillis                         int64          `json:"age_ms,omitempty"`
+	C2SFrames                         int64          `json:"c2s_frames,omitempty"`
+	S2CFrames                         int64          `json:"s2c_frames,omitempty"`
+	C2SBytes                          int64          `json:"c2s_bytes,omitempty"`
+	S2CBytes                          int64          `json:"s2c_bytes,omitempty"`
+	TurnsCompleted                    int64          `json:"turns_completed,omitempty"`
+	estimatedClosedAt                 time.Time
+}
+
+func handleDebugWSSSockets(args []string) {
+	opts, err := parseWSSSocketDebugArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		fmt.Println("No decisions_log configured. Set [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG.")
+		return
+	}
+	summaries := readLastDecisionSummaries(path, opts.Limit)
+	report := buildWSSSocketReport(path, opts.Limit, summaries)
+	printWSSSocketReport(report, opts.JSONOut)
+}
+
+func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
+	opts := wssSocketDebugArgs{Limit: defaultWSSSocketRequestLimit}
+	var gotLimit bool
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "" {
+			continue
+		}
+		switch arg {
+		case "--json", "-json":
+			opts.JSONOut = true
+			continue
+		}
+		if strings.HasPrefix(arg, "--limit=") {
+			if gotLimit {
+				return opts, fmt.Errorf("unexpected extra limit: %s", arg)
+			}
+			n, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if err != nil || n < 1 {
+				return opts, fmt.Errorf("limit must be a positive integer")
+			}
+			opts.Limit = n
+			gotLimit = true
+			continue
+		}
+		if arg == "--limit" || arg == "-limit" {
+			return opts, fmt.Errorf("usage: slimference debug wss-sockets [limit|--limit=N] [--json]")
+		}
+		if strings.HasPrefix(arg, "-") {
+			return opts, fmt.Errorf("unknown flag: %s", arg)
+		}
+		if gotLimit {
+			return opts, fmt.Errorf("unexpected extra argument: %s", arg)
+		}
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 {
+			return opts, fmt.Errorf("limit must be a positive integer")
+		}
+		opts.Limit = n
+		gotLimit = true
+	}
+	if opts.Limit > maxWSSSocketRequestLimit {
+		opts.Limit = maxWSSSocketRequestLimit
+	}
+	return opts, nil
+}
+
+func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary) wssSocketReport {
+	report := wssSocketReport{
+		DecisionsLog:    path,
+		RequestLimit:    limit,
+		RequestsScanned: len(summaries),
+		CloseInitiators: make(map[string]int),
+		Sockets:         make([]wssSocketSummary, 0),
+	}
+	wssSummaries := make([]dbg.RequestSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		if _, ok := wssSocketSeq(summary.DebugFacts); ok {
+			wssSummaries = append(wssSummaries, summary)
+		}
+	}
+	sort.SliceStable(wssSummaries, func(i, j int) bool {
+		return wssSummaries[i].Timestamp.Before(wssSummaries[j].Timestamp)
+	})
+	byBaseKey := make(map[string][]*wssSocketSummary)
+	for _, summary := range wssSummaries {
+		seq, _ := wssSocketSeq(summary.DebugFacts)
+		report.WSSRequests++
+		baseKey := wssSocketBaseKey(summary.SessionID, seq)
+		groups := byBaseKey[baseKey]
+		var socket *wssSocketSummary
+		if len(groups) > 0 {
+			socket = groups[len(groups)-1]
+		}
+		if socket == nil || wssSummaryStartsNewSocketInstance(socket, summary) {
+			socket = &wssSocketSummary{
+				SocketSeq:      seq,
+				SocketInstance: len(groups) + 1,
+				SessionID:      summary.SessionID,
+				RequestShapes:  make(map[string]int),
+			}
+			socket.SocketKey = wssSocketKey(socket)
+			groups = append(groups, socket)
+			byBaseKey[baseKey] = groups
+		}
+		mergeWSSSocketSummary(socket, summary)
+	}
+	for _, groups := range byBaseKey {
+		for _, socket := range groups {
+			finalizeWSSSocketSummary(socket)
+			report.ProviderInputTokens += socket.ProviderInputTokens
+			report.ProviderCachedTokens += socket.ProviderCachedTokens
+			report.LocalSavedTokens += socket.LocalSavedTokens
+			report.FullHistoryRequests += socket.FullHistoryRequests
+			report.FullHistoryProviderInputTokens += socket.FullHistoryProviderInputTokens
+			if socket.ReconnectFullHistory {
+				report.ReconnectFullHistoryRequests += socket.FullHistoryRequests
+				report.ReconnectFullHistoryProviderInputTokens += socket.ReconnectFullHistoryProviderInput
+			}
+			if socket.Closed {
+				report.ClosedSockets++
+				initiator := socket.CloseInitiator
+				if initiator == "" {
+					initiator = "unknown"
+				}
+				report.CloseInitiators[initiator]++
+			}
+			report.Sockets = append(report.Sockets, *socket)
+		}
+	}
+	sort.Slice(report.Sockets, func(i, j int) bool {
+		left := report.Sockets[i]
+		right := report.Sockets[j]
+		if !left.LastTimestamp.Equal(right.LastTimestamp) {
+			return left.LastTimestamp.After(right.LastTimestamp)
+		}
+		return left.SocketSeq > right.SocketSeq
+	})
+	report.SocketCount = len(report.Sockets)
+	if len(report.CloseInitiators) == 0 {
+		report.CloseInitiators = nil
+	}
+	return report
+}
+
+func mergeWSSSocketSummary(socket *wssSocketSummary, summary dbg.RequestSummary) {
+	if socket.SessionID == "" {
+		socket.SessionID = summary.SessionID
+	}
+	if socket.FirstRequestID == "" || (!summary.Timestamp.IsZero() && summary.Timestamp.Before(socket.FirstTimestamp)) {
+		socket.FirstRequestID = summary.RequestID
+		socket.FirstTimestamp = summary.Timestamp
+	}
+	if socket.LastRequestID == "" || summary.Timestamp.After(socket.LastTimestamp) {
+		socket.LastRequestID = summary.RequestID
+		socket.LastTimestamp = summary.Timestamp
+	}
+	socket.Requests++
+	shape := strings.TrimSpace(summary.DebugFacts["wss.request_shape"])
+	if shape == "" {
+		shape = "unknown"
+	}
+	socket.RequestShapes[shape]++
+	socket.ProviderInputTokens += positiveInt(summary.ProviderInputTokens)
+	socket.ProviderCachedTokens += positiveInt(summary.ProviderCachedTokens)
+	socket.LocalSavedTokens += positiveInt(summary.Tokens.Saved)
+	if shape == "full_history" {
+		socket.FullHistoryProviderInputTokens += positiveInt(summary.ProviderInputTokens)
+	}
+	mergeWSSSocketCloseFacts(socket, summary.DebugFacts)
+}
+
+func finalizeWSSSocketSummary(socket *wssSocketSummary) {
+	socket.SocketKey = wssSocketKey(socket)
+	socket.RootRequests = socket.RequestShapes["root"]
+	socket.DeltaRequests = socket.RequestShapes["delta"]
+	socket.FullHistoryRequests = socket.RequestShapes["full_history"]
+	socket.UnknownShapeRequests = socket.RequestShapes["unknown"]
+	if socket.ProviderInputTokens > 0 {
+		socket.ProviderCachedRatio = float64(socket.ProviderCachedTokens) / float64(socket.ProviderInputTokens)
+	}
+	if (socket.SocketSeq > 1 || socket.SocketInstance > 1) && socket.FullHistoryRequests > 0 {
+		socket.ReconnectFullHistory = true
+		socket.ReconnectFullHistoryProviderInput = socket.FullHistoryProviderInputTokens
+	}
+}
+
+func wssSummaryStartsNewSocketInstance(socket *wssSocketSummary, summary dbg.RequestSummary) bool {
+	if socket == nil || summary.Timestamp.IsZero() || socket.estimatedClosedAt.IsZero() {
+		return false
+	}
+	return summary.Timestamp.After(socket.estimatedClosedAt.Add(2 * time.Second))
+}
+
+func mergeWSSSocketCloseFacts(socket *wssSocketSummary, facts map[string]string) {
+	if facts["wss.socket_closed"] == "true" {
+		socket.Closed = true
+	}
+	if v := strings.TrimSpace(facts["wss.socket_close_initiator"]); v != "" {
+		socket.Closed = true
+		socket.CloseInitiator = v
+	}
+	if v := strings.TrimSpace(facts["wss.socket_close_error"]); v != "" {
+		socket.CloseError = v
+	}
+	socket.AgeMillis = maxInt64(socket.AgeMillis, parseDebugFactInt64(facts, "wss.socket_age_ms"))
+	socket.C2SFrames = maxInt64(socket.C2SFrames, parseDebugFactInt64(facts, "wss.socket_c2s_frames"))
+	socket.S2CFrames = maxInt64(socket.S2CFrames, parseDebugFactInt64(facts, "wss.socket_s2c_frames"))
+	socket.C2SBytes = maxInt64(socket.C2SBytes, parseDebugFactInt64(facts, "wss.socket_c2s_bytes"))
+	socket.S2CBytes = maxInt64(socket.S2CBytes, parseDebugFactInt64(facts, "wss.socket_s2c_bytes"))
+	socket.TurnsCompleted = maxInt64(socket.TurnsCompleted, parseDebugFactInt64(facts, "wss.socket_turns_completed"))
+	if socket.AgeMillis > 0 && !socket.FirstTimestamp.IsZero() {
+		socket.estimatedClosedAt = socket.FirstTimestamp.Add(time.Duration(socket.AgeMillis) * time.Millisecond)
+	}
+}
+
+func wssSocketBaseKey(sessionID string, seq uint64) string {
+	return strings.TrimSpace(sessionID) + "#" + strconv.FormatUint(seq, 10)
+}
+
+func wssSocketKey(socket *wssSocketSummary) string {
+	session := emptyDash(socket.SessionID)
+	return fmt.Sprintf("%s#%d.%d", session, socket.SocketSeq, socket.SocketInstance)
+}
+
+func wssSocketSeq(facts map[string]string) (uint64, bool) {
+	if facts == nil {
+		return 0, false
+	}
+	seq, err := strconv.ParseUint(strings.TrimSpace(facts["wss.socket_seq"]), 10, 64)
+	if err != nil || seq == 0 {
+		return 0, false
+	}
+	return seq, true
+}
+
+func parseDebugFactInt64(facts map[string]string, key string) int64 {
+	v, err := strconv.ParseInt(strings.TrimSpace(facts[key]), 10, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+func positiveInt(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func maxInt64(a, b int64) int64 {
+	if b > a {
+		return b
+	}
+	return a
+}
+
+func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
+	if jsonOut {
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if report.SocketCount == 0 {
+		fmt.Println("No WSS socket records found.")
+		return
+	}
+	fmt.Printf("WSS socket lifecycle (%d socket(s), %d request(s))\n", report.SocketCount, report.WSSRequests)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("closed=%d provider_input=%d provider_cached=%d local_saved=%d full_history=%d reconnect_full_history=%d\n",
+		report.ClosedSockets,
+		report.ProviderInputTokens,
+		report.ProviderCachedTokens,
+		report.LocalSavedTokens,
+		report.FullHistoryRequests,
+		report.ReconnectFullHistoryRequests)
+	if len(report.CloseInitiators) > 0 {
+		fmt.Printf("close_initiators=%s\n", formatWSSSocketShapeCounts(report.CloseInitiators))
+	}
+	for _, socket := range report.Sockets {
+		fmt.Printf("socket=%s seq=%d session=%s close=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d turns=%d\n",
+			socket.SocketKey,
+			socket.SocketSeq,
+			emptyDash(socket.SessionID),
+			emptyDash(socket.CloseInitiator),
+			socket.AgeMillis,
+			socket.Requests,
+			formatWSSSocketShapeCounts(socket.RequestShapes),
+			socket.ProviderInputTokens,
+			socket.ProviderCachedTokens,
+			socket.FullHistoryProviderInputTokens,
+			socket.TurnsCompleted)
+	}
+}
+
+func formatWSSSocketShapeCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s:%d", key, counts[key]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func emptyDash(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "-"
+	}
+	return v
+}

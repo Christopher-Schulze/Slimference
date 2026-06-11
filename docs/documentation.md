@@ -1913,6 +1913,7 @@ slimference debug last            # newest entry (--json for machine)
 slimference debug tail 30         # 30 newest rows
 slimference debug summary week    # aggregate SubLayerBreakdown
 slimference debug replay file.jsonl
+slimference debug wss-sockets     # WSS socket close cause/request-shape cost
 slimference debug paths           # where everything lives
 slimference debug bundle          # bounded content-free diagnostics export
 ```
@@ -2276,7 +2277,7 @@ slimference help [subcommand]
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |
-| `debug`       | paths, last, summary, tail, replay, flight last/tail/replay/export.    |
+| `debug`       | paths, last, summary, tail, replay, flight, wss-sockets, bundle.       |
 | `config`      | init, show.                                                            |
 | `test`        | anthropic, openai, intercept.                                          |
 | `completion`  | Emit bash completion.                                                  |
@@ -2295,7 +2296,11 @@ shape counters such as previous-response presence, tool-result counts,
 source-tool-result counts, Layer-0 tokens saved, and bypass reason; they do not
 store raw prompt, tool output, code, or auth material. `last`, `tail`, and
 `replay` support `--json`; `export` writes JSONL by default and CSV with `--csv`
-or an `.csv` target path.
+or an `.csv` target path. `slimference debug wss-sockets [N] [--json]`
+groups the newest decision-log rows by `wss.socket_seq`, then correlates close
+initiator, socket age, frame counts, request shape (`root`/`delta`/`full_history`),
+provider input, provider cache, and local saved tokens. It is diagnostic only
+and does not change product savings arithmetic.
 
 The recorder is privacy-first: before a request summary is retained or flushed
 to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie

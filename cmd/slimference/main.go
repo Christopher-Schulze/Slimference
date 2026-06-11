@@ -2792,13 +2792,14 @@ func handleGainCache(period string, flags gainCLIFlags) {
 
 func handleDebugCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: slimference debug <paths|last|summary|tail|replay|flight|bundle>")
+		fmt.Fprintln(os.Stderr, "usage: slimference debug <paths|last|summary|tail|replay|flight|wss-sockets|bundle>")
 		fmt.Fprintln(os.Stderr, "  paths — show resolved config file, analytics log, filter.db, tee dir")
 		fmt.Fprintln(os.Stderr, "  last    — print last filter_runs row (optional --json)")
 		fmt.Fprintln(os.Stderr, "  summary — aggregate for today|week|month|all (default today, --json)")
 		fmt.Fprintln(os.Stderr, "  tail    — newest N rows (default 20, max 500, --json)")
 		fmt.Fprintln(os.Stderr, "  replay  — replay session JSONL (RequestSummary per-request breakdown)")
 		fmt.Fprintln(os.Stderr, "  flight  — normalized request flight recorder view")
+		fmt.Fprintln(os.Stderr, "  wss-sockets — correlate WSS socket lifecycle with request shapes/cost")
 		fmt.Fprintln(os.Stderr, "  bundle  — bounded content-free diagnostics bundle for later analysis")
 		exitFn(1)
 	}
@@ -2815,6 +2816,8 @@ func handleDebugCmd(args []string) {
 		handleDebugReplay(args[1:])
 	case "flight":
 		handleDebugFlight(args[1:])
+	case "wss-sockets":
+		handleDebugWSSSockets(args[1:])
 	case "bundle":
 		handleDebugBundle(args[1:])
 	default:

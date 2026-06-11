@@ -271,7 +271,7 @@ Print analytics snapshots. 'prompt-cache' reports per-day hit-rate over
 the selected window.
 `
 	case "debug":
-		return `slimference debug <paths|last|summary|tail|replay|flight|bundle> [args]
+		return `slimference debug <paths|last|summary|tail|replay|flight|wss-sockets|bundle> [args]
 
 paths              Show resolved config, filter.db, tee, analytics paths.
 last               Last Layer-0 row from filter.db (--json).
@@ -280,6 +280,8 @@ tail <n>           Newest N filter.db rows (default 20, max 500, --json).
 replay <path>      Replay a decision-chain JSONL session, break down per
                    request.
 flight <cmd>        Show/export normalized content-free request flight rows.
+wss-sockets <n>     Correlate WSS socket close causes with request
+                   shape/provider-cache cost from the decisions log.
 bundle              Export bounded content-free diagnostics to
                    ~/.slimference/exports/ for later analysis.
 `
