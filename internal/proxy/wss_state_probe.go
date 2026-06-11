@@ -59,8 +59,40 @@ func (p WSSProbe) ProbeWSS(_ context.Context) control.WSSState {
 		PhaseFTextDeltas:             snap.WSMITMPhaseFTextDeltas,
 		PhaseFTerminalResponses:      snap.WSMITMPhaseFTerminals,
 		PhaseFMutations:              snap.WSMITMPhaseFMutations,
+		SocketsClosed:                snap.WSMITMSocketsClosed,
+		ClientEOF:                    snap.WSMITMClientEOF,
+		UpstreamEOF:                  snap.WSMITMUpstreamEOF,
+		ClientErrors:                 snap.WSMITMClientErrors,
+		UpstreamErrors:               snap.WSMITMUpstreamErrors,
+		OurErrors:                    snap.WSMITMOurErrors,
+		ContextCancels:               snap.WSMITMContextCancels,
+		RecentSockets:                wssControlSocketLifecycle(snap.RecentSockets),
 	}
 	state.MutationActive = snap.WSMITMReencoded > 0
 	state.ByteBridgeOnly = snap.WSMITMReencoded == 0 && snap.WSMITMForwarded > 0
 	return state
+}
+
+func wssControlSocketLifecycle(in []WSSSocketLifecycleTelemetry) []control.WSSSocketLifecycle {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]control.WSSSocketLifecycle, 0, len(in))
+	for _, item := range in {
+		out = append(out, control.WSSSocketLifecycle{
+			SocketSeq:        item.SocketSeq,
+			OpenedAtUnixNano: item.OpenedAtUnixNano,
+			ClosedAtUnixNano: item.ClosedAtUnixNano,
+			AgeMillis:        item.AgeMillis,
+			CloseInitiator:   item.CloseInitiator,
+			CloseError:       item.CloseError,
+			C2SFrames:        item.C2SFrames,
+			S2CFrames:        item.S2CFrames,
+			C2SBytes:         item.C2SBytes,
+			S2CBytes:         item.S2CBytes,
+			TurnsCompleted:   item.TurnsCompleted,
+			Active:           item.Active,
+		})
+	}
+	return out
 }

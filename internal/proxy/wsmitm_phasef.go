@@ -56,6 +56,7 @@ type wsPhaseFAdapter struct {
 	lastUsageMutatedMechanisms proxyLayer0MechanismMask
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
 	counters                   wsPhaseFCounters
+	socketSeq                  atomic.Uint64
 }
 
 const (
@@ -151,6 +152,7 @@ type wssRequestMeta struct {
 	PreviousResponseID string
 	Model              string
 	ClientFamily       string
+	SocketSeq          uint64
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
 	BypassReason       string
@@ -173,6 +175,12 @@ func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
 
 func (d *PhaseFDispatcher) newWSPhaseFAdapter() *wsPhaseFAdapter {
 	return &wsPhaseFAdapter{p: d.Proxy}
+}
+
+func (a *wsPhaseFAdapter) setSocketSeq(seq uint64) {
+	if a != nil && seq > 0 {
+		a.socketSeq.Store(seq)
+	}
 }
 
 func (a *wsPhaseFAdapter) handle(_ context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
@@ -288,6 +296,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	messages, raw, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
+		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
 	}
 	if err == nil && len(messages) > 0 {
@@ -1356,6 +1365,9 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	}
 	if facts["wss.output_reduce_reason"] == "" {
 		facts["wss.output_reduce_reason"] = "disabled"
+	}
+	if meta.SocketSeq > 0 {
+		facts["wss.socket_seq"] = strconv.FormatUint(meta.SocketSeq, 10)
 	}
 	return facts
 }

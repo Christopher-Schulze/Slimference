@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
@@ -59,7 +61,8 @@ type Session struct {
 	// this session. Zero-value means extension passthrough only.
 	Extensions wscompact.WSExtensionProfile
 	// Telemetry counters.
-	counters SessionCounters
+	counters  SessionCounters
+	lifecycle SessionLifecycle
 }
 
 // SessionCounters tracks per-session frame and degradation events.
@@ -78,8 +81,27 @@ type SessionCounters struct {
 	CompressionErrors           atomic.Int64
 }
 
+type SessionLifecycle struct {
+	OpenedAtUnixNano atomic.Int64
+	ClosedAtUnixNano atomic.Int64
+	CloseInitiator   atomic.Value
+	CloseError       atomic.Value
+}
+
 // Snapshot returns a value-copy of the counters for telemetry.
 func (s *Session) Snapshot() SessionTelemetry {
+	openedAt := s.lifecycle.OpenedAtUnixNano.Load()
+	closedAt := s.lifecycle.ClosedAtUnixNano.Load()
+	ageMillis := int64(0)
+	if openedAt > 0 {
+		end := closedAt
+		if end == 0 {
+			end = time.Now().UnixNano()
+		}
+		if end > openedAt {
+			ageMillis = (end - openedAt) / int64(time.Millisecond)
+		}
+	}
 	return SessionTelemetry{
 		C2SFrames:                   s.counters.C2SFrames.Load(),
 		S2CFrames:                   s.counters.S2CFrames.Load(),
@@ -93,23 +115,33 @@ func (s *Session) Snapshot() SessionTelemetry {
 		CompressedMessagesMutated:   s.counters.CompressedMessagesMutated.Load(),
 		CompressedMessagesBypassed:  s.counters.CompressedMessagesBypassed.Load(),
 		CompressionErrors:           s.counters.CompressionErrors.Load(),
+		OpenedAtUnixNano:            openedAt,
+		ClosedAtUnixNano:            closedAt,
+		AgeMillis:                   ageMillis,
+		CloseInitiator:              lifecycleString(s.lifecycle.CloseInitiator.Load()),
+		CloseError:                  lifecycleString(s.lifecycle.CloseError.Load()),
 	}
 }
 
 // SessionTelemetry is the read-only view of session counters.
 type SessionTelemetry struct {
-	C2SFrames                   int64 `json:"c2s_frames"`
-	S2CFrames                   int64 `json:"s2c_frames"`
-	C2SBytes                    int64 `json:"c2s_bytes"`
-	S2CBytes                    int64 `json:"s2c_bytes"`
-	ParseFailures               int64 `json:"parse_failures"`
-	Degraded                    bool  `json:"degraded"`
-	FramesReencoded             int64 `json:"frames_reencoded"`
-	FramesForwarded             int64 `json:"frames_forwarded"`
-	CompressedMessagesInspected int64 `json:"compressed_messages_inspected"`
-	CompressedMessagesMutated   int64 `json:"compressed_messages_mutated"`
-	CompressedMessagesBypassed  int64 `json:"compressed_messages_bypassed"`
-	CompressionErrors           int64 `json:"compression_errors"`
+	C2SFrames                   int64  `json:"c2s_frames"`
+	S2CFrames                   int64  `json:"s2c_frames"`
+	C2SBytes                    int64  `json:"c2s_bytes"`
+	S2CBytes                    int64  `json:"s2c_bytes"`
+	ParseFailures               int64  `json:"parse_failures"`
+	Degraded                    bool   `json:"degraded"`
+	FramesReencoded             int64  `json:"frames_reencoded"`
+	FramesForwarded             int64  `json:"frames_forwarded"`
+	CompressedMessagesInspected int64  `json:"compressed_messages_inspected"`
+	CompressedMessagesMutated   int64  `json:"compressed_messages_mutated"`
+	CompressedMessagesBypassed  int64  `json:"compressed_messages_bypassed"`
+	CompressionErrors           int64  `json:"compression_errors"`
+	OpenedAtUnixNano            int64  `json:"opened_at_unix_nano"`
+	ClosedAtUnixNano            int64  `json:"closed_at_unix_nano"`
+	AgeMillis                   int64  `json:"age_millis"`
+	CloseInitiator              string `json:"close_initiator,omitempty"`
+	CloseError                  string `json:"close_error,omitempty"`
 }
 
 // ErrSessionClosed is returned by Serve when either end-of-stream
@@ -134,27 +166,95 @@ func (s *Session) Serve(ctx context.Context) error {
 	if s.Client == nil || s.Upstream == nil {
 		return errors.New("wsmitm: Session.Client and .Upstream must be non-nil")
 	}
+	s.lifecycle.OpenedAtUnixNano.CompareAndSwap(0, time.Now().UnixNano())
 	derived, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errs := make(chan error, 2)
+	errs := make(chan sessionPumpResult, 2)
 	go func() {
-		errs <- s.pump(derived, DirClientToServer, s.Client, s.Upstream, s.ClientHandler)
+		errs <- sessionPumpResult{dir: DirClientToServer, err: s.pump(derived, DirClientToServer, s.Client, s.Upstream, s.ClientHandler)}
 	}()
 	go func() {
-		errs <- s.pump(derived, DirServerToClient, s.Upstream, s.Client, s.UpstreamHandler)
+		errs <- sessionPumpResult{dir: DirServerToClient, err: s.pump(derived, DirServerToClient, s.Upstream, s.Client, s.UpstreamHandler)}
 	}()
 
 	// Whichever direction finishes first determines the session's
 	// outcome. The second pump will return on its own once its
 	// underlying Reader closes (caller's responsibility).
 	first := <-errs
+	s.recordClose(first)
 
-	if first == nil || errors.Is(first, ErrSessionClosed) ||
-		errors.Is(first, io.EOF) || errors.Is(first, context.Canceled) {
+	if first.err == nil || errors.Is(first.err, ErrSessionClosed) ||
+		errors.Is(first.err, io.EOF) || errors.Is(first.err, context.Canceled) {
 		return nil
 	}
-	return first
+	return first.err
+}
+
+type sessionPumpResult struct {
+	dir Direction
+	err error
+}
+
+func (s *Session) recordClose(result sessionPumpResult) {
+	if !s.lifecycle.ClosedAtUnixNano.CompareAndSwap(0, time.Now().UnixNano()) {
+		return
+	}
+	initiator, errString := classifySessionClose(result)
+	s.lifecycle.CloseInitiator.Store(initiator)
+	if errString != "" {
+		s.lifecycle.CloseError.Store(errString)
+	}
+}
+
+func classifySessionClose(result sessionPumpResult) (string, string) {
+	err := result.err
+	if err == nil || errors.Is(err, ErrSessionClosed) || errors.Is(err, io.EOF) {
+		if result.dir == DirServerToClient {
+			return "upstream_eof", ""
+		}
+		return "client_eof", ""
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "context_cancel", ""
+	}
+	errString := err.Error()
+	if isOurSessionError(errString) {
+		return "our_error", truncateSessionCloseError(errString)
+	}
+	if result.dir == DirClientToServer {
+		if strings.HasPrefix(errString, "read frame:") {
+			return "client_error", truncateSessionCloseError(errString)
+		}
+		return "upstream_error", truncateSessionCloseError(errString)
+	}
+	if strings.HasPrefix(errString, "read frame:") {
+		return "upstream_error", truncateSessionCloseError(errString)
+	}
+	return "client_error", truncateSessionCloseError(errString)
+}
+
+func isOurSessionError(errString string) bool {
+	return strings.Contains(errString, "handler:") ||
+		strings.Contains(errString, "re-marshal") ||
+		strings.Contains(errString, "forced compressed re-encode")
+}
+
+func truncateSessionCloseError(errString string) string {
+	const max = 160
+	errString = strings.ReplaceAll(errString, "\n", " ")
+	errString = strings.TrimSpace(errString)
+	if len(errString) <= max {
+		return errString
+	}
+	return errString[:max]
+}
+
+func lifecycleString(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // pump runs one direction of the bridge. Returns on first error or

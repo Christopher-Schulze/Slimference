@@ -378,32 +378,55 @@ type ProxyLayer0RoutesSummary struct {
 // while this block tells operators whether WSS frames are bridged
 // byte-equal, degraded, or actually re-encoded after mutation.
 type WSSState struct {
-	EngineActive                 bool  `json:"engine_active"`
-	PassthroughBridged           int64 `json:"passthrough_bridged"`
-	MITMBridged                  int64 `json:"mitm_bridged"`
-	PhasefBridged                int64 `json:"phasef_bridged"`
-	Rejected                     int64 `json:"rejected"`
-	UpstreamDialFail             int64 `json:"upstream_dial_failures"`
-	BytesC2S                     int64 `json:"bytes_c2s"`
-	BytesS2C                     int64 `json:"bytes_s2c"`
-	C2SFrames                    int64 `json:"c2s_frames"`
-	S2CFrames                    int64 `json:"s2c_frames"`
-	ParseFailures                int64 `json:"parse_failures"`
-	DegradedSessions             int64 `json:"degraded_sessions"`
-	FramesReencoded              int64 `json:"frames_reencoded"`
-	FramesForwarded              int64 `json:"frames_forwarded"`
-	CompressedMessagesInspected  int64 `json:"compressed_messages_inspected"`
-	CompressedMessagesMutated    int64 `json:"compressed_messages_mutated"`
-	CompressedMessagesBypassed   int64 `json:"compressed_messages_bypassed"`
-	CompressionErrors            int64 `json:"compression_errors"`
-	PhaseFRequests               int64 `json:"phasef_requests"`
-	PhaseFRequestBodies          int64 `json:"phasef_request_bodies"`
-	PhaseFRequestMessagesIndexed int64 `json:"phasef_request_messages_indexed"`
-	PhaseFTextDeltas             int64 `json:"phasef_text_deltas"`
-	PhaseFTerminalResponses      int64 `json:"phasef_terminal_responses"`
-	PhaseFMutations              int64 `json:"phasef_mutations"`
-	MutationActive               bool  `json:"mutation_active"`
-	ByteBridgeOnly               bool  `json:"byte_bridge_only"`
+	EngineActive                 bool                 `json:"engine_active"`
+	PassthroughBridged           int64                `json:"passthrough_bridged"`
+	MITMBridged                  int64                `json:"mitm_bridged"`
+	PhasefBridged                int64                `json:"phasef_bridged"`
+	Rejected                     int64                `json:"rejected"`
+	UpstreamDialFail             int64                `json:"upstream_dial_failures"`
+	BytesC2S                     int64                `json:"bytes_c2s"`
+	BytesS2C                     int64                `json:"bytes_s2c"`
+	C2SFrames                    int64                `json:"c2s_frames"`
+	S2CFrames                    int64                `json:"s2c_frames"`
+	ParseFailures                int64                `json:"parse_failures"`
+	DegradedSessions             int64                `json:"degraded_sessions"`
+	FramesReencoded              int64                `json:"frames_reencoded"`
+	FramesForwarded              int64                `json:"frames_forwarded"`
+	CompressedMessagesInspected  int64                `json:"compressed_messages_inspected"`
+	CompressedMessagesMutated    int64                `json:"compressed_messages_mutated"`
+	CompressedMessagesBypassed   int64                `json:"compressed_messages_bypassed"`
+	CompressionErrors            int64                `json:"compression_errors"`
+	PhaseFRequests               int64                `json:"phasef_requests"`
+	PhaseFRequestBodies          int64                `json:"phasef_request_bodies"`
+	PhaseFRequestMessagesIndexed int64                `json:"phasef_request_messages_indexed"`
+	PhaseFTextDeltas             int64                `json:"phasef_text_deltas"`
+	PhaseFTerminalResponses      int64                `json:"phasef_terminal_responses"`
+	PhaseFMutations              int64                `json:"phasef_mutations"`
+	SocketsClosed                int64                `json:"sockets_closed"`
+	ClientEOF                    int64                `json:"client_eof"`
+	UpstreamEOF                  int64                `json:"upstream_eof"`
+	ClientErrors                 int64                `json:"client_errors"`
+	UpstreamErrors               int64                `json:"upstream_errors"`
+	OurErrors                    int64                `json:"our_errors"`
+	ContextCancels               int64                `json:"context_cancels"`
+	RecentSockets                []WSSSocketLifecycle `json:"recent_sockets,omitempty"`
+	MutationActive               bool                 `json:"mutation_active"`
+	ByteBridgeOnly               bool                 `json:"byte_bridge_only"`
+}
+
+type WSSSocketLifecycle struct {
+	SocketSeq        uint64 `json:"socket_seq"`
+	OpenedAtUnixNano int64  `json:"opened_at_unix_nano"`
+	ClosedAtUnixNano int64  `json:"closed_at_unix_nano"`
+	AgeMillis        int64  `json:"age_millis"`
+	CloseInitiator   string `json:"close_initiator,omitempty"`
+	CloseError       string `json:"close_error,omitempty"`
+	C2SFrames        int64  `json:"c2s_frames"`
+	S2CFrames        int64  `json:"s2c_frames"`
+	C2SBytes         int64  `json:"c2s_bytes"`
+	S2CBytes         int64  `json:"s2c_bytes"`
+	TurnsCompleted   int64  `json:"turns_completed"`
+	Active           bool   `json:"active"`
 }
 
 const DefaultHostRSSBudgetBytes int64 = 200 * 1024 * 1024
