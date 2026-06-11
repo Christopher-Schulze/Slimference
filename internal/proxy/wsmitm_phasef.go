@@ -159,6 +159,7 @@ type wssRequestMeta struct {
 	SocketSeq          uint64
 	TurnSeq            int
 	HasUserPromptInput bool
+	HasToolDefinitions bool
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
 	RepdetIndex        *repdet.Index
@@ -690,7 +691,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	out := body
 	reattachedToolNames := []string(nil)
 	mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID)
-	if reason := wssToolPruneMutationGuardReason(body, messages, meta, mentions); reason != "" {
+	if reason := wssToolPruneMutationGuardReason(messages, meta, mentions); reason != "" {
 		a.observeWSSToolPruneUserTurn(sessionID, messages)
 		summary.Reason = reason
 		return body, false, wssToolPruneResult{Summary: summary, GuardReason: reason}
@@ -760,26 +761,17 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUserTurn(sessionID string, messages
 	a.p.toolPrune.ObserveTurn(sessionID, extractUsedToolNames(messages))
 }
 
-func wssToolPruneMutationGuardReason(body []byte, messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
+func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
 	if meta.PreviousResponseID == "" {
 		return ""
 	}
-	if !wssBodyHasToolDefinitions(body) && len(reattachMentions) == 0 {
+	if !meta.HasToolDefinitions && len(reattachMentions) == 0 {
 		return ""
 	}
 	if len(messages) > 0 && !wssRequestIsDeltaShape(messages) {
 		return ""
 	}
 	return "wss_tool_prune_delta_guard"
-}
-
-func wssBodyHasToolDefinitions(body []byte) bool {
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(body, &root); err != nil {
-		return false
-	}
-	_, ok := root["tools"]
-	return ok
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool) ([]byte, outputreduce.Stats) {
@@ -2151,7 +2143,16 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 		Model:              wssPlannerModelFromRaw(raw),
 		ClientFamily:       wssCodexClientFamilyFromRaw(raw),
 		HasUserPromptInput: wssRawHasUserPromptInput(raw),
+		HasToolDefinitions: wssRawHasToolDefinitions(raw),
 	}
+}
+
+func wssRawHasToolDefinitions(raw map[string]json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	_, ok := raw["tools"]
+	return ok
 }
 
 func wssCodexClientFamilyFromRaw(raw map[string]json.RawMessage) string {

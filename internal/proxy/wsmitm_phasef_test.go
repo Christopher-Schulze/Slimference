@@ -607,6 +607,42 @@ func TestWSSUserPromptPresenceHelpers(t *testing.T) {
 	}
 }
 
+func TestWSSRawHasToolDefinitions(t *testing.T) {
+	if wssRawHasToolDefinitions(nil) {
+		t.Fatal("nil raw must not report tool definitions")
+	}
+	if !wssRawHasToolDefinitions(map[string]json.RawMessage{"tools": json.RawMessage(`[]`)}) {
+		t.Fatal("tools key presence must report tool definitions")
+	}
+}
+
+func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
+	deltaMessages := []types.Message{{
+		Role:    "user",
+		Content: []types.ContentBlock{{Type: "text", Text: "continue"}},
+	}}
+	fullHistoryMessages := []types.Message{{
+		Role:    "assistant",
+		Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call_1"}},
+	}}
+
+	base := wssRequestMeta{PreviousResponseID: "resp_prev", HasUserPromptInput: true}
+	if got := wssToolPruneMutationGuardReason(deltaMessages, base, nil); got != "" {
+		t.Fatalf("delta without tools or reattach guard=%q, want empty", got)
+	}
+	withTools := base
+	withTools.HasToolDefinitions = true
+	if got := wssToolPruneMutationGuardReason(deltaMessages, withTools, nil); got != "wss_tool_prune_delta_guard" {
+		t.Fatalf("delta with tools guard=%q, want wss_tool_prune_delta_guard", got)
+	}
+	if got := wssToolPruneMutationGuardReason(deltaMessages, base, []string{"Bash"}); got != "wss_tool_prune_delta_guard" {
+		t.Fatalf("delta reattach guard=%q, want wss_tool_prune_delta_guard", got)
+	}
+	if got := wssToolPruneMutationGuardReason(fullHistoryMessages, withTools, nil); got != "" {
+		t.Fatalf("full-history tool definitions guard=%q, want empty", got)
+	}
+}
+
 func TestWSPhaseFConciseChatInjectsOnlyChatHint(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
