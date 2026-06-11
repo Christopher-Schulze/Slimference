@@ -232,12 +232,17 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved+toolOutputInferred == toolOutputResults
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
 		chunkSettings := a.p.codexChunkDedupSettings()
-		// Structured mutations on this route are archived before replacement
-		// (fail-closed) and carry an in-band local-archive recovery URI, which
-		// needs a session namespace. With every tool output resolved this is
-		// strictly safer than the default-on HTTP captured-output path, which
-		// applies the same compaction without any archive.
-		structuredMutationRecoverable := toolOutputKnown && chunkSettings.ArchiveRecovery && meta.SessionID != ""
+		// 2026-06-11 live A/B (loop runs 4-7): archive-backed structured
+		// mutations on the stateful WSS delta flow were accepted per turn,
+		// but on both full-workload runs a FOLLOWING byte-identical tool turn
+		// then hit upstream 400 invalid_request, while the byte-equal bridge
+		// control on the identical workload stayed clean. Resolution +
+		// archive recovery are therefore NOT sufficient proof on this route;
+		// captured/envelope mutation stays behind the explicit experimental
+		// flag until a B-side capture isolates the exact server-state
+		// divergence (T354 proof gate). Lossless read_delta/repeated keep
+		// their existing live proof and stay active.
+		structuredMutationRecoverable := false
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {

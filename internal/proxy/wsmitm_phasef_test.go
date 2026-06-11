@@ -2529,9 +2529,9 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 	}
 	firstSummary := p.DebugRecorder().Last(1, false)[0]
 	if firstSummary.BypassReason != "" ||
-		firstSummary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		firstSummary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" ||
 		firstSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
-		t.Fatalf("first known read with resolved tool output should seed without the structured guard: %+v", firstSummary)
+		t.Fatalf("first known read should be guarded but not full-pass-bypassed: %+v", firstSummary)
 	}
 
 	seedToolCall("call_read_2")
@@ -2552,13 +2552,17 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFDefaultStatefulResolvedToolOutputCompactsWithArchive(t *testing.T) {
+func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenEnabled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	// Explicit experimental opt-in: live A/B (2026-06-11) showed stateful WSS
+	// structured mutation triggers upstream 400 on follow-up turns, so the
+	// default keeps the guard; this test covers the mechanic behind the flag.
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -2638,13 +2642,58 @@ func TestWSPhaseFDefaultStatefulUnresolvedToolOutputKeepsGuard(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFDefaultStatefulInferredToolOutputCompactsWithArchive(t *testing.T) {
+func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("PASS\nok  \texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: default-guarded\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-default-guarded",
+		"prompt_cache_key":     "default-guarded-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "call_tests", "name": "exec_command", "arguments": map[string]any{"cmd": "go test ./... -v"}},
+			{"type": "function_call_output", "call_id": "call_tests", "output": envelope},
+		},
+		"stream": true,
+	})
+
+	// Live A/B 2026-06-11 (loop runs 4-7): structured mutation on the stateful
+	// WSS delta flow caused upstream 400s on follow-up turns while the
+	// byte-equal bridge stayed clean. The default must keep the guard even for
+	// fully resolved, archive-recoverable outputs.
+	if _, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env); err != nil {
+		t.Fatalf("default stateful tool-output handle: %v", err)
+	}
+	if strings.Contains(string(env.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(env.Raw), "PASS lines elided") {
+		t.Fatalf("default must not structurally mutate stateful WSS tool output: %s", env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" {
+		t.Fatalf("default must keep the structured guard: %+v", summary.DebugFacts)
+	}
+}
+
+func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenEnabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
