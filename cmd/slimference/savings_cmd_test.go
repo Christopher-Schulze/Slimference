@@ -1294,6 +1294,114 @@ func TestComputeSavingsDetectsNegativeCacheNet(t *testing.T) {
 	}
 }
 
+func TestComputeSavingsSessionScorecardSplitsLocalCacheAndEffectiveBilled(t *testing.T) {
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	reportNow := base.Add(10 * time.Second)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID:              "cached-1",
+				Timestamp:              base,
+				SessionID:              "codex-wss:scorecard",
+				Provider:               "codex_chatgpt",
+				ProviderInputTokens:    1000,
+				ProviderCachedTokens:   600,
+				ProviderOutputTokens:   40,
+				PreviousResponseIDUsed: true,
+				Tokens:                 dbg.TokenCounts{Original: 900, Final: 700, Saved: 200},
+			},
+			{
+				RequestID:              "cached-2",
+				Timestamp:              base.Add(time.Second),
+				SessionID:              "codex-wss:scorecard",
+				Provider:               "codex_chatgpt",
+				ProviderInputTokens:    500,
+				ProviderCachedTokens:   100,
+				ProviderOutputTokens:   20,
+				CacheCreateTokens:      50,
+				PreviousResponseIDUsed: true,
+				Tokens:                 dbg.TokenCounts{Original: 400, Final: 300, Saved: 100},
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", reportNow)
+	if got.DecisionProviderInputTokens != 1500 ||
+		got.DecisionLocalSavedTokens != 300 ||
+		got.DecisionNetSavedTokens != 300 ||
+		got.DecisionCacheReadTokens != 700 ||
+		got.DecisionCacheCreateTokens != 50 ||
+		got.DecisionEffectiveBilledTokens != 920 ||
+		!nearFloat(got.DecisionCachedShare, 700.0/1500.0) {
+		t.Fatalf("bad aggregate scorecard: %+v", got)
+	}
+	if len(got.DecisionSessions) != 1 {
+		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
+	}
+	session := got.DecisionSessions[0]
+	if session.LocalSaved != 300 ||
+		session.NetSavedTokens != 300 ||
+		session.ProviderInputTokens != 1500 ||
+		session.CacheReadTokens != 700 ||
+		session.CacheCreateTokens != 50 ||
+		session.EffectiveBilled != 920 ||
+		!nearFloat(session.CachedShare, 700.0/1500.0) {
+		t.Fatalf("bad session scorecard: %+v", session)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{
+		"Decision local saved tokens: 300",
+		"Decision effective billed:   920",
+		"Decision cached share:       46.7%",
+		"local_saved=300",
+		"effective_billed=920",
+		"cached_share=46.7%",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+	csv := formatSavingsCSV(got)
+	for _, want := range []string{"decision_local_saved_tokens", "decision_cached_share", "decision_effective_billed_tokens"} {
+		if !strings.Contains(csv, want) {
+			t.Fatalf("csv missing %q: %s", want, csv)
+		}
+	}
+	lines := strings.Split(strings.TrimSpace(csv), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("csv lines=%d: %s", len(lines), csv)
+	}
+	headers := strings.Split(lines[0], ",")
+	values := strings.Split(lines[1], ",")
+	if len(headers) != len(values) {
+		t.Fatalf("csv header/value mismatch: %d headers, %d values: %s", len(headers), len(values), csv)
+	}
+	byHeader := map[string]string{}
+	for i, header := range headers {
+		byHeader[header] = values[i]
+	}
+	for header, want := range map[string]string{
+		"decision_provider_input_tokens":   "1500",
+		"decision_local_saved_tokens":      "300",
+		"decision_cached_share":            "0.466667",
+		"decision_effective_billed_tokens": "920",
+	} {
+		if got := byHeader[header]; got != want {
+			t.Fatalf("csv %s=%q, want %q: %s", header, got, want, csv)
+		}
+	}
+}
+
 func TestComputeSavingsAccountsUpstreamRetryNegativeEvents(t *testing.T) {
 	base := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)
 	reportNow := base.Add(10 * time.Second)
