@@ -68,6 +68,38 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0CopyOnWriteClonesOnlyMutatedMessage(t *testing.T) {
+	t.Parallel()
+
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&status, " M cow_file_%02d.go\n", i)
+	}
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-status", ToolName: "shell", ToolInput: `{"command":"git status --short"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-status", Text: status.String()}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-echo", ToolName: "shell", ToolInput: `{"command":"echo ok"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-echo", Text: "ok\n"}}},
+	}
+
+	result := reduceCodexLayer0(codexLayer0Request{Messages: messages})
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 {
+		t.Fatalf("expected one compacted block, stats=%+v", result.Stats)
+	}
+	if result.Messages[1].Content[0].Text == messages[1].Content[0].Text ||
+		messages[1].Content[0].Text != status.String() {
+		t.Fatal("mutated output must not mutate the original message")
+	}
+	if &result.Messages[1].Content[0] == &messages[1].Content[0] {
+		t.Fatal("mutated message content must be cloned")
+	}
+	for _, idx := range []int{0, 2, 3} {
+		if &result.Messages[idx].Content[0] != &messages[idx].Content[0] {
+			t.Fatalf("unmutated message %d should keep its content backing array", idx)
+		}
+	}
+}
+
 func TestApplyProxyLayer0WithRememberedToolUse(t *testing.T) {
 	t.Parallel()
 

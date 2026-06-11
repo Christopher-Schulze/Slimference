@@ -311,7 +311,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		baseToolUses = proxyToolUseIndex(req.Messages)
 	}
 	toolUses := mergedProxyToolUseIndex(baseToolUses, req.RememberedToolUse)
-	var out []types.Message
+	cow := messageCow{original: req.Messages}
 	stats := proxyLayer0Stats{Route: req.Route}
 	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessagesWithToolUses(req.Messages, toolUses)) > 0
 
@@ -523,10 +523,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			before := countBeforeTokens()
 			afterTokens := countCandidateTokens(afterText)
 			if afterTokens < before {
-				if out == nil {
-					out = cloneMessages(req.Messages)
-				}
-				out[msgIdx].Content[blockIdx].Text = afterText
+				cow.setText(msgIdx, blockIdx, afterText)
 				stats.TokensSaved += before - afterTokens
 				stats.BlocksModified++
 				switch mechanism {
@@ -554,10 +551,29 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		}
 	}
 
-	if out == nil {
+	if cow.out == nil {
 		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
-	return codexLayer0Result{Messages: out, Stats: stats.finish(started)}
+	return codexLayer0Result{Messages: cow.out, Stats: stats.finish(started)}
+}
+
+type messageCow struct {
+	original []types.Message
+	out      []types.Message
+	cloned   []bool
+}
+
+func (c *messageCow) setText(msgIdx int, blockIdx int, text string) {
+	if c.out == nil {
+		c.out = make([]types.Message, len(c.original))
+		copy(c.out, c.original)
+		c.cloned = make([]bool, len(c.original))
+	}
+	if !c.cloned[msgIdx] {
+		c.out[msgIdx].Content = append([]types.ContentBlock(nil), c.original[msgIdx].Content...)
+		c.cloned[msgIdx] = true
+	}
+	c.out[msgIdx].Content[blockIdx].Text = text
 }
 
 func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload) evidence.BlockDecision {
@@ -1907,13 +1923,4 @@ func quoteShellArg(arg string) string {
 		return arg
 	}
 	return strconv.Quote(arg)
-}
-
-func cloneMessages(messages []types.Message) []types.Message {
-	out := make([]types.Message, len(messages))
-	copy(out, messages)
-	for i := range out {
-		out[i].Content = append([]types.ContentBlock(nil), messages[i].Content...)
-	}
-	return out
 }
