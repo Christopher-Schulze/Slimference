@@ -2155,9 +2155,11 @@ assumption, default `0.10` and overridable with
 `cached_price_ratio`, `decision_counterfactual_tokens`,
 `decision_uncached_counterfactual_tokens`, `decision_s_local`,
 `decision_s_combined`, `decision_s_vs_uncached`, `decision_footprint_score`,
-and `decision_footprint_score_buckets`; each `decision_sessions[]` JSON row also
+`decision_footprint_score_buckets`, and `decision_compounded_estimate_tokens`;
+each `decision_sessions[]` JSON row also
 carries a nested `scorecard` with the same rate family plus per-session
-`footprint_score` and `footprint_score_buckets`. `S_local` is local input
+`footprint_score`, `footprint_score_buckets`, and
+`compounded_estimate_tokens`. `S_local` is local input
 deletion over the no-local input counterfactual. `S_combined` compares effective
 billed tokens against a cache-as-is, no-local-reduction counterfactual.
 `S_vs_uncached` compares the same effective billed tokens against a fully
@@ -2166,6 +2168,11 @@ cache-create tokens are included in effective billed, so retries and cache
 warmup reduce the reported rates instead of inflating savings. Footprint score
 is reported separately from billed-token savings: it ranks where a local saving
 matters most for future context pressure, not a provider-bill estimate.
+The compounded estimate is also reporting-only: for footprint-classified local
+savings, it multiplies saved tokens by the real remaining request count in that
+session and the configured cached-price ratio, so early high-footprint savings
+show their likely future cache-price leverage without changing request payloads
+or claiming additional immediate billable savings.
 
 ---
 

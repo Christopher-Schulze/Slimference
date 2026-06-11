@@ -556,6 +556,11 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		got.Mechanisms[0].FootprintScore != 56000 || got.Mechanisms[0].FootprintBuckets["high"] != 1 {
 		t.Fatalf("bad footprint scorecard: %+v sessions=%+v mechanisms=%+v", got, got.DecisionSessions, got.Mechanisms)
 	}
+	if got.DecisionCompoundedEstimateTokens != 70 ||
+		got.DecisionSessions[0].CompoundedEstimateTokens != 70 ||
+		got.Mechanisms[0].CompoundedEstimateTokens != 70 {
+		t.Fatalf("bad compounded estimate: %+v sessions=%+v mechanisms=%+v", got, got.DecisionSessions, got.Mechanisms)
+	}
 	if got.Evidence.Decisions != 3 || got.Evidence.Applied != 2 || got.Evidence.FullPass != 1 ||
 		got.Evidence.ByContentClass[string(evidence.ContentTest)] != 1 ||
 		got.Evidence.BySignal[string(evidence.SignalCacheHotZone)] != 1 ||
@@ -575,7 +580,77 @@ func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
 		t.Fatalf("top mechanism: %+v", got.Mechanisms)
 	}
 	text := formatSavingsText(got)
-	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision footprint score", "56.0K (high=1)", "Evidence decisions", "cache_hot_zone=1", "Evidence cache impact", "provider_cache_read=2", "Evidence footprint score", "codex_posttool_compaction", "footprint=56.0K/high=1", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cache net", "33.3% hit", "Decision layer net", "L0=5,L1=755,L2=2,out=-2,tools=3", "Decision footprint score", "56.0K (high=1)", "Decision compounded est.", "70", "Evidence decisions", "cache_hot_zone=1", "Evidence cache impact", "provider_cache_read=2", "Evidence footprint score", "codex_posttool_compaction", "footprint=56.0K/high=1", "compounded_est=70", "session sess-1", "layers=L1=750,L2=2", "cache=2/100.0%"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestComputeSavingsDecisionCompoundedEstimateUsesSessionRemainder(t *testing.T) {
+	base := time.Date(2026, 6, 11, 11, 0, 0, 0, time.UTC)
+	reportNow := base.Add(10 * time.Second)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Savings.CachedPriceRatio = 0.25
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID: "first-footprint",
+				Timestamp: base,
+				SessionID: "codex-wss:compounded",
+				Tokens:    dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+				Mechanisms: []dbg.MechanismAccounting{
+					{Name: "high_footprint", Layer: 1, Source: "evidence_decision", Count: 1, OriginalTokens: 1000, FinalTokens: 900, SavedTokens: 100, NetTokens: 100, FootprintScoreBucket: "high", FootprintScore: 800},
+				},
+			},
+			{
+				RequestID: "second-footprint",
+				Timestamp: base.Add(time.Second),
+				SessionID: "codex-wss:compounded",
+				Tokens:    dbg.TokenCounts{Original: 800, Final: 720, Saved: 80},
+				Mechanisms: []dbg.MechanismAccounting{
+					{Name: "mid_footprint", Layer: 1, Source: "evidence_decision", Count: 1, OriginalTokens: 800, FinalTokens: 720, SavedTokens: 80, NetTokens: 80, FootprintScoreBucket: "mid", FootprintScore: 160},
+				},
+			},
+			{
+				RequestID: "not-classified",
+				Timestamp: base.Add(2 * time.Second),
+				SessionID: "codex-wss:compounded",
+				Tokens:    dbg.TokenCounts{Original: 500, Final: 450, Saved: 50},
+				Mechanisms: []dbg.MechanismAccounting{
+					{Name: "unclassified_local", Layer: 1, Source: "evidence_decision", Count: 1, OriginalTokens: 500, FinalTokens: 450, SavedTokens: 50, NetTokens: 50},
+				},
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", reportNow)
+	if got.DecisionCompoundedEstimateTokens != 70 {
+		t.Fatalf("aggregate compounded estimate=%d, want 70: %+v", got.DecisionCompoundedEstimateTokens, got)
+	}
+	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].CompoundedEstimateTokens != 70 {
+		t.Fatalf("session compounded estimate wrong: %+v", got.DecisionSessions)
+	}
+	byName := map[string]SavingsMechanismSummary{}
+	for _, mechanism := range got.Mechanisms {
+		byName[mechanism.Name] = mechanism
+	}
+	if byName["high_footprint"].CompoundedEstimateTokens != 50 ||
+		byName["mid_footprint"].CompoundedEstimateTokens != 20 ||
+		byName["unclassified_local"].CompoundedEstimateTokens != 0 {
+		t.Fatalf("mechanism compounded estimates wrong: %+v", got.Mechanisms)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Decision compounded est.", "compounded_est=50", "compounded_est=20"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
