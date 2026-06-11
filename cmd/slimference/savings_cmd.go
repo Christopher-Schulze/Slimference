@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -347,6 +348,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		sessionRequestTotals[decisionSessionID(summary)]++
 	}
 	cachedPriceRatio := savingsCachedPriceRatio(cfg)
+	sessionLengthEstimator := newSavingsSessionLengthEstimator(summaries, start)
 	sessionRequestSeen := map[string]int64{}
 	for _, summary := range filteredSummaries {
 		out.DecisionRequests++
@@ -373,10 +375,13 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		}
 		sessionID := decisionSessionID(summary)
 		sessionRequestSeen[sessionID]++
-		remainingRequests := sessionRequestTotals[sessionID] - sessionRequestSeen[sessionID]
-		if remainingRequests < 1 {
-			remainingRequests = 1
-		}
+		remainingRequests := savingsCompoundedRemainingRequests(
+			period,
+			sessionRequestTotals[sessionID]-sessionRequestSeen[sessionID],
+			sessionLengthEstimator,
+			summary,
+			sessionRequestSeen[sessionID],
+		)
 		sessionRecords[sessionID] = append(sessionRecords[sessionID], summary)
 		updateSavingsSessionFacts(bySessionFacts, sessionID, summary)
 		sessionRow := bySession[sessionID]
@@ -715,6 +720,129 @@ func savingsCompoundedEstimateTokens(item dbg.MechanismAccounting, remainingRequ
 
 func savingsMechanismHasFootprint(item dbg.MechanismAccounting) bool {
 	return item.FootprintScore > 0 || strings.TrimSpace(item.FootprintScoreBucket) != ""
+}
+
+const savingsSessionLengthEMAAlpha = 0.1
+
+type savingsSessionLengthEstimator struct {
+	byFamily map[string]savingsSessionLengthEstimate
+}
+
+type savingsSessionLengthEstimate struct {
+	samples  int64
+	estimate float64
+}
+
+type savingsHistoricalSessionLength struct {
+	sessionID string
+	family    string
+	length    int64
+	lastSeen  time.Time
+}
+
+func newSavingsSessionLengthEstimator(summaries []dbg.RequestSummary, cutoff time.Time) savingsSessionLengthEstimator {
+	estimator := savingsSessionLengthEstimator{byFamily: map[string]savingsSessionLengthEstimate{}}
+	if cutoff.IsZero() || len(summaries) == 0 {
+		return estimator
+	}
+	bySession := map[string]*savingsHistoricalSessionLength{}
+	for _, summary := range summaries {
+		if summary.Timestamp.IsZero() || !summary.Timestamp.Before(cutoff) {
+			continue
+		}
+		sessionID := decisionSessionID(summary)
+		row := bySession[sessionID]
+		if row == nil {
+			row = &savingsHistoricalSessionLength{sessionID: sessionID}
+			bySession[sessionID] = row
+		}
+		row.length++
+		if row.family == "" {
+			row.family = savingsClientFamily(summary)
+		}
+		if summary.Timestamp.After(row.lastSeen) {
+			row.lastSeen = summary.Timestamp
+		}
+	}
+	rows := make([]savingsHistoricalSessionLength, 0, len(bySession))
+	for _, row := range bySession {
+		if row.length > 0 {
+			rows = append(rows, *row)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].lastSeen.Equal(rows[j].lastSeen) {
+			return rows[i].sessionID < rows[j].sessionID
+		}
+		return rows[i].lastSeen.Before(rows[j].lastSeen)
+	})
+	for _, row := range rows {
+		estimator.observe(row.family, row.length)
+	}
+	return estimator
+}
+
+func (e savingsSessionLengthEstimator) observe(family string, length int64) {
+	if length < 1 {
+		return
+	}
+	family = savingsEstimatorFamily(family)
+	row := e.byFamily[family]
+	if row.samples == 0 {
+		row.estimate = float64(length)
+	} else {
+		row.estimate = savingsSessionLengthEMAAlpha*float64(length) + (1-savingsSessionLengthEMAAlpha)*row.estimate
+	}
+	row.samples++
+	e.byFamily[family] = row
+}
+
+func (e savingsSessionLengthEstimator) remaining(family string, turnPosition int64) int64 {
+	row, ok := e.byFamily[savingsEstimatorFamily(family)]
+	if !ok || row.samples == 0 {
+		return 1
+	}
+	if turnPosition < 1 {
+		turnPosition = 1
+	}
+	estimatedLength := int64(row.estimate + 0.5)
+	remaining := estimatedLength - turnPosition
+	if remaining < 1 {
+		return 1
+	}
+	return remaining
+}
+
+func savingsEstimatorFamily(family string) string {
+	family = strings.ToLower(strings.TrimSpace(family))
+	if family == "" {
+		return "unknown"
+	}
+	return family
+}
+
+func savingsCompoundedRemainingRequests(period string, observedRemaining int64, estimator savingsSessionLengthEstimator, summary dbg.RequestSummary, seenInWindow int64) int64 {
+	if observedRemaining > 0 {
+		return observedRemaining
+	}
+	if period != "live" {
+		return 1
+	}
+	return estimator.remaining(savingsClientFamily(summary), savingsDecisionTurnPosition(summary, seenInWindow))
+}
+
+func savingsDecisionTurnPosition(summary dbg.RequestSummary, seenInWindow int64) int64 {
+	if summary.DebugFacts != nil {
+		if value := strings.TrimSpace(summary.DebugFacts["wss.turn_seq"]); value != "" {
+			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	if seenInWindow > 0 {
+		return seenInWindow
+	}
+	return 1
 }
 
 func addSavingsBucketCount(counts *map[string]int64, bucket string, n int64) {

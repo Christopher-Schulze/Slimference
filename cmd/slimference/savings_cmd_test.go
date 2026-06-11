@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -654,6 +655,65 @@ func TestComputeSavingsDecisionCompoundedEstimateUsesSessionRemainder(t *testing
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
+	}
+}
+
+func TestComputeSavingsLiveCompoundedEstimateUsesHistoricalSessionLength(t *testing.T) {
+	startedAt := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	reportNow := startedAt.Add(2 * time.Minute)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Savings.CachedPriceRatio = 0.25
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	prevDaemon := daemonIsRunningFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+		daemonIsRunningFn = prevDaemon
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 1234, Port: 8990, StartedAt: startedAt}, nil
+	}
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		out := make([]dbg.RequestSummary, 0, 7)
+		for i := 0; i < 6; i++ {
+			out = append(out, dbg.RequestSummary{
+				RequestID:    fmt.Sprintf("history-%d", i),
+				Timestamp:    startedAt.Add(time.Duration(-10+i) * time.Minute),
+				SessionID:    "codex-wss:historical",
+				ClientFamily: "codex_cli",
+			})
+		}
+		out = append(out, dbg.RequestSummary{
+			RequestID:    "live-footprint",
+			Timestamp:    startedAt.Add(time.Second),
+			SessionID:    "codex-wss:live",
+			ClientFamily: "codex_cli",
+			DebugFacts:   map[string]string{"wss.turn_seq": "2"},
+			Tokens:       dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+			Mechanisms: []dbg.MechanismAccounting{
+				{Name: "live_high_footprint", Layer: 1, Source: "evidence_decision", Count: 1, OriginalTokens: 1000, FinalTokens: 900, SavedTokens: 100, NetTokens: 100, FootprintScoreBucket: "high", FootprintScore: 600},
+			},
+		})
+		return out, nil
+	}
+
+	got := computeSavings(cfg, "live", "", reportNow)
+	if got.DecisionCompoundedEstimateTokens != 100 {
+		t.Fatalf("live compounded estimate=%d, want 100: %+v", got.DecisionCompoundedEstimateTokens, got)
+	}
+	if len(got.DecisionSessions) != 1 || got.DecisionSessions[0].CompoundedEstimateTokens != 100 {
+		t.Fatalf("live session compounded estimate wrong: %+v", got.DecisionSessions)
+	}
+	byName := map[string]SavingsMechanismSummary{}
+	for _, mechanism := range got.Mechanisms {
+		byName[mechanism.Name] = mechanism
+	}
+	if byName["live_high_footprint"].CompoundedEstimateTokens != 100 {
+		t.Fatalf("mechanism compounded estimate wrong: %+v", got.Mechanisms)
 	}
 }
 

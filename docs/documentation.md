@@ -2169,10 +2169,16 @@ warmup reduce the reported rates instead of inflating savings. Footprint score
 is reported separately from billed-token savings: it ranks where a local saving
 matters most for future context pressure, not a provider-bill estimate.
 The compounded estimate is also reporting-only: for footprint-classified local
-savings, it multiplies saved tokens by the real remaining request count in that
-session and the configured cached-price ratio, so early high-footprint savings
-show their likely future cache-price leverage without changing request payloads
-or claiming additional immediate billable savings.
+savings, it multiplies saved tokens by the remaining request count and the
+configured cached-price ratio, so early high-footprint savings show their likely
+future cache-price leverage without changing request payloads or claiming
+additional immediate billable savings. Historical reports use the real remaining
+request count visible in the selected window. `live` reports use later rows from
+the current daemon window when they exist; for the newest visible turn of an
+ongoing session, they fall back to a deterministic client-family session-length
+EMA from earlier decision-log sessions plus the content-free WSS `turn_seq`
+signal. Missing history floors the estimate at one remaining request instead of
+inventing future savings.
 
 ---
 
