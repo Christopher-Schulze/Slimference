@@ -3053,7 +3053,7 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 }
 
-func TestWSPhaseFDefaultCompactsPreviousResponseGitStatusAfterServerToolCall(t *testing.T) {
+func TestWSPhaseFDefaultGatesPreviousResponseGitStatusAfterServerToolCall(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
@@ -3100,20 +3100,25 @@ func TestWSPhaseFDefaultCompactsPreviousResponseGitStatusAfterServerToolCall(t *
 	if err != nil {
 		t.Fatalf("tool-output request handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected default WSS compaction for server-known previous_response git status output")
+	if replace {
+		t.Fatalf("default previous_response delta git status output must not mutate: %s", outputEnv.Raw)
 	}
-	if !strings.Contains(string(outputEnv.Raw), "[git status]") ||
-		!strings.Contains(string(outputEnv.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
-		strings.Contains(string(outputEnv.Raw), "previous_response_status_119.go") {
-		t.Fatalf("previous_response git status output was not compacted: %s", outputEnv.Raw)
+	if strings.Contains(string(outputEnv.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(string(outputEnv.Raw), "previous_response_status_119.go") {
+		t.Fatalf("previous_response git status output should stay byte-equal under delta gate: %s", outputEnv.Raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.BypassReason != "" || !summary.PreviousResponseIDUsed || summary.Tokens.Saved <= 0 {
-		t.Fatalf("expected positive WSS savings summary, got %+v", summary)
+	gated := false
+	for _, decision := range summary.EvidenceDecisions {
+		if decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			gated = true
+		}
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
-		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	if summary.BypassReason != "" || !summary.PreviousResponseIDUsed || summary.Tokens.Saved != 0 || !gated {
+		t.Fatalf("expected previous_response delta proof-gate summary, got %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("Layer 0 counters should not record a gated mutation: %+v", snap)
 	}
 }
 
@@ -3194,7 +3199,7 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenEnabled(t *testing.T) {
+func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenDeltaLabEnabled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -3205,6 +3210,7 @@ func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenEnabled(t *tes
 	// structured mutation triggers upstream 400 on follow-up turns, so the
 	// default keeps the guard; this test covers the mechanic behind the flag.
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -3233,7 +3239,7 @@ func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenEnabled(t *tes
 		t.Fatalf("stateful resolved tool-output handle: %v", err)
 	}
 	if !replace {
-		t.Fatalf("default stateful resolved tool output should compact: %s", env.Raw)
+		t.Fatalf("delta lab stateful resolved tool output should compact: %s", env.Raw)
 	}
 	mutated := string(env.Raw)
 	if !strings.Contains(mutated, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
@@ -3244,6 +3250,57 @@ func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenEnabled(t *tes
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.structured_mutation_guard"] != "" || summary.Tokens.Saved <= 0 {
 		t.Fatalf("resolved archived mutation must save without the structured guard: %+v", summary)
+	}
+}
+
+func TestWSPhaseFBroadToolOutputMutationFlagDoesNotBypassDeltaGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+	payload.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: broad-delta-gate\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-broad-delta-gate",
+		"prompt_cache_key":     "broad-delta-gate-session",
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": "call_tests", "output": envelope},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("broad flag stateful delta handle: %v", err)
+	}
+	if replace ||
+		strings.Contains(string(env.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(env.Raw), "PASS lines elided") {
+		t.Fatalf("broad tool-output flag must not mutate previous_response_id delta output: %s", env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	gated := false
+	for _, decision := range summary.EvidenceDecisions {
+		if decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			gated = true
+		}
+	}
+	if !gated || summary.DebugFacts["wss.request_shape"] != "delta" {
+		t.Fatalf("broad flag delta turn should carry proof-gate evidence: %+v", summary)
 	}
 }
 
@@ -3328,7 +3385,7 @@ func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenEnabled(t *testing.T) {
+func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenDeltaLabEnabled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -3336,6 +3393,7 @@ func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenEnabled(t *tes
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
@@ -3366,7 +3424,7 @@ func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenEnabled(t *tes
 		t.Fatalf("stateful inferred tool-output handle: %v", err)
 	}
 	if !replace {
-		t.Fatalf("inferable stateful tool output should compact by default: %s", env.Raw)
+		t.Fatalf("delta lab inferable stateful tool output should compact: %s", env.Raw)
 	}
 	mutated := string(env.Raw)
 	if !strings.Contains(mutated, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||

@@ -286,10 +286,15 @@ type OutputReduceConfig struct {
 	CodexSavingsPolicyMode string `toml:"codex_savings_policy_mode"`
 	// CodexWSSToolOutputMutationEnabled is an experimental non-product
 	// lab/proof switch for broad Codex WSS request-body mutation on tool
-	// outputs. It is not part of the default product path. Narrow state-safe
-	// status-output compaction is guarded separately after the tool call is
-	// known and the WSS proof is fresh.
+	// outputs outside the previous_response_id delta flow. It is not part of
+	// the default product path. Delta mutation needs the env-only
+	// CodexWSSDeltaToolOutputMutationLabEnabled override because live proof
+	// showed that flow can poison server state and trigger follow-up 400s.
 	CodexWSSToolOutputMutationEnabled bool `toml:"codex_wss_tool_output_mutation_enabled"`
+	// CodexWSSDeltaToolOutputMutationLabEnabled is intentionally env-only:
+	// SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB=1. It exists only
+	// for reproducing T354 delta failures and must never be persisted.
+	CodexWSSDeltaToolOutputMutationLabEnabled bool `toml:"-"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
@@ -748,6 +753,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_TOOL_OUTPUT_MUTATION")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = b
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE")); v != "" {

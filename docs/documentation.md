@@ -107,16 +107,16 @@ routine use, it stays out of the product path.
   - the same Phase-F route the certified CLI uses, with byte-identical
   `permessage-deflate` frames. Desktop WSS routing is therefore proven.
   Stateful WSS tool-output structured mutation (captured-output and
-  codex-exec-envelope compaction) is default-on when every tool output in the
-  request resolves to its `tool_use`, archive recovery is active, and a session
-  namespace exists for the archive URI: the mutation is archived before
-  replacement and carries an in-band `local-archive://` recovery reference, so
-  it is strictly safer than the default-on HTTP captured-output path which
-  archives nothing. Unresolved tool outputs or non-archive modes keep the
-  `wss_stateful_structured_mutation_guard` full-pass. The
-  `codex_wss_tool_output_mutation_enabled` flag still exists to force mutation
-  on without the resolution/archive preconditions and stays an experimental
-  non-product opt-in.
+  codex-exec-envelope compaction) remains shape-gated: previous-response-id
+  delta turns keep `wss_stateful_delta_mutation_proof_gate`, because live A/B
+  found accepted delta mutations that poisoned later turns with upstream 400s.
+  Full-history or non-delta lab/proof mutation can use
+  `codex_wss_tool_output_mutation_enabled`;
+  delta mutation needs env-only
+  `SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB=1` and exists only to
+  reproduce the T354 failure class, never as persisted product config. Unresolved
+  tool outputs or non-archive modes still keep the
+  `wss_stateful_structured_mutation_guard` full-pass.
   Voice (`thread/realtime/*`), Browser ChatGPT,
   ChatGPT.app, computer-use, and Claude Code are untouched. Note: the sampled
   `desktop status` WSS counters lag and must not be used to claim or deny
@@ -1005,15 +1005,17 @@ tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
 reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]`
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it mirrors the
 product WSS guard: safe read-delta savings may fire, while unknown or unsafe
-stateful tool-output request bodies stay byte-equal.
-`--tool-output-mutation` enables the broader lab/proof replay path for
-historical and focused mechanism proofs; `--codex-chunk-dedup` remains a force
-flag for threshold experiments and implies tool-output mutation, the recovery
-note, and separation of the expected once-per-session recovery-note extra block
-from true loss-gate failures. The report separates two concepts: `bytes_saved` is the
+stateful tool-output request bodies stay byte-equal, and previous-response-id
+delta tool-output mutation remains blocked.
+`--tool-output-mutation` enables the broader lab/proof replay path outside that
+delta proof gate; `--delta-tool-output-mutation-lab` additionally bypasses the
+delta gate only for reproducing known T354 400 failures. `--codex-chunk-dedup`
+remains a force flag for threshold experiments and implies tool-output mutation,
+the recovery note, and separation of the expected once-per-session recovery-note
+extra block from true loss-gate failures. The report separates two concepts: `bytes_saved` is the
 comprehension A/B byte delta after archive expansion and note alignment, while
 `reducer_tokens_saved`, `tool_output_mutation_enabled`, and the `reducer_*`
 mechanism counters report the model-facing compressed request savings from that

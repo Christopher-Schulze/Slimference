@@ -16,46 +16,48 @@ import (
 )
 
 type wssABReplayFlags struct {
-	path                   string
-	outputFormat           string
-	failOnLost             bool
-	archiveRecoveryNote    bool
-	allowRecoveryNoteExtra bool
-	toolOutputMutation     bool
-	codexChunkDedup        bool
-	chunkDedupMinBytes     int
-	help                   bool
+	path                       string
+	outputFormat               string
+	failOnLost                 bool
+	archiveRecoveryNote        bool
+	allowRecoveryNoteExtra     bool
+	toolOutputMutation         bool
+	deltaToolOutputMutationLab bool
+	codexChunkDedup            bool
+	chunkDedupMinBytes         int
+	help                       bool
 }
 
 type wssABReplayReport struct {
-	Path                    string              `json:"path"`
-	Frames                  int                 `json:"frames"`
-	RequestTurns            int                 `json:"request_turns"`
-	MutatedRequests         int                 `json:"mutated_requests"`
-	CapturedMutatedRequests int                 `json:"captured_mutated_requests,omitempty"`
-	RequestShapes           replayShapeCounts   `json:"request_shapes"`
-	MutatedShapes           replayShapeCounts   `json:"mutated_shapes"`
-	CapturedMutatedShapes   replayShapeCounts   `json:"captured_mutated_shapes,omitempty"`
-	BytesBefore             int                 `json:"bytes_before"`
-	BytesAfter              int                 `json:"bytes_after"`
-	BytesSaved              int                 `json:"bytes_saved"`
-	ReducerTokensSaved      int                 `json:"reducer_tokens_saved"`
-	ReducerBlocksModified   int                 `json:"reducer_blocks_modified"`
-	ReducerReadDeltaBlocks  int                 `json:"reducer_read_delta_blocks"`
-	ReducerRepeatedBlocks   int                 `json:"reducer_repeated_output_blocks"`
-	ReducerChunkBlocks      int                 `json:"reducer_chunk_dedup_blocks"`
-	ReducerCapturedBlocks   int                 `json:"reducer_captured_output_blocks"`
-	ReducerEnvelopeBlocks   int                 `json:"reducer_codex_envelope_blocks"`
-	ReducerChunkRefs        int                 `json:"reducer_chunk_dedup_references"`
-	ReducerChunkRefBytes    int                 `json:"reducer_chunk_dedup_referenced_bytes"`
-	ReducerChunkInputBytes  int                 `json:"reducer_chunk_dedup_input_bytes"`
-	ToolOutputMutation      bool                `json:"tool_output_mutation_enabled"`
-	Lost                    int                 `json:"lost"`
-	ExpectedExtras          int                 `json:"expected_extras,omitempty"`
-	Elisions                []abharness.Elision `json:"elisions,omitempty"`
-	GatePassed              bool                `json:"gate_passed"`
-	GateFailures            []string            `json:"gate_failures,omitempty"`
-	Notes                   []string            `json:"notes,omitempty"`
+	Path                       string              `json:"path"`
+	Frames                     int                 `json:"frames"`
+	RequestTurns               int                 `json:"request_turns"`
+	MutatedRequests            int                 `json:"mutated_requests"`
+	CapturedMutatedRequests    int                 `json:"captured_mutated_requests,omitempty"`
+	RequestShapes              replayShapeCounts   `json:"request_shapes"`
+	MutatedShapes              replayShapeCounts   `json:"mutated_shapes"`
+	CapturedMutatedShapes      replayShapeCounts   `json:"captured_mutated_shapes,omitempty"`
+	BytesBefore                int                 `json:"bytes_before"`
+	BytesAfter                 int                 `json:"bytes_after"`
+	BytesSaved                 int                 `json:"bytes_saved"`
+	ReducerTokensSaved         int                 `json:"reducer_tokens_saved"`
+	ReducerBlocksModified      int                 `json:"reducer_blocks_modified"`
+	ReducerReadDeltaBlocks     int                 `json:"reducer_read_delta_blocks"`
+	ReducerRepeatedBlocks      int                 `json:"reducer_repeated_output_blocks"`
+	ReducerChunkBlocks         int                 `json:"reducer_chunk_dedup_blocks"`
+	ReducerCapturedBlocks      int                 `json:"reducer_captured_output_blocks"`
+	ReducerEnvelopeBlocks      int                 `json:"reducer_codex_envelope_blocks"`
+	ReducerChunkRefs           int                 `json:"reducer_chunk_dedup_references"`
+	ReducerChunkRefBytes       int                 `json:"reducer_chunk_dedup_referenced_bytes"`
+	ReducerChunkInputBytes     int                 `json:"reducer_chunk_dedup_input_bytes"`
+	ToolOutputMutation         bool                `json:"tool_output_mutation_enabled"`
+	DeltaToolOutputMutationLab bool                `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
+	Lost                       int                 `json:"lost"`
+	ExpectedExtras             int                 `json:"expected_extras,omitempty"`
+	Elisions                   []abharness.Elision `json:"elisions,omitempty"`
+	GatePassed                 bool                `json:"gate_passed"`
+	GateFailures               []string            `json:"gate_failures,omitempty"`
+	Notes                      []string            `json:"notes,omitempty"`
 }
 
 type replayShapeCounts struct {
@@ -80,6 +82,9 @@ Flags:
                            mutation during replay; product default still
                            allows safe read-delta savings and keeps unknown
                            or unsafe stateful WSS tool-output bodies byte-equal
+  --delta-tool-output-mutation-lab
+                           Also bypass the previous_response_id delta mutation
+                           proof gate; only for reproducing known T354 400s
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
                            --archive-recovery-note,
@@ -102,7 +107,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--codex-chunk-dedup]")
+		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]")
 		return 2
 	}
 	report, err := loadWSSABReplayReport(flags)
@@ -146,6 +151,9 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 			flags.allowRecoveryNoteExtra = true
 		case arg == "--tool-output-mutation" || arg == "--codex-wss-tool-output-mutation":
 			flags.toolOutputMutation = true
+		case arg == "--delta-tool-output-mutation-lab":
+			flags.deltaToolOutputMutationLab = true
+			flags.toolOutputMutation = true
 		case arg == "--codex-chunk-dedup":
 			flags.codexChunkDedup = true
 			flags.archiveRecoveryNote = true
@@ -188,6 +196,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = toolOutputMutation
+	cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = flags.deltaToolOutputMutationLab
 	if flags.codexChunkDedup {
 		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 		if flags.chunkDedupMinBytes >= 0 {
@@ -199,31 +208,32 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
 	}
 	report := wssABReplayReport{
-		Path:                    flags.path,
-		Frames:                  len(frames),
-		RequestTurns:            result.RequestTurns,
-		MutatedRequests:         result.MutatedRequests,
-		CapturedMutatedRequests: result.CapturedMutatedRequests,
-		RequestShapes:           replayShapeCountsFromProxy(result.RequestShapes),
-		MutatedShapes:           replayShapeCountsFromProxy(result.MutatedShapes),
-		CapturedMutatedShapes:   replayShapeCountsFromProxy(result.CapturedMutatedShapes),
-		BytesBefore:             result.Report.BytesBefore,
-		BytesAfter:              result.Report.BytesAfter,
-		BytesSaved:              result.Report.Saved(),
-		ReducerTokensSaved:      result.ReducerStats.TokensSaved,
-		ReducerBlocksModified:   result.ReducerStats.BlocksModified,
-		ReducerReadDeltaBlocks:  result.ReducerStats.ReadDeltaBlocks,
-		ReducerRepeatedBlocks:   result.ReducerStats.RepeatedOutputBlocks,
-		ReducerChunkBlocks:      result.ReducerStats.ChunkDedupBlocks,
-		ReducerCapturedBlocks:   result.ReducerStats.CapturedOutputBlocks,
-		ReducerEnvelopeBlocks:   result.ReducerStats.CodexEnvelopeBlocks,
-		ReducerChunkRefs:        result.ReducerStats.ChunkDedupReferences,
-		ReducerChunkRefBytes:    result.ReducerStats.ChunkDedupRefBytes,
-		ReducerChunkInputBytes:  result.ReducerStats.ChunkDedupInputBytes,
-		ToolOutputMutation:      toolOutputMutation,
-		Lost:                    result.Report.Lost(),
-		Elisions:                result.Report.Elisions,
-		GatePassed:              true,
+		Path:                       flags.path,
+		Frames:                     len(frames),
+		RequestTurns:               result.RequestTurns,
+		MutatedRequests:            result.MutatedRequests,
+		CapturedMutatedRequests:    result.CapturedMutatedRequests,
+		RequestShapes:              replayShapeCountsFromProxy(result.RequestShapes),
+		MutatedShapes:              replayShapeCountsFromProxy(result.MutatedShapes),
+		CapturedMutatedShapes:      replayShapeCountsFromProxy(result.CapturedMutatedShapes),
+		BytesBefore:                result.Report.BytesBefore,
+		BytesAfter:                 result.Report.BytesAfter,
+		BytesSaved:                 result.Report.Saved(),
+		ReducerTokensSaved:         result.ReducerStats.TokensSaved,
+		ReducerBlocksModified:      result.ReducerStats.BlocksModified,
+		ReducerReadDeltaBlocks:     result.ReducerStats.ReadDeltaBlocks,
+		ReducerRepeatedBlocks:      result.ReducerStats.RepeatedOutputBlocks,
+		ReducerChunkBlocks:         result.ReducerStats.ChunkDedupBlocks,
+		ReducerCapturedBlocks:      result.ReducerStats.CapturedOutputBlocks,
+		ReducerEnvelopeBlocks:      result.ReducerStats.CodexEnvelopeBlocks,
+		ReducerChunkRefs:           result.ReducerStats.ChunkDedupReferences,
+		ReducerChunkRefBytes:       result.ReducerStats.ChunkDedupRefBytes,
+		ReducerChunkInputBytes:     result.ReducerStats.ChunkDedupInputBytes,
+		ToolOutputMutation:         toolOutputMutation,
+		DeltaToolOutputMutationLab: flags.deltaToolOutputMutationLab,
+		Lost:                       result.Report.Lost(),
+		Elisions:                   result.Report.Elisions,
+		GatePassed:                 true,
 	}
 	if result.ExpectedInstructionExtras > 0 {
 		report.Notes = append(report.Notes, "known output-reduce instruction additions were audited as expected extras; unknown instruction changes still fail the lost-comprehension gate")
@@ -232,7 +242,10 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
 	}
 	if toolOutputMutation {
-		report.Notes = append(report.Notes, "broader Codex WSS tool-output mutation was enabled for this lab/proof replay; product default keeps safe read-delta savings while unknown or unsafe stateful WSS tool-output bodies stay byte-equal")
+		report.Notes = append(report.Notes, "broader Codex WSS tool-output mutation was enabled for this lab/proof replay; product default keeps safe read-delta savings while previous_response_id delta, unknown, or unsafe stateful WSS tool-output bodies stay byte-equal")
+	}
+	if flags.deltaToolOutputMutationLab {
+		report.Notes = append(report.Notes, "previous_response_id delta tool-output mutation lab override was enabled; this is only for reproducing known T354 follow-up 400 failures")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")

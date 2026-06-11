@@ -351,10 +351,10 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
 		deltaShape := wssRequestIsDeltaShape(messages)
+		deltaMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled
 		statefulDeltaMutationBlocked := meta.PreviousResponseID != "" &&
 			deltaShape &&
-			!statefulToolOutputMutationSafe &&
-			!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled
+			!deltaMutationLabEnabled
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
 		if cacheBustDemoted != 0 {
 			if meta.DebugFacts == nil {
@@ -457,9 +457,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
 			// loop runs 4-8; bridge control clean). E5 restart proof showed
 			// accepted full-history resend mutation, so suppress only that
-			// delta flow while reducers keep observing and seeding, unless
-			// the explicit experimental flag or the proven state-safe
-			// whitelist applies.
+			// delta flow while reducers keep observing and seeding. The
+			// broad tool-output lab switch does not bypass this gate; only
+			// the env-only delta failure-reproduction switch bypasses it.
 			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
 		})
 		l0Messages, stats := result.Messages, result.Stats

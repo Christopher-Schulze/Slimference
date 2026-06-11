@@ -356,6 +356,13 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	if !flags.toolOutputMutation {
 		t.Fatalf("explicit WSS tool-output mutation flag not parsed: %+v", flags)
 	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--delta-tool-output-mutation-lab"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flags.toolOutputMutation || !flags.deltaToolOutputMutationLab {
+		t.Fatalf("delta WSS tool-output mutation lab flag not parsed: %+v", flags)
+	}
 }
 
 func wssABReplayTestRecord(direction string, payload any) map[string]any {
