@@ -409,7 +409,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			messageMutationPending = true
 		}
 		if messageMutationPending {
-			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
+			if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
 				out = rebuilt
 				messages = stagedMessages
 				if staleBlocksReplaced > 0 {

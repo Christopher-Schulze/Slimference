@@ -2628,6 +2628,75 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := codexWSStaleObsoleteLayer0Body()
+
+	origReconstruct := reconstructBodyFn
+	reconstructCalls := 0
+	reconstructBodyFn = func(provider types.Provider, originalBody []byte, messages []types.Message) ([]byte, error) {
+		reconstructCalls++
+		return origReconstruct(provider, originalBody, messages)
+	}
+	defer func() {
+		reconstructBodyFn = origReconstruct
+	}()
+
+	mutated, _, changed, l0Stats, _ := adapter.applyInputPipeline(body)
+	mutatedText := string(mutated)
+	if !changed {
+		t.Fatal("expected staged WSS mutations")
+	}
+	if reconstructCalls != 1 {
+		t.Fatalf("expected exactly one reconstruct for staged mutations, got %d", reconstructCalls)
+	}
+	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("stale-read mutation missing: %s", mutatedText)
+	}
+	if strings.Contains(mutatedText, "obsolete y content") || !strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("obsolete-read mutation missing: %s", mutatedText)
+	}
+	if !strings.Contains(mutatedText, "[git status]") || strings.Contains(mutatedText, "single_reconstruct_179.go") {
+		t.Fatalf("Layer 0 mutation missing: %s", mutatedText)
+	}
+	if l0Stats.TokensSaved == 0 || l0Stats.CapturedOutputBlocks == 0 {
+		t.Fatalf("expected Layer 0 savings stats, got %+v", l0Stats)
+	}
+	snap := p.OutputReduceCountersSnapshot()
+	if snap.StaleReadBlocksReplaced == 0 || snap.ObsoleteReadBlocksPruned == 0 || snap.ProxyLayer0RequestsModified == 0 {
+		t.Fatalf("expected all staged mutation counters, got %+v", snap)
+	}
+}
+
+func TestWSPhaseFStaleObsoletePreserveToolUseIndex(t *testing.T) {
+	messages, _, err := extractMessages(types.CodexChatGPT, codexWSStaleObsoleteLayer0Body())
+	if err != nil {
+		t.Fatalf("extract messages: %v", err)
+	}
+	before := proxyToolUseIndex(messages)
+	if len(before) == 0 {
+		t.Fatal("precondition: fixture has no tool uses")
+	}
+	aged, staleStats := staleread.AgeMessages(messages, staleread.Options{MinTurnGap: 2})
+	if staleStats.BlocksReplaced == 0 {
+		t.Fatal("precondition: fixture did not produce stale-read mutation")
+	}
+	pruned, obsoleteStats := staleread.PruneObsoleteReads(aged, staleread.ObsoleteOptions{})
+	if obsoleteStats.BlocksReplaced == 0 {
+		t.Fatal("precondition: fixture did not produce obsolete-read mutation")
+	}
+	after := proxyToolUseIndex(pruned)
+	assertSameProxyToolUseIndex(t, before, after)
+}
+
 func TestWSPhaseFResponseCreateInfersUnresolvedToolOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()
@@ -3487,6 +3556,52 @@ func codexWSObsoleteReadBody(oldOutput string) []byte {
 		},
 		"stream": true,
 	})
+}
+
+func codexWSStaleObsoleteLayer0Body() []byte {
+	var status strings.Builder
+	for i := 0; i < 180; i++ {
+		status.WriteString(" M internal/proxy/single_reconstruct_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	return mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "single-reconstruct-session",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+			{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+			{"type": "function_call", "call_id": "call_y_old", "name": "Read", "arguments": map[string]any{"path": "src/y.go"}},
+			{"type": "function_call_output", "call_id": "call_y_old", "output": strings.Repeat("obsolete y content ", 80)},
+			{"type": "message", "role": "user", "content": "filler one"},
+			{"type": "message", "role": "user", "content": "filler two"},
+			{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+			{"type": "message", "role": "user", "content": "edit src/y.go"},
+			{"type": "function_call", "call_id": "call_y_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/y.go", "patch": "@@ ..."}},
+			{"type": "function_call_output", "call_id": "call_y_edit", "output": "patch applied"},
+			{"type": "function_call", "call_id": "call_status", "name": "exec_command", "arguments": map[string]any{"cmd": "git status --short"}},
+			{"type": "function_call_output", "call_id": "call_status", "output": status.String()},
+		},
+		"stream": true,
+	})
+}
+
+func assertSameProxyToolUseIndex(t *testing.T, before, after map[string]types.ContentBlock) {
+	t.Helper()
+	if len(after) != len(before) {
+		t.Fatalf("tool-use index length changed before=%d after=%d", len(before), len(after))
+	}
+	for id, want := range before {
+		got, ok := after[id]
+		if !ok {
+			t.Fatalf("tool-use index lost %s", id)
+		}
+		if got.Type != want.Type || got.ToolUseID != want.ToolUseID || got.ToolName != want.ToolName || got.ToolInput != want.ToolInput {
+			t.Fatalf("tool-use %s changed before=%+v after=%+v", id, want, got)
+		}
+	}
 }
 
 func TestWSCodexSessionIDFallbacks(t *testing.T) {
