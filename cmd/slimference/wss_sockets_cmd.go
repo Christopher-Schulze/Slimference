@@ -30,6 +30,8 @@ type wssSocketReport struct {
 	SocketCount                             int                `json:"socket_count"`
 	ClosedSockets                           int                `json:"closed_sockets"`
 	CloseInitiators                         map[string]int     `json:"close_initiators,omitempty"`
+	CauseClasses                            map[string]int     `json:"cause_classes,omitempty"`
+	ActionableSockets                       int                `json:"actionable_sockets"`
 	ProviderInputTokens                     int                `json:"provider_input_tokens"`
 	ProviderCachedTokens                    int                `json:"provider_cached_tokens"`
 	LocalSavedTokens                        int                `json:"local_saved_tokens"`
@@ -62,6 +64,10 @@ type wssSocketSummary struct {
 	FullHistoryProviderInputTokens    int            `json:"full_history_provider_input_tokens"`
 	ReconnectFullHistory              bool           `json:"reconnect_full_history"`
 	ReconnectFullHistoryProviderInput int            `json:"reconnect_full_history_provider_input_tokens"`
+	Cause                             string         `json:"cause"`
+	CauseReason                       string         `json:"cause_reason,omitempty"`
+	Actionable                        bool           `json:"actionable"`
+	RecommendedAction                 string         `json:"recommended_action,omitempty"`
 	Closed                            bool           `json:"closed"`
 	CloseInitiator                    string         `json:"close_initiator,omitempty"`
 	CloseError                        string         `json:"close_error,omitempty"`
@@ -142,6 +148,7 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 		RequestLimit:    limit,
 		RequestsScanned: len(summaries),
 		CloseInitiators: make(map[string]int),
+		CauseClasses:    make(map[string]int),
 		Sockets:         make([]wssSocketSummary, 0),
 	}
 	wssSummaries := make([]dbg.RequestSummary, 0, len(summaries))
@@ -179,6 +186,7 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 	for _, groups := range byBaseKey {
 		for _, socket := range groups {
 			finalizeWSSSocketSummary(socket)
+			classifyWSSSocketSummary(socket)
 			report.ProviderInputTokens += socket.ProviderInputTokens
 			report.ProviderCachedTokens += socket.ProviderCachedTokens
 			report.LocalSavedTokens += socket.LocalSavedTokens
@@ -196,6 +204,10 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 				}
 				report.CloseInitiators[initiator]++
 			}
+			report.CauseClasses[socket.Cause]++
+			if socket.Actionable {
+				report.ActionableSockets++
+			}
 			report.Sockets = append(report.Sockets, *socket)
 		}
 	}
@@ -210,6 +222,9 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 	report.SocketCount = len(report.Sockets)
 	if len(report.CloseInitiators) == 0 {
 		report.CloseInitiators = nil
+	}
+	if len(report.CauseClasses) == 0 {
+		report.CauseClasses = nil
 	}
 	return report
 }
@@ -261,6 +276,91 @@ func wssSummaryStartsNewSocketInstance(socket *wssSocketSummary, summary dbg.Req
 		return false
 	}
 	return summary.Timestamp.After(socket.estimatedClosedAt.Add(2 * time.Second))
+}
+
+func classifyWSSSocketSummary(socket *wssSocketSummary) {
+	switch {
+	case socket.ReconnectFullHistory:
+		classifyWSSFullHistoryReconnect(socket)
+	case socket.CloseInitiator == "our_error" || socket.CloseInitiator == "context_cancel":
+		socket.Cause = "local_lifecycle_close"
+		socket.CauseReason = "local bridge ended the socket without a full-history resend in the observed window"
+		socket.Actionable = true
+		socket.RecommendedAction = "inspect local lifecycle path first; keep mutation fail-open until root cause is proven"
+	case socket.CloseInitiator == "upstream_error":
+		socket.Cause = "upstream_error_close"
+		socket.CauseReason = "upstream-side transport error closed the socket without a full-history resend in the observed window"
+		socket.Actionable = true
+		socket.RecommendedAction = "correlate with upstream error frames and retry/recovery telemetry before changing reducers"
+	case socket.CloseInitiator == "client_error":
+		socket.Cause = "client_transport_error"
+		socket.CauseReason = "client-side transport error closed the socket without a full-history resend in the observed window"
+		socket.Actionable = true
+		socket.RecommendedAction = "correlate with Codex process lifetime and app-server shim logs"
+	case socket.CloseInitiator == "upstream_eof":
+		socket.Cause = "upstream_clean_close"
+		socket.CauseReason = "upstream closed cleanly and no full-history reconnect cost was observed"
+		socket.RecommendedAction = "monitor idle lifetime distribution; consider keepalive only if later samples show full-history reconnect cost"
+	case socket.CloseInitiator == "client_eof" && socketHasOnlyRootDeltaShapes(socket):
+		socket.Cause = "client_delta_safe_close"
+		socket.CauseReason = "client closed cleanly and subsequent observed requests stayed root/delta, not full-history"
+		socket.RecommendedAction = "no transport fix from this sample; continue collecting longer Desktop sessions"
+	case socket.CloseInitiator == "client_eof":
+		socket.Cause = "client_clean_close"
+		socket.CauseReason = "client closed cleanly without observed full-history reconnect cost"
+		socket.RecommendedAction = "monitor shape mix before attributing savings loss to reconnects"
+	case !socket.Closed:
+		socket.Cause = "open_or_missing_close"
+		socket.CauseReason = "socket has request rows but no persisted close facts yet"
+		socket.RecommendedAction = "rerun after socket close or verify lifecycle fact persistence"
+	default:
+		socket.Cause = "unclassified_close"
+		socket.CauseReason = "socket close facts did not match a known class"
+		socket.Actionable = true
+		socket.RecommendedAction = "inspect raw content-free debug facts and extend classifier before changing transport behavior"
+	}
+}
+
+func classifyWSSFullHistoryReconnect(socket *wssSocketSummary) {
+	socket.Actionable = true
+	switch socket.CloseInitiator {
+	case "client_eof":
+		socket.Cause = "client_full_history_reconnect"
+		socket.CauseReason = "client closed or re-opened the socket and the later socket carried full-history input"
+		socket.RecommendedAction = "verify whether previous_response_id is lost across client reconnect; preserve delta path before considering compression"
+	case "upstream_eof":
+		socket.Cause = "upstream_full_history_reconnect"
+		socket.CauseReason = "upstream clean close was followed by full-history input on a later socket"
+		socket.RecommendedAction = "evaluate protocol-legal ping/pong keepalive only if repeated samples confirm this cost"
+	case "our_error", "context_cancel":
+		socket.Cause = "local_full_history_reconnect"
+		socket.CauseReason = "local lifecycle ended the socket and the later socket carried full-history input"
+		socket.RecommendedAction = "fix local close/error path before changing reducers; this is the highest-signal zero-drawdown savings candidate"
+	case "client_error":
+		socket.Cause = "client_error_full_history_reconnect"
+		socket.CauseReason = "client-side transport error coincided with full-history input on a later socket"
+		socket.RecommendedAction = "correlate with Codex process/app-server lifecycle before transport changes"
+	case "upstream_error":
+		socket.Cause = "upstream_error_full_history_reconnect"
+		socket.CauseReason = "upstream transport error coincided with full-history input on a later socket"
+		socket.RecommendedAction = "correlate with upstream error frames and recovery retry decisions"
+	default:
+		socket.Cause = "full_history_reconnect"
+		socket.CauseReason = "a later socket carried full-history input after a reconnect-like boundary"
+		socket.RecommendedAction = "classify close initiator before implementing a fix"
+	}
+}
+
+func socketHasOnlyRootDeltaShapes(socket *wssSocketSummary) bool {
+	if socket.Requests == 0 || len(socket.RequestShapes) == 0 {
+		return false
+	}
+	for shape := range socket.RequestShapes {
+		if shape != "root" && shape != "delta" {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeWSSSocketCloseFacts(socket *wssSocketSummary, facts map[string]string) {
@@ -349,12 +449,16 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 	if len(report.CloseInitiators) > 0 {
 		fmt.Printf("close_initiators=%s\n", formatWSSSocketShapeCounts(report.CloseInitiators))
 	}
+	if len(report.CauseClasses) > 0 {
+		fmt.Printf("causes=%s actionable=%d\n", formatWSSSocketShapeCounts(report.CauseClasses), report.ActionableSockets)
+	}
 	for _, socket := range report.Sockets {
-		fmt.Printf("socket=%s seq=%d session=%s close=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d turns=%d\n",
+		fmt.Printf("socket=%s seq=%d session=%s close=%s cause=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d turns=%d\n",
 			socket.SocketKey,
 			socket.SocketSeq,
 			emptyDash(socket.SessionID),
 			emptyDash(socket.CloseInitiator),
+			socket.Cause,
 			socket.AgeMillis,
 			socket.Requests,
 			formatWSSSocketShapeCounts(socket.RequestShapes),

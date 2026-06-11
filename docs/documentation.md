@@ -2299,8 +2299,11 @@ store raw prompt, tool output, code, or auth material. `last`, `tail`, and
 or an `.csv` target path. `slimference debug wss-sockets [N] [--json]`
 groups the newest decision-log rows by `wss.socket_seq`, then correlates close
 initiator, socket age, frame counts, request shape (`root`/`delta`/`full_history`),
-provider input, provider cache, and local saved tokens. It is diagnostic only
-and does not change product savings arithmetic.
+provider input, provider cache, and local saved tokens. The report classifies
+each socket as a safe client/upstream close, local/upstream/client transport
+error, or actionable full-history reconnect cost before suggesting the next
+inspection path. It is diagnostic only and does not change product savings
+arithmetic.
 
 The recorder is privacy-first: before a request summary is retained or flushed
 to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie

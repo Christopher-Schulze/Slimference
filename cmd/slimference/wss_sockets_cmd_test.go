@@ -76,6 +76,11 @@ func TestBuildWSSSocketReportCorrelatesReconnectFullHistory(t *testing.T) {
 	if report.CloseInitiators["client_eof"] != 1 || report.CloseInitiators["upstream_eof"] != 1 {
 		t.Fatalf("initiators mismatch: %+v", report.CloseInitiators)
 	}
+	if report.CauseClasses["upstream_full_history_reconnect"] != 1 ||
+		report.CauseClasses["client_delta_safe_close"] != 1 ||
+		report.ActionableSockets != 1 {
+		t.Fatalf("cause classes mismatch: causes=%+v actionable=%d", report.CauseClasses, report.ActionableSockets)
+	}
 	if report.Sockets[0].SocketSeq != 2 || !report.Sockets[0].ReconnectFullHistory {
 		t.Fatalf("newest reconnect socket first: %+v", report.Sockets)
 	}
@@ -104,8 +109,145 @@ func TestBuildWSSSocketReportSplitsReusedSocketSeqAfterClose(t *testing.T) {
 	if report.ReconnectFullHistoryRequests != 1 || report.ReconnectFullHistoryProviderInputTokens != 7000 {
 		t.Fatalf("second instance full-history should count as reconnect cost: %+v", report)
 	}
+	if report.CauseClasses["client_full_history_reconnect"] != 1 || report.ActionableSockets != 1 {
+		t.Fatalf("second instance should classify as actionable client full-history reconnect: %+v", report)
+	}
 	if report.Sockets[0].SocketInstance != 2 || !strings.Contains(report.Sockets[0].SocketKey, "#1.2") {
 		t.Fatalf("newest socket should be second instance: %+v", report.Sockets)
+	}
+}
+
+func TestClassifyWSSSocketSummaryBranches(t *testing.T) {
+	base := wssClassifySocketBase()
+	tests := []struct {
+		name       string
+		mutate     func(*wssSocketSummary)
+		wantCause  string
+		actionable bool
+	}{
+		{
+			name: "local lifecycle close",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "our_error"
+			},
+			wantCause:  "local_lifecycle_close",
+			actionable: true,
+		},
+		{
+			name: "context cancel local lifecycle",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "context_cancel"
+			},
+			wantCause:  "local_lifecycle_close",
+			actionable: true,
+		},
+		{
+			name: "upstream error",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "upstream_error"
+			},
+			wantCause:  "upstream_error_close",
+			actionable: true,
+		},
+		{
+			name: "client error",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "client_error"
+			},
+			wantCause:  "client_transport_error",
+			actionable: true,
+		},
+		{
+			name: "upstream clean",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "upstream_eof"
+			},
+			wantCause: "upstream_clean_close",
+		},
+		{
+			name: "client clean unknown shape",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = "client_eof"
+				s.RequestShapes = map[string]int{"unknown": 1}
+			},
+			wantCause: "client_clean_close",
+		},
+		{
+			name: "open socket",
+			mutate: func(s *wssSocketSummary) {
+				s.Closed = false
+				s.CloseInitiator = ""
+			},
+			wantCause: "open_or_missing_close",
+		},
+		{
+			name: "unclassified closed",
+			mutate: func(s *wssSocketSummary) {
+				s.CloseInitiator = ""
+			},
+			wantCause:  "unclassified_close",
+			actionable: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			socket := base
+			socket.RequestShapes = cloneWSSSocketShapes(base.RequestShapes)
+			tt.mutate(&socket)
+			classifyWSSSocketSummary(&socket)
+			if socket.Cause != tt.wantCause || socket.Actionable != tt.actionable || socket.CauseReason == "" {
+				t.Fatalf("classification mismatch: got cause=%q actionable=%v reason=%q", socket.Cause, socket.Actionable, socket.CauseReason)
+			}
+		})
+	}
+}
+
+func TestClassifyWSSFullHistoryReconnectBranches(t *testing.T) {
+	tests := []struct {
+		initiator string
+		wantCause string
+	}{
+		{initiator: "client_eof", wantCause: "client_full_history_reconnect"},
+		{initiator: "upstream_eof", wantCause: "upstream_full_history_reconnect"},
+		{initiator: "our_error", wantCause: "local_full_history_reconnect"},
+		{initiator: "context_cancel", wantCause: "local_full_history_reconnect"},
+		{initiator: "client_error", wantCause: "client_error_full_history_reconnect"},
+		{initiator: "upstream_error", wantCause: "upstream_error_full_history_reconnect"},
+		{initiator: "", wantCause: "full_history_reconnect"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.wantCause, func(t *testing.T) {
+			socket := wssClassifySocketBase()
+			socket.SocketSeq = 2
+			socket.FullHistoryRequests = 1
+			socket.FullHistoryProviderInputTokens = 7000
+			socket.ReconnectFullHistory = true
+			socket.CloseInitiator = tt.initiator
+			classifyWSSSocketSummary(&socket)
+			if socket.Cause != tt.wantCause || !socket.Actionable || socket.RecommendedAction == "" {
+				t.Fatalf("classification mismatch: %+v", socket)
+			}
+		})
+	}
+}
+
+func TestWSSSocketSmallHelpers(t *testing.T) {
+	if _, ok := wssSocketSeq(nil); ok {
+		t.Fatal("nil facts should not have socket seq")
+	}
+	if _, ok := wssSocketSeq(map[string]string{"wss.socket_seq": "bad"}); ok {
+		t.Fatal("bad socket seq should not parse")
+	}
+	if positiveInt(-1) != 0 {
+		t.Fatal("negative token count should clamp to zero")
+	}
+	empty := wssSocketSummary{Requests: 0, RequestShapes: map[string]int{"root": 1}}
+	if socketHasOnlyRootDeltaShapes(&empty) {
+		t.Fatal("empty request count should not be root/delta safe")
+	}
+	mixed := wssSocketSummary{Requests: 2, RequestShapes: map[string]int{"root": 1, "full_history": 1}}
+	if socketHasOnlyRootDeltaShapes(&mixed) {
+		t.Fatal("full_history shape should not be root/delta safe")
 	}
 }
 
@@ -131,6 +273,7 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 		"WSS socket lifecycle",
 		"seq=2",
 		"reconnect_full_history=1",
+		"cause=client_full_history_reconnect",
 		"shapes=full_history:1",
 	} {
 		if !strings.Contains(text, want) {
@@ -145,6 +288,17 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	}
 	if report.SocketCount != 2 || report.ReconnectFullHistoryRequests != 1 || report.ProviderInputTokens != 9000 {
 		t.Fatalf("json report mismatch: %+v", report)
+	}
+	if report.Sockets[0].Cause != "client_full_history_reconnect" || !report.Sockets[0].Actionable {
+		t.Fatalf("json cause mismatch: %+v", report.Sockets[0])
+	}
+}
+
+func TestHandleDebugWSSSocketsNoConfiguredLog(t *testing.T) {
+	isolateDebugNoConfig(t)
+	text := captureWSSSocketStdout(t, func() { handleDebugWSSSockets(nil) })
+	if !strings.Contains(text, "No decisions_log configured") {
+		t.Fatalf("missing no-config message: %q", text)
 	}
 }
 
@@ -192,6 +346,29 @@ func captureWSSSocketStdout(t *testing.T, fn func()) string {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	return buf.String()
+}
+
+func wssClassifySocketBase() wssSocketSummary {
+	return wssSocketSummary{
+		SocketKey:           "session#1.1",
+		SocketSeq:           1,
+		SocketInstance:      1,
+		SessionID:           "session",
+		Requests:            2,
+		RequestShapes:       map[string]int{"root": 1, "delta": 1},
+		Closed:              true,
+		CloseInitiator:      "client_eof",
+		TurnsCompleted:      2,
+		ProviderInputTokens: 1000,
+	}
+}
+
+func cloneWSSSocketShapes(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func strconvFormatUint(v uint64) string {
