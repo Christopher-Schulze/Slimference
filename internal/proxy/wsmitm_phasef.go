@@ -484,7 +484,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				if stats.BlocksReplaced > 0 {
 					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
 					afterTokens := wssPlannerTokenCount(out, aged)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			} else {
 				beforeTokens := 0
@@ -502,7 +502,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.StaleReadBlocks = stats.BlocksReplaced
 					historyStats.StaleReadBytesSaved = stats.BytesReplaced
 					historyStats.StaleReadTokensSaved = beforeTokens - afterTokens
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
 		}
@@ -518,7 +518,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				if stats.BlocksReplaced > 0 {
 					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
 					afterTokens := wssPlannerTokenCount(out, pruned)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			} else {
 				beforeTokens := 0
@@ -534,7 +534,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.ObsoletePruneBlocks = stats.BlocksReplaced
 					historyStats.ObsoletePruneBytesSaved = stats.BytesReplaced
 					historyStats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
 		}
@@ -555,6 +555,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			PolicyMode:                chunkSettings.PolicyMode,
 			ArchiveRecovery:           chunkSettings.ArchiveRecovery,
 			TurnSeq:                   meta.TurnSeq,
+			CachedPriceRatio:          a.p.config.Savings.CachedPriceRatio,
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,

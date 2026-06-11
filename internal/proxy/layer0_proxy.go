@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -158,6 +159,7 @@ type codexLayer0Request struct {
 	PolicyMode                string
 	ArchiveRecovery           bool
 	TurnSeq                   int
+	CachedPriceRatio          float64
 	RecentEditUncertainty     bool
 	HostBudgetExceeded        bool
 	LatencyBudgetExceeded     bool
@@ -400,7 +402,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
-			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq)
+			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.CachedPriceRatio)
 			// Under the latency latch every block loosens to full pass, so the
 			// O(output) search-risk scan and the chunk-store budget probe would
 			// be pure overhead that keeps the latch from recovering.
@@ -433,7 +435,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload, req.TurnSeq, req.CachedPriceRatio))
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -445,7 +447,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkReport := chunkdedup.EncodeResult{}
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			candidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, action evidence.Action, reason string) evidence.BlockDecision {
-				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq)
+				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq, req.CachedPriceRatio)
 			}
 			if policy.ReadDelta {
 				var cacheReason string
@@ -499,7 +501,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if wssSearchOutputBlocked {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq, req.CachedPriceRatio))
 			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
@@ -600,9 +602,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				default:
 					stats.CapturedOutputBlocks++
 				}
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload, req.TurnSeq, req.CachedPriceRatio))
 			} else {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload, req.TurnSeq, req.CachedPriceRatio))
 			}
 		}
 	}
@@ -641,7 +643,7 @@ func (c *messageCow) setText(msgIdx int, blockIdx int, text string) {
 	c.out[msgIdx].Content[blockIdx].Text = text
 }
 
-func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload, turnSeq int) evidence.BlockDecision {
+func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload, turnSeq int, cachedPriceRatio float64) evidence.BlockDecision {
 	argv := strings.Fields(commandLine)
 	analysis := evidence.Analyze(argv, []byte(beforeText))
 	preserved := proxyLayer0PreservedEvidence(mechanism, workload)
@@ -653,7 +655,7 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	} else {
 		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
 	}
-	decision.FootprintScore = proxyFootprintScore(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScore = proxyFootprintScoreWithCachedPriceRatio(decision.OriginalTokens, decision.SavedTokens, turnSeq, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
 }
@@ -663,6 +665,23 @@ func proxyFootprintScoreBucket(originalTokens int, savedTokens int, turnSeq int)
 }
 
 func proxyFootprintScore(originalTokens int, savedTokens int, turnSeq int) int {
+	return proxyFootprintScoreWithCachedPriceRatio(originalTokens, savedTokens, turnSeq, proxyDefaultCachedPriceRatio)
+}
+
+const proxyDefaultCachedPriceRatio = 0.10
+
+func proxyFootprintRemainingTurnsEstimate(turnSeq int) int {
+	switch {
+	case turnSeq > 0 && turnSeq <= 3:
+		return 70
+	case turnSeq > 3 && turnSeq <= 8:
+		return 30
+	default:
+		return 0
+	}
+}
+
+func proxyFootprintScoreWithCachedPriceRatio(originalTokens int, savedTokens int, turnSeq int, cachedPriceRatio float64) int {
 	tokens := savedTokens
 	if tokens <= 0 {
 		tokens = originalTokens
@@ -670,14 +689,11 @@ func proxyFootprintScore(originalTokens int, savedTokens int, turnSeq int) int {
 	if tokens <= 0 {
 		return 0
 	}
-	multiplier := 1
-	switch {
-	case turnSeq > 0 && turnSeq <= 3:
-		multiplier = 8
-	case turnSeq > 3 && turnSeq <= 8:
-		multiplier = 4
+	if cachedPriceRatio <= 0 {
+		cachedPriceRatio = proxyDefaultCachedPriceRatio
 	}
-	return tokens * multiplier
+	equivalentTurns := 1 + float64(proxyFootprintRemainingTurnsEstimate(turnSeq))*cachedPriceRatio
+	return int(math.Round(float64(tokens) * equivalentTurns))
 }
 
 func proxyFootprintScoreBucketFromScore(score int) string {
@@ -693,7 +709,7 @@ func proxyFootprintScoreBucketFromScore(score int) string {
 	}
 }
 
-func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq int) int {
+func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq int, cachedPriceRatio float64) int {
 	if baseMinBytes <= 1 || outputBytes <= 0 || turnSeq <= 0 {
 		return baseMinBytes
 	}
@@ -703,7 +719,7 @@ func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq in
 	if estimatedTokens <= 0 {
 		estimatedTokens = 1
 	}
-	if proxyFootprintScoreBucket(estimatedTokens, 0, turnSeq) != "high" {
+	if proxyFootprintScoreBucketFromScore(proxyFootprintScoreWithCachedPriceRatio(estimatedTokens, 0, turnSeq, cachedPriceRatio)) != "high" {
 		return baseMinBytes
 	}
 	scaled := baseMinBytes / 2
@@ -766,7 +782,7 @@ func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savin
 	}
 }
 
-func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, turnSeq int) evidence.BlockDecision {
+func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, turnSeq int, cachedPriceRatio float64) evidence.BlockDecision {
 	analysis := evidence.Analysis{
 		ContentClass: evidence.ContentUnknown,
 		Signals:      []evidence.Signal{evidence.SignalPath, evidence.SignalRecency},
@@ -783,7 +799,7 @@ func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action
 		beforeTokens,
 		afterTokens,
 	)
-	decision.FootprintScore = proxyFootprintScore(decision.OriginalTokens, decision.SavedTokens, turnSeq)
+	decision.FootprintScore = proxyFootprintScoreWithCachedPriceRatio(decision.OriginalTokens, decision.SavedTokens, turnSeq, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
 }

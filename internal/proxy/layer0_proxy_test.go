@@ -48,6 +48,28 @@ func TestProxyFootprintScoreBucket(t *testing.T) {
 	}
 }
 
+func TestProxyFootprintScoreUsesCachedPriceRatio(t *testing.T) {
+	t.Parallel()
+	if got := proxyFootprintRemainingTurnsEstimate(2); got != 70 {
+		t.Fatalf("early remaining turns = %d want 70", got)
+	}
+	if got := proxyFootprintRemainingTurnsEstimate(6); got != 30 {
+		t.Fatalf("mid remaining turns = %d want 30", got)
+	}
+	if got := proxyFootprintRemainingTurnsEstimate(12); got != 0 {
+		t.Fatalf("late remaining turns = %d want 0", got)
+	}
+	if got := proxyFootprintScoreWithCachedPriceRatio(1000, 0, 2, 0.10); got != 8000 {
+		t.Fatalf("default cached-price score = %d want 8000", got)
+	}
+	if got := proxyFootprintScoreWithCachedPriceRatio(1000, 0, 2, 0.20); got != 15000 {
+		t.Fatalf("higher cached-price score = %d want 15000", got)
+	}
+	if got := proxyFootprintScoreWithCachedPriceRatio(1000, 0, 12, 0.20); got != 1000 {
+		t.Fatalf("late score = %d want 1000", got)
+	}
+}
+
 func TestApplyProxyLayer0Branches(t *testing.T) {
 	t.Parallel()
 
@@ -1261,11 +1283,20 @@ func TestProxyScaledChunkDedupMinBytes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := proxyScaledChunkDedupMinBytes(tt.base, tt.outputBytes, tt.turnSeq)
+			got := proxyScaledChunkDedupMinBytes(tt.base, tt.outputBytes, tt.turnSeq, proxyDefaultCachedPriceRatio)
 			if got != tt.want {
 				t.Fatalf("proxyScaledChunkDedupMinBytes(%d,%d,%d)=%d want %d", tt.base, tt.outputBytes, tt.turnSeq, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProxyScaledChunkDedupMinBytesUsesCachedPriceRatio(t *testing.T) {
+	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0.01); got != 4096 {
+		t.Fatalf("low cached-price ratio should keep configured threshold, got %d", got)
+	}
+	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0.20); got != 2048 {
+		t.Fatalf("high cached-price ratio should still scale high-footprint threshold, got %d", got)
 	}
 }
 

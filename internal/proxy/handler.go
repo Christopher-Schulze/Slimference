@@ -409,6 +409,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ChunkStore:            chunkSettings.Store,
 			PolicyMode:            chunkSettings.PolicyMode,
 			ArchiveRecovery:       chunkSettings.ArchiveRecovery,
+			CachedPriceRatio:      p.config.Savings.CachedPriceRatio,
 			HostBudgetExceeded:    p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded: p.codexLayer0LatencyExceeded.Load(),
 		})
