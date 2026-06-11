@@ -3,6 +3,7 @@ package debug
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,10 +14,16 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
-func writeDecisionLine(f *os.File, line []byte) error {
-	_, err := fmt.Fprintf(f, "%s\n", line)
+func writeDecisionLine(w io.Writer, line []byte) error {
+	_, err := fmt.Fprintf(w, "%s\n", line)
 	return err
 }
+
+// decisionsLogStatEvery rate-limits the external-rotation check on the open
+// decisions-log handle. Keeping the handle open removes the per-record
+// open/MkdirAll/close syscall churn from the request hot path; the periodic
+// stat re-opens the file when something rotated or removed it underneath.
+const decisionsLogStatEvery = 30 * time.Second
 
 // DecisionEntry records one compression decision for one content block.
 // Written per sub-layer operation. Aggregated at DEBUG level into RequestSummary.
@@ -201,7 +208,14 @@ type Recorder struct {
 	count        int              // filled slots (up to cap)
 	cap          int
 	decisionsLog string // path for JSONL flush on each request (empty = off)
-	writeLineFn  func(*os.File, []byte) error
+	writeLineFn  func(io.Writer, []byte) error
+
+	// Decisions-log writer state: one open append handle instead of an
+	// open/write/close cycle per record. Guarded by logMu, not mu, so slow
+	// disk writes never block ring reads.
+	logMu     sync.Mutex
+	logFile   *os.File
+	logStatAt time.Time
 }
 
 // NewRecorder creates a Recorder that retains up to capacity request summaries.
@@ -465,7 +479,10 @@ func (r *Recorder) Aggregate() map[string]SubLayerBreakdown {
 	return agg
 }
 
-// flushJSONL appends the summary as a JSONL line to path.
+// flushJSONL appends the summary as a JSONL line to path through a kept-open
+// append handle. Every record is written through immediately (readers such as
+// `stats`/`savings` always see current data); only the per-record open/close
+// churn is removed.
 func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 	line, err := json.Marshal(s)
 	if err != nil {
@@ -475,13 +492,44 @@ func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 		)
 		return
 	}
+	r.logMu.Lock()
+	defer r.logMu.Unlock()
+	if !r.ensureLogFileLocked(path) {
+		return
+	}
+	if err := r.writeLineFn(r.logFile, line); err != nil {
+		slog.Warn("debug recorder: write decisions log failed",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+		r.closeLogLocked()
+	}
+}
+
+// ensureLogFileLocked opens the append handle, or re-opens it when the file
+// was rotated or removed externally (checked at most every
+// decisionsLogStatEvery). Caller holds logMu.
+func (r *Recorder) ensureLogFileLocked(path string) bool {
+	now := time.Now()
+	if r.logFile != nil {
+		if now.Sub(r.logStatAt) < decisionsLogStatEvery {
+			return true
+		}
+		r.logStatAt = now
+		if st, err := os.Stat(path); err == nil {
+			if fi, ferr := r.logFile.Stat(); ferr == nil && os.SameFile(st, fi) {
+				return true
+			}
+		}
+		r.closeLogLocked()
+	}
 	if dir := filepath.Dir(path); dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			slog.Warn("debug recorder: create decisions log directory failed",
 				slog.String("path", path),
 				slog.String("err", err.Error()),
 			)
-			return
+			return false
 		}
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -490,15 +538,29 @@ func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 			slog.String("path", path),
 			slog.String("err", err.Error()),
 		)
+		return false
+	}
+	r.logFile = f
+	r.logStatAt = now
+	return true
+}
+
+func (r *Recorder) closeLogLocked() {
+	if r.logFile != nil {
+		_ = r.logFile.Close()
+		r.logFile = nil
+	}
+}
+
+// Close releases the decisions-log handle. Safe to call multiple times and on
+// a recorder that never wrote.
+func (r *Recorder) Close() {
+	if r == nil {
 		return
 	}
-	defer f.Close()
-	if err := r.writeLineFn(f, line); err != nil {
-		slog.Warn("debug recorder: write decisions log failed",
-			slog.String("path", path),
-			slog.String("err", err.Error()),
-		)
-	}
+	r.logMu.Lock()
+	r.closeLogLocked()
+	r.logMu.Unlock()
 }
 
 // NopRecorder is a no-op Recorder for when debug recording is disabled.

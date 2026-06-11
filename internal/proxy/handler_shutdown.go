@@ -117,6 +117,9 @@ func (p *Proxy) doShutdown(ctx context.Context) error {
 	if p.fileWatcher != nil {
 		p.fileWatcher.Close()
 	}
+	if p.debugRecorder != nil {
+		p.debugRecorder.Close()
+	}
 	return result
 }
 

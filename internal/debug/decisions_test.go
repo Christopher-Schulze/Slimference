@@ -2,6 +2,7 @@ package debug
 
 import (
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -337,7 +338,7 @@ func TestRecorder_FlushJSONL_WriteError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "decisions.jsonl")
 	r := NewRecorder(5, path)
-	r.writeLineFn = func(_ *os.File, _ []byte) error {
+	r.writeLineFn = func(_ io.Writer, _ []byte) error {
 		return errors.New("write failed")
 	}
 
@@ -350,6 +351,47 @@ func TestRecorder_FlushJSONL_WriteError(t *testing.T) {
 	if len(data) != 0 {
 		t.Fatalf("write failure should leave empty file, got %q", string(data))
 	}
+}
+
+func TestRecorder_FlushJSONL_KeepsHandleOpenAndReopensAfterRotation(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	r := NewRecorder(5, path)
+	defer r.Close()
+
+	r.Record(RequestSummary{RequestID: "req-1"})
+	data, err := os.ReadFile(path)
+	if err != nil || !contains(string(data), "req-1") {
+		t.Fatalf("first record must be durable immediately: err=%v data=%q", err, data)
+	}
+	if r.logFile == nil {
+		t.Fatal("append handle should stay open between records")
+	}
+
+	// External rotation: remove the file, force the stat window to elapse.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	r.logMu.Lock()
+	r.logStatAt = time.Time{}
+	r.logMu.Unlock()
+
+	r.Record(RequestSummary{RequestID: "req-2"})
+	data, err = os.ReadFile(path)
+	if err != nil || !contains(string(data), "req-2") {
+		t.Fatalf("recorder must reopen after external rotation: err=%v data=%q", err, data)
+	}
+	if contains(string(data), "req-1") {
+		t.Fatalf("rotated file must only hold post-rotation records: %q", data)
+	}
+
+	r.Close()
+	if r.logFile != nil {
+		t.Fatal("Close must release the append handle")
+	}
+	r.Close() // idempotent
 }
 
 func contains(s, sub string) bool {

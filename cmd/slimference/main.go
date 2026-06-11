@@ -42,6 +42,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	rtdebug "runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,6 +54,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/compactsignal"
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 	"github.com/Christopher-Schulze/Slimference/internal/crosstool"
 	"github.com/Christopher-Schulze/Slimference/internal/daemon"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
@@ -3682,12 +3684,31 @@ func startDetachedDaemon(binary string) error {
 
 // startProxyForDaemon creates and starts a proxy, returning port and shutdown.
 // Shared by handleDaemonCmd and handleStartCmd.
+// applyDaemonGoMemoryLimit sets the Go runtime soft memory limit for the
+// daemon so the GC keeps retention bounded under bursts of large request
+// bodies instead of letting the heap balloon to 2x and trip the 200 MiB host
+// RSS budget (which demotes savings mechanisms). 7/8 of the budget leaves
+// headroom so steady-state retention sits comfortably below the budget line.
+// An explicit GOMEMLIMIT env always wins. Daemon-only: CLI invocations and
+// tests keep runtime defaults.
+func applyDaemonGoMemoryLimit(getenv func(string) string, setLimit func(int64) int64) int64 {
+	if strings.TrimSpace(getenv("GOMEMLIMIT")) != "" {
+		return 0
+	}
+	limit := control.DefaultHostRSSBudgetBytes * 7 / 8
+	setLimit(limit)
+	return limit
+}
+
 func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, err error) {
 	cfg, err := configLoadFn()
 	if err != nil {
 		return 0, nil, fmt.Errorf("config load: %w", err)
 	}
 	setupLogging(cfg)
+	if limit := applyDaemonGoMemoryLimit(os.Getenv, rtdebug.SetMemoryLimit); limit > 0 {
+		slog.Info("daemon go memory limit set", "limit_bytes", limit)
+	}
 	p := newProxyFn(cfg)
 	ensureSlimDataDir()
 	startProxyInstance = p

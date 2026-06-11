@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 	"github.com/Christopher-Schulze/Slimference/internal/daemon"
 )
 
@@ -634,5 +635,28 @@ func TestHandleDaemonCmd_unknownSub(t *testing.T) {
 	_, _ = io.Copy(&buf, rp)
 	if !exited || code != 1 || !strings.Contains(buf.String(), "unknown daemon subcommand") {
 		t.Fatalf("expected exit 1 with unknown subcommand, got code=%d exited=%v err=%q", code, exited, buf.String())
+	}
+}
+
+// TestApplyDaemonGoMemoryLimit derives the runtime soft limit from the host
+// RSS budget and respects an explicit GOMEMLIMIT env override.
+func TestApplyDaemonGoMemoryLimit(t *testing.T) {
+	var set int64
+	got := applyDaemonGoMemoryLimit(
+		func(string) string { return "" },
+		func(v int64) int64 { set = v; return v },
+	)
+	want := control.DefaultHostRSSBudgetBytes * 7 / 8
+	if got != want || set != want {
+		t.Fatalf("limit = %d (set %d), want %d", got, set, want)
+	}
+
+	set = 0
+	got = applyDaemonGoMemoryLimit(
+		func(string) string { return "512MiB" },
+		func(v int64) int64 { set = v; return v },
+	)
+	if got != 0 || set != 0 {
+		t.Fatalf("explicit GOMEMLIMIT env must win, got=%d set=%d", got, set)
 	}
 }
