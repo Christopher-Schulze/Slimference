@@ -1042,7 +1042,7 @@ tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
 reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]`
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it mirrors the
 product WSS guard: safe read-delta savings may fire, while unknown or unsafe
 stateful tool-output request bodies stay byte-equal, and previous-response-id
@@ -1056,7 +1056,12 @@ extra block from true loss-gate failures. The report separates two concepts: `by
 comprehension A/B byte delta after archive expansion and note alignment, while
 `reducer_tokens_saved`, `tool_output_mutation_enabled`, and the `reducer_*`
 mechanism counters report the model-facing compressed request savings from that
-specific replay mode. Its JSONL input is content-bearing by definition, so it
+specific replay mode. The report also counts server-to-client upstream error
+frames, `response.failed` frames, HTTP 400 error frames, and
+`invalid_request_error` frames. `--fail-on-upstream-error` turns those counters
+into a proof gate, so a capture cannot pass just because the no-loss comparison
+was green while the upstream had already rejected the session. Its JSONL input is
+content-bearing by definition, so it
 belongs in local/private
 captures only; it does not read auth headers or WebSocket upgrade metadata. Each
 replay uses an isolated temporary home directory so disk-backed
@@ -2702,8 +2707,9 @@ collection manual, reviewable, and reproducible.
 Unattended CLI capture collection uses
 `go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
 process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
-Codex, records before/after admin-state deltas, replays with fail-on-lost
-semantics, and appends an optional `wss-proof-matrix` row. The matrix row stores
+Codex, records before/after admin-state deltas, replays with fail-on-lost and
+fail-on-upstream-error semantics, and appends an optional `wss-proof-matrix` row.
+The matrix row stores
 live `billable_input_tokens_saved`, provider-cache read/create token deltas, and
 safety counters (`parse_failures`, `degraded_sessions`, `compression_errors`,
 `analytics_proof_events_dropped`) next to replay bytes. Release proof treats live
@@ -2738,7 +2744,10 @@ Focused `wss-proof-matrix` runs with `--required-workload` evaluate only rows
 matching the requested workload classes. When `--expected-reducer` is also
 passed, those command-line reducer expectations are authoritative for the
 focused proof, so older exploratory rows in the same matrix cannot pollute a
-single-mechanism closeout. Unfocused release-proof mode still validates every
+single-mechanism closeout. Replay inside the matrix uses the same upstream-error
+gate as `codex-capture-run`, so 400/`invalid_request_error` captures fail even
+when live counters or replay byte savings are otherwise positive. Unfocused
+release-proof mode still validates every
 row exactly as recorded.
 `go run ./scripts/verify -mode host-resource-plan -client codex_cli|codex_desktop`
 prints the T272 resource/profile ceremony for the only remaining host-budget

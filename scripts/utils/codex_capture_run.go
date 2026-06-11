@@ -297,10 +297,11 @@ Flags:
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
 set, waits for /health, runs "slimference codex run --transport=<value> -- ...",
 records live admin-state token deltas, stops the daemon, then replays the
-capture with --fail-on-lost semantics. Live billable input-token savings are the
-product savings signal; replay bytes are only the model-facing regression/safety
-proxy. It does not use a detached background daemon, because detached shell
-starts are too fragile for unattended release captures.`
+capture with --fail-on-lost and --fail-on-upstream-error semantics. Live billable
+input-token savings are the product savings signal; replay bytes are only the
+model-facing regression/safety proxy. It does not use a detached background
+daemon, because detached shell starts are too fragile for unattended release
+captures.`
 
 func runCodexCaptureRun(args []string, stdout, stderr io.Writer) int {
 	deps := codexCaptureRunDeps{
@@ -418,7 +419,7 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	stopDaemon = false
 	endedAt := deps.now().UTC()
 
-	replay, err := deps.replay(wssABReplayFlags{path: flags.capturePath, failOnLost: true})
+	replay, err := deps.replay(wssABReplayFlags{path: flags.capturePath, failOnLost: true, failOnUpstreamError: true})
 	if err != nil {
 		fmt.Fprintf(stderr, "replay capture: %v\n", err)
 		return 1
@@ -1829,6 +1830,11 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		writeCodexCaptureCacheSummary(w, result.LiveDelta.ProxyLayer0Cache)
 	}
 	fmt.Fprintf(w, "  replay_bytes_saved: %d\n", result.Replay.BytesSaved)
+	fmt.Fprintf(w, "  upstream_errors: frames=%d invalid_request=%d http_400=%d response_failed=%d\n",
+		result.Replay.UpstreamErrorFrames,
+		result.Replay.UpstreamInvalidRequests,
+		result.Replay.UpstreamHTTP400Errors,
+		result.Replay.UpstreamResponseFailures)
 	fmt.Fprintf(w, "  lost:          %d\n", result.Replay.Lost)
 	fmt.Fprintf(w, "  gate:          %s\n", passFail(result.Replay.GatePassed))
 }

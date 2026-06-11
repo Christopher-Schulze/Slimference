@@ -166,6 +166,78 @@ func TestRunWSSABReplayJSONAndGateFailure(t *testing.T) {
 	}
 }
 
+func TestRunWSSABReplayFailsOnUpstreamInvalidRequest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "upstream-error-session",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "continue",
+			}},
+			"stream": true,
+		}),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type":   "error",
+			"status": 400,
+			"error": map[string]any{
+				"type":    "invalid_request_error",
+				"message": "Invalid request",
+			},
+		}),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.UpstreamErrorFrames != 1 ||
+		report.UpstreamHTTP400Errors != 1 || report.UpstreamInvalidRequests != 1 {
+		t.Fatalf("default replay should report but not fail upstream errors: %+v", report)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path, "--fail-on-upstream-error", "--json"}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("runWSSABReplay code=%d want 3 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var gated wssABReplayReport
+	if err := json.Unmarshal(stdout.Bytes(), &gated); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if gated.GatePassed || gated.UpstreamErrorFrames != 1 || gated.UpstreamInvalidRequests != 1 ||
+		!strings.Contains(strings.Join(gated.GateFailures, "\n"), "upstream_error_frames=1") {
+		t.Fatalf("expected upstream error gate failure: %+v", gated)
+	}
+}
+
+func TestWSSABReplayReportsResponseFailedFrame(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.failed",
+			"response": map[string]any{
+				"status": "failed",
+				"error":  map[string]any{"type": "server_error"},
+			},
+		}),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path, failOnUpstreamError: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.UpstreamErrorFrames != 1 || report.UpstreamResponseFailures != 1 {
+		t.Fatalf("response.failed should be an upstream error gate failure: %+v", report)
+	}
+}
+
 func TestRunWSSABReplayAllowsExpectedRecoveryNoteExtra(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

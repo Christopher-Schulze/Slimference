@@ -344,9 +344,10 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		capture.GateFailures = validateWSSProofMetadata(capture)
 
 		replay, err := loadWSSABReplayReport(wssABReplayFlags{
-			path:               capture.FramesPath,
-			failOnLost:         true,
-			toolOutputMutation: true,
+			path:                capture.FramesPath,
+			failOnLost:          true,
+			failOnUpstreamError: true,
+			toolOutputMutation:  true,
 		})
 		if err != nil {
 			capture.GateFailures = append(capture.GateFailures, fmt.Sprintf("replay failed: %v", err))

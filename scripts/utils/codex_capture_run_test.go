@@ -183,8 +183,8 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		},
 		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
 			calls = append(calls, "replay:"+flags.path)
-			if !flags.failOnLost {
-				t.Fatalf("replay should run with failOnLost")
+			if !flags.failOnLost || !flags.failOnUpstreamError {
+				t.Fatalf("replay should run with failOnLost and failOnUpstreamError: %+v", flags)
 			}
 			return wssABReplayReport{
 				Path:            flags.path,

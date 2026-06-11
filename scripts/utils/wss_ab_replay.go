@@ -19,6 +19,7 @@ type wssABReplayFlags struct {
 	path                       string
 	outputFormat               string
 	failOnLost                 bool
+	failOnUpstreamError        bool
 	archiveRecoveryNote        bool
 	allowRecoveryNoteExtra     bool
 	toolOutputMutation         bool
@@ -50,6 +51,10 @@ type wssABReplayReport struct {
 	ReducerChunkRefs           int                 `json:"reducer_chunk_dedup_references"`
 	ReducerChunkRefBytes       int                 `json:"reducer_chunk_dedup_referenced_bytes"`
 	ReducerChunkInputBytes     int                 `json:"reducer_chunk_dedup_input_bytes"`
+	UpstreamErrorFrames        int                 `json:"upstream_error_frames"`
+	UpstreamHTTP400Errors      int                 `json:"upstream_http_400_errors"`
+	UpstreamInvalidRequests    int                 `json:"upstream_invalid_request_errors"`
+	UpstreamResponseFailures   int                 `json:"upstream_response_failed_frames"`
 	ToolOutputMutation         bool                `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutationLab bool                `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
 	Lost                       int                 `json:"lost"`
@@ -74,6 +79,8 @@ Usage:
 Flags:
   --json                   Output JSON
   --fail-on-lost            Exit 3 if the replay reports lost comprehension
+  --fail-on-upstream-error  Exit 3 if the replay observed upstream error or
+                           response.failed frames
   --archive-recovery-note   Enable the default-off recovery note during replay
   --allow-recovery-note-extra
                            Do not fail the gate for the expected once-per-session
@@ -107,7 +114,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]")
+		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]")
 		return 2
 	}
 	report, err := loadWSSABReplayReport(flags)
@@ -145,6 +152,8 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 			flags.outputFormat = outputJSON
 		case arg == "--fail-on-lost":
 			flags.failOnLost = true
+		case arg == "--fail-on-upstream-error":
+			flags.failOnUpstreamError = true
 		case arg == "--archive-recovery-note":
 			flags.archiveRecoveryNote = true
 		case arg == "--allow-recovery-note-extra":
@@ -192,6 +201,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	if err != nil {
 		return wssABReplayReport{}, err
 	}
+	upstream := wssABReplayUpstreamDiagnostics(frames)
 	cfg := config.Defaults()
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
@@ -229,6 +239,10 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		ReducerChunkRefs:           result.ReducerStats.ChunkDedupReferences,
 		ReducerChunkRefBytes:       result.ReducerStats.ChunkDedupRefBytes,
 		ReducerChunkInputBytes:     result.ReducerStats.ChunkDedupInputBytes,
+		UpstreamErrorFrames:        upstream.ErrorFrames,
+		UpstreamHTTP400Errors:      upstream.HTTP400Errors,
+		UpstreamInvalidRequests:    upstream.InvalidRequestErrors,
+		UpstreamResponseFailures:   upstream.ResponseFailedFrames,
 		ToolOutputMutation:         toolOutputMutation,
 		DeltaToolOutputMutationLab: flags.deltaToolOutputMutationLab,
 		Lost:                       result.Report.Lost(),
@@ -263,7 +277,102 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.GatePassed = false
 		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", gateLost))
 	}
+	if flags.failOnUpstreamError && report.UpstreamErrorFrames > 0 {
+		report.GatePassed = false
+		report.GateFailures = append(report.GateFailures,
+			fmt.Sprintf("upstream_error_frames=%d invalid_request=%d http_400=%d response_failed=%d",
+				report.UpstreamErrorFrames,
+				report.UpstreamInvalidRequests,
+				report.UpstreamHTTP400Errors,
+				report.UpstreamResponseFailures))
+	}
 	return report, nil
+}
+
+type wssABReplayUpstreamReport struct {
+	ErrorFrames          int
+	HTTP400Errors        int
+	InvalidRequestErrors int
+	ResponseFailedFrames int
+}
+
+func wssABReplayUpstreamDiagnostics(frames []proxy.WSSABReplayFrame) wssABReplayUpstreamReport {
+	var out wssABReplayUpstreamReport
+	for _, frame := range frames {
+		if frame.Direction != wsmitm.DirServerToClient {
+			continue
+		}
+		env, err := wsmitm.Parse(frame.Payload)
+		if err != nil {
+			continue
+		}
+		switch env.Kind {
+		case wsmitm.FrameKindError:
+			out.ErrorFrames++
+			status, errorType := wssABReplayErrorStatusAndType(frame.Payload)
+			if status == "400" {
+				out.HTTP400Errors++
+			}
+			if errorType == "invalid_request_error" {
+				out.InvalidRequestErrors++
+			}
+		case wsmitm.FrameKindResponseFailed:
+			out.ErrorFrames++
+			out.ResponseFailedFrames++
+			status, errorType := wssABReplayErrorStatusAndType(frame.Payload)
+			if status == "400" {
+				out.HTTP400Errors++
+			}
+			if errorType == "invalid_request_error" {
+				out.InvalidRequestErrors++
+			}
+		}
+	}
+	return out
+}
+
+func wssABReplayErrorStatusAndType(payload []byte) (string, string) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return "", ""
+	}
+	status := wssABReplayJSONScalar(root["status"])
+	errorType := wssABReplayNestedErrorType(root["error"])
+	if responseRaw := root["response"]; len(responseRaw) > 0 {
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(responseRaw, &response); err == nil {
+			if status == "" {
+				status = wssABReplayJSONScalar(response["status"])
+			}
+			if errorType == "" {
+				errorType = wssABReplayNestedErrorType(response["error"])
+			}
+		}
+	}
+	return status, errorType
+}
+
+func wssABReplayNestedErrorType(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ""
+	}
+	return wssABReplayJSONScalar(fields["type"])
+}
+
+func wssABReplayJSONScalar(raw json.RawMessage) string {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.Trim(strings.TrimSpace(string(raw)), `"`)
 }
 
 func replayShapeCountsFromProxy(counts proxy.WSSABReplayShapeCounts) replayShapeCounts {
@@ -432,6 +541,11 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 		fmt.Fprintf(w, "  chunk_refs:       refs=%d referenced_bytes=%d input_bytes=%d\n",
 			report.ReducerChunkRefs, report.ReducerChunkRefBytes, report.ReducerChunkInputBytes)
 	}
+	fmt.Fprintf(w, "  upstream_errors:  frames=%d invalid_request=%d http_400=%d response_failed=%d\n",
+		report.UpstreamErrorFrames,
+		report.UpstreamInvalidRequests,
+		report.UpstreamHTTP400Errors,
+		report.UpstreamResponseFailures)
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
 	if report.ExpectedExtras > 0 {
 		fmt.Fprintf(w, "  expected_extras:  %d\n", report.ExpectedExtras)

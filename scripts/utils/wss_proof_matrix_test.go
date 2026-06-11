@@ -118,6 +118,48 @@ func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixFailsOnReplayUpstreamError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "upstream-error-matrix")
+	appendJSONLFile(t, framesPath, wssABReplayTestRecord("server_to_client", map[string]any{
+		"type":   "error",
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Invalid request",
+		},
+	}))
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "search-upstream-error",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("upstream error replay should fail focused proof: %+v", report)
+	}
+	capture := report.CaptureReports[0]
+	if capture.Replay.UpstreamInvalidRequests != 1 ||
+		!strings.Contains(strings.Join(capture.GateFailures, "\n"), "upstream_error_frames=1") {
+		t.Fatalf("missing upstream-error gate failure: %+v", capture)
+	}
+}
+
 func TestWSSProofMatrixExpectedZeroAllowsProviderCacheEvidence(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
