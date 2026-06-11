@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -32,5 +33,28 @@ func TestRecordShadowMirror_PredictsRepeatAfterObserve(t *testing.T) {
 	// Empty session is a no-op (never panics, never references).
 	if rep := recordShadowMirror("", frame, frame); rep.Blocks != 0 || rep.ReferenceableBlocks != 0 {
 		t.Fatalf("empty session must be a no-op: %+v", rep)
+	}
+}
+
+func TestRecordShadowMirror_NormalizedDebugFacts(t *testing.T) {
+	old := wssShadowMirror
+	t.Cleanup(func() { wssShadowMirror = old })
+	wssShadowMirror = servermirror.New()
+
+	payload := strings.Repeat("stable payload line\n", 30)
+	first := "Chunk ID: first\nWall time: 0.0001 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
+	second := "Chunk ID: second\nWall time: 9.9999 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	recordShadowMirror("sess-normalized", shadowMsg(first), shadowMsg(first))
+	rep := recordShadowMirror("sess-normalized", shadowMsg(second), shadowMsg(second))
+	if rep.ReferenceableBlocks != 0 || rep.NormalizedReferenceableSegments != 1 {
+		t.Fatalf("volatile envelope should be normalized-only referenceable: %+v", rep)
+	}
+
+	var meta wssRequestMeta
+	attachShadowMirrorDebugFacts(&meta, rep)
+	if meta.DebugFacts["wss.shadow_mirror_referenceable_bytes"] != "0" ||
+		meta.DebugFacts["wss.shadow_mirror_normalized_referenceable_bytes"] != strconv.Itoa(len(payload)) ||
+		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/1/1" {
+		t.Fatalf("bad normalized shadow facts: %+v", meta.DebugFacts)
 	}
 }

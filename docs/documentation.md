@@ -517,6 +517,11 @@ post-collapse re-read signals full-pass. First-read elision,
 predictive post-edit synthesis, apply_patch context dedup, reasoning compaction,
 and generalized server-state-mirror mutation are closed as non-product-default
 surfaces. The server-state mirror remains telemetry/policy infrastructure only.
+Its WSS shadow path reports exact block referenceability plus normalized segment
+referenceability for volatile Codex exec envelopes, stripping only the per-call
+header before hashing the stable payload. Decision-log facts stay content-free
+(`wss.shadow_mirror_*`) and grouped by segment kind; the path never emits
+model-facing references or mutates frames.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
 

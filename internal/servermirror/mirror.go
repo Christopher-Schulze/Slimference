@@ -9,15 +9,18 @@
 // mutation gate (actually replacing frames using the mirror) is a separate,
 // later, live-proven step.
 //
-// Safety invariant (no-false-elision): Predict marks a block as already-on-server
-// ONLY when its exact content hash was recorded by a prior Observe for the same
-// session. Eviction/bounding can only make Predict UNDER-report savings (mark a
-// truly-forwarded block as novel); it can never cause a false elision.
+// Safety invariant (no-false-elision): Predict marks an exact block as
+// already-on-server ONLY when its exact content hash was recorded by a prior
+// Observe for the same session. The normalized shadow path applies the same rule
+// to normalized text segments such as Codex exec payloads with volatile headers
+// stripped. Eviction/bounding can only make Predict UNDER-report savings (mark a
+// truly-forwarded block/segment as novel); it can never cause a false elision.
 package servermirror
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 
 	"github.com/Christopher-Schulze/Slimference/internal/types"
@@ -30,13 +33,17 @@ const maxBlocksPerSession = 50000
 
 // Mirror is a concurrency-safe, per-session record of forwarded content hashes.
 type Mirror struct {
-	mu       sync.Mutex
-	sessions map[string]map[string]struct{}
+	mu                 sync.Mutex
+	sessions           map[string]map[string]struct{}
+	normalizedSessions map[string]map[string]struct{}
 }
 
 // New returns an empty Mirror.
 func New() *Mirror {
-	return &Mirror{sessions: make(map[string]map[string]struct{})}
+	return &Mirror{
+		sessions:           make(map[string]map[string]struct{}),
+		normalizedSessions: make(map[string]map[string]struct{}),
+	}
 }
 
 // Observe records the content of msgs as now held by the server for sessionID.
@@ -65,6 +72,17 @@ func (m *Mirror) Observe(sessionID string, msgs []types.Message) {
 			set[hashContent(b.Text)] = struct{}{}
 		}
 	}
+	normalizedSet := m.normalizedSessions[sessionID]
+	if normalizedSet == nil {
+		normalizedSet = make(map[string]struct{})
+		m.normalizedSessions[sessionID] = normalizedSet
+	}
+	for _, segment := range normalizedSegments(msgs) {
+		if len(normalizedSet) >= maxBlocksPerSession {
+			return
+		}
+		normalizedSet[hashContent(segment.Text)] = struct{}{}
+	}
 }
 
 // Prediction classifies one content block of a new client frame.
@@ -74,14 +92,36 @@ type Prediction struct {
 	Bytes            int
 }
 
+// SegmentPrediction classifies a normalized text segment of a new client frame.
+// It is shadow-only: normalized segments are never substituted into a frame.
+type SegmentPrediction struct {
+	Block            int
+	Segment          int
+	Kind             string
+	AlreadyForwarded bool
+	Bytes            int
+}
+
+// SegmentKindReport groups normalized shadow predictions by content kind.
+type SegmentKindReport struct {
+	Segments              int
+	ReferenceableSegments int
+	PotentialSavedBytes   int
+}
+
 // Report summarises a Predict pass. PotentialSavedBytes is the byte total of
 // blocks the server already holds (referenceable losslessly); it is a SHADOW
 // estimate, no frame is changed.
 type Report struct {
-	Blocks              int
-	ReferenceableBlocks int
-	PotentialSavedBytes int
-	Predictions         []Prediction
+	Blocks                              int
+	ReferenceableBlocks                 int
+	PotentialSavedBytes                 int
+	NormalizedSegments                  int
+	NormalizedReferenceableSegments     int
+	NormalizedPotentialSavedBytes       int
+	Predictions                         []Prediction
+	NormalizedPredictions               []SegmentPrediction
+	NormalizedPotentialSavedBytesByKind map[string]SegmentKindReport
 }
 
 // Predict reports, without mutating, which blocks of msgs the server already
@@ -108,6 +148,11 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 	for h := range set {
 		known[h] = struct{}{}
 	}
+	normalizedSet := m.normalizedSessions[sessionID]
+	normalizedKnown := make(map[string]struct{}, len(normalizedSet))
+	for h := range normalizedSet {
+		normalizedKnown[h] = struct{}{}
+	}
 	m.mu.Unlock()
 
 	blockIdx := 0
@@ -131,6 +176,29 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 			}
 		}
 	}
+	for _, segment := range normalizedSegments(msgs) {
+		rep.NormalizedSegments++
+		_, forwarded := normalizedKnown[hashContent(segment.Text)]
+		rep.NormalizedPredictions = append(rep.NormalizedPredictions, SegmentPrediction{
+			Block:            segment.Block,
+			Segment:          segment.Segment,
+			Kind:             segment.Kind,
+			AlreadyForwarded: forwarded,
+			Bytes:            len(segment.Text),
+		})
+		if rep.NormalizedPotentialSavedBytesByKind == nil {
+			rep.NormalizedPotentialSavedBytesByKind = map[string]SegmentKindReport{}
+		}
+		kindReport := rep.NormalizedPotentialSavedBytesByKind[segment.Kind]
+		kindReport.Segments++
+		if forwarded {
+			rep.NormalizedReferenceableSegments++
+			rep.NormalizedPotentialSavedBytes += len(segment.Text)
+			kindReport.ReferenceableSegments++
+			kindReport.PotentialSavedBytes += len(segment.Text)
+		}
+		rep.NormalizedPotentialSavedBytesByKind[segment.Kind] = kindReport
+	}
 	return rep
 }
 
@@ -141,10 +209,73 @@ func (m *Mirror) Reset(sessionID string) {
 	}
 	m.mu.Lock()
 	delete(m.sessions, sessionID)
+	delete(m.normalizedSessions, sessionID)
 	m.mu.Unlock()
 }
 
 func hashContent(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+type normalizedSegment struct {
+	Block   int
+	Segment int
+	Kind    string
+	Text    string
+}
+
+func normalizedSegments(msgs []types.Message) []normalizedSegment {
+	var out []normalizedSegment
+	blockIdx := 0
+	for _, msg := range msgs {
+		for _, b := range msg.Content {
+			if b.Text == "" {
+				continue
+			}
+			if _, payload, ok := splitCodexExecEnvelope(b.Text); ok {
+				out = append(out, normalizedSegment{
+					Block:   blockIdx,
+					Segment: 0,
+					Kind:    "codex_exec_payload",
+					Text:    payload,
+				})
+			} else {
+				out = append(out, normalizedSegment{
+					Block:   blockIdx,
+					Segment: 0,
+					Kind:    normalizedSegmentKind(msg, b),
+					Text:    b.Text,
+				})
+			}
+			blockIdx++
+		}
+	}
+	return out
+}
+
+func normalizedSegmentKind(msg types.Message, block types.ContentBlock) string {
+	if kind := strings.TrimSpace(block.Type); kind != "" {
+		return kind
+	}
+	if role := strings.TrimSpace(msg.Role); role != "" {
+		return role
+	}
+	return "text"
+}
+
+func splitCodexExecEnvelope(text string) (header, payload string, ok bool) {
+	if !strings.Contains(text, "Process exited with code ") {
+		return "", "", false
+	}
+	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
+		idx := strings.Index(text, marker)
+		if idx < 0 {
+			continue
+		}
+		header = text[:idx+len(marker)]
+		payload = text[idx+len(marker):]
+		return header, payload, payload != ""
+	}
+	return "", "", false
 }

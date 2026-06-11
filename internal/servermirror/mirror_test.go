@@ -43,6 +43,80 @@ func TestMirror_NovelContentNotReferenceable(t *testing.T) {
 	}
 }
 
+func TestMirror_NormalizedCodexExecPayloadPredictsThroughVolatileHeader(t *testing.T) {
+	t.Parallel()
+	m := New()
+	payload := strings.Repeat("stable command payload\n", 20)
+	first := "Chunk ID: first\nWall time: 0.0001 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
+	second := "Chunk ID: second\nWall time: 9.9999 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	m.Observe("s", msg(first))
+
+	rep := m.Predict("s", msg(second))
+	if rep.ReferenceableBlocks != 0 || rep.PotentialSavedBytes != 0 {
+		t.Fatalf("exact mirror must not match volatile envelopes: %+v", rep)
+	}
+	if rep.NormalizedSegments != 1 ||
+		rep.NormalizedReferenceableSegments != 1 ||
+		rep.NormalizedPotentialSavedBytes != len(payload) {
+		t.Fatalf("normalized payload should be referenceable in shadow: %+v", rep)
+	}
+	kind := rep.NormalizedPotentialSavedBytesByKind["codex_exec_payload"]
+	if kind.Segments != 1 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
+		t.Fatalf("normalized kind accounting wrong: %+v", rep.NormalizedPotentialSavedBytesByKind)
+	}
+	if got := rep.NormalizedPredictions[0]; got.Kind != "codex_exec_payload" || !got.AlreadyForwarded || got.Bytes != len(payload) {
+		t.Fatalf("normalized prediction wrong: %+v", got)
+	}
+}
+
+func TestMirror_NormalizedNovelPayloadNotReferenceable(t *testing.T) {
+	t.Parallel()
+	m := New()
+	firstPayload := strings.Repeat("first payload\n", 20)
+	secondPayload := strings.Repeat("second payload\n", 20)
+	first := "Chunk ID: first\nProcess exited with code 0\nOutput:\n" + firstPayload
+	second := "Chunk ID: second\nProcess exited with code 0\nOutput:\n" + secondPayload
+	m.Observe("s", msg(first))
+
+	rep := m.Predict("s", msg(second))
+	if rep.NormalizedReferenceableSegments != 0 || rep.NormalizedPotentialSavedBytes != 0 {
+		t.Fatalf("novel normalized payload must not be referenceable: %+v", rep)
+	}
+}
+
+func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	if _, _, ok := splitCodexExecEnvelope("plain output without exit marker"); ok {
+		t.Fatal("plain output must not parse as a Codex exec envelope")
+	}
+	if _, _, ok := splitCodexExecEnvelope("Process exited with code 0\nno output marker"); ok {
+		t.Fatal("exec envelope without output marker must not parse")
+	}
+	if _, _, ok := splitCodexExecEnvelope("Process exited with code 0\nOutput:\n"); ok {
+		t.Fatal("empty exec payload must not parse as referenceable")
+	}
+	_, payload, ok := splitCodexExecEnvelope("Process exited with code 0\r\nOutput:\r\nstable\r\n")
+	if !ok || payload != "stable\r\n" {
+		t.Fatalf("CRLF exec envelope parsed incorrectly: ok=%v payload=%q", ok, payload)
+	}
+
+	roleOnly := normalizedSegmentKind(types.Message{Role: "assistant"}, types.ContentBlock{})
+	if roleOnly != "assistant" {
+		t.Fatalf("role fallback kind wrong: %q", roleOnly)
+	}
+	textFallback := normalizedSegmentKind(types.Message{}, types.ContentBlock{})
+	if textFallback != "text" {
+		t.Fatalf("text fallback kind wrong: %q", textFallback)
+	}
+
+	m := New()
+	m.Observe("", msg("must not attach to an empty session"))
+	if rep := m.Predict("non-empty", msg("must not attach to an empty session")); rep.ReferenceableBlocks != 0 {
+		t.Fatalf("empty-session observe must not seed another session: %+v", rep)
+	}
+}
+
 // TestMirror_NoFalseElisionProperty is the catastrophic-bug guard: content the
 // mirror NEVER observed must NEVER be predicted referenceable, even after
 // observing many other blocks.
