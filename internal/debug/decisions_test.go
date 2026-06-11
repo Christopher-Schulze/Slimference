@@ -126,6 +126,26 @@ func TestBuildMechanismAccounting(t *testing.T) {
 			Reason:       "metadata",
 		}},
 		Layer1Breakdown: map[string]SubLayerBreakdown{"json_compact": {Blocks: 2, Saved: 80}},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Layer:          0,
+			Mechanism:      "stale_read",
+			ContentClass:   evidence.ContentUnknown,
+			SafetyClass:    evidence.SafetyRecoverable,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 400,
+			FinalTokens:    120,
+			SavedTokens:    280,
+			NetTokens:      280,
+		}, {
+			Layer:       2,
+			Mechanism:   "provider_prompt_cache",
+			SafetyClass: evidence.SafetyExact,
+			Action:      evidence.ActionApplied,
+			Reason:      "provider_cache_read",
+			SavedTokens: 100,
+			NetTokens:   100,
+		}},
 		PromptCache:     PromptCacheSummary{Applied: true, Reason: "stable_prefix", StablePrefixTokens: 400},
 		CacheReadTokens: 100,
 		ToolPrune:       ToolPruneSummary{Applied: true, Reason: "unused_tools", SavedTokens: 120, Reattached: 20},
@@ -144,6 +164,9 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 	if byName["json_compact"].SavedTokens != 80 {
 		t.Fatalf("layer accounting missing: %+v", byName)
+	}
+	if byName["stale_read"].NetTokens != 280 || byName["stale_read"].Source != "evidence_decision" {
+		t.Fatalf("evidence mechanism accounting missing: %+v", byName["stale_read"])
 	}
 	if byName["provider_prompt_cache"].NetTokens != 100 || byName["tool_prune"].NetTokens != 100 {
 		t.Fatalf("cache/tool accounting missing: %+v", byName)

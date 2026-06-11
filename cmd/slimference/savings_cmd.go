@@ -618,7 +618,7 @@ func savingsMechanismLayer(mechanism dbg.MechanismAccounting) (int, bool) {
 	if mechanism.Layer > 0 && mechanism.Layer <= 3 {
 		return mechanism.Layer, true
 	}
-	if mechanism.Layer == 0 && source == "decision_entry" {
+	if mechanism.Layer == 0 && (source == "decision_entry" || source == "evidence_decision") {
 		return 0, true
 	}
 	return 0, false

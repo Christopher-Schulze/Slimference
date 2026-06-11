@@ -30,6 +30,8 @@ const (
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
 	proxyLayer0MechanismRepeatedOut   proxyLayer0Mechanism = "repeated_tool_output"
 	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
+	proxyLayer0MechanismStaleRead     proxyLayer0Mechanism = "stale_read"
+	proxyLayer0MechanismObsoletePrune proxyLayer0Mechanism = "obsolete_prune"
 )
 
 type proxyLayer0MechanismMask uint32
@@ -40,6 +42,8 @@ const (
 	proxyLayer0MechanismMaskCodexExecEnvelope
 	proxyLayer0MechanismMaskRepeatedToolOutput
 	proxyLayer0MechanismMaskChunkDedup
+	proxyLayer0MechanismMaskStaleRead
+	proxyLayer0MechanismMaskObsoletePrune
 )
 
 func proxyLayer0MechanismMaskFor(mechanism proxyLayer0Mechanism) proxyLayer0MechanismMask {
@@ -54,6 +58,10 @@ func proxyLayer0MechanismMaskFor(mechanism proxyLayer0Mechanism) proxyLayer0Mech
 		return proxyLayer0MechanismMaskRepeatedToolOutput
 	case proxyLayer0MechanismChunkDedup:
 		return proxyLayer0MechanismMaskChunkDedup
+	case proxyLayer0MechanismStaleRead:
+		return proxyLayer0MechanismMaskStaleRead
+	case proxyLayer0MechanismObsoletePrune:
+		return proxyLayer0MechanismMaskObsoletePrune
 	default:
 		return 0
 	}
@@ -76,6 +84,12 @@ func proxyLayer0MechanismMaskFromStats(stats proxyLayer0Stats) proxyLayer0Mechan
 	if stats.ChunkDedupBlocks > 0 {
 		mask |= proxyLayer0MechanismMaskChunkDedup
 	}
+	if stats.StaleReadBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskStaleRead
+	}
+	if stats.ObsoletePruneBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskObsoletePrune
+	}
 	return mask
 }
 
@@ -95,6 +109,8 @@ func (m proxyLayer0MechanismMask) String() string {
 		proxyLayer0MechanismCodexEnvelope,
 		proxyLayer0MechanismRepeatedOut,
 		proxyLayer0MechanismChunkDedup,
+		proxyLayer0MechanismStaleRead,
+		proxyLayer0MechanismObsoletePrune,
 	} {
 		if m.Has(mechanism) {
 			names = append(names, string(mechanism))
@@ -185,26 +201,32 @@ type proxyLayer0Stats struct {
 	// ToolResultBytes is the total tool-result payload the reducer pass had
 	// to process; the latency budget scales with it so legitimate work on
 	// large outputs does not count as overhead pressure.
-	ToolResultBytes         int
-	TokensSaved             int
-	BlocksModified          int
-	ReadDeltaBlocks         int
-	CapturedOutputBlocks    int
-	CodexExecEnvelopeBlocks int
-	RepeatedOutputBlocks    int
-	ChunkDedupBlocks        int
-	ChunkDedupReferences    int
-	ChunkDedupRefBytes      int
-	ChunkDedupInputBytes    int
-	ReadDeltaKeys           []string
-	PolicyDecisions         []savingspolicy.CodexMechanismDecision
-	CacheEvents             []proxyLayer0CacheEvent
-	EvidenceDecisions       []evidence.BlockDecision
-	TotalLatencyNs          int64
-	ReadDeltaLatencyNs      int64
-	FilterLatencyNs         int64
-	RepeatedOutputLatencyNs int64
-	ChunkDedupLatencyNs     int64
+	ToolResultBytes          int
+	TokensSaved              int
+	BlocksModified           int
+	ReadDeltaBlocks          int
+	CapturedOutputBlocks     int
+	CodexExecEnvelopeBlocks  int
+	RepeatedOutputBlocks     int
+	ChunkDedupBlocks         int
+	ChunkDedupReferences     int
+	ChunkDedupRefBytes       int
+	ChunkDedupInputBytes     int
+	StaleReadBlocks          int
+	StaleReadBytesSaved      int
+	StaleReadTokensSaved     int
+	ObsoletePruneBlocks      int
+	ObsoletePruneBytesSaved  int
+	ObsoletePruneTokensSaved int
+	ReadDeltaKeys            []string
+	PolicyDecisions          []savingspolicy.CodexMechanismDecision
+	CacheEvents              []proxyLayer0CacheEvent
+	EvidenceDecisions        []evidence.BlockDecision
+	TotalLatencyNs           int64
+	ReadDeltaLatencyNs       int64
+	FilterLatencyNs          int64
+	RepeatedOutputLatencyNs  int64
+	ChunkDedupLatencyNs      int64
 }
 
 func (s proxyLayer0Stats) finish(start time.Time) proxyLayer0Stats {
@@ -225,6 +247,12 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.ChunkDedupReferences = 0
 	s.ChunkDedupRefBytes = 0
 	s.ChunkDedupInputBytes = 0
+	s.StaleReadBlocks = 0
+	s.StaleReadBytesSaved = 0
+	s.StaleReadTokensSaved = 0
+	s.ObsoletePruneBlocks = 0
+	s.ObsoletePruneBytesSaved = 0
+	s.ObsoletePruneTokensSaved = 0
 	s.ReadDeltaKeys = nil
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
@@ -592,7 +620,7 @@ func proxyLayer0EvidenceSafety(mechanism proxyLayer0Mechanism) evidence.SafetyCl
 	switch mechanism {
 	case proxyLayer0MechanismReadDelta, proxyLayer0MechanismRepeatedOut:
 		return evidence.SafetyExact
-	case proxyLayer0MechanismChunkDedup:
+	case proxyLayer0MechanismChunkDedup, proxyLayer0MechanismStaleRead, proxyLayer0MechanismObsoletePrune:
 		return evidence.SafetyRecoverable
 	case proxyLayer0MechanismCapturedOut, proxyLayer0MechanismCodexEnvelope:
 		return evidence.SafetyStructuredEvidence
@@ -607,6 +635,10 @@ func proxyLayer0EvidenceRecovery(mechanism proxyLayer0Mechanism) string {
 		return "previous in-session exact block"
 	case proxyLayer0MechanismChunkDedup:
 		return "local archive chunk recovery"
+	case proxyLayer0MechanismStaleRead:
+		return "re-read the path; newer full read remains in context"
+	case proxyLayer0MechanismObsoletePrune:
+		return "re-read the path after the edit"
 	case proxyLayer0MechanismCapturedOut, proxyLayer0MechanismCodexEnvelope:
 		return "parser fail-open to original output"
 	default:
@@ -622,6 +654,10 @@ func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savin
 		return []string{"command identity", "previous exact output"}
 	case proxyLayer0MechanismChunkDedup:
 		return []string{"chunk identity", "archive uri", "fresh unmatched content"}
+	case proxyLayer0MechanismStaleRead:
+		return []string{"file path", "superseding read turn", "newer full read"}
+	case proxyLayer0MechanismObsoletePrune:
+		return []string{"file path", "edit turn", "post-edit context"}
 	}
 	switch workload {
 	case savingspolicy.CodexWorkloadSearch:
@@ -631,6 +667,25 @@ func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savin
 	default:
 		return []string{"error line", "warning", "path", "line", "summary", "exit status"}
 	}
+}
+
+func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int) evidence.BlockDecision {
+	analysis := evidence.Analysis{
+		ContentClass: evidence.ContentUnknown,
+		Signals:      []evidence.Signal{evidence.SignalPath, evidence.SignalRecency},
+	}
+	return evidence.DecisionFromObservation(
+		0,
+		string(mechanism),
+		proxyLayer0EvidenceSafety(mechanism),
+		action,
+		reason,
+		analysis,
+		proxyLayer0PreservedEvidence(mechanism, savingspolicy.CodexWorkloadUnknown),
+		proxyLayer0EvidenceRecovery(mechanism),
+		beforeTokens,
+		afterTokens,
+	)
 }
 
 func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {

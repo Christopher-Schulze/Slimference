@@ -13,6 +13,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/beterse"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/outstop"
 	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
@@ -339,32 +340,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
-		stagedMessages := messages
-		messageMutationPending := false
-		staleBlocksReplaced := 0
-		staleBytesReplaced := 0
-		obsoleteBlocksPruned := 0
-		obsoleteBytesPruned := 0
-		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
-			aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
-				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
-			})
-			if stats.BlocksReplaced > 0 {
-				stagedMessages = aged
-				messageMutationPending = true
-				staleBlocksReplaced = stats.BlocksReplaced
-				staleBytesReplaced = stats.BytesReplaced
-			}
-		}
-		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
-			pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
-			if stats.BlocksReplaced > 0 {
-				stagedMessages = pruned
-				messageMutationPending = true
-				obsoleteBlocksPruned = stats.BlocksReplaced
-				obsoleteBytesPruned = stats.BytesReplaced
-			}
-		}
+		deltaShape := wssRequestIsDeltaShape(messages)
+		statefulDeltaMutationBlocked := meta.PreviousResponseID != "" &&
+			deltaShape &&
+			!statefulToolOutputMutationSafe &&
+			!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
 		if cacheBustDemoted != 0 {
 			if meta.DebugFacts == nil {
@@ -372,7 +352,77 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
 		}
-		deltaShape := wssRequestIsDeltaShape(messages)
+		stagedMessages := messages
+		messageMutationPending := false
+		historyStats := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF}
+		staleBlocksReplaced := 0
+		staleBytesReplaced := 0
+		obsoleteBlocksPruned := 0
+		obsoleteBytesPruned := 0
+		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
+			staleGuardReason := ""
+			if statefulDeltaMutationBlocked {
+				staleGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			} else if cacheBustDemoted.Has(proxyLayer0MechanismStaleRead) {
+				staleGuardReason = "cache_bust_guard"
+			}
+			if staleGuardReason != "" {
+				_, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
+					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+				})
+				if stats.BlocksReplaced > 0 {
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, 0, 0))
+				}
+			} else {
+				beforeTokens := 0
+				afterTokens := 0
+				aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
+					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+				})
+				if stats.BlocksReplaced > 0 {
+					beforeTokens = wssPlannerTokenCount(out, stagedMessages)
+					afterTokens = wssPlannerTokenCount(out, aged)
+					stagedMessages = aged
+					messageMutationPending = true
+					staleBlocksReplaced = stats.BlocksReplaced
+					staleBytesReplaced = stats.BytesReplaced
+					historyStats.StaleReadBlocks = stats.BlocksReplaced
+					historyStats.StaleReadBytesSaved = stats.BytesReplaced
+					historyStats.StaleReadTokensSaved = beforeTokens - afterTokens
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens))
+				}
+			}
+		}
+		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
+			obsoleteGuardReason := ""
+			if statefulDeltaMutationBlocked {
+				obsoleteGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			} else if cacheBustDemoted.Has(proxyLayer0MechanismObsoletePrune) {
+				obsoleteGuardReason = "cache_bust_guard"
+			}
+			if obsoleteGuardReason != "" {
+				_, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
+				if stats.BlocksReplaced > 0 {
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, 0, 0))
+				}
+			} else {
+				beforeTokens := 0
+				afterTokens := 0
+				pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
+				if stats.BlocksReplaced > 0 {
+					beforeTokens = wssPlannerTokenCount(out, stagedMessages)
+					afterTokens = wssPlannerTokenCount(out, pruned)
+					stagedMessages = pruned
+					messageMutationPending = true
+					obsoleteBlocksPruned = stats.BlocksReplaced
+					obsoleteBytesPruned = stats.BytesReplaced
+					historyStats.ObsoletePruneBlocks = stats.BlocksReplaced
+					historyStats.ObsoletePruneBytesSaved = stats.BytesReplaced
+					historyStats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens))
+				}
+			}
+		}
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                      codexLayer0RouteWSSPhaseF,
 			Messages:                   stagedMessages,
@@ -400,13 +450,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			// delta flow while reducers keep observing and seeding, unless
 			// the explicit experimental flag or the proven state-safe
 			// whitelist applies.
-			StatefulDeltaMutationBlocked: meta.PreviousResponseID != "" &&
-				deltaShape &&
-				!statefulToolOutputMutationSafe &&
-				!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
+		l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyStats)
 		if stats.TokensSaved > 0 {
 			stagedMessages = l0Messages
 			messageMutationPending = true
@@ -1254,6 +1302,26 @@ func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
 	return "full_history"
 }
 
+func mergeWSSHistoryReducerStats(base proxyLayer0Stats, history proxyLayer0Stats) proxyLayer0Stats {
+	if history.StaleReadBlocks == 0 && history.ObsoletePruneBlocks == 0 && len(history.EvidenceDecisions) == 0 {
+		return base
+	}
+	base.StaleReadBlocks += history.StaleReadBlocks
+	base.StaleReadBytesSaved += history.StaleReadBytesSaved
+	base.StaleReadTokensSaved += history.StaleReadTokensSaved
+	base.ObsoletePruneBlocks += history.ObsoletePruneBlocks
+	base.ObsoletePruneBytesSaved += history.ObsoletePruneBytesSaved
+	base.ObsoletePruneTokensSaved += history.ObsoletePruneTokensSaved
+	historyBlocks := history.StaleReadBlocks + history.ObsoletePruneBlocks
+	historyTokens := history.StaleReadTokensSaved + history.ObsoletePruneTokensSaved
+	base.BlocksModified += historyBlocks
+	base.TokensSaved += historyTokens
+	if len(history.EvidenceDecisions) > 0 {
+		base.EvidenceDecisions = append(append([]evidence.BlockDecision(nil), history.EvidenceDecisions...), base.EvidenceDecisions...)
+	}
+	return base
+}
+
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
 	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
@@ -1273,6 +1341,10 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.tool_uses":              strconv.Itoa(toolUses),
 		"wss.layer0_blocks_modified": strconv.Itoa(l0Stats.BlocksModified),
 		"wss.layer0_tokens_saved":    strconv.Itoa(l0Stats.TokensSaved),
+		"wss.stale_read_blocks":      strconv.Itoa(l0Stats.StaleReadBlocks),
+		"wss.stale_read_tokens":      strconv.Itoa(l0Stats.StaleReadTokensSaved),
+		"wss.obsolete_prune_blocks":  strconv.Itoa(l0Stats.ObsoletePruneBlocks),
+		"wss.obsolete_prune_tokens":  strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
 		"wss.output_reduce_applied":  strconv.FormatBool(outputReduceStats.Applied),
 		"wss.output_reduce_added":    strconv.Itoa(outputReduceStats.AddedTokens),
 		"wss.output_reduce_reason":   outputReduceStats.Reason,

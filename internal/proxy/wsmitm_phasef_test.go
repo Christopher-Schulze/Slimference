@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
@@ -1118,9 +1119,17 @@ func TestWSPhaseFRequestShapeFactsClassifyFullHistory(t *testing.T) {
 	if wssRequestIsDeltaShape(messages) {
 		t.Fatal("full-history messages with assistant tool_use must not classify as delta")
 	}
-	facts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	facts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{
+		StaleReadBlocks:          1,
+		StaleReadTokensSaved:     11,
+		ObsoletePruneBlocks:      2,
+		ObsoletePruneTokensSaved: 22,
+	}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
 	if facts["wss.request_shape"] != "full_history" || facts["wss.delta_shape"] != "false" {
 		t.Fatalf("bad request-shape facts: %+v", facts)
+	}
+	if facts["wss.stale_read_blocks"] != "1" || facts["wss.obsolete_prune_tokens"] != "22" {
+		t.Fatalf("history reducer facts missing: %+v", facts)
 	}
 	rootFacts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{}, false, "", wssRequestMeta{}, outputreduce.Stats{Reason: "disabled"})
 	if rootFacts["wss.request_shape"] != "full_history" {
@@ -1335,6 +1344,41 @@ func TestWSPhaseFCacheBustDemotionFullPassesMatchingLayer0Mechanism(t *testing.T
 	}
 }
 
+func TestWSPhaseFCacheBustDemotionFullPassesHistoryMechanisms(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	sessionID := "codex-wss:single-reconstruct-session"
+	adapter.mu.Lock()
+	adapter.cacheBustSessions = map[string]*wssProviderCacheBustSession{
+		sessionID: {demoted: proxyLayer0MechanismMaskFor(proxyLayer0MechanismStaleRead) | proxyLayer0MechanismMaskFor(proxyLayer0MechanismObsoletePrune)},
+	}
+	adapter.mu.Unlock()
+
+	body := codexWSStaleObsoleteLayer0Body()
+
+	mutated, _, _, stats, _ := adapter.applyInputPipeline(body)
+	mutatedText := string(mutated)
+	if !strings.Contains(mutatedText, "stale x content") || strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("cache-bust-demoted stale-read must full-pass original content: %s", mutatedText)
+	}
+	if !strings.Contains(mutatedText, "obsolete y content") || strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("cache-bust-demoted obsolete-prune must full-pass original content: %s", mutatedText)
+	}
+	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 {
+		t.Fatalf("guarded history mechanisms must not count as applied stats: %+v", stats)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "cache_bust_guard", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("guarded history mechanisms must emit cache-bust evidence: %+v", stats.EvidenceDecisions)
+	}
+}
+
 func TestWSPhaseFHistoryMutationsAreByteDeterministicAcrossReconnect(t *testing.T) {
 	sharedChunk := strings.Repeat("deterministic chunk shared region with cache stable bytes\n", 1000)
 	readOutput := strings.Repeat("deterministic read line with stable content\n", 120)
@@ -1465,8 +1509,8 @@ func TestWSPhaseFHistoryMutationsAreByteDeterministicAcrossReconnect(t *testing.
 			body: codexWSReadBody("Read", strings.Repeat("stale deterministic file content ", 80), "fresh deterministic file content"),
 			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
 				t.Helper()
-				if stats.TokensSaved != 0 || stats.BlocksModified != 0 {
-					t.Fatalf("stale_read_aging should mutate before Layer-0 stats, got %+v", stats)
+				if stats.StaleReadBlocks != 1 || stats.StaleReadTokensSaved <= 0 || stats.BlocksModified != 1 {
+					t.Fatalf("stale_read_aging did not emit request-local stats, got %+v", stats)
 				}
 			},
 			assertBody: func(t *testing.T, body []byte) {
@@ -1485,8 +1529,8 @@ func TestWSPhaseFHistoryMutationsAreByteDeterministicAcrossReconnect(t *testing.
 			body: codexWSObsoleteReadBody(strings.Repeat("obsolete deterministic file content ", 80)),
 			assertStats: func(t *testing.T, stats proxyLayer0Stats) {
 				t.Helper()
-				if stats.TokensSaved != 0 || stats.BlocksModified != 0 {
-					t.Fatalf("obsolete_read_prune should mutate before Layer-0 stats, got %+v", stats)
+				if stats.ObsoletePruneBlocks != 1 || stats.ObsoletePruneTokensSaved <= 0 || stats.BlocksModified != 1 {
+					t.Fatalf("obsolete_read_prune did not emit request-local stats, got %+v", stats)
 				}
 			},
 			assertBody: func(t *testing.T, body []byte) {
@@ -2721,6 +2765,23 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 	if snap.StaleReadBlocksReplaced == 0 || snap.ObsoleteReadBlocksPruned == 0 || snap.ProxyLayer0RequestsModified == 0 {
 		t.Fatalf("expected all staged mutation counters, got %+v", snap)
 	}
+	if l0Stats.StaleReadBlocks == 0 || l0Stats.StaleReadTokensSaved <= 0 ||
+		l0Stats.ObsoletePruneBlocks == 0 || l0Stats.ObsoletePruneTokensSaved <= 0 {
+		t.Fatalf("expected request-local history reducer stats, got %+v", l0Stats)
+	}
+	if !hasEvidenceDecision(l0Stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
+		!hasEvidenceDecision(l0Stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("expected request-local history evidence decisions, got %+v", l0Stats.EvidenceDecisions)
+	}
+}
+
+func hasEvidenceDecision(decisions []evidence.BlockDecision, mechanism proxyLayer0Mechanism, reason string, action evidence.Action) bool {
+	for _, decision := range decisions {
+		if decision.Mechanism == string(mechanism) && decision.Reason == reason && decision.Action == action {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWSPhaseFStaleObsoletePreserveToolUseIndex(t *testing.T) {

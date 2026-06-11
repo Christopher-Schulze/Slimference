@@ -366,6 +366,26 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			NetTokens:   bd.Saved,
 		})
 	}
+	for _, decision := range s.EvidenceDecisions {
+		name := strings.TrimSpace(decision.Mechanism)
+		if name == "" || strings.EqualFold(name, "provider_prompt_cache") {
+			continue
+		}
+		out = append(out, MechanismAccounting{
+			Name:           name,
+			Layer:          decision.Layer,
+			Source:         "evidence_decision",
+			Count:          1,
+			OriginalTokens: decision.OriginalTokens,
+			FinalTokens:    decision.FinalTokens,
+			SavedTokens:    decision.SavedTokens,
+			AddedTokens:    decision.AddedTokens,
+			NetTokens:      decision.NetTokens,
+			Reason:         decision.Reason,
+			ContentClass:   string(decision.ContentClass),
+			SafetyClass:    string(decision.SafetyClass),
+		})
+	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {
 		cacheSaved := s.CacheReadTokens + s.ProviderCachedTokens
 		out = append(out, MechanismAccounting{
