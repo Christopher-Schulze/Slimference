@@ -70,11 +70,41 @@ func TestWSSABReplayCaptureWrapperRecordsBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "mutated") {
-		t.Fatalf("capture must record pre-mutation payload, got %s", data)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("mutated frame must produce an original+mutated record pair, got %d lines: %s", len(lines), data)
 	}
-	if !strings.Contains(string(data), `"input":[]`) {
-		t.Fatalf("capture did not preserve original payload, got %s", data)
+	if strings.Contains(lines[0], `"mutated":true`) || !strings.Contains(lines[0], `"input":[]`) {
+		t.Fatalf("first record must be the unmarked original payload, got %s", lines[0])
+	}
+	if !strings.Contains(lines[1], `"mutated":true`) || !strings.Contains(lines[1], `"content":"mutated"`) {
+		t.Fatalf("second record must be the marked post-mutation payload, got %s", lines[1])
+	}
+}
+
+func TestWSSABReplayCaptureWrapperUnmutatedFrameRecordsOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "frames.jsonl")
+	capture := newWSSABReplayCapture(path)
+	if capture == nil {
+		t.Fatal("capture was not created")
+	}
+	env := parseWSJSON(t, map[string]any{"type": string(wsmitm.FrameKindRequest), "body": map[string]any{"input": []any{}}})
+	handler := capture.Wrap(func(_ context.Context, _ wsmitm.Direction, _ *wsmitm.Envelope) (bool, error) {
+		return false, nil
+	})
+	if replaced, err := handler(context.Background(), wsmitm.DirClientToServer, &env); err != nil || replaced {
+		t.Fatalf("handler replaced=%v err=%v", replaced, err)
+	}
+	if err := capture.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 || strings.Contains(lines[0], `"mutated":true`) {
+		t.Fatalf("unmutated frame must record exactly one unmarked line, got %s", data)
 	}
 }
 

@@ -25,6 +25,10 @@ type wssABReplayCaptureRecord struct {
 	Payload   json.RawMessage  `json:"payload"`
 	Kind      wsmitm.FrameKind `json:"kind,omitempty"`
 	Sequence  int64            `json:"sequence,omitempty"`
+	// Mutated marks the B-side: the frame as re-serialized AFTER the Phase-F
+	// handler replaced it (what actually went upstream). Unmutated frames
+	// appear once; mutated frames appear twice (original, then mutated).
+	Mutated bool `json:"mutated,omitempty"`
 }
 
 func newWSSABReplayCaptureFromEnv() *wssABReplayCapture {
@@ -66,21 +70,48 @@ func (c *wssABReplayCapture) Wrap(next wsmitm.FrameHandler) wsmitm.FrameHandler 
 		if next == nil {
 			return false, nil
 		}
-		return next(ctx, dir, env)
+		replaced, err := next(ctx, dir, env)
+		if replaced {
+			// B-side: the handler replaced the frame in place; record the
+			// authoritative re-serialization that goes upstream so captures
+			// carry the exact original/mutated pair per frame (T354 proof).
+			c.recordMutated(dir, env)
+		}
+		return replaced, err
 	}
 }
 
 func (c *wssABReplayCapture) Record(dir wsmitm.Direction, env *wsmitm.Envelope) {
+	c.record(dir, env, false)
+}
+
+func (c *wssABReplayCapture) recordMutated(dir wsmitm.Direction, env *wsmitm.Envelope) {
+	c.record(dir, env, true)
+}
+
+func (c *wssABReplayCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool) {
 	if c == nil || c.f == nil || env == nil {
 		return
 	}
-	payload := env.Raw
-	if len(payload) == 0 {
+	var payload []byte
+	if mutated {
+		// env.Raw can still hold the pre-mutation bytes after an in-place
+		// Body/Request replacement; Marshal is the authoritative
+		// post-mutation serialization that the session forwards upstream.
 		marshaled, err := env.Marshal()
 		if err != nil {
 			return
 		}
 		payload = marshaled
+	} else {
+		payload = env.Raw
+		if len(payload) == 0 {
+			marshaled, err := env.Marshal()
+			if err != nil {
+				return
+			}
+			payload = marshaled
+		}
 	}
 	if !json.Valid(payload) {
 		return
@@ -91,6 +122,7 @@ func (c *wssABReplayCapture) Record(dir wsmitm.Direction, env *wsmitm.Envelope) 
 		Payload:   append(json.RawMessage(nil), payload...),
 		Kind:      env.Kind,
 		Sequence:  env.Sequence(),
+		Mutated:   mutated,
 	}
 	data, err := json.Marshal(rec)
 	if err != nil {
