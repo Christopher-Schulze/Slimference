@@ -4383,6 +4383,59 @@ func TestWSPhaseFDefaultFullHistorySearchOutputCompactsWithArchive(t *testing.T)
 	}
 }
 
+func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "search-reconnect-full-history-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-reconnect-full-history", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("reconnect full-history search output handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if replace ||
+		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("reconnect full-history search output must full-pass under proof gate: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("reconnect full-history search output should be guarded: %+v", summary)
+	}
+	if !hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "wss_search_output_risk_gate", evidence.ActionFullPass) {
+		t.Fatalf("reconnect full-history search output should keep search risk evidence: %+v", summary.EvidenceDecisions)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("guarded reconnect full-history search output must not record Layer 0 savings: %+v", snap)
+	}
+}
+
 func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
