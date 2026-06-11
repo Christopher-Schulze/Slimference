@@ -1019,6 +1019,37 @@ func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
 	if !ok || string(out) != "[gradle test] ok (BUILD SUCCESSFUL in 2s)\n" {
 		t.Fatalf("gradle all-pass compaction failed: ok=%v out=%q", ok, out)
 	}
+
+	dart := strings.Join([]string{
+		"00:00 +0: loading test/widget_test.dart",
+		strings.Repeat("00:01 +1: widget renders frame\n", 40),
+		"00:02 +40: All tests passed!",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"dart", "test"}, []byte(dart))
+	if !ok || string(out) != "[dart test] ok (00:02 +40: All tests passed!)\n" {
+		t.Fatalf("dart all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+
+	flutter := strings.Join([]string{
+		"00:00 +0: loading test/app_test.dart",
+		strings.Repeat("00:01 +1: renders home screen\n", 40),
+		"00:03 +40: All tests passed!",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"flutter", "test"}, []byte(flutter))
+	if !ok || string(out) != "[flutter test] ok (00:03 +40: All tests passed!)\n" {
+		t.Fatalf("flutter all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+
+	deno := strings.Join([]string{
+		"Check file:///repo/foo_test.ts",
+		"running 40 tests from ./foo_test.ts",
+		strings.Repeat("test case ... ok (1ms)\n", 40),
+		"ok | 40 passed | 0 failed (123ms)",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"deno", "test", "--allow-all"}, []byte(deno))
+	if !ok || string(out) != "[deno test] ok (ok | 40 passed | 0 failed (123ms))\n" {
+		t.Fatalf("deno all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
 }
 
 func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
@@ -1031,6 +1062,15 @@ func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
 	}
 	if _, ok := TryCompactGradleTest([]string{"gradle", "test"}, []byte("BUILD SUCCESSFUL in 1s\nDeprecated Gradle features were used in this build.\n")); ok {
 		t.Fatal("gradle deprecation output must fail open")
+	}
+	if _, ok := TryCompactDartTest([]string{"dart", "test"}, []byte("00:01 +0 -1: Some tests failed.\n")); ok {
+		t.Fatal("dart failure output must fail open")
+	}
+	if _, ok := TryCompactFlutterTest([]string{"flutter", "test"}, []byte("00:01 +1: All tests passed!\nWarning: golden images changed\n")); ok {
+		t.Fatal("flutter warning output must fail open")
+	}
+	if _, ok := TryCompactDenoTest([]string{"deno", "test"}, []byte("ok | 9 passed | 0 failed (10ms)\nWarning experimental API\n")); ok {
+		t.Fatal("deno warning output must fail open")
 	}
 }
 

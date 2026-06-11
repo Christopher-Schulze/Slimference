@@ -960,6 +960,12 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			wantContains: "[deno test] ok",
 		},
 		{
+			name:         "deno test verbose all-pass",
+			argv:         []string{"deno", "test", "--allow-all"},
+			stdout:       []byte("Check file:///repo/foo_test.ts\nrunning 2 tests from ./foo_test.ts\ncase one ... ok (1ms)\ncase two ... ok (1ms)\nok | 2 passed | 0 failed (12ms)\n"),
+			wantContains: "[deno test] ok (ok | 2 passed | 0 failed (12ms))",
+		},
+		{
 			name:         "karma start ok",
 			argv:         []string{"karma", "start", "--single-run"},
 			stdout:       []byte(""),
@@ -1291,10 +1297,22 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			wantContains: "[dart test] ok",
 		},
 		{
+			name:         "dart test verbose all-pass",
+			argv:         []string{"dart", "test"},
+			stdout:       []byte("00:00 +0: loading test/widget_test.dart\n00:01 +1: widget renders frame\n00:02 +1: All tests passed!\n"),
+			wantContains: "[dart test] ok (00:02 +1: All tests passed!)",
+		},
+		{
 			name:         "flutter test ok",
 			argv:         []string{"flutter", "test"},
 			stdout:       []byte(""),
 			wantContains: "[flutter test] ok",
+		},
+		{
+			name:         "flutter test verbose all-pass",
+			argv:         []string{"flutter", "test"},
+			stdout:       []byte("00:00 +0: loading test/app_test.dart\n00:01 +1: renders home screen\n00:03 +1: All tests passed!\n"),
+			wantContains: "[flutter test] ok (00:03 +1: All tests passed!)",
 		},
 		// search: ack, ugrep, sift, plocate, locate, sk (not yet covered)
 		{

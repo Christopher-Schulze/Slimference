@@ -1012,15 +1012,18 @@ func isDartTestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactDartTest summarizes empty stdout from `dart test` / `fvm dart test` / `npx|pnpm exec|yarn … dart test` (F08 partial).
+// TryCompactDartTest summarizes `dart test` / `fvm dart test` /
+// `npx|pnpm exec|yarn ... dart test`. Empty stdout is the normal quiet
+// success case. Non-empty all-pass output is compacted only when the final
+// Dart test summary is explicit and no warning/failure signal appears.
 func TryCompactDartTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if !isDartTestArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[dart test] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[dart test] ok\n"), true
+	}
+	return compactDartFlutterAllPass(stdout, "dart test")
 }
 
 func isFlutterTestArgv(argv []string) bool {
@@ -1064,15 +1067,42 @@ func isFlutterTestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactFlutterTest summarizes empty stdout from `flutter test` / `fvm flutter test` / `npx|pnpm exec|yarn … flutter test` (F08 partial).
+// TryCompactFlutterTest summarizes `flutter test` / `fvm flutter test` /
+// `npx|pnpm exec|yarn ... flutter test`. Non-empty output uses the same
+// strict all-pass parser as Dart because Flutter delegates to package:test.
 func TryCompactFlutterTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if !isFlutterTestArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[flutter test] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[flutter test] ok\n"), true
+	}
+	return compactDartFlutterAllPass(stdout, "flutter test")
+}
+
+func compactDartFlutterAllPass(stdout []byte, label string) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"some tests failed", "failed to load", "no tests ran", "exception", "error", "warning", "deprecated", "timed out", "unhandled"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	summary := ""
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.Contains(strings.ToLower(t), "all tests passed!") {
+			summary = t
+		}
+	}
+	if summary == "" {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[%s] ok (%s)\n", label, summary)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 // TryCompactElmTest summarizes empty stdout from `elm-test` / `npx|pnpm exec|yarn … elm-test` (F08 partial).
@@ -1124,15 +1154,46 @@ func isDenoTestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactDenoTest summarizes empty stdout from `deno test` / `npx … deno test` / `pnpm exec|yarn … deno test` (F08 partial).
+// TryCompactDenoTest summarizes `deno test` / `npx ... deno test` /
+// `pnpm exec|yarn ... deno test`. Non-empty output compacts only the
+// canonical all-pass summary, preserving any warning/failure transcript.
 func TryCompactDenoTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if !isDenoTestArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[deno test] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[deno test] ok\n"), true
+	}
+	return compactDenoTestAllPass(stdout)
+}
+
+func compactDenoTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failure", "error", "uncaught", "panicked", "leak", "warning", "deprecated", "not ok"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	if strings.Contains(low, "failed") && !strings.Contains(low, "0 failed") {
+		return stdout, false
+	}
+	summary := ""
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		lowLine := strings.ToLower(t)
+		if strings.HasPrefix(lowLine, "ok |") && strings.Contains(lowLine, " passed") && strings.Contains(lowLine, "0 failed") {
+			summary = t
+		}
+	}
+	if summary == "" {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[deno test] ok (%s)\n", summary)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 func isGradleTestBin(name string) bool {
