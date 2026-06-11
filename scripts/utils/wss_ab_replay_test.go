@@ -77,6 +77,46 @@ func TestWSSABReplayProductDefaultKeepsSafeReadDeltaSavings(t *testing.T) {
 	}
 }
 
+func TestWSSABReplayReportIncludesRequestShapes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "shape-session",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "start",
+			}},
+			"stream": true,
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("delta-call", "shape-session", "resp-delta", "delta tool output")),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestFullHistoryBody("full-call", "shape-session", "resp-full", "src/shape.go", "full-history output")),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RequestShapes.Root != 1 || report.RequestShapes.Delta != 1 || report.RequestShapes.FullHistory != 1 {
+		t.Fatalf("unexpected request shape counts: %+v", report.RequestShapes)
+	}
+	if report.MutatedShapes.Root != 0 || report.MutatedShapes.Delta != 0 || report.MutatedShapes.FullHistory != 0 {
+		t.Fatalf("shape-only report should not include mutations: %+v", report.MutatedShapes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSABReplay code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "request_shapes:") || !strings.Contains(stdout.String(), "full_history=1") {
+		t.Fatalf("text output missing request shape summary:\n%s", stdout.String())
+	}
+}
+
 func TestRunWSSABReplayJSONAndGateFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -323,4 +363,17 @@ func wssABReplayTestOutputBody(callID string, promptCacheKey string, previousRes
 		body["previous_response_id"] = previousResponseID
 	}
 	return body
+}
+
+func wssABReplayTestFullHistoryBody(callID string, promptCacheKey string, previousResponseID string, path string, output string) map[string]any {
+	return map[string]any{
+		"model":                "gpt-5-codex",
+		"prompt_cache_key":     promptCacheKey,
+		"previous_response_id": previousResponseID,
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+			{"type": "function_call_output", "call_id": callID, "output": output},
+		},
+		"stream": true,
+	}
 }

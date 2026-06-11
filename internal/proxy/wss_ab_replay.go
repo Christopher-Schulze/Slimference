@@ -29,8 +29,20 @@ type WSSABReplayResult struct {
 	Report                    abharness.Report
 	RequestTurns              int
 	MutatedRequests           int
+	RequestShapes             WSSABReplayShapeCounts
+	MutatedShapes             WSSABReplayShapeCounts
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
+}
+
+// WSSABReplayShapeCounts classifies request bodies by the state shape Codex
+// sends over WSS. Delta and full-history requests both carry a previous
+// response id; full-history additionally resends prior assistant/tool-use
+// context.
+type WSSABReplayShapeCounts struct {
+	Root        int `json:"root"`
+	Delta       int `json:"delta"`
+	FullHistory int `json:"full_history"`
 }
 
 // WSSABReplayReducerStats is the content-free reducer activity observed while
@@ -98,6 +110,11 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract direct request %d: %w", i, err)
 			}
+			shape, err := wssReplayRequestShape(frame.Payload)
+			if err != nil {
+				return WSSABReplayResult{}, fmt.Errorf("classify request shape %d: %w", i, err)
+			}
+			out.RequestShapes.add(shape)
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
 			out.ReducerStats.add(stats)
 			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
@@ -110,6 +127,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			}
 			if changed && !bytes.Equal(frame.Payload, mutatedBody) {
 				out.MutatedRequests++
+				out.MutatedShapes.add(shape)
 			}
 			if wssReplayExpectedInstructionExtra(frame.Payload, mutatedBody) {
 				out.ExpectedInstructionExtras++
@@ -124,6 +142,28 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		return body, err
 	})
 	return out, nil
+}
+
+func wssReplayRequestShape(body []byte) (string, error) {
+	messages, raw, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		return "", err
+	}
+	return wssRequestShape(wssRequestMetaFromRaw(raw), messages), nil
+}
+
+func (c *WSSABReplayShapeCounts) add(shape string) {
+	if c == nil {
+		return
+	}
+	switch shape {
+	case "root":
+		c.Root++
+	case "delta":
+		c.Delta++
+	case "full_history":
+		c.FullHistory++
+	}
 }
 
 func wssReplayExpectedInstructionExtra(before, after []byte) bool {

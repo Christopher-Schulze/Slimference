@@ -32,6 +32,8 @@ type wssABReplayReport struct {
 	Frames                 int                 `json:"frames"`
 	RequestTurns           int                 `json:"request_turns"`
 	MutatedRequests        int                 `json:"mutated_requests"`
+	RequestShapes          replayShapeCounts   `json:"request_shapes"`
+	MutatedShapes          replayShapeCounts   `json:"mutated_shapes"`
 	BytesBefore            int                 `json:"bytes_before"`
 	BytesAfter             int                 `json:"bytes_after"`
 	BytesSaved             int                 `json:"bytes_saved"`
@@ -52,6 +54,12 @@ type wssABReplayReport struct {
 	GatePassed             bool                `json:"gate_passed"`
 	GateFailures           []string            `json:"gate_failures,omitempty"`
 	Notes                  []string            `json:"notes,omitempty"`
+}
+
+type replayShapeCounts struct {
+	Root        int `json:"root"`
+	Delta       int `json:"delta"`
+	FullHistory int `json:"full_history"`
 }
 
 const wssABReplayHelpText = `wss-ab-replay: run Codex WSS frames through the Phase-F comprehension A/B harness
@@ -193,6 +201,8 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		Frames:                 len(frames),
 		RequestTurns:           result.RequestTurns,
 		MutatedRequests:        result.MutatedRequests,
+		RequestShapes:          replayShapeCountsFromProxy(result.RequestShapes),
+		MutatedShapes:          replayShapeCountsFromProxy(result.MutatedShapes),
 		BytesBefore:            result.Report.BytesBefore,
 		BytesAfter:             result.Report.BytesAfter,
 		BytesSaved:             result.Report.Saved(),
@@ -237,6 +247,14 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", gateLost))
 	}
 	return report, nil
+}
+
+func replayShapeCountsFromProxy(counts proxy.WSSABReplayShapeCounts) replayShapeCounts {
+	return replayShapeCounts{
+		Root:        counts.Root,
+		Delta:       counts.Delta,
+		FullHistory: counts.FullHistory,
+	}
 }
 
 func parseNonNegativeIntFlag(name, raw string) (int, error) {
@@ -371,6 +389,10 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	fmt.Fprintf(w, "  frames:           %d\n", report.Frames)
 	fmt.Fprintf(w, "  request_turns:    %d\n", report.RequestTurns)
 	fmt.Fprintf(w, "  mutated_requests: %d\n", report.MutatedRequests)
+	fmt.Fprintf(w, "  request_shapes:   root=%d delta=%d full_history=%d\n",
+		report.RequestShapes.Root, report.RequestShapes.Delta, report.RequestShapes.FullHistory)
+	fmt.Fprintf(w, "  mutated_shapes:   root=%d delta=%d full_history=%d\n",
+		report.MutatedShapes.Root, report.MutatedShapes.Delta, report.MutatedShapes.FullHistory)
 	fmt.Fprintf(w, "  bytes_before:     %d\n", report.BytesBefore)
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)
 	fmt.Fprintf(w, "  bytes_saved:      %d\n", report.BytesSaved)

@@ -100,6 +100,87 @@ func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayClassifiesRequestShapes(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+
+	frames := []WSSABReplayFrame{
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "shape-session",
+				"input": []map[string]any{{
+					"type":    "message",
+					"role":    "user",
+					"content": "start",
+				}},
+				"stream": true,
+			}),
+		},
+		wssReplayClientToolOutputFrame("delta-call", "shape-session", "resp-delta", "delta tool output"),
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":                "gpt-5-codex",
+				"prompt_cache_key":     "shape-session",
+				"previous_response_id": "resp-full",
+				"input": []map[string]any{
+					{"type": "function_call", "call_id": "full-call", "name": "read_file", "arguments": map[string]any{"path": "src/shape.go"}},
+					{"type": "function_call_output", "call_id": "full-call", "output": "full-history output"},
+				},
+				"stream": true,
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestShapes.Root != 1 || got.RequestShapes.Delta != 1 || got.RequestShapes.FullHistory != 1 {
+		t.Fatalf("unexpected request shape counts: %+v", got.RequestShapes)
+	}
+	if got.MutatedShapes.Root != 0 || got.MutatedShapes.Delta != 0 || got.MutatedShapes.FullHistory != 0 {
+		t.Fatalf("shape-only replay should not report mutations: %+v", got.MutatedShapes)
+	}
+}
+
+func TestRunWSSPhaseFABReplayCountsMutatedFullHistoryShape(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+
+	var file strings.Builder
+	for i := 0; i < 160; i++ {
+		fmt.Fprintf(&file, "Full-history fixture line %03d with stable content for shape accounting.\n", i)
+	}
+	frames := []WSSABReplayFrame{
+		wssReplayFullHistoryToolOutputFrame("read-1", "full-history-session", "resp-full-1", "src/full.go", file.String()),
+		wssReplayFullHistoryToolOutputFrame("read-2", "full-history-session", "resp-full-2", "src/full.go", file.String()),
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestShapes.FullHistory != 2 || got.RequestShapes.Root != 0 || got.RequestShapes.Delta != 0 {
+		t.Fatalf("unexpected full-history request counts: %+v", got.RequestShapes)
+	}
+	if got.MutatedShapes.FullHistory != 1 || got.MutatedShapes.Root != 0 || got.MutatedShapes.Delta != 0 {
+		t.Fatalf("unexpected full-history mutation counts: %+v", got.MutatedShapes)
+	}
+	if got.ReducerStats.ReadDeltaBlocks != 1 || got.Report.Saved() <= 0 {
+		t.Fatalf("full-history repeated read should produce one audited saving: stats=%+v report=%+v", got.ReducerStats, got.Report)
+	}
+}
+
 func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -259,6 +340,22 @@ func wssReplayClientToolOutputFrame(callID string, promptCacheKey string, previo
 	return WSSABReplayFrame{
 		Direction: wsmitm.DirClientToServer,
 		Payload:   mustMarshal(body),
+	}
+}
+
+func wssReplayFullHistoryToolOutputFrame(callID string, promptCacheKey string, previousResponseID string, path string, output string) WSSABReplayFrame {
+	return WSSABReplayFrame{
+		Direction: wsmitm.DirClientToServer,
+		Payload: mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     promptCacheKey,
+			"previous_response_id": previousResponseID,
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": output},
+			},
+			"stream": true,
+		}),
 	}
 }
 
