@@ -12,8 +12,10 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/abharness"
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
@@ -36,6 +38,7 @@ type WSSABReplayResult struct {
 	CapturedMutatedShapes     WSSABReplayShapeCounts
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
+	SearchStats               WSSABReplaySearchStats
 }
 
 // WSSABReplayShapeCounts classifies request bodies by the state shape Codex
@@ -46,6 +49,19 @@ type WSSABReplayShapeCounts struct {
 	Root        int `json:"root"`
 	Delta       int `json:"delta"`
 	FullHistory int `json:"full_history"`
+}
+
+// WSSABReplaySearchStats is content-free proof metadata for the named-search
+// WSS path. It distinguishes "the capture had no upstream errors" from "the
+// capture actually exercised the search-output mutation surface."
+type WSSABReplaySearchStats struct {
+	RequestTurns            int
+	MutatedRequests         int
+	CapturedMutatedRequests int
+	UpstreamErrorFrames     int
+	HTTP400Errors           int
+	InvalidRequestErrors    int
+	ResponseFailedFrames    int
 }
 
 // WSSABReplayReducerStats is the content-free reducer activity observed while
@@ -97,6 +113,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	turns := make([]abharness.Turn, 0, len(frames))
 	out := WSSABReplayResult{}
+	lastRequestWasSearch := false
 
 	for i, frame := range frames {
 		env, err := wsmitm.Parse(frame.Payload)
@@ -105,10 +122,17 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		}
 		switch frame.Direction {
 		case wsmitm.DirServerToClient:
+			if wssReplayUpstreamErrorKind(env.Kind) && lastRequestWasSearch {
+				out.SearchStats.recordUpstreamError(&env)
+			}
 			if _, err := adapter.handle(context.Background(), frame.Direction, &env); err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("handle server frame %d: %w", i, err)
 			}
 		case wsmitm.DirClientToServer:
+			searchRequest, err := wssReplayRequestHasNamedSearchOutput(frame.Payload, adapter)
+			if err != nil {
+				return WSSABReplayResult{}, fmt.Errorf("classify search request %d: %w", i, err)
+			}
 			before, err := extractWSSReplayModelFacingMessages(frame.Payload)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract direct request %d: %w", i, err)
@@ -120,9 +144,16 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if frame.Mutated {
 				out.CapturedMutatedRequests++
 				out.CapturedMutatedShapes.add(shape)
+				if searchRequest {
+					out.SearchStats.CapturedMutatedRequests++
+				}
+				lastRequestWasSearch = searchRequest
 				continue
 			}
 			out.RequestShapes.add(shape)
+			if searchRequest {
+				out.SearchStats.RequestTurns++
+			}
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
 			out.ReducerStats.add(stats)
 			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
@@ -136,11 +167,15 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if changed && !bytes.Equal(frame.Payload, mutatedBody) {
 				out.MutatedRequests++
 				out.MutatedShapes.add(shape)
+				if searchRequest {
+					out.SearchStats.MutatedRequests++
+				}
 			}
 			if wssReplayExpectedInstructionExtra(frame.Payload, mutatedBody) {
 				out.ExpectedInstructionExtras++
 			}
 			rememberReplayRequestState(adapter, runtimeMessages)
+			lastRequestWasSearch = searchRequest
 		default:
 			return WSSABReplayResult{}, fmt.Errorf("frame %d has unsupported direction %q", i, frame.Direction)
 		}
@@ -158,6 +193,70 @@ func wssReplayRequestShape(body []byte) (string, error) {
 		return "", err
 	}
 	return wssRequestShape(wssRequestMetaFromRaw(raw), messages), nil
+}
+
+func wssReplayRequestHasNamedSearchOutput(body []byte, adapter *wsPhaseFAdapter) (bool, error) {
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		return false, err
+	}
+	toolUses := wssReplayToolUseIndex(messages, adapter)
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, commandFromToolUse := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := proxyLayer0CommandLine(use)
+			workload := savingspolicy.CodexWorkloadCommand
+			if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
+				workload = savingspolicy.CodexWorkloadSearch
+			}
+			if proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func wssReplayToolUseIndex(messages []types.Message, adapter *wsPhaseFAdapter) map[string]types.ContentBlock {
+	out := proxyToolUseIndex(messages)
+	if adapter == nil {
+		return out
+	}
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	for id, use := range adapter.toolUses {
+		if _, exists := out[id]; !exists {
+			if out == nil {
+				out = make(map[string]types.ContentBlock)
+			}
+			out[id] = use
+		}
+	}
+	return out
+}
+
+func wssReplayUpstreamErrorKind(kind wsmitm.FrameKind) bool {
+	return kind == wsmitm.FrameKindError || kind == wsmitm.FrameKindResponseFailed
+}
+
+func (s *WSSABReplaySearchStats) recordUpstreamError(env *wsmitm.Envelope) {
+	if s == nil {
+		return
+	}
+	s.UpstreamErrorFrames++
+	if env != nil && env.Kind == wsmitm.FrameKindResponseFailed {
+		s.ResponseFailedFrames++
+	}
+	status, errorType, _ := wssUpstreamErrorFields(env)
+	if status == "400" {
+		s.HTTP400Errors++
+	}
+	if errorType == "invalid_request_error" {
+		s.InvalidRequestErrors++
+	}
 }
 
 func (c *WSSABReplayShapeCounts) add(shape string) {

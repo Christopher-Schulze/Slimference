@@ -356,6 +356,13 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			if !replay.GatePassed {
 				capture.GateFailures = append(capture.GateFailures, replay.GateFailures...)
 			}
+			if capture.WorkloadClass == "search_loop" {
+				if replay.SearchRequestTurns+replay.SearchCapturedMutated == 0 {
+					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output request")
+				} else if replay.SearchMutatedRequests+replay.SearchCapturedMutated == 0 {
+					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output mutation")
+				}
+			}
 			if replay.BytesSaved > 0 {
 				report.PositiveReplayByteSavings++
 			}

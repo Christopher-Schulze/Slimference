@@ -9,6 +9,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/abharness"
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
@@ -197,6 +198,137 @@ func TestRunWSSPhaseFABReplayCountsCapturedMutatedFullHistoryShape(t *testing.T)
 	}
 }
 
+func TestRunWSSPhaseFABReplayTracksNamedSearchProofStats(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("search-1", "exec_command", map[string]any{"cmd": "rg -n needle src"}),
+		wssReplayClientToolOutputFrame("search-1", "search-proof-session", "", wssReplaySearchOutputFixture("needle", 96)),
+		{
+			Direction: wsmitm.DirServerToClient,
+			Payload: mustMarshal(map[string]any{
+				"type":   string(wsmitm.FrameKindError),
+				"status": 400,
+				"error": map[string]any{
+					"type":    "invalid_request_error",
+					"message": "Invalid request",
+				},
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SearchStats.RequestTurns != 1 || got.SearchStats.MutatedRequests != 1 {
+		t.Fatalf("named search request/mutation not counted: %+v", got.SearchStats)
+	}
+	if got.SearchStats.UpstreamErrorFrames != 1 || got.SearchStats.HTTP400Errors != 1 ||
+		got.SearchStats.InvalidRequestErrors != 1 || got.SearchStats.ResponseFailedFrames != 0 {
+		t.Fatalf("search upstream error not attributed: %+v", got.SearchStats)
+	}
+}
+
+func TestRunWSSPhaseFABReplayTracksCapturedMutatedSearchStats(t *testing.T) {
+	frame := wssReplayClientToolOutputFrame("search-captured", "captured-search-session", "", wssReplaySearchOutputFixture("needle", 40))
+	frame.Mutated = true
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("search-captured", "exec_command", map[string]any{"cmd": "rg -n needle src"}),
+		frame,
+	}
+
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SearchStats.RequestTurns != 0 || got.SearchStats.MutatedRequests != 0 ||
+		got.SearchStats.CapturedMutatedRequests != 1 {
+		t.Fatalf("captured mutated search stats wrong: %+v", got.SearchStats)
+	}
+}
+
+func TestRunWSSPhaseFABReplayAttributesSearchResponseFailed(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("search-failed", "exec_command", map[string]any{"cmd": "rg -n needle src"}),
+		wssReplayClientToolOutputFrame("search-failed", "search-response-failed-session", "", wssReplaySearchOutputFixture("needle", 96)),
+		{
+			Direction: wsmitm.DirServerToClient,
+			Payload: mustMarshal(map[string]any{
+				"type": string(wsmitm.FrameKindResponseFailed),
+				"response": map[string]any{
+					"status": "failed",
+					"error":  map[string]any{"type": "server_error"},
+				},
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SearchStats.UpstreamErrorFrames != 1 || got.SearchStats.ResponseFailedFrames != 1 ||
+		got.SearchStats.InvalidRequestErrors != 0 || got.SearchStats.HTTP400Errors != 0 {
+		t.Fatalf("search response.failed not attributed precisely: %+v", got.SearchStats)
+	}
+}
+
+func TestRunWSSPhaseFABReplayDoesNotTreatUnresolvedSearchOutputAsProof(t *testing.T) {
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{
+		wssReplayClientToolOutputFrame("missing-search-use", "unresolved-search-session", "", wssReplaySearchOutputFixture("needle", 96)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SearchStats.RequestTurns != 0 || got.SearchStats.MutatedRequests != 0 {
+		t.Fatalf("unresolved search-looking output must not count as named search proof: %+v", got.SearchStats)
+	}
+}
+
+func TestWSSReplaySearchClassifierUsesRememberedToolUse(t *testing.T) {
+	frame := wssReplayClientToolOutputFrame("remembered-search", "remembered-search-session", "", wssReplaySearchOutputFixture("needle", 8))
+	adapter := &wsPhaseFAdapter{
+		toolUses: map[string]types.ContentBlock{
+			"remembered-search": {
+				Type:      "tool_use",
+				ToolUseID: "remembered-search",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"rg -n needle src"}`,
+			},
+		},
+	}
+
+	ok, err := wssReplayRequestHasNamedSearchOutput(frame.Payload, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("remembered tool use should classify the output as named search proof")
+	}
+	if index := wssReplayToolUseIndex(nil, adapter); len(index) != 1 || index["remembered-search"].ToolName != "exec_command" {
+		t.Fatalf("remembered tool-use index not merged: %+v", index)
+	}
+	if index := wssReplayToolUseIndex(nil, nil); len(index) != 0 {
+		t.Fatalf("nil adapter should return no remembered tool uses: %+v", index)
+	}
+	if _, err := wssReplayRequestHasNamedSearchOutput([]byte(`{"input":`), nil); err == nil {
+		t.Fatal("malformed request should fail search proof classification")
+	}
+}
+
 func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -381,4 +513,12 @@ func wssReplayArgumentsString(arguments map[string]any) string {
 		panic(err)
 	}
 	return string(body)
+}
+
+func wssReplaySearchOutputFixture(needle string, count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
+	}
+	return out.String()
 }

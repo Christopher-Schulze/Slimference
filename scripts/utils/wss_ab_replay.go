@@ -55,6 +55,13 @@ type wssABReplayReport struct {
 	UpstreamHTTP400Errors      int                 `json:"upstream_http_400_errors"`
 	UpstreamInvalidRequests    int                 `json:"upstream_invalid_request_errors"`
 	UpstreamResponseFailures   int                 `json:"upstream_response_failed_frames"`
+	SearchRequestTurns         int                 `json:"search_request_turns"`
+	SearchMutatedRequests      int                 `json:"search_mutated_requests"`
+	SearchCapturedMutated      int                 `json:"search_captured_mutated_requests,omitempty"`
+	SearchUpstreamErrors       int                 `json:"search_upstream_error_frames"`
+	SearchHTTP400Errors        int                 `json:"search_http_400_errors"`
+	SearchInvalidRequests      int                 `json:"search_invalid_request_errors"`
+	SearchResponseFailures     int                 `json:"search_response_failed_frames"`
 	ToolOutputMutation         bool                `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutationLab bool                `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
 	Lost                       int                 `json:"lost"`
@@ -243,6 +250,13 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		UpstreamHTTP400Errors:      upstream.HTTP400Errors,
 		UpstreamInvalidRequests:    upstream.InvalidRequestErrors,
 		UpstreamResponseFailures:   upstream.ResponseFailedFrames,
+		SearchRequestTurns:         result.SearchStats.RequestTurns,
+		SearchMutatedRequests:      result.SearchStats.MutatedRequests,
+		SearchCapturedMutated:      result.SearchStats.CapturedMutatedRequests,
+		SearchUpstreamErrors:       result.SearchStats.UpstreamErrorFrames,
+		SearchHTTP400Errors:        result.SearchStats.HTTP400Errors,
+		SearchInvalidRequests:      result.SearchStats.InvalidRequestErrors,
+		SearchResponseFailures:     result.SearchStats.ResponseFailedFrames,
 		ToolOutputMutation:         toolOutputMutation,
 		DeltaToolOutputMutationLab: flags.deltaToolOutputMutationLab,
 		Lost:                       result.Report.Lost(),
@@ -546,6 +560,14 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 		report.UpstreamInvalidRequests,
 		report.UpstreamHTTP400Errors,
 		report.UpstreamResponseFailures)
+	fmt.Fprintf(w, "  search_turns:     requests=%d mutated=%d captured=%d upstream_errors=%d invalid_request=%d http_400=%d response_failed=%d\n",
+		report.SearchRequestTurns,
+		report.SearchMutatedRequests,
+		report.SearchCapturedMutated,
+		report.SearchUpstreamErrors,
+		report.SearchInvalidRequests,
+		report.SearchHTTP400Errors,
+		report.SearchResponseFailures)
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
 	if report.ExpectedExtras > 0 {
 		fmt.Fprintf(w, "  expected_extras:  %d\n", report.ExpectedExtras)

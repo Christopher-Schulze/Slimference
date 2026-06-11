@@ -1058,9 +1058,15 @@ comprehension A/B byte delta after archive expansion and note alignment, while
 mechanism counters report the model-facing compressed request savings from that
 specific replay mode. The report also counts server-to-client upstream error
 frames, `response.failed` frames, HTTP 400 error frames, and
-`invalid_request_error` frames. `--fail-on-upstream-error` turns those counters
-into a proof gate, so a capture cannot pass just because the no-loss comparison
-was green while the upstream had already rejected the session. Its JSONL input is
+`invalid_request_error` frames. Search-output proof rows get separate
+content-free counters for named search request turns, search mutations, captured
+mutated search turns, and upstream 400/`invalid_request_error`/`response.failed`
+frames attributed to the immediately preceding named search-output request. This
+distinguishes "the capture had no upstream errors" from "the capture exercised
+the exact search reducer surface being certified". `--fail-on-upstream-error`
+turns those counters into a proof gate, so a capture cannot pass just because
+the no-loss comparison was green while the upstream had already rejected the
+session. Its JSONL input is
 content-bearing by definition, so it
 belongs in local/private
 captures only; it does not read auth headers or WebSocket upgrade metadata. Each
@@ -2746,8 +2752,12 @@ passed, those command-line reducer expectations are authoritative for the
 focused proof, so older exploratory rows in the same matrix cannot pollute a
 single-mechanism closeout. Replay inside the matrix uses the same upstream-error
 gate as `codex-capture-run`, so 400/`invalid_request_error` captures fail even
-when live counters or replay byte savings are otherwise positive. Unfocused
-release-proof mode still validates every
+when live counters or replay byte savings are otherwise positive. A
+`search_loop` row also fails closed unless replay saw a named search-output
+request turn and either replay-mutated that named search output or captured an
+already-mutated named search-output request, preventing repeat-read, generic
+tool-output, or unmutated search fixtures from standing in for search proof.
+Unfocused release-proof mode still validates every
 row exactly as recorded.
 `go run ./scripts/verify -mode host-resource-plan -client codex_cli|codex_desktop`
 prints the T272 resource/profile ceremony for the only remaining host-budget

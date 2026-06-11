@@ -41,7 +41,9 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 	for i, class := range classes {
 		framesPath := filepath.Join(dir, fmt.Sprintf("frames-%02d.jsonl", i))
 		expectedZero := class == "no_savings_control"
-		if expectedZero {
+		if class == "search_loop" {
+			writeProofSearchFrames(t, framesPath, fmt.Sprintf("session-%02d", i))
+		} else if expectedZero {
 			writeProofControlFrames(t, framesPath, fmt.Sprintf("session-%02d", i))
 		} else {
 			writeProofRepeatReadFrames(t, framesPath, fmt.Sprintf("session-%02d", i))
@@ -122,7 +124,7 @@ func TestWSSProofMatrixFailsOnReplayUpstreamError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	framesPath := filepath.Join(dir, "frames.jsonl")
-	writeProofRepeatReadFrames(t, framesPath, "upstream-error-matrix")
+	writeProofSearchFrames(t, framesPath, "upstream-error-matrix")
 	appendJSONLFile(t, framesPath, wssABReplayTestRecord("server_to_client", map[string]any{
 		"type":   "error",
 		"status": 400,
@@ -269,7 +271,7 @@ func TestWSSProofMatrixFocusedGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	framesPath := filepath.Join(dir, "frames.jsonl")
-	writeProofRepeatReadFrames(t, framesPath, "focused-search")
+	writeProofSearchFrames(t, framesPath, "focused-search")
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
 	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
 		ID:               "focused-search",
@@ -303,6 +305,73 @@ func TestWSSProofMatrixFocusedGate(t *testing.T) {
 	}
 	if !focusedReport.GatePassed || len(focusedReport.MissingWorkloads) != 0 {
 		t.Fatalf("focused proof gate should pass: %+v", focusedReport)
+	}
+}
+
+func TestWSSProofMatrixSearchLoopRequiresSearchMutation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofSearchFramesWithCount(t, framesPath, "focused-search-no-mutation", 1)
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "focused-search-no-mutation",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "named search-output mutation") {
+		t.Fatalf("search_loop without search mutation should fail: %+v", report)
+	}
+}
+
+func TestWriteWSSProofMatrixTextIncludesCaptureFailures(t *testing.T) {
+	report := wssProofMatrixReport{
+		Path:                      "matrix.jsonl",
+		Captures:                  1,
+		CLI:                       1,
+		PositiveSavings:           1,
+		PositiveTokenSavings:      1,
+		PositiveReplayByteSavings: 0,
+		CapturesWithIssues:        1,
+		WorkloadClasses:           map[string]int{"search_loop": 1},
+		GateFailures:              []string{"1 capture(s) failed per-capture gates"},
+		CaptureReports: []wssProofMatrixCapture{{
+			ID:            "search-no-mutation",
+			Client:        "cli",
+			WorkloadClass: "search_loop",
+			LiveDelta:     proofMatrixLiveDelta(false),
+			Replay:        wssABReplayReport{BytesSaved: 0, MutatedRequests: 0},
+			GateFailures:  []string{"search_loop proof has no named search-output mutation"},
+		}},
+	}
+
+	var out bytes.Buffer
+	writeWSSProofMatrixText(&out, report)
+	text := out.String()
+	for _, want := range []string{
+		"WSS proof matrix: matrix.jsonl",
+		"search_loop",
+		"search-no-mutation",
+		"billable_tokens=100 economic_tokens=100",
+		"search_loop proof has no named search-output mutation",
+		"1 capture(s) failed per-capture gates",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("matrix text missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -634,7 +703,7 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	framesPath := filepath.Join(dir, "frames.jsonl")
-	writeProofRepeatReadFrames(t, framesPath, "extended-signals")
+	writeProofSearchFrames(t, framesPath, "extended-signals")
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
 	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
 		ID:            "extended-signals",
@@ -712,7 +781,7 @@ func TestWSSProofMatrixHostBudgetFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	framesPath := filepath.Join(dir, "frames.jsonl")
-	writeProofRepeatReadFrames(t, framesPath, "host-budget-fail")
+	writeProofSearchFrames(t, framesPath, "host-budget-fail")
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
 	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
 		ID:            "host-budget-fail",

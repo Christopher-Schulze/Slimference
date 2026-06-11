@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Christopher-Schulze/Slimference/internal/abharness"
 )
 
 func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
@@ -74,6 +76,96 @@ func TestWSSABReplayProductDefaultKeepsSafeReadDeltaSavings(t *testing.T) {
 	}
 	if report.Lost != 0 || !report.GatePassed {
 		t.Fatalf("product-default read-delta replay should pass comprehension gate: %+v", report)
+	}
+}
+
+func TestWSSABReplayReportTracksSearchProofStats(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeProofSearchFrames(t, path, "search-report")
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path, toolOutputMutation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SearchRequestTurns != 1 || report.SearchMutatedRequests != 1 ||
+		report.SearchCapturedMutated != 0 || report.SearchUpstreamErrors != 0 {
+		t.Fatalf("unexpected search proof stats: %+v", report)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path, "--tool-output-mutation"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSABReplay code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "search_turns:") ||
+		!strings.Contains(stdout.String(), "requests=1 mutated=1") {
+		t.Fatalf("text output missing search proof stats:\n%s", stdout.String())
+	}
+}
+
+func TestWriteWSSABReplayTextIncludesProofDiagnostics(t *testing.T) {
+	report := wssABReplayReport{
+		Path:                    "frames.jsonl",
+		Frames:                  3,
+		RequestTurns:            1,
+		MutatedRequests:         1,
+		CapturedMutatedRequests: 1,
+		RequestShapes:           replayShapeCounts{Root: 1},
+		MutatedShapes:           replayShapeCounts{Root: 1},
+		CapturedMutatedShapes:   replayShapeCounts{Delta: 1},
+		BytesBefore:             1000,
+		BytesAfter:              700,
+		BytesSaved:              300,
+		ReducerTokensSaved:      42,
+		ReducerBlocksModified:   2,
+		ReducerReadDeltaBlocks:  1,
+		ReducerRepeatedBlocks:   1,
+		ReducerChunkBlocks:      1,
+		ReducerCapturedBlocks:   1,
+		ReducerEnvelopeBlocks:   1,
+		ReducerChunkRefs:        2,
+		ReducerChunkRefBytes:    512,
+		ReducerChunkInputBytes:  2048,
+		UpstreamErrorFrames:     1,
+		UpstreamHTTP400Errors:   1,
+		UpstreamInvalidRequests: 1,
+		SearchRequestTurns:      1,
+		SearchMutatedRequests:   1,
+		SearchUpstreamErrors:    1,
+		SearchHTTP400Errors:     1,
+		SearchInvalidRequests:   1,
+		ToolOutputMutation:      true,
+		Lost:                    1,
+		ExpectedExtras:          1,
+		Elisions: []abharness.Elision{{
+			Turn:     2,
+			Block:    3,
+			Severity: "recoverable_prior_full",
+			Bytes:    64,
+			Preview:  "proof preview",
+		}},
+		GateFailures: []string{"search_loop proof has no named search-output mutation"},
+		Notes:        []string{"proof note"},
+	}
+
+	var out bytes.Buffer
+	writeWSSABReplayText(&out, report)
+	text := out.String()
+	for _, want := range []string{
+		"captured_mutated: 1",
+		"reducer_blocks:   modified=2 read_delta=1 repeated=1 chunk=1 captured=1 envelope=1",
+		"chunk_refs:       refs=2 referenced_bytes=512 input_bytes=2048",
+		"search_turns:     requests=1 mutated=1 captured=0 upstream_errors=1 invalid_request=1 http_400=1 response_failed=0",
+		"expected_extras:  1",
+		"recoverable_prior_full",
+		"search_loop proof has no named search-output mutation",
+		"proof note",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text report missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -459,6 +551,40 @@ func wssABReplayTestOutputBody(callID string, promptCacheKey string, previousRes
 		body["previous_response_id"] = previousResponseID
 	}
 	return body
+}
+
+func writeProofSearchFrames(t *testing.T, path, session string) {
+	t.Helper()
+	writeProofSearchFramesWithCount(t, path, session, 96)
+}
+
+func writeProofSearchFramesWithCount(t *testing.T, path, session string, lines int) {
+	t.Helper()
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   session + "-search-1",
+				"name":      "exec_command",
+				"arguments": `{"cmd":"rg -n needle src"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(
+			session+"-search-1",
+			session,
+			"",
+			wssABReplaySearchOutputFixture("needle", lines),
+		)),
+	)
+}
+
+func wssABReplaySearchOutputFixture(needle string, count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
+	}
+	return out.String()
 }
 
 func wssABReplayTestFullHistoryBody(callID string, promptCacheKey string, previousResponseID string, path string, output string) map[string]any {
