@@ -105,10 +105,18 @@ routine use, it stays out of the product path.
   direct `chatgpt.com` sockets, and the daemon decisions log records the Desktop
   conversation as `route_mode=websocket_phasef` for `/backend-api/codex/responses`
   - the same Phase-F route the certified CLI uses, with byte-identical
-  `permessage-deflate` frames. Desktop WSS routing is therefore proven;
-  proof-fresh WSS can compact state-safe status output after the tool call is
-  known; broader stateful WSS tool-output mutation is experimental non-product
-  lab/proof code behind an explicit opt-in.
+  `permessage-deflate` frames. Desktop WSS routing is therefore proven.
+  Stateful WSS tool-output structured mutation (captured-output and
+  codex-exec-envelope compaction) is default-on when every tool output in the
+  request resolves to its `tool_use`, archive recovery is active, and a session
+  namespace exists for the archive URI: the mutation is archived before
+  replacement and carries an in-band `local-archive://` recovery reference, so
+  it is strictly safer than the default-on HTTP captured-output path which
+  archives nothing. Unresolved tool outputs or non-archive modes keep the
+  `wss_stateful_structured_mutation_guard` full-pass. The
+  `codex_wss_tool_output_mutation_enabled` flag still exists to force mutation
+  on without the resolution/archive preconditions and stays an experimental
+  non-product opt-in.
   Voice (`thread/realtime/*`), Browser ChatGPT,
   ChatGPT.app, computer-use, and Claude Code are untouched. Note: the sampled
   `desktop status` WSS counters lag and must not be used to claim or deny
@@ -581,10 +589,17 @@ prefer this rollup instead of inventing their own mixed headline.
 windowed CPU percentage, OS-reported lifetime and windowed disk read/write
 operation counters, bounded state-directory size, the 200 MiB RSS budget, the
 512 MiB state budget, WSS compression/parse/degrade health, mutation activity,
-and content-free reason codes. The daemon/admin path uses an in-process
-resource probe for PID, uptime, real RSS, process CPU time, disk I/O counters,
-and state size where the platform can provide it, avoiding a loopback
-self-health guess for the product budget. State-directory scans are entry-bound:
+and content-free reason codes. The RSS budget is evaluated against effective
+retention, the minimum of OS-reported RSS and the Go runtime's retained bytes
+(`/memory/classes/total` minus `heap/released`). On macOS ps-RSS keeps counting
+MADV_FREE pages until the kernel lazily reclaims them, so a pure-Go daemon's
+ps-RSS overstates real pressure and flaps the budget; budgeting on runtime
+retention removes the phantom demotion while real retention over 200 MiB still
+demotes. Both `rss_bytes` and `effective_rss_bytes` stay visible for
+transparency. The daemon/admin path uses an in-process
+resource probe for PID, uptime, real RSS, runtime retention, process CPU time,
+disk I/O counters, and state size where the platform can provide it, avoiding a
+loopback self-health guess for the product budget. State-directory scans are entry-bound:
 if a state tree exceeds the bounded scan limit, the host budget treats that as
 resource pressure instead of reporting a partial undercount as healthy.
 If the RSS resource probe is missing while WSS is otherwise active, the status
@@ -603,7 +618,15 @@ while keeping cheap lossless/exact cache-hit reducers (`read_delta`,
 the safest savings. Repeated Layer-0 latency budget breaches set a separate
 `latency_budget_full_context` gate after three slow frames and recover after
 cheap frames, so one spike does not disable savings but repeated local overhead
-cannot degrade Codex UX. The latency demotion bucket is persisted under
+cannot degrade Codex UX. A reducer pass that actually saved tokens is measured
+against a higher 250 ms productive ceiling instead of the 25 ms breach budget:
+time spent producing real savings is invisible next to multi-second inference
+and must not count as overhead pressure. Demoted full-pass passes stay cheap
+because per-block evidence classification is bounded to a 64 KB prefix and the
+search-risk and chunk-store probes are skipped while the gate is latched, so the
+latch can always recover; if cheap frames never reach the recovery budget, one
+strike still decays per 60 s without a breach so the gate cannot latch forever.
+The latency demotion bucket is persisted under
 `.slimference/runtime-budget` with a 30 minute TTL and capped strike debt, so a
 daemon restart does not immediately forget recent local-overhead pressure, while
 cheap frames still auto-recover without operator action. Readcache and WSS
