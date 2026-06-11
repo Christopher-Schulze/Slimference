@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,9 @@ func TestTryCompactDotnet(t *testing.T) {
 	}
 	if _, ok := TryCompactDotnet([]string{"dotnet", "restore"}, []byte("")); ok {
 		t.Fatal("restore not compacted")
+	}
+	if _, ok := TryCompactDotnet([]string{}, []byte("")); ok {
+		t.Fatal("empty argv must not compact")
 	}
 	dnNpx, ok := TryCompactDotnet([]string{"npx", "dotnet", "build"}, []byte(""))
 	if !ok || string(dnNpx) != "[dotnet build] ok\n" {
@@ -66,6 +70,86 @@ Time Elapsed 00:00:03.21
 	}
 	if len(s) >= len(input) {
 		t.Errorf("compact output should be shorter: got %d vs %d", len(s), len(input))
+	}
+}
+
+func TestTryCompactDotnet_nonEmptyTestAllPassSummary(t *testing.T) {
+	t.Parallel()
+
+	var input strings.Builder
+	input.WriteString("Test run for /repo/App.Tests/bin/Debug/net8.0/App.Tests.dll (.NETCoreApp,Version=v8.0)\n")
+	input.WriteString("VSTest version 17.10.0 (arm64)\n\n")
+	input.WriteString("Starting test execution, please wait...\n")
+	input.WriteString("A total of 1 test files matched the specified pattern.\n")
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&input, "  Passed App.Tests.WidgetTests.Case%03d [1 ms]\n", i)
+	}
+	input.WriteString("Passed!  - Failed:     0, Passed:   120, Skipped:     0, Total:   120, Duration: 1 s - App.Tests.dll (net8.0)\n")
+
+	out, ok := TryCompactDotnet([]string{"dotnet", "test", "--logger", "console;verbosity=detailed"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("dotnet test all-pass output should compact")
+	}
+	s := string(out)
+	if !strings.Contains(s, "[dotnet test] ok (120 passed, 0 skipped, 120 total across 1 assembly(s))") ||
+		!strings.Contains(s, "Passed!  - Failed:     0, Passed:   120") ||
+		strings.Contains(s, "WidgetTests.Case000") {
+		t.Fatalf("dotnet test all-pass compaction lost summary or kept roll-call: %q", s)
+	}
+	if len(s)*4 > len(input.String()) {
+		t.Fatalf("dotnet test compaction too weak: %d of %d bytes", len(s), len(input.String()))
+	}
+
+	failed := strings.Replace(input.String(), "Passed!  - Failed:     0, Passed:   120", "Failed!  - Failed:     1, Passed:   119", 1)
+	out, ok = TryCompactDotnet([]string{"dotnet", "test"}, []byte(failed))
+	if !ok || !strings.Contains(string(out), "[dotnet test] FAILED") || !strings.Contains(string(out), "Failed:     1") {
+		t.Fatalf("dotnet test failure summary should compact as failure, ok=%v out=%q", ok, out)
+	}
+}
+
+func TestTryCompactDotnet_nonEmptyWrapperTestAllPass(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		"Test run for /repo/App.Tests/bin/Debug/net8.0/App.Tests.dll (.NETCoreApp,Version=v8.0)",
+		"Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration: 222 ms - App.Tests.dll (net8.0)",
+	}, "\n")
+	for _, argv := range [][]string{
+		{"npx", "dotnet", "test"},
+		{"pnpm", "exec", "dotnet", "test"},
+		{"yarn", "dotnet", "test"},
+		{"yarn", "run", "dotnet", "test"},
+	} {
+		out, ok := TryCompactDotnet(argv, []byte(input))
+		if !ok || !strings.Contains(string(out), "[dotnet test] ok (12 passed, 1 skipped, 13 total") {
+			t.Fatalf("wrapper %v dotnet test all-pass: ok=%v out=%q", argv, ok, out)
+		}
+	}
+}
+
+func TestTryCompactDotnet_testPassedMarkerMustBeParseable(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		"Test run for /repo/App.Tests/bin/Debug/net8.0/App.Tests.dll (.NETCoreApp,Version=v8.0)",
+		"Passed! all good but no structured counts",
+	}, "\n")
+	if _, ok := TryCompactDotnet([]string{"dotnet", "test"}, []byte(input)); ok {
+		t.Fatal("unstructured Passed! output must fail open")
+	}
+}
+
+func TestTryCompactDotnet_testAllPassWithWarningPreservesDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		"Test run for /repo/App.Tests/bin/Debug/net8.0/App.Tests.dll (.NETCoreApp,Version=v8.0)",
+		"src/App.Tests/Fixture.cs(7,9): warning CS0168: variable declared but never used",
+		"Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration: 222 ms - App.Tests.dll (net8.0)",
+	}, "\n")
+	out, ok := TryCompactDotnet([]string{"dotnet", "test"}, []byte(input))
+	if !ok || !strings.Contains(string(out), "[dotnet test] FAILED") || !strings.Contains(string(out), "warning CS0168") {
+		t.Fatalf("warning diagnostic must survive compaction, ok=%v out=%q", ok, out)
 	}
 }
 
