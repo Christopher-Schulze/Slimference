@@ -1188,6 +1188,105 @@ func TestWSPhaseFToolOutputStateGuardAllowsStateSafeDefaultWSSMutation(t *testin
 	}
 }
 
+func TestWSPhaseFProviderCacheBustDetectorDemotesPreviousMutatedMechanism(t *testing.T) {
+	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
+	sessionID := "codex-wss:cache-bust-detector"
+	readDelta := proxyLayer0MechanismMaskFor(proxyLayer0MechanismReadDelta)
+
+	if event := adapter.observeWSSProviderCacheBust(sessionID, 1000, 820, 0); event.Fired {
+		t.Fatalf("first sample must not fire cache-bust guard: %+v", event)
+	}
+	if event := adapter.observeWSSProviderCacheBust(sessionID, 1000, 810, readDelta); event.Fired {
+		t.Fatalf("warm previous mutated sample must not fire before next usage frame: %+v", event)
+	}
+	event := adapter.observeWSSProviderCacheBust(sessionID, 1000, 470, 0)
+	if !event.Fired || event.Trigger != readDelta || !event.Demoted.Has(proxyLayer0MechanismReadDelta) {
+		t.Fatalf("cache-bust guard must demote the previous mutated mechanism exactly: %+v", event)
+	}
+	if got := adapter.wssCacheBustDemotedMechanisms(sessionID); got != readDelta {
+		t.Fatalf("demoted mechanism mask=%q, want %q", got.String(), readDelta.String())
+	}
+}
+
+func TestWSPhaseFProviderCacheBustDetectorIgnoresWarmupAndUnmutatedDrops(t *testing.T) {
+	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
+	sessionID := "codex-wss:cache-bust-warmup"
+	repeatedOutput := proxyLayer0MechanismMaskFor(proxyLayer0MechanismRepeatedOut)
+
+	if event := adapter.observeWSSProviderCacheBust(sessionID, 1000, 820, repeatedOutput); event.Fired {
+		t.Fatalf("first mutated warmup sample must not fire: %+v", event)
+	}
+	if event := adapter.observeWSSProviderCacheBust(sessionID, 1000, 430, 0); event.Fired {
+		t.Fatalf("second sample is still warmup and must not demote: %+v", event)
+	}
+	if got := adapter.wssCacheBustDemotedMechanisms(sessionID); got != 0 {
+		t.Fatalf("warmup demoted unexpectedly: %q", got.String())
+	}
+
+	plainSessionID := "codex-wss:cache-bust-unmutated"
+	adapter.observeWSSProviderCacheBust(plainSessionID, 1000, 820, 0)
+	adapter.observeWSSProviderCacheBust(plainSessionID, 1000, 810, 0)
+	if event := adapter.observeWSSProviderCacheBust(plainSessionID, 1000, 450, 0); event.Fired {
+		t.Fatalf("drop after unmutated turn must not demote: %+v", event)
+	}
+	if got := adapter.wssCacheBustDemotedMechanisms(plainSessionID); got != 0 {
+		t.Fatalf("unmutated drop demoted unexpectedly: %q", got.String())
+	}
+}
+
+func TestWSPhaseFCacheBustDemotionFullPassesMatchingLayer0Mechanism(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	sessionID := "codex-wss:cache-bust-guard-session"
+	adapter.mu.Lock()
+	adapter.cacheBustSessions = map[string]*wssProviderCacheBustSession{
+		sessionID: {demoted: proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut)},
+	}
+	adapter.mu.Unlock()
+
+	output := strings.Repeat("?? cache_bust_guard_file.go\n", 240)
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "cache-bust-guard-session",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_status", "name": "exec_command", "arguments": map[string]any{"cmd": "git status --short"}},
+				{"type": "function_call_output", "call_id": "call_status", "output": output},
+			},
+			"stream": true,
+		},
+	})
+
+	if replace := adapter.handleRequest(&env); replace {
+		t.Fatalf("cache-bust-demoted captured output must full-pass: %s", env.Body)
+	}
+	if !strings.Contains(string(env.Body), "cache_bust_guard_file.go") || strings.Contains(string(env.Body), "[git status]") {
+		t.Fatalf("cache-bust guard did not preserve original tool output: %s", env.Body)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one debug summary, got %d", len(summaries))
+	}
+	if summaries[0].Tokens.Saved != 0 || summaries[0].DebugFacts["wss.cache_bust_demoted_mechanisms"] != "captured_output" {
+		t.Fatalf("cache-bust full-pass summary should report demotion without savings: %+v", summaries[0])
+	}
+	guarded := false
+	for _, decision := range summaries[0].EvidenceDecisions {
+		if decision.Reason == "cache_bust_guard" {
+			guarded = true
+		}
+	}
+	if !guarded {
+		t.Fatalf("cache-bust full-pass must carry evidence reason: %+v", summaries[0].EvidenceDecisions)
+	}
+}
+
 func TestWSPhaseFUpstreamErrorQuarantinesSessionMutations(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

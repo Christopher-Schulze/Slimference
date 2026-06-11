@@ -32,6 +32,77 @@ const (
 	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
 )
 
+type proxyLayer0MechanismMask uint32
+
+const (
+	proxyLayer0MechanismMaskReadDelta proxyLayer0MechanismMask = 1 << iota
+	proxyLayer0MechanismMaskCapturedOutput
+	proxyLayer0MechanismMaskCodexExecEnvelope
+	proxyLayer0MechanismMaskRepeatedToolOutput
+	proxyLayer0MechanismMaskChunkDedup
+)
+
+func proxyLayer0MechanismMaskFor(mechanism proxyLayer0Mechanism) proxyLayer0MechanismMask {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta:
+		return proxyLayer0MechanismMaskReadDelta
+	case proxyLayer0MechanismCapturedOut:
+		return proxyLayer0MechanismMaskCapturedOutput
+	case proxyLayer0MechanismCodexEnvelope:
+		return proxyLayer0MechanismMaskCodexExecEnvelope
+	case proxyLayer0MechanismRepeatedOut:
+		return proxyLayer0MechanismMaskRepeatedToolOutput
+	case proxyLayer0MechanismChunkDedup:
+		return proxyLayer0MechanismMaskChunkDedup
+	default:
+		return 0
+	}
+}
+
+func proxyLayer0MechanismMaskFromStats(stats proxyLayer0Stats) proxyLayer0MechanismMask {
+	var mask proxyLayer0MechanismMask
+	if stats.ReadDeltaBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskReadDelta
+	}
+	if stats.CapturedOutputBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskCapturedOutput
+	}
+	if stats.CodexExecEnvelopeBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskCodexExecEnvelope
+	}
+	if stats.RepeatedOutputBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskRepeatedToolOutput
+	}
+	if stats.ChunkDedupBlocks > 0 {
+		mask |= proxyLayer0MechanismMaskChunkDedup
+	}
+	return mask
+}
+
+func (m proxyLayer0MechanismMask) Has(mechanism proxyLayer0Mechanism) bool {
+	bit := proxyLayer0MechanismMaskFor(mechanism)
+	return bit != 0 && m&bit != 0
+}
+
+func (m proxyLayer0MechanismMask) String() string {
+	if m == 0 {
+		return ""
+	}
+	names := make([]string, 0, 5)
+	for _, mechanism := range []proxyLayer0Mechanism{
+		proxyLayer0MechanismReadDelta,
+		proxyLayer0MechanismCapturedOut,
+		proxyLayer0MechanismCodexEnvelope,
+		proxyLayer0MechanismRepeatedOut,
+		proxyLayer0MechanismChunkDedup,
+	} {
+		if m.Has(mechanism) {
+			names = append(names, string(mechanism))
+		}
+	}
+	return strings.Join(names, ",")
+}
+
 type proxyLayer0CacheAction string
 
 const (
@@ -54,26 +125,27 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route                     codexLayer0Route
-	Messages                  []types.Message
-	SessionID                 string
-	TurnID                    string
-	RememberedToolUse         map[string]types.ContentBlock
-	SuppressedToolKey         map[string]struct{}
-	RecentFullPassTurns       int
-	ChunkDedupEnabled         bool
-	ExplicitChunkDedup        bool
-	ChunkDedupProof           savingspolicy.CodexProof
-	ChunkDedupMinBytes        int
-	ChunkDedupMaxRefPct       int
-	ChunkStore                *chunkdedup.Store
-	PolicyMode                string
-	ArchiveRecovery           bool
-	RecentEditUncertainty     bool
-	HostBudgetExceeded        bool
-	LatencyBudgetExceeded     bool
-	ChunkIntegrityBudgetHit   bool
-	StructuredMutationBlocked bool
+	Route                      codexLayer0Route
+	Messages                   []types.Message
+	SessionID                  string
+	TurnID                     string
+	RememberedToolUse          map[string]types.ContentBlock
+	SuppressedToolKey          map[string]struct{}
+	RecentFullPassTurns        int
+	ChunkDedupEnabled          bool
+	ExplicitChunkDedup         bool
+	ChunkDedupProof            savingspolicy.CodexProof
+	ChunkDedupMinBytes         int
+	ChunkDedupMaxRefPct        int
+	ChunkStore                 *chunkdedup.Store
+	PolicyMode                 string
+	ArchiveRecovery            bool
+	RecentEditUncertainty      bool
+	HostBudgetExceeded         bool
+	LatencyBudgetExceeded      bool
+	ChunkIntegrityBudgetHit    bool
+	StructuredMutationBlocked  bool
+	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// StatefulDeltaMutationBlocked suppresses every wire mutation while
 	// keeping reducers observing/seeding. Live A/B (2026-06-11, loop runs
 	// 4-8): any mutated function_call_output on a previous_response_id
@@ -393,6 +465,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
+			if changed && req.CacheBustDemotedMechanisms.Has(mechanism) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload))
+				changed = false
+				afterText = ""
+			}
 			if changed && !req.StatefulDeltaMutationBlocked && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
@@ -433,6 +510,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
+				continue
+			}
+			if req.CacheBustDemotedMechanisms.Has(mechanism) {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload))
 				continue
 			}
 			if req.StatefulDeltaMutationBlocked {

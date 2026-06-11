@@ -50,8 +50,81 @@ type wsPhaseFAdapter struct {
 	recoveryWriter     func([]byte) error
 	// lastDecisionRequestID correlates the turn's response usage frame with
 	// the decision record written at request time (T352-A attribution).
-	lastDecisionRequestID string
-	counters              wsPhaseFCounters
+	lastDecisionRequestID      string
+	lastUsageSessionID         string
+	lastUsageMutatedMechanisms proxyLayer0MechanismMask
+	cacheBustSessions          map[string]*wssProviderCacheBustSession
+	counters                   wsPhaseFCounters
+}
+
+const (
+	wssProviderCacheBustRingSize      = 8
+	wssProviderCacheBustWarmupTurns   = 3
+	wssProviderCacheBustDropThreshold = 0.30
+	wssProviderCacheBustMinPrevShare  = 0.50
+)
+
+type wssProviderCacheBustSample struct {
+	cachedShare       float64
+	mutatedMechanisms proxyLayer0MechanismMask
+}
+
+type wssProviderCacheBustSession struct {
+	samples [wssProviderCacheBustRingSize]wssProviderCacheBustSample
+	next    int
+	count   int
+	seen    int
+	demoted proxyLayer0MechanismMask
+}
+
+type wssProviderCacheBustEvent struct {
+	Fired           bool
+	Trigger         proxyLayer0MechanismMask
+	Demoted         proxyLayer0MechanismMask
+	PreviousShare   float64
+	CurrentShare    float64
+	ObservedSamples int
+}
+
+func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechanisms proxyLayer0MechanismMask) wssProviderCacheBustEvent {
+	event := wssProviderCacheBustEvent{
+		Demoted:         s.demoted,
+		CurrentShare:    cachedShare,
+		ObservedSamples: s.seen + 1,
+	}
+	if previous, ok := s.last(); ok {
+		event.PreviousShare = previous.cachedShare
+		if event.ObservedSamples >= wssProviderCacheBustWarmupTurns &&
+			previous.mutatedMechanisms != 0 &&
+			previous.cachedShare >= wssProviderCacheBustMinPrevShare &&
+			cachedShare < previous.cachedShare-wssProviderCacheBustDropThreshold {
+			s.demoted |= previous.mutatedMechanisms
+			event.Fired = true
+			event.Trigger = previous.mutatedMechanisms
+			event.Demoted = s.demoted
+		}
+	}
+	s.samples[s.next] = wssProviderCacheBustSample{
+		cachedShare:       cachedShare,
+		mutatedMechanisms: mutatedMechanisms,
+	}
+	s.next = (s.next + 1) % wssProviderCacheBustRingSize
+	if s.count < wssProviderCacheBustRingSize {
+		s.count++
+	}
+	s.seen++
+	return event
+}
+
+func (s *wssProviderCacheBustSession) last() (wssProviderCacheBustSample, bool) {
+	if s.count == 0 {
+		return wssProviderCacheBustSample{}, false
+	}
+	idx := s.next - 1
+	if idx < 0 {
+		idx = wssProviderCacheBustRingSize - 1
+	}
+	return s.samples[idx], true
 }
 
 type wsPhaseFCounters struct {
@@ -278,25 +351,33 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
+		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
+		if cacheBustDemoted != 0 {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
+		}
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:                     codexLayer0RouteWSSPhaseF,
-			Messages:                  messages,
-			SessionID:                 sessionID,
-			TurnID:                    turnID,
-			RememberedToolUse:         rememberedToolUses,
-			SuppressedToolKey:         suppressedKeys,
-			RecentFullPassTurns:       a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:         chunkSettings.Enabled,
-			ExplicitChunkDedup:        chunkSettings.Explicit,
-			ChunkDedupProof:           chunkSettings.Proof,
-			ChunkDedupMinBytes:        chunkSettings.MinBytes,
-			ChunkDedupMaxRefPct:       chunkSettings.MaxRefPct,
-			ChunkStore:                chunkSettings.Store,
-			PolicyMode:                chunkSettings.PolicyMode,
-			ArchiveRecovery:           chunkSettings.ArchiveRecovery,
-			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
-			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
-			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			Route:                      codexLayer0RouteWSSPhaseF,
+			Messages:                   messages,
+			SessionID:                  sessionID,
+			TurnID:                     turnID,
+			RememberedToolUse:          rememberedToolUses,
+			SuppressedToolKey:          suppressedKeys,
+			RecentFullPassTurns:        a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:          chunkSettings.Enabled,
+			ExplicitChunkDedup:         chunkSettings.Explicit,
+			ChunkDedupProof:            chunkSettings.Proof,
+			ChunkDedupMinBytes:         chunkSettings.MinBytes,
+			ChunkDedupMaxRefPct:        chunkSettings.MaxRefPct,
+			ChunkStore:                 chunkSettings.Store,
+			PolicyMode:                 chunkSettings.PolicyMode,
+			ArchiveRecovery:            chunkSettings.ArchiveRecovery,
+			HostBudgetExceeded:         a.p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded:      a.p.codexLayer0LatencyExceeded.Load(),
+			StructuredMutationBlocked:  !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			CacheBustDemotedMechanisms: cacheBustDemoted,
 			// Any wire mutation on a previous_response_id delta turn makes
 			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
 			// loop runs 4-8; bridge control clean). Suppress mutations on
@@ -815,8 +896,14 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		debugFacts[k] = v
 	}
 	requestID := newRequestIDFn()
+	mutatedMechanisms := proxyLayer0MechanismMaskFromStats(l0Stats)
+	if mutatedMechanisms != 0 {
+		debugFacts["wss.layer0_mutated_mechanisms"] = mutatedMechanisms.String()
+	}
 	a.mu.Lock()
 	a.lastDecisionRequestID = requestID
+	a.lastUsageSessionID = meta.SessionID
+	a.lastUsageMutatedMechanisms = mutatedMechanisms
 	a.mu.Unlock()
 	summary := dbg.RequestSummary{
 		RequestID:              requestID,
@@ -1311,6 +1398,53 @@ func truncateWSSUpstreamErrorMessage(message string) string {
 	return message[:240] + "..."
 }
 
+func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanisms(sessionID string) proxyLayer0MechanismMask {
+	if a == nil || sessionID == "" {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cacheBustSessions == nil {
+		return 0
+	}
+	session := a.cacheBustSessions[sessionID]
+	if session == nil {
+		return 0
+	}
+	return session.demoted
+}
+
+func (a *wsPhaseFAdapter) observeWSSProviderCacheBust(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask) wssProviderCacheBustEvent {
+	if a == nil || sessionID == "" || inputTokens <= 0 || cachedTokens < 0 {
+		return wssProviderCacheBustEvent{}
+	}
+	cachedShare := float64(cachedTokens) / float64(inputTokens)
+	if cachedShare > 1 {
+		cachedShare = 1
+	}
+	a.mu.Lock()
+	if a.cacheBustSessions == nil {
+		a.cacheBustSessions = make(map[string]*wssProviderCacheBustSession)
+	}
+	session := a.cacheBustSessions[sessionID]
+	if session == nil {
+		session = &wssProviderCacheBustSession{}
+		a.cacheBustSessions[sessionID] = session
+	}
+	event := session.observe(cachedShare, mutatedMechanisms)
+	a.mu.Unlock()
+	if event.Fired {
+		slog.Warn("codex wss provider cache bust guard demoted layer0 mechanisms",
+			slog.String("session", sessionID),
+			slog.String("trigger_mechanisms", event.Trigger.String()),
+			slog.String("demoted_mechanisms", event.Demoted.String()),
+			slog.Float64("previous_cached_share", event.PreviousShare),
+			slog.Float64("current_cached_share", event.CurrentShare),
+			slog.Int("observed_samples", event.ObservedSamples))
+	}
+	return event
+}
+
 func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	if a == nil || a.p == nil || env == nil || env.Kind != wsmitm.FrameKindResponseCompleted || len(env.Response) == 0 {
 		return
@@ -1325,14 +1459,17 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	// Attribute the provider-reported usage (incl. server-side prompt-cache
 	// cached_tokens) to this turn's decision record so per-session savings
 	// carry the billable cache truth, not just local reduction (T352-A).
+	a.mu.Lock()
+	requestID := a.lastDecisionRequestID
+	sessionID := a.lastUsageSessionID
+	mutatedMechanisms := a.lastUsageMutatedMechanisms
+	a.mu.Unlock()
 	if a.p.debugRecorder != nil {
-		a.mu.Lock()
-		requestID := a.lastDecisionRequestID
-		a.mu.Unlock()
 		if requestID != "" {
 			a.p.debugRecorder.AttachProviderUsage(requestID, usage.InputTokens, usage.ReadTokens, usage.CreateTokens, usage.OutputTokens)
 		}
 	}
+	a.observeWSSProviderCacheBust(sessionID, usage.InputTokens, usage.ReadTokens, mutatedMechanisms)
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
