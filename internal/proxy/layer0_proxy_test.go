@@ -866,6 +866,48 @@ func TestProxyLayer0DownstreamStateMechanismSet(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0GuardedCandidateEvidenceCarriesFootprint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	body := uniqueProxyReadPayload("guarded footprint")
+	messages := proxyReadMessages(body)
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-guarded-footprint",
+		TurnSeq:   1,
+	})
+	if seed.Stats.TokensSaved != 0 || seed.Stats.ReadDeltaBlocks != 0 {
+		t.Fatalf("first read should seed only: %+v", seed.Stats)
+	}
+
+	guarded := reduceCodexLayer0(codexLayer0Request{
+		Messages:                     messages,
+		SessionID:                    "sess-guarded-footprint",
+		TurnSeq:                      2,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if guarded.Stats.TokensSaved != 0 || guarded.Stats.ReadDeltaBlocks != 0 ||
+		guarded.Messages[1].Content[0].Text != body {
+		t.Fatalf("stateful delta guard must full-pass bytes and accounting: stats=%+v text=%q", guarded.Stats, guarded.Messages[1].Content[0].Text)
+	}
+	var got evidence.BlockDecision
+	for _, decision := range guarded.Stats.EvidenceDecisions {
+		if decision.Mechanism == string(proxyLayer0MechanismReadDelta) &&
+			decision.Action == evidence.ActionFullPass &&
+			decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			got = decision
+			break
+		}
+	}
+	if got.Mechanism == "" {
+		t.Fatalf("guarded candidate evidence missing: %+v", guarded.Stats.EvidenceDecisions)
+	}
+	if got.OriginalTokens <= 0 || got.FinalTokens <= 0 || got.SavedTokens <= 0 ||
+		got.FootprintScore <= 0 || got.FootprintScoreBucket == "" {
+		t.Fatalf("guarded candidate must carry token and footprint evidence: %+v", got)
+	}
+}
+
 func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
 	stats := proxyLayer0Stats{
 		TokensSaved:              100,

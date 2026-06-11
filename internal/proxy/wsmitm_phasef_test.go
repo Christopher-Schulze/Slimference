@@ -3287,6 +3287,22 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
 		t.Fatalf("guarded full-history reducers must emit precise evidence: %+v", stats.EvidenceDecisions)
 	}
+	for _, mechanism := range []proxyLayer0Mechanism{proxyLayer0MechanismStaleRead, proxyLayer0MechanismObsoletePrune} {
+		found := false
+		for _, decision := range stats.EvidenceDecisions {
+			if decision.Mechanism != string(mechanism) {
+				continue
+			}
+			found = true
+			if decision.OriginalTokens <= 0 || decision.FinalTokens <= 0 || decision.SavedTokens <= 0 ||
+				decision.FootprintScore <= 0 || decision.FootprintScoreBucket == "" {
+				t.Fatalf("guarded %s evidence must carry token and footprint calibration data: %+v", mechanism, decision)
+			}
+		}
+		if !found {
+			t.Fatalf("missing guarded evidence for %s: %+v", mechanism, stats.EvidenceDecisions)
+		}
+	}
 }
 
 func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {

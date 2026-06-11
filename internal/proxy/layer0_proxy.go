@@ -444,6 +444,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			mechanism := proxyLayer0MechanismReadDelta
 			chunkReport := chunkdedup.EncodeResult{}
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
+			candidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, action evidence.Action, reason string) evidence.BlockDecision {
+				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq)
+			}
 			if policy.ReadDelta {
 				var cacheReason string
 				latencyStart := time.Now()
@@ -505,17 +508,17 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if changed && req.StructuredMutationBlocked &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard", 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
 				changed = false
 				afterText = ""
 			}
 			if changed && req.HistoryMutationGuardReason != "" && proxyLayer0DownstreamStateMechanism(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason, 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason))
 				changed = false
 				afterText = ""
 			}
 			if changed && req.CacheBustDemotedMechanisms.Has(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "cache_bust_guard"))
 				changed = false
 				afterText = ""
 			}
@@ -562,15 +565,15 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			if req.CacheBustDemotedMechanisms.Has(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "cache_bust_guard", 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "cache_bust_guard"))
 				continue
 			}
 			if req.HistoryMutationGuardReason != "" && proxyLayer0DownstreamStateMechanism(mechanism) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason, 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason))
 				continue
 			}
 			if req.StatefulDeltaMutationBlocked {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate", 0, 0, workload, req.TurnSeq))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate"))
 				continue
 			}
 			before := countBeforeTokens()

@@ -472,11 +472,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				staleGuardReason = "cache_bust_guard"
 			}
 			if staleGuardReason != "" {
-				_, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
+				aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
 					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
 				})
 				if stats.BlocksReplaced > 0 {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, 0, 0, meta.TurnSeq))
+					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
+					afterTokens := wssPlannerTokenCount(out, aged)
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq))
 				}
 			} else {
 				beforeTokens := 0
@@ -506,9 +508,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				obsoleteGuardReason = "cache_bust_guard"
 			}
 			if obsoleteGuardReason != "" {
-				_, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
+				pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
 				if stats.BlocksReplaced > 0 {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, 0, 0, meta.TurnSeq))
+					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
+					afterTokens := wssPlannerTokenCount(out, pruned)
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq))
 				}
 			} else {
 				beforeTokens := 0
