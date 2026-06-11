@@ -43,6 +43,7 @@ type wssAuditReport struct {
 	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
 	HistoryReducers        []wssHistoryReducerSummary       `json:"history_reducers,omitempty"`
+	FootprintEconomics     []wssFootprintEconomicsSummary   `json:"footprint_economics,omitempty"`
 	ShapeEconomics         []wssAuditShapeEconomicsSummary  `json:"shape_economics,omitempty"`
 	FullHistory            *wssFullHistoryClassBSummary     `json:"full_history,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
@@ -136,6 +137,28 @@ type wssHistoryReducerSummary struct {
 	CacheImpact      map[string]int `json:"cache_impact,omitempty"`
 }
 
+type wssFootprintEconomicsSummary struct {
+	Bucket         string         `json:"bucket"`
+	TurnBand       string         `json:"turn_band"`
+	RequestShape   string         `json:"request_shape"`
+	Decisions      int            `json:"decisions"`
+	Applied        int            `json:"applied"`
+	FullPass       int            `json:"full_pass"`
+	Skipped        int            `json:"skipped"`
+	FailedOpen     int            `json:"failed_open"`
+	OriginalTokens int            `json:"original_tokens,omitempty"`
+	FinalTokens    int            `json:"final_tokens,omitempty"`
+	SavedTokens    int            `json:"saved_tokens,omitempty"`
+	NetTokens      int            `json:"net_tokens,omitempty"`
+	FootprintScore int            `json:"footprint_score,omitempty"`
+	Mechanisms     map[string]int `json:"mechanisms,omitempty"`
+	CacheImpact    map[string]int `json:"cache_impact,omitempty"`
+}
+
+type wssFootprintEconomicsAccumulator struct {
+	rows map[string]*wssFootprintEconomicsSummary
+}
+
 type wssShadowMirrorSummary struct {
 	Requests                           int                          `json:"requests"`
 	Blocks                             int                          `json:"blocks"`
@@ -197,8 +220,8 @@ Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage,
 request-shape coverage, per-shape provider-cache/local-savings economics,
 full-history Class-B cost/error/socket correlation, positive input-token
-savings, T353 history-reducer evidence, and T355 server-state shadow-mirror
-density. With --admin-state-file it also prints
+savings, T353 history-reducer evidence, T359 footprint-by-turn economics, and
+T355 server-state shadow-mirror density. With --admin-state-file it also prints
 content-free policy and cache hit/miss counters from the matching admin snapshot.
 Legacy rows without request-shape facts are resolved only when an existing
 previous_response_id signal proves delta shape; root/full-history rows are never
@@ -359,6 +382,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	}
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	historyReducers := make(map[string]*wssHistoryReducerSummary)
+	footprintEconomics := wssFootprintEconomicsAccumulator{rows: make(map[string]*wssFootprintEconomicsSummary)}
 	fullHistory := wssFullHistoryClassBAccumulator{}
 	shapeEconomics := wssAuditShapeEconomicsAccumulator{rows: make(map[string]*wssAuditShapeEconomicsSummary)}
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
@@ -389,6 +413,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			report.ResolvedRequestShapes[resolvedShape.Shape]++
 			report.RequestShapeSources[resolvedShape.Source]++
 			shapeEconomics.add(summary, resolvedShape)
+			footprintEconomics.add(summary, resolvedShape)
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
@@ -465,6 +490,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	}
 	report.ShapeEconomics = shapeEconomics.finalize()
 	report.HistoryReducers = finalizeWSSHistoryReducers(historyReducers)
+	report.FootprintEconomics = footprintEconomics.finalize()
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
@@ -691,6 +717,131 @@ func finalizeWSSHistoryReducers(rows map[string]*wssHistoryReducerSummary) []wss
 		out = append(out, *rows[key])
 	}
 	return out
+}
+
+func (a *wssFootprintEconomicsAccumulator) add(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution) {
+	if a == nil || len(summary.EvidenceDecisions) == 0 {
+		return
+	}
+	shape := strings.TrimSpace(resolution.Shape)
+	if shape == "" {
+		shape = "unknown"
+	}
+	turnBand := wssFootprintTurnBand(summary.DebugFacts)
+	for _, decision := range summary.EvidenceDecisions {
+		bucket := strings.TrimSpace(decision.FootprintScoreBucket)
+		if bucket == "" && decision.FootprintScore <= 0 {
+			continue
+		}
+		if bucket == "" {
+			bucket = "unbucketed"
+		}
+		if a.rows == nil {
+			a.rows = make(map[string]*wssFootprintEconomicsSummary)
+		}
+		key := bucket + "\x00" + turnBand + "\x00" + shape
+		row := a.rows[key]
+		if row == nil {
+			row = &wssFootprintEconomicsSummary{
+				Bucket:       bucket,
+				TurnBand:     turnBand,
+				RequestShape: shape,
+			}
+			a.rows[key] = row
+		}
+		row.Decisions++
+		switch decision.Action {
+		case evidence.ActionApplied:
+			row.Applied++
+		case evidence.ActionFullPass:
+			row.FullPass++
+		case evidence.ActionSkipped:
+			row.Skipped++
+		case evidence.ActionFailedOpen:
+			row.FailedOpen++
+		}
+		row.OriginalTokens += decision.OriginalTokens
+		row.FinalTokens += decision.FinalTokens
+		row.SavedTokens += decision.SavedTokens
+		row.NetTokens += decision.NetTokens
+		row.FootprintScore += decision.FootprintScore
+		addWSSAuditCount(&row.Mechanisms, decision.Mechanism)
+		addWSSAuditCount(&row.CacheImpact, decision.CacheImpact)
+	}
+}
+
+func (a *wssFootprintEconomicsAccumulator) finalize() []wssFootprintEconomicsSummary {
+	if a == nil || len(a.rows) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(a.rows))
+	for key := range a.rows {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left := a.rows[keys[i]]
+		right := a.rows[keys[j]]
+		if left.Bucket != right.Bucket {
+			return wssFootprintBucketRank(left.Bucket) < wssFootprintBucketRank(right.Bucket)
+		}
+		if left.TurnBand != right.TurnBand {
+			return wssFootprintTurnBandRank(left.TurnBand) < wssFootprintTurnBandRank(right.TurnBand)
+		}
+		return left.RequestShape < right.RequestShape
+	})
+	out := make([]wssFootprintEconomicsSummary, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, *a.rows[key])
+	}
+	return out
+}
+
+func wssFootprintTurnBand(facts map[string]string) string {
+	if len(facts) == 0 {
+		return "unknown"
+	}
+	turnSeq, ok := parseNonNegativeInt(facts["wss.turn_seq"])
+	if !ok || turnSeq <= 0 {
+		return "unknown"
+	}
+	switch {
+	case turnSeq <= 3:
+		return "turn_1_3"
+	case turnSeq <= 8:
+		return "turn_4_8"
+	default:
+		return "turn_9_plus"
+	}
+}
+
+func wssFootprintBucketRank(bucket string) int {
+	switch strings.TrimSpace(bucket) {
+	case "high":
+		return 0
+	case "mid":
+		return 1
+	case "low":
+		return 2
+	case "unbucketed":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func wssFootprintTurnBandRank(band string) int {
+	switch strings.TrimSpace(band) {
+	case "turn_1_3":
+		return 0
+	case "turn_4_8":
+		return 1
+	case "turn_9_plus":
+		return 2
+	case "unknown":
+		return 3
+	default:
+		return 4
+	}
 }
 
 func (a *wssShadowMirrorAccumulator) add(facts map[string]string) {
@@ -938,6 +1089,9 @@ func wssAuditNotes(report wssAuditReport) []string {
 	if report.PhaseFRequests > 0 && len(report.HistoryReducers) == 0 {
 		notes = append(notes, "No T353 stale-read / obsolete-prune evidence observed; history reducer calibration needs a fresher capture or a history-heavy workload.")
 	}
+	if report.PhaseFRequests > 0 && len(report.FootprintEconomics) == 0 {
+		notes = append(notes, "No T359 footprint economics observed; threshold scaling constants need a fresher capture with footprint_score_bucket evidence.")
+	}
 	if report.PhaseFRequests > 0 && report.ShadowMirror == nil {
 		notes = append(notes, "No T355 shadow-mirror telemetry observed; this capture may predate normalized mirror facts or contain no text blocks.")
 	}
@@ -1098,6 +1252,24 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.NetTokens,
 				row.FootprintScore,
 				formatWSSAuditCounts(row.Reasons),
+			)
+		}
+	}
+	if len(report.FootprintEconomics) > 0 {
+		fmt.Fprintln(w, "\nFootprint economics:")
+		for _, row := range report.FootprintEconomics {
+			fmt.Fprintf(w, "  bucket=%-10s turn=%-11s shape=%-12s decisions=%d applied=%d full_pass=%d saved=%d net=%d footprint=%d mechanisms=%s cache=%s\n",
+				row.Bucket,
+				row.TurnBand,
+				row.RequestShape,
+				row.Decisions,
+				row.Applied,
+				row.FullPass,
+				row.SavedTokens,
+				row.NetTokens,
+				row.FootprintScore,
+				formatWSSAuditCounts(row.Mechanisms),
+				formatWSSAuditCounts(row.CacheImpact),
 			)
 		}
 	}

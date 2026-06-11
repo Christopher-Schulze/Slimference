@@ -46,6 +46,7 @@ func TestWSSAuditReport(t *testing.T) {
 					NetTokens:            60,
 					FootprintScore:       600,
 					FootprintScoreBucket: "high",
+					CacheImpact:          "provider_cache_read",
 				},
 				{
 					Mechanism:   "obsolete_prune",
@@ -56,6 +57,7 @@ func TestWSSAuditReport(t *testing.T) {
 			},
 			DebugFacts: map[string]string{
 				"wss.request_shape":                                   "full_history",
+				"wss.turn_seq":                                        "2",
 				"wss.socket_seq":                                      "2",
 				"wss.socket_close_initiator":                          "client_eof",
 				"wss.shadow_mirror_blocks":                            "2",
@@ -199,6 +201,22 @@ func TestWSSAuditReport(t *testing.T) {
 		stale.Reasons["positive_net_savings"] != 1 ||
 		stale.FootprintBuckets["high"] != 1 {
 		t.Fatalf("bad stale_read history row: %+v", stale)
+	}
+	if len(report.FootprintEconomics) != 1 {
+		t.Fatalf("footprint economics count = %d, want 1: %+v", len(report.FootprintEconomics), report.FootprintEconomics)
+	}
+	footprint := report.FootprintEconomics[0]
+	if footprint.Bucket != "high" ||
+		footprint.TurnBand != "turn_1_3" ||
+		footprint.RequestShape != "full_history" ||
+		footprint.Decisions != 1 ||
+		footprint.Applied != 1 ||
+		footprint.SavedTokens != 60 ||
+		footprint.NetTokens != 60 ||
+		footprint.FootprintScore != 600 ||
+		footprint.Mechanisms["stale_read"] != 1 ||
+		footprint.CacheImpact["provider_cache_read"] != 1 {
+		t.Fatalf("bad footprint economics row: %+v", footprint)
 	}
 	if obsolete := history["obsolete_prune"]; obsolete.Decisions != 1 ||
 		obsolete.FullPass != 1 ||
@@ -416,15 +434,17 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		CacheCreateTokens:    2,
 		NetSavedTokens:       1,
 		EvidenceDecisions: []evidence.BlockDecision{{
-			Mechanism:      "stale_read",
-			Action:         evidence.ActionApplied,
-			Reason:         "positive_net_savings",
-			SavedTokens:    42,
-			NetTokens:      42,
-			FootprintScore: 84,
+			Mechanism:            "stale_read",
+			Action:               evidence.ActionApplied,
+			Reason:               "positive_net_savings",
+			SavedTokens:          42,
+			NetTokens:            42,
+			FootprintScore:       84,
+			FootprintScoreBucket: "mid",
 		}},
 		DebugFacts: map[string]string{
 			"wss.request_shape":                                   "full_history",
+			"wss.turn_seq":                                        "6",
 			"wss.socket_seq":                                      "3",
 			"wss.socket_close_initiator":                          "upstream_eof",
 			"wss.shadow_mirror_blocks":                            "1",
@@ -456,6 +476,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "re-read requests/count:") ||
 		!strings.Contains(stdout.String(), "History reducers:") ||
 		!strings.Contains(stdout.String(), "stale_read") ||
+		!strings.Contains(stdout.String(), "Footprint economics:") ||
+		!strings.Contains(stdout.String(), "bucket=mid") ||
+		!strings.Contains(stdout.String(), "turn=turn_4_8") ||
 		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
@@ -517,6 +540,13 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if len(report.HistoryReducers) != 1 || report.HistoryReducers[0].Mechanism != "stale_read" {
 		t.Fatalf("history reducer JSON missing: %+v", report.HistoryReducers)
+	}
+	if len(report.FootprintEconomics) != 1 ||
+		report.FootprintEconomics[0].Bucket != "mid" ||
+		report.FootprintEconomics[0].TurnBand != "turn_4_8" ||
+		report.FootprintEconomics[0].RequestShape != "full_history" ||
+		report.FootprintEconomics[0].FootprintScore != 84 {
+		t.Fatalf("footprint economics JSON missing: %+v", report.FootprintEconomics)
 	}
 	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {
 		t.Fatalf("shadow mirror missing from JSON report: %+v", report.ShadowMirror)

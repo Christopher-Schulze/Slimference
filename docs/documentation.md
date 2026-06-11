@@ -1034,6 +1034,12 @@ and `obsolete_prune`, including applied/full-pass/skipped/failed-open counts,
 reason buckets, saved/net tokens, footprint score, and cache-impact buckets.
 `--require-history-evidence` turns that into a fresh-capture gate before any
 stale/obsolete calibration work claims enough evidence to loosen a guard.
+For T359 calibration, the same audit emits `footprint_economics` grouped by
+footprint bucket, turn band, and resolved request shape, with action counts,
+saved/net tokens, footprint score, mechanism buckets, and cache-impact buckets.
+If no footprint rows are present, the report says so explicitly; threshold
+scaling constants must come from a fresh capture carrying
+`footprint_score_bucket` evidence, not from guessed defaults.
 The same audit report includes T355 server-state shadow-mirror density when the
 decision log carries `wss.shadow_mirror_*` debug facts. It reports exact block
 bytes, normalized segment bytes, referenceable byte percentages, and normalized
