@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 	"github.com/Christopher-Schulze/Slimference/internal/sessions"
@@ -1082,12 +1083,48 @@ func TestWSPhaseFPreviousResponseSourceToolOutputFullPasses(t *testing.T) {
 		t.Fatalf("source guard summary should be a no-savings full-pass: %+v", summary)
 	}
 	if summary.DebugFacts["wss.previous_response_id"] != "true" ||
+		summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.delta_shape"] != "true" ||
 		summary.DebugFacts["wss.source_tool_results"] != "1" ||
 		summary.DebugFacts["wss.bypass_reason"] != "wss_previous_response_tool_output_full_pass" {
 		t.Fatalf("source guard facts missing: %+v", summary.DebugFacts)
 	}
 	if summary.Plan == nil || hasPlanAction(summary.Plan.Decisions, "websocket", "mutate", "known_shape_and_high_corpus_confidence") {
 		t.Fatalf("source guard must not request websocket mutation: %+v", summary.Plan)
+	}
+}
+
+func TestWSPhaseFRequestShapeFactsClassifyFullHistory(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			Content: []types.ContentBlock{{
+				Type:      "tool_use",
+				ToolUseID: "call_read",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"cat lib/alpha.go"}`,
+			}},
+		},
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:         "tool_result",
+				ToolResultID: "call_read",
+				Text:         "package lib\n",
+			}},
+		},
+	}
+	meta := wssRequestMeta{PreviousResponseID: "resp-full-history", SessionID: "session-full-history"}
+	if wssRequestIsDeltaShape(messages) {
+		t.Fatal("full-history messages with assistant tool_use must not classify as delta")
+	}
+	facts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.request_shape"] != "full_history" || facts["wss.delta_shape"] != "false" {
+		t.Fatalf("bad request-shape facts: %+v", facts)
+	}
+	rootFacts := wssRequestDebugFacts([]byte(`{}`), []byte(`{}`), messages, proxyLayer0Stats{}, false, "", wssRequestMeta{}, outputreduce.Stats{Reason: "disabled"})
+	if rootFacts["wss.request_shape"] != "root" {
+		t.Fatalf("request without previous_response_id should classify as root: %+v", rootFacts)
 	}
 }
 

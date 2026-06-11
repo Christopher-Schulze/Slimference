@@ -1205,14 +1205,44 @@ func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToo
 	return toolResults, sourceToolResults, toolUses
 }
 
+func wssRequestIsDeltaShape(messages []types.Message) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			return false
+		}
+		for _, block := range message.Content {
+			if block.Type == "tool_use" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
+	if meta.PreviousResponseID == "" {
+		return "root"
+	}
+	if wssRequestIsDeltaShape(messages) {
+		return "delta"
+	}
+	return "full_history"
+}
+
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
 	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
+	deltaShape := wssRequestIsDeltaShape(messages)
 	facts := map[string]string{
 		"wss.original_bytes":         strconv.Itoa(len(body)),
 		"wss.final_bytes":            strconv.Itoa(len(mutated)),
 		"wss.changed":                strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
 		"wss.previous_response_id":   strconv.FormatBool(meta.PreviousResponseID != ""),
+		"wss.request_shape":          wssRequestShape(meta, messages),
+		"wss.delta_shape":            strconv.FormatBool(deltaShape),
 		"wss.messages":               strconv.Itoa(len(messages)),
 		"wss.tool_results":           strconv.Itoa(toolResults),
 		"wss.source_tool_results":    strconv.Itoa(sourceToolResults),
