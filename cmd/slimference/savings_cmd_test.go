@@ -1342,8 +1342,16 @@ func TestComputeSavingsSessionScorecardSplitsLocalCacheAndEffectiveBilled(t *tes
 		got.DecisionCacheReadTokens != 700 ||
 		got.DecisionCacheCreateTokens != 50 ||
 		got.DecisionEffectiveBilledTokens != 920 ||
+		got.DecisionCounterfactualTokens != 1220 ||
+		got.DecisionUncachedCounterfactual != 1800 ||
 		!nearFloat(got.DecisionCachedShare, 700.0/1500.0) {
 		t.Fatalf("bad aggregate scorecard: %+v", got)
+	}
+	if !nearFloat(got.CachedPriceRatio, 0.10) ||
+		!nearFloat(got.DecisionLocalSavingsRate, 300.0/1800.0) ||
+		!nearFloat(got.DecisionCombinedSavingsRate, 300.0/1220.0) ||
+		!nearFloat(got.DecisionVsUncachedSavingsRate, 880.0/1800.0) {
+		t.Fatalf("bad aggregate scorecard rates: %+v", got)
 	}
 	if len(got.DecisionSessions) != 1 {
 		t.Fatalf("sessions=%d: %+v", len(got.DecisionSessions), got.DecisionSessions)
@@ -1358,21 +1366,34 @@ func TestComputeSavingsSessionScorecardSplitsLocalCacheAndEffectiveBilled(t *tes
 		!nearFloat(session.CachedShare, 700.0/1500.0) {
 		t.Fatalf("bad session scorecard: %+v", session)
 	}
+	if session.Scorecard == nil ||
+		session.Scorecard.CounterfactualTokens != 1220 ||
+		session.Scorecard.UncachedCounterfactual != 1800 ||
+		session.Scorecard.EffectiveBilledTokens != 920 ||
+		!nearFloat(session.Scorecard.LocalSavingsRate, 300.0/1800.0) ||
+		!nearFloat(session.Scorecard.CombinedSavingsRate, 300.0/1220.0) ||
+		!nearFloat(session.Scorecard.VsUncachedSavingsRate, 880.0/1800.0) {
+		t.Fatalf("bad nested session scorecard: %+v", session.Scorecard)
+	}
 	text := formatSavingsText(got)
 	for _, want := range []string{
 		"Decision local saved tokens: 300",
 		"Decision effective billed:   920",
 		"Decision cached share:       46.7%",
+		"Decision scorecard:          S_local=16.7% S_combined=24.6% S_vs_uncached=48.9%",
 		"local_saved=300",
 		"effective_billed=920",
 		"cached_share=46.7%",
+		"S_local=16.7%",
+		"S_combined=24.6%",
+		"S_vs_uncached=48.9%",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text missing %q: %s", want, text)
 		}
 	}
 	csv := formatSavingsCSV(got)
-	for _, want := range []string{"decision_local_saved_tokens", "decision_cached_share", "decision_effective_billed_tokens"} {
+	for _, want := range []string{"cached_price_ratio", "decision_local_saved_tokens", "decision_cached_share", "decision_effective_billed_tokens", "decision_s_local", "decision_s_combined", "decision_s_vs_uncached"} {
 		if !strings.Contains(csv, want) {
 			t.Fatalf("csv missing %q: %s", want, csv)
 		}
@@ -1391,14 +1412,32 @@ func TestComputeSavingsSessionScorecardSplitsLocalCacheAndEffectiveBilled(t *tes
 		byHeader[header] = values[i]
 	}
 	for header, want := range map[string]string{
-		"decision_provider_input_tokens":   "1500",
-		"decision_local_saved_tokens":      "300",
-		"decision_cached_share":            "0.466667",
-		"decision_effective_billed_tokens": "920",
+		"decision_provider_input_tokens":          "1500",
+		"decision_local_saved_tokens":             "300",
+		"decision_cached_share":                   "0.466667",
+		"decision_effective_billed_tokens":        "920",
+		"decision_counterfactual_tokens":          "1220",
+		"decision_uncached_counterfactual_tokens": "1800",
+		"decision_s_local":                        "0.166667",
+		"decision_s_combined":                     "0.245902",
+		"decision_s_vs_uncached":                  "0.488889",
 	} {
 		if got := byHeader[header]; got != want {
 			t.Fatalf("csv %s=%q, want %q: %s", header, got, want, csv)
 		}
+	}
+}
+
+func TestSavingsScorecardUsesConfiguredCachedPriceRatio(t *testing.T) {
+	scorecard := savingsBuildScorecard(1000, 0, 200, 500, 0, 0, 0.25)
+	if scorecard.EffectiveBilledTokens != 625 ||
+		scorecard.CounterfactualTokens != 825 ||
+		scorecard.UncachedCounterfactual != 1200 ||
+		!nearFloat(scorecard.CachedPriceRatio, 0.25) ||
+		!nearFloat(scorecard.LocalSavingsRate, 200.0/1200.0) ||
+		!nearFloat(scorecard.CombinedSavingsRate, 200.0/825.0) ||
+		!nearFloat(scorecard.VsUncachedSavingsRate, 575.0/1200.0) {
+		t.Fatalf("scorecard: %+v", scorecard)
 	}
 }
 

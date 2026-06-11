@@ -23,10 +23,18 @@ type Config struct {
 	Usage       UsageConfig       `toml:"usage"`
 	Secrets     SecretsConfig     `toml:"secrets"`
 	Analytics   AnalyticsConfig   `toml:"analytics"`
+	Savings     SavingsConfig     `toml:"savings"`
 	Logging     LoggingConfig     `toml:"logging"`
 	Filter      FilterConfig      `toml:"filter"`
 	Hooks       HooksConfig       `toml:"hooks"`
 	Debug       DebugConfig       `toml:"debug"`
+}
+
+// SavingsConfig controls reporting assumptions for savings scorecards.
+type SavingsConfig struct {
+	// CachedPriceRatio is the provider-cache billing ratio used by savings
+	// reports. OpenAI prompt-cache reads are commonly ~10% of uncached input.
+	CachedPriceRatio float64 `toml:"cached_price_ratio"`
 }
 
 // DebugConfig holds debug and observability settings (docs/spec.md §13).
@@ -679,6 +687,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Analytics.GainUSDPerMillionTokens = f
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CACHED_PRICE_RATIO")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Savings.CachedPriceRatio = f
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.StopSequencesEnabled = b
@@ -862,6 +875,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)
+	}
+	if cfg.Savings.CachedPriceRatio < 0 || cfg.Savings.CachedPriceRatio > 1 {
+		return fmt.Errorf("savings.cached_price_ratio must be between 0 and 1, got %v", cfg.Savings.CachedPriceRatio)
 	}
 	or := cfg.Compression.OutputReduce
 	if or.Profile != "" && or.Profile != "auto" && or.Profile != "off" && or.Profile != "mild" && or.Profile != "standard" &&

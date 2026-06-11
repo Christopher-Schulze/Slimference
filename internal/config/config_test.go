@@ -247,6 +247,15 @@ func TestApplyEnvGainUsdPerMillion(t *testing.T) {
 	}
 }
 
+func TestApplyEnvCachedPriceRatio(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CACHED_PRICE_RATIO", "0.25")
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	if cfg.Savings.CachedPriceRatio != 0.25 {
+		t.Fatalf("cached price ratio: %v", cfg.Savings.CachedPriceRatio)
+	}
+}
+
 func TestEnvPrimitiveParsers(t *testing.T) {
 	t.Setenv("CFG_INT_OK", " 12 ")
 	if got, ok := envIntOK("CFG_INT_OK"); !ok || got != 12 {
@@ -684,6 +693,17 @@ func TestValidate_GainUSDNegative(t *testing.T) {
 	cfg.Analytics.GainUSDPerMillionTokens = -1.0
 	if err := validate(cfg); err == nil {
 		t.Error("expected error for negative GainUSDPerMillionTokens")
+	}
+}
+
+func TestValidateCachedPriceRatioBounds(t *testing.T) {
+	t.Parallel()
+	for _, ratio := range []float64{-0.01, 1.01} {
+		cfg := Defaults()
+		cfg.Savings.CachedPriceRatio = ratio
+		if err := validate(cfg); err == nil {
+			t.Fatalf("expected error for cached price ratio %v", ratio)
+		}
 	}
 }
 

@@ -142,6 +142,9 @@ func defaultsRaw() *Config {
 			DashboardRefreshSeconds: 2,
 			GainUSDPerMillionTokens: 0,
 		},
+		Savings: SavingsConfig{
+			CachedPriceRatio: 0.10,
+		},
 		Logging: LoggingConfig{
 			Level:  "debug",
 			Format: "json",
@@ -361,6 +364,10 @@ log_dir = "~/.slimference/analytics"
 dashboard_refresh_seconds = 2
 # Optional rough USD for slimference gain: savings_est_tokens / 1e6 * rate. Env: SLIMFERENCE_GAIN_USD_PER_MILLION
 # gain_usd_per_million_tokens = 3.0
+
+[savings]
+# Provider-cache read billing ratio used by slimference savings scorecards. Env: SLIMFERENCE_CACHED_PRICE_RATIO
+cached_price_ratio = 0.10
 
 [logging]
 level = "debug"

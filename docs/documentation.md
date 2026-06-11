@@ -2131,6 +2131,20 @@ tokens, clamped at zero, so provider-cache warmup cannot overstate savings.
 `decision_cache_status` is `ok` for positive cache reuse, `warming` for
 create-only activity, `attention` for negative net cache impact, and `none` when
 the decision log has no cache activity.
+Savings scorecards use the configured `[savings].cached_price_ratio` billing
+assumption, default `0.10` and overridable with
+`SLIMFERENCE_CACHED_PRICE_RATIO`. Aggregate JSON/CSV fields expose
+`cached_price_ratio`, `decision_counterfactual_tokens`,
+`decision_uncached_counterfactual_tokens`, `decision_s_local`,
+`decision_s_combined`, and `decision_s_vs_uncached`; each
+`decision_sessions[]` JSON row also carries a nested `scorecard` with the same
+rate family. `S_local` is local input deletion over the no-local input
+counterfactual. `S_combined` compares effective billed tokens against a
+cache-as-is, no-local-reduction counterfactual. `S_vs_uncached` compares the
+same effective billed tokens against a fully uncached no-local-reduction
+counterfactual. Negative retry costs and cache-create tokens are included in
+effective billed, so retries and cache warmup reduce the reported rates instead
+of inflating savings.
 
 ---
 

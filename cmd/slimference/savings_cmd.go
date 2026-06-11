@@ -47,6 +47,7 @@ type SavingsSummary struct {
 	CacheReadDiscountTokenEquivalent  int64                     `json:"cache_read_discount_token_equivalent"`
 	NetBillableEquivalentTokens       int64                     `json:"net_billable_equivalent_tokens"`
 	CacheHits                         int64                     `json:"cache_hits"`
+	CachedPriceRatio                  float64                   `json:"cached_price_ratio"`
 	TotalSavedTokens                  int64                     `json:"total_saved_tokens"`
 	TotalSavedUSD                     float64                   `json:"total_saved_usd"`
 	USDPerMillion                     float64                   `json:"usd_per_million_tokens"`
@@ -69,6 +70,11 @@ type SavingsSummary struct {
 	DecisionCacheHitRate              float64                   `json:"decision_cache_hit_rate"`
 	DecisionCachedShare               float64                   `json:"decision_cached_share"`
 	DecisionEffectiveBilledTokens     int64                     `json:"decision_effective_billed_tokens"`
+	DecisionCounterfactualTokens      int64                     `json:"decision_counterfactual_tokens"`
+	DecisionUncachedCounterfactual    int64                     `json:"decision_uncached_counterfactual_tokens"`
+	DecisionLocalSavingsRate          float64                   `json:"decision_s_local"`
+	DecisionCombinedSavingsRate       float64                   `json:"decision_s_combined"`
+	DecisionVsUncachedSavingsRate     float64                   `json:"decision_s_vs_uncached"`
 	DecisionCacheStatus               string                    `json:"decision_cache_status,omitempty"`
 	DecisionCodexRequests             int64                     `json:"decision_codex_requests"`
 	DecisionCodexAttributedRequests   int64                     `json:"decision_codex_attributed_requests"`
@@ -116,36 +122,47 @@ type SavingsMechanismSummary struct {
 }
 
 type SavingsSessionSummary struct {
-	SessionID           string  `json:"session_id"`
-	DisplayName         string  `json:"display_name,omitempty"`
-	ProjectPath         string  `json:"project_path,omitempty"`
-	ClientFamily        string  `json:"client_family,omitempty"`
-	Requests            int64   `json:"requests"`
-	ProviderInputTokens int64   `json:"provider_input_tokens"`
-	OriginalTokens      int64   `json:"original_tokens"`
-	FinalTokens         int64   `json:"final_tokens"`
-	AddedTokens         int64   `json:"added_tokens"`
-	LocalSaved          int64   `json:"local_saved"`
-	NetSavedTokens      int64   `json:"net_saved_tokens"`
-	NegativeEvents      int64   `json:"negative_events,omitempty"`
-	NegativeEventTokens int64   `json:"negative_event_tokens,omitempty"`
-	Layer0NetTokens     int64   `json:"layer0_net_tokens,omitempty"`
-	Layer1NetTokens     int64   `json:"layer1_net_tokens,omitempty"`
-	Layer2NetTokens     int64   `json:"layer2_net_tokens,omitempty"`
-	Layer3NetTokens     int64   `json:"layer3_net_tokens,omitempty"`
-	OutputReduceTokens  int64   `json:"output_reduce_tokens,omitempty"`
-	ToolPruneTokens     int64   `json:"tool_prune_tokens,omitempty"`
-	OutputTokens        int64   `json:"output_tokens"`
-	CacheReadTokens     int64   `json:"cache_read_tokens"`
-	CacheCreateTokens   int64   `json:"cache_create_tokens"`
-	CacheNetTokens      int64   `json:"cache_net_tokens"`
-	CacheHitRequests    int64   `json:"cache_hit_requests"`
-	CacheHitRate        float64 `json:"cache_hit_rate"`
-	CachedShare         float64 `json:"cached_share"`
-	EffectiveBilled     int64   `json:"effective_billed"`
-	CostBeforeUSD       float64 `json:"cost_before_usd"`
-	CostAfterUSD        float64 `json:"cost_after_usd"`
-	CostSavedUSD        float64 `json:"cost_saved_usd"`
+	SessionID           string            `json:"session_id"`
+	DisplayName         string            `json:"display_name,omitempty"`
+	ProjectPath         string            `json:"project_path,omitempty"`
+	ClientFamily        string            `json:"client_family,omitempty"`
+	Requests            int64             `json:"requests"`
+	ProviderInputTokens int64             `json:"provider_input_tokens"`
+	OriginalTokens      int64             `json:"original_tokens"`
+	FinalTokens         int64             `json:"final_tokens"`
+	AddedTokens         int64             `json:"added_tokens"`
+	LocalSaved          int64             `json:"local_saved"`
+	NetSavedTokens      int64             `json:"net_saved_tokens"`
+	NegativeEvents      int64             `json:"negative_events,omitempty"`
+	NegativeEventTokens int64             `json:"negative_event_tokens,omitempty"`
+	Layer0NetTokens     int64             `json:"layer0_net_tokens,omitempty"`
+	Layer1NetTokens     int64             `json:"layer1_net_tokens,omitempty"`
+	Layer2NetTokens     int64             `json:"layer2_net_tokens,omitempty"`
+	Layer3NetTokens     int64             `json:"layer3_net_tokens,omitempty"`
+	OutputReduceTokens  int64             `json:"output_reduce_tokens,omitempty"`
+	ToolPruneTokens     int64             `json:"tool_prune_tokens,omitempty"`
+	OutputTokens        int64             `json:"output_tokens"`
+	CacheReadTokens     int64             `json:"cache_read_tokens"`
+	CacheCreateTokens   int64             `json:"cache_create_tokens"`
+	CacheNetTokens      int64             `json:"cache_net_tokens"`
+	CacheHitRequests    int64             `json:"cache_hit_requests"`
+	CacheHitRate        float64           `json:"cache_hit_rate"`
+	CachedShare         float64           `json:"cached_share"`
+	EffectiveBilled     int64             `json:"effective_billed"`
+	Scorecard           *SavingsScorecard `json:"scorecard,omitempty"`
+	CostBeforeUSD       float64           `json:"cost_before_usd"`
+	CostAfterUSD        float64           `json:"cost_after_usd"`
+	CostSavedUSD        float64           `json:"cost_saved_usd"`
+}
+
+type SavingsScorecard struct {
+	CachedPriceRatio       float64 `json:"cached_price_ratio"`
+	CounterfactualTokens   int64   `json:"counterfactual_tokens"`
+	UncachedCounterfactual int64   `json:"uncached_counterfactual_tokens"`
+	EffectiveBilledTokens  int64   `json:"effective_billed_tokens"`
+	LocalSavingsRate       float64 `json:"s_local"`
+	CombinedSavingsRate    float64 `json:"s_combined"`
+	VsUncachedSavingsRate  float64 `json:"s_vs_uncached"`
 }
 
 var lookupCodexThreadMetadataForSavingsFn = lookupCodexThreadMetadataForSavings
@@ -192,9 +209,10 @@ func parseSavingsArgs(args []string) (period string, f savingsFlags, err error) 
 // still produces a meaningful summary on partial state.
 func computeSavings(cfg *config.Config, period, project string, now time.Time) SavingsSummary {
 	out := SavingsSummary{
-		Period:        period,
-		Project:       project,
-		USDPerMillion: cfg.Analytics.GainUSDPerMillionTokens,
+		Period:           period,
+		Project:          project,
+		CachedPriceRatio: savingsCachedPriceRatio(cfg),
+		USDPerMillion:    cfg.Analytics.GainUSDPerMillionTokens,
 	}
 
 	if period != "live" {
@@ -424,7 +442,9 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 			row.CacheHitRate = float64(row.CacheHitRequests) / float64(row.Requests)
 		}
 		row.CachedShare = savingsCachedShare(row.CacheReadTokens, row.ProviderInputTokens, row.FinalTokens)
-		row.EffectiveBilled = savingsEffectiveBilledTokens(row.ProviderInputTokens, row.FinalTokens, row.CacheReadTokens, row.CacheCreateTokens)
+		row.EffectiveBilled = savingsEffectiveBilledTokens(row.ProviderInputTokens, row.FinalTokens, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, out.CachedPriceRatio)
+		scorecard := savingsBuildScorecard(row.ProviderInputTokens, row.FinalTokens, row.LocalSaved, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, out.CachedPriceRatio)
+		row.Scorecard = &scorecard
 		out.DecisionSessions = append(out.DecisionSessions, *row)
 		out.DecisionEffectiveBilledTokens += row.EffectiveBilled
 		out.DecisionLayer0NetTokens += row.Layer0NetTokens
@@ -444,6 +464,12 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	if out.DecisionRequests > 0 {
 		out.DecisionCacheHitRate = float64(out.DecisionCacheHitRequests) / float64(out.DecisionRequests)
 		out.DecisionCachedShare = savingsCachedShare(out.DecisionCacheReadTokens, out.DecisionProviderInputTokens, out.DecisionFinalTokens)
+		scorecard := savingsBuildScorecard(out.DecisionProviderInputTokens, out.DecisionFinalTokens, out.DecisionLocalSavedTokens, out.DecisionCacheReadTokens, out.DecisionCacheCreateTokens, out.DecisionNegativeEventTokens, out.CachedPriceRatio)
+		out.DecisionCounterfactualTokens = scorecard.CounterfactualTokens
+		out.DecisionUncachedCounterfactual = scorecard.UncachedCounterfactual
+		out.DecisionLocalSavingsRate = scorecard.LocalSavingsRate
+		out.DecisionCombinedSavingsRate = scorecard.CombinedSavingsRate
+		out.DecisionVsUncachedSavingsRate = scorecard.VsUncachedSavingsRate
 		out.DecisionCacheStatus = savingsDecisionCacheStatus(*out)
 	}
 	if out.DecisionCodexRequests > 0 {
@@ -944,7 +970,7 @@ func savingsCachedShare(cacheReadTokens, providerInputTokens, fallbackInputToken
 	return share
 }
 
-func savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cacheReadTokens, cacheCreateTokens int64) int64 {
+func savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cacheReadTokens, cacheCreateTokens, negativeEventTokens int64, cachedPriceRatio float64) int64 {
 	inputTokens := providerInputTokens
 	if inputTokens <= 0 {
 		inputTokens = fallbackInputTokens
@@ -956,11 +982,63 @@ func savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cach
 	if discountableRead > inputTokens {
 		discountableRead = inputTokens
 	}
-	effective := inputTokens - cacheReadDiscountEquivalent(discountableRead) + cacheCreateTokens
+	effective := inputTokens - cacheReadDiscountEquivalent(discountableRead, cachedPriceRatio) + cacheCreateTokens + negativeEventTokens
 	if effective < 0 {
 		return 0
 	}
 	return effective
+}
+
+func savingsBuildScorecard(providerInputTokens, fallbackInputTokens, localSavedTokens, cacheReadTokens, cacheCreateTokens, negativeEventTokens int64, cachedPriceRatio float64) SavingsScorecard {
+	inputTokens := savingsInputEquivalent(providerInputTokens, fallbackInputTokens)
+	inputWithoutLocal := inputTokens + localSavedTokens
+	if inputWithoutLocal < 0 {
+		inputWithoutLocal = 0
+	}
+	effective := savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cacheReadTokens, cacheCreateTokens, negativeEventTokens, cachedPriceRatio)
+	counterfactual := savingsCacheAwareBilledTokens(inputWithoutLocal, cacheReadTokens, cacheCreateTokens, cachedPriceRatio)
+	uncachedCounterfactual := inputWithoutLocal
+	return SavingsScorecard{
+		CachedPriceRatio:       cachedPriceRatio,
+		CounterfactualTokens:   counterfactual,
+		UncachedCounterfactual: uncachedCounterfactual,
+		EffectiveBilledTokens:  effective,
+		LocalSavingsRate:       savingsRate(localSavedTokens, uncachedCounterfactual),
+		CombinedSavingsRate:    savingsRate(counterfactual-effective, counterfactual),
+		VsUncachedSavingsRate:  savingsRate(uncachedCounterfactual-effective, uncachedCounterfactual),
+	}
+}
+
+func savingsInputEquivalent(providerInputTokens, fallbackInputTokens int64) int64 {
+	if providerInputTokens > 0 {
+		return providerInputTokens
+	}
+	if fallbackInputTokens > 0 {
+		return fallbackInputTokens
+	}
+	return 0
+}
+
+func savingsCacheAwareBilledTokens(inputTokens, cacheReadTokens, cacheCreateTokens int64, cachedPriceRatio float64) int64 {
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	discountableRead := cacheReadTokens
+	if discountableRead > inputTokens {
+		discountableRead = inputTokens
+	}
+	effective := inputTokens - cacheReadDiscountEquivalent(discountableRead, cachedPriceRatio) + cacheCreateTokens
+	if effective < 0 {
+		return 0
+	}
+	return effective
+}
+
+func savingsRate(numerator, denominator int64) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	return float64(numerator) / float64(denominator)
 }
 
 func decisionSessionID(summary dbg.RequestSummary) string {
@@ -1233,8 +1311,13 @@ func formatSavingsText(s SavingsSummary) string {
 		sb.WriteString(fmt.Sprintf("Decision-log requests:       %d\n", s.DecisionRequests))
 		if s.DecisionProviderInputTokens > 0 || s.DecisionCacheReadTokens > 0 || s.DecisionCacheCreateTokens > 0 {
 			sb.WriteString(fmt.Sprintf("Decision provider input:     %s\n", formatInt64Plain(s.DecisionProviderInputTokens)))
-			sb.WriteString(fmt.Sprintf("Decision effective billed:   %s\n", formatInt64Plain(s.DecisionEffectiveBilledTokens)))
+			sb.WriteString(fmt.Sprintf("Decision effective billed:   %s (r=%.2f)\n", formatInt64Plain(s.DecisionEffectiveBilledTokens), s.CachedPriceRatio))
 			sb.WriteString(fmt.Sprintf("Decision cached share:       %.1f%%\n", s.DecisionCachedShare*100))
+			sb.WriteString(fmt.Sprintf("Decision scorecard:          S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%%\n",
+				s.DecisionLocalSavingsRate*100,
+				s.DecisionCombinedSavingsRate*100,
+				s.DecisionVsUncachedSavingsRate*100,
+			))
 		}
 		sb.WriteString(fmt.Sprintf("Decision original tokens:    %s\n", formatInt64Plain(s.DecisionOriginalTokens)))
 		sb.WriteString(fmt.Sprintf("Decision final tokens:       %s\n", formatInt64Plain(s.DecisionFinalTokens)))
@@ -1322,12 +1405,15 @@ func formatSavingsText(s SavingsSummary) string {
 				negativeText = fmt.Sprintf(" negative=%d/-%s", session.NegativeEvents, formatInt64Plain(session.NegativeEventTokens))
 			}
 			if session.CostBeforeUSD > 0 || session.CostAfterUSD > 0 || session.CostSavedUSD > 0 {
-				sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s cost=~$%.4f/~$%.4f requests=%d\n",
+				sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s cost=~$%.4f/~$%.4f requests=%d\n",
 					label,
 					formatSignedInt64Plain(session.NetSavedTokens),
 					formatSignedInt64Plain(session.LocalSaved),
 					formatInt64Plain(session.EffectiveBilled),
 					session.CachedShare*100,
+					scorecardLocalRate(session)*100,
+					scorecardCombinedRate(session)*100,
+					scorecardVsUncachedRate(session)*100,
 					layerText,
 					formatSignedInt64Plain(session.CacheNetTokens),
 					session.CacheHitRate*100,
@@ -1340,12 +1426,15 @@ func formatSavingsText(s SavingsSummary) string {
 				))
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s requests=%d\n",
+			sb.WriteString(fmt.Sprintf("  session %-58s net=%s local_saved=%s effective_billed=%s cached_share=%.1f%% S_local=%.1f%% S_combined=%.1f%% S_vs_uncached=%.1f%% layers=%s cache=%s/%.1f%% original=%s final=%s%s requests=%d\n",
 				label,
 				formatSignedInt64Plain(session.NetSavedTokens),
 				formatSignedInt64Plain(session.LocalSaved),
 				formatInt64Plain(session.EffectiveBilled),
 				session.CachedShare*100,
+				scorecardLocalRate(session)*100,
+				scorecardCombinedRate(session)*100,
+				scorecardVsUncachedRate(session)*100,
 				layerText,
 				formatSignedInt64Plain(session.CacheNetTokens),
 				session.CacheHitRate*100,
@@ -1380,6 +1469,27 @@ func formatSavingsSessionLabel(session SavingsSessionSummary) string {
 		label += " - " + project
 	}
 	return truncateSavingsLabel(label, 58)
+}
+
+func scorecardLocalRate(session SavingsSessionSummary) float64 {
+	if session.Scorecard == nil {
+		return 0
+	}
+	return session.Scorecard.LocalSavingsRate
+}
+
+func scorecardCombinedRate(session SavingsSessionSummary) float64 {
+	if session.Scorecard == nil {
+		return 0
+	}
+	return session.Scorecard.CombinedSavingsRate
+}
+
+func scorecardVsUncachedRate(session SavingsSessionSummary) float64 {
+	if session.Scorecard == nil {
+		return 0
+	}
+	return session.Scorecard.VsUncachedSavingsRate
 }
 
 func savingsSessionFallbackLabel(session SavingsSessionSummary) string {
@@ -1531,8 +1641,8 @@ func formatSessionLayerBreakdown(session SavingsSessionSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_provider_input_tokens,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_local_saved_tokens,decision_net_saved_tokens,decision_negative_events,decision_negative_event_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cached_share,decision_effective_billed_tokens,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_unattributed_reasons,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%d,%d,%d,%s,%d,%d,%d,%s,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,cached_price_ratio,decision_requests,decision_provider_input_tokens,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_local_saved_tokens,decision_net_saved_tokens,decision_negative_events,decision_negative_event_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_cache_net_tokens,decision_cache_hit_requests,decision_cache_hit_rate,decision_cached_share,decision_effective_billed_tokens,decision_counterfactual_tokens,decision_uncached_counterfactual_tokens,decision_s_local,decision_s_combined,decision_s_vs_uncached,decision_cache_create_requests,decision_cache_negative_net_requests,decision_cache_status,decision_codex_requests,decision_codex_attributed_requests,decision_codex_unattributed_requests,decision_codex_unattributed_reasons,decision_codex_attribution_rate,decision_codex_attribution_status,decision_layer0_net_tokens,decision_layer1_net_tokens,decision_layer2_net_tokens,decision_layer3_net_tokens,decision_output_reduce_tokens,decision_tool_prune_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%d,%d,%d,%.6f,%.6f,%.6f,%d,%d,%s,%d,%d,%d,%s,%.6f,%s,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -1549,6 +1659,7 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.CacheReadDiscountTokenEquivalent,
 		s.NetBillableEquivalentTokens,
 		s.CacheHits,
+		s.CachedPriceRatio,
 		s.DecisionRequests,
 		s.DecisionProviderInputTokens,
 		s.DecisionOriginalTokens,
@@ -1566,6 +1677,11 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.DecisionCacheHitRate,
 		s.DecisionCachedShare,
 		s.DecisionEffectiveBilledTokens,
+		s.DecisionCounterfactualTokens,
+		s.DecisionUncachedCounterfactual,
+		s.DecisionLocalSavingsRate,
+		s.DecisionCombinedSavingsRate,
+		s.DecisionVsUncachedSavingsRate,
 		s.DecisionCacheCreateRequests,
 		s.DecisionCacheNegativeNetRequests,
 		s.DecisionCacheStatus,
@@ -1603,7 +1719,7 @@ func formatSignedInt64Plain(n int64) string {
 
 func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens, cacheCreateTokens int64, usdPerMillion float64) (float64, float64, float64) {
 	beforeTokens := inputTokens + outputTokens
-	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens) - cacheCreateTokens
+	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens, 0.10) - cacheCreateTokens
 	if savedEquivalentTokens < 0 {
 		savedEquivalentTokens = 0
 	}
@@ -1614,8 +1730,24 @@ func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens, ca
 	return tokensToUSD(beforeTokens, usdPerMillion), tokensToUSD(afterTokens, usdPerMillion), tokensToUSD(savedEquivalentTokens, usdPerMillion)
 }
 
-func cacheReadDiscountEquivalent(tokens int64) int64 {
-	return int64(float64(tokens) * 0.9)
+func cacheReadDiscountEquivalent(tokens int64, cachedPriceRatio float64) int64 {
+	if tokens <= 0 {
+		return 0
+	}
+	if cachedPriceRatio < 0 {
+		cachedPriceRatio = 0
+	}
+	if cachedPriceRatio > 1 {
+		cachedPriceRatio = 1
+	}
+	return int64(float64(tokens) * (1 - cachedPriceRatio))
+}
+
+func savingsCachedPriceRatio(cfg *config.Config) float64 {
+	if cfg == nil {
+		return 0.10
+	}
+	return cfg.Savings.CachedPriceRatio
 }
 
 func tokensToUSD(tokens int64, usdPerMillion float64) float64 {
