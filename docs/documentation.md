@@ -1040,6 +1040,8 @@ saved/net tokens, footprint score, mechanism buckets, and cache-impact buckets.
 If no footprint rows are present, the report says so explicitly; threshold
 scaling constants must come from a fresh capture carrying
 `footprint_score_bucket` evidence, not from guessed defaults.
+`--require-footprint-evidence` turns that into a fail-closed fresh-capture gate
+before any T359 threshold-scaling claim is accepted.
 The same audit report includes T355 server-state shadow-mirror density when the
 decision log carries `wss.shadow_mirror_*` debug facts. It reports exact block
 bytes, normalized segment bytes, referenceable byte percentages, and normalized

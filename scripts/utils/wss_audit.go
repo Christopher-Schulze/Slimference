@@ -189,16 +189,17 @@ type wssShadowMirrorAccumulator struct {
 }
 
 type wssAuditFlags struct {
-	path                   string
-	outputFormat           string
-	expectDistinctSessions int
-	minPhaseF              int
-	minFullHistory         int
-	requireSavings         bool
-	requireHistoryEvidence bool
-	adminStateFile         string
-	since                  time.Time
-	help                   bool
+	path                     string
+	outputFormat             string
+	expectDistinctSessions   int
+	minPhaseF                int
+	minFullHistory           int
+	requireSavings           bool
+	requireHistoryEvidence   bool
+	requireFootprintEvidence bool
+	adminStateFile           string
+	since                    time.Time
+	help                     bool
 }
 
 const wssAuditHelpText = `wss-audit: inspect Codex WSS decisions without raw frame dumps
@@ -212,6 +213,7 @@ Flags:
   --min-full-history=<n>          Fail if fewer than n full-history Phase-F request summaries are present
   --require-savings               Fail if no positive input-token savings are present
   --require-history-evidence      Fail if no stale/obsolete reducer evidence is present
+  --require-footprint-evidence    Fail if no footprint-score economics evidence is present
   --admin-state-file=<path>        Join current /admin/state policy counters into the report
   --since=<rfc3339>               Ignore records before this timestamp
   --json                          Output JSON
@@ -278,6 +280,8 @@ func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
 			flags.requireSavings = true
 		case a == "--require-history-evidence":
 			flags.requireHistoryEvidence = true
+		case a == "--require-footprint-evidence":
+			flags.requireFootprintEvidence = true
 		case a == "--admin-state-file":
 			v, err := aggregateFlagValue(args, &i, a)
 			if err != nil {
@@ -1120,6 +1124,9 @@ func wssAuditGateFailures(report wssAuditReport, flags wssAuditFlags) []string {
 	}
 	if flags.requireHistoryEvidence && len(report.HistoryReducers) == 0 {
 		failures = append(failures, "expected stale-read or obsolete-prune history reducer evidence")
+	}
+	if flags.requireFootprintEvidence && len(report.FootprintEconomics) == 0 {
+		failures = append(failures, "expected footprint-score economics evidence")
 	}
 	return failures
 }

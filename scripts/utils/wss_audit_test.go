@@ -256,19 +256,22 @@ func TestWSSAuditGateFailures(t *testing.T) {
 	})
 
 	report, err := loadWSSAuditReport(wssAuditFlags{
-		path:                   path,
-		expectDistinctSessions: 2,
-		minPhaseF:              2,
-		minFullHistory:         1,
-		requireSavings:         true,
+		path:                     path,
+		expectDistinctSessions:   2,
+		minPhaseF:                2,
+		minFullHistory:           1,
+		requireSavings:           true,
+		requireFootprintEvidence: true,
 	})
 	if err != nil {
 		t.Fatalf("loadWSSAuditReport() error = %v", err)
 	}
-	if report.GatePassed || len(report.GateFailures) != 4 {
-		t.Fatalf("expected four gate failures, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
+	if report.GatePassed || len(report.GateFailures) != 5 {
+		t.Fatalf("expected five gate failures, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
 	}
-	if !strings.Contains(strings.Join(report.GateFailures, "\n"), "full-history") {
+	failures := strings.Join(report.GateFailures, "\n")
+	if !strings.Contains(failures, "full-history") ||
+		!strings.Contains(failures, "footprint-score economics") {
 		t.Fatalf("expected full-history gate failure, got %+v", report.GateFailures)
 	}
 }
@@ -579,6 +582,15 @@ func TestRunWSSAuditGateFailureExitCode(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "gate:") || !strings.Contains(stdout.String(), "FAIL") {
 		t.Fatalf("gate output missing failure:\n%s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSAudit([]string{path, "--require-footprint-evidence"}, &stdout, &stderr); code != 3 {
+		t.Fatalf("runWSSAudit footprint gate code=%d want 3 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "footprint-score economics evidence") {
+		t.Fatalf("footprint gate output missing failure:\n%s", stdout.String())
 	}
 
 	stdout.Reset()
