@@ -29,16 +29,49 @@ func TestParseWSSSocketDebugArgs(t *testing.T) {
 	if opts.Limit != maxWSSSocketRequestLimit {
 		t.Fatalf("limit=%d want %d", opts.Limit, maxWSSSocketRequestLimit)
 	}
+	opts, err = parseWSSSocketDebugArgs([]string{
+		"--session", "codex-wss:abc",
+		"--since=2026-06-11T10:00:00Z",
+		"--fail-on-actionable",
+		"--fail-on-full-history",
+		"--max-reconnect-full-history-input=123",
+	})
+	if err != nil {
+		t.Fatalf("parse filters/gates: %v", err)
+	}
+	if opts.SessionFilter != "codex-wss:abc" ||
+		opts.Since.Format(time.RFC3339) != "2026-06-11T10:00:00Z" ||
+		opts.MaxActionableSockets != 0 ||
+		opts.MaxReconnectFullHistoryRequests != 0 ||
+		opts.MaxReconnectFullHistoryInputTokens != 123 {
+		t.Fatalf("filters/gates mismatch: %+v", opts)
+	}
 	for _, args := range [][]string{
 		{"--bad"},
 		{"0"},
 		{"--limit=0"},
 		{"--limit"},
 		{"1", "2"},
+		{"--session="},
+		{"--session"},
+		{"--since=bad"},
+		{"--since=-1h"},
+		{"--max-actionable=-1"},
 	} {
 		if _, err := parseWSSSocketDebugArgs(args); err == nil {
 			t.Fatalf("args %v should fail", args)
 		}
+	}
+}
+
+func TestParseWSSSocketSinceDuration(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	got, err := parseWSSSocketSince("2h", now)
+	if err != nil {
+		t.Fatalf("parse duration: %v", err)
+	}
+	if want := now.Add(-2 * time.Hour); !got.Equal(want) {
+		t.Fatalf("since duration=%s want %s", got, want)
 	}
 }
 
@@ -114,6 +147,28 @@ func TestBuildWSSSocketReportSplitsReusedSocketSeqAfterClose(t *testing.T) {
 	}
 	if report.Sockets[0].SocketInstance != 2 || !strings.Contains(report.Sockets[0].SocketKey, "#1.2") {
 		t.Fatalf("newest socket should be second instance: %+v", report.Sockets)
+	}
+}
+
+func TestBuildWSSSocketReportFiltersBySessionAndSince(t *testing.T) {
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	report := buildWSSSocketReportWithOptions("decisions.jsonl", []dbg.RequestSummary{
+		wssSocketTestSummary("old", "codex-wss:keep", 1, "root", base, 1000, 0, 0, nil),
+		wssSocketTestSummary("other", "codex-wss:drop", 2, "full_history", base.Add(2*time.Hour), 9000, 0, 0, nil),
+		wssSocketTestSummary("new", "codex-wss:keep", 3, "delta", base.Add(2*time.Hour), 700, 100, 10, nil),
+	}, wssSocketDebugArgs{
+		Limit:         100,
+		SessionFilter: "codex-wss:keep",
+		Since:         base.Add(time.Hour),
+	})
+	if report.RequestsScanned != 3 || report.RequestsFiltered != 2 || report.WSSRequests != 1 || report.SocketCount != 1 {
+		t.Fatalf("filter counts mismatch: %+v", report)
+	}
+	if report.ProviderInputTokens != 700 || report.ProviderCachedTokens != 100 {
+		t.Fatalf("filter token mismatch: %+v", report)
+	}
+	if report.Sockets[0].LastRequestID != "new" || report.Sockets[0].Cause != "open_or_missing_close" {
+		t.Fatalf("filtered socket mismatch: %+v", report.Sockets[0])
 	}
 }
 
@@ -251,6 +306,29 @@ func TestWSSSocketSmallHelpers(t *testing.T) {
 	}
 }
 
+func TestEvaluateWSSSocketGate(t *testing.T) {
+	report := wssSocketReport{
+		ActionableSockets:                       2,
+		ReconnectFullHistoryRequests:            1,
+		ReconnectFullHistoryProviderInputTokens: 7000,
+	}
+	violations := evaluateWSSSocketGate(report, wssSocketDebugArgs{
+		MaxActionableSockets:               1,
+		MaxReconnectFullHistoryRequests:    0,
+		MaxReconnectFullHistoryInputTokens: 6000,
+	})
+	if len(violations) != 3 {
+		t.Fatalf("violations=%v", violations)
+	}
+	if got := evaluateWSSSocketGate(report, wssSocketDebugArgs{
+		MaxActionableSockets:               2,
+		MaxReconnectFullHistoryRequests:    1,
+		MaxReconnectFullHistoryInputTokens: 7000,
+	}); len(got) != 0 {
+		t.Fatalf("unexpected gate violations: %v", got)
+	}
+}
+
 func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	tmp := t.TempDir()
 	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
@@ -299,6 +377,26 @@ func TestHandleDebugWSSSocketsNoConfiguredLog(t *testing.T) {
 	text := captureWSSSocketStdout(t, func() { handleDebugWSSSockets(nil) })
 	if !strings.Contains(text, "No decisions_log configured") {
 		t.Fatalf("missing no-config message: %q", text)
+	}
+}
+
+func TestHandleDebugWSSSocketsGateExits(t *testing.T) {
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	line := mustJSONLine(t, wssSocketTestSummary("req-1", "codex-wss:thread", 2, "full_history",
+		time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC), 8000, 0, 0, map[string]string{
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+			"wss.socket_age_ms":          "2500",
+		}))
+	if err := os.WriteFile(decisionsPath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	code, exited := captureExit(func() { handleDebugWSSSockets([]string{"--fail-on-actionable"}) })
+	if !exited || code != 1 {
+		t.Fatalf("gate should exit 1, exited=%v code=%d", exited, code)
 	}
 }
 

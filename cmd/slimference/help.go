@@ -280,7 +280,7 @@ tail <n>           Newest N filter.db rows (default 20, max 500, --json).
 replay <path>      Replay a decision-chain JSONL session, break down per
                    request.
 flight <cmd>        Show/export normalized content-free request flight rows.
-wss-sockets <n>     Correlate WSS socket close causes with request
+wss-sockets <n>     Correlate/gate WSS socket close causes with request
                    shape/provider-cache cost from the decisions log.
 bundle              Export bounded content-free diagnostics to
                    ~/.slimference/exports/ for later analysis.

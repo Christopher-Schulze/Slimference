@@ -2302,8 +2302,12 @@ initiator, socket age, frame counts, request shape (`root`/`delta`/`full_history
 provider input, provider cache, and local saved tokens. The report classifies
 each socket as a safe client/upstream close, local/upstream/client transport
 error, or actionable full-history reconnect cost before suggesting the next
-inspection path. It is diagnostic only and does not change product savings
-arithmetic.
+inspection path. `--session ID` and `--since RFC3339_OR_DURATION` scope owner
+sessions; `--fail-on-actionable`, `--fail-on-full-history`,
+`--max-actionable=N`, `--max-reconnect-full-history=N`, and
+`--max-reconnect-full-history-input=N` make the same content-free analysis
+usable as a proof gate. It is diagnostic only and does not change product
+savings arithmetic.
 
 The recorder is privacy-first: before a request summary is retained or flushed
 to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie

@@ -18,14 +18,22 @@ const (
 )
 
 type wssSocketDebugArgs struct {
-	Limit   int
-	JSONOut bool
+	Limit                              int
+	JSONOut                            bool
+	SessionFilter                      string
+	Since                              time.Time
+	MaxActionableSockets               int
+	MaxReconnectFullHistoryRequests    int
+	MaxReconnectFullHistoryInputTokens int
 }
 
 type wssSocketReport struct {
 	DecisionsLog                            string             `json:"decisions_log,omitempty"`
 	RequestLimit                            int                `json:"request_limit"`
+	SessionFilter                           string             `json:"session_filter,omitempty"`
+	Since                                   time.Time          `json:"since,omitempty"`
 	RequestsScanned                         int                `json:"requests_scanned"`
+	RequestsFiltered                        int                `json:"requests_filtered"`
 	WSSRequests                             int                `json:"wss_requests"`
 	SocketCount                             int                `json:"socket_count"`
 	ClosedSockets                           int                `json:"closed_sockets"`
@@ -92,14 +100,26 @@ func handleDebugWSSSockets(args []string) {
 		return
 	}
 	summaries := readLastDecisionSummaries(path, opts.Limit)
-	report := buildWSSSocketReport(path, opts.Limit, summaries)
+	report := buildWSSSocketReportWithOptions(path, summaries, opts)
 	printWSSSocketReport(report, opts.JSONOut)
+	if violations := evaluateWSSSocketGate(report, opts); len(violations) > 0 {
+		for _, violation := range violations {
+			fmt.Fprintf(os.Stderr, "wss-sockets gate failed: %s\n", violation)
+		}
+		exitFn(1)
+	}
 }
 
 func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
-	opts := wssSocketDebugArgs{Limit: defaultWSSSocketRequestLimit}
+	opts := wssSocketDebugArgs{
+		Limit:                              defaultWSSSocketRequestLimit,
+		MaxActionableSockets:               -1,
+		MaxReconnectFullHistoryRequests:    -1,
+		MaxReconnectFullHistoryInputTokens: -1,
+	}
 	var gotLimit bool
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if strings.TrimSpace(arg) == "" {
 			continue
 		}
@@ -120,8 +140,75 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			gotLimit = true
 			continue
 		}
+		if strings.HasPrefix(arg, "--session=") {
+			opts.SessionFilter = strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
+			if opts.SessionFilter == "" {
+				return opts, fmt.Errorf("session filter must not be empty")
+			}
+			continue
+		}
+		if arg == "--session" {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return opts, fmt.Errorf("session filter must not be empty")
+			}
+			opts.SessionFilter = strings.TrimSpace(args[i])
+			continue
+		}
+		if strings.HasPrefix(arg, "--since=") {
+			since, err := parseWSSSocketSince(strings.TrimPrefix(arg, "--since="), time.Now())
+			if err != nil {
+				return opts, err
+			}
+			opts.Since = since
+			continue
+		}
+		if arg == "--since" {
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("since must be RFC3339 time or duration")
+			}
+			since, err := parseWSSSocketSince(args[i], time.Now())
+			if err != nil {
+				return opts, err
+			}
+			opts.Since = since
+			continue
+		}
+		if arg == "--fail-on-actionable" {
+			opts.MaxActionableSockets = 0
+			continue
+		}
+		if arg == "--fail-on-full-history" {
+			opts.MaxReconnectFullHistoryRequests = 0
+			continue
+		}
+		if strings.HasPrefix(arg, "--max-actionable=") {
+			n, err := parseNonNegativeWSSSocketLimit("max-actionable", strings.TrimPrefix(arg, "--max-actionable="))
+			if err != nil {
+				return opts, err
+			}
+			opts.MaxActionableSockets = n
+			continue
+		}
+		if strings.HasPrefix(arg, "--max-reconnect-full-history=") {
+			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history", strings.TrimPrefix(arg, "--max-reconnect-full-history="))
+			if err != nil {
+				return opts, err
+			}
+			opts.MaxReconnectFullHistoryRequests = n
+			continue
+		}
+		if strings.HasPrefix(arg, "--max-reconnect-full-history-input=") {
+			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history-input", strings.TrimPrefix(arg, "--max-reconnect-full-history-input="))
+			if err != nil {
+				return opts, err
+			}
+			opts.MaxReconnectFullHistoryInputTokens = n
+			continue
+		}
 		if arg == "--limit" || arg == "-limit" {
-			return opts, fmt.Errorf("usage: slimference debug wss-sockets [limit|--limit=N] [--json]")
+			return opts, fmt.Errorf("usage: slimference debug wss-sockets [limit|--limit=N] [--json] [--session ID] [--since TIME] [gate flags]")
 		}
 		if strings.HasPrefix(arg, "-") {
 			return opts, fmt.Errorf("unknown flag: %s", arg)
@@ -143,9 +230,15 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 }
 
 func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary) wssSocketReport {
+	return buildWSSSocketReportWithOptions(path, summaries, wssSocketDebugArgs{Limit: limit})
+}
+
+func buildWSSSocketReportWithOptions(path string, summaries []dbg.RequestSummary, opts wssSocketDebugArgs) wssSocketReport {
 	report := wssSocketReport{
 		DecisionsLog:    path,
-		RequestLimit:    limit,
+		RequestLimit:    opts.Limit,
+		SessionFilter:   opts.SessionFilter,
+		Since:           opts.Since,
 		RequestsScanned: len(summaries),
 		CloseInitiators: make(map[string]int),
 		CauseClasses:    make(map[string]int),
@@ -154,6 +247,10 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 	wssSummaries := make([]dbg.RequestSummary, 0, len(summaries))
 	for _, summary := range summaries {
 		if _, ok := wssSocketSeq(summary.DebugFacts); ok {
+			if !wssSummaryMatchesFilters(summary, opts) {
+				report.RequestsFiltered++
+				continue
+			}
 			wssSummaries = append(wssSummaries, summary)
 		}
 	}
@@ -227,6 +324,19 @@ func buildWSSSocketReport(path string, limit int, summaries []dbg.RequestSummary
 		report.CauseClasses = nil
 	}
 	return report
+}
+
+func wssSummaryMatchesFilters(summary dbg.RequestSummary, opts wssSocketDebugArgs) bool {
+	if opts.SessionFilter != "" && !strings.HasPrefix(summary.SessionID, opts.SessionFilter) {
+		return false
+	}
+	if !opts.Since.IsZero() {
+		if summary.Timestamp.IsZero() {
+			return false
+		}
+		return !summary.Timestamp.Before(opts.Since)
+	}
+	return true
 }
 
 func mergeWSSSocketSummary(socket *wssSocketSummary, summary dbg.RequestSummary) {
@@ -413,6 +523,47 @@ func parseDebugFactInt64(facts map[string]string, key string) int64 {
 	return v
 }
 
+func parseWSSSocketSince(raw string, now time.Time) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("since must be RFC3339 time or duration")
+	}
+	if ts, err := time.Parse(time.RFC3339, value); err == nil {
+		return ts, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return time.Time{}, fmt.Errorf("since must be RFC3339 time or positive duration")
+	}
+	return now.Add(-duration), nil
+}
+
+func parseNonNegativeWSSSocketLimit(name string, raw string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return n, nil
+}
+
+func evaluateWSSSocketGate(report wssSocketReport, opts wssSocketDebugArgs) []string {
+	var violations []string
+	if opts.MaxActionableSockets >= 0 && report.ActionableSockets > opts.MaxActionableSockets {
+		violations = append(violations, fmt.Sprintf("actionable_sockets=%d > %d", report.ActionableSockets, opts.MaxActionableSockets))
+	}
+	if opts.MaxReconnectFullHistoryRequests >= 0 &&
+		report.ReconnectFullHistoryRequests > opts.MaxReconnectFullHistoryRequests {
+		violations = append(violations, fmt.Sprintf("reconnect_full_history_requests=%d > %d",
+			report.ReconnectFullHistoryRequests, opts.MaxReconnectFullHistoryRequests))
+	}
+	if opts.MaxReconnectFullHistoryInputTokens >= 0 &&
+		report.ReconnectFullHistoryProviderInputTokens > opts.MaxReconnectFullHistoryInputTokens {
+		violations = append(violations, fmt.Sprintf("reconnect_full_history_provider_input_tokens=%d > %d",
+			report.ReconnectFullHistoryProviderInputTokens, opts.MaxReconnectFullHistoryInputTokens))
+	}
+	return violations
+}
+
 func positiveInt(v int) int {
 	if v < 0 {
 		return 0
@@ -439,6 +590,10 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 	}
 	fmt.Printf("WSS socket lifecycle (%d socket(s), %d request(s))\n", report.SocketCount, report.WSSRequests)
 	fmt.Println(strings.Repeat("-", 50))
+	if report.SessionFilter != "" || !report.Since.IsZero() || report.RequestsFiltered > 0 {
+		fmt.Printf("filters=session:%s since:%s filtered:%d scanned:%d\n",
+			emptyDash(report.SessionFilter), formatWSSSocketSince(report.Since), report.RequestsFiltered, report.RequestsScanned)
+	}
 	fmt.Printf("closed=%d provider_input=%d provider_cached=%d local_saved=%d full_history=%d reconnect_full_history=%d\n",
 		report.ClosedSockets,
 		report.ProviderInputTokens,
@@ -467,6 +622,13 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 			socket.FullHistoryProviderInputTokens,
 			socket.TurnsCompleted)
 	}
+}
+
+func formatWSSSocketSince(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Format(time.RFC3339)
 }
 
 func formatWSSSocketShapeCounts(counts map[string]int) string {

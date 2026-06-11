@@ -2799,7 +2799,7 @@ func handleDebugCmd(args []string) {
 		fmt.Fprintln(os.Stderr, "  tail    — newest N rows (default 20, max 500, --json)")
 		fmt.Fprintln(os.Stderr, "  replay  — replay session JSONL (RequestSummary per-request breakdown)")
 		fmt.Fprintln(os.Stderr, "  flight  — normalized request flight recorder view")
-		fmt.Fprintln(os.Stderr, "  wss-sockets — correlate WSS socket lifecycle with request shapes/cost")
+		fmt.Fprintln(os.Stderr, "  wss-sockets — correlate/gate WSS socket lifecycle with request shapes/cost")
 		fmt.Fprintln(os.Stderr, "  bundle  — bounded content-free diagnostics bundle for later analysis")
 		exitFn(1)
 	}
