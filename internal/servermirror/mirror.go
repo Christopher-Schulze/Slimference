@@ -106,6 +106,7 @@ type SegmentPrediction struct {
 type SegmentKindReport struct {
 	Segments              int
 	ReferenceableSegments int
+	Bytes                 int
 	PotentialSavedBytes   int
 }
 
@@ -114,9 +115,11 @@ type SegmentKindReport struct {
 // estimate, no frame is changed.
 type Report struct {
 	Blocks                              int
+	BlockBytes                          int
 	ReferenceableBlocks                 int
 	PotentialSavedBytes                 int
 	NormalizedSegments                  int
+	NormalizedBytes                     int
 	NormalizedReferenceableSegments     int
 	NormalizedPotentialSavedBytes       int
 	Predictions                         []Prediction
@@ -165,6 +168,7 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 			idx := blockIdx
 			blockIdx++
 			_, forwarded := known[hashContent(b.Text)]
+			rep.BlockBytes += len(b.Text)
 			rep.Predictions = append(rep.Predictions, Prediction{
 				Block:            idx,
 				AlreadyForwarded: forwarded,
@@ -178,6 +182,7 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 	}
 	for _, segment := range normalizedSegments(msgs) {
 		rep.NormalizedSegments++
+		rep.NormalizedBytes += len(segment.Text)
 		_, forwarded := normalizedKnown[hashContent(segment.Text)]
 		rep.NormalizedPredictions = append(rep.NormalizedPredictions, SegmentPrediction{
 			Block:            segment.Block,
@@ -191,6 +196,7 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 		}
 		kindReport := rep.NormalizedPotentialSavedBytesByKind[segment.Kind]
 		kindReport.Segments++
+		kindReport.Bytes += len(segment.Text)
 		if forwarded {
 			rep.NormalizedReferenceableSegments++
 			rep.NormalizedPotentialSavedBytes += len(segment.Text)

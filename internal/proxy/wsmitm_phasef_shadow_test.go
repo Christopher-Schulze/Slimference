@@ -52,9 +52,12 @@ func TestRecordShadowMirror_NormalizedDebugFacts(t *testing.T) {
 
 	var meta wssRequestMeta
 	attachShadowMirrorDebugFacts(&meta, rep)
-	if meta.DebugFacts["wss.shadow_mirror_referenceable_bytes"] != "0" ||
+	if meta.DebugFacts["wss.shadow_mirror_bytes"] != strconv.Itoa(len(second)) ||
+		meta.DebugFacts["wss.shadow_mirror_referenceable_bytes"] != "0" ||
+		meta.DebugFacts["wss.shadow_mirror_normalized_bytes"] != strconv.Itoa(len(payload)) ||
 		meta.DebugFacts["wss.shadow_mirror_normalized_referenceable_bytes"] != strconv.Itoa(len(payload)) ||
-		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/1/1" {
+		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/1/1" ||
+		meta.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/"+strconv.Itoa(len(payload))+"/1/1" {
 		t.Fatalf("bad normalized shadow facts: %+v", meta.DebugFacts)
 	}
 }

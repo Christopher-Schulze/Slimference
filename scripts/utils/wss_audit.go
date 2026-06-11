@@ -38,6 +38,7 @@ type wssAuditReport struct {
 	ChunkDedupReferences   int64                            `json:"chunk_dedup_references,omitempty"`
 	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
+	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
 }
@@ -51,6 +52,35 @@ type wssAuditSessionSummary struct {
 	TokensSaved            int       `json:"tokens_saved"`
 	FirstSeen              time.Time `json:"first_seen,omitempty"`
 	LastSeen               time.Time `json:"last_seen,omitempty"`
+}
+
+type wssShadowMirrorSummary struct {
+	Requests                           int                          `json:"requests"`
+	Blocks                             int                          `json:"blocks"`
+	Bytes                              int                          `json:"bytes"`
+	ReferenceableBlocks                int                          `json:"referenceable_blocks"`
+	ReferenceableBytes                 int                          `json:"referenceable_bytes"`
+	ReferenceableBytePct               float64                      `json:"referenceable_byte_pct"`
+	NormalizedSegments                 int                          `json:"normalized_segments"`
+	NormalizedBytes                    int                          `json:"normalized_bytes"`
+	NormalizedReferenceableSegments    int                          `json:"normalized_referenceable_segments"`
+	NormalizedReferenceableBytes       int                          `json:"normalized_referenceable_bytes"`
+	NormalizedReferenceableBytePct     float64                      `json:"normalized_referenceable_byte_pct"`
+	NormalizedReferenceableBytesByKind []wssShadowMirrorKindSummary `json:"normalized_referenceable_bytes_by_kind,omitempty"`
+}
+
+type wssShadowMirrorKindSummary struct {
+	Kind                  string  `json:"kind"`
+	Segments              int     `json:"segments"`
+	Bytes                 int     `json:"bytes"`
+	ReferenceableSegments int     `json:"referenceable_segments"`
+	ReferenceableBytes    int     `json:"referenceable_bytes"`
+	ReferenceableBytePct  float64 `json:"referenceable_byte_pct"`
+}
+
+type wssShadowMirrorAccumulator struct {
+	summary wssShadowMirrorSummary
+	byKind  map[string]*wssShadowMirrorKindSummary
 }
 
 type wssAuditFlags struct {
@@ -78,10 +108,11 @@ Flags:
   --json                          Output JSON
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
-Phase-F request counts, session-key continuity, previous_response_id usage, and
-positive input-token savings. With --admin-state-file it also prints content-free
-policy and cache hit/miss counters from the matching admin snapshot. It does not
-inspect payload text or auth headers.`
+Phase-F request counts, session-key continuity, previous_response_id usage,
+positive input-token savings, and T355 server-state shadow-mirror density. With
+--admin-state-file it also prints content-free policy and cache hit/miss counters
+from the matching admin snapshot. It does not inspect payload text or auth
+headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSAuditFlags(args)
@@ -216,6 +247,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		report.Since = &since
 	}
 	sessionStats := make(map[string]*wssAuditSessionSummary)
+	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
 			if summary.Timestamp.IsZero() || summary.Timestamp.Before(flags.since) {
@@ -252,6 +284,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		for _, class := range wssAuditContentClasses(summary) {
 			report.ContentClasses[class]++
 		}
+		shadowMirror.add(summary.DebugFacts)
 		sessionID := strings.TrimSpace(summary.SessionID)
 		if sessionID == "" {
 			sessionID = "(missing)"
@@ -291,6 +324,9 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		}
 		return report.Sessions[i].SessionID < report.Sessions[j].SessionID
 	})
+	if shadow := shadowMirror.finalize(); shadow != nil {
+		report.ShadowMirror = shadow
+	}
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
@@ -307,6 +343,114 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		report.ChunkDedupInputBytes = savings.ProxyLayer0ChunkInBytes
 	}
 	return report, nil
+}
+
+func (a *wssShadowMirrorAccumulator) add(facts map[string]string) {
+	if a == nil || len(facts) == 0 || !wssShadowMirrorFactsPresent(facts) {
+		return
+	}
+	a.summary.Requests++
+	a.summary.Blocks += intFact(facts, "wss.shadow_mirror_blocks")
+	a.summary.Bytes += intFact(facts, "wss.shadow_mirror_bytes")
+	a.summary.ReferenceableBlocks += intFact(facts, "wss.shadow_mirror_referenceable_blocks")
+	a.summary.ReferenceableBytes += intFact(facts, "wss.shadow_mirror_referenceable_bytes")
+	a.summary.NormalizedSegments += intFact(facts, "wss.shadow_mirror_normalized_segments")
+	a.summary.NormalizedBytes += intFact(facts, "wss.shadow_mirror_normalized_bytes")
+	a.summary.NormalizedReferenceableSegments += intFact(facts, "wss.shadow_mirror_normalized_referenceable_segments")
+	a.summary.NormalizedReferenceableBytes += intFact(facts, "wss.shadow_mirror_normalized_referenceable_bytes")
+	a.addKinds(facts["wss.shadow_mirror_normalized_density_by_kind"])
+}
+
+func (a *wssShadowMirrorAccumulator) addKinds(encoded string) {
+	if a == nil || strings.TrimSpace(encoded) == "" {
+		return
+	}
+	for _, part := range strings.Split(encoded, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, values, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		pieces := strings.Split(values, "/")
+		if len(pieces) != 4 {
+			continue
+		}
+		refBytes, okRefBytes := parseNonNegativeInt(pieces[0])
+		bytes, okBytes := parseNonNegativeInt(pieces[1])
+		refSegments, okRefSegments := parseNonNegativeInt(pieces[2])
+		segments, okSegments := parseNonNegativeInt(pieces[3])
+		if !okRefBytes || !okBytes || !okRefSegments || !okSegments {
+			continue
+		}
+		row := a.byKind[name]
+		if row == nil {
+			row = &wssShadowMirrorKindSummary{Kind: name}
+			a.byKind[name] = row
+		}
+		row.ReferenceableBytes += refBytes
+		row.Bytes += bytes
+		row.ReferenceableSegments += refSegments
+		row.Segments += segments
+	}
+}
+
+func (a *wssShadowMirrorAccumulator) finalize() *wssShadowMirrorSummary {
+	if a == nil || a.summary.Requests == 0 {
+		return nil
+	}
+	out := a.summary
+	out.ReferenceableBytePct = pct(out.ReferenceableBytes, out.Bytes)
+	out.NormalizedReferenceableBytePct = pct(out.NormalizedReferenceableBytes, out.NormalizedBytes)
+	keys := make([]string, 0, len(a.byKind))
+	for key := range a.byKind {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		row := *a.byKind[key]
+		row.ReferenceableBytePct = pct(row.ReferenceableBytes, row.Bytes)
+		out.NormalizedReferenceableBytesByKind = append(out.NormalizedReferenceableBytesByKind, row)
+	}
+	return &out
+}
+
+func wssShadowMirrorFactsPresent(facts map[string]string) bool {
+	for key := range facts {
+		if strings.HasPrefix(key, "wss.shadow_mirror_") {
+			return true
+		}
+	}
+	return false
+}
+
+func intFact(facts map[string]string, key string) int {
+	value, ok := parseNonNegativeInt(facts[key])
+	if !ok {
+		return 0
+	}
+	return value
+}
+
+func parseNonNegativeInt(value string) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func pct(part, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(part) * 100 / float64(total)
 }
 
 func loadWSSAuditTelemetry(path string) ([]control.ProxyLayer0PolicyEntry, []control.ProxyLayer0CacheEntry, control.SavingsSummary, error) {
@@ -377,6 +521,15 @@ func wssAuditNotes(report wssAuditReport) []string {
 	}
 	if report.ReReadCount > 0 {
 		notes = append(notes, "WSS re-read canary observed repeated tool keys; review alongside savings to distinguish useful repeat reads from possible context-recall pressure.")
+	}
+	if report.PhaseFRequests > 0 && report.ShadowMirror == nil {
+		notes = append(notes, "No T355 shadow-mirror telemetry observed; this capture may predate normalized mirror facts or contain no text blocks.")
+	}
+	if report.ShadowMirror != nil && report.ShadowMirror.NormalizedBytes > 0 && report.ShadowMirror.NormalizedReferenceableBytes == 0 {
+		notes = append(notes, "T355 shadow mirror saw normalized bytes but no normalized referenceable bytes in this capture.")
+	}
+	if report.ShadowMirror != nil && report.ShadowMirror.NormalizedReferenceableBytes > 0 {
+		notes = append(notes, "T355 shadow mirror found normalized referenceable bytes; treat this as measurement evidence only, not a product mutation proof.")
 	}
 	return notes
 }
@@ -450,6 +603,30 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		fmt.Fprintf(w, "  references:              %d\n", report.ChunkDedupReferences)
 		fmt.Fprintf(w, "  referenced bytes:        %d\n", report.ChunkDedupRefBytes)
 		fmt.Fprintf(w, "  input bytes:             %d\n", report.ChunkDedupInputBytes)
+	}
+	if report.ShadowMirror != nil {
+		fmt.Fprintln(w, "\nShadow mirror density:")
+		fmt.Fprintf(w, "  requests:                %d\n", report.ShadowMirror.Requests)
+		fmt.Fprintf(w, "  exact blocks:            %d\n", report.ShadowMirror.Blocks)
+		fmt.Fprintf(w, "  exact bytes:             %d\n", report.ShadowMirror.Bytes)
+		fmt.Fprintf(w, "  exact referenceable:     %d blocks / %d bytes (%.2f%%)\n",
+			report.ShadowMirror.ReferenceableBlocks,
+			report.ShadowMirror.ReferenceableBytes,
+			report.ShadowMirror.ReferenceableBytePct)
+		fmt.Fprintf(w, "  normalized segments:     %d\n", report.ShadowMirror.NormalizedSegments)
+		fmt.Fprintf(w, "  normalized bytes:        %d\n", report.ShadowMirror.NormalizedBytes)
+		fmt.Fprintf(w, "  normalized referenceable:%d segments / %d bytes (%.2f%%)\n",
+			report.ShadowMirror.NormalizedReferenceableSegments,
+			report.ShadowMirror.NormalizedReferenceableBytes,
+			report.ShadowMirror.NormalizedReferenceableBytePct)
+		if len(report.ShadowMirror.NormalizedReferenceableBytesByKind) > 0 {
+			fmt.Fprintln(w, "  by kind:")
+			for _, row := range report.ShadowMirror.NormalizedReferenceableBytesByKind {
+				fmt.Fprintf(w, "    %-24s %d/%d bytes %.2f%% (%d/%d segments)\n",
+					row.Kind, row.ReferenceableBytes, row.Bytes, row.ReferenceableBytePct,
+					row.ReferenceableSegments, row.Segments)
+			}
+		}
 	}
 	if len(report.Sessions) > 0 {
 		fmt.Fprintln(w, "\nSessions:")

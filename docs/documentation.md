@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 0.6.0
-Last updated: 2026-06-07
+Last updated: 2026-06-11
 
 Comprehensive reference for the Slimference token-savings proxy. This
 document tracks the current v0.6.0 macOS-first product line; sections follow
@@ -492,7 +492,7 @@ Current product status:
 | Predictive post-edit file state | Closed | T253 closed | Rejected for default-auto: first post-edit read full-passes to preserve recency/context; later repeats dedup normally |
 | apply_patch context dedup | Closed | T253 closed | Rejected as standalone work: patch context is model working memory; exact repeated outputs remain covered |
 | Reasoning-trace compaction | Closed | T253 closed | Rejected for default-auto: do not mutate reasoning/cognition surface for savings |
-| Server-state mirror | Shadow/policy infra only | T254 closed as shadow | Tracks exact forwarded-state opportunities; no generalized model-facing mutation or reference language |
+| Server-state mirror | Shadow/policy infra only | T254 closed as exact-block shadow; T355 adds normalized shadow density | Tracks exact and normalized forwarded-state opportunities; no known backend-honored client-side block reference, no model-facing mutation |
 | Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; unsafe candidates blocked or telemetry-only |
 | HTTP archive recovery/promotion | Conservative lock active | T259 closed | HTTP fallback keeps safe Layer-0 reducers but cannot emit archive refs even in `max` |
 
@@ -521,7 +521,14 @@ Its WSS shadow path reports exact block referenceability plus normalized segment
 referenceability for volatile Codex exec envelopes, stripping only the per-call
 header before hashing the stable payload. Decision-log facts stay content-free
 (`wss.shadow_mirror_*`) and grouped by segment kind; the path never emits
-model-facing references or mutates frames.
+model-facing references or mutates frames. Current documented OpenAI Responses
+state surfaces are `previous_response_id`, Conversations, explicit input items
+such as `input_text`/`input_file`, encrypted reasoning resend for stateless
+conversation state, and context-management compaction. None is a free-form
+client-side "the server already has this old block" reference for arbitrary
+prior WSS input blocks, so server-state mirror promotion remains no-go for the
+product path unless a separate lab probe proves a backend-honored reference
+shape.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
 
@@ -998,6 +1005,15 @@ A/B results when deciding whether a session needs looser compression. On the liv
 WSS reducer, a post-collapse deliberate re-read of the same read key suppresses
 further collapse for that key for the rest of the session, restoring full recency
 instead of fighting the model's attention signal.
+The same audit report includes T355 server-state shadow-mirror density when the
+decision log carries `wss.shadow_mirror_*` debug facts. It reports exact block
+bytes, normalized segment bytes, referenceable byte percentages, and normalized
+referenceable density by segment kind. These counters are telemetry-only: they
+measure what a normalized server-state mirror would likely be able to reference,
+but they do not prove that the WSS backend accepts a client-side reference and do
+not mutate frames. The decision-log replay path keeps the newest row per
+request id, so provider-usage enrichment lines do not double-count shadow-mirror
+density.
 
 Savings-proven and comprehension-preserved are intentionally separate claims.
 Positive mutation and input-token counters prove Codex WSS savings for a

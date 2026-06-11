@@ -252,13 +252,18 @@ func attachShadowMirrorDebugFacts(meta *wssRequestMeta, rep servermirror.Report)
 		meta.DebugFacts = make(map[string]string)
 	}
 	meta.DebugFacts["wss.shadow_mirror_blocks"] = strconv.Itoa(rep.Blocks)
+	meta.DebugFacts["wss.shadow_mirror_bytes"] = strconv.Itoa(rep.BlockBytes)
 	meta.DebugFacts["wss.shadow_mirror_referenceable_blocks"] = strconv.Itoa(rep.ReferenceableBlocks)
 	meta.DebugFacts["wss.shadow_mirror_referenceable_bytes"] = strconv.Itoa(rep.PotentialSavedBytes)
 	meta.DebugFacts["wss.shadow_mirror_normalized_segments"] = strconv.Itoa(rep.NormalizedSegments)
+	meta.DebugFacts["wss.shadow_mirror_normalized_bytes"] = strconv.Itoa(rep.NormalizedBytes)
 	meta.DebugFacts["wss.shadow_mirror_normalized_referenceable_segments"] = strconv.Itoa(rep.NormalizedReferenceableSegments)
 	meta.DebugFacts["wss.shadow_mirror_normalized_referenceable_bytes"] = strconv.Itoa(rep.NormalizedPotentialSavedBytes)
 	if byKind := formatShadowMirrorKindReport(rep.NormalizedPotentialSavedBytesByKind); byKind != "" {
 		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] = byKind
+	}
+	if byKind := formatShadowMirrorKindDensityReport(rep.NormalizedPotentialSavedBytesByKind); byKind != "" {
+		meta.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"] = byKind
 	}
 }
 
@@ -275,6 +280,23 @@ func formatShadowMirrorKindReport(byKind map[string]servermirror.SegmentKindRepo
 	for _, key := range keys {
 		row := byKind[key]
 		parts = append(parts, fmt.Sprintf("%s=%d/%d/%d", key, row.PotentialSavedBytes, row.ReferenceableSegments, row.Segments))
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatShadowMirrorKindDensityReport(byKind map[string]servermirror.SegmentKindReport) string {
+	if len(byKind) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(byKind))
+	for key := range byKind {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		row := byKind[key]
+		parts = append(parts, fmt.Sprintf("%s=%d/%d/%d/%d", key, row.PotentialSavedBytes, row.Bytes, row.ReferenceableSegments, row.Segments))
 	}
 	return strings.Join(parts, ",")
 }

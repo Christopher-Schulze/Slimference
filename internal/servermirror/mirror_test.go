@@ -52,16 +52,17 @@ func TestMirror_NormalizedCodexExecPayloadPredictsThroughVolatileHeader(t *testi
 	m.Observe("s", msg(first))
 
 	rep := m.Predict("s", msg(second))
-	if rep.ReferenceableBlocks != 0 || rep.PotentialSavedBytes != 0 {
+	if rep.BlockBytes != len(second) || rep.ReferenceableBlocks != 0 || rep.PotentialSavedBytes != 0 {
 		t.Fatalf("exact mirror must not match volatile envelopes: %+v", rep)
 	}
 	if rep.NormalizedSegments != 1 ||
+		rep.NormalizedBytes != len(payload) ||
 		rep.NormalizedReferenceableSegments != 1 ||
 		rep.NormalizedPotentialSavedBytes != len(payload) {
 		t.Fatalf("normalized payload should be referenceable in shadow: %+v", rep)
 	}
 	kind := rep.NormalizedPotentialSavedBytesByKind["codex_exec_payload"]
-	if kind.Segments != 1 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
+	if kind.Segments != 1 || kind.Bytes != len(payload) || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
 		t.Fatalf("normalized kind accounting wrong: %+v", rep.NormalizedPotentialSavedBytesByKind)
 	}
 	if got := rep.NormalizedPredictions[0]; got.Kind != "codex_exec_payload" || !got.AlreadyForwarded || got.Bytes != len(payload) {

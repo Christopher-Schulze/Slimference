@@ -27,6 +27,17 @@ func TestWSSAuditReport(t *testing.T) {
 			ReReadCount:            2,
 			Tokens:                 dbg.TokenCounts{Saved: 40},
 			Plan:                   &dbg.PlanSummary{ContentClasses: []string{"tool_output", "repeated_tool_output"}},
+			DebugFacts: map[string]string{
+				"wss.shadow_mirror_blocks":                            "2",
+				"wss.shadow_mirror_bytes":                             "1000",
+				"wss.shadow_mirror_referenceable_blocks":              "1",
+				"wss.shadow_mirror_referenceable_bytes":               "400",
+				"wss.shadow_mirror_normalized_segments":               "2",
+				"wss.shadow_mirror_normalized_bytes":                  "800",
+				"wss.shadow_mirror_normalized_referenceable_segments": "1",
+				"wss.shadow_mirror_normalized_referenceable_bytes":    "300",
+				"wss.shadow_mirror_normalized_density_by_kind":        "codex_exec_payload=300/500/1/1,tool_result=0/300/0/1",
+			},
 		},
 		dbg.RequestSummary{
 			RequestID: "http-1",
@@ -54,6 +65,17 @@ func TestWSSAuditReport(t *testing.T) {
 	}
 	if report.ReReadRequests != 1 || report.ReReadCount != 2 {
 		t.Fatalf("bad re-read counters: %+v", report)
+	}
+	if report.ShadowMirror == nil ||
+		report.ShadowMirror.ReferenceableBytes != 400 ||
+		report.ShadowMirror.ReferenceableBytePct != 40 ||
+		report.ShadowMirror.NormalizedReferenceableBytes != 300 ||
+		report.ShadowMirror.NormalizedReferenceableBytePct != 37.5 ||
+		len(report.ShadowMirror.NormalizedReferenceableBytesByKind) != 2 {
+		t.Fatalf("bad shadow mirror report: %+v", report.ShadowMirror)
+	}
+	if got := report.ShadowMirror.NormalizedReferenceableBytesByKind[0]; got.Kind != "codex_exec_payload" || got.ReferenceableBytes != 300 || got.Bytes != 500 || got.ReferenceableBytePct != 60 {
+		t.Fatalf("bad shadow mirror kind row: %+v", got)
 	}
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
 		t.Fatalf("bad content classes: %+v", report.ContentClasses)
@@ -153,6 +175,17 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		Path:      "/backend-api/codex/responses",
 		RouteMode: "websocket_phasef",
 		Tokens:    dbg.TokenCounts{Saved: 3},
+		DebugFacts: map[string]string{
+			"wss.shadow_mirror_blocks":                            "1",
+			"wss.shadow_mirror_bytes":                             "300",
+			"wss.shadow_mirror_referenceable_blocks":              "0",
+			"wss.shadow_mirror_referenceable_bytes":               "0",
+			"wss.shadow_mirror_normalized_segments":               "1",
+			"wss.shadow_mirror_normalized_bytes":                  "200",
+			"wss.shadow_mirror_normalized_referenceable_segments": "1",
+			"wss.shadow_mirror_normalized_referenceable_bytes":    "120",
+			"wss.shadow_mirror_normalized_density_by_kind":        "codex_exec_payload=120/200/1/1",
+		},
 	})
 
 	var stdout, stderr bytes.Buffer
@@ -161,6 +194,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
 		!strings.Contains(stdout.String(), "re-read requests/count:") ||
+		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
+		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
 	}
@@ -191,6 +226,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.TokensSaved != 3 {
 		t.Fatalf("tokens saved = %d, want 3", report.TokensSaved)
+	}
+	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {
+		t.Fatalf("shadow mirror missing from JSON report: %+v", report.ShadowMirror)
 	}
 	if len(report.Policy) != 2 || report.PolicySource == "" {
 		t.Fatalf("policy join missing from JSON report: %+v", report)
