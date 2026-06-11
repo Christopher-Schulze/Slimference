@@ -150,6 +150,7 @@ type wssRequestMeta struct {
 	PreviousResponseID string
 	Model              string
 	ClientFamily       string
+	OriginalMessages   []types.Message
 	BypassReason       string
 	DebugFacts         map[string]string
 }
@@ -242,8 +243,8 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	// frame's forwarded content. Telemetry-only; never changes a frame.
 	if sid := meta.SessionID; sid != "" {
 		pre := messages
-		if changed {
-			pre, _, _ = extractMessages(types.CodexChatGPT, body)
+		if changed && len(meta.OriginalMessages) > 0 {
+			pre = meta.OriginalMessages
 		}
 		if rep := recordShadowMirror(sid, pre, messages); rep.ReferenceableBlocks > 0 {
 			slog.Info("wss server-state mirror shadow",
@@ -277,10 +278,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	reReadCount := 0
 	var meta wssRequestMeta
 	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
-	requestContainsToolOutput := wssBodyContainsToolOutput(out)
+	requestContainsToolOutput := wssBodyContainsFunctionCallOutput(out)
 	messages, raw, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
+		meta.OriginalMessages = messages
 	}
 	if err == nil && len(messages) > 0 {
 		requestContainsToolOutput = requestContainsToolOutput || messagesContainToolResult(messages)
@@ -329,26 +331,30 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
+		stagedMessages := messages
+		messageMutationPending := false
+		staleBlocksReplaced := 0
+		staleBytesReplaced := 0
+		obsoleteBlocksPruned := 0
+		obsoleteBytesPruned := 0
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
-			aged, stats := staleread.AgeMessages(messages, staleread.Options{
+			aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
 				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
 			})
 			if stats.BlocksReplaced > 0 {
-				if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, aged); rebuildErr == nil {
-					out = rebuilt
-					messages = aged
-					a.p.outputReduceCounters.RecordStaleReadAging(stats.BlocksReplaced, stats.BytesReplaced)
-				}
+				stagedMessages = aged
+				messageMutationPending = true
+				staleBlocksReplaced = stats.BlocksReplaced
+				staleBytesReplaced = stats.BytesReplaced
 			}
 		}
 		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
-			pruned, stats := staleread.PruneObsoleteReads(messages, staleread.ObsoleteOptions{})
+			pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
 			if stats.BlocksReplaced > 0 {
-				if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, pruned); rebuildErr == nil {
-					out = rebuilt
-					messages = pruned
-					a.p.outputReduceCounters.RecordObsoleteReadPrune(stats.BlocksReplaced, stats.BytesReplaced)
-				}
+				stagedMessages = pruned
+				messageMutationPending = true
+				obsoleteBlocksPruned = stats.BlocksReplaced
+				obsoleteBytesPruned = stats.BytesReplaced
 			}
 		}
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
@@ -360,7 +366,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                      codexLayer0RouteWSSPhaseF,
-			Messages:                   messages,
+			Messages:                   stagedMessages,
 			SessionID:                  sessionID,
 			TurnID:                     turnID,
 			RememberedToolUse:          rememberedToolUses,
@@ -391,14 +397,28 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
 		if stats.TokensSaved > 0 {
-			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
+			stagedMessages = l0Messages
+			messageMutationPending = true
+		}
+		if messageMutationPending {
+			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
 				out = rebuilt
-				messages = l0Messages
+				messages = stagedMessages
+				if staleBlocksReplaced > 0 {
+					a.p.outputReduceCounters.RecordStaleReadAging(staleBlocksReplaced, staleBytesReplaced)
+				}
+				if obsoleteBlocksPruned > 0 {
+					a.p.outputReduceCounters.RecordObsoleteReadPrune(obsoleteBlocksPruned, obsoleteBytesPruned)
+				}
 				a.p.recordCodexLayer0Stats(stats)
-				a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
-			} else {
+				if stats.TokensSaved > 0 {
+					a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
+				}
+			} else if stats.TokensSaved > 0 {
 				l0Stats = stats.withoutSavings()
 				a.p.recordCodexLayer0Stats(l0Stats)
+			} else {
+				a.p.recordCodexLayer0Stats(stats)
 			}
 		} else {
 			a.p.recordCodexLayer0Stats(stats)
@@ -425,9 +445,6 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta.DebugFacts["wss.tool_prune_guard"] = toolPruneGuard
 	} else if changed {
 		out = pruned
-		if refreshed, _, err := extractMessages(types.CodexChatGPT, out); err == nil {
-			messages = refreshed
-		}
 	}
 	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
 	if injected, stats := a.applyWSSOutputReduce(out, blockOutputReduce); stats.Reason != "disabled" {
@@ -904,7 +921,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if a == nil || a.p == nil || a.p.debugRecorder == nil {
 		return
 	}
-	originalTokens, finalTokens := wssPlannerTokenCounts(body, mutated, messages, l0Stats, replaced)
+	originalTokens, finalTokens := wssPlannerTokenCountsWithOriginal(body, mutated, meta.OriginalMessages, messages, l0Stats, replaced)
 	saved := originalTokens - finalTokens
 	ratio := 0.0
 	if originalTokens > 0 {
@@ -1225,8 +1242,14 @@ func wssPlannerTokenCount(body []byte, messages []types.Message) int {
 }
 
 func wssPlannerTokenCounts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool) (int, int) {
+	return wssPlannerTokenCountsWithOriginal(body, mutated, nil, messages, l0Stats, replaced)
+}
+
+func wssPlannerTokenCountsWithOriginal(body []byte, mutated []byte, originalMessages []types.Message, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool) (int, int) {
 	if replaced || l0Stats.TokensSaved > 0 {
-		originalMessages, _, _ := extractMessages(types.CodexChatGPT, body)
+		if len(originalMessages) == 0 {
+			originalMessages, _, _ = extractMessages(types.CodexChatGPT, body)
+		}
 		return wssPlannerTokenCount(body, originalMessages), wssPlannerTokenCount(mutated, messages)
 	}
 	// No local mutation means this debug/planner row cannot claim savings.
