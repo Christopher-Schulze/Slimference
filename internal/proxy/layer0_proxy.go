@@ -141,28 +141,31 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route                      codexLayer0Route
-	Messages                   []types.Message
-	ToolUseIndex               map[string]types.ContentBlock
-	SessionID                  string
-	TurnID                     string
-	RememberedToolUse          map[string]types.ContentBlock
-	SuppressedToolKey          map[string]struct{}
-	RecentFullPassTurns        int
-	ChunkDedupEnabled          bool
-	ExplicitChunkDedup         bool
-	ChunkDedupProof            savingspolicy.CodexProof
-	ChunkDedupMinBytes         int
-	ChunkDedupMaxRefPct        int
-	ChunkStore                 *chunkdedup.Store
-	PolicyMode                 string
-	ArchiveRecovery            bool
-	TurnSeq                    int
-	RecentEditUncertainty      bool
-	HostBudgetExceeded         bool
-	LatencyBudgetExceeded      bool
-	ChunkIntegrityBudgetHit    bool
-	StructuredMutationBlocked  bool
+	Route                     codexLayer0Route
+	Messages                  []types.Message
+	ToolUseIndex              map[string]types.ContentBlock
+	SessionID                 string
+	TurnID                    string
+	RememberedToolUse         map[string]types.ContentBlock
+	SuppressedToolKey         map[string]struct{}
+	RecentFullPassTurns       int
+	ChunkDedupEnabled         bool
+	ExplicitChunkDedup        bool
+	ChunkDedupProof           savingspolicy.CodexProof
+	ChunkDedupMinBytes        int
+	ChunkDedupMaxRefPct       int
+	ChunkStore                *chunkdedup.Store
+	PolicyMode                string
+	ArchiveRecovery           bool
+	TurnSeq                   int
+	RecentEditUncertainty     bool
+	HostBudgetExceeded        bool
+	LatencyBudgetExceeded     bool
+	ChunkIntegrityBudgetHit   bool
+	StructuredMutationBlocked bool
+	// WSSSearchMutationAllowed opens the proof/lab path for named search
+	// output only. It does not bypass StatefulDeltaMutationBlocked.
+	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// StatefulDeltaMutationBlocked suppresses every wire mutation while
 	// keeping reducers observing/seeding. Live A/B (2026-06-11, loop runs
@@ -353,6 +356,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			stats.ToolResultBytes += len(block.Text)
 			use, toolUseResolved := proxyResolveToolUseDetailed(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
+			commandFromToolUse := commandLine != ""
 			if commandLine == "" {
 				commandLine = proxyInferCommandLineFromToolResult(block.Text)
 				if commandLine == "" {
@@ -394,6 +398,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			// O(output) search-risk scan and the chunk-store budget probe would
 			// be pure overhead that keeps the latch from recovering.
 			wssSearchOutputBlocked := !req.LatencyBudgetExceeded && req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			if wssSearchOutputBlocked && req.WSSSearchMutationAllowed &&
+				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) {
+				wssSearchOutputBlocked = false
+			}
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
@@ -741,6 +749,16 @@ func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.C
 		return true
 	}
 	return proxyToolResultLooksLikeSearchOutput(text)
+}
+
+func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock, commandFromToolUse bool, workload savingspolicy.CodexWorkload) bool {
+	if !commandFromToolUse || workload != savingspolicy.CodexWorkloadSearch {
+		return false
+	}
+	if strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
+		return false
+	}
+	return filter.SearchOutputKeyFromCommandLine(commandLine) != ""
 }
 
 func proxyCommandLineInvokesReconc(commandLine string) bool {

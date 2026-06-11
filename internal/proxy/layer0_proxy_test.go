@@ -13,6 +13,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/chunkdedup"
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
 	"github.com/Christopher-Schulze/Slimference/internal/sessions"
@@ -729,6 +730,115 @@ func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
 	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original {
 		t.Fatalf("WSS find path-list output must pass through, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
 	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofAllowsNamedDirectSearch(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	command := `cd /repo/search && rg -n needle src`
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg", Text: proxyWSSSearchOutputFixture("needle", 90)}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages,
+		SessionID:                "sess-wss-search-proof",
+		WSSSearchMutationAllowed: true,
+	})
+	text := result.Messages[1].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CapturedOutputBlocks != 1 ||
+		!strings.Contains(text, "[rg]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(text, "src/file_089.go:90:needle") {
+		t.Fatalf("proof-allowed named WSS search should compact with archive recovery, stats=%+v text=%q", result.Stats, text)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src`
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-delta", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-delta", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-delta-proof",
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
+		t.Fatalf("delta proof gate must keep WSS search byte-equal, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofRejectsInferredSearch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	payload := proxyWSSSearchOutputFixture("needle", 60)
+	original := "Chunk ID: inferred\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + payload
+	messages := []types.Message{
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-inferred-search", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages,
+		SessionID:                "sess-wss-search-inference-proof",
+		WSSSearchMutationAllowed: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[0].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("inferred WSS search must stay blocked, stats=%+v text=%q", result.Stats, result.Messages[0].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofRejectsPathList(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var output strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&output, ".reconc/audit/%04d.jsonl\n", i)
+	}
+	original := output.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-proof-find", ToolName: "exec_command", ToolInput: `{"cmd":"find .reconc -maxdepth 4 -type f"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-proof-find", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages,
+		SessionID:                "sess-wss-find-proof",
+		WSSSearchMutationAllowed: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("path-list output must not enter WSS search proof path, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
+func proxyWSSSearchOutputFixture(needle string, count int) string {
+	var output strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&output, "src/file_%03d.go:%d:%s with enough detail to compact %s\n", i, i+1, needle, strings.Repeat("context ", 20))
+	}
+	return output.String()
+}
+
+func proxyLayer0EvidenceHasReason(decisions []evidence.BlockDecision, reason string) bool {
+	for _, decision := range decisions {
+		if decision.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReduceCodexLayer0ReconcCommandsPassThrough(t *testing.T) {
