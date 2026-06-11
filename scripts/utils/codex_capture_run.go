@@ -147,6 +147,8 @@ type codexCaptureAdminSnapshot struct {
 	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
 	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
 	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
+	HostBudgetGoRetainedB   int64    `json:"host_budget_go_retained_bytes,omitempty"`
+	HostBudgetEffectiveRSSB int64    `json:"host_budget_effective_rss_bytes,omitempty"`
 	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
 	HostBudgetCPUWindowSec  float64  `json:"host_budget_cpu_window_seconds,omitempty"`
 	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
@@ -210,6 +212,8 @@ type codexCaptureLiveDelta struct {
 	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
 	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
 	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
+	HostBudgetGoRetainedB   int64    `json:"host_budget_go_retained_bytes,omitempty"`
+	HostBudgetEffectiveRSSB int64    `json:"host_budget_effective_rss_bytes,omitempty"`
 	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
 	HostBudgetCPUWindowSec  float64  `json:"host_budget_cpu_window_seconds,omitempty"`
 	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
@@ -1223,6 +1227,8 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 		HostBudgetExceeded:      setup.HostBudget.Exceeded,
 		HostBudgetReasons:       append([]string(nil), setup.HostBudget.Reasons...),
 		HostBudgetRSSBytes:      setup.HostBudget.RSSBytes,
+		HostBudgetGoRetainedB:   setup.HostBudget.GoRetainedBytes,
+		HostBudgetEffectiveRSSB: setup.HostBudget.EffectiveRSSBytes,
 		HostBudgetCPUWindowPct:  setup.HostBudget.CPUWindowPercent,
 		HostBudgetCPUWindowSec:  setup.HostBudget.CPUWindowSeconds,
 		HostBudgetDiskWriteOps:  setup.HostBudget.DiskWriteOpsDelta,
@@ -1287,6 +1293,8 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		HostBudgetExceeded:      current.HostBudgetExceeded,
 		HostBudgetReasons:       append([]string(nil), current.HostBudgetReasons...),
 		HostBudgetRSSBytes:      current.HostBudgetRSSBytes,
+		HostBudgetGoRetainedB:   current.HostBudgetGoRetainedB,
+		HostBudgetEffectiveRSSB: current.HostBudgetEffectiveRSSB,
 		HostBudgetCPUWindowPct:  current.HostBudgetCPUWindowPct,
 		HostBudgetCPUWindowSec:  current.HostBudgetCPUWindowSec,
 		HostBudgetDiskWriteOps:  current.HostBudgetDiskWriteOps,
@@ -1847,9 +1855,10 @@ func writeCodexCaptureHostBudgetSummary(w io.Writer, delta *codexCaptureLiveDelt
 	if len(delta.HostBudgetReasons) > 0 {
 		reasons = strings.Join(delta.HostBudgetReasons, ",")
 	}
-	fmt.Fprintf(w, "  host_budget: %s exceeded=%v reasons=%s cpu_window=%.2f%%/%.2fs rss=%d state=%d\n",
+	fmt.Fprintf(w, "  host_budget: %s exceeded=%v reasons=%s cpu_window=%.2f%%/%.2fs rss=%d effective_rss=%d go_retained=%d state=%d\n",
 		delta.HostBudgetStatus, delta.HostBudgetExceeded, reasons, delta.HostBudgetCPUWindowPct,
-		delta.HostBudgetCPUWindowSec, delta.HostBudgetRSSBytes, delta.HostBudgetStateBytes)
+		delta.HostBudgetCPUWindowSec, delta.HostBudgetRSSBytes, delta.HostBudgetEffectiveRSSB,
+		delta.HostBudgetGoRetainedB, delta.HostBudgetStateBytes)
 }
 
 func writeCodexCapturePolicySummary(w io.Writer, entries []control.ProxyLayer0PolicyEntry) {

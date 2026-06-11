@@ -91,6 +91,8 @@ type aggregateHostBudgetBlock struct {
 	Status                  string   `json:"status"`
 	Exceeded                bool     `json:"exceeded"`
 	RSSBytes                int64    `json:"rss_bytes"`
+	GoRetainedBytes         int64    `json:"go_retained_bytes"`
+	EffectiveRSSBytes       int64    `json:"effective_rss_bytes"`
 	RSSLimitBytes           int64    `json:"rss_limit_bytes"`
 	CPUPercent              float64  `json:"cpu_percent"`
 	CPUWindowPercent        float64  `json:"cpu_window_percent"`
@@ -339,6 +341,8 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			Status:                  state.HostBudget.Status,
 			Exceeded:                state.HostBudget.Exceeded,
 			RSSBytes:                state.HostBudget.RSSBytes,
+			GoRetainedBytes:         state.HostBudget.GoRetainedBytes,
+			EffectiveRSSBytes:       state.HostBudget.EffectiveRSSBytes,
 			RSSLimitBytes:           state.HostBudget.RSSLimitBytes,
 			CPUPercent:              state.HostBudget.CPUPercent,
 			CPUWindowPercent:        state.HostBudget.CPUWindowPercent,
@@ -482,6 +486,7 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "  status:                    %s\n", valueOrDash(report.HostBudget.Status))
 	fmt.Fprintf(w, "  exceeded:                  %v\n", report.HostBudget.Exceeded)
 	fmt.Fprintf(w, "  rss_bytes/limit:           %d / %d\n", report.HostBudget.RSSBytes, report.HostBudget.RSSLimitBytes)
+	fmt.Fprintf(w, "  effective_rss/go_retained: %d / %d\n", report.HostBudget.EffectiveRSSBytes, report.HostBudget.GoRetainedBytes)
 	fmt.Fprintf(w, "  cpu_percent/window/limit:  %.2f / %.2f / %.2f (window %.2fs, min %.2fs)\n",
 		report.HostBudget.CPUPercent, report.HostBudget.CPUWindowPercent, report.HostBudget.CPUWindowLimitPercent,
 		report.HostBudget.CPUWindowSeconds, report.HostBudget.CPUWindowMinSeconds)

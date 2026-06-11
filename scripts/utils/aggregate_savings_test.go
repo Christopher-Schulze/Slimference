@@ -42,6 +42,8 @@ const aggregateSampleAdminState = `{
     "status": "ok",
     "exceeded": false,
     "rss_bytes": 104857600,
+    "go_retained_bytes": 73400320,
+    "effective_rss_bytes": 73400320,
     "rss_limit_bytes": 209715200,
     "cpu_percent": 1.25,
     "cpu_window_percent": 2.5,
@@ -188,6 +190,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"Host resource budget:",
 		"status:                    ok",
 		"rss_bytes/limit:           104857600 / 209715200",
+		"effective_rss/go_retained: 73400320 / 73400320",
 		"cpu_percent/window/limit:  1.25 / 2.50 / 50.00",
 		"disk_write_ops/delta/limit:200 / 20 / 5000",
 		"state_bytes/limit:         4096 / 536870912",
@@ -297,6 +300,8 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if got.HostBudget.Status != "ok" ||
 		got.HostBudget.RSSBytes != 104857600 ||
+		got.HostBudget.GoRetainedBytes != 73400320 ||
+		got.HostBudget.EffectiveRSSBytes != 73400320 ||
 		got.HostBudget.CPUWindowPercent != 2.5 ||
 		got.HostBudget.CPUWindowSeconds != 3.5 ||
 		got.HostBudget.CPUWindowMinSeconds != 1 ||

@@ -168,6 +168,8 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				HostBudgetCPUWindowPct:  2.5,
 				HostBudgetCPUWindowSec:  1.5,
 				HostBudgetRSSBytes:      1000,
+				HostBudgetGoRetainedB:   700,
+				HostBudgetEffectiveRSSB: 700,
 				HostBudgetStateBytes:    2000,
 				HostBudgetCompressionOK: true,
 				HostBudgetDegradationOK: true,
@@ -263,6 +265,8 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		records[0].LiveDelta.OutputReduceInjected != 4 ||
 		records[0].LiveDelta.StopSeqRequestsModified != 5 ||
 		records[0].LiveDelta.HostBudgetStatus != "ok" ||
+		records[0].LiveDelta.HostBudgetGoRetainedB != 700 ||
+		records[0].LiveDelta.HostBudgetEffectiveRSSB != 700 ||
 		!records[0].LiveDelta.HostBudgetCompressionOK ||
 		!records[0].LiveDelta.HostBudgetDegradationOK {
 		t.Fatalf("matrix row missing extended live delta: %+v", records[0].LiveDelta)
@@ -628,6 +632,8 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	    "status": "ok",
 	    "exceeded": false,
 	    "rss_bytes": 123,
+	    "go_retained_bytes": 77,
+	    "effective_rss_bytes": 77,
 	    "cpu_window_percent": 1.5,
 	    "cpu_window_seconds": 2.5,
 	    "disk_write_ops_delta": 8,
@@ -658,7 +664,9 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	if snapshot.OutputReduceInjected != 3 || snapshot.OutputReduceDowngrades != 1 || snapshot.BeterseInjections != 6 {
 		t.Fatalf("output reduce fields missing: %+v", snapshot)
 	}
-	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || snapshot.HostBudgetCPUWindowSec != 2.5 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
+	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 ||
+		snapshot.HostBudgetGoRetainedB != 77 || snapshot.HostBudgetEffectiveRSSB != 77 ||
+		snapshot.HostBudgetCPUWindowSec != 2.5 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
 		t.Fatalf("host budget fields missing: %+v", snapshot)
 	}
 }
