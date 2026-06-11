@@ -2529,9 +2529,9 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 	}
 	firstSummary := p.DebugRecorder().Last(1, false)[0]
 	if firstSummary.BypassReason != "" ||
-		firstSummary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" ||
+		firstSummary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		firstSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
-		t.Fatalf("first known read should be guarded but not full-pass-bypassed: %+v", firstSummary)
+		t.Fatalf("first known read with resolved tool output should seed without the structured guard: %+v", firstSummary)
 	}
 
 	seedToolCall("call_read_2")
@@ -2549,6 +2549,93 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 		secondSummary.MessagesCompressed != 1 ||
 		secondSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
 		t.Fatalf("second known read should report positive Layer-0 savings: %+v", secondSummary)
+	}
+}
+
+func TestWSPhaseFDefaultStatefulResolvedToolOutputCompactsWithArchive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
+	payload.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	payload.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	payload.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+	envelope := "Chunk ID: stateful\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-stateful-resolved",
+		"prompt_cache_key":     "stateful-resolved-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "call_tests", "name": "exec_command", "arguments": map[string]any{"cmd": "go test ./..."}},
+			{"type": "function_call_output", "call_id": "call_tests", "output": envelope},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("stateful resolved tool-output handle: %v", err)
+	}
+	if !replace {
+		t.Fatalf("default stateful resolved tool output should compact: %s", env.Raw)
+	}
+	mutated := string(env.Raw)
+	if !strings.Contains(mutated, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		strings.Contains(mutated, "TestPassing089") ||
+		!strings.Contains(mutated, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("stateful compaction lost failure detail or archive reference: %s", mutated)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "" || summary.Tokens.Saved <= 0 {
+		t.Fatalf("resolved archived mutation must save without the structured guard: %+v", summary)
+	}
+}
+
+func TestWSPhaseFDefaultStatefulUnresolvedToolOutputKeepsGuard(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("--- FAIL: TestUnresolved (0.00s)\nFAIL\texample.test/unresolved\t0.015s\n")
+	envelope := "Chunk ID: unresolved\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
+	env := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "stateful-unresolved-session",
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": "call_never_seeded", "output": envelope},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("stateful unresolved tool-output handle: %v", err)
+	}
+	if strings.Contains(string(env.Raw), "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("unresolved stateful output must not be structurally mutated: %s", env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" {
+		t.Fatalf("unresolved stateful output should keep the structured guard, replace=%v facts=%+v", replace, summary.DebugFacts)
 	}
 }
 

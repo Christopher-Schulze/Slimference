@@ -228,6 +228,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		toolOutputResults, toolOutputResolved := wssToolOutputResolutionStats(messages, rememberedToolUses)
 		toolOutputKnown := toolOutputResults > 0 && toolOutputResolved == toolOutputResults
 		statefulToolOutputMutationSafe := wssStatefulToolOutputMutationSafe(meta, requestContainsToolOutput, messages, rememberedToolUses)
+		chunkSettings := a.p.codexChunkDedupSettings()
+		// Structured mutations on this route are archived before replacement
+		// (fail-closed) and carry an in-band local-archive recovery URI, which
+		// needs a session namespace. With every tool output resolved this is
+		// strictly safer than the default-on HTTP captured-output path, which
+		// applies the same compaction without any archive.
+		structuredMutationRecoverable := toolOutputKnown && chunkSettings.ArchiveRecovery && meta.SessionID != ""
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
@@ -236,7 +243,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
-		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe) {
+		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_stateful_structured_mutation_guard"
 		}
@@ -262,7 +269,6 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
-		chunkSettings := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                     codexLayer0RouteWSSPhaseF,
 			Messages:                  messages,
@@ -498,8 +504,8 @@ func messagesContainToolResult(messages []types.Message) bool {
 	return false
 }
 
-func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool) bool {
-	if !containsToolOutput || mutationEnabled || statefulMutationSafe {
+func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool, recoverable bool) bool {
+	if !containsToolOutput || mutationEnabled || statefulMutationSafe || recoverable {
 		return false
 	}
 	return meta.SessionID != "" || meta.PreviousResponseID != ""
