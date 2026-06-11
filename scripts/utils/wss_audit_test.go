@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func TestWSSAuditReport(t *testing.T) {
@@ -27,6 +28,25 @@ func TestWSSAuditReport(t *testing.T) {
 			ReReadCount:            2,
 			Tokens:                 dbg.TokenCounts{Saved: 40},
 			Plan:                   &dbg.PlanSummary{ContentClasses: []string{"tool_output", "repeated_tool_output"}},
+			EvidenceDecisions: []evidence.BlockDecision{
+				{
+					Mechanism:            "stale_read",
+					Action:               evidence.ActionApplied,
+					Reason:               "positive_net_savings",
+					OriginalTokens:       100,
+					FinalTokens:          40,
+					SavedTokens:          60,
+					NetTokens:            60,
+					FootprintScore:       600,
+					FootprintScoreBucket: "high",
+				},
+				{
+					Mechanism:   "obsolete_prune",
+					Action:      evidence.ActionFullPass,
+					Reason:      "cache_bust_guard",
+					CacheImpact: "cache_bust_guard",
+				},
+			},
 			DebugFacts: map[string]string{
 				"wss.shadow_mirror_blocks":                            "2",
 				"wss.shadow_mirror_bytes":                             "1000",
@@ -80,6 +100,28 @@ func TestWSSAuditReport(t *testing.T) {
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
 		t.Fatalf("bad content classes: %+v", report.ContentClasses)
 	}
+	if len(report.HistoryReducers) != 2 {
+		t.Fatalf("history reducer count = %d, want 2: %+v", len(report.HistoryReducers), report.HistoryReducers)
+	}
+	history := map[string]wssHistoryReducerSummary{}
+	for _, row := range report.HistoryReducers {
+		history[row.Mechanism] = row
+	}
+	if stale := history["stale_read"]; stale.Decisions != 1 ||
+		stale.Applied != 1 ||
+		stale.SavedTokens != 60 ||
+		stale.NetTokens != 60 ||
+		stale.FootprintScore != 600 ||
+		stale.Reasons["positive_net_savings"] != 1 ||
+		stale.FootprintBuckets["high"] != 1 {
+		t.Fatalf("bad stale_read history row: %+v", stale)
+	}
+	if obsolete := history["obsolete_prune"]; obsolete.Decisions != 1 ||
+		obsolete.FullPass != 1 ||
+		obsolete.Reasons["cache_bust_guard"] != 1 ||
+		obsolete.CacheImpact["cache_bust_guard"] != 1 {
+		t.Fatalf("bad obsolete_prune history row: %+v", obsolete)
+	}
 	if len(report.Sessions) != 2 {
 		t.Fatalf("session count = %d, want 2: %+v", len(report.Sessions), report.Sessions)
 	}
@@ -119,6 +161,31 @@ func TestWSSAuditGateFailures(t *testing.T) {
 	}
 	if report.GatePassed || len(report.GateFailures) != 3 {
 		t.Fatalf("expected three gate failures, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
+	}
+}
+
+func TestWSSAuditHistoryEvidenceGate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "wss-1",
+		SessionID: "codex-wss:s1",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+	})
+
+	report, err := loadWSSAuditReport(wssAuditFlags{
+		path:                   path,
+		requireHistoryEvidence: true,
+	})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if report.GatePassed || len(report.GateFailures) != 1 ||
+		!strings.Contains(report.GateFailures[0], "history reducer evidence") {
+		t.Fatalf("expected history evidence gate failure, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
 	}
 }
 
@@ -175,6 +242,14 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		Path:      "/backend-api/codex/responses",
 		RouteMode: "websocket_phasef",
 		Tokens:    dbg.TokenCounts{Saved: 3},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "stale_read",
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			SavedTokens:    42,
+			NetTokens:      42,
+			FootprintScore: 84,
+		}},
 		DebugFacts: map[string]string{
 			"wss.shadow_mirror_blocks":                            "1",
 			"wss.shadow_mirror_bytes":                             "300",
@@ -194,6 +269,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
 		!strings.Contains(stdout.String(), "re-read requests/count:") ||
+		!strings.Contains(stdout.String(), "History reducers:") ||
+		!strings.Contains(stdout.String(), "stale_read") ||
 		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
@@ -226,6 +303,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.TokensSaved != 3 {
 		t.Fatalf("tokens saved = %d, want 3", report.TokensSaved)
+	}
+	if len(report.HistoryReducers) != 1 || report.HistoryReducers[0].Mechanism != "stale_read" {
+		t.Fatalf("history reducer JSON missing: %+v", report.HistoryReducers)
 	}
 	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {
 		t.Fatalf("shadow mirror missing from JSON report: %+v", report.ShadowMirror)

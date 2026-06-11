@@ -1005,6 +1005,11 @@ A/B results when deciding whether a session needs looser compression. On the liv
 WSS reducer, a post-collapse deliberate re-read of the same read key suppresses
 further collapse for that key for the rest of the session, restoring full recency
 instead of fighting the model's attention signal.
+The audit also groups T353 history-reducer evidence decisions for `stale_read`
+and `obsolete_prune`, including applied/full-pass/skipped/failed-open counts,
+reason buckets, saved/net tokens, footprint score, and cache-impact buckets.
+`--require-history-evidence` turns that into a fresh-capture gate before any
+stale/obsolete calibration work claims enough evidence to loosen a guard.
 The same audit report includes T355 server-state shadow-mirror density when the
 decision log carries `wss.shadow_mirror_*` debug facts. It reports exact block
 bytes, normalized segment bytes, referenceable byte percentages, and normalized

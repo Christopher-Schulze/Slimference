@@ -13,6 +13,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/control"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 type wssAuditReport struct {
@@ -38,6 +39,7 @@ type wssAuditReport struct {
 	ChunkDedupReferences   int64                            `json:"chunk_dedup_references,omitempty"`
 	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
+	HistoryReducers        []wssHistoryReducerSummary       `json:"history_reducers,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
@@ -52,6 +54,23 @@ type wssAuditSessionSummary struct {
 	TokensSaved            int       `json:"tokens_saved"`
 	FirstSeen              time.Time `json:"first_seen,omitempty"`
 	LastSeen               time.Time `json:"last_seen,omitempty"`
+}
+
+type wssHistoryReducerSummary struct {
+	Mechanism        string         `json:"mechanism"`
+	Decisions        int            `json:"decisions"`
+	Applied          int            `json:"applied"`
+	FullPass         int            `json:"full_pass"`
+	Skipped          int            `json:"skipped"`
+	FailedOpen       int            `json:"failed_open"`
+	OriginalTokens   int            `json:"original_tokens,omitempty"`
+	FinalTokens      int            `json:"final_tokens,omitempty"`
+	SavedTokens      int            `json:"saved_tokens,omitempty"`
+	NetTokens        int            `json:"net_tokens,omitempty"`
+	FootprintScore   int            `json:"footprint_score,omitempty"`
+	Reasons          map[string]int `json:"reasons,omitempty"`
+	FootprintBuckets map[string]int `json:"footprint_score_buckets,omitempty"`
+	CacheImpact      map[string]int `json:"cache_impact,omitempty"`
 }
 
 type wssShadowMirrorSummary struct {
@@ -89,6 +108,7 @@ type wssAuditFlags struct {
 	expectDistinctSessions int
 	minPhaseF              int
 	requireSavings         bool
+	requireHistoryEvidence bool
 	adminStateFile         string
 	since                  time.Time
 	help                   bool
@@ -103,16 +123,17 @@ Flags:
   --expect-distinct-sessions=<n>  Fail if fewer than n non-empty WSS session ids are present
   --min-phasef=<n>                Fail if fewer than n Phase-F request summaries are present
   --require-savings               Fail if no positive input-token savings are present
+  --require-history-evidence      Fail if no stale/obsolete reducer evidence is present
   --admin-state-file=<path>        Join current /admin/state policy counters into the report
   --since=<rfc3339>               Ignore records before this timestamp
   --json                          Output JSON
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage,
-positive input-token savings, and T355 server-state shadow-mirror density. With
---admin-state-file it also prints content-free policy and cache hit/miss counters
-from the matching admin snapshot. It does not inspect payload text or auth
-headers.`
+positive input-token savings, T353 history-reducer evidence, and T355
+server-state shadow-mirror density. With --admin-state-file it also prints
+content-free policy and cache hit/miss counters from the matching admin snapshot.
+It does not inspect payload text or auth headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSAuditFlags(args)
@@ -163,6 +184,8 @@ func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
 			flags.outputFormat = outputJSON
 		case a == "--require-savings":
 			flags.requireSavings = true
+		case a == "--require-history-evidence":
+			flags.requireHistoryEvidence = true
 		case a == "--admin-state-file":
 			v, err := aggregateFlagValue(args, &i, a)
 			if err != nil {
@@ -247,6 +270,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		report.Since = &since
 	}
 	sessionStats := make(map[string]*wssAuditSessionSummary)
+	historyReducers := make(map[string]*wssHistoryReducerSummary)
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
@@ -284,6 +308,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		for _, class := range wssAuditContentClasses(summary) {
 			report.ContentClasses[class]++
 		}
+		accumulateWSSHistoryReducers(historyReducers, summary.EvidenceDecisions)
 		shadowMirror.add(summary.DebugFacts)
 		sessionID := strings.TrimSpace(summary.SessionID)
 		if sessionID == "" {
@@ -327,6 +352,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	if shadow := shadowMirror.finalize(); shadow != nil {
 		report.ShadowMirror = shadow
 	}
+	report.HistoryReducers = finalizeWSSHistoryReducers(historyReducers)
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
@@ -343,6 +369,78 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		report.ChunkDedupInputBytes = savings.ProxyLayer0ChunkInBytes
 	}
 	return report, nil
+}
+
+func accumulateWSSHistoryReducers(out map[string]*wssHistoryReducerSummary, decisions []evidence.BlockDecision) {
+	if out == nil {
+		return
+	}
+	for _, decision := range decisions {
+		mechanism := strings.TrimSpace(decision.Mechanism)
+		if !isWSSHistoryReducerMechanism(mechanism) {
+			continue
+		}
+		row := out[mechanism]
+		if row == nil {
+			row = &wssHistoryReducerSummary{Mechanism: mechanism}
+			out[mechanism] = row
+		}
+		row.Decisions++
+		switch decision.Action {
+		case evidence.ActionApplied:
+			row.Applied++
+		case evidence.ActionFullPass:
+			row.FullPass++
+		case evidence.ActionSkipped:
+			row.Skipped++
+		case evidence.ActionFailedOpen:
+			row.FailedOpen++
+		}
+		row.OriginalTokens += decision.OriginalTokens
+		row.FinalTokens += decision.FinalTokens
+		row.SavedTokens += decision.SavedTokens
+		row.NetTokens += decision.NetTokens
+		row.FootprintScore += decision.FootprintScore
+		addWSSAuditCount(&row.Reasons, decision.Reason)
+		addWSSAuditCount(&row.FootprintBuckets, decision.FootprintScoreBucket)
+		addWSSAuditCount(&row.CacheImpact, decision.CacheImpact)
+	}
+}
+
+func isWSSHistoryReducerMechanism(mechanism string) bool {
+	switch mechanism {
+	case "stale_read", "obsolete_prune":
+		return true
+	default:
+		return false
+	}
+}
+
+func addWSSAuditCount(counts *map[string]int, key string) {
+	key = strings.TrimSpace(key)
+	if counts == nil || key == "" {
+		return
+	}
+	if *counts == nil {
+		*counts = make(map[string]int)
+	}
+	(*counts)[key]++
+}
+
+func finalizeWSSHistoryReducers(rows map[string]*wssHistoryReducerSummary) []wssHistoryReducerSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(rows))
+	for key := range rows {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]wssHistoryReducerSummary, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, *rows[key])
+	}
+	return out
 }
 
 func (a *wssShadowMirrorAccumulator) add(facts map[string]string) {
@@ -522,6 +620,9 @@ func wssAuditNotes(report wssAuditReport) []string {
 	if report.ReReadCount > 0 {
 		notes = append(notes, "WSS re-read canary observed repeated tool keys; review alongside savings to distinguish useful repeat reads from possible context-recall pressure.")
 	}
+	if report.PhaseFRequests > 0 && len(report.HistoryReducers) == 0 {
+		notes = append(notes, "No T353 stale-read / obsolete-prune evidence observed; history reducer calibration needs a fresher capture or a history-heavy workload.")
+	}
 	if report.PhaseFRequests > 0 && report.ShadowMirror == nil {
 		notes = append(notes, "No T355 shadow-mirror telemetry observed; this capture may predate normalized mirror facts or contain no text blocks.")
 	}
@@ -544,6 +645,9 @@ func wssAuditGateFailures(report wssAuditReport, flags wssAuditFlags) []string {
 	}
 	if flags.requireSavings && report.PositiveSavings == 0 {
 		failures = append(failures, "expected at least one positive input-token savings request")
+	}
+	if flags.requireHistoryEvidence && len(report.HistoryReducers) == 0 {
+		failures = append(failures, "expected stale-read or obsolete-prune history reducer evidence")
 	}
 	return failures
 }
@@ -604,6 +708,23 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		fmt.Fprintf(w, "  referenced bytes:        %d\n", report.ChunkDedupRefBytes)
 		fmt.Fprintf(w, "  input bytes:             %d\n", report.ChunkDedupInputBytes)
 	}
+	if len(report.HistoryReducers) > 0 {
+		fmt.Fprintln(w, "\nHistory reducers:")
+		for _, row := range report.HistoryReducers {
+			fmt.Fprintf(w, "  %-16s decisions=%d applied=%d full_pass=%d skipped=%d failed_open=%d saved=%d net=%d footprint=%d reasons=%s\n",
+				row.Mechanism,
+				row.Decisions,
+				row.Applied,
+				row.FullPass,
+				row.Skipped,
+				row.FailedOpen,
+				row.SavedTokens,
+				row.NetTokens,
+				row.FootprintScore,
+				formatWSSAuditCounts(row.Reasons),
+			)
+		}
+	}
 	if report.ShadowMirror != nil {
 		fmt.Fprintln(w, "\nShadow mirror density:")
 		fmt.Fprintf(w, "  requests:                %d\n", report.ShadowMirror.Requests)
@@ -648,6 +769,17 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 			fmt.Fprintf(w, "  - %s\n", failure)
 		}
 	}
+}
+
+func formatWSSAuditCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(counts))
+	for _, key := range sortedStringKeys(counts) {
+		parts = append(parts, fmt.Sprintf("%s:%d", key, counts[key]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func passFail(ok bool) string {
