@@ -347,6 +347,7 @@ func writeDebugBundleDecisions(outDir string, cfg *config.Config, opts debugBund
 		manifest.Missing = append(manifest.Missing, "decisions-log")
 		writeDebugBundleJSONFile(outDir, "decisions-tail.json", []dbg.RequestSummary{}, manifest)
 		writeDebugBundleJSONFile(outDir, "flight-tail.json", []dbg.FlightRequestSummary{}, manifest)
+		writeDebugBundleWSSSockets(outDir, "", nil, opts, manifest)
 		return
 	}
 	summaries := readLastDecisionSummaries(path, opts.FlightLimit)
@@ -362,6 +363,12 @@ func writeDebugBundleDecisions(outDir string, cfg *config.Config, opts debugBund
 	}
 	writeDebugBundleJSONFile(outDir, "decisions-tail.json", summaries, manifest)
 	writeDebugBundleJSONFile(outDir, "flight-tail.json", flights, manifest)
+	writeDebugBundleWSSSockets(outDir, path, summaries, opts, manifest)
+}
+
+func writeDebugBundleWSSSockets(outDir, decisionLogPath string, summaries []dbg.RequestSummary, opts debugBundleOptions, manifest *debugBundleManifest) {
+	report := buildWSSSocketReportWithOptions(decisionLogPath, summaries, wssSocketDebugArgs{Limit: opts.FlightLimit})
+	writeDebugBundleJSONFile(outDir, "wss-sockets.json", report, manifest)
 }
 
 func writeDebugBundleFilterRuns(outDir string, opts debugBundleOptions, manifest *debugBundleManifest) {

@@ -155,12 +155,26 @@ decisions_log = %q
 	}
 	db.Close()
 	line, err := json.Marshal(dbg.RequestSummary{
-		RequestID: "req-1",
-		Timestamp: time.Now(),
-		Source:    "proxy",
-		Provider:  "codex_chatgpt",
-		Model:     "gpt-test",
-		Tokens:    dbg.TokenCounts{Original: 100, Final: 40, Saved: 60},
+		RequestID:            "req-1",
+		Timestamp:            time.Now(),
+		SessionID:            "codex-wss:test",
+		Source:               "proxy",
+		Provider:             "codex_chatgpt",
+		Model:                "gpt-test",
+		RouteMode:            "websocket_phasef",
+		Tokens:               dbg.TokenCounts{Original: 100, Final: 40, Saved: 60},
+		ProviderInputTokens:  100,
+		ProviderCachedTokens: 20,
+		DebugFacts: map[string]string{
+			"wss.socket_seq":             "1",
+			"wss.request_shape":          "root",
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+			"wss.socket_age_ms":          "1000",
+			"wss.socket_c2s_frames":      "3",
+			"wss.socket_s2c_frames":      "4",
+			"wss.socket_turns_completed": "1",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +220,7 @@ decisions_log = %q
 		"savings-today.json",
 		"decisions-tail.json",
 		"flight-tail.json",
+		"wss-sockets.json",
 		"filter-tail.json",
 		"daemon-stdout-tail.json",
 		"daemon-stderr-tail.json",
@@ -232,8 +247,19 @@ decisions_log = %q
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SchemaVersion != debugBundleSchemaVersion || len(manifest.Files) < 8 {
+	if manifest.SchemaVersion != debugBundleSchemaVersion || len(manifest.Files) < 9 {
 		t.Fatalf("bad manifest: %+v", manifest)
+	}
+	var wssReport wssSocketReport
+	wssData, err := os.ReadFile(filepath.Join(outDir, "wss-sockets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wssData, &wssReport); err != nil {
+		t.Fatal(err)
+	}
+	if wssReport.SocketCount != 1 || wssReport.WSSRequests != 1 || wssReport.CauseClasses["client_delta_safe_close"] != 1 {
+		t.Fatalf("bad wss report: %+v", wssReport)
 	}
 }
 
@@ -273,6 +299,7 @@ func TestWriteDebugBundleMissingSourcesStillWritesBundle(t *testing.T) {
 		"savings-today.json",
 		"decisions-tail.json",
 		"flight-tail.json",
+		"wss-sockets.json",
 		"filter-tail.json",
 		"daemon-stdout-tail.json",
 		"daemon-stderr-tail.json",
@@ -286,6 +313,17 @@ func TestWriteDebugBundleMissingSourcesStillWritesBundle(t *testing.T) {
 		if !strings.Contains(missing, want) {
 			t.Fatalf("missing marker %q not found in %q", want, missing)
 		}
+	}
+	var wssReport wssSocketReport
+	wssData, err := os.ReadFile(filepath.Join(outDir, "wss-sockets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wssData, &wssReport); err != nil {
+		t.Fatal(err)
+	}
+	if wssReport.SocketCount != 0 || wssReport.WSSRequests != 0 {
+		t.Fatalf("missing-source wss report should be empty: %+v", wssReport)
 	}
 }
 

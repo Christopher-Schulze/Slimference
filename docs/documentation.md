@@ -1921,11 +1921,12 @@ slimference debug bundle          # bounded content-free diagnostics export
 `slimference debug bundle` is the field-session handoff command. After running
 real Slimference sessions, it writes a timestamped directory under
 `~/.slimference/exports/` with manifest, path snapshot, admin state, today's
-savings summary, decision/flight tails, filter-run token summaries, and daemon
-log tails. It intentionally excludes raw prompts, raw tool outputs, raw WSS
-frames, auth material, and capture archives; filter command/project strings are
-hashed. Use `--out DIR`, `--flight-limit N`, `--filter-limit N`, and
-`--log-lines N` to keep a bundle scoped for later analysis.
+savings summary, decision/flight tails, WSS socket lifecycle report, filter-run
+token summaries, and daemon log tails. It intentionally excludes raw prompts,
+raw tool outputs, raw WSS frames, auth material, and capture archives; filter
+command/project strings are hashed. Use `--out DIR`, `--flight-limit N`,
+`--filter-limit N`, and `--log-lines N` to keep a bundle scoped for later
+analysis.
 
 ### Pipeline histograms (T58)
 
@@ -2307,7 +2308,9 @@ sessions; `--fail-on-actionable`, `--fail-on-full-history`,
 `--max-actionable=N`, `--max-reconnect-full-history=N`, and
 `--max-reconnect-full-history-input=N` make the same content-free analysis
 usable as a proof gate. It is diagnostic only and does not change product
-savings arithmetic.
+savings arithmetic. `slimference debug bundle` writes the same bounded analysis
+to `wss-sockets.json` so field-session handoffs include reconnect evidence by
+default.
 
 The recorder is privacy-first: before a request summary is retained or flushed
 to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
