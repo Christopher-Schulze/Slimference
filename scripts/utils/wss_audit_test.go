@@ -24,9 +24,16 @@ func TestWSSAuditReport(t *testing.T) {
 			SessionID:              "codex-wss:s1",
 			Path:                   "/backend-api/codex/responses",
 			RouteMode:              "websocket_phasef",
+			ClientFamily:           "codex_cli",
 			PreviousResponseIDUsed: true,
 			ReReadCount:            2,
-			Tokens:                 dbg.TokenCounts{Saved: 40},
+			Tokens:                 dbg.TokenCounts{Original: 120, Final: 80, Saved: 40},
+			NetSavedTokens:         35,
+			CacheReadTokens:        11,
+			CacheCreateTokens:      3,
+			ProviderInputTokens:    90,
+			ProviderCachedTokens:   20,
+			ProviderOutputTokens:   7,
 			Plan:                   &dbg.PlanSummary{ContentClasses: []string{"tool_output", "repeated_tool_output"}},
 			EvidenceDecisions: []evidence.BlockDecision{
 				{
@@ -49,6 +56,8 @@ func TestWSSAuditReport(t *testing.T) {
 			},
 			DebugFacts: map[string]string{
 				"wss.request_shape":                                   "full_history",
+				"wss.socket_seq":                                      "2",
+				"wss.socket_close_initiator":                          "client_eof",
 				"wss.shadow_mirror_blocks":                            "2",
 				"wss.shadow_mirror_bytes":                             "1000",
 				"wss.shadow_mirror_referenceable_blocks":              "1",
@@ -92,6 +101,25 @@ func TestWSSAuditReport(t *testing.T) {
 	}
 	if report.RequestShapes["full_history"] != 1 || report.RequestShapes["delta"] != 1 {
 		t.Fatalf("bad request shape counts: %+v", report.RequestShapes)
+	}
+	if report.FullHistory == nil ||
+		report.FullHistory.Requests != 1 ||
+		report.FullHistory.Sessions != 1 ||
+		report.FullHistory.MissingSessionID != 0 ||
+		report.FullHistory.PreviousResponseIDUsed != 1 ||
+		report.FullHistory.ProviderInputTokens != 90 ||
+		report.FullHistory.ProviderCachedTokens != 20 ||
+		report.FullHistory.ProviderOutputTokens != 7 ||
+		report.FullHistory.CacheReadTokens != 11 ||
+		report.FullHistory.CacheCreateTokens != 3 ||
+		report.FullHistory.OriginalTokens != 120 ||
+		report.FullHistory.FinalTokens != 80 ||
+		report.FullHistory.SavedTokens != 40 ||
+		report.FullHistory.NetSavedTokens != 35 ||
+		report.FullHistory.ByClientFamily["codex_cli"] != 1 ||
+		report.FullHistory.BySocketSeq["2"] != 1 ||
+		report.FullHistory.BySocketCloseInitiator["client_eof"] != 1 {
+		t.Fatalf("bad full-history Class-B report: %+v", report.FullHistory)
 	}
 	if report.ShadowMirror == nil ||
 		report.ShadowMirror.ReferenceableBytes != 400 ||
@@ -251,11 +279,20 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "decisions.jsonl")
 	writeJSONLFile(t, path, dbg.RequestSummary{
-		RequestID: "wss-1",
-		SessionID: "codex-wss:s1",
-		Path:      "/backend-api/codex/responses",
-		RouteMode: "websocket_phasef",
-		Tokens:    dbg.TokenCounts{Saved: 3},
+		RequestID:            "wss-1",
+		SessionID:            "codex-wss:s1",
+		Path:                 "/backend-api/codex/responses",
+		RouteMode:            "websocket_phasef",
+		Tokens:               dbg.TokenCounts{Original: 30, Final: 27, Saved: 3},
+		Errors:               []string{"provider returned 400"},
+		BypassReason:         "upstream_error",
+		ClientFamily:         "codex_desktop",
+		ProviderInputTokens:  44,
+		ProviderCachedTokens: 22,
+		ProviderOutputTokens: 6,
+		CacheReadTokens:      5,
+		CacheCreateTokens:    2,
+		NetSavedTokens:       1,
 		EvidenceDecisions: []evidence.BlockDecision{{
 			Mechanism:      "stale_read",
 			Action:         evidence.ActionApplied,
@@ -266,6 +303,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		}},
 		DebugFacts: map[string]string{
 			"wss.request_shape":                                   "full_history",
+			"wss.socket_seq":                                      "3",
+			"wss.socket_close_initiator":                          "upstream_eof",
 			"wss.shadow_mirror_blocks":                            "1",
 			"wss.shadow_mirror_bytes":                             "300",
 			"wss.shadow_mirror_referenceable_blocks":              "0",
@@ -285,6 +324,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
 		!strings.Contains(stdout.String(), "request shapes:") ||
 		!strings.Contains(stdout.String(), "full_history:1") ||
+		!strings.Contains(stdout.String(), "Full-history Class-B:") ||
+		!strings.Contains(stdout.String(), "provider in/cache/out:   44 / 22 / 6") ||
+		!strings.Contains(stdout.String(), "errors/upstream/400:     1 / 1 / 1") ||
 		!strings.Contains(stdout.String(), "re-read requests/count:") ||
 		!strings.Contains(stdout.String(), "History reducers:") ||
 		!strings.Contains(stdout.String(), "stale_read") ||
@@ -323,6 +365,16 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.RequestShapes["full_history"] != 1 {
 		t.Fatalf("request shape JSON missing: %+v", report.RequestShapes)
+	}
+	if report.FullHistory == nil ||
+		report.FullHistory.ProviderInputTokens != 44 ||
+		report.FullHistory.ProviderCachedTokens != 22 ||
+		report.FullHistory.ProviderOutputTokens != 6 ||
+		report.FullHistory.UpstreamErrorRequests != 1 ||
+		report.FullHistory.HTTP400ErrorRequests != 1 ||
+		report.FullHistory.BySocketSeq["3"] != 1 ||
+		report.FullHistory.BySocketCloseInitiator["upstream_eof"] != 1 {
+		t.Fatalf("full-history JSON missing: %+v", report.FullHistory)
 	}
 	if len(report.HistoryReducers) != 1 || report.HistoryReducers[0].Mechanism != "stale_read" {
 		t.Fatalf("history reducer JSON missing: %+v", report.HistoryReducers)

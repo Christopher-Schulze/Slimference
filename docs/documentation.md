@@ -1010,6 +1010,16 @@ The same audit includes request-shape coverage from `wss.request_shape`
 `--min-full-history` as a fresh-capture gate. T354 Class-B widening claims must
 use captures with actual `full_history` rows; delta-only sessions prove only the
 Class-A proof gate and must not be treated as reconnect/full-resend evidence.
+For observed `full_history` rows, the audit emits a dedicated `full_history`
+Class-B summary with unique sessions, missing session ids, previous-response-id
+usage, provider input/cache/output tokens, local original/final/saved/net
+tokens, cache read/create tokens, client-family buckets, socket sequence
+buckets, socket-close initiator buckets, upstream-error counts, and HTTP 400
+counts. This keeps guard-widening analysis content-free while exposing whether a
+candidate Class-B workload is a high-cost reconnect, a provider-cache-covered
+resend, an upstream stability boundary, or a socket attribution gap. Detailed
+reconnect-cause attribution still belongs to `slimference debug wss-sockets`;
+`wss-audit` gives the broader proof/cost surface.
 The audit also groups T353 history-reducer evidence decisions for `stale_read`
 and `obsolete_prune`, including applied/full-pass/skipped/failed-open counts,
 reason buckets, saved/net tokens, footprint score, and cache-impact buckets.

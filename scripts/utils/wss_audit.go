@@ -41,6 +41,7 @@ type wssAuditReport struct {
 	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
 	HistoryReducers        []wssHistoryReducerSummary       `json:"history_reducers,omitempty"`
+	FullHistory            *wssFullHistoryClassBSummary     `json:"full_history,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
@@ -56,6 +57,33 @@ type wssAuditSessionSummary struct {
 	TokensSaved            int            `json:"tokens_saved"`
 	FirstSeen              time.Time      `json:"first_seen,omitempty"`
 	LastSeen               time.Time      `json:"last_seen,omitempty"`
+}
+
+type wssFullHistoryClassBSummary struct {
+	Requests               int            `json:"requests"`
+	Sessions               int            `json:"sessions"`
+	MissingSessionID       int            `json:"missing_session_id"`
+	PreviousResponseIDUsed int            `json:"previous_response_id_used"`
+	ProviderInputTokens    int            `json:"provider_input_tokens"`
+	ProviderCachedTokens   int            `json:"provider_cached_tokens"`
+	ProviderOutputTokens   int            `json:"provider_output_tokens"`
+	CacheReadTokens        int            `json:"cache_read_tokens"`
+	CacheCreateTokens      int            `json:"cache_create_tokens"`
+	OriginalTokens         int            `json:"original_tokens"`
+	FinalTokens            int            `json:"final_tokens"`
+	SavedTokens            int            `json:"saved_tokens"`
+	NetSavedTokens         int            `json:"net_saved_tokens"`
+	ErrorRequests          int            `json:"error_requests"`
+	UpstreamErrorRequests  int            `json:"upstream_error_requests"`
+	HTTP400ErrorRequests   int            `json:"http_400_error_requests"`
+	ByClientFamily         map[string]int `json:"by_client_family,omitempty"`
+	BySocketSeq            map[string]int `json:"by_socket_seq,omitempty"`
+	BySocketCloseInitiator map[string]int `json:"by_socket_close_initiator,omitempty"`
+}
+
+type wssFullHistoryClassBAccumulator struct {
+	summary  wssFullHistoryClassBSummary
+	sessions map[string]struct{}
 }
 
 type wssHistoryReducerSummary struct {
@@ -134,8 +162,8 @@ Flags:
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage,
-request-shape coverage, positive input-token savings, T353 history-reducer
-evidence, and T355 server-state shadow-mirror density. With --admin-state-file it also prints
+request-shape coverage, full-history Class-B cost/error/socket correlation,
+positive input-token savings, T353 history-reducer evidence, and T355 server-state shadow-mirror density. With --admin-state-file it also prints
 content-free policy and cache hit/miss counters from the matching admin snapshot.
 It does not inspect payload text or auth headers.`
 
@@ -292,6 +320,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	}
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	historyReducers := make(map[string]*wssHistoryReducerSummary)
+	fullHistory := wssFullHistoryClassBAccumulator{}
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
@@ -315,6 +344,9 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			shape := wssAuditRequestShape(summary)
 			if shape != "" {
 				report.RequestShapes[shape]++
+			}
+			if shape == "full_history" {
+				fullHistory.add(summary)
 			}
 		}
 		if strings.TrimSpace(summary.SessionID) == "" {
@@ -381,6 +413,9 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	})
 	if shadow := shadowMirror.finalize(); shadow != nil {
 		report.ShadowMirror = shadow
+	}
+	if history := fullHistory.finalize(); history != nil {
+		report.FullHistory = history
 	}
 	report.HistoryReducers = finalizeWSSHistoryReducers(historyReducers)
 	report.Notes = wssAuditNotes(report)
@@ -455,6 +490,87 @@ func addWSSAuditCount(counts *map[string]int, key string) {
 		*counts = make(map[string]int)
 	}
 	(*counts)[key]++
+}
+
+func addWSSAuditCountWithMissing(counts *map[string]int, key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "(missing)"
+	}
+	addWSSAuditCount(counts, key)
+}
+
+func (a *wssFullHistoryClassBAccumulator) add(summary dbg.RequestSummary) {
+	if a == nil {
+		return
+	}
+	a.summary.Requests++
+	sessionID := strings.TrimSpace(summary.SessionID)
+	if sessionID == "" {
+		a.summary.MissingSessionID++
+	} else {
+		if a.sessions == nil {
+			a.sessions = make(map[string]struct{})
+		}
+		a.sessions[sessionID] = struct{}{}
+	}
+	if summary.PreviousResponseIDUsed {
+		a.summary.PreviousResponseIDUsed++
+	}
+	a.summary.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	a.summary.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
+	a.summary.ProviderOutputTokens += maxInt(0, summary.ProviderOutputTokens)
+	a.summary.CacheReadTokens += maxInt(0, summary.CacheReadTokens)
+	a.summary.CacheCreateTokens += maxInt(0, summary.CacheCreateTokens)
+	a.summary.OriginalTokens += maxInt(0, summary.Tokens.Original)
+	a.summary.FinalTokens += maxInt(0, summary.Tokens.Final)
+	a.summary.SavedTokens += maxInt(0, summary.Tokens.Saved)
+	a.summary.NetSavedTokens += maxInt(0, summary.NetSavedTokens)
+	if len(summary.Errors) > 0 {
+		a.summary.ErrorRequests++
+	}
+	if wssAuditHasUpstreamError(summary) {
+		a.summary.UpstreamErrorRequests++
+	}
+	if wssAuditHasHTTP400Error(summary) {
+		a.summary.HTTP400ErrorRequests++
+	}
+	addWSSAuditCountWithMissing(&a.summary.ByClientFamily, summary.ClientFamily)
+	addWSSAuditCountWithMissing(&a.summary.BySocketSeq, summary.DebugFacts["wss.socket_seq"])
+	addWSSAuditCountWithMissing(&a.summary.BySocketCloseInitiator, summary.DebugFacts["wss.socket_close_initiator"])
+}
+
+func (a *wssFullHistoryClassBAccumulator) finalize() *wssFullHistoryClassBSummary {
+	if a == nil || a.summary.Requests == 0 {
+		return nil
+	}
+	out := a.summary
+	out.Sessions = len(a.sessions)
+	return &out
+}
+
+func wssAuditHasUpstreamError(summary dbg.RequestSummary) bool {
+	if strings.Contains(strings.ToLower(summary.BypassReason), "upstream_error") {
+		return true
+	}
+	for _, errText := range summary.Errors {
+		if strings.Contains(strings.ToLower(errText), "upstream_error") {
+			return true
+		}
+	}
+	return false
+}
+
+func wssAuditHasHTTP400Error(summary dbg.RequestSummary) bool {
+	if strings.Contains(summary.BypassReason, "400") {
+		return true
+	}
+	for _, errText := range summary.Errors {
+		if strings.Contains(errText, "400") {
+			return true
+		}
+	}
+	return false
 }
 
 func finalizeWSSHistoryReducers(rows map[string]*wssHistoryReducerSummary) []wssHistoryReducerSummary {
@@ -670,6 +786,15 @@ func wssAuditNotes(report wssAuditReport) []string {
 	}
 	if report.RequestShapes["full_history"] > 0 {
 		notes = append(notes, "Full-history Class-B rows observed; correlate them with savings, socket lifecycle, and upstream-error counters before widening guards.")
+		if report.FullHistory != nil && report.FullHistory.ProviderInputTokens == 0 {
+			notes = append(notes, "Full-history rows have no provider input-token usage; run a fresh capture before making Class-B cost claims.")
+		}
+		if report.FullHistory != nil && report.FullHistory.BySocketSeq["(missing)"] > 0 {
+			notes = append(notes, "Some full-history rows have no socket sequence fact; run slimference debug wss-sockets for reconnect-cause attribution before guard changes.")
+		}
+		if report.FullHistory != nil && report.FullHistory.UpstreamErrorRequests > 0 {
+			notes = append(notes, "Full-history rows overlap upstream-error evidence; treat this as a stability boundary, not a savings opportunity.")
+		}
 	} else if report.PhaseFRequests > 0 && report.RequestShapes["delta"] > 0 {
 		notes = append(notes, "This capture has delta-shaped Phase-F traffic but no full-history Class-B rows; do not use it to prove T354 Class-B widening.")
 	}
@@ -740,6 +865,32 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		for _, key := range sortedStringKeys(report.ContentClasses) {
 			fmt.Fprintf(w, "  %-24s %d\n", key, report.ContentClasses[key])
 		}
+	}
+	if report.FullHistory != nil {
+		fmt.Fprintln(w, "\nFull-history Class-B:")
+		fmt.Fprintf(w, "  requests/sessions:       %d / %d\n", report.FullHistory.Requests, report.FullHistory.Sessions)
+		fmt.Fprintf(w, "  missing session ids:     %d\n", report.FullHistory.MissingSessionID)
+		fmt.Fprintf(w, "  previous_response_id:    %d\n", report.FullHistory.PreviousResponseIDUsed)
+		fmt.Fprintf(w, "  provider in/cache/out:   %d / %d / %d\n",
+			report.FullHistory.ProviderInputTokens,
+			report.FullHistory.ProviderCachedTokens,
+			report.FullHistory.ProviderOutputTokens)
+		fmt.Fprintf(w, "  cache read/create:       %d / %d\n",
+			report.FullHistory.CacheReadTokens,
+			report.FullHistory.CacheCreateTokens)
+		fmt.Fprintf(w, "  local original/final:    %d / %d\n",
+			report.FullHistory.OriginalTokens,
+			report.FullHistory.FinalTokens)
+		fmt.Fprintf(w, "  local saved/net:         %d / %d\n",
+			report.FullHistory.SavedTokens,
+			report.FullHistory.NetSavedTokens)
+		fmt.Fprintf(w, "  errors/upstream/400:     %d / %d / %d\n",
+			report.FullHistory.ErrorRequests,
+			report.FullHistory.UpstreamErrorRequests,
+			report.FullHistory.HTTP400ErrorRequests)
+		fmt.Fprintf(w, "  client families:         %s\n", formatWSSAuditCounts(report.FullHistory.ByClientFamily))
+		fmt.Fprintf(w, "  socket seqs:             %s\n", formatWSSAuditCounts(report.FullHistory.BySocketSeq))
+		fmt.Fprintf(w, "  socket closes:           %s\n", formatWSSAuditCounts(report.FullHistory.BySocketCloseInitiator))
 	}
 	if len(report.Policy) > 0 {
 		fmt.Fprintln(w, "\nPolicy decisions:")
