@@ -477,7 +477,9 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 		scorecard := savingsBuildScorecard(row.ProviderInputTokens, row.FinalTokens, row.LocalSaved, row.CacheReadTokens, row.CacheCreateTokens, row.NegativeEventTokens, out.CachedPriceRatio)
 		row.Scorecard = &scorecard
 		out.DecisionSessions = append(out.DecisionSessions, *row)
-		out.DecisionEffectiveBilledTokens += row.EffectiveBilled
+		out.DecisionEffectiveBilledTokens += scorecard.EffectiveBilledTokens
+		out.DecisionCounterfactualTokens += scorecard.CounterfactualTokens
+		out.DecisionUncachedCounterfactual += scorecard.UncachedCounterfactual
 		out.DecisionLayer0NetTokens += row.Layer0NetTokens
 		out.DecisionLayer1NetTokens += row.Layer1NetTokens
 		out.DecisionLayer2NetTokens += row.Layer2NetTokens
@@ -497,13 +499,15 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	})
 	if out.DecisionRequests > 0 {
 		out.DecisionCacheHitRate = float64(out.DecisionCacheHitRequests) / float64(out.DecisionRequests)
-		out.DecisionCachedShare = savingsCachedShare(out.DecisionCacheReadTokens, out.DecisionProviderInputTokens, out.DecisionFinalTokens)
-		scorecard := savingsBuildScorecard(out.DecisionProviderInputTokens, out.DecisionFinalTokens, out.DecisionLocalSavedTokens, out.DecisionCacheReadTokens, out.DecisionCacheCreateTokens, out.DecisionNegativeEventTokens, out.CachedPriceRatio)
-		out.DecisionCounterfactualTokens = scorecard.CounterfactualTokens
-		out.DecisionUncachedCounterfactual = scorecard.UncachedCounterfactual
-		out.DecisionLocalSavingsRate = scorecard.LocalSavingsRate
-		out.DecisionCombinedSavingsRate = scorecard.CombinedSavingsRate
-		out.DecisionVsUncachedSavingsRate = scorecard.VsUncachedSavingsRate
+		decisionInputEquivalent := out.DecisionUncachedCounterfactual - out.DecisionLocalSavedTokens
+		decisionCacheRead := out.DecisionCacheReadTokens
+		if decisionCacheRead > decisionInputEquivalent {
+			decisionCacheRead = decisionInputEquivalent
+		}
+		out.DecisionCachedShare = savingsRate(decisionCacheRead, decisionInputEquivalent)
+		out.DecisionLocalSavingsRate = savingsRate(out.DecisionLocalSavedTokens, out.DecisionUncachedCounterfactual)
+		out.DecisionCombinedSavingsRate = savingsRate(out.DecisionCounterfactualTokens-out.DecisionEffectiveBilledTokens, out.DecisionCounterfactualTokens)
+		out.DecisionVsUncachedSavingsRate = savingsRate(out.DecisionUncachedCounterfactual-out.DecisionEffectiveBilledTokens, out.DecisionUncachedCounterfactual)
 		out.DecisionCacheStatus = savingsDecisionCacheStatus(*out)
 	}
 	if out.DecisionCodexRequests > 0 {

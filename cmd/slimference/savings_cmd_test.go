@@ -1572,6 +1572,65 @@ func TestComputeSavingsSessionScorecardSplitsLocalCacheAndEffectiveBilled(t *tes
 	}
 }
 
+func TestComputeSavingsAggregateScorecardIncludesFallbackOnlySessions(t *testing.T) {
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	reportNow := base.Add(10 * time.Second)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID:              "cached",
+				Timestamp:              base,
+				SessionID:              "codex-wss:cached",
+				Provider:               "codex_chatgpt",
+				ProviderInputTokens:    1000,
+				ProviderCachedTokens:   600,
+				PreviousResponseIDUsed: true,
+				Tokens:                 dbg.TokenCounts{Original: 900, Final: 700, Saved: 200},
+			},
+			{
+				RequestID: "fallback-only",
+				Timestamp: base.Add(time.Second),
+				SessionID: "codex-wss:fallback",
+				Provider:  "codex_chatgpt",
+				Tokens:    dbg.TokenCounts{Original: 1000, Final: 900, Saved: 100},
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", reportNow)
+	if got.DecisionEffectiveBilledTokens != 1360 ||
+		got.DecisionCounterfactualTokens != 1660 ||
+		got.DecisionUncachedCounterfactual != 2200 {
+		t.Fatalf("aggregate scorecard dropped fallback-only session: %+v", got)
+	}
+	if !nearFloat(got.DecisionCachedShare, 600.0/1900.0) ||
+		!nearFloat(got.DecisionLocalSavingsRate, 300.0/2200.0) ||
+		!nearFloat(got.DecisionCombinedSavingsRate, 300.0/1660.0) ||
+		!nearFloat(got.DecisionVsUncachedSavingsRate, 840.0/2200.0) {
+		t.Fatalf("bad mixed aggregate rates: %+v", got)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{
+		"Decision effective billed:   1.4K",
+		"Decision cached share:       31.6%",
+		"Decision scorecard:          S_local=13.6% S_combined=18.1% S_vs_uncached=38.2%",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+}
+
 func TestSavingsScorecardUsesConfiguredCachedPriceRatio(t *testing.T) {
 	scorecard := savingsBuildScorecard(1000, 0, 200, 500, 0, 0, 0.25)
 	if scorecard.EffectiveBilledTokens != 625 ||

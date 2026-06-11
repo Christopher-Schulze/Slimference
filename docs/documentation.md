@@ -2201,7 +2201,10 @@ assumption, default `0.10` and overridable with
 each `decision_sessions[]` JSON row also
 carries a nested `scorecard` with the same rate family plus per-session
 `footprint_score`, `footprint_score_buckets`, and
-`compounded_estimate_tokens`. `S_local` is local input
+`compounded_estimate_tokens`. Aggregate scorecard fields are summed from the
+per-session scorecards so rows with provider-reported input and fallback-only
+local input stay in the same denominator instead of letting provider-cache rows
+inflate the route-wide rate. `S_local` is local input
 deletion over the no-local input counterfactual. `S_combined` compares effective
 billed tokens against a cache-as-is, no-local-reduction counterfactual.
 `S_vs_uncached` compares the same effective billed tokens against a fully
