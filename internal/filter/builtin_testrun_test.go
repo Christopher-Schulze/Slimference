@@ -63,6 +63,29 @@ func TestTryCompactCargoNextest(t *testing.T) {
 	if !ok || string(out) != "[cargo nextest run] ok\n" {
 		t.Fatalf("nextest: ok=%v %q", ok, out)
 	}
+	var verbose strings.Builder
+	verbose.WriteString("    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n")
+	verbose.WriteString("────────────\n")
+	verbose.WriteString("    Starting 3 tests across 1 binary\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&verbose, "        PASS [   0.%03ds] slimference::test_%03d\n", i%100, i)
+	}
+	verbose.WriteString("────────────\n")
+	verbose.WriteString("     Summary [   0.088s] 80 tests run: 80 passed, 0 skipped\n")
+	out, ok = TryCompactCargoNextest([]string{"cargo", "nextest", "run"}, []byte(verbose.String()))
+	if !ok {
+		t.Fatal("nextest verbose all-pass should compact")
+	}
+	nextestOut := string(out)
+	if !strings.Contains(nextestOut, "[cargo nextest run] ok - 80 passed") ||
+		!strings.Contains(nextestOut, "Summary [   0.088s] 80 tests run: 80 passed") ||
+		strings.Contains(nextestOut, "slimference::test_079") {
+		t.Fatalf("nextest compaction lost summary or kept roll-call: %q", nextestOut)
+	}
+	failed := strings.Replace(verbose.String(), "0 skipped", "1 failed, 0 skipped", 1)
+	if _, ok := TryCompactCargoNextest([]string{"cargo", "nextest", "run"}, []byte(failed)); ok {
+		t.Fatal("nextest failure summary must fail open")
+	}
 	if _, ok := TryCompactCargoNextest([]string{"cargo", "test"}, []byte("")); ok {
 		t.Fatal("not nextest")
 	}

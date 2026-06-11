@@ -306,15 +306,53 @@ func isCargoNextestRunArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactCargoNextest summarizes empty stdout from `cargo nextest run` / `npx|pnpm exec|yarn … cargo nextest run` (F08 partial).
+// TryCompactCargoNextest summarizes `cargo nextest run` / `npx|pnpm exec|yarn … cargo nextest run`.
 func TryCompactCargoNextest(argv []string, stdout []byte) ([]byte, bool) {
 	if !isCargoNextestRunArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[cargo nextest run] ok\n"), true
+	}
+	return compactCargoNextestAllPass(stdout)
+}
+
+func compactCargoNextestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failure", "error", "panicked", "panic", "leak", "timed out", "cancelled", "warning", "deprecated"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	if strings.Contains(low, "failed") && !strings.Contains(low, "0 failed") {
 		return stdout, false
 	}
-	return []byte("[cargo nextest run] ok\n"), true
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	hasSummary := false
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "PASS ") || strings.HasPrefix(t, "PASS [") {
+			passed++
+			continue
+		}
+		tl := strings.ToLower(t)
+		if strings.HasPrefix(t, "Summary [") && strings.Contains(tl, " passed") {
+			hasSummary = true
+		}
+		kept = append(kept, line)
+	}
+	if passed == 0 || !hasSummary {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[cargo nextest run] ok - %d passed, per-test PASS lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
 }
 
 func isCargoLlvmCovArgv(argv []string) bool {
