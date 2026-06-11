@@ -1836,6 +1836,66 @@ func TestWSPhaseFToolPruneSkipsPreviousResponseDeltaTurns(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFToolPruneAllowsPreviousResponseFullHistoryTurns(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-full-history"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-full-history",
+			"prompt_cache_key":     "wss-tool-prune-full-history",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected previous_response_id full-history tool-prune mutation")
+	}
+	body := string(env.Body)
+	if strings.Contains(body, "ColdTool") {
+		t.Fatalf("full-history idle tool still present after prune: %s", body)
+	}
+	if !strings.Contains(body, "Bash") {
+		t.Fatalf("active tool was removed: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 {
+		t.Fatalf("tool-prune snapshot = %+v, want one full-history prune with savings", snap)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.tool_prune_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" {
+		t.Fatalf("full-history tool-prune summary should save without delta guard: %+v", summary)
+	}
+}
+
 func TestWSPhaseFToolPruneUsageObservesResolvedToolResults(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
@@ -2063,6 +2123,60 @@ func TestWSPhaseFToolPruneSkipsReattachOnPreviousResponseDeltaTurns(t *testing.T
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" || summary.Tokens.Saved != 0 {
 		t.Fatalf("delta reattach guard summary missing: %+v", summary)
+	}
+}
+
+func TestWSPhaseFToolPruneReattachesPreviousResponseFullHistoryTurns(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-full-history-reattach"
+	p.toolPrune.RememberPrunedDef(sessionID, "ColdTool", mustMarshal(codexToolDefinition("ColdTool", "Recovered schema")))
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-full-history-reattach",
+			"prompt_cache_key":     "wss-tool-prune-full-history-reattach",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Please use ColdTool now."},
+			},
+			"tools":  []map[string]any{codexToolDefinition("Bash", "Run a shell command")},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected previous_response_id full-history reattach mutation")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("full-history reattach must keep existing and mentioned tools: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.ReattachTotal != 1 || snap.PrunedTotal != 0 {
+		t.Fatalf("tool-prune snapshot = %+v, want one full-history reattach and no same-turn prune", snap)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.tool_prune_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.Tokens.Saved != 0 {
+		t.Fatalf("full-history reattach summary should mutate without savings claim or delta guard: %+v", summary)
 	}
 }
 

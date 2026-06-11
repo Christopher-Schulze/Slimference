@@ -1534,7 +1534,13 @@ comma-separated project keeps via `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`.
 The Codex WSS Phase-F path uses the same strict pruner for prompt/user-turn
 request bodies. WSS tool-call frames feed tool-name usage into the session
 tracker, but actual `tools[]` mutation only happens on prompt/user turns with a
-known Codex tool schema. Unknown or mixed schemas stay byte-equal.
+known Codex tool schema. Previous-response-id delta turns still full-pass
+tool-prune and reattach with `wss_tool_prune_delta_guard`, because mutating the
+steady delta prefix can poison later WSS state. Full-history resends with
+previous-response-id are eligible again when their message shape is actually
+classified as `full_history`, so reconnect/full-resend turns can recover tool
+schema savings without reopening the unsafe delta path. Unknown, empty, or mixed
+schemas stay byte-equal.
 Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
 command-family hint in current user/system/developer instruction text reattaches

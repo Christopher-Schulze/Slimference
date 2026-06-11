@@ -665,7 +665,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	out := body
 	reattachedToolNames := []string(nil)
 	mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID)
-	if reason := wssToolPruneMutationGuardReason(body, meta, mentions); reason != "" {
+	if reason := wssToolPruneMutationGuardReason(body, messages, meta, mentions); reason != "" {
 		a.observeWSSToolPruneUserTurn(sessionID, messages)
 		return body, false, reason
 	}
@@ -724,11 +724,14 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUserTurn(sessionID string, messages
 	a.p.toolPrune.ObserveTurn(sessionID, extractUsedToolNames(messages))
 }
 
-func wssToolPruneMutationGuardReason(body []byte, meta wssRequestMeta, reattachMentions []string) string {
+func wssToolPruneMutationGuardReason(body []byte, messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
 	if meta.PreviousResponseID == "" {
 		return ""
 	}
 	if !wssBodyHasToolDefinitions(body) && len(reattachMentions) == 0 {
+		return ""
+	}
+	if len(messages) > 0 && !wssRequestIsDeltaShape(messages) {
 		return ""
 	}
 	return "wss_tool_prune_delta_guard"
