@@ -3031,6 +3031,86 @@ func TestWSPhaseFStaleObsoletePreserveToolUseIndex(t *testing.T) {
 	assertSameProxyToolUseIndex(t, before, after)
 }
 
+func TestWSSRequestIndexesMatchStandaloneBuilders(t *testing.T) {
+	messages, _, err := extractMessages(types.CodexChatGPT, codexWSStaleObsoleteLayer0Body())
+	if err != nil {
+		t.Fatalf("extract messages: %v", err)
+	}
+	gotToolUses, gotRepdet := wssRequestIndexes(messages, true)
+	assertSameProxyToolUseIndex(t, proxyToolUseIndex(messages), gotToolUses)
+	wantRepdet := buildRepdetIndex(messages)
+	if gotRepdet == nil {
+		t.Fatal("expected repdet index")
+	}
+	gotBlocks := gotRepdet.Blocks()
+	wantBlocks := wantRepdet.Blocks()
+	if len(gotBlocks) != len(wantBlocks) {
+		t.Fatalf("repdet block count changed got=%d want=%d", len(gotBlocks), len(wantBlocks))
+	}
+	for i := range wantBlocks {
+		if gotBlocks[i] != wantBlocks[i] {
+			t.Fatalf("repdet block %d changed got=%+v want=%+v", i, gotBlocks[i], wantBlocks[i])
+		}
+	}
+
+	_, disabled := wssRequestIndexes(messages, false)
+	if disabled != nil {
+		t.Fatal("repdet index should not be built when disabled")
+	}
+}
+
+func TestWSPhaseFRepdetIndexesForwardedMessagesAfterMutation(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var originalStatus strings.Builder
+	for i := 0; i < 180; i++ {
+		fmt.Fprintf(&originalStatus, " M internal/proxy/repdet_forwarded_original_%03d.go\n", i)
+	}
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "repdet-forwarded-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "check git status"},
+				{"type": "function_call", "call_id": "call_status", "name": "exec_command", "arguments": map[string]any{"cmd": "git status --short"}},
+				{"type": "function_call_output", "call_id": "call_status", "output": originalStatus.String()},
+			},
+			"stream": true,
+		},
+	})
+	replaced, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle request: %v", err)
+	}
+	if !replaced {
+		t.Fatal("precondition: request should be compacted")
+	}
+	if bytes.Contains(env.Body, []byte("repdet_forwarded_original_179.go")) || !bytes.Contains(env.Body, []byte("[git status]")) {
+		t.Fatalf("precondition: request did not forward compacted status output: %s", env.Body)
+	}
+
+	delta := parseWSJSON(t, map[string]any{
+		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
+		"delta": originalStatus.String(),
+	})
+	replaced, err = adapter.handle(context.Background(), wsmitm.DirServerToClient, &delta)
+	if err != nil {
+		t.Fatalf("handle delta: %v", err)
+	}
+	if replaced || strings.Contains(delta.Delta, "[unchanged:") {
+		t.Fatalf("repdet index must match forwarded compacted request, not original output: replaced=%v delta=%q", replaced, delta.Delta)
+	}
+}
+
 func TestWSPhaseFResponseCreateInfersUnresolvedToolOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()

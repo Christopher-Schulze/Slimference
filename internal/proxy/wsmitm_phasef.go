@@ -160,6 +160,7 @@ type wssRequestMeta struct {
 	TurnSeq            int
 	OriginalMessages   []types.Message
 	ToolUseIndex       map[string]types.ContentBlock
+	RepdetIndex        *repdet.Index
 	ToolPrune          dbg.ToolPruneSummary
 	BypassReason       string
 	DebugFacts         map[string]string
@@ -315,12 +316,16 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
 	toolUses := meta.ToolUseIndex
-	if len(toolUses) == 0 {
+	if toolUses == nil && len(messages) > 0 {
 		toolUses = proxyToolUseIndex(messages)
+	}
+	repdetIndex := meta.RepdetIndex
+	if repdetIndex == nil && a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled && len(messages) > 0 {
+		repdetIndex = buildRepdetIndex(messages)
 	}
 	a.mu.Lock()
 	a.messages = messages
-	a.repdetIndex = buildRepdetIndex(messages)
+	a.repdetIndex = repdetIndex
 	if a.toolUses == nil {
 		a.toolUses = make(map[string]types.ContentBlock)
 	}
@@ -388,9 +393,10 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
-		currentToolUses := proxyToolUseIndex(messages)
+		currentToolUses, requestRepdetIndex := wssRequestIndexes(messages, a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled)
 		mergedToolUses := mergedProxyToolUseIndex(currentToolUses, rememberedToolUses)
 		meta.ToolUseIndex = mergedToolUses
+		meta.RepdetIndex = requestRepdetIndex
 		if !wssBodyHasUserPromptInput(out) {
 			a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, mergedToolUses)
 		}
@@ -554,6 +560,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
 				out = rebuilt
 				messages = stagedMessages
+				if a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled {
+					meta.RepdetIndex = buildRepdetIndex(stagedMessages)
+				}
 				if staleBlocksReplaced > 0 {
 					a.p.outputReduceCounters.RecordStaleReadAging(staleBlocksReplaced, staleBytesReplaced)
 				}
@@ -838,6 +847,33 @@ func messagesContainToolResult(messages []types.Message) bool {
 		}
 	}
 	return false
+}
+
+func wssRequestIndexes(messages []types.Message, includeRepdet bool) (map[string]types.ContentBlock, *repdet.Index) {
+	toolUses := make(map[string]types.ContentBlock)
+	var repdetIndex *repdet.Index
+	if includeRepdet {
+		repdetIndex = repdet.NewIndex()
+	}
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			switch block.Type {
+			case "tool_use":
+				if block.ToolUseID != "" {
+					toolUses[block.ToolUseID] = block
+				}
+			case "tool_result":
+				if repdetIndex != nil {
+					repdetIndex.AddBlock(blockNameForToolResult(block), 0, 0, block.Text)
+				}
+			case "text":
+				if repdetIndex != nil && len(block.Text) >= repdet.MinMatch+repdet.WindowSize {
+					repdetIndex.AddBlock("prompt-text", 0, 0, block.Text)
+				}
+			}
+		}
+	}
+	return toolUses, repdetIndex
 }
 
 func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool, recoverable bool) bool {
