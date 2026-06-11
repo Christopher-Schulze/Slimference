@@ -2,6 +2,7 @@ package chunkdedup
 
 import (
 	"bytes"
+	"sort"
 	"sync"
 	"time"
 )
@@ -289,8 +290,9 @@ func encodePlan(data []byte, plan chunkPlan, maxReferenceBytes int, archive func
 	referenceCount := 0
 	referencedBytes := 0
 	expansions := map[string][]byte{}
+	selectedReferences := selectReferenceIndexes(plan, maxReferenceBytes)
 	for i, c := range plan.chunks {
-		if plan.repeated[i] && referencedBytes+len(c) <= maxReferenceBytes {
+		if _, selected := selectedReferences[i]; selected && referencedBytes+len(c) <= maxReferenceBytes {
 			if uri, ok := archive(plan.ids[i], c); ok {
 				ref := FormatReference(uri, len(c))
 				if len(ref) < len(c) {
@@ -323,6 +325,56 @@ func encodePlan(data []byte, plan chunkPlan, maxReferenceBytes int, archive func
 		ReferencedBytes: referencedBytes,
 		Verified:        true,
 	}
+}
+
+type referenceCandidate struct {
+	index int
+	bytes int
+	saved int
+}
+
+func selectReferenceIndexes(plan chunkPlan, maxReferenceBytes int) map[int]struct{} {
+	if maxReferenceBytes <= 0 {
+		return nil
+	}
+	candidates := make([]referenceCandidate, 0, len(plan.chunks))
+	for i, c := range plan.chunks {
+		if !plan.repeated[i] || len(c) > maxReferenceBytes {
+			continue
+		}
+		ref := FormatReference("local-archive://"+plan.ids[i], len(c))
+		saved := len(c) - len(ref)
+		if saved <= 0 {
+			continue
+		}
+		candidates = append(candidates, referenceCandidate{
+			index: i,
+			bytes: len(c),
+			saved: saved,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].saved != candidates[j].saved {
+			return candidates[i].saved > candidates[j].saved
+		}
+		if candidates[i].bytes != candidates[j].bytes {
+			return candidates[i].bytes > candidates[j].bytes
+		}
+		return candidates[i].index < candidates[j].index
+	})
+	selected := make(map[int]struct{}, len(candidates))
+	referencedBytes := 0
+	for _, c := range candidates {
+		if referencedBytes+c.bytes > maxReferenceBytes {
+			continue
+		}
+		selected[c.index] = struct{}{}
+		referencedBytes += c.bytes
+	}
+	return selected
 }
 
 const (

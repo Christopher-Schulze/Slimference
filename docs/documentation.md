@@ -847,6 +847,10 @@ budget's denominator counts every observed output sent through the chunk store,
 including first-send seed outputs and candidates that produced no accepted
 references. Those bytes were visible to the model and therefore increase the safe
 budget for later references instead of blocking the first useful overlap hit.
+Within a bounded output, repeated chunks compete by estimated net byte savings
+before final emission, so a small early repeat cannot spend the reference budget
+that would recoverably compress a larger later repeat; the encoded output still
+preserves the original byte order and is locally decoded before acceptance.
 Layer-0 also asks the chunk store for a content-free "budget available after this
 candidate" signal before policy evaluation. If the session budget cannot support
 another useful chunk reference, the policy full-passes only chunk dedup with

@@ -199,6 +199,36 @@ func TestStore_OutputReferenceBudgetLimitsReferences(t *testing.T) {
 	}
 }
 
+func TestEncodePlanPrioritizesLargestSavingsWithinReferenceBudget(t *testing.T) {
+	t.Parallel()
+	small := []byte(strings.Repeat("small repeated chunk line\n", 60))
+	large := []byte(strings.Repeat("large repeated chunk line with more savings\n", 130))
+	tail := []byte(strings.Repeat("tail repeated chunk line\n", 60))
+	data := append(append(append([]byte{}, small...), large...), tail...)
+	plan := chunkPlan{
+		chunks:   [][]byte{small, large, tail},
+		ids:      []string{"small", "large", "tail"},
+		repeated: []bool{true, true, true},
+	}
+
+	result := encodePlan(data, plan, len(large), func(id string, _ []byte) (string, bool) {
+		return "local-archive://" + id, true
+	})
+
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("expected verified reference savings, saved=%d verified=%v", result.Saved, result.Verified)
+	}
+	if result.ReferenceCount != 1 || result.ReferencedBytes != len(large) {
+		t.Fatalf("expected only the largest chunk to consume the budget: count=%d bytes=%d wantBytes=%d", result.ReferenceCount, result.ReferencedBytes, len(large))
+	}
+	if !bytes.Contains(result.Data, []byte("local-archive://large")) {
+		t.Fatalf("large repeated chunk should be referenced: %q", result.Data[:min(len(result.Data), 180)])
+	}
+	if bytes.Contains(result.Data, []byte("local-archive://small")) || bytes.Contains(result.Data, []byte("local-archive://tail")) {
+		t.Fatalf("smaller chunks should stay verbatim when only one reference fits: %q", result.Data[:min(len(result.Data), 220)])
+	}
+}
+
 func TestStore_PartialOverlapDedups(t *testing.T) {
 	t.Parallel()
 	store := NewStore(Config{}, archiveFake(nil))
