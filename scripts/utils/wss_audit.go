@@ -24,6 +24,7 @@ type wssAuditReport struct {
 	UniqueSessions         int                              `json:"unique_sessions"`
 	MissingSessionID       int                              `json:"missing_session_id"`
 	PreviousResponseIDUsed int                              `json:"previous_response_id_used"`
+	RequestShapes          map[string]int                   `json:"request_shapes,omitempty"`
 	ReReadRequests         int                              `json:"re_read_requests"`
 	ReReadCount            int                              `json:"re_read_count"`
 	PositiveSavings        int                              `json:"positive_savings_requests"`
@@ -46,14 +47,15 @@ type wssAuditReport struct {
 }
 
 type wssAuditSessionSummary struct {
-	SessionID              string    `json:"session_id"`
-	Requests               int       `json:"requests"`
-	PhaseFRequests         int       `json:"phasef_requests"`
-	PreviousResponseIDUsed int       `json:"previous_response_id_used"`
-	ReReadCount            int       `json:"re_read_count"`
-	TokensSaved            int       `json:"tokens_saved"`
-	FirstSeen              time.Time `json:"first_seen,omitempty"`
-	LastSeen               time.Time `json:"last_seen,omitempty"`
+	SessionID              string         `json:"session_id"`
+	Requests               int            `json:"requests"`
+	PhaseFRequests         int            `json:"phasef_requests"`
+	PreviousResponseIDUsed int            `json:"previous_response_id_used"`
+	RequestShapes          map[string]int `json:"request_shapes,omitempty"`
+	ReReadCount            int            `json:"re_read_count"`
+	TokensSaved            int            `json:"tokens_saved"`
+	FirstSeen              time.Time      `json:"first_seen,omitempty"`
+	LastSeen               time.Time      `json:"last_seen,omitempty"`
 }
 
 type wssHistoryReducerSummary struct {
@@ -107,6 +109,7 @@ type wssAuditFlags struct {
 	outputFormat           string
 	expectDistinctSessions int
 	minPhaseF              int
+	minFullHistory         int
 	requireSavings         bool
 	requireHistoryEvidence bool
 	adminStateFile         string
@@ -122,6 +125,7 @@ Usage:
 Flags:
   --expect-distinct-sessions=<n>  Fail if fewer than n non-empty WSS session ids are present
   --min-phasef=<n>                Fail if fewer than n Phase-F request summaries are present
+  --min-full-history=<n>          Fail if fewer than n full-history Phase-F request summaries are present
   --require-savings               Fail if no positive input-token savings are present
   --require-history-evidence      Fail if no stale/obsolete reducer evidence is present
   --admin-state-file=<path>        Join current /admin/state policy counters into the report
@@ -130,8 +134,8 @@ Flags:
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage,
-positive input-token savings, T353 history-reducer evidence, and T355
-server-state shadow-mirror density. With --admin-state-file it also prints
+request-shape coverage, positive input-token savings, T353 history-reducer
+evidence, and T355 server-state shadow-mirror density. With --admin-state-file it also prints
 content-free policy and cache hit/miss counters from the matching admin snapshot.
 It does not inspect payload text or auth headers.`
 
@@ -242,6 +246,22 @@ func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
 				return flags, fmt.Errorf("--min-phasef must be a non-negative integer")
 			}
 			flags.minPhaseF = n
+		case a == "--min-full-history":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--min-full-history must be a non-negative integer")
+			}
+			flags.minFullHistory = n
+		case strings.HasPrefix(a, "--min-full-history="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--min-full-history="))
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--min-full-history must be a non-negative integer")
+			}
+			flags.minFullHistory = n
 		case strings.HasPrefix(a, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", a)
 		default:
@@ -264,6 +284,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		GatePassed:     true,
 		RouteModes:     make(map[string]int),
 		ContentClasses: make(map[string]int),
+		RequestShapes:  make(map[string]int),
 	}
 	if !flags.since.IsZero() {
 		since := flags.since
@@ -288,8 +309,13 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			continue
 		}
 		report.WSSRequests++
-		if wssAuditIsPhaseF(route) {
+		isPhaseF := wssAuditIsPhaseF(route)
+		if isPhaseF {
 			report.PhaseFRequests++
+			shape := wssAuditRequestShape(summary)
+			if shape != "" {
+				report.RequestShapes[shape]++
+			}
 		}
 		if strings.TrimSpace(summary.SessionID) == "" {
 			report.MissingSessionID++
@@ -320,8 +346,12 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			sessionStats[sessionID] = stats
 		}
 		stats.Requests++
-		if wssAuditIsPhaseF(route) {
+		if isPhaseF {
 			stats.PhaseFRequests++
+			shape := wssAuditRequestShape(summary)
+			if shape != "" {
+				addWSSAuditCount(&stats.RequestShapes, shape)
+			}
 		}
 		if summary.PreviousResponseIDUsed {
 			stats.PreviousResponseIDUsed++
@@ -603,6 +633,21 @@ func wssAuditContentClasses(summary dbg.RequestSummary) []string {
 	return out
 }
 
+func wssAuditRequestShape(summary dbg.RequestSummary) string {
+	if summary.DebugFacts == nil {
+		return "unknown"
+	}
+	shape := strings.ToLower(strings.TrimSpace(summary.DebugFacts["wss.request_shape"]))
+	switch shape {
+	case "root", "delta", "full_history":
+		return shape
+	case "":
+		return "unknown"
+	default:
+		return "unknown"
+	}
+}
+
 func wssAuditNotes(report wssAuditReport) []string {
 	var notes []string
 	if report.WSSRequests == 0 {
@@ -616,6 +661,17 @@ func wssAuditNotes(report wssAuditReport) []string {
 	}
 	if report.PhaseFRequests > 0 && report.PreviousResponseIDUsed == 0 {
 		notes = append(notes, "No previous_response_id usage observed; this may be a first-turn or non-delta capture.")
+	}
+	if report.PhaseFRequests > 0 && len(report.RequestShapes) == 0 {
+		notes = append(notes, "No WSS request-shape facts observed; Class-A/Class-B routing cannot be proven from this log.")
+	}
+	if report.PhaseFRequests > 0 && report.RequestShapes["unknown"] > 0 {
+		notes = append(notes, "Some Phase-F rows have unknown request shape; use a fresh capture before treating shape percentages as complete.")
+	}
+	if report.RequestShapes["full_history"] > 0 {
+		notes = append(notes, "Full-history Class-B rows observed; correlate them with savings, socket lifecycle, and upstream-error counters before widening guards.")
+	} else if report.PhaseFRequests > 0 && report.RequestShapes["delta"] > 0 {
+		notes = append(notes, "This capture has delta-shaped Phase-F traffic but no full-history Class-B rows; do not use it to prove T354 Class-B widening.")
 	}
 	if report.ReReadCount > 0 {
 		notes = append(notes, "WSS re-read canary observed repeated tool keys; review alongside savings to distinguish useful repeat reads from possible context-recall pressure.")
@@ -643,6 +699,9 @@ func wssAuditGateFailures(report wssAuditReport, flags wssAuditFlags) []string {
 	if flags.minPhaseF > 0 && report.PhaseFRequests < flags.minPhaseF {
 		failures = append(failures, fmt.Sprintf("expected at least %d Phase-F request summaries, got %d", flags.minPhaseF, report.PhaseFRequests))
 	}
+	if flags.minFullHistory > 0 && report.RequestShapes["full_history"] < flags.minFullHistory {
+		failures = append(failures, fmt.Sprintf("expected at least %d full-history Phase-F request summaries, got %d", flags.minFullHistory, report.RequestShapes["full_history"]))
+	}
 	if flags.requireSavings && report.PositiveSavings == 0 {
 		failures = append(failures, "expected at least one positive input-token savings request")
 	}
@@ -663,6 +722,9 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	fmt.Fprintf(w, "unique session ids:       %d\n", report.UniqueSessions)
 	fmt.Fprintf(w, "missing session ids:      %d\n", report.MissingSessionID)
 	fmt.Fprintf(w, "previous_response_id:     %d\n", report.PreviousResponseIDUsed)
+	if len(report.RequestShapes) > 0 {
+		fmt.Fprintf(w, "request shapes:           %s\n", formatWSSAuditCounts(report.RequestShapes))
+	}
 	fmt.Fprintf(w, "re-read requests/count:   %d / %d\n", report.ReReadRequests, report.ReReadCount)
 	fmt.Fprintf(w, "positive savings reqs:    %d\n", report.PositiveSavings)
 	fmt.Fprintf(w, "input tokens saved:       %d\n", report.TokensSaved)
@@ -752,9 +814,9 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.Sessions) > 0 {
 		fmt.Fprintln(w, "\nSessions:")
 		for _, session := range report.Sessions {
-			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d reread=%d saved=%d\n",
+			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d shapes=%s reread=%d saved=%d\n",
 				truncateMiddle(session.SessionID, 32), session.Requests, session.PhaseFRequests,
-				session.PreviousResponseIDUsed, session.ReReadCount, session.TokensSaved)
+				session.PreviousResponseIDUsed, formatWSSAuditCounts(session.RequestShapes), session.ReReadCount, session.TokensSaved)
 		}
 	}
 	if len(report.Notes) > 0 {

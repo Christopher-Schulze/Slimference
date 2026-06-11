@@ -60,10 +60,11 @@ go run ./scripts/utils aggregate-savings --filter-db=~/.slimference/filter.db --
 go run ./scripts/utils aggregate-savings --admin-state-file=admin-state.json --json   # offline mode
 go run ./scripts/utils workday-savings start                                         # baseline for real workday savings
 go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.db   # flush-aware window delta
-go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read/history-reducer/shadow-mirror density audit
+go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/request-shape/re-read/history-reducer/shadow-mirror density audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-history-evidence  # fresh T353 history reducer calibration gate
+go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --min-full-history=1  # fresh T354 Class-B/full-history capture gate
 go run ./scripts/utils codex-capture-run --binary ~/.local/bin/slimference --capture ~/.slimference/captures/repeat.jsonl --matrix-row /tmp/proof-matrix.jsonl --id cli-repeat --workload-class repeat_full_read --expected-reducer read_delta --codex-timeout=180s --exit-marker CAPTURE_DONE --exit-marker-count=2 --quiet-codex-output -- exec "Run exactly two shell tool calls and do not modify files. First tool call cmd exactly: cat AGENTS.md Second tool call cmd exactly: cat AGENTS.md Then final message exactly CAPTURE_DONE" # records live billable input-token delta plus replay lost=0 bytes; --expected-reducer is enforced against live admin-state before PASS, but the evidence row is still appended for failed expected-reducer runs; marker exit watches both the PTY log and captured function_call_output frames
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # product-default WSS replay gate with safe read-delta savings
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report

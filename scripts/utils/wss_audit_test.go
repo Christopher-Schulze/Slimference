@@ -48,6 +48,7 @@ func TestWSSAuditReport(t *testing.T) {
 				},
 			},
 			DebugFacts: map[string]string{
+				"wss.request_shape":                                   "full_history",
 				"wss.shadow_mirror_blocks":                            "2",
 				"wss.shadow_mirror_bytes":                             "1000",
 				"wss.shadow_mirror_referenceable_blocks":              "1",
@@ -69,6 +70,9 @@ func TestWSSAuditReport(t *testing.T) {
 			Path:      "/backend-api/codex/responses",
 			RouteMode: "websocket_phasef",
 			Plan:      &dbg.PlanSummary{ContentClasses: []string{"tool_output"}},
+			DebugFacts: map[string]string{
+				"wss.request_shape": "delta",
+			},
 		},
 	)
 
@@ -85,6 +89,9 @@ func TestWSSAuditReport(t *testing.T) {
 	}
 	if report.ReReadRequests != 1 || report.ReReadCount != 2 {
 		t.Fatalf("bad re-read counters: %+v", report)
+	}
+	if report.RequestShapes["full_history"] != 1 || report.RequestShapes["delta"] != 1 {
+		t.Fatalf("bad request shape counts: %+v", report.RequestShapes)
 	}
 	if report.ShadowMirror == nil ||
 		report.ShadowMirror.ReferenceableBytes != 400 ||
@@ -148,19 +155,26 @@ func TestWSSAuditGateFailures(t *testing.T) {
 		SessionID: "codex-wss:s1",
 		Path:      "/backend-api/codex/responses",
 		RouteMode: "websocket_phasef",
+		DebugFacts: map[string]string{
+			"wss.request_shape": "delta",
+		},
 	})
 
 	report, err := loadWSSAuditReport(wssAuditFlags{
 		path:                   path,
 		expectDistinctSessions: 2,
 		minPhaseF:              2,
+		minFullHistory:         1,
 		requireSavings:         true,
 	})
 	if err != nil {
 		t.Fatalf("loadWSSAuditReport() error = %v", err)
 	}
-	if report.GatePassed || len(report.GateFailures) != 3 {
-		t.Fatalf("expected three gate failures, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
+	if report.GatePassed || len(report.GateFailures) != 4 {
+		t.Fatalf("expected four gate failures, got passed=%v failures=%+v", report.GatePassed, report.GateFailures)
+	}
+	if !strings.Contains(strings.Join(report.GateFailures, "\n"), "full-history") {
+		t.Fatalf("expected full-history gate failure, got %+v", report.GateFailures)
 	}
 }
 
@@ -251,6 +265,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 			FootprintScore: 84,
 		}},
 		DebugFacts: map[string]string{
+			"wss.request_shape":                                   "full_history",
 			"wss.shadow_mirror_blocks":                            "1",
 			"wss.shadow_mirror_bytes":                             "300",
 			"wss.shadow_mirror_referenceable_blocks":              "0",
@@ -268,6 +283,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		t.Fatalf("runWSSAudit text code=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
+		!strings.Contains(stdout.String(), "request shapes:") ||
+		!strings.Contains(stdout.String(), "full_history:1") ||
 		!strings.Contains(stdout.String(), "re-read requests/count:") ||
 		!strings.Contains(stdout.String(), "History reducers:") ||
 		!strings.Contains(stdout.String(), "stale_read") ||
@@ -303,6 +320,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.TokensSaved != 3 {
 		t.Fatalf("tokens saved = %d, want 3", report.TokensSaved)
+	}
+	if report.RequestShapes["full_history"] != 1 {
+		t.Fatalf("request shape JSON missing: %+v", report.RequestShapes)
 	}
 	if len(report.HistoryReducers) != 1 || report.HistoryReducers[0].Mechanism != "stale_read" {
 		t.Fatalf("history reducer JSON missing: %+v", report.HistoryReducers)

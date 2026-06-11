@@ -1005,6 +1005,11 @@ A/B results when deciding whether a session needs looser compression. On the liv
 WSS reducer, a post-collapse deliberate re-read of the same read key suppresses
 further collapse for that key for the rest of the session, restoring full recency
 instead of fighting the model's attention signal.
+The same audit includes request-shape coverage from `wss.request_shape`
+(`root`, `delta`, `full_history`, or `unknown`) and exposes
+`--min-full-history` as a fresh-capture gate. T354 Class-B widening claims must
+use captures with actual `full_history` rows; delta-only sessions prove only the
+Class-A proof gate and must not be treated as reconnect/full-resend evidence.
 The audit also groups T353 history-reducer evidence decisions for `stale_read`
 and `obsolete_prune`, including applied/full-pass/skipped/failed-open counts,
 reason buckets, saved/net tokens, footprint score, and cache-impact buckets.
