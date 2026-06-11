@@ -1014,6 +1014,11 @@ For legacy rows that predate `wss.request_shape`, the report keeps observed
 `request_shapes` separate from `resolved_request_shapes`. The only conservative
 legacy resolution is `delta` from an existing `previous_response_id` signal;
 absence of a previous response id never proves `root` or `full_history`.
+The same report emits `shape_economics` over resolved request shape while keeping
+source buckets attached to every row, so legacy-resolved delta traffic cannot be
+mistaken for observed shape proof. Each row carries provider input/cache/output,
+cache read/create, local original/final/saved/net, local-savings percentage,
+provider-cached percentage, and upstream/HTTP-400 error counts.
 For observed `full_history` rows, the audit emits a dedicated `full_history`
 Class-B summary with unique sessions, missing session ids, previous-response-id
 usage, provider input/cache/output tokens, local original/final/saved/net

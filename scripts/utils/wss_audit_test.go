@@ -75,10 +75,17 @@ func TestWSSAuditReport(t *testing.T) {
 			RouteMode: "http",
 		},
 		dbg.RequestSummary{
-			RequestID: "wss-2",
-			Path:      "/backend-api/codex/responses",
-			RouteMode: "websocket_phasef",
-			Plan:      &dbg.PlanSummary{ContentClasses: []string{"tool_output"}},
+			RequestID:            "wss-2",
+			Path:                 "/backend-api/codex/responses",
+			RouteMode:            "websocket_phasef",
+			ProviderInputTokens:  50,
+			ProviderCachedTokens: 25,
+			ProviderOutputTokens: 2,
+			CacheReadTokens:      4,
+			CacheCreateTokens:    1,
+			Tokens:               dbg.TokenCounts{Original: 60, Final: 54, Saved: 6},
+			NetSavedTokens:       5,
+			Plan:                 &dbg.PlanSummary{ContentClasses: []string{"tool_output"}},
 			DebugFacts: map[string]string{
 				"wss.request_shape": "delta",
 			},
@@ -93,7 +100,7 @@ func TestWSSAuditReport(t *testing.T) {
 		t.Fatalf("bad request counts: %+v", report)
 	}
 	if report.UniqueSessions != 1 || report.MissingSessionID != 1 || report.PreviousResponseIDUsed != 1 ||
-		report.PositiveSavings != 1 || report.TokensSaved != 40 {
+		report.PositiveSavings != 2 || report.TokensSaved != 46 {
 		t.Fatalf("bad WSS counters: %+v", report)
 	}
 	if report.ReReadRequests != 1 || report.ReReadCount != 2 {
@@ -139,6 +146,43 @@ func TestWSSAuditReport(t *testing.T) {
 	}
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
 		t.Fatalf("bad content classes: %+v", report.ContentClasses)
+	}
+	if len(report.ShapeEconomics) != 2 {
+		t.Fatalf("shape economics rows = %d, want 2: %+v", len(report.ShapeEconomics), report.ShapeEconomics)
+	}
+	shapeEconomics := map[string]wssAuditShapeEconomicsSummary{}
+	for _, row := range report.ShapeEconomics {
+		shapeEconomics[row.Shape] = row
+	}
+	if full := shapeEconomics["full_history"]; full.Requests != 1 ||
+		full.Sources["fact"] != 1 ||
+		full.ProviderInputTokens != 90 ||
+		full.ProviderCachedTokens != 20 ||
+		full.ProviderCachedPct != 20.0/90.0*100 ||
+		full.ProviderOutputTokens != 7 ||
+		full.CacheReadTokens != 11 ||
+		full.CacheCreateTokens != 3 ||
+		full.OriginalTokens != 120 ||
+		full.FinalTokens != 80 ||
+		full.LocalSavedTokens != 40 ||
+		full.NetSavedTokens != 35 ||
+		full.LocalSavedPct != 40.0/120.0*100 {
+		t.Fatalf("bad full-history shape economics: %+v", full)
+	}
+	if delta := shapeEconomics["delta"]; delta.Requests != 1 ||
+		delta.Sources["fact"] != 1 ||
+		delta.ProviderInputTokens != 50 ||
+		delta.ProviderCachedTokens != 25 ||
+		delta.ProviderCachedPct != 50 ||
+		delta.ProviderOutputTokens != 2 ||
+		delta.CacheReadTokens != 4 ||
+		delta.CacheCreateTokens != 1 ||
+		delta.OriginalTokens != 60 ||
+		delta.FinalTokens != 54 ||
+		delta.LocalSavedTokens != 6 ||
+		delta.NetSavedTokens != 5 ||
+		delta.LocalSavedPct != 10 {
+		t.Fatalf("bad delta shape economics: %+v", delta)
 	}
 	if len(report.HistoryReducers) != 2 {
 		t.Fatalf("history reducer count = %d, want 2: %+v", len(report.HistoryReducers), report.HistoryReducers)
@@ -404,6 +448,8 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "resolved request shapes:") ||
 		!strings.Contains(stdout.String(), "request-shape sources:") ||
 		!strings.Contains(stdout.String(), "full_history:1") ||
+		!strings.Contains(stdout.String(), "Shape economics:") ||
+		!strings.Contains(stdout.String(), "full_history requests=1 sources=fact:1 provider=44/22/50.00%") ||
 		!strings.Contains(stdout.String(), "Full-history Class-B:") ||
 		!strings.Contains(stdout.String(), "provider in/cache/out:   44 / 22 / 6") ||
 		!strings.Contains(stdout.String(), "errors/upstream/400:     1 / 1 / 1") ||
@@ -458,6 +504,16 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		report.FullHistory.BySocketSeq["3"] != 1 ||
 		report.FullHistory.BySocketCloseInitiator["upstream_eof"] != 1 {
 		t.Fatalf("full-history JSON missing: %+v", report.FullHistory)
+	}
+	if len(report.ShapeEconomics) != 1 ||
+		report.ShapeEconomics[0].Shape != "full_history" ||
+		report.ShapeEconomics[0].ProviderInputTokens != 44 ||
+		report.ShapeEconomics[0].ProviderCachedTokens != 22 ||
+		report.ShapeEconomics[0].ProviderCachedPct != 50 ||
+		report.ShapeEconomics[0].ErrorRequests != 1 ||
+		report.ShapeEconomics[0].UpstreamErrorRequests != 1 ||
+		report.ShapeEconomics[0].HTTP400ErrorRequests != 1 {
+		t.Fatalf("shape economics JSON missing: %+v", report.ShapeEconomics)
 	}
 	if len(report.HistoryReducers) != 1 || report.HistoryReducers[0].Mechanism != "stale_read" {
 		t.Fatalf("history reducer JSON missing: %+v", report.HistoryReducers)

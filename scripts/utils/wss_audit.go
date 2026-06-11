@@ -43,6 +43,7 @@ type wssAuditReport struct {
 	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
 	HistoryReducers        []wssHistoryReducerSummary       `json:"history_reducers,omitempty"`
+	ShapeEconomics         []wssAuditShapeEconomicsSummary  `json:"shape_economics,omitempty"`
 	FullHistory            *wssFullHistoryClassBSummary     `json:"full_history,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
@@ -92,6 +93,30 @@ type wssFullHistoryClassBAccumulator struct {
 type wssAuditRequestShapeResolution struct {
 	Shape  string
 	Source string
+}
+
+type wssAuditShapeEconomicsSummary struct {
+	Shape                 string         `json:"shape"`
+	Requests              int            `json:"requests"`
+	Sources               map[string]int `json:"sources,omitempty"`
+	ProviderInputTokens   int            `json:"provider_input_tokens"`
+	ProviderCachedTokens  int            `json:"provider_cached_tokens"`
+	ProviderCachedPct     float64        `json:"provider_cached_pct"`
+	ProviderOutputTokens  int            `json:"provider_output_tokens"`
+	CacheReadTokens       int            `json:"cache_read_tokens"`
+	CacheCreateTokens     int            `json:"cache_create_tokens"`
+	OriginalTokens        int            `json:"original_tokens"`
+	FinalTokens           int            `json:"final_tokens"`
+	LocalSavedTokens      int            `json:"local_saved_tokens"`
+	NetSavedTokens        int            `json:"net_saved_tokens"`
+	LocalSavedPct         float64        `json:"local_saved_pct"`
+	ErrorRequests         int            `json:"error_requests"`
+	UpstreamErrorRequests int            `json:"upstream_error_requests"`
+	HTTP400ErrorRequests  int            `json:"http_400_error_requests"`
+}
+
+type wssAuditShapeEconomicsAccumulator struct {
+	rows map[string]*wssAuditShapeEconomicsSummary
 }
 
 type wssHistoryReducerSummary struct {
@@ -170,8 +195,10 @@ Flags:
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage,
-request-shape coverage, full-history Class-B cost/error/socket correlation,
-positive input-token savings, T353 history-reducer evidence, and T355 server-state shadow-mirror density. With --admin-state-file it also prints
+request-shape coverage, per-shape provider-cache/local-savings economics,
+full-history Class-B cost/error/socket correlation, positive input-token
+savings, T353 history-reducer evidence, and T355 server-state shadow-mirror
+density. With --admin-state-file it also prints
 content-free policy and cache hit/miss counters from the matching admin snapshot.
 Legacy rows without request-shape facts are resolved only when an existing
 previous_response_id signal proves delta shape; root/full-history rows are never
@@ -333,6 +360,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	historyReducers := make(map[string]*wssHistoryReducerSummary)
 	fullHistory := wssFullHistoryClassBAccumulator{}
+	shapeEconomics := wssAuditShapeEconomicsAccumulator{rows: make(map[string]*wssAuditShapeEconomicsSummary)}
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
@@ -360,6 +388,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			resolvedShape := wssAuditResolveRequestShape(summary)
 			report.ResolvedRequestShapes[resolvedShape.Shape]++
 			report.RequestShapeSources[resolvedShape.Source]++
+			shapeEconomics.add(summary, resolvedShape)
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
@@ -434,6 +463,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	if history := fullHistory.finalize(); history != nil {
 		report.FullHistory = history
 	}
+	report.ShapeEconomics = shapeEconomics.finalize()
 	report.HistoryReducers = finalizeWSSHistoryReducers(historyReducers)
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
@@ -515,6 +545,63 @@ func addWSSAuditCountWithMissing(counts *map[string]int, key string) {
 		key = "(missing)"
 	}
 	addWSSAuditCount(counts, key)
+}
+
+func (a *wssAuditShapeEconomicsAccumulator) add(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution) {
+	if a == nil {
+		return
+	}
+	shape := strings.TrimSpace(resolution.Shape)
+	if shape == "" {
+		shape = "unknown"
+	}
+	if a.rows == nil {
+		a.rows = make(map[string]*wssAuditShapeEconomicsSummary)
+	}
+	row := a.rows[shape]
+	if row == nil {
+		row = &wssAuditShapeEconomicsSummary{Shape: shape}
+		a.rows[shape] = row
+	}
+	row.Requests++
+	addWSSAuditCount(&row.Sources, resolution.Source)
+	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
+	row.ProviderOutputTokens += maxInt(0, summary.ProviderOutputTokens)
+	row.CacheReadTokens += maxInt(0, summary.CacheReadTokens)
+	row.CacheCreateTokens += maxInt(0, summary.CacheCreateTokens)
+	row.OriginalTokens += maxInt(0, summary.Tokens.Original)
+	row.FinalTokens += maxInt(0, summary.Tokens.Final)
+	row.LocalSavedTokens += summary.Tokens.Saved
+	row.NetSavedTokens += summary.NetSavedTokens
+	if len(summary.Errors) > 0 {
+		row.ErrorRequests++
+	}
+	if wssAuditHasUpstreamError(summary) {
+		row.UpstreamErrorRequests++
+	}
+	if wssAuditHasHTTP400Error(summary) {
+		row.HTTP400ErrorRequests++
+	}
+}
+
+func (a *wssAuditShapeEconomicsAccumulator) finalize() []wssAuditShapeEconomicsSummary {
+	if a == nil || len(a.rows) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(a.rows))
+	for key := range a.rows {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]wssAuditShapeEconomicsSummary, 0, len(keys))
+	for _, key := range keys {
+		row := *a.rows[key]
+		row.ProviderCachedPct = pct(row.ProviderCachedTokens, row.ProviderInputTokens)
+		row.LocalSavedPct = pct(row.LocalSavedTokens, row.OriginalTokens)
+		out = append(out, row)
+	}
+	return out
 }
 
 func (a *wssFullHistoryClassBAccumulator) add(summary dbg.RequestSummary) {
@@ -917,6 +1004,29 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		fmt.Fprintln(w, "\nContent classes:")
 		for _, key := range sortedStringKeys(report.ContentClasses) {
 			fmt.Fprintf(w, "  %-24s %d\n", key, report.ContentClasses[key])
+		}
+	}
+	if len(report.ShapeEconomics) > 0 {
+		fmt.Fprintln(w, "\nShape economics:")
+		for _, row := range report.ShapeEconomics {
+			fmt.Fprintf(w, "  %-12s requests=%d sources=%s provider=%d/%d/%.2f%% out=%d local=%d->%d saved=%d net=%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d\n",
+				row.Shape,
+				row.Requests,
+				formatWSSAuditCounts(row.Sources),
+				row.ProviderInputTokens,
+				row.ProviderCachedTokens,
+				row.ProviderCachedPct,
+				row.ProviderOutputTokens,
+				row.OriginalTokens,
+				row.FinalTokens,
+				row.LocalSavedTokens,
+				row.NetSavedTokens,
+				row.LocalSavedPct,
+				row.CacheReadTokens,
+				row.CacheCreateTokens,
+				row.ErrorRequests,
+				row.UpstreamErrorRequests,
+				row.HTTP400ErrorRequests)
 		}
 	}
 	if report.FullHistory != nil {
