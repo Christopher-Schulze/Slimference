@@ -218,6 +218,15 @@ func TestWSSAuditReport(t *testing.T) {
 		footprint.CacheImpact["provider_cache_read"] != 1 {
 		t.Fatalf("bad footprint economics row: %+v", footprint)
 	}
+	if report.FootprintCoverage == nil ||
+		report.FootprintCoverage.TokenDecisions != 1 ||
+		report.FootprintCoverage.AppliedTokenDecisions != 1 ||
+		report.FootprintCoverage.WithFootprint != 1 ||
+		report.FootprintCoverage.MissingFootprint != 0 ||
+		report.FootprintCoverage.SavedTokens != 60 ||
+		report.FootprintCoverage.ByMechanism["stale_read"] != 1 {
+		t.Fatalf("bad footprint coverage: %+v", report.FootprintCoverage)
+	}
 	if obsolete := history["obsolete_prune"]; obsolete.Decisions != 1 ||
 		obsolete.FullPass != 1 ||
 		obsolete.Reasons["cache_bust_guard"] != 1 ||
@@ -237,6 +246,65 @@ func TestWSSAuditReport(t *testing.T) {
 	notes := strings.Join(report.Notes, "\n")
 	if !strings.Contains(notes, "session id") || !strings.Contains(notes, "re-read canary") {
 		t.Fatalf("expected session/re-read notes, got %+v", report.Notes)
+	}
+}
+
+func TestWSSAuditFootprintCoverageReportsMissingTokenEvidence(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "legacy-positive",
+		SessionID: "codex-wss:s1",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "read_delta",
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 1000,
+			FinalTokens:    200,
+			SavedTokens:    800,
+			NetTokens:      800,
+		}, {
+			Mechanism: "captured_output",
+			Action:    evidence.ActionFullPass,
+			Reason:    "latency_budget_full_context",
+		}},
+		DebugFacts: map[string]string{
+			"wss.request_shape": "delta",
+		},
+	})
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if report.FootprintCoverage == nil ||
+		report.FootprintCoverage.TokenDecisions != 1 ||
+		report.FootprintCoverage.AppliedTokenDecisions != 1 ||
+		report.FootprintCoverage.WithFootprint != 0 ||
+		report.FootprintCoverage.MissingFootprint != 1 ||
+		report.FootprintCoverage.AppliedMissingFootprint != 1 ||
+		report.FootprintCoverage.SavedTokens != 800 ||
+		report.FootprintCoverage.MissingSavedTokens != 800 ||
+		report.FootprintCoverage.MissingByMechanism["read_delta"] != 1 {
+		t.Fatalf("bad missing footprint coverage: %+v", report.FootprintCoverage)
+	}
+	notes := strings.Join(report.Notes, "\n")
+	if !strings.Contains(notes, "without footprint_score_bucket") {
+		t.Fatalf("missing footprint note absent: %+v", report.Notes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSAudit([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSAudit code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Footprint coverage:") ||
+		!strings.Contains(stdout.String(), "missing footprint:       1") ||
+		!strings.Contains(stdout.String(), "missing mechanisms:      read_delta:1") {
+		t.Fatalf("text output missing footprint coverage:\n%s", stdout.String())
 	}
 }
 
@@ -482,6 +550,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Footprint economics:") ||
 		!strings.Contains(stdout.String(), "bucket=mid") ||
 		!strings.Contains(stdout.String(), "turn=turn_4_8") ||
+		!strings.Contains(stdout.String(), "Footprint coverage:") ||
 		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
@@ -550,6 +619,12 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		report.FootprintEconomics[0].RequestShape != "full_history" ||
 		report.FootprintEconomics[0].FootprintScore != 84 {
 		t.Fatalf("footprint economics JSON missing: %+v", report.FootprintEconomics)
+	}
+	if report.FootprintCoverage == nil ||
+		report.FootprintCoverage.TokenDecisions != 1 ||
+		report.FootprintCoverage.WithFootprint != 1 ||
+		report.FootprintCoverage.MissingFootprint != 0 {
+		t.Fatalf("footprint coverage JSON missing: %+v", report.FootprintCoverage)
 	}
 	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {
 		t.Fatalf("shadow mirror missing from JSON report: %+v", report.ShadowMirror)

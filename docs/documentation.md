@@ -1040,6 +1040,10 @@ saved/net tokens, footprint score, mechanism buckets, and cache-impact buckets.
 If no footprint rows are present, the report says so explicitly; threshold
 scaling constants must come from a fresh capture carrying
 `footprint_score_bucket` evidence, not from guessed defaults.
+The adjacent `footprint_coverage` section counts token-bearing evidence
+decisions with and without footprint metadata by mechanism, so stale pre-T359
+positive savings rows are visible without being mistaken for calibration-ready
+data.
 `--require-footprint-evidence` turns that into a fail-closed fresh-capture gate
 before any T359 threshold-scaling claim is accepted.
 The same audit report includes T355 server-state shadow-mirror density when the

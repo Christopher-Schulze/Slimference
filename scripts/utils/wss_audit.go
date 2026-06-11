@@ -44,6 +44,7 @@ type wssAuditReport struct {
 	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
 	HistoryReducers        []wssHistoryReducerSummary       `json:"history_reducers,omitempty"`
 	FootprintEconomics     []wssFootprintEconomicsSummary   `json:"footprint_economics,omitempty"`
+	FootprintCoverage      *wssFootprintCoverageSummary     `json:"footprint_coverage,omitempty"`
 	ShapeEconomics         []wssAuditShapeEconomicsSummary  `json:"shape_economics,omitempty"`
 	FullHistory            *wssFullHistoryClassBSummary     `json:"full_history,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
@@ -157,6 +158,22 @@ type wssFootprintEconomicsSummary struct {
 
 type wssFootprintEconomicsAccumulator struct {
 	rows map[string]*wssFootprintEconomicsSummary
+}
+
+type wssFootprintCoverageSummary struct {
+	TokenDecisions          int            `json:"token_decisions"`
+	AppliedTokenDecisions   int            `json:"applied_token_decisions"`
+	WithFootprint           int            `json:"with_footprint"`
+	MissingFootprint        int            `json:"missing_footprint"`
+	AppliedMissingFootprint int            `json:"applied_missing_footprint"`
+	SavedTokens             int            `json:"saved_tokens,omitempty"`
+	MissingSavedTokens      int            `json:"missing_saved_tokens,omitempty"`
+	ByMechanism             map[string]int `json:"by_mechanism,omitempty"`
+	MissingByMechanism      map[string]int `json:"missing_by_mechanism,omitempty"`
+}
+
+type wssFootprintCoverageAccumulator struct {
+	summary wssFootprintCoverageSummary
 }
 
 type wssShadowMirrorSummary struct {
@@ -387,6 +404,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	historyReducers := make(map[string]*wssHistoryReducerSummary)
 	footprintEconomics := wssFootprintEconomicsAccumulator{rows: make(map[string]*wssFootprintEconomicsSummary)}
+	footprintCoverage := wssFootprintCoverageAccumulator{}
 	fullHistory := wssFullHistoryClassBAccumulator{}
 	shapeEconomics := wssAuditShapeEconomicsAccumulator{rows: make(map[string]*wssAuditShapeEconomicsSummary)}
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
@@ -418,6 +436,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			report.RequestShapeSources[resolvedShape.Source]++
 			shapeEconomics.add(summary, resolvedShape)
 			footprintEconomics.add(summary, resolvedShape)
+			footprintCoverage.add(summary.EvidenceDecisions)
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
@@ -495,6 +514,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	report.ShapeEconomics = shapeEconomics.finalize()
 	report.HistoryReducers = finalizeWSSHistoryReducers(historyReducers)
 	report.FootprintEconomics = footprintEconomics.finalize()
+	report.FootprintCoverage = footprintCoverage.finalize()
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
@@ -800,6 +820,52 @@ func (a *wssFootprintEconomicsAccumulator) finalize() []wssFootprintEconomicsSum
 	return out
 }
 
+func (a *wssFootprintCoverageAccumulator) add(decisions []evidence.BlockDecision) {
+	if a == nil {
+		return
+	}
+	for _, decision := range decisions {
+		if !wssFootprintCoverageEligible(decision) {
+			continue
+		}
+		mechanism := strings.TrimSpace(decision.Mechanism)
+		if mechanism == "" {
+			mechanism = "unknown"
+		}
+		a.summary.TokenDecisions++
+		a.summary.SavedTokens += decision.SavedTokens
+		addWSSAuditCount(&a.summary.ByMechanism, mechanism)
+		if decision.Action == evidence.ActionApplied {
+			a.summary.AppliedTokenDecisions++
+		}
+		if decision.FootprintScore > 0 || strings.TrimSpace(decision.FootprintScoreBucket) != "" {
+			a.summary.WithFootprint++
+			continue
+		}
+		a.summary.MissingFootprint++
+		a.summary.MissingSavedTokens += decision.SavedTokens
+		addWSSAuditCount(&a.summary.MissingByMechanism, mechanism)
+		if decision.Action == evidence.ActionApplied {
+			a.summary.AppliedMissingFootprint++
+		}
+	}
+}
+
+func wssFootprintCoverageEligible(decision evidence.BlockDecision) bool {
+	return decision.OriginalTokens > 0 ||
+		decision.FinalTokens > 0 ||
+		decision.SavedTokens > 0 ||
+		decision.NetTokens != 0
+}
+
+func (a *wssFootprintCoverageAccumulator) finalize() *wssFootprintCoverageSummary {
+	if a == nil || a.summary.TokenDecisions == 0 {
+		return nil
+	}
+	out := a.summary
+	return &out
+}
+
 func wssFootprintTurnBand(facts map[string]string) string {
 	if len(facts) == 0 {
 		return "unknown"
@@ -1096,6 +1162,9 @@ func wssAuditNotes(report wssAuditReport) []string {
 	if report.PhaseFRequests > 0 && len(report.FootprintEconomics) == 0 {
 		notes = append(notes, "No T359 footprint economics observed; threshold scaling constants need a fresher capture with footprint_score_bucket evidence.")
 	}
+	if report.FootprintCoverage != nil && report.FootprintCoverage.MissingFootprint > 0 {
+		notes = append(notes, "Token-bearing WSS evidence decisions without footprint_score_bucket were observed; treat this as stale pre-T359 evidence or emission drift before threshold scaling.")
+	}
 	if report.PhaseFRequests > 0 && report.ShadowMirror == nil {
 		notes = append(notes, "No T355 shadow-mirror telemetry observed; this capture may predate normalized mirror facts or contain no text blocks.")
 	}
@@ -1279,6 +1348,19 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				formatWSSAuditCounts(row.CacheImpact),
 			)
 		}
+	}
+	if report.FootprintCoverage != nil {
+		fmt.Fprintln(w, "\nFootprint coverage:")
+		fmt.Fprintf(w, "  token decisions:         %d\n", report.FootprintCoverage.TokenDecisions)
+		fmt.Fprintf(w, "  applied token decisions: %d\n", report.FootprintCoverage.AppliedTokenDecisions)
+		fmt.Fprintf(w, "  with footprint:          %d\n", report.FootprintCoverage.WithFootprint)
+		fmt.Fprintf(w, "  missing footprint:       %d\n", report.FootprintCoverage.MissingFootprint)
+		fmt.Fprintf(w, "  applied missing:         %d\n", report.FootprintCoverage.AppliedMissingFootprint)
+		fmt.Fprintf(w, "  saved/missing saved:     %d / %d\n",
+			report.FootprintCoverage.SavedTokens,
+			report.FootprintCoverage.MissingSavedTokens)
+		fmt.Fprintf(w, "  mechanisms:              %s\n", formatWSSAuditCounts(report.FootprintCoverage.ByMechanism))
+		fmt.Fprintf(w, "  missing mechanisms:      %s\n", formatWSSAuditCounts(report.FootprintCoverage.MissingByMechanism))
 	}
 	if report.ShadowMirror != nil {
 		fmt.Fprintln(w, "\nShadow mirror density:")
