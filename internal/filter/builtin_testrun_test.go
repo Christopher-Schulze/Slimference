@@ -882,6 +882,9 @@ func TestTryCompactTestOutput_missingWrappers(t *testing.T) {
 	if _, ok := TryCompactUvRunPytest([]string{"curl", "url"}, []byte("")); ok {
 		t.Fatal("curl not uv run pytest")
 	}
+	if _, ok := TryCompactUvRunPytest([]string{}, []byte("")); ok {
+		t.Fatal("uv run pytest empty argv")
+	}
 
 	// --- PoetryRunPytest: npx (L1066) + pnpm (L1070) ---
 	poNpx, ok := TryCompactPoetryRunPytest([]string{"npx", "poetry", "run", "pytest"}, []byte(""))
@@ -899,6 +902,9 @@ func TestTryCompactTestOutput_missingWrappers(t *testing.T) {
 	// isPoetryRunPytestArgv: return false (L1055)
 	if _, ok := TryCompactPoetryRunPytest([]string{"poetry", "run", "notpytest"}, []byte("")); ok {
 		t.Fatal("poetry run notpytest")
+	}
+	if _, ok := TryCompactPoetryRunPytest([]string{}, []byte("")); ok {
+		t.Fatal("poetry run pytest empty argv")
 	}
 
 	// --- isNoxTestSessionArgv: npx failure (L1118) + bad tool (L1121) ---
@@ -1300,6 +1306,28 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 	}
 	if _, ok := TryCompactPytest([]string{"pytest", "-v"}, []byte("tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n")); ok {
 		t.Fatal("pytest failure must fail open")
+	}
+
+	wrappers := []struct {
+		name string
+		argv []string
+		fn   func([]string, []byte) ([]byte, bool)
+	}{
+		{"uv run pytest", []string{"uv", "run", "pytest", "-v"}, TryCompactUvRunPytest},
+		{"poetry run pytest", []string{"poetry", "run", "pytest", "-v"}, TryCompactPoetryRunPytest},
+		{"hatch test", []string{"hatch", "test"}, TryCompactHatchTest},
+		{"nox test", []string{"nox", "-s", "test"}, TryCompactNoxTest},
+	}
+	for _, wrapper := range wrappers {
+		out, ok = wrapper.fn(wrapper.argv, []byte(py.String()))
+		if !ok || !strings.Contains(string(out), "["+wrapper.name+"] ok - 90 passed") ||
+			!strings.Contains(string(out), "90 passed in 0.42s") ||
+			strings.Contains(string(out), "test_op_000") {
+			t.Fatalf("%s verbose all-pass: ok=%v %q", wrapper.name, ok, out)
+		}
+		if _, ok := wrapper.fn(wrapper.argv, []byte("tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n")); ok {
+			t.Fatalf("%s failure must fail open", wrapper.name)
+		}
 	}
 
 	var js strings.Builder

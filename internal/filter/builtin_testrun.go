@@ -439,14 +439,14 @@ func TryCompactPytest(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[pytest] ok\n"), true
 	}
-	return compactPytestVerbosePass(stdout)
+	return compactPytestVerbosePass(stdout, "pytest")
 }
 
 // compactPytestVerbosePass drops only the per-test "path::name PASSED [ N%]"
 // roll-call from an all-pass pytest -v transcript and keeps every other line
 // verbatim (session header, warnings summary, the final "N passed" row) plus
 // the exact passed count. Any failure/error marker fails open.
-func compactPytestVerbosePass(stdout []byte) ([]byte, bool) {
+func compactPytestVerbosePass(stdout []byte, label string) ([]byte, bool) {
 	s := string(stdout)
 	low := strings.ToLower(s)
 	for _, marker := range []string{"failed", " error", "error ", "errors", "traceback"} {
@@ -471,12 +471,19 @@ func compactPytestVerbosePass(stdout []byte) ([]byte, bool) {
 	if passed == 0 {
 		return stdout, false
 	}
-	out := fmt.Sprintf("[pytest] ok - %d passed, per-test PASSED lines elided\n", passed) +
+	out := fmt.Sprintf("[%s] ok - %d passed, per-test PASSED lines elided\n", label, passed) +
 		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
 	if len(out) >= len(s) {
 		return stdout, false
 	}
 	return []byte(out), true
+}
+
+func compactPytestWrapperOutput(stdout []byte, label string) ([]byte, bool) {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[" + label + "] ok\n"), true
+	}
+	return compactPytestVerbosePass(stdout, label)
 }
 
 // TryCompactPhpunit summarizes `phpunit` / `npx|pnpm exec|yarn ... phpunit`.
@@ -1397,28 +1404,32 @@ func TryCompactMillTest(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
-// TryCompactHatchTest summarizes empty stdout from `hatch test` / `npx|pnpm exec|yarn … hatch test` (F08 partial).
+// TryCompactHatchTest summarizes `hatch test` / `npx|pnpm exec|yarn ... hatch test`.
 func TryCompactHatchTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isHatchTestArgv(argv) {
 		return stdout, false
 	}
+	return compactPytestWrapperOutput(stdout, "hatch test")
+}
+
+func isHatchTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if (b == "hatch" || b == "hatch.exe") && argv[1] == "test" {
-		return []byte("[hatch test] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "hatch", "test") {
-		return []byte("[hatch test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "hatch" && argv[3] == "test" {
-		return []byte("[hatch test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "hatch" && argv[2] == "test" {
-		return []byte("[hatch test] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
 }
 
 func isUvRunPytestArgv(argv []string) bool {
@@ -1442,26 +1453,26 @@ func isUvRunPytestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactUvRunPytest summarizes empty stdout from `uv run pytest` / `uv run python -m pytest` / `npx|pnpm exec|yarn … uv run … pytest` (F08 partial).
+// TryCompactUvRunPytest summarizes `uv run pytest` / `uv run python -m pytest` / `npx|pnpm exec|yarn ... uv run ... pytest`.
 func TryCompactUvRunPytest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if len(argv) < 1 {
 		return stdout, false
 	}
 	if isUvRunPytestArgv(argv) {
-		return []byte("[uv run pytest] ok\n"), true
+		return compactPytestWrapperOutput(stdout, "uv run pytest")
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && isUvRunPytestArgv(rest) {
-		return []byte("[uv run pytest] ok\n"), true
+		return compactPytestWrapperOutput(stdout, "uv run pytest")
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 5 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
 		if isUvRunPytestArgv(argv[2:]) {
-			return []byte("[uv run pytest] ok\n"), true
+			return compactPytestWrapperOutput(stdout, "uv run pytest")
 		}
 	}
 	if len(argv) >= 4 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
 		if isUvRunPytestArgv(argv[1:]) {
-			return []byte("[uv run pytest] ok\n"), true
+			return compactPytestWrapperOutput(stdout, "uv run pytest")
 		}
 	}
 	return stdout, false
@@ -1488,40 +1499,37 @@ func isPoetryRunPytestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactPoetryRunPytest summarizes empty stdout from `poetry run pytest` / `poetry run python -m pytest` / `npx|pnpm exec|yarn … poetry run … pytest` (F08 partial).
+// TryCompactPoetryRunPytest summarizes `poetry run pytest` / `poetry run python -m pytest` / `npx|pnpm exec|yarn ... poetry run ... pytest`.
 func TryCompactPoetryRunPytest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if len(argv) < 1 {
 		return stdout, false
 	}
 	if isPoetryRunPytestArgv(argv) {
-		return []byte("[poetry run pytest] ok\n"), true
+		return compactPytestWrapperOutput(stdout, "poetry run pytest")
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && isPoetryRunPytestArgv(rest) {
-		return []byte("[poetry run pytest] ok\n"), true
+		return compactPytestWrapperOutput(stdout, "poetry run pytest")
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 5 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
 		if isPoetryRunPytestArgv(argv[2:]) {
-			return []byte("[poetry run pytest] ok\n"), true
+			return compactPytestWrapperOutput(stdout, "poetry run pytest")
 		}
 	}
 	if len(argv) >= 4 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
 		if isPoetryRunPytestArgv(argv[1:]) {
-			return []byte("[poetry run pytest] ok\n"), true
+			return compactPytestWrapperOutput(stdout, "poetry run pytest")
 		}
 	}
 	return stdout, false
 }
 
-// TryCompactNoxTest summarizes empty stdout from `nox -s test` / `nox --session=test` (F08 partial).
+// TryCompactNoxTest summarizes `nox -s test` / `nox --session=test`.
 func TryCompactNoxTest(argv []string, stdout []byte) ([]byte, bool) {
 	if !isNoxTestSessionArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
-	return []byte("[nox test] ok\n"), true
+	return compactPytestWrapperOutput(stdout, "nox test")
 }
 
 func argvHasNoxTestSessionFlags(args []string) bool {
