@@ -3,6 +3,7 @@ package filter
 import (
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -51,13 +52,47 @@ func FullReadPathFromCommandLine(commandLine string) string {
 // ReadRequestFromCommandLine returns the file/range read represented by a simple
 // cat/head/tail/sed/awk command line. Compound commands intentionally return false.
 func ReadRequestFromCommandLine(commandLine string) (ReadRequest, bool) {
-	for _, tok := range tokenize(commandLine) {
+	toks := tokenize(commandLine)
+	if req, ok := nlSedReadRequestFromTokens(toks); ok {
+		return req, true
+	}
+	for _, tok := range toks {
 		if tok.Kind == TokenOperator || tok.Kind == TokenPipe || tok.Kind == TokenRedirect || tok.Kind == TokenShellism {
 			return ReadRequest{}, false
 		}
 	}
 	argv := primaryArgvForCapturedOutput(commandLine)
 	return readRequestFromArgv(argv)
+}
+
+// NormalizeReadCommandLine returns a canonical read command with a relative
+// path resolved against workdir. It only rewrites commands that are already
+// accepted by ReadRequestFromCommandLine.
+func NormalizeReadCommandLine(commandLine, workdir string) string {
+	workdir = cleanReadWorkdir(workdir)
+	if workdir == "" {
+		return ""
+	}
+	req, ok := ReadRequestFromCommandLine(commandLine)
+	if !ok || strings.TrimSpace(req.Path) == "" || filepath.IsAbs(req.Path) {
+		return ""
+	}
+	absPath := filepath.Clean(filepath.Join(workdir, req.Path))
+	if out := normalizeNLSedReadCommand(commandLine, req, absPath); out != "" {
+		return out
+	}
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return ""
+	}
+	out := append([]string(nil), argv...)
+	for i := len(out) - 1; i >= 1; i-- {
+		if out[i] == req.Path {
+			out[i] = absPath
+			return joinReadArgs(out)
+		}
+	}
+	return ""
 }
 
 func readRequestFromArgv(argv []string) (ReadRequest, bool) {
@@ -202,7 +237,11 @@ func sedLineRange(argv []string) (int, int, bool) {
 	if len(argv) < 3 || argv[1] != "-n" {
 		return 0, 0, false
 	}
-	expr := strings.TrimSpace(argv[2])
+	return parseSedLineRangeExpr(argv[2])
+}
+
+func parseSedLineRangeExpr(raw string) (int, int, bool) {
+	expr := strings.TrimSpace(raw)
 	expr = strings.Trim(expr, `'"`)
 	if !strings.HasSuffix(expr, "p") {
 		return 0, 0, false
@@ -231,6 +270,138 @@ func sedLineRange(argv []string) (int, int, bool) {
 		return 0, 0, false
 	}
 	return start, end - start + 1, true
+}
+
+func nlSedReadRequestFromTokens(toks []ParsedToken) (ReadRequest, bool) {
+	pipe := -1
+	for i, tok := range toks {
+		switch tok.Kind {
+		case TokenArg:
+		case TokenPipe:
+			if pipe >= 0 {
+				return ReadRequest{}, false
+			}
+			pipe = i
+		default:
+			return ReadRequest{}, false
+		}
+	}
+	if pipe <= 0 || pipe >= len(toks)-1 {
+		return ReadRequest{}, false
+	}
+	left := tokenArgs(toks[:pipe])
+	right := tokenArgs(toks[pipe+1:])
+	path, ok := nlBodyAllPath(left)
+	if !ok {
+		return ReadRequest{}, false
+	}
+	offset, limit, ok := pipedSedLineRange(right)
+	if !ok {
+		return ReadRequest{}, false
+	}
+	return ReadRequest{Path: path, Offset: offset, Limit: limit}, true
+}
+
+func tokenArgs(toks []ParsedToken) []string {
+	out := make([]string, 0, len(toks))
+	for _, tok := range toks {
+		if tok.Kind == TokenArg {
+			out = append(out, tok.Value)
+		}
+	}
+	return out
+}
+
+func nlBodyAllPath(argv []string) (string, bool) {
+	if len(argv) < 3 || strings.ToLower(filepath.Base(argv[0])) != "nl" {
+		return "", false
+	}
+	bodyAll := false
+	var paths []string
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		if arg == "--" {
+			paths = append(paths, argv[i+1:]...)
+			break
+		}
+		switch {
+		case arg == "-ba" || arg == "--body-numbering=a":
+			bodyAll = true
+		case arg == "-b" || arg == "--body-numbering":
+			if i+1 >= len(argv) {
+				return "", false
+			}
+			i++
+			bodyAll = argv[i] == "a"
+		case strings.HasPrefix(arg, "-b") && len(arg) > len("-b"):
+			bodyAll = strings.TrimPrefix(arg, "-b") == "a"
+		case nlOptionConsumesNext(arg):
+			if i+1 >= len(argv) {
+				return "", false
+			}
+			i++
+		case nlInlineOption(arg):
+		case strings.HasPrefix(arg, "-"):
+			return "", false
+		default:
+			paths = append(paths, arg)
+		}
+	}
+	if !bodyAll || len(paths) != 1 || strings.TrimSpace(paths[0]) == "" || paths[0] == "-" {
+		return "", false
+	}
+	return paths[0], true
+}
+
+func nlOptionConsumesNext(arg string) bool {
+	switch arg {
+	case "-d", "-f", "-h", "-i", "-l", "-n", "-s", "-v", "-w",
+		"--section-delimiter", "--footer-numbering", "--header-numbering",
+		"--line-increment", "--join-blank-lines", "--number-format",
+		"--number-separator", "--starting-line-number", "--number-width":
+		return true
+	default:
+		return false
+	}
+}
+
+func nlInlineOption(arg string) bool {
+	if arg == "-p" || arg == "--no-renumber" {
+		return true
+	}
+	for _, prefix := range []string{
+		"-d", "-f", "-h", "-i", "-l", "-n", "-s", "-v", "-w",
+		"--section-delimiter=", "--footer-numbering=", "--header-numbering=",
+		"--line-increment=", "--join-blank-lines=", "--number-format=",
+		"--number-separator=", "--starting-line-number=", "--number-width=",
+	} {
+		if strings.HasPrefix(arg, prefix) && len(arg) > len(prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func pipedSedLineRange(argv []string) (int, int, bool) {
+	if len(argv) != 3 || strings.ToLower(filepath.Base(argv[0])) != "sed" || argv[1] != "-n" {
+		return 0, 0, false
+	}
+	return parseSedLineRangeExpr(argv[2])
+}
+
+func normalizeNLSedReadCommand(commandLine string, req ReadRequest, absPath string) string {
+	if _, ok := nlSedReadRequestFromTokens(tokenize(commandLine)); !ok {
+		return ""
+	}
+	end := req.Offset
+	if req.Limit > 0 {
+		end = req.Offset + req.Limit - 1
+	}
+	expr := strconv.Itoa(req.Offset) + "p"
+	if req.Limit != 1 {
+		expr = strconv.Itoa(req.Offset) + "," + strconv.Itoa(end) + "p"
+	}
+	return "nl -ba " + quoteReadArg(absPath) + " | sed -n " + quoteReadArg(expr)
 }
 
 var (
@@ -333,4 +504,37 @@ func allDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+func cleanReadWorkdir(workdir string) string {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || !filepath.IsAbs(workdir) {
+		return ""
+	}
+	return filepath.Clean(workdir)
+}
+
+func joinReadArgs(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		parts = append(parts, quoteReadArg(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteReadArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.Contains(arg, "$") && !strings.Contains(arg, "'") {
+		return "'" + arg + "'"
+	}
+	if strings.IndexFunc(arg, func(r rune) bool {
+		return r == '"' || r == '\\' || r <= ' ' || r == '\'' || r == '$' || r == '`' ||
+			r == '|' || r == '&' || r == ';' || r == '<' || r == '>' || r == '*' ||
+			r == '?' || r == '(' || r == ')'
+	}) < 0 {
+		return arg
+	}
+	return strconv.Quote(arg)
 }

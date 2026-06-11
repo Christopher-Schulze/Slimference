@@ -274,8 +274,10 @@ func TestProxyLayer0CommandLineVariants(t *testing.T) {
 		{"bash_lc_array_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`}, "cat /repo/project/docs/todo.md"},
 		{"bash_lc_array_relative_read_workingDirectory", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workingDirectory":"/repo/project"}`}, "cat /repo/project/docs/todo.md"},
 		{"bash_lc_cd_relative_sed", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cd /repo/project && sed -n '10,20p' docs/todo.md"]}`}, "sed -n 10,20p /repo/project/docs/todo.md"},
+		{"bash_lc_cd_relative_nl_sed", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cd /repo/project && nl -ba docs/todo.md | sed -n '10,20p'"]}`}, "nl -ba /repo/project/docs/todo.md | sed -n 10,20p"},
 		{"bash_lc_cd_git", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cd /repo/project && git status --short"]}`}, "git -C /repo/project status --short"},
 		{"head_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"cmd":"head -n 20 internal/proxy/layer0_proxy.go","workdir":"/repo/project"}`}, "head -n 20 /repo/project/internal/proxy/layer0_proxy.go"},
+		{"nl_sed_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"cmd":"nl -ba internal/proxy/layer0_proxy.go | sed -n '10,20p'","workdir":"/repo/project"}`}, "nl -ba /repo/project/internal/proxy/layer0_proxy.go | sed -n 10,20p"},
 		{"argv", types.ContentBlock{ToolName: "exec", ToolInput: `{"argv":["go","test","./pkg with space"]}`}, `go test "./pkg with space"`},
 		{"args", types.ContentBlock{ToolName: "run_command", ToolInput: `{"args":["rg","needle","path with space"]}`}, `rg needle "path with space"`},
 		{"read_path", types.ContentBlock{ToolName: "Read", ToolInput: `{"path":"pkg/file with space.go"}`}, `cat "pkg/file with space.go"`},
@@ -967,6 +969,33 @@ func TestApplyProxyLayer0WithSessionRepeatedAwkRangeReadOutput(t *testing.T) {
 		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
 		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("second awk range read should use read-delta, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+}
+
+func TestApplyProxyLayer0WithSessionRepeatedNumberedSedRangeReadOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var bodyBuilder strings.Builder
+	for i := 10; i <= 40; i++ {
+		fmt.Fprintf(&bodyBuilder, "%6d\tnumbered sed range line %03d keeps exact context\n", i, i)
+	}
+	body := bodyBuilder.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-nl-sed", ToolName: "exec_command", ToolInput: `{"cmd":"nl -ba /tmp/range.data | sed -n '10,40p'"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-nl-sed", Text: body}}},
+	}
+	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-nl-sed-range", nil)
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+		strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
+		t.Fatalf("first numbered sed range read should full-pass and seed readcache, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+
+	out, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-nl-sed-range", nil)
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaBlocks != 1 ||
+		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
+		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") ||
+		!strings.Contains(out[1].Content[0].Text, "range.data") {
+		t.Fatalf("second numbered sed range read should use ranged read-delta, stats=%+v text=%q", stats, out[1].Content[0].Text)
 	}
 }
 

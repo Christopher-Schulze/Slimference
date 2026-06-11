@@ -1835,24 +1835,8 @@ func proxyToolWorkdir(obj map[string]json.RawMessage) string {
 }
 
 func applyWorkdirToReadCommand(commandLine, workdir string) string {
-	workdir = proxyCleanAbsWorkdir(workdir)
-	if workdir == "" {
-		return commandLine
-	}
-	path := filter.ReadPathFromCommandLine(commandLine)
-	if path == "" || filepath.IsAbs(path) {
-		return commandLine
-	}
-	argv := filter.ArgvForCapturedOutput(commandLine)
-	if len(argv) == 0 {
-		return commandLine
-	}
-	out := append([]string(nil), argv...)
-	for i := len(out) - 1; i >= 1; i-- {
-		if out[i] == path {
-			out[i] = filepath.Clean(filepath.Join(workdir, path))
-			return joinShellArgs(out)
-		}
+	if normalized := filter.NormalizeReadCommandLine(commandLine, workdir); normalized != "" {
+		return normalized
 	}
 	return commandLine
 }
