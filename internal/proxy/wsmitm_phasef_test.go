@@ -1626,10 +1626,23 @@ func TestWSPhaseFDefaultPreviousResponseChunkDedupKeepsSavings(t *testing.T) {
 	if changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "local-archive://") {
 		t.Fatalf("first previous-response read should seed only: changed=%v stats=%+v body=%s", changed, stats, first)
 	}
+	// Live A/B 2026-06-11 (loop runs 4-8): any wire mutation on a
+	// previous_response_id delta turn made the following tool turn fail
+	// upstream with 400 while the byte-equal bridge stayed clean. Delta
+	// turns therefore full-pass by default (proof gate); the reducers keep
+	// seeding so recovery state stays warm.
 	second, _, changed, stats, _ := adapter.applyInputPipeline(body("resp-b", "b.go", "read-b", shared+"tail b\n"))
-	if !changed || stats.ChunkDedupBlocks != 1 || stats.TokensSaved <= 0 ||
-		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") {
-		t.Fatalf("default previous-response WSS should keep recoverable chunk savings: changed=%v stats=%+v body=%s", changed, stats, second)
+	if changed || strings.Contains(string(second), "[context-chunk") {
+		t.Fatalf("previous-response delta turns must not mutate by default: changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+	gated := false
+	for _, decision := range stats.EvidenceDecisions {
+		if decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			gated = true
+		}
+	}
+	if !gated {
+		t.Fatalf("suppressed delta mutation must carry the proof-gate evidence reason: %+v", stats.EvidenceDecisions)
 	}
 }
 
@@ -2534,21 +2547,25 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 		t.Fatalf("first known read should be guarded but not full-pass-bypassed: %+v", firstSummary)
 	}
 
+	// Live A/B 2026-06-11 (loop runs 4-8): a read_delta-collapsed delta turn
+	// made the FOLLOWING tool turn fail upstream with 400 (bridge control
+	// clean), so previous_response_id delta turns full-pass by default and
+	// the suppressed mutation carries the proof-gate evidence reason.
 	seedToolCall("call_read_2")
 	replace, raw := runOutput("call_read_2")
-	if !replace {
-		t.Fatalf("second known source read should save through read-delta, raw=%s", raw)
-	}
-	if !bytes.Contains(raw, []byte("[context-elided kind=file-read status=unchanged")) ||
-		bytes.Contains(raw, []byte("known previous response read unique payload line 119")) {
-		t.Fatalf("second read did not compact through read-delta: %s", raw)
+	if replace || bytes.Contains(raw, []byte("[context-elided kind=file-read status=unchanged")) {
+		t.Fatalf("second known read must not mutate the delta turn by default: %s", raw)
 	}
 	secondSummary := p.DebugRecorder().Last(1, false)[0]
-	if secondSummary.BypassReason != "" ||
-		secondSummary.Tokens.Saved <= 0 ||
-		secondSummary.MessagesCompressed != 1 ||
+	gated := false
+	for _, decision := range secondSummary.EvidenceDecisions {
+		if decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			gated = true
+		}
+	}
+	if secondSummary.BypassReason != "" || !gated ||
 		secondSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
-		t.Fatalf("second known read should report positive Layer-0 savings: %+v", secondSummary)
+		t.Fatalf("second known read should carry the proof-gate reason: %+v", secondSummary)
 	}
 }
 

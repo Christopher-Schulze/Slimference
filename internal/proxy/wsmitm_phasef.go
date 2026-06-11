@@ -297,6 +297,15 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			// Any wire mutation on a previous_response_id delta turn makes
+			// the FOLLOWING tool turn fail upstream with 400 (live A/B,
+			// loop runs 4-8; bridge control clean). Suppress mutations on
+			// that flow while reducers keep observing/seeding, unless the
+			// explicit experimental flag or the proven state-safe
+			// whitelist applies.
+			StatefulDeltaMutationBlocked: meta.PreviousResponseID != "" &&
+				!statefulToolOutputMutationSafe &&
+				!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats

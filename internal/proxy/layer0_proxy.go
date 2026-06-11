@@ -74,6 +74,15 @@ type codexLayer0Request struct {
 	LatencyBudgetExceeded     bool
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
+	// StatefulDeltaMutationBlocked suppresses every wire mutation while
+	// keeping reducers observing/seeding. Live A/B (2026-06-11, loop runs
+	// 4-8): any mutated function_call_output on a previous_response_id
+	// delta turn made the FOLLOWING tool turn fail upstream with 400
+	// invalid_request (byte-equal bridge control stayed clean), and Codex
+	// healed via a full-history resend retry that cost more than the
+	// mutation saved. Wire mutation on that flow is net-negative until the
+	// T354 B-side capture proof isolates the server-state rule.
+	StatefulDeltaMutationBlocked bool
 }
 
 type codexLayer0Result struct {
@@ -384,7 +393,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
-			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
+			if changed && !req.StatefulDeltaMutationBlocked && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
 				if !archived {
@@ -424,6 +433,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
+				continue
+			}
+			if req.StatefulDeltaMutationBlocked {
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate", 0, 0, workload))
 				continue
 			}
 			before := countBeforeTokens()
