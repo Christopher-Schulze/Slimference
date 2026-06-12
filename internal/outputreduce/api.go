@@ -80,6 +80,18 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 	if err := json.Unmarshal(body, &root); err != nil {
 		return body, stats, fmt.Errorf("parse output-reduce request: %w", err)
 	}
+	if stats.TaskShape == ShapeUnknown {
+		ok, reason, err := outputReduceShapeSupported(provider, root)
+		if err != nil {
+			return body, stats, err
+		}
+		if !ok {
+			stats.Reason = reason
+			return body, stats, nil
+		}
+		stats.Reason = "unknown_task_shape"
+		return body, stats, nil
+	}
 
 	var changed bool
 	switch provider {
@@ -185,6 +197,51 @@ func injectCodex(root map[string]json.RawMessage, directive string) (bool, error
 	}
 	root["instructions"] = mustJSON(directive)
 	return true, nil
+}
+
+func outputReduceShapeSupported(provider types.Provider, root map[string]json.RawMessage) (bool, string, error) {
+	switch provider {
+	case types.Anthropic:
+		if raw, ok := root["system"]; ok && len(bytes.TrimSpace(raw)) > 0 {
+			if _, ok := rawStringOK(raw); ok {
+				return true, "", nil
+			}
+			var blocks []map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &blocks); err != nil {
+				return false, "", fmt.Errorf("unsupported anthropic system shape: %w", err)
+			}
+		}
+		return true, "", nil
+	case types.OpenAI:
+		if raw, ok := root["messages"]; ok {
+			var messages []map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &messages); err != nil {
+				return false, "", fmt.Errorf("parse openai messages: %w", err)
+			}
+			return true, "", nil
+		}
+		return false, "unsupported_shape", nil
+	case types.CodexChatGPT:
+		if raw, ok := root["messages"]; ok {
+			var messages []map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &messages); err != nil {
+				return false, "", fmt.Errorf("parse openai messages: %w", err)
+			}
+			return true, "", nil
+		}
+		if raw, ok := root["instructions"]; ok {
+			if _, ok := rawStringOK(raw); !ok {
+				return false, "unsupported_shape", nil
+			}
+			return true, "", nil
+		}
+		if raw, ok := root["input"]; ok && validCodexInputShape(raw) {
+			return true, "", nil
+		}
+		return false, "unsupported_shape", nil
+	default:
+		return false, "unsupported_provider", nil
+	}
 }
 
 func injectMessageList(messages []map[string]json.RawMessage, directive, roleName string) []map[string]json.RawMessage {

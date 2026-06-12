@@ -245,6 +245,53 @@ func TestInjectBody_LowROIGates(t *testing.T) {
 	if out, stats, err := InjectBody(types.OpenAI, commandRelay, Options{Enabled: true, Profile: "aggressive", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "command_output_relay_exact_output" || stats.TaskShape != ShapeCommandRelay || string(out) != string(commandRelay) {
 		t.Fatalf("command relay out=%s stats=%+v err=%v", out, stats, err)
 	}
+	unknown := []byte(`{"messages":[]}`)
+	if out, stats, err := InjectBody(types.OpenAI, unknown, Options{Enabled: true, Profile: "openai", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "unknown_task_shape" || stats.TaskShape != ShapeUnknown || string(out) != string(unknown) {
+		t.Fatalf("unknown shape out=%s stats=%+v err=%v", out, stats, err)
+	}
+}
+
+func TestInjectBody_UnknownShapePrecheckBranches(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		provider types.Provider
+		body     string
+	}{
+		{
+			name:     "anthropic_empty_system_string",
+			provider: types.Anthropic,
+			body:     `{"system":""}`,
+		},
+		{
+			name:     "anthropic_system_block_array",
+			provider: types.Anthropic,
+			body:     `{"system":[{}]}`,
+		},
+		{
+			name:     "codex_empty_messages",
+			provider: types.CodexChatGPT,
+			body:     `{"messages":[]}`,
+		},
+		{
+			name:     "codex_empty_instructions",
+			provider: types.CodexChatGPT,
+			body:     `{"instructions":""}`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, stats, err := InjectBody(tc.provider, []byte(tc.body), Options{Enabled: true, Profile: "auto", InputTokens: 90000})
+			if err != nil || stats.Applied || stats.Reason != "unknown_task_shape" || stats.TaskShape != ShapeUnknown || string(out) != tc.body {
+				t.Fatalf("out=%s stats=%+v err=%v", out, stats, err)
+			}
+		})
+	}
+	if _, _, err := InjectBody(types.Anthropic, []byte(`{"system":123}`), Options{Enabled: true, Profile: "anthropic", InputTokens: 90000}); err == nil {
+		t.Fatal("expected unknown-shape anthropic system validation error")
+	}
 }
 
 func TestInjectBody_AnthropicUnsupportedSystemShape(t *testing.T) {
@@ -372,7 +419,7 @@ func TestInjectBody_CodexMessagesAndInputBranches(t *testing.T) {
 	if out, stats, err := InjectBody(types.CodexChatGPT, messagesBody, Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
 		t.Fatalf("codex messages out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), `"instructions"`) || strings.Contains(string(out), `"role":"system"`) {
+	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || stats.Applied || stats.Reason != "unknown_task_shape" || string(out) != `{"input":[]}` {
 		t.Fatalf("codex array out=%s stats=%+v err=%v", out, stats, err)
 	}
 	systemArrayBody := []byte(`{"instructions":"base","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
@@ -389,7 +436,7 @@ func TestInjectBody_CodexMessagesAndInputBranches(t *testing.T) {
 	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":{}}`), Options{Enabled: true, Profile: "codex"}); err != nil || stats.Applied || stats.Reason != "unsupported_shape" || string(out) != `{"input":{}}` {
 		t.Fatalf("object input should fail open out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":""}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
+	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":""}`), Options{Enabled: true, Profile: "codex"}); err != nil || stats.Applied || stats.Reason != "unknown_task_shape" || string(out) != `{"input":""}` {
 		t.Fatalf("empty string input out=%s stats=%+v err=%v", out, stats, err)
 	}
 	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":   }`), Options{Enabled: true, Profile: "codex"}); err == nil || out == nil || stats.Applied {
