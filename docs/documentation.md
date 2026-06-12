@@ -817,12 +817,16 @@ rows (`error`, `fatal`, `timeout`, `rejected`, `warning`, `security`, `secret`,
 plain middle rows.
 For Codex WSS Phase-F, search-output reducer paths stay risk-gated by request
 shape and recovery proof. Recoverable full-history tool output on the first
-live socket may compact with an archive marker; reconnect full-history and
-ambiguous stateful/delta tool output full-pass until fresh live proof shows the
-current WSS contract accepts that mutation without upstream 400s or model-facing
-context loss. This keeps exact WSS search-token savings where the recovery path
-is deterministic without turning historical downstream-delta risk into a broad
-savings kill switch.
+live socket may compact with an archive marker; reconnect full-history
+downstream-state tool-output mutation and ambiguous stateful/delta tool output
+full-pass until fresh live proof shows the current WSS contract accepts that
+mutation without upstream 400s or model-facing context loss. History-only
+full-history stale/obsolete reducers are narrower: after T353 proof, a mutated
+full-history chain drops `previous_response_id`, stores the actual forwarded
+chain, and expands following continuations to stateless full-history before the
+next tool output. This keeps exact WSS history-token savings where the recovery
+path is deterministic without turning historical downstream-delta risk into a
+broad savings kill switch.
 
 Unknown or unsafe stateful Codex WSS tool-output request bodies full-pass by
 default. The guard is route- and shape-scoped, not a global savings kill switch:

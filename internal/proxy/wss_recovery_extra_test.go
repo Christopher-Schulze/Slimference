@@ -72,3 +72,61 @@ func TestWSSRecoveryBodyRewriteHelpers(t *testing.T) {
 		t.Fatalf("detach without previous_response_id changed body ok=%v body=%s", ok, same)
 	}
 }
+
+func TestWSSStatelessHistoryContinuationBody(t *testing.T) {
+	adapter := &wsPhaseFAdapter{}
+	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_old","input":[{"type":"message","role":"user","content":"current"}],"stream":true}`)
+	if rewritten, ok := adapter.wssStatelessHistoryContinuationBody(body); ok || !bytes.Equal(rewritten, body) {
+		t.Fatalf("stateless rewrite must stay disabled before mark ok=%v body=%s", ok, rewritten)
+	}
+
+	adapter.markWSSHistoryStatelessMode()
+	if !adapter.wssHistoryStatelessMode() {
+		t.Fatal("history stateless mode must be observable after mark")
+	}
+	if rewritten, ok := adapter.wssStatelessHistoryContinuationBody([]byte(`{"previous_response_id":"resp_old","input":[`)); ok || !bytes.Equal(rewritten, []byte(`{"previous_response_id":"resp_old","input":[`)) {
+		t.Fatalf("invalid json must not rewrite ok=%v body=%s", ok, rewritten)
+	}
+	if rewritten, ok := adapter.wssStatelessHistoryContinuationBody([]byte(`{"input":[{"type":"message","role":"user","content":"current"}]}`)); ok || bytes.Contains(rewritten, []byte("previous_response_id")) {
+		t.Fatalf("body without previous_response_id must not rewrite ok=%v body=%s", ok, rewritten)
+	}
+	if rewritten, ok := adapter.wssStatelessHistoryContinuationBody(body); ok || !bytes.Equal(rewritten, body) {
+		t.Fatalf("missing prior chain must not rewrite ok=%v body=%s", ok, rewritten)
+	}
+
+	adapter.mu.Lock()
+	adapter.responseChains = map[string]wssResponseChain{
+		"resp_old": {
+			json.RawMessage(`{"type":"message","role":"user","content":"prior"}`),
+			json.RawMessage(`{"type":"function_call_output","call_id":"call_old","output":"old out"}`),
+		},
+	}
+	adapter.mu.Unlock()
+
+	rewritten, ok := adapter.wssStatelessHistoryContinuationBody(body)
+	if !ok {
+		t.Fatal("stateless continuation with prior chain should rewrite")
+	}
+	if bytes.Contains(rewritten, []byte("previous_response_id")) {
+		t.Fatalf("stateless continuation must drop previous_response_id: %s", rewritten)
+	}
+	items, ok := wssInputItems(rewritten)
+	if !ok || len(items) != 3 {
+		t.Fatalf("stateless continuation input len=%d ok=%v body=%s", len(items), ok, rewritten)
+	}
+	if !strings.Contains(string(rewritten), "prior") || !strings.Contains(string(rewritten), "current") {
+		t.Fatalf("stateless continuation must preserve prior and current input: %s", rewritten)
+	}
+}
+
+func TestWSSStatelessHistoryContinuationNilAdapter(t *testing.T) {
+	body := []byte(`{"previous_response_id":"resp_old","input":[{"type":"message","role":"user","content":"current"}]}`)
+	var adapter *wsPhaseFAdapter
+	if adapter.wssHistoryStatelessMode() {
+		t.Fatal("nil adapter must not report stateless mode")
+	}
+	if rewritten, ok := adapter.wssStatelessHistoryContinuationBody(body); ok || !bytes.Equal(rewritten, body) {
+		t.Fatalf("nil adapter must not rewrite ok=%v body=%s", ok, rewritten)
+	}
+	adapter.markWSSHistoryStatelessMode()
+}

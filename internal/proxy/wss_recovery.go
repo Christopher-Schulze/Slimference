@@ -93,6 +93,52 @@ func (a *wsPhaseFAdapter) wssHistoryMutationRecoveryGuarded() bool {
 	return a.historyRecoveryGuarded
 }
 
+func (a *wsPhaseFAdapter) markWSSHistoryStatelessMode() {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.historyStatelessMode = true
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) wssHistoryStatelessMode() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.historyStatelessMode
+}
+
+func (a *wsPhaseFAdapter) wssStatelessHistoryContinuationBody(body []byte) ([]byte, bool) {
+	if a == nil || !a.wssHistoryStatelessMode() || len(body) == 0 {
+		return body, false
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body, false
+	}
+	previousResponseID := wssPreviousResponseIDFromRaw(raw)
+	if previousResponseID == "" {
+		return body, false
+	}
+	currentInput, ok := wssInputItems(body)
+	if !ok || len(currentInput) == 0 {
+		return body, false
+	}
+	prior := a.wssResponseChain(previousResponseID)
+	if len(prior) == 0 {
+		return body, false
+	}
+	fullInput := append(cloneWSSRawItems(prior), currentInput...)
+	rewritten, ok := wssBodyWithInput(body, fullInput, true)
+	if !ok {
+		return body, false
+	}
+	return rewritten, true
+}
+
 func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body []byte, meta wssRequestMeta) {
 	if a == nil || env == nil || len(body) == 0 {
 		return

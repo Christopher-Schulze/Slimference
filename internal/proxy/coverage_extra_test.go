@@ -181,6 +181,89 @@ func TestExtractClientFamilyCodexHTTPFallbacks(t *testing.T) {
 	}
 }
 
+func TestAdaptiveWindowHeuristics(t *testing.T) {
+	if got := resolveWindow(nil, 7, false, 0, 0); got.Size != 7 || got.Min != 3 || got.Max != 12 || !strings.Contains(got.String(), "adaptive disabled") {
+		t.Fatalf("disabled adaptive window decision = %+v", got)
+	}
+	if got := resolveWindow([]types.Message{{Role: "user"}}, 4, true, 2, 9); got.Size != 4 || got.Reason != "too few messages" {
+		t.Fatalf("too-few adaptive window decision = %+v", got)
+	}
+
+	low := make([]types.Message, 8)
+	for i := range low {
+		low[i] = types.Message{Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "plain output"}}}
+	}
+	if got := resolveWindow(low, 3, true, 4, 12); got.Size != 4 || got.Reason != "clamped to min" {
+		t.Fatalf("low-complexity adaptive window decision = %+v", got)
+	}
+
+	high := make([]types.Message, 12)
+	for i := range high {
+		high[i] = types.Message{
+			Role: "assistant",
+			Content: []types.ContentBlock{
+				{Type: "tool_use", ToolName: "edit_file_" + string(rune('a'+i)), ToolInput: `{"path":"config/file_` + string(rune('a'+i)) + `.toml"}`},
+				{Type: "text", Text: "panic in config loader"},
+			},
+		}
+	}
+	if got := resolveWindow(high, 8, true, 3, 9); got.Size != 9 || got.Reason != "clamped to max" || got.Score <= 0.5 {
+		t.Fatalf("high-complexity adaptive window decision = %+v", got)
+	}
+}
+
+func TestWindowComplexityHelpers(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "user",
+			Content: []types.ContentBlock{
+				{Type: "text", Text: "yes"},
+				{Type: "tool_use", ToolName: "Read", ToolInput: `{"path":"AGENTS.md"}`},
+			},
+		},
+		{
+			Role: "assistant",
+			Content: []types.ContentBlock{
+				{Type: "tool_use", ToolName: "Edit", ToolInput: `{"file_path":"config/app.yaml"}`},
+				{Type: "text", Text: "fatal config error"},
+			},
+		},
+	}
+	if got := windowComplexityScore(nil); got != 0.5 {
+		t.Fatalf("empty complexity score = %v", got)
+	}
+	if got := normalizeWindowScore(10, 5, 5); got != 0 {
+		t.Fatalf("invalid normalize score = %v", got)
+	}
+	if got := countWindowFilePaths(messages); got != 2 {
+		t.Fatalf("file path count = %d", got)
+	}
+	if got := countWindowToolDiversity(messages); got != 2 {
+		t.Fatalf("tool diversity count = %d", got)
+	}
+	if got := windowAnchorDensity(messages); got != 1 {
+		t.Fatalf("anchor density = %v", got)
+	}
+	if !looksConfigPath("Dockerfile") || !looksConfigPath(".env") || looksConfigPath("src/main.go") {
+		t.Fatal("config path detection mismatch")
+	}
+	for _, block := range []types.ContentBlock{
+		{ToolInput: `{"filename":"src/main.go"}`},
+		{ToolInput: `{"filepath":"src/other.go"}`},
+		{ToolInput: `{"file":"README.md"}`},
+	} {
+		if path := windowBlockFilePath(block); path == "" {
+			t.Fatalf("expected path from block %+v", block)
+		}
+	}
+	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `{"path":123}`}); path != "" {
+		t.Fatalf("malformed path parse = %q", path)
+	}
+	if text := messageText(messages[1]); !strings.Contains(text, "fatal config error") {
+		t.Fatalf("message text = %q", text)
+	}
+}
+
 func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 	t.Run("cache hit", func(t *testing.T) {
 		p := New(config.Defaults())

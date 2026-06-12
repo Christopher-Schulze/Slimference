@@ -3553,7 +3553,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
+func TestWSPhaseFFullHistoryHistoryReducersApplyOnLiveSocket(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -3569,27 +3569,27 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
 	mutatedText := string(mutated)
 	if !changed {
-		t.Fatal("live-socket fixture should still allow non-history savings")
+		t.Fatal("live-socket fixture should allow history and non-history savings")
 	}
-	if !strings.Contains(mutatedText, "stale x content") || strings.Contains(mutatedText, "kind=stale-read") {
-		t.Fatalf("live-socket full-history stale-read must full-pass original content: %s", mutatedText)
+	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("live-socket full-history stale-read must apply: %s", mutatedText)
 	}
-	if !strings.Contains(mutatedText, "obsolete y content") || strings.Contains(mutatedText, "kind=obsolete-read") {
-		t.Fatalf("live-socket full-history obsolete-prune must full-pass original content: %s", mutatedText)
+	if strings.Contains(mutatedText, "obsolete y content") || !strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("live-socket full-history obsolete-prune must apply: %s", mutatedText)
 	}
 	if !strings.Contains(mutatedText, "[git status]") || !strings.Contains(mutatedText, "context-archive kind=tool-output") || strings.Contains(mutatedText, "single_reconstruct_179.go") {
-		t.Fatalf("live-socket full-history guard must not block captured-output savings: %s", mutatedText)
+		t.Fatalf("live-socket full-history history savings must not block captured-output savings: %s", mutatedText)
 	}
-	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 {
-		t.Fatalf("guarded history reducers must not count applied savings: %+v", stats)
+	if stats.StaleReadBlocks == 0 || stats.ObsoletePruneBlocks == 0 || stats.TokensSaved <= 0 {
+		t.Fatalf("history reducers must count applied savings: %+v", stats)
 	}
-	if meta.DebugFacts["wss.history_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+	if meta.DebugFacts["wss.history_mutation_guard"] != "" ||
 		meta.DebugFacts["wss.effective_mutation_guard"] != "" {
-		t.Fatalf("history guard must not masquerade as an effective structured mutation guard: %+v", meta.DebugFacts)
+		t.Fatalf("history reducers must not be guarded or masquerade as structured mutation guard: %+v", meta.DebugFacts)
 	}
-	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) ||
-		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
-		t.Fatalf("guarded full-history reducers must emit precise evidence: %+v", stats.EvidenceDecisions)
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("applied full-history reducers must emit precise evidence: %+v", stats.EvidenceDecisions)
 	}
 	for _, mechanism := range []proxyLayer0Mechanism{proxyLayer0MechanismStaleRead, proxyLayer0MechanismObsoletePrune} {
 		found := false
@@ -3600,11 +3600,11 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 			found = true
 			if decision.OriginalTokens <= 0 || decision.FinalTokens <= 0 || decision.SavedTokens <= 0 ||
 				decision.FootprintScore <= 0 || decision.FootprintScoreBucket == "" {
-				t.Fatalf("guarded %s evidence must carry token and footprint calibration data: %+v", mechanism, decision)
+				t.Fatalf("applied %s evidence must carry token and footprint calibration data: %+v", mechanism, decision)
 			}
 		}
 		if !found {
-			t.Fatalf("missing guarded evidence for %s: %+v", mechanism, stats.EvidenceDecisions)
+			t.Fatalf("missing applied evidence for %s: %+v", mechanism, stats.EvidenceDecisions)
 		}
 	}
 }
@@ -3679,24 +3679,35 @@ func TestWSPhaseFPreviousResponseBypassKeepsHistoryReducerEvidence(t *testing.T)
 	})
 
 	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
-	if changed || !bytes.Equal(mutated, body) {
-		t.Fatalf("previous_response unknown-tool bypass must stay byte-preserving changed=%v body=%s", changed, mutated)
+	mutatedText := string(mutated)
+	if !changed {
+		t.Fatalf("previous_response unknown-tool bypass should apply history-only savings")
 	}
-	if meta.BypassReason != "wss_previous_response_tool_output_full_pass" {
+	if bytes.Contains(mutated, []byte("previous_response_id")) {
+		t.Fatalf("history-only previous_response bypass must detach previous_response_id: %s", mutated)
+	}
+	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("previous_response bypass stale-read mutation missing: %s", mutatedText)
+	}
+	if strings.Contains(mutatedText, "obsolete y content") || !strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("previous_response bypass obsolete-prune mutation missing: %s", mutatedText)
+	}
+	if meta.BypassReason != "wss_previous_response_history_only" {
 		t.Fatalf("expected previous_response bypass, got %+v", meta)
 	}
-	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 || stats.TokensSaved != 0 {
-		t.Fatalf("bypass history evidence must not count applied savings: %+v", stats)
+	if stats.StaleReadBlocks == 0 || stats.ObsoletePruneBlocks == 0 || stats.TokensSaved <= 0 {
+		t.Fatalf("bypass history savings must count applied savings: %+v", stats)
 	}
-	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) ||
-		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
-		t.Fatalf("previous_response bypass must keep guarded history evidence: %+v", stats.EvidenceDecisions)
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("previous_response bypass must record applied history evidence: %+v", stats.EvidenceDecisions)
 	}
-	if meta.DebugFacts["wss.bypass_reason"] != "wss_previous_response_tool_output_full_pass" ||
+	if meta.DebugFacts["wss.bypass_reason"] != "wss_previous_response_history_only" ||
 		meta.DebugFacts["wss.request_shape"] != "full_history" ||
-		meta.DebugFacts["wss.stale_read_blocks"] != "0" ||
-		meta.DebugFacts["wss.obsolete_prune_blocks"] != "0" {
-		t.Fatalf("debug facts must stay honest for byte-preserving bypass: %+v", meta.DebugFacts)
+		meta.DebugFacts["wss.stale_read_blocks"] == "0" ||
+		meta.DebugFacts["wss.obsolete_prune_blocks"] == "0" ||
+		meta.DebugFacts["wss.full_history_detached_previous_response"] != "true" {
+		t.Fatalf("debug facts must stay honest for history-only bypass: %+v", meta.DebugFacts)
 	}
 }
 
@@ -3798,6 +3809,115 @@ func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
 	}
 	if meta.DebugFacts["wss.history_mutation_guard"] != "wss_recovery_history_mutation_guard" {
 		t.Fatalf("recovery history guard fact missing: %+v", meta.DebugFacts)
+	}
+}
+
+func TestWSPhaseFHistoryDetachMakesFollowingDeltaStatelessFullHistory(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-history-parent",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-stateless-history","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+				{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+				{"type": "message", "role": "user", "content": "filler one"},
+				{"type": "message", "role": "user", "content": "filler two"},
+				{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+				{"type": "function_call_output", "call_id": "call_unknown", "output": "unknown tool output keeps the previous_response guard active"},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory); err != nil || !replace {
+		t.Fatalf("full-history request should mutate and detach replace=%v err=%v", replace, err)
+	}
+	fullHistoryBody, _, ok := wsRequestBody(&fullHistory)
+	if !ok {
+		t.Fatal("mutated full-history body missing")
+	}
+	if bytes.Contains(fullHistoryBody, []byte("previous_response_id")) ||
+		!bytes.Contains(fullHistoryBody, []byte("kind=stale-read")) {
+		t.Fatalf("full-history mutation should detach previous_response_id and age stale read: %s", fullHistoryBody)
+	}
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_next",
+			"name":      "exec_command",
+			"arguments": `{"cmd":"cat src/y.go"}`,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("output item replace=%v err=%v", replace, err)
+	}
+	completed := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-history-child", "output": []any{}},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &completed); err != nil || replace {
+		t.Fatalf("completion replace=%v err=%v", replace, err)
+	}
+
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-history-child",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-stateless-history","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "call_next",
+				"output":  "new y output",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("delta should be proactively rewritten as stateless full history replace=%v err=%v", replace, err)
+	}
+	deltaBody, _, ok := wsRequestBody(&delta)
+	if !ok {
+		t.Fatal("rewritten delta body missing")
+	}
+	if bytes.Contains(deltaBody, []byte("previous_response_id")) {
+		t.Fatalf("stateless continuation must drop previous_response_id: %s", deltaBody)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(deltaBody, &raw); err != nil {
+		t.Fatalf("delta body json: %v", err)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(raw["input"], &input); err != nil {
+		t.Fatalf("delta input json: %v", err)
+	}
+	if len(input) <= 1 {
+		t.Fatalf("stateless continuation must send full history, got %d input items: %s", len(input), deltaBody)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 ||
+		summaries[0].DebugFacts["wss.stateless_history_continuation"] != "true" {
+		t.Fatalf("missing stateless continuation debug fact: %+v", summaries)
 	}
 }
 
@@ -5008,7 +5128,8 @@ func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testin
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
 		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
-		summary.DebugFacts["wss.history_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.DebugFacts["wss.history_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.downstream_state_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
 		t.Fatalf("first-socket full-history search output should save without an effective structured guard: %+v", summary)

@@ -53,6 +53,7 @@ type wsPhaseFAdapter struct {
 	recoveryResponseID     string
 	recoveryWriter         func([]byte) error
 	historyRecoveryGuarded bool
+	historyStatelessMode   bool
 	// lastDecisionRequestID correlates the turn's response usage frame with
 	// the decision record written at request time (T352-A attribution).
 	lastDecisionRequestID      string
@@ -317,7 +318,11 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	}
 	a.counters.requestBodiesSeen.Add(1)
 	mutated, messages, changed, l0Stats, reReadCount, meta, outputReduceStats := a.applyInputPipelineDetailed(body)
-	a.prepareWSSRecoveryCandidate(env, body, meta)
+	recoveryBody := body
+	if changed {
+		recoveryBody = mutated
+	}
+	a.prepareWSSRecoveryCandidate(env, recoveryBody, meta)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -381,6 +386,11 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 
 func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int, wssRequestMeta, outputreduce.Stats) {
 	out := body
+	statelessHistoryContinuation := false
+	if rewritten, ok := a.wssStatelessHistoryContinuationBody(out); ok {
+		out = rewritten
+		statelessHistoryContinuation = true
+	}
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
 	var meta wssRequestMeta
@@ -392,6 +402,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta = wssRequestMetaFromRaw(raw)
 		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
+		if statelessHistoryContinuation {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.stateless_history_continuation"] = "true"
+		}
 	} else {
 		requestContainsToolOutput = wssBodyContainsFunctionCallOutput(out)
 	}
@@ -431,14 +447,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		// captures showed the same downstream-delta failure class. Capture L
 		// then proved reconnect full-history search mutation can poison the
 		// following turn too. Keep first-socket full-history structured
-		// mutations eligible for archive-backed savings, but keep history
-		// reducers guarded on any live full-history socket until their proof
-		// corpus is complete.
+		// mutations eligible for archive-backed savings. History-only reducers
+		// on full-history continuations are safe because a mutated chain enters
+		// stateless full-history continuation mode before the next tool output.
 		requestShape := wssRequestShape(meta, messages)
-		historyMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled
 		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded()
 		fullHistoryDownstreamStateMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
-		fullHistoryHistoryMutationBlocked := fullHistoryDownstreamStateMutationBlocked && !historyMutationLabEnabled
+		fullHistoryHistoryMutationBlocked := false
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
@@ -470,6 +485,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 						if detached, detachedOK := detachCodexPreviousResponseID(out); detachedOK {
 							out = detached
 							detachedPreviousResponseID = true
+							a.markWSSHistoryStatelessMode()
 						}
 					}
 					messages = historyResult.Messages
