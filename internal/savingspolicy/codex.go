@@ -275,6 +275,9 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 	if in.HostBudgetExceeded && in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
 		return allow(base, "lossless_or_exact_reducer_host_budget", false)
 	}
+	if in.NegativeSavingsHistory && in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
+		return allow(base, "lossless_or_exact_reducer_negative_savings", false)
+	}
 	if reason, ok := mechanismDemotionReason(in); ok {
 		return fullPass(base, reason)
 	}
@@ -470,8 +473,6 @@ func toolOutputLoosenReason(in CodexToolOutputInput) (string, bool) {
 		return "degraded_route_full_context", true
 	case in.LatencyBudgetExceeded:
 		return "latency_budget_full_context", true
-	case in.NegativeSavingsHistory:
-		return "negative_savings_full_context", true
 	default:
 		return "", false
 	}

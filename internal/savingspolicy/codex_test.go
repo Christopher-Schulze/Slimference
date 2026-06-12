@@ -336,13 +336,22 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyFullPass, reason: "latency_budget_full_context",
 		},
 		{
-			name: "negative savings history full pass",
+			name: "negative savings demotes recoverable chunk",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
 				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
 				ArchiveRecoveryAvailable: true, OutputBytes: 9000, NegativeSavingsHistory: true,
 			},
 			action: CodexPolicyFullPass, reason: "negative_savings_full_context",
+		},
+		{
+			name: "negative savings keeps lossless exact reducers",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismReadDelta, Risk: CodexRiskLossless, Recovery: CodexRecoveryExact,
+				OutputBytes: 9000, NegativeSavingsHistory: true,
+			},
+			action: CodexPolicyAllow, reason: "lossless_or_exact_reducer_negative_savings",
 		},
 		{
 			name: "below min bytes blocks chunk",
@@ -386,7 +395,6 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 		{name: "missing tool retry", mutate: func(in *CodexToolOutputInput) { in.MissingToolRetry = true }, reason: "missing_tool_retry_full_context"},
 		{name: "degraded route", mutate: func(in *CodexToolOutputInput) { in.DegradedRoute = true }, reason: "degraded_route_full_context"},
 		{name: "latency budget", mutate: func(in *CodexToolOutputInput) { in.LatencyBudgetExceeded = true }, reason: "latency_budget_full_context"},
-		{name: "negative savings", mutate: func(in *CodexToolOutputInput) { in.NegativeSavingsHistory = true }, reason: "negative_savings_full_context"},
 	}
 	for _, tc := range tests {
 		tc := tc
@@ -406,6 +414,27 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 				t.Fatalf("runtime signal should force full-pass: got=%+v want reason=%s", got, tc.reason)
 			}
 		})
+	}
+}
+
+func TestDecideCodexToolOutputNegativeSavingsKeepsLosslessReducers(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     string(CodexModeAuto),
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+		NegativeSavingsHistory:   true,
+	})
+	if got.Loosened || !got.ReadDelta || !got.RepeatedOutput || got.ChunkDedup {
+		t.Fatalf("negative savings should keep lossless reducers but demote chunk: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismReadDelta) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismRepeatedOutput) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyFullPass {
+		t.Fatalf("negative savings mechanism actions mismatch: %+v", got.Mechanisms)
 	}
 }
 
