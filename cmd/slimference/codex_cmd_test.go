@@ -1613,6 +1613,51 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	calls := 0
+	var postProbeTimeout time.Duration
+	codexSetupStateFn = func(host string, port string, timeout time.Duration) (control.SetupState, error) {
+		calls++
+		if calls == 1 {
+			return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
+		}
+		postProbeTimeout = timeout
+		return control.SetupState{}, errors.New("admin state timeout")
+	}
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		fmt.Fprintln(p.Out, "Codex.app launched (PID 5151) with scoped Slimference env.")
+		return 0
+	}
+	cleanupPID := 0
+	codexDesktopCleanupFn = func(pid int) error {
+		cleanupPID = pid
+		return nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns"}, p)
+	if rc != 1 {
+		t.Fatalf("manual post-probe rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	var proof codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &proof); err != nil {
+		t.Fatalf("manual post-probe json: %v\nraw=%s", err, out.String())
+	}
+	if proof.Mode != "post_probe_failed" || proof.FailureClass != "post_probe_failed" {
+		t.Fatalf("manual post-probe should report failure: %+v", proof)
+	}
+	if !proof.CleanupAttempted || cleanupPID != 5151 {
+		t.Fatalf("manual post-probe must clean launched app: cleanup=%v pid=%d proof=%+v", proof.CleanupAttempted, cleanupPID, proof)
+	}
+	if postProbeTimeout < 10*time.Second {
+		t.Fatalf("post-probe timeout too short: %s", postProbeTimeout)
+	}
+	if proof.LaunchReady || proof.SessionPath != "" || proof.DesktopProven || proof.DesktopSavings {
+		t.Fatalf("failed post-probe must not leave a launch-ready proof session: %+v", proof)
+	}
+}
+
 func TestCodexDesktopProveErrorsAndHelpers(t *testing.T) {
 	withCodexCmdStubs(t)
 	p, out, errBuf := newTestPrinter()

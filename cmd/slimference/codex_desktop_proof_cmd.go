@@ -81,6 +81,8 @@ type codexDesktopProofSession struct {
 	LaunchOutput  string           `json:"launch_output,omitempty"`
 }
 
+const codexDesktopProofStateTimeout = 10 * time.Second
+
 func runCodexDesktopCmd(args []string, p installPrinter) int {
 	if len(args) == 0 {
 		fmt.Fprint(p.Out, codexDesktopHelpText)
@@ -184,12 +186,12 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 
 	time.Sleep(flags.duration)
-	after, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
+	after, err := codexSetupStateFn(flags.host, flags.port, codexDesktopProofStateTimeout)
 	if err != nil {
 		out.Mode = "post_probe_failed"
 		out.FailureClass = "post_probe_failed"
 		out.Notes = append(out.Notes, err.Error())
-		cleanupCodexDesktopProof(&out, flags.keepOpen)
+		cleanupCodexDesktopProof(&out, false)
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -230,7 +232,7 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
-	after, err := codexSetupStateFn(session.Host, session.Port, 2*time.Second)
+	after, err := codexSetupStateFn(session.Host, session.Port, codexDesktopProofStateTimeout)
 	if err != nil {
 		out := codexDesktopProofOutput{
 			Mode:         "daemon_unreachable",
