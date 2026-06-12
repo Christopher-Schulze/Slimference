@@ -24,6 +24,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	}
 	wcOutput.WriteString("     6190 total\n")
 	listingOutput := wssListingFixture(40)
+	treeOutput := wssTreeFixture(40)
 
 	tests := []struct {
 		name      string
@@ -38,6 +39,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "find small listing", command: "find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
+		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
+		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "git status rich output", command: "git status", output: "On branch main\nChanges not staged for commit:\n\tmodified: internal/proxy/wsmitm_phasef.go\n", wantGuard: "rich git status output stays guarded"},
 		{name: "git log oneline unbounded", command: "git log --oneline", output: "a1b2c3d Tighten guard\n", wantGuard: "unbounded log output stays guarded"},
 		{name: "git log rich output", command: "git log --stat -n 3", output: "commit a1b2c3d4\n\n    Tighten guard\n\n file.go | 2 ++\n", wantGuard: "rich log output stays guarded"},
@@ -45,6 +48,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
 		{name: "find exec", command: "find internal -type f -exec cat {} ;", output: listingOutput, wantGuard: "find side-effect/rich predicates stay guarded"},
+		{name: "tree unbounded", command: "tree internal/proxy", output: treeOutput, wantGuard: "unbounded tree output stays guarded"},
+		{name: "tree separator without depth", command: "tree -- internal/proxy", output: treeOutput, wantGuard: "unbounded tree with separator stays guarded"},
+		{name: "tree deep", command: "tree -L 99 internal/proxy", output: treeOutput, wantGuard: "deep tree output stays guarded"},
+		{name: "tree unknown flag", command: "tree --du internal/proxy", output: treeOutput, wantGuard: "rich tree flags stay guarded"},
 		{name: "oversized listing", command: "ls internal/proxy", output: wssListingFixture(wssSafeListingOutputMaxEntries + 1), wantGuard: "oversized listings stay guarded"},
 	}
 
@@ -110,6 +117,45 @@ func TestWSSStatefulSafeListingRepeatCompactsOnSecondFullHistoryTurn(t *testing.
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe listing should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeTreeRepeatCompactsOnSecondFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	tree := wssTreeFixture(90)
+
+	first := parseWSJSON(t, wssTreeRequestBody("resp-tree-1", "call_tree_1", tree))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &first)
+	if err != nil {
+		t.Fatalf("handle first tree request: %v", err)
+	}
+	if replace {
+		t.Fatalf("first tree observation should seed only, got mutation: %s", first.Body)
+	}
+
+	second := parseWSJSON(t, wssTreeRequestBody("resp-tree-2", "call_tree_2", tree))
+	replace, err = adapter.handle(context.Background(), wsmitm.DirClientToServer, &second)
+	if err != nil {
+		t.Fatalf("handle second tree request: %v", err)
+	}
+	if !replace {
+		t.Fatal("second identical tree should compact through repeated-output archive reference")
+	}
+	body := string(second.Body)
+	if !strings.Contains(body, "context-elided kind=tool-output status=unchanged") ||
+		!strings.Contains(body, "archive=local-archive://") ||
+		strings.Contains(body, "tree_file_089.go") {
+		t.Fatalf("tree repeat was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe tree should save without structured guard: %+v", summary)
 	}
 }
 
@@ -208,10 +254,37 @@ func wssListingRequestBody(previousResponseID, callID, listing string) map[strin
 	}
 }
 
+func wssTreeRequestBody(previousResponseID, callID, tree string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-tree-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the proxy tree"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "tree -L 2 internal/proxy"}},
+				{"type": "function_call_output", "call_id": callID, "output": tree},
+			},
+			"stream": true,
+		},
+	}
+}
+
 func wssListingFixture(files int) string {
 	var out strings.Builder
 	for i := 0; i < files; i++ {
 		out.WriteString(fmt.Sprintf("internal/proxy/generated_listing_%03d.go\n", i))
 	}
+	return out.String()
+}
+
+func wssTreeFixture(files int) string {
+	var out strings.Builder
+	out.WriteString("internal/proxy\n")
+	for i := 0; i < files; i++ {
+		out.WriteString(fmt.Sprintf("|-- tree_file_%03d.go\n", i))
+	}
+	out.WriteString(fmt.Sprintf("\n1 directory, %d files\n", files))
 	return out.String()
 }

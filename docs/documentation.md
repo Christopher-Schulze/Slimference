@@ -754,11 +754,11 @@ introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
 search-output reducer paths currently fail open before first-pass grouping and
 repeated search delta, including grep-style search, broad path-list tools such
 as `fd`, rich/side-effect `find`, empty-result search tools, and
-output-inferred search payloads. Bounded names-only `ls` and conservative
-`find ... -print` listings are a separate stateful-safe class: they may seed
-and later use exact archive-backed repeated-output savings, while source-like,
-search-like, rich `ls -l`, recursive, oversized, or side-effect listings still
-full-pass.
+output-inferred search payloads. Bounded names-only `ls`, conservative
+`find ... -print`, and bounded `tree -L` listings are a separate stateful-safe
+class: they may seed and later use exact archive-backed repeated-output savings,
+while source-like, search-like, rich `ls -l`, deep or unknown-flag `tree`,
+recursive, oversized, or side-effect listings still full-pass.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
 upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and

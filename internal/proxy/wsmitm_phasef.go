@@ -1454,6 +1454,7 @@ const (
 	wssSafeListingOutputMaxEntries      = 300
 	wssSafeListingOutputMaxLineBytes    = 512
 	wssSafeFindMaxDepth                 = 6
+	wssSafeTreeMaxDepth                 = 6
 )
 
 func wssPreviousResponseUnknownToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool, toolOutputKnown bool) bool {
@@ -1548,6 +1549,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	case wssSafeLsListingOutput(commandLine, payload):
 		return true
 	case wssSafeFindListingOutput(commandLine, payload):
+		return true
+	case wssSafeTreeListingOutput(commandLine, payload):
 		return true
 	default:
 		return false
@@ -1861,6 +1864,79 @@ func wssSafeFindArgs(args []string) bool {
 		}
 	}
 	return sawMaxDepth
+}
+
+func wssSafeTreeListingOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || wssCommandBase(argv[0]) != "tree" {
+		return false
+	}
+	if !wssSafeTreeArgs(argv[1:]) {
+		return false
+	}
+	return wssSafeListingPayload(payload)
+}
+
+func wssSafeTreeArgs(args []string) bool {
+	sawDepth := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range args[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return sawDepth
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--dirsfirst" || arg == "--noreport":
+				continue
+			case arg == "--charset":
+				i++
+				if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+					return false
+				}
+				continue
+			case strings.HasPrefix(arg, "--charset="):
+				if strings.TrimSpace(strings.TrimPrefix(arg, "--charset=")) == "" {
+					return false
+				}
+				continue
+			default:
+				return false
+			}
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			for j := 1; j < len(arg); j++ {
+				switch arg[j] {
+				case 'a', 'd', 'f', 'F':
+					continue
+				case 'L':
+					depth := strings.TrimSpace(arg[j+1:])
+					if depth == "" {
+						i++
+						if i >= len(args) {
+							return false
+						}
+						depth = strings.TrimSpace(args[i])
+					}
+					if _, ok := parsePositiveBoundedInt(depth, wssSafeTreeMaxDepth); !ok {
+						return false
+					}
+					sawDepth = true
+					j = len(arg)
+				default:
+					return false
+				}
+			}
+		}
+	}
+	return sawDepth
 }
 
 func wssSafeListingPayload(payload string) bool {
