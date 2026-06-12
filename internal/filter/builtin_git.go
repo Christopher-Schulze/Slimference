@@ -145,6 +145,13 @@ func TryCompactGitDiff(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[git diff] empty\n"), true
 	}
+	if isGitDiffStatArgv(argv) {
+		compact := compactGitDiffStat(s)
+		if compact == "" || len(compact) >= len(s) {
+			return stdout, false
+		}
+		return []byte(compact), true
+	}
 	compact := compactGitDiff(s)
 	if compact == "" || len(compact) >= len(s) {
 		return stdout, false
@@ -248,6 +255,76 @@ func compactGitDiff(s string) string {
 		}
 	}
 	return sb.String()
+}
+
+type gitDiffStatRow struct {
+	Path string
+	Stat string
+}
+
+func compactGitDiffStat(s string) string {
+	lines := strings.Split(s, "\n")
+	rows := make([]gitDiffStatRow, 0, len(lines))
+	summary := ""
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if reGitStatSummary.MatchString(line) {
+			summary = line
+			continue
+		}
+		path, stat, ok := splitGitDiffStatLine(line)
+		if !ok {
+			return ""
+		}
+		rows = append(rows, gitDiffStatRow{Path: path, Stat: stat})
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	paths := make([]string, 0, len(rows))
+	for _, row := range rows {
+		paths = append(paths, row.Path)
+	}
+	prefix := commonDirectoryPrefix(paths)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[git diff --stat] %d file(s)\n", len(rows)))
+	if prefix != "" {
+		sb.WriteString("[prefix=")
+		sb.WriteString(prefix)
+		sb.WriteString("]\n")
+	}
+	for _, row := range rows {
+		path := strings.TrimPrefix(row.Path, prefix)
+		if path == "" {
+			path = row.Path
+		}
+		sb.WriteString(path)
+		sb.WriteString(" | ")
+		sb.WriteString(row.Stat)
+		sb.WriteByte('\n')
+	}
+	if summary != "" {
+		sb.WriteString("summary: ")
+		sb.WriteString(summary)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+func splitGitDiffStatLine(line string) (string, string, bool) {
+	pipe := strings.LastIndex(line, "|")
+	if pipe <= 0 || pipe == len(line)-1 {
+		return "", "", false
+	}
+	path := strings.TrimSpace(line[:pipe])
+	stat := strings.TrimSpace(line[pipe+1:])
+	if path == "" || stat == "" {
+		return "", "", false
+	}
+	return path, stat, true
 }
 
 func isGitDiffMetadataLine(line string) bool {
@@ -473,6 +550,18 @@ func isGitDiffArgv(argv []string) bool {
 	}
 	for _, a := range argv[1:] {
 		if a == "diff" {
+			return true
+		}
+	}
+	return false
+}
+
+func isGitDiffStatArgv(argv []string) bool {
+	if !isGitDiffArgv(argv) {
+		return false
+	}
+	for _, arg := range argv[1:] {
+		if arg == "--stat" || strings.HasPrefix(arg, "--stat=") {
 			return true
 		}
 	}

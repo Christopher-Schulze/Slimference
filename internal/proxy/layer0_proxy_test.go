@@ -1024,19 +1024,12 @@ func TestReduceCodexLayer0GuardedCandidateEvidenceCarriesFootprint(t *testing.T)
 	t.Setenv("HOME", home)
 	body := uniqueProxyReadPayload("guarded footprint")
 	messages := proxyReadMessages(body)
-	seed := reduceCodexLayer0(codexLayer0Request{
-		Messages:  messages,
-		SessionID: "sess-guarded-footprint",
-		TurnSeq:   1,
-	})
-	if seed.Stats.TokensSaved != 0 || seed.Stats.ReadDeltaBlocks != 0 {
-		t.Fatalf("first read should seed only: %+v", seed.Stats)
-	}
 
 	guarded := reduceCodexLayer0(codexLayer0Request{
 		Messages:                     messages,
 		SessionID:                    "sess-guarded-footprint",
-		TurnSeq:                      2,
+		TurnID:                       "guarded-1",
+		TurnSeq:                      1,
 		StatefulDeltaMutationBlocked: true,
 	})
 	if guarded.Stats.TokensSaved != 0 || guarded.Stats.ReadDeltaBlocks != 0 ||
@@ -1057,40 +1050,64 @@ func TestReduceCodexLayer0GuardedCandidateEvidenceCarriesFootprint(t *testing.T)
 	}
 	if got.OriginalTokens <= 0 || got.FinalTokens != got.OriginalTokens || got.SavedTokens != 0 ||
 		got.FootprintScore <= 0 || got.FootprintScoreBucket == "" ||
-		guarded.Stats.ReadDeltaLatencyNs != 0 || guarded.Stats.ReadDeltaAttempts != 0 {
-		t.Fatalf("guarded candidate must be cheap byte-equal footprint evidence: decision=%+v stats=%+v", got, guarded.Stats)
+		guarded.Stats.ReadDeltaAttempts != 1 || guarded.Stats.ReadDeltaMisses != 1 ||
+		len(guarded.Stats.CacheEvents) != 1 ||
+		guarded.Stats.CacheEvents[0].Mechanism != savingspolicy.CodexMechanismReadDelta ||
+		guarded.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
+		guarded.Stats.CacheEvents[0].Reason != "first_observation_seeded" {
+		t.Fatalf("guarded candidate must be byte-equal footprint evidence with observe-only seeding: decision=%+v stats=%+v", got, guarded.Stats)
+	}
+
+	unguarded := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-guarded-footprint",
+		TurnID:    "unguarded-2",
+		TurnSeq:   2,
+	})
+	if unguarded.Stats.TokensSaved <= 0 || unguarded.Stats.ReadDeltaBlocks != 1 ||
+		unguarded.Messages[1].Content[0].Text == body ||
+		!strings.Contains(unguarded.Messages[1].Content[0].Text, "kind=file-read") {
+		t.Fatalf("guarded observe-only seed should enable later unguarded read-delta savings: %+v text=%q", unguarded.Stats, unguarded.Messages[1].Content[0].Text)
 	}
 }
 
-func TestReduceCodexLayer0StatefulDeltaSkipsRepeatedOutputHotpath(t *testing.T) {
+func TestReduceCodexLayer0StatefulDeltaSeedsRepeatedOutputObserveOnly(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	body := strings.Repeat("deterministic report row with unchanged non-file data\n", 160)
 	messages := []types.Message{
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-report", ToolName: "exec_command", ToolInput: `{"cmd":"python generate_report.py"}`}}},
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-report", Text: body}}},
 	}
-	seed := reduceCodexLayer0(codexLayer0Request{
-		Messages:  messages,
-		SessionID: "sess-guarded-repeated",
-		TurnSeq:   1,
-	})
-	if seed.Stats.TokensSaved != 0 || seed.Stats.RepeatedOutputBlocks != 0 {
-		t.Fatalf("first output should seed only: %+v", seed.Stats)
-	}
 
 	guarded := reduceCodexLayer0(codexLayer0Request{
 		Messages:                     messages,
 		SessionID:                    "sess-guarded-repeated",
-		TurnSeq:                      2,
+		TurnSeq:                      1,
 		StatefulDeltaMutationBlocked: true,
 	})
 	if guarded.Stats.TokensSaved != 0 || guarded.Stats.RepeatedOutputBlocks != 0 ||
-		guarded.Stats.RepeatedOutputLatencyNs != 0 ||
 		guarded.Messages[1].Content[0].Text != body {
-		t.Fatalf("stateful delta guard must skip repeated-output hotpath and full-pass bytes: %+v", guarded.Stats)
+		t.Fatalf("stateful delta guard must full-pass repeated output bytes: %+v", guarded.Stats)
 	}
 	if !proxyLayer0EvidenceHasReason(guarded.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
 		t.Fatalf("guarded repeated output evidence missing: %+v", guarded.Stats.EvidenceDecisions)
+	}
+	if len(guarded.Stats.CacheEvents) != 1 ||
+		guarded.Stats.CacheEvents[0].Mechanism != savingspolicy.CodexMechanismRepeatedOutput ||
+		guarded.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
+		guarded.Stats.CacheEvents[0].Reason != "first_observation_seeded" {
+		t.Fatalf("stateful delta guard should observe-only seed repeated output: %+v", guarded.Stats.CacheEvents)
+	}
+
+	unguarded := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-guarded-repeated",
+		TurnSeq:   2,
+	})
+	if unguarded.Stats.TokensSaved <= 0 || unguarded.Stats.RepeatedOutputBlocks != 1 ||
+		unguarded.Messages[1].Content[0].Text == body ||
+		!strings.Contains(unguarded.Messages[1].Content[0].Text, "kind=tool-output") {
+		t.Fatalf("guarded observe-only seed should enable later repeated-output savings: %+v text=%q", unguarded.Stats, unguarded.Messages[1].Content[0].Text)
 	}
 }
 

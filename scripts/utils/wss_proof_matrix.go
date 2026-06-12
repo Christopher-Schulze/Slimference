@@ -430,11 +430,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 				capture.GateFailures = append(capture.GateFailures, replay.GateFailures...)
 			}
 			if capture.WorkloadClass == "search_loop" {
-				if replay.SearchRequestTurns+replay.SearchCapturedMutated == 0 {
-					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output request")
-				} else if replay.SearchMutatedRequests+replay.SearchCapturedMutated == 0 {
-					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output mutation")
-				}
+				searchCapMutationProof := false
 				if len(options.searchCapCandidates) > 0 {
 					searchCapProof, err := loadSearchCapProofReport(wssProofSearchCapFlags(capture.FramesPath, options))
 					if err != nil {
@@ -443,8 +439,15 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 						capture.SearchCapProof = &searchCapProof
 						if !searchCapProof.GatePassed {
 							capture.GateFailures = append(capture.GateFailures, prefixedSearchCapProofFailures("search_cap_proof", searchCapProof.GateFailures)...)
+						} else if searchCapProofShowsSearchMutation(searchCapProof) {
+							searchCapMutationProof = true
 						}
 					}
+				}
+				if replay.SearchRequestTurns+replay.SearchCapturedMutated == 0 && !searchCapMutationProof {
+					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output request")
+				} else if replay.SearchMutatedRequests+replay.SearchCapturedMutated == 0 && !searchCapMutationProof {
+					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output mutation")
 				}
 			}
 		}
@@ -549,6 +552,15 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 	report.GateFailures = wssProofMatrixGateFailures(report, requirements)
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func searchCapProofShowsSearchMutation(proof searchCapProofReport) bool {
+	return proof.GatePassed &&
+		proof.SelectedCandidate != nil &&
+		proof.DefaultReplay.SearchRequestTurns > 0 &&
+		proof.DefaultReplay.SearchMutatedRequests > 0 &&
+		proof.DefaultReplay.ToolOutputMutation &&
+		proof.DefaultReplay.DeltaToolOutputMutation
 }
 
 func sanitizeWSSProofReplayReport(report wssABReplayReport) wssABReplayReport {

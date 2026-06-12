@@ -84,13 +84,55 @@ func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryGuarded() {
 	a.mu.Unlock()
 }
 
-func (a *wsPhaseFAdapter) wssHistoryMutationRecoveryGuarded() bool {
+func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryLineage(responseID string) {
+	if a == nil || strings.TrimSpace(responseID) == "" {
+		return
+	}
+	a.mu.Lock()
+	a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryLineageLocked(responseID string) {
+	responseID = strings.TrimSpace(responseID)
+	if responseID == "" {
+		return
+	}
+	if a.historyRecoveryGuardedResponseIDs == nil {
+		a.historyRecoveryGuardedResponseIDs = make(map[string]struct{})
+	}
+	a.historyRecoveryGuardedResponseIDs[responseID] = struct{}{}
+	if len(a.historyRecoveryGuardedResponseIDs) > wssRecoveryMaxChains {
+		for id := range a.historyRecoveryGuardedResponseIDs {
+			delete(a.historyRecoveryGuardedResponseIDs, id)
+			break
+		}
+	}
+}
+
+func (a *wsPhaseFAdapter) rememberWSSHistoryRecoveryGuardRequest(guarded bool) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.pendingHistoryRecoveryGuarded = guarded
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) wssHistoryMutationRecoveryGuarded(previousResponseID string) bool {
 	if a == nil {
 		return false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.historyRecoveryGuarded
+	if a.historyRecoveryGuarded {
+		return true
+	}
+	if strings.TrimSpace(previousResponseID) == "" || len(a.historyRecoveryGuardedResponseIDs) == 0 {
+		return false
+	}
+	_, ok := a.historyRecoveryGuardedResponseIDs[previousResponseID]
+	return ok
 }
 
 func (a *wsPhaseFAdapter) markWSSHistoryStatelessMode() {
@@ -220,6 +262,9 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 			a.responseChains = make(map[string]wssResponseChain)
 		}
 		a.responseChains[responseID] = chain
+		if a.pendingHistoryRecoveryGuarded {
+			a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
+		}
 		if len(a.responseChains) > wssRecoveryMaxChains {
 			for id := range a.responseChains {
 				delete(a.responseChains, id)
@@ -227,6 +272,7 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 			}
 		}
 	}
+	a.pendingHistoryRecoveryGuarded = false
 	a.pendingOutput = nil
 	a.mu.Unlock()
 }
@@ -259,7 +305,7 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	a.activeRecovery = cloneWSSRecoveryCandidate(candidate)
 	a.recoveryAccepted = false
 	a.recoveryResponseID = ""
-	a.historyRecoveryGuarded = true
+	a.markWSSHistoryMutationRecoveryLineageLocked(candidate.PreviousResponseID)
 	a.mu.Unlock()
 
 	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, map[string]string{
@@ -308,6 +354,9 @@ func (a *wsPhaseFAdapter) observeWSSRecoveryResponse(env *wsmitm.Envelope) {
 		}
 		if env.Kind == wsmitm.FrameKindResponseCompleted {
 			succeeded = cloneWSSRecoveryCandidate(a.activeRecovery)
+			if responseID != "" {
+				a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
+			}
 			succeededFacts = map[string]string{
 				"wss.recovery.phase":          "completed",
 				"wss.recovery.terminal_frame": string(env.Kind),

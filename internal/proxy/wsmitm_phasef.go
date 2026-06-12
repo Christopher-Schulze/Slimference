@@ -34,26 +34,28 @@ import (
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu                     sync.Mutex
-	messages               []types.Message
-	repdetIndex            *repdet.Index
-	toolUses               map[string]types.ContentBlock
-	sessionID              string
-	degraded               bool
-	degradedReason         string
-	toolUseHydrated        bool
-	collapsedKeys          map[string]struct{}
-	qualityCohort          qualityab.Cohort
-	responseChains         map[string]wssResponseChain
-	pendingChain           wssResponseChain
-	pendingOutput          []json.RawMessage
-	pendingRecovery        *wssRecoveryCandidate
-	activeRecovery         *wssRecoveryCandidate
-	recoveryAccepted       bool
-	recoveryResponseID     string
-	recoveryWriter         func([]byte) error
-	historyRecoveryGuarded bool
-	historyStatelessMode   bool
+	mu                                sync.Mutex
+	messages                          []types.Message
+	repdetIndex                       *repdet.Index
+	toolUses                          map[string]types.ContentBlock
+	sessionID                         string
+	degraded                          bool
+	degradedReason                    string
+	toolUseHydrated                   bool
+	collapsedKeys                     map[string]struct{}
+	qualityCohort                     qualityab.Cohort
+	responseChains                    map[string]wssResponseChain
+	pendingChain                      wssResponseChain
+	pendingOutput                     []json.RawMessage
+	pendingRecovery                   *wssRecoveryCandidate
+	activeRecovery                    *wssRecoveryCandidate
+	recoveryAccepted                  bool
+	recoveryResponseID                string
+	recoveryWriter                    func([]byte) error
+	historyRecoveryGuarded            bool
+	historyRecoveryGuardedResponseIDs map[string]struct{}
+	pendingHistoryRecoveryGuarded     bool
+	historyStatelessMode              bool
 	// lastDecisionRequestID correlates the turn's response usage frame with
 	// the decision record written at request time (T352-A attribution).
 	lastDecisionRequestID      string
@@ -451,7 +453,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		// on full-history continuations are safe because a mutated chain enters
 		// stateless full-history continuation mode before the next tool output.
 		requestShape := wssRequestShape(meta, messages)
-		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded()
+		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded(meta.PreviousResponseID)
+		a.rememberWSSHistoryRecoveryGuardRequest(historyMutationRecoveryGuarded)
 		fullHistoryDownstreamStateMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
 		fullHistoryHistoryMutationBlocked := false
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
@@ -1445,6 +1448,7 @@ func (a *wsPhaseFAdapter) attachWSSSocketLifecycle(snap wsmitm.SessionTelemetry,
 const (
 	wssSourceToolResultFullPassMinBytes = 4096
 	wssSafeStatusToolOutputMaxBytes     = 2 * 1024 * 1024
+	wssSafeGitLogOnelineMaxCommits      = 200
 )
 
 func wssPreviousResponseUnknownToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool, toolOutputKnown bool) bool {
@@ -1513,31 +1517,111 @@ func wssToolOutputResolutionStatsWithToolUses(messages []types.Message, toolUses
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
 	commandLine := proxyLayer0CommandLine(toolUse)
-	if !wssSafeGitStatusCommand(commandLine) {
-		return false
-	}
 	payload := output
 	if _, execPayload, ok := splitCodexExecEnvelope(output); ok {
 		payload = execPayload
 	}
-	payload = strings.TrimSpace(payload)
-	if payload == "" || len(payload) > wssSafeStatusToolOutputMaxBytes {
+	trimmedPayload := strings.TrimSpace(payload)
+	if trimmedPayload == "" || len(payload) > wssSafeStatusToolOutputMaxBytes {
 		return false
 	}
-	if looksLikeSource(payload) || proxyToolResultLooksLikeSearchOutput(payload) {
+	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
+	}
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	switch {
+	case wssSafeGitStatusCommand(commandLine):
+		_, ok := filter.TryCompactGitStatus(argv, []byte(payload))
+		return ok
+	case wssSafeGitDiffStatCommand(commandLine):
+		_, ok := filter.TryCompactGitDiff(argv, []byte(payload))
+		return ok
+	case wssSafeGitLogOnelineOutput(commandLine, payload):
+		return true
+	case wssSafeWcOutput(commandLine, payload):
+		return true
+	default:
+		return false
+	}
+}
+
+func wssSafeGitStatusCommand(commandLine string) bool {
+	argv, i, ok := wssGitSubcommand(commandLine, "status")
+	if !ok {
+		return false
+	}
+	i++
+	for i < len(argv) {
+		arg := strings.ToLower(strings.TrimSpace(argv[i]))
+		switch {
+		case arg == "--short" || arg == "-s" || arg == "--porcelain" || strings.HasPrefix(arg, "--porcelain="):
+		case arg == "--branch" || arg == "-b" ||
+			arg == "--ignored" || strings.HasPrefix(arg, "--ignored=") ||
+			arg == "--renames" || arg == "--no-renames" || strings.HasPrefix(arg, "--find-renames") ||
+			arg == "--ahead-behind" || arg == "--no-ahead-behind" ||
+			strings.HasPrefix(arg, "--untracked-files="):
+		case arg == "--":
+			return true
+		case arg == "--untracked-files":
+			i++
+			if i >= len(argv) {
+				return false
+			}
+			value := strings.ToLower(strings.TrimSpace(argv[i]))
+			if value != "all" && value != "normal" && value != "no" {
+				return false
+			}
+		case strings.HasPrefix(arg, "-"):
+			return false
+		default:
+			// Pathspecs are safe here because the captured output still has to
+			// pass the strict porcelain parser before mutation is allowed.
+		}
+		i++
 	}
 	return true
 }
 
-func wssSafeGitStatusCommand(commandLine string) bool {
-	argv := strings.Fields(strings.TrimSpace(commandLine))
-	if len(argv) < 2 {
+func wssSafeGitDiffStatCommand(commandLine string) bool {
+	argv, i, ok := wssGitSubcommand(commandLine, "diff")
+	if !ok {
 		return false
+	}
+	i++
+	hasStat := false
+	for i < len(argv) {
+		arg := strings.ToLower(strings.TrimSpace(argv[i]))
+		switch {
+		case arg == "--stat" || strings.HasPrefix(arg, "--stat="):
+			hasStat = true
+		case arg == "--cached" || arg == "--staged" || arg == "--no-renames" ||
+			strings.HasPrefix(arg, "--find-renames") || strings.HasPrefix(arg, "--find-copies") ||
+			strings.HasPrefix(arg, "--diff-filter=") || arg == "--relative" || strings.HasPrefix(arg, "--relative="):
+		case arg == "--diff-filter":
+			i++
+			if i >= len(argv) {
+				return false
+			}
+		case arg == "--":
+		case strings.HasPrefix(arg, "-"):
+			return false
+		}
+		i++
+	}
+	return hasStat
+}
+
+func wssGitSubcommand(commandLine, subcommand string) ([]string, int, bool) {
+	return wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), subcommand)
+}
+
+func wssGitSubcommandFromArgv(argv []string, subcommand string) ([]string, int, bool) {
+	if len(argv) < 2 {
+		return nil, 0, false
 	}
 	bin := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(argv[0]), ".exe"))
 	if bin != "git" && !strings.HasSuffix(bin, "/git") {
-		return false
+		return nil, 0, false
 	}
 	i := 1
 	for i < len(argv) {
@@ -1555,36 +1639,125 @@ func wssSafeGitStatusCommand(commandLine string) bool {
 		}
 		break
 	}
-	if i >= len(argv) || strings.ToLower(argv[i]) != "status" {
+	if i >= len(argv) || strings.ToLower(argv[i]) != subcommand {
+		return nil, 0, false
+	}
+	return argv, i, true
+}
+
+func wssSafeGitLogOnelineOutput(commandLine, payload string) bool {
+	argv, i, ok := wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), "log")
+	if !ok {
 		return false
 	}
-	i++
-	hasCompactStatusFlag := false
-	for i < len(argv) {
+	hasOneline := false
+	maxCount := 0
+	for i++; i < len(argv); i++ {
 		arg := strings.ToLower(strings.TrimSpace(argv[i]))
 		switch {
-		case arg == "--short" || arg == "-s" || arg == "--porcelain" || strings.HasPrefix(arg, "--porcelain="):
-			hasCompactStatusFlag = true
-		case arg == "--branch" || arg == "-b" ||
-			arg == "--ignored" || strings.HasPrefix(arg, "--ignored=") ||
-			arg == "--renames" || arg == "--no-renames" || strings.HasPrefix(arg, "--find-renames") ||
-			arg == "--ahead-behind" || arg == "--no-ahead-behind" ||
-			strings.HasPrefix(arg, "--untracked-files="):
-		case arg == "--untracked-files":
+		case arg == "--":
+			i = len(argv)
+		case arg == "--oneline":
+			hasOneline = true
+		case arg == "-n" || arg == "--max-count":
 			i++
 			if i >= len(argv) {
 				return false
 			}
-			value := strings.ToLower(strings.TrimSpace(argv[i]))
-			if value != "all" && value != "normal" && value != "no" {
+			n, ok := parsePositiveBoundedInt(argv[i], wssSafeGitLogOnelineMaxCommits)
+			if !ok {
 				return false
 			}
-		default:
+			maxCount = n
+		case strings.HasPrefix(arg, "--max-count="):
+			n, ok := parsePositiveBoundedInt(strings.TrimPrefix(arg, "--max-count="), wssSafeGitLogOnelineMaxCommits)
+			if !ok {
+				return false
+			}
+			maxCount = n
+		case strings.HasPrefix(arg, "-n") && len(arg) > 2:
+			n, ok := parsePositiveBoundedInt(strings.TrimPrefix(arg, "-n"), wssSafeGitLogOnelineMaxCommits)
+			if !ok {
+				return false
+			}
+			maxCount = n
+		case strings.HasPrefix(arg, "-") && len(arg) > 1 && allASCIIDigits(arg[1:]):
+			n, ok := parsePositiveBoundedInt(arg[1:], wssSafeGitLogOnelineMaxCommits)
+			if !ok {
+				return false
+			}
+			maxCount = n
+		case strings.HasPrefix(arg, "-"):
 			return false
 		}
-		i++
 	}
-	return hasCompactStatusFlag
+	return hasOneline && maxCount > 0 && wssGitLogOnelinePayloadSafe(payload, maxCount)
+}
+
+func wssGitLogOnelinePayloadSafe(payload string, maxCount int) bool {
+	lines := strings.Split(strings.TrimSpace(payload), "\n")
+	if len(lines) == 0 || len(lines) > maxCount {
+		return false
+	}
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" {
+			return false
+		}
+		hash, subject, ok := strings.Cut(line, " ")
+		if !ok || strings.TrimSpace(subject) == "" {
+			return false
+		}
+		if len(hash) < 7 || len(hash) > 40 || !allASCIIHex(hash) {
+			return false
+		}
+	}
+	return true
+}
+
+func parsePositiveBoundedInt(raw string, maxValue int) (int, bool) {
+	if raw == "" || !allASCIIDigits(raw) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 || n > maxValue {
+		return 0, false
+	}
+	return n, true
+}
+
+func allASCIIDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func allASCIIHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func wssSafeWcOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	_, ok := filter.TryCompactWc(argv, []byte(payload))
+	return ok
 }
 
 func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {

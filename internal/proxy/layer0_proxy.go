@@ -490,6 +490,24 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if readCommand && downstreamStateGuardReason != "" {
 				if policy.ReadDelta {
+					if readDeltaAttempted {
+						stats.ReadDeltaAttempts++
+						latencyStart := time.Now()
+						_, readChanged, cacheReason, _ := compactProxyReadDeltaWithDecision(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+						stats.ReadDeltaLatencyNs += time.Since(latencyStart).Nanoseconds()
+						action := proxyLayer0CacheMiss
+						if readChanged {
+							action = proxyLayer0CacheHit
+						}
+						stats.CacheEvents = append(stats.CacheEvents, proxyLayer0CacheEvent{
+							Mechanism: savingspolicy.CodexMechanismReadDelta,
+							Action:    action,
+							Reason:    cacheReason,
+						})
+						if !readChanged {
+							stats.ReadDeltaMisses++
+						}
+					}
 					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismReadDelta, downstreamStateGuardReason))
 				}
 				if policy.ChunkDedup && chunkAllowed {
@@ -504,6 +522,18 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
 			if !readCommand && req.StatefulDeltaMutationBlocked && !statefulDeltaOutputMutationAllowed {
 				if policy.RepeatedOutput {
+					latencyStart := time.Now()
+					_, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
+					stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
+					action := proxyLayer0CacheMiss
+					if repeated {
+						action = proxyLayer0CacheHit
+					}
+					stats.CacheEvents = append(stats.CacheEvents, proxyLayer0CacheEvent{
+						Mechanism: savingspolicy.CodexMechanismRepeatedOutput,
+						Action:    action,
+						Reason:    cacheReason,
+					})
 					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismRepeatedOut, "wss_stateful_delta_mutation_proof_gate"))
 				}
 				reason := "wss_stateful_delta_mutation_proof_gate"

@@ -3812,6 +3812,72 @@ func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFRecoveryGuardScopesToResponseLineage(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	adapter.markWSSHistoryMutationRecoveryLineage("resp-recovered")
+
+	buildBody := func(previousResponseID, cacheKey string) []byte {
+		return mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     cacheKey,
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+				{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+				{"type": "function_call", "call_id": "call_y_old", "name": "Read", "arguments": map[string]any{"path": "src/y.go"}},
+				{"type": "function_call_output", "call_id": "call_y_old", "output": strings.Repeat("obsolete y content ", 80)},
+				{"type": "message", "role": "user", "content": "filler one"},
+				{"type": "message", "role": "user", "content": "filler two"},
+				{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+				{"type": "function_call", "call_id": "call_y_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/y.go", "patch": "@@ ..."}},
+				{"type": "function_call_output", "call_id": "call_y_edit", "output": "patch applied"},
+			},
+			"stream": true,
+		})
+	}
+
+	guardedBody := buildBody("resp-recovered", "history-recovery-lineage-guarded")
+	guarded, _, guardedChanged, guardedStats, _, guardedMeta, _ := adapter.applyInputPipelineDetailed(guardedBody)
+	if guardedChanged || !bytes.Equal(guarded, guardedBody) {
+		t.Fatalf("recovery-lineage full-history mutation must stay guarded: changed=%v body=%s", guardedChanged, guarded)
+	}
+	if guardedStats.TokensSaved != 0 || guardedMeta.DebugFacts["wss.history_mutation_recovery_guard"] != "true" {
+		t.Fatalf("recovery-lineage guard missing: stats=%+v facts=%+v", guardedStats, guardedMeta.DebugFacts)
+	}
+	adapter.mu.Lock()
+	adapter.pendingChain = wssResponseChain{json.RawMessage(`{"type":"message","role":"user","content":"lineage"}`)}
+	adapter.pendingHistoryRecoveryGuarded = true
+	adapter.mu.Unlock()
+	childResponse := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-recovered-child", "output": []any{}},
+	})
+	adapter.rememberWSSResponseState(&childResponse)
+	if !adapter.wssHistoryMutationRecoveryGuarded("resp-recovered-child") {
+		t.Fatal("guarded recovery request should propagate guard to child response id")
+	}
+
+	unrelatedBody := buildBody("resp-unrelated", "history-recovery-lineage-unrelated")
+	unrelated, _, unrelatedChanged, unrelatedStats, _, unrelatedMeta, _ := adapter.applyInputPipelineDetailed(unrelatedBody)
+	if !unrelatedChanged || bytes.Equal(unrelated, unrelatedBody) {
+		t.Fatalf("unrelated full-history request should keep history savings: changed=%v body=%s", unrelatedChanged, unrelated)
+	}
+	if unrelatedStats.TokensSaved <= 0 || unrelatedMeta.DebugFacts["wss.history_mutation_recovery_guard"] == "true" {
+		t.Fatalf("unrelated request should not inherit recovery guard: stats=%+v facts=%+v", unrelatedStats, unrelatedMeta.DebugFacts)
+	}
+}
+
 func TestWSPhaseFHistoryDetachMakesFollowingDeltaStatelessFullHistory(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

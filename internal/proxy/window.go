@@ -158,6 +158,26 @@ func windowBlockFilePath(block types.ContentBlock) string {
 	if input == "" {
 		return ""
 	}
+	if path, parsed := structuredWindowBlockFilePath(input); parsed {
+		return path
+	}
+	return scanWindowBlockFilePath(input)
+}
+
+func structuredWindowBlockFilePath(input string) (string, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &fields); err != nil {
+		return "", false
+	}
+	for _, key := range []string{"path", "file_path", "filename", "filepath", "file"} {
+		if path := strings.TrimSpace(rawJSONString(fields[key])); path != "" {
+			return path, true
+		}
+	}
+	return "", true
+}
+
+func scanWindowBlockFilePath(input string) string {
 	for _, key := range []string{`"path"`, `"file_path"`, `"filename"`, `"filepath"`, `"file"`} {
 		idx := strings.Index(input, key)
 		if idx < 0 {

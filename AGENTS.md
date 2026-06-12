@@ -92,6 +92,38 @@ routing instability, or any other savings-related failure:
   `slimference status --preflight`, then commit and push unless the user
   explicitly says not to push.
 
+### 3.2 Local Savings Non-Regression (Binding)
+
+Provider-cache savings are valuable but must never hide a local input-savings
+regression. Reports, plans, guards, and reviews must treat local input
+reduction (`S_local`, excluding provider-cache discount) as a first-class
+product metric alongside combined billable savings.
+
+The owner target is **>=48% local input reduction on longer eligible Codex
+sessions without counting provider-cache discount** while preserving the
+drawdown definition above. Until that target is live-proven or a specific
+route/protocol ceiling is proven impossible, agents must keep searching for and
+shipping default-on-safe local savings. A guard that prevents a real drawdown is
+correct, but it must be the narrowest possible guard and must preserve
+observation, cache seeding, telemetry, and future safe savings wherever those
+actions do not mutate model-visible or upstream-visible bytes.
+
+When changing any savings-related path:
+
+- Separate `S_local`, provider-cache discount, output savings, and combined
+  savings. Do not use provider-cache wins to declare a local-savings goal met.
+- Treat avoidable local-savings loss as a regression even when combined savings
+  remain high due to provider caching.
+- Prefer byte-equal observe-only learning over disabling a mechanism entirely
+  whenever observation cannot affect model behavior, upstream state, routing,
+  cache prefix bytes, or product latency in normal operation.
+- Any new guard or widened guard must name the exact drawdown vector it prevents
+  and the exact evidence proving that vector exists. Guards without a proven
+  vector are handbrakes and must be removed or narrowed.
+- Tests for guarded paths must prove both sides: forbidden mutation stays
+  byte-equal, and safe observation/telemetry/seeding still happens when it can
+  recover future local savings without drawdown.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for

@@ -407,6 +407,71 @@ func TestWSSProofMatrixSearchCapProofGate(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixSearchCapProofSatisfiesDeltaSearchMutationGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofSearchDeltaFrames(t, framesPath, "matrix-search-cap-delta")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "matrix-search-cap-delta",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set("8:6"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta:            true,
+		requiredWorkloads:                []string{"search_loop"},
+		searchCapCandidates:              []searchCapProfileCandidate(candidates),
+		searchCapMinCandidateRetainedPct: 40,
+		searchCapMinSearchOutputs:        1,
+		minCaptures:                      1,
+		minCLI:                           1,
+		minPositive:                      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := report.CaptureReports[0]
+	if capture.Replay.SearchMutatedRequests != 0 {
+		t.Fatalf("fixture should exercise search-cap proof, not baseline search mutation: %+v", capture.Replay)
+	}
+	if !report.GatePassed || capture.SearchCapProof == nil || !capture.SearchCapProof.GatePassed {
+		t.Fatalf("search-cap proof should satisfy delta search mutation gate: %+v", report)
+	}
+	if strings.Contains(strings.Join(capture.GateFailures, "\n"), "named search-output mutation") {
+		t.Fatalf("search-cap proof should suppress baseline mutation failure: %+v", capture.GateFailures)
+	}
+}
+
+func writeProofSearchDeltaFrames(t *testing.T, path, session string) {
+	t.Helper()
+	callID := session + "-search-1"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": `{"cmd":"rg -n needle src"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(
+			callID,
+			session,
+			session+"-previous-response",
+			wssABReplaySearchOutputFixture("needle", 96),
+		)),
+	)
+}
+
 func TestWSSProofMatrixSearchCapDefaultsFailClosed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

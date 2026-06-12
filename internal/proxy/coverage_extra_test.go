@@ -259,6 +259,12 @@ func TestWindowComplexityHelpers(t *testing.T) {
 	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `{"path":123}`}); path != "" {
 		t.Fatalf("malformed path parse = %q", path)
 	}
+	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `{"cmd":"rg \"path\":\"config/app.yaml\" internal"}`}); path != "" {
+		t.Fatalf("structured parser must ignore path-looking strings inside command values: %q", path)
+	}
+	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `legacy "path": "config/app.toml"`}); path != "config/app.toml" {
+		t.Fatalf("legacy scanner fallback path = %q", path)
+	}
 	if text := messageText(messages[1]); !strings.Contains(text, "fatal config error") {
 		t.Fatalf("message text = %q", text)
 	}

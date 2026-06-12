@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -392,6 +393,39 @@ index 111222..333444 100644
 	}
 	if len(s) >= len(input) {
 		t.Errorf("expected shorter output: got %d vs input %d", len(s), len(input))
+	}
+}
+
+func TestTryCompactGitDiffStat(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	for i := 0; i < 40; i++ {
+		input.WriteString(" internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(strings.Repeat("x", 12))
+		input.WriteString(fmt.Sprintf("_%02d.go | %d +++++-----\n", i, i+1))
+	}
+	input.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+
+	out, ok := TryCompactGitDiff([]string{"git", "diff", "--stat"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git diff --stat compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git diff --stat] 40 file(s)") ||
+		!strings.Contains(s, "[prefix=internal/proxy/generated/very/deep/path/]") ||
+		!strings.Contains(s, "file_xxxxxxxxxxxx_39.go | 40 +++++-----") ||
+		!strings.Contains(s, "summary: 40 files changed, 820 insertions(+), 410 deletions(-)") {
+		t.Fatalf("diffstat compact output lost evidence: %q", s)
+	}
+	if strings.Contains(s, "internal/proxy/generated/very/deep/path/file_xxxxxxxxxxxx_39.go") {
+		t.Fatalf("common prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter diffstat output: got %d input %d", len(s), input.Len())
+	}
+
+	if _, ok := TryCompactGitDiff([]string{"git", "diff", "--stat"}, []byte("warning\n file.go | 2 ++\n")); ok {
+		t.Fatal("unparseable diffstat prelude must fail open")
 	}
 }
 
