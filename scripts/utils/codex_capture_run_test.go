@@ -1011,8 +1011,8 @@ func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capture.jsonl")
 	data := strings.Join([]string{
 		`{"direction":"c2s","payload":{"type":"response.create","instructions":"base"}}`,
-		`{"direction":"s2c","payload":{"type":"response.completed","response":{"usage":{"output_tokens":42}}}}`,
-		`{"direction":"server_to_client","payload":"{\"usage\":{\"completion_tokens\":7}}"}`,
+		`{"direction":"s2c","payload":{"type":"response.completed","response":{"usage":{"input_tokens":1200,"output_tokens":42}}}}`,
+		`{"direction":"server_to_client","payload":"{\"usage\":{\"prompt_tokens\":300,\"completion_tokens\":7}}"}`,
 		`{"direction":"s2c","payload":{"type":"response.created","response":{"instructions":"base\n\n#slimference-output-rules\nAnswer directly."}}}`,
 		"",
 	}, "\n")
@@ -1026,12 +1026,15 @@ func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {
 	if live.ProviderOutputTokens != 49 {
 		t.Fatalf("ProviderOutputTokens = %d, want wire usage total", live.ProviderOutputTokens)
 	}
+	if live.ProviderInputTokens != 1500 {
+		t.Fatalf("ProviderInputTokens = %d, want wire usage total", live.ProviderInputTokens)
+	}
 	if failures := validateCodexCaptureExpectedReducers([]string{"output_reduce_injected"}, live); len(failures) != 0 {
 		t.Fatalf("wire evidence should satisfy output reduce reducer: %v", failures)
 	}
 
-	live = augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{OutputReduceInjected: 3, ProviderOutputTokens: 11})
-	if live.OutputReduceInjected != 3 || live.ProviderOutputTokens != 11 {
+	live = augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{OutputReduceInjected: 3, ProviderInputTokens: 22, ProviderOutputTokens: 11})
+	if live.OutputReduceInjected != 3 || live.ProviderInputTokens != 22 || live.ProviderOutputTokens != 11 {
 		t.Fatalf("existing live counters overwritten: %+v", live)
 	}
 }

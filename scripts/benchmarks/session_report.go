@@ -114,11 +114,12 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		agg.savedTokens += int64(rec.Tokens.Saved)
 		agg.layer0Saved += positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0)
 		agg.layer1Saved += positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1)
-		agg.layer2Saved += int64(rec.CacheReadTokens + rec.ProviderCachedTokens)
+		cacheReadTokens := requestProviderCacheReadTotal(rec)
+		agg.layer2Saved += int64(cacheReadTokens)
 		if rec.CacheHit {
 			agg.cacheHits++
 		}
-		agg.cacheReadSum += int64(rec.CacheReadTokens)
+		agg.cacheReadSum += int64(cacheReadTokens)
 		agg.cacheCreateSum += int64(rec.CacheCreateTokens)
 		agg.providerCachedSum += int64(rec.ProviderCachedTokens)
 		outputTokens := rec.OutputTokens
@@ -199,6 +200,21 @@ func positiveDelta(before, after int) int64 {
 		return 0
 	}
 	return int64(before - after)
+}
+
+func requestProviderCacheReadTotal(rec dbg.RequestSummary) int {
+	if rec.CacheReadTokens <= 0 {
+		return rec.ProviderCachedTokens
+	}
+	if rec.ProviderCachedTokens <= 0 {
+		return rec.CacheReadTokens
+	}
+	provider := strings.ToLower(strings.TrimSpace(rec.Provider))
+	if (strings.Contains(provider, "openai") || strings.Contains(provider, "codex")) &&
+		rec.CacheReadTokens == rec.ProviderCachedTokens {
+		return rec.ProviderCachedTokens
+	}
+	return rec.CacheReadTokens + rec.ProviderCachedTokens
 }
 
 func rawStringField(raw map[string]json.RawMessage, key string) string {

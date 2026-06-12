@@ -166,6 +166,7 @@ type codexCaptureLiveDelta struct {
 	RequestSideBytesReduced   int64 `json:"request_side_bytes_reduced"`
 	ProviderCacheReadTokens   int64 `json:"provider_cache_read_tokens"`
 	ProviderCacheCreateTokens int64 `json:"provider_cache_create_tokens"`
+	ProviderInputTokens       int64 `json:"provider_input_tokens_observed,omitempty"`
 	ProviderOutputTokens      int64 `json:"provider_output_tokens_observed,omitempty"`
 
 	PhasefBridged             int64 `json:"phasef_bridged"`
@@ -480,8 +481,12 @@ func augmentCodexCaptureLiveDeltaFromWire(path string, live *codexCaptureLiveDel
 	if live == nil {
 		return live
 	}
+	usage := codexCaptureWireTokenUsageObserved(path)
+	if live.ProviderInputTokens == 0 {
+		live.ProviderInputTokens = usage.InputTokens
+	}
 	if live.ProviderOutputTokens == 0 {
-		live.ProviderOutputTokens = codexCaptureWireOutputTokensObserved(path)
+		live.ProviderOutputTokens = usage.OutputTokens
 	}
 	if live.OutputReduceInjected == 0 && codexCaptureWireHasOutputReduceMarker(path, outputreduce.DefaultMarker) {
 		live.OutputReduceInjected = 1
@@ -490,16 +495,25 @@ func augmentCodexCaptureLiveDeltaFromWire(path string, live *codexCaptureLiveDel
 }
 
 func codexCaptureWireOutputTokensObserved(path string) int64 {
+	return codexCaptureWireTokenUsageObserved(path).OutputTokens
+}
+
+type codexCaptureWireUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+}
+
+func codexCaptureWireTokenUsageObserved(path string) codexCaptureWireUsage {
 	if strings.TrimSpace(path) == "" {
-		return 0
+		return codexCaptureWireUsage{}
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return 0
+		return codexCaptureWireUsage{}
 	}
 	defer f.Close()
 	dec := json.NewDecoder(f)
-	var total int64
+	var total codexCaptureWireUsage
 	for {
 		var frame struct {
 			Direction string          `json:"direction"`
@@ -514,7 +528,9 @@ func codexCaptureWireOutputTokensObserved(path string) int64 {
 		if !codexCaptureFrameFromServer(frame.Direction) {
 			continue
 		}
-		total += codexCapturePayloadOutputTokens(frame.Payload)
+		usage := codexCapturePayloadTokenUsage(frame.Payload)
+		total.InputTokens += usage.InputTokens
+		total.OutputTokens += usage.OutputTokens
 	}
 }
 
@@ -524,14 +540,18 @@ func codexCaptureFrameFromServer(direction string) bool {
 }
 
 func codexCapturePayloadOutputTokens(payload json.RawMessage) int64 {
+	return codexCapturePayloadTokenUsage(payload).OutputTokens
+}
+
+func codexCapturePayloadTokenUsage(payload json.RawMessage) codexCaptureWireUsage {
 	payload = bytes.TrimSpace(payload)
 	if len(payload) == 0 {
-		return 0
+		return codexCaptureWireUsage{}
 	}
 	if payload[0] == '"' {
 		var encoded string
 		if err := json.Unmarshal(payload, &encoded); err != nil {
-			return 0
+			return codexCaptureWireUsage{}
 		}
 		payload = []byte(encoded)
 	}
@@ -542,21 +562,29 @@ func codexCapturePayloadOutputTokens(payload json.RawMessage) int64 {
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(payload, &env); err != nil {
-		return 0
+		return codexCaptureWireUsage{}
 	}
-	var out int64
+	var usage codexCaptureWireUsage
 	if env.Usage != nil {
-		out = maxInt64(out, env.Usage.outputTokens())
+		usage.InputTokens = maxInt64(usage.InputTokens, env.Usage.inputTokens())
+		usage.OutputTokens = maxInt64(usage.OutputTokens, env.Usage.outputTokens())
 	}
 	if env.Response != nil && env.Response.Usage != nil {
-		out = maxInt64(out, env.Response.Usage.outputTokens())
+		usage.InputTokens = maxInt64(usage.InputTokens, env.Response.Usage.inputTokens())
+		usage.OutputTokens = maxInt64(usage.OutputTokens, env.Response.Usage.outputTokens())
 	}
-	return out
+	return usage
 }
 
 type codexCaptureUsageFields struct {
+	InputTokens      int64 `json:"input_tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
 	OutputTokens     int64 `json:"output_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
+}
+
+func (u codexCaptureUsageFields) inputTokens() int64 {
+	return maxInt64(u.InputTokens, u.PromptTokens)
 }
 
 func (u codexCaptureUsageFields) outputTokens() int64 {
@@ -1993,6 +2021,7 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
 		fmt.Fprintf(w, "  provider_cache_read/create:  %d / %d\n",
 			result.LiveDelta.ProviderCacheReadTokens, result.LiveDelta.ProviderCacheCreateTokens)
+		fmt.Fprintf(w, "  provider_input_tokens:       %d\n", result.LiveDelta.ProviderInputTokens)
 		fmt.Fprintf(w, "  provider_output_tokens:      %d\n", result.LiveDelta.ProviderOutputTokens)
 		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
 			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,

@@ -107,16 +107,19 @@ type CategoryResult struct {
 
 // CorpusReport is the aggregate of all categories.
 type CorpusReport struct {
-	Root               string               `json:"root"`
-	Categories         []CategoryResult     `json:"categories"`
-	TotalRequests      int                  `json:"total_requests"`
-	OverallRatio       float64              `json:"overall_savings_ratio"`
-	HasSynthetic       bool                 `json:"has_synthetic"`
-	HasReal            bool                 `json:"has_real"`
-	PromotionGate      *PromotionGateReport `json:"promotion_gate,omitempty"`
-	MaxxGate           *MaxxGateReport      `json:"maxx_gate,omitempty"`
-	SessionsByClient   map[string]int       `json:"sessions_by_client,omitempty"`
-	SessionsByWorkload map[string]int       `json:"sessions_by_workload,omitempty"`
+	Root                         string               `json:"root"`
+	Categories                   []CategoryResult     `json:"categories"`
+	TotalRequests                int                  `json:"total_requests"`
+	OverallRatio                 float64              `json:"overall_savings_ratio"`
+	RealCurrentLocalOrigTokens   int64                `json:"real_current_local_orig_tokens"`
+	RealCurrentLocalSavedTokens  int64                `json:"real_current_local_saved_tokens"`
+	RealCurrentLocalSavingsRatio float64              `json:"real_current_local_savings_ratio"`
+	HasSynthetic                 bool                 `json:"has_synthetic"`
+	HasReal                      bool                 `json:"has_real"`
+	PromotionGate                *PromotionGateReport `json:"promotion_gate,omitempty"`
+	MaxxGate                     *MaxxGateReport      `json:"maxx_gate,omitempty"`
+	SessionsByClient             map[string]int       `json:"sessions_by_client,omitempty"`
+	SessionsByWorkload           map[string]int       `json:"sessions_by_workload,omitempty"`
 }
 
 // PromotionGateReport is the release/default-promotion verdict. It is separate
@@ -715,6 +718,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 			totalOrig += res.OrigTokens
 			totalSaved += res.SavedTokens
 		}
+		if categoryCountsTowardRealCurrentLocalRatio(res) {
+			report.RealCurrentLocalOrigTokens += res.OrigTokens
+			report.RealCurrentLocalSavedTokens += res.SavedTokens
+		}
 		if res.Synthetic {
 			report.HasSynthetic = true
 		} else {
@@ -730,7 +737,22 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 	if totalOrig > 0 {
 		report.OverallRatio = float64(totalSaved) / float64(totalOrig)
 	}
+	if report.RealCurrentLocalOrigTokens > 0 {
+		report.RealCurrentLocalSavingsRatio = float64(report.RealCurrentLocalSavedTokens) / float64(report.RealCurrentLocalOrigTokens)
+	}
 	return report, nil
+}
+
+func categoryCountsTowardRealCurrentLocalRatio(res CategoryResult) bool {
+	if res.Synthetic || !res.CurrentProductPath || res.OrigTokens <= 0 || res.SavedTokens <= 0 {
+		return false
+	}
+	switch strings.TrimSpace(res.WorkloadClass) {
+	case "provider_cache_long_session", "output_reduce_aggressive", "output_reduce_ab":
+		return false
+	default:
+		return true
+	}
 }
 
 // FormatCorpusReport renders the corpus report as a monospaced block.
@@ -834,6 +856,10 @@ func FormatCorpusReport(report CorpusReport) string {
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Total requests: %d\n", report.TotalRequests))
 	sb.WriteString(fmt.Sprintf("Overall ratio:  %.2f%% (known denominators only)\n", report.OverallRatio*100))
+	if report.RealCurrentLocalOrigTokens > 0 {
+		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (current product, provider-cache excluded, known denominators only)\n",
+			report.RealCurrentLocalSavingsRatio*100))
+	}
 	if report.PromotionGate != nil {
 		sb.WriteString("\nPromotion gate\n")
 		if report.PromotionGate.Passed {

@@ -15,12 +15,22 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	framesSearchPath := filepath.Join(dir, "frames-search.jsonl")
+	writeJSONLFile(t, framesSearchPath, map[string]any{
+		"direction": "server_to_client",
+		"payload": map[string]any{
+			"type": "response.completed",
+			"response": map[string]any{
+				"usage": map[string]any{"input_tokens": 2100, "output_tokens": 33},
+			},
+		},
+	})
 	writeJSONLFile(t, matrixPath,
 		wssProofMatrixRecord{
 			ID:            "desktop-search",
 			Client:        "desktop",
 			WorkloadClass: "search_loop",
-			FramesPath:    filepath.Join(dir, "frames-search.jsonl"),
+			FramesPath:    framesSearchPath,
 			Model:         "gpt-5.5",
 			LiveDelta: &codexCaptureLiveDelta{
 				BillableInputTokensSaved: 900,
@@ -154,7 +164,7 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	}
 
 	rec := readFirstExportSummary(t, filepath.Join(root, "cli_provider_cache_long_session", "session_wss_proof_export_001.jsonl"))
-	if rec.CacheReadTokens != 3456 || rec.ProviderCachedTokens != 3456 ||
+	if rec.CacheReadTokens != 0 || rec.ProviderCachedTokens != 3456 ||
 		rec.Tokens.Original != 0 || rec.Tokens.Final != 0 ||
 		rec.Tokens.Saved != 3456 || rec.Provider != "codex_chatgpt" ||
 		rec.Source != "wss-proof-export" {
@@ -166,6 +176,12 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 		toolRec.Tokens.Saved != 26 {
 		t.Fatalf("bad tool-heavy summary: %+v", toolRec)
 	}
+	searchRec := readFirstExportSummary(t, filepath.Join(root, "desktop_search_loop", "session_wss_proof_export_001.jsonl"))
+	if searchRec.ProviderInputTokens != 2100 || searchRec.ProviderOutputTokens != 33 ||
+		searchRec.Tokens.Original != 3000 || searchRec.Tokens.Final != 2100 ||
+		searchRec.Tokens.Saved != 900 {
+		t.Fatalf("bad search summary denominator: %+v", searchRec)
+	}
 
 	outputMeta := readExportMetadata(t, filepath.Join(root, "cli_output_reduce_aggressive", "metadata.json"))
 	if outputMeta.ExpectedOutputReduceAppliedMin != 1 || outputMeta.ExpectedOutputReduceOverheadMax != 7 ||
@@ -176,6 +192,115 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	outputRec := readFirstExportSummary(t, filepath.Join(root, "cli_output_reduce_aggressive", "session_wss_proof_export_001.jsonl"))
 	if !outputRec.OutputReduce.Applied || outputRec.OutputReduce.AddedTokens != 7 || outputRec.OutputTokens != 42 {
 		t.Fatalf("bad output-reduce summary: %+v", outputRec)
+	}
+}
+
+func TestWSSProofExportCorpusRefreshesExistingRowsWithWireDenominators(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "corpus")
+	categoryDir := filepath.Join(root, "cli_search_loop")
+	if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := wssProofCorpusSummary{RequestSummary: dbg.RequestSummary{
+		RequestID:    "same-search",
+		Source:       "wss-proof-export",
+		Provider:     "codex_chatgpt",
+		ClientFamily: "codex_cli",
+		RouteMode:    "wss_phasef",
+		Tokens:       dbg.TokenCounts{Saved: 400},
+	}}
+	writeJSONLFile(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"), existing)
+	writeJSONLFile(t, filepath.Join(categoryDir, "session_wss_proof_export_002.jsonl"), existing)
+
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, framesPath, map[string]any{
+		"direction": "server_to_client",
+		"payload": map[string]any{
+			"response": map[string]any{
+				"usage": map[string]any{"input_tokens": 600},
+			},
+		},
+	})
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "same-search",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 400,
+			ProxyLayer0Captured:      1,
+			HostBudgetStatus:         "ok",
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	report, err := exportWSSProofCorpus(matrixPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsExported != 1 || report.CategoriesWritten != 1 {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	rec := readFirstExportSummary(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"))
+	if rec.Tokens.Original != 1000 || rec.Tokens.Final != 600 || rec.ProviderInputTokens != 600 {
+		t.Fatalf("existing row was not refreshed with denominator: %+v", rec)
+	}
+	second := readFirstExportSummary(t, filepath.Join(categoryDir, "session_wss_proof_export_002.jsonl"))
+	if second.RequestID != "same-search" || second.Tokens.Original != 1000 || second.ProviderInputTokens != 600 {
+		t.Fatalf("duplicate proof row was not preserved and refreshed: %+v", second)
+	}
+}
+
+func TestWSSProofExportCorpusRefreshesDoubleCountedProviderCacheRows(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "corpus")
+	categoryDir := filepath.Join(root, "cli_provider_cache_long_session")
+	if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := wssProofCorpusSummary{RequestSummary: dbg.RequestSummary{
+		RequestID:            "same-provider-cache",
+		Source:               "wss-proof-export",
+		Provider:             "codex_chatgpt",
+		ClientFamily:         "codex_cli",
+		RouteMode:            "wss_phasef",
+		CacheReadTokens:      3456,
+		ProviderCachedTokens: 3456,
+		Tokens:               dbg.TokenCounts{Saved: 3456},
+	}}
+	writeJSONLFile(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"), existing)
+
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "same-provider-cache",
+		Client:        "cli",
+		WorkloadClass: "provider_cache_long_session",
+		FramesPath:    filepath.Join(dir, "frames-provider.jsonl"),
+		LiveDelta: &codexCaptureLiveDelta{
+			ProviderCacheReadTokens: 3456,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		},
+	})
+
+	report, err := exportWSSProofCorpus(matrixPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsExported != 1 || report.CategoriesWritten != 1 {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	rec := readFirstExportSummary(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"))
+	if rec.CacheReadTokens != 0 || rec.ProviderCachedTokens != 3456 || rec.Tokens.Saved != 3456 {
+		t.Fatalf("double-counted provider cache row was not refreshed: %+v", rec)
+	}
+	meta := readExportMetadata(t, filepath.Join(categoryDir, "metadata.json"))
+	if meta.ExpectedProviderCacheReadMin != 3456 || meta.ExpectedSavedTokensMin != 0 {
+		t.Fatalf("bad provider-cache metadata after refresh: %+v", meta)
 	}
 }
 
