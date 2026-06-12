@@ -12,6 +12,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/abharness"
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
@@ -24,6 +25,13 @@ type WSSABReplayFrame struct {
 	Direction wsmitm.Direction
 	Payload   []byte
 	Mutated   bool
+}
+
+// WSSABReplayOptions contains proof-only controls for offline replay. These
+// options are not product configuration and are intentionally unreachable from
+// the normal WSS runtime path.
+type WSSABReplayOptions struct {
+	UniformChunkDedupBudget bool
 }
 
 // WSSABReplayResult is the offline comprehension report plus basic reducer
@@ -70,16 +78,19 @@ type WSSABReplaySearchStats struct {
 // while these counters describe the model-facing compressed request sent by the
 // reducer.
 type WSSABReplayReducerStats struct {
-	TokensSaved          int
-	BlocksModified       int
-	ReadDeltaBlocks      int
-	RepeatedOutputBlocks int
-	ChunkDedupBlocks     int
-	CapturedOutputBlocks int
-	CodexEnvelopeBlocks  int
-	ChunkDedupReferences int
-	ChunkDedupRefBytes   int
-	ChunkDedupInputBytes int
+	TokensSaved                   int
+	BlocksModified                int
+	ReadDeltaBlocks               int
+	RepeatedOutputBlocks          int
+	ChunkDedupBlocks              int
+	CapturedOutputBlocks          int
+	CodexEnvelopeBlocks           int
+	ChunkDedupReferences          int
+	ChunkDedupRefBytes            int
+	ChunkDedupInputBytes          int
+	CompoundedEstimateTokens      int
+	FootprintAppliedDecisions     int
+	HighFootprintAppliedDecisions int
 }
 
 // RunWSSPhaseFABReplay runs the real Codex WSS Phase-F reducer against a frame
@@ -87,6 +98,12 @@ type WSSABReplayReducerStats struct {
 // direct forwarding. It is the T249 bridge between the reducer and the offline
 // comprehension harness.
 func RunWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABReplayResult, error) {
+	return RunWSSPhaseFABReplayWithOptions(cfg, frames, WSSABReplayOptions{})
+}
+
+// RunWSSPhaseFABReplayWithOptions is the same replay harness with explicit
+// proof-only control options.
+func RunWSSPhaseFABReplayWithOptions(cfg *config.Config, frames []WSSABReplayFrame, options WSSABReplayOptions) (WSSABReplayResult, error) {
 	home, err := os.MkdirTemp("", "slimference-wss-ab-replay-*")
 	if err != nil {
 		return WSSABReplayResult{}, fmt.Errorf("create isolated replay home: %w", err)
@@ -100,16 +117,17 @@ func RunWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABR
 		proxyUserHomeDir = oldHome
 		wssABReplayHomeMu.Unlock()
 	}()
-	return runWSSPhaseFABReplay(cfg, frames, contentarchive.DefaultDir(home))
+	return runWSSPhaseFABReplay(cfg, frames, contentarchive.DefaultDir(home), options)
 }
 
 var wssABReplayHomeMu sync.Mutex
 
-func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archiveDir string) (WSSABReplayResult, error) {
+func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archiveDir string, options WSSABReplayOptions) (WSSABReplayResult, error) {
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
 	p := New(cfg)
+	p.wssABReplayUniformChunkBudget = options.UniformChunkDedupBudget
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	turns := make([]abharness.Turn, 0, len(frames))
 	out := WSSABReplayResult{}
@@ -339,6 +357,16 @@ func (s *WSSABReplayReducerStats) add(stats proxyLayer0Stats) {
 	s.ChunkDedupReferences += stats.ChunkDedupReferences
 	s.ChunkDedupRefBytes += stats.ChunkDedupRefBytes
 	s.ChunkDedupInputBytes += stats.ChunkDedupInputBytes
+	for _, decision := range stats.EvidenceDecisions {
+		if decision.Action != evidence.ActionApplied || decision.SavedTokens <= 0 || decision.FootprintScore <= 0 {
+			continue
+		}
+		s.CompoundedEstimateTokens += decision.FootprintScore
+		s.FootprintAppliedDecisions++
+		if decision.FootprintScoreBucket == "high" {
+			s.HighFootprintAppliedDecisions++
+		}
+	}
 }
 
 func rememberReplayRequestState(adapter *wsPhaseFAdapter, messages []types.Message) {

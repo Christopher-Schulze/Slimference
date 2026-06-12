@@ -166,12 +166,13 @@ type Proxy struct {
 	codexLayer0LatencyStrikes  atomic.Int64
 	// codexLayer0LatencyLastBreach holds the unixnano of the last breach (or
 	// rate-limited dead-zone decay) so strikes can decay when breaches stop.
-	codexLayer0LatencyLastBreach atomic.Int64
-	resourceWindowMu             sync.Mutex
-	lastResourceSample           hostmetrics.ProcessSnapshot
-	lastResourceSampleAt         time.Time
-	codexFootprintMu             sync.Mutex
-	codexFootprintByFamily       map[string]codexFootprintEstimate
+	codexLayer0LatencyLastBreach  atomic.Int64
+	resourceWindowMu              sync.Mutex
+	lastResourceSample            hostmetrics.ProcessSnapshot
+	lastResourceSampleAt          time.Time
+	codexFootprintMu              sync.Mutex
+	codexFootprintByFamily        map[string]codexFootprintEstimate
+	wssABReplayUniformChunkBudget bool
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the

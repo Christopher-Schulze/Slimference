@@ -26,54 +26,73 @@ type wssABReplayFlags struct {
 	deltaToolOutputMutationLab bool
 	codexChunkDedup            bool
 	chunkDedupMinBytes         int
+	chunkDedupMaxSessionRefPct int
 	searchCapFiles             int
 	searchCapMatches           int
+	uniformChunkBudgetControl  bool
+	requireCompoundImprovement bool
 	help                       bool
 }
 
+type wssABReplayUniformControlReport struct {
+	ReducerTokensSaved            int  `json:"reducer_tokens_saved"`
+	CompoundedEstimateTokens      int  `json:"compounded_estimate_tokens"`
+	FootprintAppliedDecisions     int  `json:"footprint_applied_decisions"`
+	HighFootprintAppliedDecisions int  `json:"high_footprint_applied_decisions"`
+	Lost                          int  `json:"lost"`
+	DeltaReducerTokensSaved       int  `json:"delta_reducer_tokens_saved"`
+	DeltaCompoundedEstimate       int  `json:"delta_compounded_estimate_tokens"`
+	DeltaHighFootprintApplied     int  `json:"delta_high_footprint_applied_decisions"`
+	Improved                      bool `json:"improved"`
+}
+
 type wssABReplayReport struct {
-	Path                       string              `json:"path"`
-	Frames                     int                 `json:"frames"`
-	RequestTurns               int                 `json:"request_turns"`
-	MutatedRequests            int                 `json:"mutated_requests"`
-	CapturedMutatedRequests    int                 `json:"captured_mutated_requests,omitempty"`
-	RequestShapes              replayShapeCounts   `json:"request_shapes"`
-	MutatedShapes              replayShapeCounts   `json:"mutated_shapes"`
-	CapturedMutatedShapes      replayShapeCounts   `json:"captured_mutated_shapes,omitempty"`
-	BytesBefore                int                 `json:"bytes_before"`
-	BytesAfter                 int                 `json:"bytes_after"`
-	BytesSaved                 int                 `json:"bytes_saved"`
-	ReducerTokensSaved         int                 `json:"reducer_tokens_saved"`
-	ReducerBlocksModified      int                 `json:"reducer_blocks_modified"`
-	ReducerReadDeltaBlocks     int                 `json:"reducer_read_delta_blocks"`
-	ReducerRepeatedBlocks      int                 `json:"reducer_repeated_output_blocks"`
-	ReducerChunkBlocks         int                 `json:"reducer_chunk_dedup_blocks"`
-	ReducerCapturedBlocks      int                 `json:"reducer_captured_output_blocks"`
-	ReducerEnvelopeBlocks      int                 `json:"reducer_codex_envelope_blocks"`
-	ReducerChunkRefs           int                 `json:"reducer_chunk_dedup_references"`
-	ReducerChunkRefBytes       int                 `json:"reducer_chunk_dedup_referenced_bytes"`
-	ReducerChunkInputBytes     int                 `json:"reducer_chunk_dedup_input_bytes"`
-	UpstreamErrorFrames        int                 `json:"upstream_error_frames"`
-	UpstreamHTTP400Errors      int                 `json:"upstream_http_400_errors"`
-	UpstreamInvalidRequests    int                 `json:"upstream_invalid_request_errors"`
-	UpstreamResponseFailures   int                 `json:"upstream_response_failed_frames"`
-	SearchRequestTurns         int                 `json:"search_request_turns"`
-	SearchMutatedRequests      int                 `json:"search_mutated_requests"`
-	SearchCapturedMutated      int                 `json:"search_captured_mutated_requests,omitempty"`
-	SearchUpstreamErrors       int                 `json:"search_upstream_error_frames"`
-	SearchHTTP400Errors        int                 `json:"search_http_400_errors"`
-	SearchInvalidRequests      int                 `json:"search_invalid_request_errors"`
-	SearchResponseFailures     int                 `json:"search_response_failed_frames"`
-	SearchCapFiles             int                 `json:"search_cap_files,omitempty"`
-	SearchCapMatches           int                 `json:"search_cap_matches,omitempty"`
-	ToolOutputMutation         bool                `json:"tool_output_mutation_enabled"`
-	DeltaToolOutputMutationLab bool                `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
-	Lost                       int                 `json:"lost"`
-	ExpectedExtras             int                 `json:"expected_extras,omitempty"`
-	Elisions                   []abharness.Elision `json:"elisions,omitempty"`
-	GatePassed                 bool                `json:"gate_passed"`
-	GateFailures               []string            `json:"gate_failures,omitempty"`
-	Notes                      []string            `json:"notes,omitempty"`
+	Path                          string                           `json:"path"`
+	Frames                        int                              `json:"frames"`
+	RequestTurns                  int                              `json:"request_turns"`
+	MutatedRequests               int                              `json:"mutated_requests"`
+	CapturedMutatedRequests       int                              `json:"captured_mutated_requests,omitempty"`
+	RequestShapes                 replayShapeCounts                `json:"request_shapes"`
+	MutatedShapes                 replayShapeCounts                `json:"mutated_shapes"`
+	CapturedMutatedShapes         replayShapeCounts                `json:"captured_mutated_shapes,omitempty"`
+	BytesBefore                   int                              `json:"bytes_before"`
+	BytesAfter                    int                              `json:"bytes_after"`
+	BytesSaved                    int                              `json:"bytes_saved"`
+	ReducerTokensSaved            int                              `json:"reducer_tokens_saved"`
+	ReducerBlocksModified         int                              `json:"reducer_blocks_modified"`
+	ReducerReadDeltaBlocks        int                              `json:"reducer_read_delta_blocks"`
+	ReducerRepeatedBlocks         int                              `json:"reducer_repeated_output_blocks"`
+	ReducerChunkBlocks            int                              `json:"reducer_chunk_dedup_blocks"`
+	ReducerCapturedBlocks         int                              `json:"reducer_captured_output_blocks"`
+	ReducerEnvelopeBlocks         int                              `json:"reducer_codex_envelope_blocks"`
+	ReducerChunkRefs              int                              `json:"reducer_chunk_dedup_references"`
+	ReducerChunkRefBytes          int                              `json:"reducer_chunk_dedup_referenced_bytes"`
+	ReducerChunkInputBytes        int                              `json:"reducer_chunk_dedup_input_bytes"`
+	CompoundedEstimateTokens      int                              `json:"compounded_estimate_tokens"`
+	FootprintAppliedDecisions     int                              `json:"footprint_applied_decisions"`
+	HighFootprintAppliedDecisions int                              `json:"high_footprint_applied_decisions"`
+	UniformChunkBudgetControl     *wssABReplayUniformControlReport `json:"uniform_chunk_budget_control,omitempty"`
+	UpstreamErrorFrames           int                              `json:"upstream_error_frames"`
+	UpstreamHTTP400Errors         int                              `json:"upstream_http_400_errors"`
+	UpstreamInvalidRequests       int                              `json:"upstream_invalid_request_errors"`
+	UpstreamResponseFailures      int                              `json:"upstream_response_failed_frames"`
+	SearchRequestTurns            int                              `json:"search_request_turns"`
+	SearchMutatedRequests         int                              `json:"search_mutated_requests"`
+	SearchCapturedMutated         int                              `json:"search_captured_mutated_requests,omitempty"`
+	SearchUpstreamErrors          int                              `json:"search_upstream_error_frames"`
+	SearchHTTP400Errors           int                              `json:"search_http_400_errors"`
+	SearchInvalidRequests         int                              `json:"search_invalid_request_errors"`
+	SearchResponseFailures        int                              `json:"search_response_failed_frames"`
+	SearchCapFiles                int                              `json:"search_cap_files,omitempty"`
+	SearchCapMatches              int                              `json:"search_cap_matches,omitempty"`
+	ToolOutputMutation            bool                             `json:"tool_output_mutation_enabled"`
+	DeltaToolOutputMutationLab    bool                             `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
+	Lost                          int                              `json:"lost"`
+	ExpectedExtras                int                              `json:"expected_extras,omitempty"`
+	Elisions                      []abharness.Elision              `json:"elisions,omitempty"`
+	GatePassed                    bool                             `json:"gate_passed"`
+	GateFailures                  []string                         `json:"gate_failures,omitempty"`
+	Notes                         []string                         `json:"notes,omitempty"`
 }
 
 type replayShapeCounts struct {
@@ -109,8 +128,16 @@ Flags:
                            --allow-recovery-note-extra, and
                            --tool-output-mutation
   --chunk-dedup-min-bytes N Set the replay chunk-dedup minimum input bytes
+  --chunk-dedup-max-session-ref-pct N
+                           Set the proof replay cumulative session reference budget
   --search-cap-files N      Proof-only search-output file cap override
   --search-cap-matches N    Proof-only search-output per-file match cap
+  --uniform-chunk-budget-control
+                           Also replay with same-request chunk budget consumed
+                           in uniform block order as the T359 control.
+  --require-compound-improvement
+                           Fail unless the normal footprint-priority replay
+                           beats the uniform control on compounded estimate.
 
 Input format: JSONL records with direction and payload:
   {"direction":"client_to_server","payload":{"model":"gpt-5-codex","input":[]}}
@@ -155,7 +182,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 }
 
 func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
-	flags := wssABReplayFlags{outputFormat: outputText, chunkDedupMinBytes: -1}
+	flags := wssABReplayFlags{outputFormat: outputText, chunkDedupMinBytes: -1, chunkDedupMaxSessionRefPct: -1}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -197,6 +224,22 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 				return flags, err
 			}
 			flags.chunkDedupMinBytes = n
+		case arg == "--chunk-dedup-max-session-ref-pct":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--chunk-dedup-max-session-ref-pct requires a value")
+			}
+			i++
+			n, err := parsePercentIntFlag("--chunk-dedup-max-session-ref-pct", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.chunkDedupMaxSessionRefPct = n
+		case strings.HasPrefix(arg, "--chunk-dedup-max-session-ref-pct="):
+			n, err := parsePercentIntFlag("--chunk-dedup-max-session-ref-pct", strings.TrimPrefix(arg, "--chunk-dedup-max-session-ref-pct="))
+			if err != nil {
+				return flags, err
+			}
+			flags.chunkDedupMaxSessionRefPct = n
 		case arg == "--search-cap-files":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("--search-cap-files requires a value")
@@ -229,6 +272,11 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 				return flags, err
 			}
 			flags.searchCapMatches = n
+		case arg == "--uniform-chunk-budget-control":
+			flags.uniformChunkBudgetControl = true
+		case arg == "--require-compound-improvement":
+			flags.uniformChunkBudgetControl = true
+			flags.requireCompoundImprovement = true
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -241,12 +289,7 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 	return flags, nil
 }
 
-func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
-	frames, err := readWSSABReplayFrames(flags.path)
-	if err != nil {
-		return wssABReplayReport{}, err
-	}
-	upstream := wssABReplayUpstreamDiagnostics(frames)
+func wssABReplayConfig(flags wssABReplayFlags) *config.Config {
 	cfg := config.Defaults()
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
@@ -257,53 +300,70 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		if flags.chunkDedupMinBytes >= 0 {
 			cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = flags.chunkDedupMinBytes
 		}
+		if flags.chunkDedupMaxSessionRefPct >= 0 {
+			cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = flags.chunkDedupMaxSessionRefPct
+		}
 	}
 	cfg.Compression.OutputReduce.CodexSearchCapMaxFiles = flags.searchCapFiles
 	cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile = flags.searchCapMatches
+	return cfg
+}
+
+func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
+	frames, err := readWSSABReplayFrames(flags.path)
+	if err != nil {
+		return wssABReplayReport{}, err
+	}
+	upstream := wssABReplayUpstreamDiagnostics(frames)
+	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
+	cfg := wssABReplayConfig(flags)
 	result, err := proxy.RunWSSPhaseFABReplay(cfg, frames)
 	if err != nil {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
 	}
 	report := wssABReplayReport{
-		Path:                       flags.path,
-		Frames:                     len(frames),
-		RequestTurns:               result.RequestTurns,
-		MutatedRequests:            result.MutatedRequests,
-		CapturedMutatedRequests:    result.CapturedMutatedRequests,
-		RequestShapes:              replayShapeCountsFromProxy(result.RequestShapes),
-		MutatedShapes:              replayShapeCountsFromProxy(result.MutatedShapes),
-		CapturedMutatedShapes:      replayShapeCountsFromProxy(result.CapturedMutatedShapes),
-		BytesBefore:                result.Report.BytesBefore,
-		BytesAfter:                 result.Report.BytesAfter,
-		BytesSaved:                 result.Report.Saved(),
-		ReducerTokensSaved:         result.ReducerStats.TokensSaved,
-		ReducerBlocksModified:      result.ReducerStats.BlocksModified,
-		ReducerReadDeltaBlocks:     result.ReducerStats.ReadDeltaBlocks,
-		ReducerRepeatedBlocks:      result.ReducerStats.RepeatedOutputBlocks,
-		ReducerChunkBlocks:         result.ReducerStats.ChunkDedupBlocks,
-		ReducerCapturedBlocks:      result.ReducerStats.CapturedOutputBlocks,
-		ReducerEnvelopeBlocks:      result.ReducerStats.CodexEnvelopeBlocks,
-		ReducerChunkRefs:           result.ReducerStats.ChunkDedupReferences,
-		ReducerChunkRefBytes:       result.ReducerStats.ChunkDedupRefBytes,
-		ReducerChunkInputBytes:     result.ReducerStats.ChunkDedupInputBytes,
-		UpstreamErrorFrames:        upstream.ErrorFrames,
-		UpstreamHTTP400Errors:      upstream.HTTP400Errors,
-		UpstreamInvalidRequests:    upstream.InvalidRequestErrors,
-		UpstreamResponseFailures:   upstream.ResponseFailedFrames,
-		SearchRequestTurns:         result.SearchStats.RequestTurns,
-		SearchMutatedRequests:      result.SearchStats.MutatedRequests,
-		SearchCapturedMutated:      result.SearchStats.CapturedMutatedRequests,
-		SearchUpstreamErrors:       result.SearchStats.UpstreamErrorFrames,
-		SearchHTTP400Errors:        result.SearchStats.HTTP400Errors,
-		SearchInvalidRequests:      result.SearchStats.InvalidRequestErrors,
-		SearchResponseFailures:     result.SearchStats.ResponseFailedFrames,
-		SearchCapFiles:             flags.searchCapFiles,
-		SearchCapMatches:           flags.searchCapMatches,
-		ToolOutputMutation:         toolOutputMutation,
-		DeltaToolOutputMutationLab: flags.deltaToolOutputMutationLab,
-		Lost:                       result.Report.Lost(),
-		Elisions:                   result.Report.Elisions,
-		GatePassed:                 true,
+		Path:                          flags.path,
+		Frames:                        len(frames),
+		RequestTurns:                  result.RequestTurns,
+		MutatedRequests:               result.MutatedRequests,
+		CapturedMutatedRequests:       result.CapturedMutatedRequests,
+		RequestShapes:                 replayShapeCountsFromProxy(result.RequestShapes),
+		MutatedShapes:                 replayShapeCountsFromProxy(result.MutatedShapes),
+		CapturedMutatedShapes:         replayShapeCountsFromProxy(result.CapturedMutatedShapes),
+		BytesBefore:                   result.Report.BytesBefore,
+		BytesAfter:                    result.Report.BytesAfter,
+		BytesSaved:                    result.Report.Saved(),
+		ReducerTokensSaved:            result.ReducerStats.TokensSaved,
+		ReducerBlocksModified:         result.ReducerStats.BlocksModified,
+		ReducerReadDeltaBlocks:        result.ReducerStats.ReadDeltaBlocks,
+		ReducerRepeatedBlocks:         result.ReducerStats.RepeatedOutputBlocks,
+		ReducerChunkBlocks:            result.ReducerStats.ChunkDedupBlocks,
+		ReducerCapturedBlocks:         result.ReducerStats.CapturedOutputBlocks,
+		ReducerEnvelopeBlocks:         result.ReducerStats.CodexEnvelopeBlocks,
+		ReducerChunkRefs:              result.ReducerStats.ChunkDedupReferences,
+		ReducerChunkRefBytes:          result.ReducerStats.ChunkDedupRefBytes,
+		ReducerChunkInputBytes:        result.ReducerStats.ChunkDedupInputBytes,
+		CompoundedEstimateTokens:      result.ReducerStats.CompoundedEstimateTokens,
+		FootprintAppliedDecisions:     result.ReducerStats.FootprintAppliedDecisions,
+		HighFootprintAppliedDecisions: result.ReducerStats.HighFootprintAppliedDecisions,
+		UpstreamErrorFrames:           upstream.ErrorFrames,
+		UpstreamHTTP400Errors:         upstream.HTTP400Errors,
+		UpstreamInvalidRequests:       upstream.InvalidRequestErrors,
+		UpstreamResponseFailures:      upstream.ResponseFailedFrames,
+		SearchRequestTurns:            result.SearchStats.RequestTurns,
+		SearchMutatedRequests:         result.SearchStats.MutatedRequests,
+		SearchCapturedMutated:         result.SearchStats.CapturedMutatedRequests,
+		SearchUpstreamErrors:          result.SearchStats.UpstreamErrorFrames,
+		SearchHTTP400Errors:           result.SearchStats.HTTP400Errors,
+		SearchInvalidRequests:         result.SearchStats.InvalidRequestErrors,
+		SearchResponseFailures:        result.SearchStats.ResponseFailedFrames,
+		SearchCapFiles:                flags.searchCapFiles,
+		SearchCapMatches:              flags.searchCapMatches,
+		ToolOutputMutation:            toolOutputMutation,
+		DeltaToolOutputMutationLab:    flags.deltaToolOutputMutationLab,
+		Lost:                          result.Report.Lost(),
+		Elisions:                      result.Report.Elisions,
+		GatePassed:                    true,
 	}
 	if result.ExpectedInstructionExtras > 0 {
 		report.Notes = append(report.Notes, "known output-reduce instruction additions were audited as expected extras; unknown instruction changes still fail the lost-comprehension gate")
@@ -322,6 +382,29 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	if flags.searchCapFiles > 0 || flags.searchCapMatches > 0 {
 		report.Notes = append(report.Notes, "search output caps were overridden for this proof replay only; product defaults remain unchanged")
+	}
+	if flags.uniformChunkBudgetControl {
+		control, controlErr := proxy.RunWSSPhaseFABReplayWithOptions(
+			wssABReplayConfig(flags),
+			frames,
+			proxy.WSSABReplayOptions{UniformChunkDedupBudget: true},
+		)
+		if controlErr != nil {
+			return wssABReplayReport{}, fmt.Errorf("run uniform chunk-budget control replay: %w", controlErr)
+		}
+		report.UniformChunkBudgetControl = &wssABReplayUniformControlReport{
+			ReducerTokensSaved:            control.ReducerStats.TokensSaved,
+			CompoundedEstimateTokens:      control.ReducerStats.CompoundedEstimateTokens,
+			FootprintAppliedDecisions:     control.ReducerStats.FootprintAppliedDecisions,
+			HighFootprintAppliedDecisions: control.ReducerStats.HighFootprintAppliedDecisions,
+			Lost:                          control.Report.Lost(),
+			DeltaReducerTokensSaved:       result.ReducerStats.TokensSaved - control.ReducerStats.TokensSaved,
+			DeltaCompoundedEstimate:       result.ReducerStats.CompoundedEstimateTokens - control.ReducerStats.CompoundedEstimateTokens,
+			DeltaHighFootprintApplied:     result.ReducerStats.HighFootprintAppliedDecisions - control.ReducerStats.HighFootprintAppliedDecisions,
+			Improved: result.ReducerStats.CompoundedEstimateTokens > control.ReducerStats.CompoundedEstimateTokens ||
+				result.ReducerStats.HighFootprintAppliedDecisions > control.ReducerStats.HighFootprintAppliedDecisions,
+		}
+		report.Notes = append(report.Notes, "uniform chunk-budget control was replayed offline only; product runtime keeps the footprint-priority order")
 	}
 	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions) + result.ExpectedInstructionExtras
 	gateLost := report.Lost
@@ -344,6 +427,18 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 				report.UpstreamInvalidRequests,
 				report.UpstreamHTTP400Errors,
 				report.UpstreamResponseFailures))
+	}
+	if flags.requireCompoundImprovement {
+		if report.UniformChunkBudgetControl == nil {
+			report.GatePassed = false
+			report.GateFailures = append(report.GateFailures, "uniform chunk-budget control missing")
+		} else if !report.UniformChunkBudgetControl.Improved {
+			report.GatePassed = false
+			report.GateFailures = append(report.GateFailures,
+				fmt.Sprintf("compounded_estimate_delta=%d high_footprint_decision_delta=%d <= 0",
+					report.UniformChunkBudgetControl.DeltaCompoundedEstimate,
+					report.UniformChunkBudgetControl.DeltaHighFootprintApplied))
+		}
 	}
 	return report, nil
 }
@@ -449,6 +544,17 @@ func parseNonNegativeIntFlag(name, raw string) (int, error) {
 	}
 	if n < 0 {
 		return 0, fmt.Errorf("%s must be >= 0", name)
+	}
+	return n, nil
+}
+
+func parsePercentIntFlag(name, raw string) (int, error) {
+	n, err := parseNonNegativeIntFlag(name, raw)
+	if err != nil {
+		return 0, err
+	}
+	if n > 100 {
+		return 0, fmt.Errorf("%s must be <= 100", name)
 	}
 	return n, nil
 }
@@ -599,6 +705,21 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	if report.ReducerChunkRefs > 0 || report.ReducerChunkRefBytes > 0 || report.ReducerChunkInputBytes > 0 {
 		fmt.Fprintf(w, "  chunk_refs:       refs=%d referenced_bytes=%d input_bytes=%d\n",
 			report.ReducerChunkRefs, report.ReducerChunkRefBytes, report.ReducerChunkInputBytes)
+	}
+	fmt.Fprintf(w, "  compounded:      estimate=%d footprint_decisions=%d high=%d\n",
+		report.CompoundedEstimateTokens,
+		report.FootprintAppliedDecisions,
+		report.HighFootprintAppliedDecisions)
+	if report.UniformChunkBudgetControl != nil {
+		control := report.UniformChunkBudgetControl
+		fmt.Fprintf(w, "  uniform_control: reducer_tokens=%d compounded=%d delta_tokens=%d delta_compounded=%d delta_high=%d improved=%t lost=%d\n",
+			control.ReducerTokensSaved,
+			control.CompoundedEstimateTokens,
+			control.DeltaReducerTokensSaved,
+			control.DeltaCompoundedEstimate,
+			control.DeltaHighFootprintApplied,
+			control.Improved,
+			control.Lost)
 	}
 	fmt.Fprintf(w, "  upstream_errors:  frames=%d invalid_request=%d http_400=%d response_failed=%d\n",
 		report.UpstreamErrorFrames,

@@ -107,27 +107,38 @@ func TestWSSABReplayReportTracksSearchProofStats(t *testing.T) {
 
 func TestWriteWSSABReplayTextIncludesProofDiagnostics(t *testing.T) {
 	report := wssABReplayReport{
-		Path:                    "frames.jsonl",
-		Frames:                  3,
-		RequestTurns:            1,
-		MutatedRequests:         1,
-		CapturedMutatedRequests: 1,
-		RequestShapes:           replayShapeCounts{Root: 1},
-		MutatedShapes:           replayShapeCounts{Root: 1},
-		CapturedMutatedShapes:   replayShapeCounts{Delta: 1},
-		BytesBefore:             1000,
-		BytesAfter:              700,
-		BytesSaved:              300,
-		ReducerTokensSaved:      42,
-		ReducerBlocksModified:   2,
-		ReducerReadDeltaBlocks:  1,
-		ReducerRepeatedBlocks:   1,
-		ReducerChunkBlocks:      1,
-		ReducerCapturedBlocks:   1,
-		ReducerEnvelopeBlocks:   1,
-		ReducerChunkRefs:        2,
-		ReducerChunkRefBytes:    512,
-		ReducerChunkInputBytes:  2048,
+		Path:                          "frames.jsonl",
+		Frames:                        3,
+		RequestTurns:                  1,
+		MutatedRequests:               1,
+		CapturedMutatedRequests:       1,
+		RequestShapes:                 replayShapeCounts{Root: 1},
+		MutatedShapes:                 replayShapeCounts{Root: 1},
+		CapturedMutatedShapes:         replayShapeCounts{Delta: 1},
+		BytesBefore:                   1000,
+		BytesAfter:                    700,
+		BytesSaved:                    300,
+		ReducerTokensSaved:            42,
+		ReducerBlocksModified:         2,
+		ReducerReadDeltaBlocks:        1,
+		ReducerRepeatedBlocks:         1,
+		ReducerChunkBlocks:            1,
+		ReducerCapturedBlocks:         1,
+		ReducerEnvelopeBlocks:         1,
+		ReducerChunkRefs:              2,
+		ReducerChunkRefBytes:          512,
+		ReducerChunkInputBytes:        2048,
+		CompoundedEstimateTokens:      9000,
+		FootprintAppliedDecisions:     2,
+		HighFootprintAppliedDecisions: 1,
+		UniformChunkBudgetControl: &wssABReplayUniformControlReport{
+			ReducerTokensSaved:        30,
+			CompoundedEstimateTokens:  5000,
+			DeltaReducerTokensSaved:   12,
+			DeltaCompoundedEstimate:   4000,
+			DeltaHighFootprintApplied: 1,
+			Improved:                  true,
+		},
 		UpstreamErrorFrames:     1,
 		UpstreamHTTP400Errors:   1,
 		UpstreamInvalidRequests: 1,
@@ -159,6 +170,8 @@ func TestWriteWSSABReplayTextIncludesProofDiagnostics(t *testing.T) {
 		"captured_mutated: 1",
 		"reducer_blocks:   modified=2 read_delta=1 repeated=1 chunk=1 captured=1 envelope=1",
 		"chunk_refs:       refs=2 referenced_bytes=512 input_bytes=2048",
+		"compounded:      estimate=9000 footprint_decisions=2 high=1",
+		"uniform_control: reducer_tokens=30 compounded=5000 delta_tokens=12 delta_compounded=4000 delta_high=1 improved=true lost=0",
 		"search_turns:     requests=1 mutated=1 captured=0 upstream_errors=1 invalid_request=1 http_400=1 response_failed=0",
 		"search_cap:       files=25 matches=15",
 		"expected_extras:  1",
@@ -421,6 +434,58 @@ func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
 	}
 }
 
+func TestWSSABReplayReportUniformControlGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	lowShared := strings.Repeat("t359 replay low budget contender line\n", 260)
+	highShared := strings.Repeat("t359 replay high budget contender line with much more session footprint\n", 4000)
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{"type": "function_call", "call_id": "seed-low", "name": "read_file", "arguments": `{"path":"low.seed"}`},
+		}),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{"type": "function_call", "call_id": "seed-high", "name": "read_file", "arguments": `{"path":"high.seed"}`},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputsBody("t359-cli-compound", "", []wssABReplayTestOutput{
+			{CallID: "seed-low", Output: lowShared + "seed low tail\n"},
+			{CallID: "seed-high", Output: highShared + "seed high tail\n"},
+		})),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{"type": "function_call", "call_id": "low", "name": "read_file", "arguments": `{"path":"low.go"}`},
+		}),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{"type": "function_call", "call_id": "high", "name": "read_file", "arguments": `{"path":"high.go"}`},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputsBody("t359-cli-compound", "", []wssABReplayTestOutput{
+			{CallID: "low", Output: lowShared + "fresh low tail\n"},
+			{CallID: "high", Output: highShared + "fresh high tail\n"},
+		})),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                       path,
+		failOnLost:                 true,
+		codexChunkDedup:            true,
+		chunkDedupMinBytes:         4096,
+		chunkDedupMaxSessionRefPct: 5,
+		uniformChunkBudgetControl:  true,
+		requireCompoundImprovement: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.UniformChunkBudgetControl == nil ||
+		report.UniformChunkBudgetControl.DeltaHighFootprintApplied <= 0 ||
+		!report.UniformChunkBudgetControl.Improved {
+		t.Fatalf("uniform control gate should prove high-footprint lift: %+v", report)
+	}
+}
+
 func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -504,6 +569,8 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 		{"frames.jsonl", "--chunk-dedup-min-bytes"},
 		{"frames.jsonl", "--chunk-dedup-min-bytes", "abc"},
 		{"frames.jsonl", "--chunk-dedup-min-bytes", "-1"},
+		{"frames.jsonl", "--chunk-dedup-max-session-ref-pct"},
+		{"frames.jsonl", "--chunk-dedup-max-session-ref-pct", "101"},
 		{"frames.jsonl", "--search-cap-files"},
 		{"frames.jsonl", "--search-cap-files", "-1"},
 		{"frames.jsonl", "--search-cap-matches"},
@@ -519,6 +586,13 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	}
 	if !flags.codexChunkDedup || !flags.archiveRecoveryNote || !flags.allowRecoveryNoteExtra || !flags.toolOutputMutation || flags.chunkDedupMinBytes != 123 {
 		t.Fatalf("bad parsed flags: %+v", flags)
+	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--codex-chunk-dedup", "--chunk-dedup-max-session-ref-pct=35"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.chunkDedupMaxSessionRefPct != 35 {
+		t.Fatalf("bad max session ref pct flag: %+v", flags)
 	}
 	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--codex-wss-tool-output-mutation"})
 	if err != nil {
@@ -551,15 +625,28 @@ func wssABReplayTestRecord(direction string, payload any) map[string]any {
 }
 
 func wssABReplayTestOutputBody(callID string, promptCacheKey string, previousResponseID string, output string) map[string]any {
+	return wssABReplayTestOutputsBody(promptCacheKey, previousResponseID, []wssABReplayTestOutput{{CallID: callID, Output: output}})
+}
+
+type wssABReplayTestOutput struct {
+	CallID string
+	Output string
+}
+
+func wssABReplayTestOutputsBody(promptCacheKey string, previousResponseID string, outputs []wssABReplayTestOutput) map[string]any {
+	input := make([]map[string]any, 0, len(outputs))
+	for _, output := range outputs {
+		input = append(input, map[string]any{
+			"type":    "function_call_output",
+			"call_id": output.CallID,
+			"output":  output.Output,
+		})
+	}
 	body := map[string]any{
 		"model":            "gpt-5-codex",
 		"prompt_cache_key": promptCacheKey,
-		"input": []map[string]any{{
-			"type":    "function_call_output",
-			"call_id": callID,
-			"output":  output,
-		}},
-		"stream": true,
+		"input":            input,
+		"stream":           true,
 	}
 	if previousResponseID != "" {
 		body["previous_response_id"] = previousResponseID

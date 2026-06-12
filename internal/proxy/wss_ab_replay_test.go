@@ -198,6 +198,53 @@ func TestRunWSSPhaseFABReplayCountsCapturedMutatedFullHistoryShape(t *testing.T)
 	}
 }
 
+func TestRunWSSPhaseFABReplayUniformChunkBudgetControlShowsCompoundLift(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 4096
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 5
+
+	lowShared := strings.Repeat("t359 replay low budget contender line\n", 260)
+	highShared := strings.Repeat("t359 replay high budget contender line with much more session footprint\n", 4000)
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("seed-low", "read_file", map[string]any{"path": "low.seed"}),
+		wssReplayServerToolCallFrame("seed-high", "read_file", map[string]any{"path": "high.seed"}),
+		wssReplayClientToolOutputsFrame("t359-compound-session", "", []wssReplayToolOutput{
+			{CallID: "seed-low", Output: lowShared + "seed low tail\n"},
+			{CallID: "seed-high", Output: highShared + "seed high tail\n"},
+		}),
+		wssReplayServerToolCallFrame("low", "read_file", map[string]any{"path": "low.go"}),
+		wssReplayServerToolCallFrame("high", "read_file", map[string]any{"path": "high.go"}),
+		wssReplayClientToolOutputsFrame("t359-compound-session", "", []wssReplayToolOutput{
+			{CallID: "low", Output: lowShared + "fresh low tail\n"},
+			{CallID: "high", Output: highShared + "fresh high tail\n"},
+		}),
+	}
+
+	priority, err := RunWSSPhaseFABReplayWithOptions(cfg, frames, WSSABReplayOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uniform, err := RunWSSPhaseFABReplayWithOptions(cfg, frames, WSSABReplayOptions{UniformChunkDedupBudget: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if priority.Report.Lost() != 1 || uniform.Report.Lost() != 1 {
+		t.Fatalf("control proof should only contain the expected recovery-note extra: priority=%+v uniform=%+v", priority.Report, uniform.Report)
+	}
+	if priority.ReducerStats.HighFootprintAppliedDecisions <= uniform.ReducerStats.HighFootprintAppliedDecisions {
+		t.Fatalf("footprint priority should improve high-footprint selection: priority=%+v uniform=%+v", priority.ReducerStats, uniform.ReducerStats)
+	}
+	if priority.ReducerStats.HighFootprintAppliedDecisions == 0 || uniform.ReducerStats.HighFootprintAppliedDecisions != 0 {
+		t.Fatalf("priority should spend budget on high-footprint candidate: priority=%+v uniform=%+v", priority.ReducerStats, uniform.ReducerStats)
+	}
+}
+
 func TestRunWSSPhaseFABReplayTracksNamedSearchProofStats(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -472,15 +519,28 @@ func wssReplayServerToolCallFrame(callID string, name string, arguments map[stri
 }
 
 func wssReplayClientToolOutputFrame(callID string, promptCacheKey string, previousResponseID string, output string) WSSABReplayFrame {
+	return wssReplayClientToolOutputsFrame(promptCacheKey, previousResponseID, []wssReplayToolOutput{{CallID: callID, Output: output}})
+}
+
+type wssReplayToolOutput struct {
+	CallID string
+	Output string
+}
+
+func wssReplayClientToolOutputsFrame(promptCacheKey string, previousResponseID string, outputs []wssReplayToolOutput) WSSABReplayFrame {
+	input := make([]map[string]any, 0, len(outputs))
+	for _, output := range outputs {
+		input = append(input, map[string]any{
+			"type":    "function_call_output",
+			"call_id": output.CallID,
+			"output":  output.Output,
+		})
+	}
 	body := map[string]any{
 		"model":            "gpt-5-codex",
 		"prompt_cache_key": promptCacheKey,
-		"input": []map[string]any{{
-			"type":    "function_call_output",
-			"call_id": callID,
-			"output":  output,
-		}},
-		"stream": true,
+		"input":            input,
+		"stream":           true,
 	}
 	if previousResponseID != "" {
 		body["previous_response_id"] = previousResponseID

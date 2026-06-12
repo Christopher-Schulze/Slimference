@@ -162,6 +162,7 @@ type codexLayer0Request struct {
 	RemainingTurnsEstimate    int
 	CachedPriceRatio          float64
 	SearchCompactOptions      filter.SearchCompactOptions
+	UniformChunkDedupBudget   bool
 	RecentEditUncertainty     bool
 	HostBudgetExceeded        bool
 	LatencyBudgetExceeded     bool
@@ -686,10 +687,14 @@ func proxyPlanChunkDedupPriority(req codexLayer0Request, toolUses map[string]typ
 				continue
 			}
 			budgetBytes := proxyChunkDedupCandidateBudgetBytes(len(block.Text), req.ChunkDedupMaxRefPct)
+			score := proxyFootprintScoreWithEstimate(len(block.Text)/4, 0, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
+			if req.UniformChunkDedupBudget {
+				score = proxyChunkDedupUniformPriorityScore(len(plan.Candidates))
+			}
 			candidate := proxyChunkDedupPriorityCandidate{
 				Key:         [2]int{msgIdx, blockIdx},
 				Order:       len(plan.Candidates),
-				Score:       proxyFootprintScoreWithEstimate(len(block.Text)/4, 0, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio),
+				Score:       score,
 				BudgetBytes: budgetBytes,
 			}
 			plan.Candidates = append(plan.Candidates, candidate)
@@ -700,6 +705,17 @@ func proxyPlanChunkDedupPriority(req codexLayer0Request, toolUses map[string]typ
 		return proxyChunkDedupPriorityPlan{}
 	}
 	return plan
+}
+
+func proxyChunkDedupUniformPriorityScore(order int) int {
+	const base = 1_000_000_000
+	if order < 0 {
+		return base
+	}
+	if order >= base {
+		return 1
+	}
+	return base - order
 }
 
 func proxyChunkDedupCandidateBudgetBytes(outputBytes int, maxReferencePercent int) int {
@@ -723,7 +739,7 @@ func (p proxyChunkDedupPriorityPlan) higherPriorityBudgetBytes(msgIdx int, block
 	}
 	total := 0
 	for _, candidate := range p.Candidates {
-		if candidate.Order <= current.Order || candidate.Score <= current.Score {
+		if candidate.Key == current.Key || candidate.Score <= current.Score {
 			continue
 		}
 		total += candidate.BudgetBytes
