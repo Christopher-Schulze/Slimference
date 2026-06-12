@@ -17,6 +17,8 @@
 //	go run ./scripts/utils wss-proof-clean-matrix <dir-or-matrix.jsonl> <out.jsonl> [--json]
 //	go run ./scripts/utils wss-proof-live-row --matrix-row PATH --frames PATH --workload-class CLASS
 //	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
+//	go run ./scripts/utils search-cap-profile (--command CMD --input stdout.txt | --frames frames.jsonl) [--candidate files:matches...] [--json]
+//	go run ./scripts/utils search-cap-proof --frames frames.jsonl --candidate files:matches... [--json]
 //	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
 //	go run ./scripts/utils local-artifact-hygiene [--json|--clean]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
@@ -40,7 +42,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
 		os.Exit(1)
 	}
 
@@ -127,6 +129,10 @@ func main() {
 		os.Exit(runWSSProofLiveRow(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-output-reduce-ab-report":
 		os.Exit(runOutputReduceABReport(os.Args[2:], os.Stdout, os.Stderr))
+	case "search-cap-profile":
+		os.Exit(runSearchCapProfile(os.Args[2:], os.Stdout, os.Stderr))
+	case "search-cap-proof":
+		os.Exit(runSearchCapProof(os.Args[2:], os.Stdout, os.Stderr))
 	case "release-proof-report":
 		os.Exit(runReleaseProofReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "local-artifact-hygiene":

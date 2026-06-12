@@ -136,6 +136,8 @@ func TestWriteWSSABReplayTextIncludesProofDiagnostics(t *testing.T) {
 		SearchUpstreamErrors:    1,
 		SearchHTTP400Errors:     1,
 		SearchInvalidRequests:   1,
+		SearchCapFiles:          25,
+		SearchCapMatches:        15,
 		ToolOutputMutation:      true,
 		Lost:                    1,
 		ExpectedExtras:          1,
@@ -158,6 +160,7 @@ func TestWriteWSSABReplayTextIncludesProofDiagnostics(t *testing.T) {
 		"reducer_blocks:   modified=2 read_delta=1 repeated=1 chunk=1 captured=1 envelope=1",
 		"chunk_refs:       refs=2 referenced_bytes=512 input_bytes=2048",
 		"search_turns:     requests=1 mutated=1 captured=0 upstream_errors=1 invalid_request=1 http_400=1 response_failed=0",
+		"search_cap:       files=25 matches=15",
 		"expected_extras:  1",
 		"recoverable_prior_full",
 		"search_loop proof has no named search-output mutation",
@@ -501,6 +504,10 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 		{"frames.jsonl", "--chunk-dedup-min-bytes"},
 		{"frames.jsonl", "--chunk-dedup-min-bytes", "abc"},
 		{"frames.jsonl", "--chunk-dedup-min-bytes", "-1"},
+		{"frames.jsonl", "--search-cap-files"},
+		{"frames.jsonl", "--search-cap-files", "-1"},
+		{"frames.jsonl", "--search-cap-matches"},
+		{"frames.jsonl", "--search-cap-matches", "bad"},
 	} {
 		if _, err := parseWSSABReplayFlags(args); err == nil {
 			t.Fatalf("expected parse error for %v", args)
@@ -526,6 +533,13 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	}
 	if !flags.toolOutputMutation || !flags.deltaToolOutputMutationLab {
 		t.Fatalf("delta WSS tool-output mutation lab flag not parsed: %+v", flags)
+	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--search-cap-files=25", "--search-cap-matches", "15"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.searchCapFiles != 25 || flags.searchCapMatches != 15 {
+		t.Fatalf("search cap flags not parsed: %+v", flags)
 	}
 }
 

@@ -68,6 +68,9 @@ func TestProxyFootprintScoreUsesCachedPriceRatio(t *testing.T) {
 	if got := proxyFootprintScoreWithCachedPriceRatio(1000, 0, 12, 0.20); got != 1000 {
 		t.Fatalf("late score = %d want 1000", got)
 	}
+	if got := proxyFootprintScoreWithEstimate(1000, 0, 12, 25, 0.20); got != 6000 {
+		t.Fatalf("explicit remaining-turn estimate score = %d want 6000", got)
+	}
 }
 
 func TestApplyProxyLayer0Branches(t *testing.T) {
@@ -782,7 +785,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDirectSearch(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofLatchBypassesDeltaGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -791,16 +794,30 @@ func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-delta", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-delta", Text: original}}},
 	}
-	result := reduceCodexLayer0(codexLayer0Request{
+	blocked := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-delta-blocked",
+		StatefulDeltaMutationBlocked: true,
+	})
+	if blocked.Stats.BlocksModified != 0 || blocked.Stats.TokensSaved != 0 || blocked.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(blocked.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("unproofed delta search must stay byte-equal, stats=%+v text=%q", blocked.Stats, blocked.Messages[1].Content[0].Text)
+	}
+
+	proofed := reduceCodexLayer0(codexLayer0Request{
 		Route:                        codexLayer0RouteWSSPhaseF,
 		Messages:                     messages,
 		SessionID:                    "sess-wss-search-delta-proof",
 		WSSSearchMutationAllowed:     true,
 		StatefulDeltaMutationBlocked: true,
 	})
-	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
-		t.Fatalf("delta proof gate must keep WSS search byte-equal, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	text := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 || proofed.Stats.CapturedOutputBlocks != 1 ||
+		!strings.Contains(text, "[rg]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(text, "src/file_079.go:80:needle") {
+		t.Fatalf("proofed delta search should compact with archive recovery, stats=%+v text=%q", proofed.Stats, text)
 	}
 }
 
@@ -1227,6 +1244,66 @@ func TestReduceCodexLayer0ChunkDedupHighFootprintScalesMinBytes(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupReservesBudgetForHigherFootprint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(
+		chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096},
+		chunkdedup.StoreLimits{MaxSessionRefPct: 45},
+		func(_, id string, chunk []byte) string {
+			if len(chunk) == 0 || id == "" {
+				return ""
+			}
+			return "local-archive://" + id
+		},
+	)
+	lowShared := strings.Repeat("t359 low budget contender line\n", 180)
+	highShared := strings.Repeat("t359 high budget contender line with much more session footprint\n", 900)
+	seed := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "seed-low", ToolName: "Read", ToolInput: `{"path":"low.seed"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "seed-low", Text: lowShared + "seed low tail\n"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "seed-high", ToolName: "Read", ToolInput: `{"path":"high.seed"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "seed-high", Text: highShared + "seed high tail\n"}}},
+	}
+	competing := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "low", ToolName: "Read", ToolInput: `{"path":"low.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "low", Text: lowShared + "fresh low tail\n"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "high", ToolName: "Read", ToolInput: `{"path":"high.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "high", Text: highShared + "fresh high tail\n"}}},
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Messages:            messages,
+			SessionID:           "sess-t359-budget-priority",
+			ChunkDedupEnabled:   true,
+			ChunkDedupProof:     savingspolicy.CodexProofLive,
+			ChunkDedupMinBytes:  4096,
+			ChunkDedupMaxRefPct: 100,
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			TurnSeq:             1,
+		}
+	}
+
+	seedResult := reduceCodexLayer0(req(seed))
+	if seedResult.Stats.TokensSaved != 0 || seedResult.Stats.ChunkDedupBlocks != 0 {
+		t.Fatalf("seed request should only populate chunk state: %+v", seedResult.Stats)
+	}
+	out := reduceCodexLayer0(req(competing))
+	lowText := out.Messages[1].Content[0].Text
+	highText := out.Messages[3].Content[0].Text
+	if strings.Contains(lowText, "[context-chunk status=unchanged") {
+		t.Fatalf("lower-footprint earlier block should preserve budget, text=%q stats=%+v", lowText, out.Stats)
+	}
+	if out.Stats.ChunkDedupBlocks != 1 || out.Stats.TokensSaved <= 0 ||
+		!strings.Contains(highText, "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("higher-footprint later block should consume reserved budget: stats=%+v high=%q", out.Stats, highText)
+	}
+	if !hasEvidenceDecision(out.Stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "session_integrity_budget", evidence.ActionFullPass) {
+		t.Fatalf("reserved lower-footprint block should emit full-pass budget evidence: %+v", out.Stats.EvidenceDecisions)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupLowFootprintKeepsConfiguredMinBytes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1283,7 +1360,7 @@ func TestProxyScaledChunkDedupMinBytes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := proxyScaledChunkDedupMinBytes(tt.base, tt.outputBytes, tt.turnSeq, proxyDefaultCachedPriceRatio)
+			got := proxyScaledChunkDedupMinBytes(tt.base, tt.outputBytes, tt.turnSeq, 0, proxyDefaultCachedPriceRatio)
 			if got != tt.want {
 				t.Fatalf("proxyScaledChunkDedupMinBytes(%d,%d,%d)=%d want %d", tt.base, tt.outputBytes, tt.turnSeq, got, tt.want)
 			}
@@ -1292,11 +1369,14 @@ func TestProxyScaledChunkDedupMinBytes(t *testing.T) {
 }
 
 func TestProxyScaledChunkDedupMinBytesUsesCachedPriceRatio(t *testing.T) {
-	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0.01); got != 4096 {
+	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0, 0.01); got != 4096 {
 		t.Fatalf("low cached-price ratio should keep configured threshold, got %d", got)
 	}
-	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0.20); got != 2048 {
+	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 1, 0, 0.20); got != 2048 {
 		t.Fatalf("high cached-price ratio should still scale high-footprint threshold, got %d", got)
+	}
+	if got := proxyScaledChunkDedupMinBytes(4096, 64000, 12, 30, 0.10); got != 2048 {
+		t.Fatalf("explicit remaining-turn estimate should scale late high-footprint threshold, got %d", got)
 	}
 }
 

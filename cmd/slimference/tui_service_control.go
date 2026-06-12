@@ -277,7 +277,7 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 	}
 	var out, errBuf strings.Builder
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--transport=app-server", "--replace-existing"},
+		[]string{"--transport=app-server"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {

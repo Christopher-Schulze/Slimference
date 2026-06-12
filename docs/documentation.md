@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 0.6.0
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 Comprehensive reference for the Slimference token-savings proxy. This
 document tracks the current v0.6.0 macOS-first product line; sections follow
@@ -77,9 +77,10 @@ routine use, it stays out of the product path.
   remain visible.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The Slimference path is
-  `slimference codex launch-desktop --transport=app-server --replace-existing`,
-  which sets only `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned
-  app process. Codex.app starts Slimference as its app-server; the hidden shim is
+  `slimference codex launch-desktop --transport=app-server`, which sets only
+  `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned app process and
+  refuses while Codex.app is already running unless `--replace-existing` is
+  explicitly requested. Codex.app starts Slimference as its app-server; the hidden shim is
   a thin stdin JSON-RPC mediator that execs the real Codex app-server (provider
   block pointing at `http://127.0.0.1:8990/backend-api/codex`) and rewrites the
   one field that blocked routing: Codex Desktop opens conversations with
@@ -96,11 +97,12 @@ routine use, it stays out of the product path.
   views, the app-server shim flight log, and daemon decisions.
   Realtime/voice threads and explicit provider choices are passed through; any
   parse ambiguity fails open. Unrelated stdout/stderr frames pass through
-  untouched. This avoids the old proxy/CA/TLS root-store barrier entirely. Proof
-  and TUI launches pass
-  `--replace-existing` so an already running Codex.app is quit and verified gone
-  before the scoped Slimference instance starts; raw CLI launch keeps a
-  conservative refusal unless the same flag is explicit. Verified (2026-05-22):
+  untouched. This avoids the old proxy/CA/TLS root-store barrier entirely.
+  Launches refuse by default while Codex.app is already running, so macOS cannot
+  reuse a stale direct-process env. Operators pass `--replace-existing` only
+  when interrupting that Desktop session is intentional. `codex desktop status`
+  also refuses to apply an old green proof to a different currently running
+  Codex.app PID. Verified (2026-05-22):
   the spawned Desktop app-server holds loopback sockets to `:8990` with zero
   direct `chatgpt.com` sockets, and the daemon decisions log records the Desktop
   conversation as `route_mode=websocket_phasef` for `/backend-api/codex/responses`
@@ -587,11 +589,15 @@ not present in the frame being pruned.
 WSS Layer-0 telemetry also records a deterministic per-session turn sequence and
 adds content-free `footprint_score` plus `footprint_score_bucket` (`low`, `mid`,
 or `high`) to evidence-backed reducer decisions. The score is saved tokens
-weighted by early-session reuse potential; the bucket is the coarse display
-class. Both are observability only: they do not loosen thresholds or create a
-mutation path, but they give the savings scorecard and later T359 calibration
-enough data to prioritize large early-session blocks without inspecting
-payloads.
+weighted by early-session reuse potential and the configured cached-price ratio;
+the bucket is the coarse display class. WSS keeps a content-free in-memory EMA
+of completed socket turn counts and passes the current remaining-turn estimate
+into Layer 0. Until an EMA sample exists, Layer 0 falls back to the historical
+early/mid/late deterministic bands, preserving previous behavior exactly. These
+signals do not create a mutation path, but they give chunk threshold scaling,
+same-request chunk budget priority, the savings scorecard, and later T359
+calibration enough data to prioritize large early-session blocks without
+inspecting payloads.
 Cache-decision counters under `proxy_layer0_cache` separately record route,
 mechanism, `hit`/`miss`, reason, and count for read-delta and exact
 repeated-output. Those reasons make cold starts, first-seed full passes,
@@ -881,7 +887,14 @@ another useful chunk reference, the policy full-passes only chunk dedup with
 reason `session_integrity_budget`; lossless read-delta and exact repeated-output
 reducers remain eligible. This avoids spending hot-path CPU on a recoverable
 reference mechanism that the integrity budget would reject while preserving the
-safe cache hits.
+safe cache hits. When several chunk candidates in the same request compete for a
+tight session reference budget, Layer-0 reserves budget for later candidates with
+higher T359 footprint scores before allowing lower-score earlier candidates to
+spend it. A reserved lower-score block still full-passes and seeds the chunk
+store with the model-visible bytes, so later savings keep an honest denominator
+and seen-chunk state without adding a new mutation path.
+Those footprint scores use the WSS remaining-turn EMA when available and keep
+the previous deterministic turn-band fallback otherwise.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so
@@ -1043,9 +1056,75 @@ scaling constants must come from a fresh capture carrying
 The adjacent `footprint_coverage` section counts token-bearing evidence
 decisions with and without footprint metadata by mechanism, so stale pre-T359
 positive savings rows are visible without being mistaken for calibration-ready
-data.
+data. For footprint-scored rows it also verifies the WSS
+`wss.remaining_turns_estimate` debug fact, so calibration captures prove that the
+EMA/fallback turn estimate used by threshold scaling was actually present.
 `--require-footprint-evidence` turns that into a fail-closed fresh-capture gate
 before any T359 threshold-scaling claim is accepted.
+`go run ./scripts/utils search-cap-profile` is the offline proof harness for the
+remaining T359 search-cap lever: it compares default search grouping caps with an
+aggressive candidate profile and reports only bytes, retained/omitted file and
+match counts, and gate failures. It accepts either a single captured stdout via
+`--command ... --input ...` or a WSS frame JSONL via `--frames`; frame mode
+extracts only resolved `function_call_output` items whose preceding tool call
+normalizes to a supported search command, so arbitrary search-shaped text cannot
+be counted as proof. It does not change runtime behavior; a sharper search cap
+can become default only after profile evidence plus live A/B proof show higher
+savings without context or tool-result drawdown.
+For candidate sweeps, repeat `--candidate files:matches`; the report keeps the
+default row plus each named candidate and supports `--min-candidate-retained-pct`
+so savings candidates that hide too much search evidence fail closed before any
+replay or runtime-promotion discussion. The JSON report also emits
+`selected_candidate`, the highest-savings candidate that beats default while
+still satisfying the configured retention guard, so downstream proof tooling can
+choose a replay candidate without reading raw search output.
+`go run ./scripts/utils search-cap-proof` is the combined promotion gate for
+that downstream step. It requires explicit `--candidate files:matches` values,
+loads the same WSS frame profile, can require a minimum number of resolved
+search outputs with `--min-search-outputs`, runs default replay, then runs each
+profile-passing candidate through WSS A/B replay with `lost=0`, upstream-error,
+and configurable extra reducer-token gates (`--min-extra-reducer-tokens`,
+default 1). Search-cap proof replays enable the delta tool-output mutation proof
+path and record that fact in JSON; the final runtime latch rejects artifacts
+that do not carry this proof bit. Its JSON emits only content-free
+profile/replay counters plus the selected candidate. Candidates that fail
+breadth, retention, or replay stay rejected without changing product defaults.
+Focused `wss-proof-matrix` can now run that same promotion proof for
+`search_loop` rows when passed `--search-cap-candidate files:matches` values.
+The optional matrix gate forwards retention, breadth, and extra-savings
+thresholds to `search-cap-proof`, attaches the content-free report to the row,
+and fails the capture if no candidate passes. This is still proof-only:
+product search-cap defaults remain unchanged until a fresh scoped matrix row
+passes with live token evidence and the candidate is explicitly promoted.
+Runtime promotion is proof-latched, not a raw tuning knob:
+`compression.output_reduce.codex_search_cap_proof_path` may point at the
+final `release-proof-report --json` artifact. Config loading validates that the
+final release gate passed, the nested search-cap proof passed, the nested Codex
+route-hygiene proof passed, the route-hygiene summary carries both before/after
+`slimference codex status --json` snapshot paths, and the summary still
+satisfies the release minima (CLI plus Desktop, at least two positive rows, at
+least 40% retained matches, positive extra reducer tokens, and a named valid
+selected cap) plus the delta tool-output mutation proof bit before copying the
+selected files/matches cap into the WSS runtime path and opening the narrow
+named-search WSS delta mutation path. A focused
+`wss-proof-matrix --json` report alone is rejected by config loading because it
+does not prove route hygiene. Without the final proof path, or when the final
+proof is weak, the runtime cap fields stay zero and the default search compactor
+remains byte-identical. `release-proof-plan` writes the final
+`release-proof-report --json` artifact and prints that final report path in the
+`codex_search_cap_proof_path` TOML line.
+`wss-ab-replay` also accepts proof-only `--search-cap-files` and
+`--search-cap-matches` overrides. These feed the normal WSS Layer-0 path through
+`FileReadContext.SearchCompactOptions` while leaving product defaults at zero.
+On the local historical capture
+`live-desktop-search-samematch-20260602T143436.jsonl`, the 25-files/15-matches
+candidate passed offline replay with `lost=0`, no upstream errors, and 46,192
+reducer tokens saved versus 45,473 for default caps. The combined
+`search-cap-proof` gate selected 25/15 with +719 replay reducer tokens,
+`lost=0`, zero upstream errors, and 40.09% retained matches; 30/15 also passed
+with +328 replay reducer tokens and 44.95% retained matches. The same combined
+gate blocked 25/12 plus 20/15 under a 40% retention gate, so the result remains
+a candidate for fresh scoped proof, not a default-on runtime policy.
 The same audit report includes T355 server-state shadow-mirror density when the
 decision log carries `wss.shadow_mirror_*` debug facts. It reports exact block
 bytes, normalized segment bytes, referenceable byte percentages, and normalized
@@ -2755,17 +2834,31 @@ operator ceremony for a release/default-on decision. The runbook starts from a
 clean CI and synthetic-corpus baseline, opens a `workday-savings` window, lists
 the scoped CLI and Desktop product launch paths, expands every required
 live-corpus workload for both `codex_cli` and `codex_desktop`, then finishes
-with `wss-proof-matrix --require-live-token-delta` and
-`benchmark-corpus --promotion-check`. The strict matrix mode requires real
-admin-state `live_delta` rows; replay bytes remain visible but cannot stand in
-for product token savings. The command is content-free and plan-only: it does
-not start capture, read payloads, or create fixtures. This keeps proof
-collection manual, reviewable, and reproducible.
+with `wss-proof-matrix --require-live-token-delta`,
+`benchmark-corpus --promotion-check`, `wss-proof-clean-matrix`, and
+`release-proof-report`. The strict matrix mode requires real admin-state
+`live_delta` rows; replay bytes remain visible but cannot stand in for product
+token savings. The command is content-free and plan-only: it does not start
+capture, read payloads, or create fixtures. This keeps proof collection manual,
+reviewable, and reproducible.
+For T359 search-cap promotion, the release runbook also prints a focused
+`search_loop` matrix gate with CLI plus Desktop minima and explicit
+`--search-cap-candidate` thresholds. That focused gate is not a release
+substitute; it is the additional proof that a sharper search cap can be
+promoted without relying on a historical or one-sided capture. The runbook
+writes that focused matrix report to a separate JSON artifact and passes it into
+the final `release-proof-report --search-cap-proof-report` gate.
 Unattended CLI capture collection uses
 `go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
-process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
-Codex, records before/after admin-state deltas, replays with fail-on-lost and
-fail-on-upstream-error semantics, and appends an optional `wss-proof-matrix` row.
+process, sets `SLIMFERENCE_WSS_AB_CAPTURE` plus
+`SLIMFERENCE_LISTEN_ADDRESS`/`SLIMFERENCE_LISTEN_PORT` from `--host`/`--port`,
+and gives the managed daemon an isolated `SLIMFERENCE_DAEMON_STATE_DIR` for its
+PID/lock files. It waits for `/health`, runs scoped Codex, records before/after
+admin-state deltas, replays with fail-on-lost and fail-on-upstream-error
+semantics, and appends an optional `wss-proof-matrix` row. Operators can run
+proof captures on a separate local port (for example `--port=8991`) so an
+existing normal daemon on 8990 does not need to be stopped for scoped CLI proof
+collection.
 The matrix row stores
 live `billable_input_tokens_saved`, provider-cache read/create token deltas, and
 safety counters (`parse_failures`, `degraded_sessions`, `compression_errors`,
@@ -2790,13 +2883,19 @@ expected reducer, the tool appends the matrix row and then exits non-zero. This
 keeps negative live evidence such as missing hits or host-budget attention
 auditable while still preventing a failed focused proof from passing.
 Interactive Desktop proofs use `go run ./scripts/utils wss-proof-live-row`
-after the operator-driven Codex.app prompts finish. The tool reads the current
-content-free admin state/status snapshots, enforces the requested reducer
+after the operator-driven Codex.app prompts finish. The Desktop app must be the
+scoped app-server launch, not a normal Finder/Spotlight launch; `desktop prove`
+and `launch-desktop` fail closed while Codex.app is already running unless
+`--replace-existing` is explicitly requested, and status does not reuse an old
+green Desktop proof for a different currently running app process. The tool
+reads the current content-free admin state/status snapshots, enforces the requested reducer
 signals such as `tool_prune`, `tool_prune_tokens_saved`, or `host_budget_ok`,
-and appends a matrix row without reading raw WSS frame payloads. This closes
-Desktop cases where `codex-capture-run` cannot own the app process but the proof
-still needs reducer-specific live counters before export into
-`tests/fixtures/live_corpus`.
+and appends a matrix row without reading raw WSS frame payloads. Search-cap
+promotion also needs the corresponding WSS frame capture for
+`search-cap-proof`, so the proof daemon must have been started with
+`SLIMFERENCE_WSS_AB_CAPTURE` for that Desktop session. This closes Desktop cases
+where `codex-capture-run` cannot own the app process but the proof still needs
+reducer-specific live counters before export into `tests/fixtures/live_corpus`.
 Focused `wss-proof-matrix` runs with `--required-workload` evaluate only rows
 matching the requested workload classes. When `--expected-reducer` is also
 passed, those command-line reducer expectations are authoritative for the
@@ -2808,6 +2907,18 @@ when live counters or replay byte savings are otherwise positive. A
 request turn and either replay-mutated that named search output or captured an
 already-mutated named search-output request, preventing repeat-read, generic
 tool-output, or unmutated search fixtures from standing in for search proof.
+When `--search-cap-candidate` is present, each in-scope `search_loop` row also
+runs the combined `search-cap-proof` gate and fails closed unless a candidate
+passes profile retention, resolved-output breadth, replay `lost=0`,
+upstream-error, delta tool-output mutation proof, and extra reducer-token
+checks. The focused matrix gate defaults to the release minima: 40% retained
+matches, at least two resolved search outputs, and at least +1 extra reducer
+token versus default replay. Rows outside
+`search_loop` do not satisfy that search-cap proof requirement. Matrix
+coverage, client mix, workload, reducer-hit, and positive-savings aggregates are
+counted only from rows whose own gate passed; failed rows remain visible in
+`capture_reports` and `captures_with_issues`, but they cannot satisfy proof
+coverage.
 Unfocused release-proof mode still validates every
 row exactly as recorded.
 `go run ./scripts/verify -mode host-resource-plan -client codex_cli|codex_desktop`
@@ -2832,14 +2943,35 @@ expected-reducer labels only when the same row has current live reducer
 evidence, so a release report cannot pass by aggregate count alone.
 `go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl>
 --resource-profile-proof <codex-cli-resource-proof-bundle-dir>
---resource-profile-proof <codex-desktop-resource-proof-bundle-dir>` produces the final content-free release proof
-summary. It reads proof-matrix rows only and never raw WSS frames. The report
-keeps local billable-input token deletion, request-side bytes, output-wire
-bytes, provider-cache read/create tokens, tool-prune schema tokens,
-output-reduce input overhead, output-reduce observed provider-output tokens,
-output-reduce net-observed diagnostics, host-budget rows, and safety rows as
-separate fields. Output-reduce net-observed is deliberately not a
-counterfactual savings percentage: a focused output-reduce proof must show
+--resource-profile-proof <codex-desktop-resource-proof-bundle-dir>
+--search-cap-proof-report <focused-search-cap-proof.json> --codex-status-before
+<before.json> --codex-status-after <after.json>` produces the final content-free
+release proof summary. It reads proof-matrix rows only and never raw WSS frames.
+The optional search-cap proof input is a focused `wss-proof-matrix --json`
+report, also content-free; the release report validates that it passed, contains
+only `search_loop` rows, covers CLI plus Desktop, and selects one consistent cap
+across rows with at least 40% retained matches, at least two resolved search
+outputs, and positive extra reducer-token savings. The CLI/Desktop/positive-row
+checks are recomputed from validated `capture_reports`; each counted capture
+report must have its own row gate passed, so aggregate report counters cannot
+make a thin or failed focused artifact pass. Search-cap promotion additionally
+requires before/after `slimference codex status --json` snapshots proving normal
+direct Codex routing: no marker-owned shared route, no legacy base-url keys, and
+no route conflict. The final JSON must preserve those before/after snapshot
+paths in `codex_route_hygiene`; otherwise config loading rejects the promotion
+artifact.
+The final `release-proof-report --json` artifact is the only supported
+runtime-promotion input for the search-cap lever through
+`compression.output_reduce.codex_search_cap_proof_path`; raw cap counts and the
+focused matrix report are not product config inputs because they would bypass
+the zero-drawdown route-hygiene proof gate.
+The report keeps local billable-input token deletion, request-side bytes,
+output-wire bytes, provider-cache read/create tokens, tool-prune schema tokens,
+output-reduce input overhead,
+output-reduce observed provider-output tokens, output-reduce net-observed
+diagnostics, host-budget rows, and safety rows as separate fields.
+Output-reduce net-observed is deliberately not a counterfactual savings
+percentage: a focused output-reduce proof must show
 guarded injection, observed output-token accounting, bounded input overhead,
 host-budget OK, and zero safety errors, while a concrete output-token savings
 claim still requires a matching no-directive A/B baseline. It fails closed

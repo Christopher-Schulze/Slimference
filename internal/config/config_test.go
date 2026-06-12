@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,13 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	}
 	if cfg.Compression.OutputReduce.CodexSavingsPolicyMode != "auto" {
 		t.Fatalf("Codex savings policy default = %q, want auto", cfg.Compression.OutputReduce.CodexSavingsPolicyMode)
+	}
+	if cfg.Compression.OutputReduce.CodexSearchCapProofPath != "" {
+		t.Fatalf("Codex search-cap proof path default = %q, want empty", cfg.Compression.OutputReduce.CodexSearchCapProofPath)
+	}
+	if cfg.Compression.OutputReduce.CodexSearchCapMaxFiles != 0 ||
+		cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile != 0 {
+		t.Fatalf("proof-latched Codex search cap values must stay zero by default: %+v", cfg.Compression.OutputReduce)
 	}
 	if cfg.Compression.OutputReduce.CodexChunkDedupEnabled {
 		t.Fatal("explicit Codex chunk dedup override must stay default-off")
@@ -178,6 +187,383 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 		cfg.Compression.Tuning.ToolPruneAlwaysKeep[1] != "read_file" {
 		t.Fatalf("tool-prune env not applied: %+v", cfg.Compression.Tuning)
 	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofPromotesSelectedCap(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 41.25, 120)
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions returned error: %v", err)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.CodexSearchCapProofPath != proofPath ||
+		or.CodexSearchCapMaxFiles != 25 ||
+		or.CodexSearchCapMaxMatchesPerFile != 15 {
+		t.Fatalf("search-cap proof was not promoted into runtime caps: %+v", or)
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsWeakReport(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 39.5, 0)
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected weak search-cap proof to reject config")
+	}
+	text := err.Error()
+	if !strings.Contains(text, "selected search-cap candidate min retention 39.50% < release min 40.00%") ||
+		!strings.Contains(text, "total search-cap extra reducer tokens must be positive") {
+		t.Fatalf("rejection did not explain weak proof: %v", err)
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsFocusedMatrixReport(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := filepath.Join(dir, "focused-search-cap-proof.json")
+	data := []byte(`{
+  "captures": 2,
+  "cli": 1,
+  "desktop": 1,
+  "positive_savings_captures": 2,
+  "workload_classes": {"search_loop": 2},
+  "gate_passed": true,
+  "capture_reports": [{
+    "id": "cli-search-cap",
+    "client": "cli",
+    "workload_class": "search_loop",
+    "search_cap_proof": {
+      "search_outputs": 2,
+      "min_candidate_retained_pct": 40,
+      "min_search_outputs": 2,
+      "min_extra_reducer_tokens": 1,
+      "selected_candidate": {
+        "name": "candidate_25x15",
+        "max_files_shown": 25,
+        "max_matches_per_file": 15,
+        "extra_reducer_tokens": 7,
+        "match_retention_pct": 41.25
+      },
+      "gate_passed": true
+    },
+    "gate_passed": true
+  }]
+}`)
+	if err := os.WriteFile(proofPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected focused search-cap matrix proof to reject config")
+	}
+	text := err.Error()
+	if !strings.Contains(text, "missing final release search_cap_proof summary") {
+		t.Fatalf("rejection did not explain focused matrix bypass: %v", err)
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsBadRouteHygiene(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithRouteHygiene(t, dir, 25, 15, 41.25, 120, false, []string{"after: advanced shared Codex route enabled"})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected bad route hygiene to reject config")
+	}
+	text := err.Error()
+	if !strings.Contains(text, "final release Codex route hygiene proof did not pass") ||
+		!strings.Contains(text, "after: advanced shared Codex route enabled") {
+		t.Fatalf("rejection did not explain bad route hygiene: %v", err)
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsContradictoryOKIssues(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:              25,
+		matches:            15,
+		retention:          41.25,
+		extraTokens:        120,
+		routeOK:            true,
+		routeIssues:        []string{"route conflict hidden"},
+		resourceOK:         true,
+		resourceIssues:     []string{"rss budget hidden"},
+		searchCapIssues:    []string{"search cap hidden"},
+		reportGateFailures: []string{"final gate hidden"},
+		matrixPath:         "clean-release-matrix.jsonl",
+		matrixFiles:        1,
+		rows:               12,
+		positiveRows:       9,
+		clients:            []string{"cli", "desktop"},
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected contradictory proof artifact to reject config")
+	}
+	text := err.Error()
+	for _, want := range []string{
+		"final release-proof-report gate passed but still contains gate failures",
+		"final release resource/profile proof passed but still contains issues",
+		"final release search-cap proof passed but still contains issues",
+		"final release Codex route hygiene proof passed but still contains issues",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rejection missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsThinPromotionFields(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:             25,
+		matches:           15,
+		retention:         41.25,
+		extraTokens:       120,
+		selectedCandidate: "",
+		selectedExplicit:  true,
+		routeOK:           true,
+		routeBefore:       "",
+		routeAfter:        "",
+		routeExplicit:     true,
+		resourceOK:        true,
+		matrixPath:        "clean-release-matrix.jsonl",
+		matrixFiles:       1,
+		rows:              12,
+		positiveRows:      9,
+		clients:           []string{"cli", "desktop"},
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected thin promotion fields to reject config")
+	}
+	text := err.Error()
+	for _, want := range []string{
+		"missing final release Codex route hygiene before snapshot path",
+		"missing final release Codex route hygiene after snapshot path",
+		"missing selected search-cap candidate name",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rejection missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsThinFinalReport(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:        25,
+		matches:      15,
+		retention:    41.25,
+		extraTokens:  120,
+		routeOK:      true,
+		resourceOK:   false,
+		matrixPath:   "",
+		matrixFiles:  0,
+		rows:         0,
+		positiveRows: 0,
+		clients:      []string{"cli"},
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected thin final release report to reject config")
+	}
+	text := err.Error()
+	for _, want := range []string{
+		"missing final release matrix_path",
+		"expected at least 1 release matrix file, got 0",
+		"expected release proof rows, got 0",
+		"no positive economic-token proof rows",
+		"final release resource/profile proof did not pass",
+		"missing final release Desktop resource/profile proof",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rejection missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestApplyEnv_CodexSearchCapProofPath(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixture(t, dir, 30, 15, 45, 33)
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_PATH", proofPath)
+
+	cfg, _, err := LoadWithOptions(LoadOptions{AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions returned error: %v", err)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.CodexSearchCapProofPath != proofPath ||
+		or.CodexSearchCapMaxFiles != 30 ||
+		or.CodexSearchCapMaxMatchesPerFile != 15 {
+		t.Fatalf("env search-cap proof was not applied: %+v", or)
+	}
+}
+
+func writeCodexSearchCapProofFixture(t *testing.T, dir string, files int, matches int, retention float64, extraTokens int) string {
+	t.Helper()
+	return writeCodexSearchCapProofFixtureWithRouteHygiene(t, dir, files, matches, retention, extraTokens, true, nil)
+}
+
+func writeCodexSearchCapProofFixtureWithRouteHygiene(t *testing.T, dir string, files int, matches int, retention float64, extraTokens int, routeOK bool, routeIssues []string) string {
+	t.Helper()
+	return writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:        files,
+		matches:      matches,
+		retention:    retention,
+		extraTokens:  extraTokens,
+		routeOK:      routeOK,
+		routeIssues:  routeIssues,
+		resourceOK:   true,
+		matrixPath:   "clean-release-matrix.jsonl",
+		matrixFiles:  1,
+		rows:         12,
+		positiveRows: 9,
+		clients:      []string{"cli", "desktop"},
+	})
+}
+
+type codexSearchCapProofFixtureOptions struct {
+	files              int
+	matches            int
+	retention          float64
+	extraTokens        int
+	selectedCandidate  string
+	selectedExplicit   bool
+	routeOK            bool
+	routeBefore        string
+	routeAfter         string
+	routeExplicit      bool
+	routeIssues        []string
+	resourceOK         bool
+	resourceIssues     []string
+	searchCapIssues    []string
+	reportGateFailures []string
+	matrixPath         string
+	matrixFiles        int
+	rows               int
+	positiveRows       int
+	clients            []string
+}
+
+func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts codexSearchCapProofFixtureOptions) string {
+	t.Helper()
+	selectedCandidate := opts.selectedCandidate
+	if selectedCandidate == "" && !opts.selectedExplicit && opts.files > 0 && opts.matches > 0 {
+		selectedCandidate = fmt.Sprintf("candidate_%dx%d", opts.files, opts.matches)
+	}
+	routeBefore := opts.routeBefore
+	if routeBefore == "" && opts.routeOK && !opts.routeExplicit {
+		routeBefore = "codex-status-before.json"
+	}
+	routeAfter := opts.routeAfter
+	if routeAfter == "" && opts.routeOK && !opts.routeExplicit {
+		routeAfter = "codex-status-after.json"
+	}
+	path := filepath.Join(dir, "release-proof-report.json")
+	report := map[string]any{
+		"matrix_path":                    opts.matrixPath,
+		"resource_profile_proof_ok":      opts.resourceOK,
+		"resource_profile_proof_clients": opts.clients,
+		"resource_profile_proof_issues":  opts.resourceIssues,
+		"matrix_files":                   opts.matrixFiles,
+		"rows":                           opts.rows,
+		"positive_economic_token_rows":   opts.positiveRows,
+		"host_budget_issue_rows":         0,
+		"proof_event_loss_rows":          0,
+		"safety_issue_rows":              0,
+		"expected_zero_local_violations": 0,
+		"missing_release_workloads":      []string{},
+		"missing_maxx_workloads":         []string{},
+		"gate_passed":                    true,
+		"gate_failures":                  opts.reportGateFailures,
+		"search_cap_proof": map[string]any{
+			"path":                             "focused-search-cap-proof.json",
+			"ok":                               true,
+			"issues":                           opts.searchCapIssues,
+			"captures":                         2,
+			"cli":                              1,
+			"desktop":                          1,
+			"positive_savings_captures":        2,
+			"selected_candidate":               selectedCandidate,
+			"max_files_shown":                  opts.files,
+			"max_matches_per_file":             opts.matches,
+			"total_extra_reducer_tokens":       opts.extraTokens,
+			"min_match_retention_pct":          opts.retention,
+			"delta_tool_output_mutation_proof": true,
+		},
+		"codex_route_hygiene": map[string]any{
+			"before": routeBefore,
+			"after":  routeAfter,
+			"ok":     opts.routeOK,
+			"issues": opts.routeIssues,
+		},
+	}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestApplyEnvOutputReduceToggles(t *testing.T) {
@@ -496,6 +882,8 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"concise_chat_text", func(c *Config) { c.Compression.OutputReduce.ConciseChatText = strings.Repeat("x", 1001) }},
 		{"concise_chat_min_input", func(c *Config) { c.Compression.OutputReduce.ConciseChatMinInputTokens = -1 }},
 		{"read_delta_recency", func(c *Config) { c.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = -1 }},
+		{"search_cap_files", func(c *Config) { c.Compression.OutputReduce.CodexSearchCapMaxFiles = -1 }},
+		{"search_cap_matches", func(c *Config) { c.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile = -1 }},
 		{"codex_policy", func(c *Config) { c.Compression.OutputReduce.CodexSavingsPolicyMode = "reckless" }},
 		{"chunk_proof_level", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupProofLevel = "rumor" }},
 		{"chunk_min", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMinBytes = -1 }},
@@ -620,6 +1008,17 @@ func TestDefaultTOML(t *testing.T) {
 	}
 	if !strings.Contains(out, "listen_port") {
 		t.Error("DefaultTOML() should contain listen_port")
+	}
+	if !strings.Contains(out, `codex_search_cap_proof_path = ""`) {
+		t.Error("DefaultTOML() should expose the disabled search-cap proof latch")
+	}
+	for _, rawCap := range []string{
+		"codex_search_cap_max_files",
+		"codex_search_cap_max_matches_per_file",
+	} {
+		if strings.Contains(out, rawCap) {
+			t.Fatalf("DefaultTOML() exposes raw search-cap knob %q", rawCap)
+		}
 	}
 	for _, obsolete := range []string{
 		"min_tokens_for_" + "layer" + "2",

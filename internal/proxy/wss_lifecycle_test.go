@@ -98,10 +98,29 @@ func TestWSSProbeMapsSocketLifecycleTelemetry(t *testing.T) {
 
 func TestWSSRequestDebugFactsIncludeSocketSeq(t *testing.T) {
 	facts := wssRequestDebugFacts(nil, nil, nil, proxyLayer0Stats{}, false, "", wssRequestMeta{
-		SocketSeq: 99,
+		SocketSeq:              99,
+		RemainingTurnsEstimate: 42,
 	}, outputreduce.Stats{})
 	if got := facts["wss.socket_seq"]; got != "99" {
 		t.Fatalf("wss.socket_seq=%q want 99", got)
+	}
+	if got := facts["wss.remaining_turns_estimate"]; got != "42" {
+		t.Fatalf("wss.remaining_turns_estimate=%q want 42", got)
+	}
+}
+
+func TestWSSSocketLifecycleUpdatesFootprintEstimatorWithoutRecorder(t *testing.T) {
+	p := &Proxy{}
+	adapter := &wsPhaseFAdapter{p: p}
+
+	adapter.attachWSSSocketLifecycle(wsmitm.SessionTelemetry{CloseInitiator: "client_eof"}, wsPhaseFTelemetry{TerminalResponsesSeen: 80})
+	if got := p.codexFootprintRemainingTurns("wss_phasef", 2); got != 78 {
+		t.Fatalf("remaining turns after first session=%d want 78", got)
+	}
+
+	adapter.attachWSSSocketLifecycle(wsmitm.SessionTelemetry{CloseInitiator: "client_eof"}, wsPhaseFTelemetry{TerminalResponsesSeen: 40})
+	if got := p.codexFootprintRemainingTurns("wss_phasef", 2); got != 74 {
+		t.Fatalf("remaining turns after EMA update=%d want 74", got)
 	}
 }
 

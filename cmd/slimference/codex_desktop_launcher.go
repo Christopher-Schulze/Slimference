@@ -99,7 +99,7 @@ var (
 	codexDesktopUpstreamCodexFn   = resolveCodexDesktopUpstreamCodexBinary
 )
 
-var codexDesktopStartProbeDelay = 750 * time.Millisecond
+var codexDesktopStartProbeDelay = 2 * time.Second
 var codexDesktopStartProbePollInterval = 25 * time.Millisecond
 
 // codexDesktopEnvOverrideKeys is the set of env names this launcher

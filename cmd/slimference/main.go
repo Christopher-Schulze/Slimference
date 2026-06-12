@@ -1369,8 +1369,7 @@ func handleCodexSessionStartHook(payload []byte) {
 //
 // Mode semantics (mirrors the lifecycle hook script case statement):
 //
-//	silent      -> no injection
-//	auto        -> short hint that compaction may occur
+//	silent/auto -> no injection
 //	compact     -> explicit summary of what to expect
 //	aggressive  -> fullest description of the contract
 //	debug       -> debug-mode banner (legacy text preserved for fixtures)
@@ -1383,7 +1382,7 @@ func slimferenceAwarenessContext(mode string) string {
 	case "aggressive":
 		return "Slimference is aggressively compacting tool outputs and prompt history. Tool results may appear as one-line summaries (`[tool] ok`, `[git status] 3 staged, 1 untracked`) or pre-extracted error blocks (`FAILED\\n<errors>`). Earlier file reads return delta-only context. Do not re-run a tool just to confirm output: the original is archived and surfaced via `slimference debug tail`. Trust archive markers like `[archived #ID preview …]` as proof the full result existed."
 	case "auto":
-		return "Slimference may compact some tool outputs in this session. Trust short structured summaries (`[tool] ok`, `FAILED\\n<errors>`); the full raw output is archived locally if needed."
+		return ""
 	default:
 		return ""
 	}

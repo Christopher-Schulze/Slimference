@@ -16,6 +16,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/beterse"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/outstop"
 	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
@@ -152,21 +153,22 @@ type wsPhaseFTelemetry struct {
 }
 
 type wssRequestMeta struct {
-	SessionID            string
-	PreviousResponseID   string
-	Model                string
-	ClientFamily         string
-	SocketSeq            uint64
-	TurnSeq              int
-	HasUserPromptInput   bool
-	HasToolDefinitions   bool
-	HasPromptCachePrefix bool
-	OriginalMessages     []types.Message
-	ToolUseIndex         map[string]types.ContentBlock
-	RepdetIndex          *repdet.Index
-	ToolPrune            dbg.ToolPruneSummary
-	BypassReason         string
-	DebugFacts           map[string]string
+	SessionID              string
+	PreviousResponseID     string
+	Model                  string
+	ClientFamily           string
+	SocketSeq              uint64
+	TurnSeq                int
+	RemainingTurnsEstimate int
+	HasUserPromptInput     bool
+	HasToolDefinitions     bool
+	HasPromptCachePrefix   bool
+	OriginalMessages       []types.Message
+	ToolUseIndex           map[string]types.ContentBlock
+	RepdetIndex            *repdet.Index
+	ToolPrune              dbg.ToolPruneSummary
+	BypassReason           string
+	DebugFacts             map[string]string
 }
 
 func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
@@ -383,6 +385,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	var meta wssRequestMeta
 	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
 	requestContainsToolOutput := false
+	toolPruneAppliedInMessagePath := false
 	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
@@ -395,6 +398,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		requestContainsToolOutput = messagesContainToolResult(messages)
 		sessionID := meta.SessionID
 		meta.TurnSeq = a.observeWSSRequestTurnSeq(sessionID)
+		meta.RemainingTurnsEstimate = a.p.codexFootprintRemainingTurns("wss_phasef", meta.TurnSeq)
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
@@ -538,29 +542,36 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
+		searchCapDeltaProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:                     codexLayer0RouteWSSPhaseF,
-			Messages:                  stagedMessages,
-			ToolUseIndex:              mergedToolUses,
-			SessionID:                 sessionID,
-			TurnID:                    turnID,
-			SuppressedToolKey:         suppressedKeys,
-			RecentFullPassTurns:       a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:         chunkSettings.Enabled,
-			ExplicitChunkDedup:        chunkSettings.Explicit,
-			ChunkDedupProof:           chunkSettings.Proof,
-			ChunkDedupMinBytes:        chunkSettings.MinBytes,
-			ChunkDedupMaxRefPct:       chunkSettings.MaxRefPct,
-			ChunkStore:                chunkSettings.Store,
-			PolicyMode:                chunkSettings.PolicyMode,
-			ArchiveRecovery:           chunkSettings.ArchiveRecovery,
-			TurnSeq:                   meta.TurnSeq,
-			CachedPriceRatio:          a.p.config.Savings.CachedPriceRatio,
+			Route:                  codexLayer0RouteWSSPhaseF,
+			Messages:               stagedMessages,
+			ToolUseIndex:           mergedToolUses,
+			SessionID:              sessionID,
+			TurnID:                 turnID,
+			SuppressedToolKey:      suppressedKeys,
+			RecentFullPassTurns:    a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:      chunkSettings.Enabled,
+			ExplicitChunkDedup:     chunkSettings.Explicit,
+			ChunkDedupProof:        chunkSettings.Proof,
+			ChunkDedupMinBytes:     chunkSettings.MinBytes,
+			ChunkDedupMaxRefPct:    chunkSettings.MaxRefPct,
+			ChunkStore:             chunkSettings.Store,
+			PolicyMode:             chunkSettings.PolicyMode,
+			ArchiveRecovery:        chunkSettings.ArchiveRecovery,
+			TurnSeq:                meta.TurnSeq,
+			RemainingTurnsEstimate: meta.RemainingTurnsEstimate,
+			CachedPriceRatio:       a.p.config.Savings.CachedPriceRatio,
+			SearchCompactOptions: filter.SearchCompactOptions{
+				MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
+				MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
+			},
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed: structuredMutationAllowed && !statefulDeltaMutationBlocked &&
-				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable),
+			WSSSearchMutationAllowed: (structuredMutationAllowed || searchCapDeltaProofed) &&
+				(!statefulDeltaMutationBlocked || searchCapDeltaProofed) &&
+				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapDeltaProofed),
 			CacheBustDemotedMechanisms:   cacheBustDemoted,
 			HistoryMutationGuardReason:   historyMutationGuardReason,
 			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
@@ -571,6 +582,19 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		if stats.TokensSaved > 0 {
 			stagedMessages = l0Messages
 			messageMutationPending = true
+		}
+		toolPruneAppliedInMessagePath = true
+		if pruned, changed, toolPrune := a.applyWSSToolPrune(out, stagedMessages, meta); toolPrune.GuardReason != "" {
+			meta.ToolPrune = toolPrune.Summary
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
+		} else if changed {
+			meta.ToolPrune = toolPrune.Summary
+			out = pruned
+		} else {
+			meta.ToolPrune = toolPrune.Summary
 		}
 		if messageMutationPending {
 			if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
@@ -613,17 +637,19 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
 	}
-	if pruned, changed, toolPrune := a.applyWSSToolPrune(out, messages, meta); toolPrune.GuardReason != "" {
-		meta.ToolPrune = toolPrune.Summary
-		if meta.DebugFacts == nil {
-			meta.DebugFacts = make(map[string]string)
+	if !toolPruneAppliedInMessagePath {
+		if pruned, changed, toolPrune := a.applyWSSToolPrune(out, messages, meta); toolPrune.GuardReason != "" {
+			meta.ToolPrune = toolPrune.Summary
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
+		} else if changed {
+			meta.ToolPrune = toolPrune.Summary
+			out = pruned
+		} else {
+			meta.ToolPrune = toolPrune.Summary
 		}
-		meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
-	} else if changed {
-		meta.ToolPrune = toolPrune.Summary
-		out = pruned
-	} else {
-		meta.ToolPrune = toolPrune.Summary
 	}
 	blockOutputReduce := requestContainsToolOutput || l0Stats.BlocksModified > 0
 	toolOutputPresenceKnown := err == nil
@@ -1273,7 +1299,11 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 }
 
 func (a *wsPhaseFAdapter) attachWSSSocketLifecycle(snap wsmitm.SessionTelemetry, phaseF wsPhaseFTelemetry) {
-	if a == nil || a.p == nil || a.p.debugRecorder == nil || snap.CloseInitiator == "" {
+	if a == nil || a.p == nil || snap.CloseInitiator == "" {
+		return
+	}
+	a.p.observeCodexFootprintSessionLength("wss_phasef", phaseF.TerminalResponsesSeen)
+	if a.p.debugRecorder == nil {
 		return
 	}
 	a.mu.Lock()
@@ -1551,30 +1581,31 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
 	deltaShape := wssRequestIsDeltaShape(messages)
 	facts := map[string]string{
-		"wss.original_bytes":         strconv.Itoa(len(body)),
-		"wss.final_bytes":            strconv.Itoa(len(mutated)),
-		"wss.changed":                strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
-		"wss.previous_response_id":   strconv.FormatBool(meta.PreviousResponseID != ""),
-		"wss.turn_seq":               strconv.Itoa(meta.TurnSeq),
-		"wss.request_shape":          wssRequestShape(meta, messages),
-		"wss.delta_shape":            strconv.FormatBool(deltaShape),
-		"wss.messages":               strconv.Itoa(len(messages)),
-		"wss.tool_results":           strconv.Itoa(toolResults),
-		"wss.source_tool_results":    strconv.Itoa(sourceToolResults),
-		"wss.source_tool_bytes":      strconv.Itoa(sourceToolBytes),
-		"wss.source_tool_max_bytes":  strconv.Itoa(sourceToolMaxBytes),
-		"wss.tool_uses":              strconv.Itoa(toolUses),
-		"wss.layer0_blocks_modified": strconv.Itoa(l0Stats.BlocksModified),
-		"wss.layer0_tokens_saved":    strconv.Itoa(l0Stats.TokensSaved),
-		"wss.stale_read_blocks":      strconv.Itoa(l0Stats.StaleReadBlocks),
-		"wss.stale_read_tokens":      strconv.Itoa(l0Stats.StaleReadTokensSaved),
-		"wss.obsolete_prune_blocks":  strconv.Itoa(l0Stats.ObsoletePruneBlocks),
-		"wss.obsolete_prune_tokens":  strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
-		"wss.output_reduce_applied":  strconv.FormatBool(outputReduceStats.Applied),
-		"wss.output_reduce_added":    strconv.Itoa(outputReduceStats.AddedTokens),
-		"wss.output_reduce_reason":   outputReduceStats.Reason,
-		"wss.replace_applied":        strconv.FormatBool(replaced),
-		"wss.session_id_present":     strconv.FormatBool(meta.SessionID != ""),
+		"wss.original_bytes":           strconv.Itoa(len(body)),
+		"wss.final_bytes":              strconv.Itoa(len(mutated)),
+		"wss.changed":                  strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
+		"wss.previous_response_id":     strconv.FormatBool(meta.PreviousResponseID != ""),
+		"wss.turn_seq":                 strconv.Itoa(meta.TurnSeq),
+		"wss.remaining_turns_estimate": strconv.Itoa(meta.RemainingTurnsEstimate),
+		"wss.request_shape":            wssRequestShape(meta, messages),
+		"wss.delta_shape":              strconv.FormatBool(deltaShape),
+		"wss.messages":                 strconv.Itoa(len(messages)),
+		"wss.tool_results":             strconv.Itoa(toolResults),
+		"wss.source_tool_results":      strconv.Itoa(sourceToolResults),
+		"wss.source_tool_bytes":        strconv.Itoa(sourceToolBytes),
+		"wss.source_tool_max_bytes":    strconv.Itoa(sourceToolMaxBytes),
+		"wss.tool_uses":                strconv.Itoa(toolUses),
+		"wss.layer0_blocks_modified":   strconv.Itoa(l0Stats.BlocksModified),
+		"wss.layer0_tokens_saved":      strconv.Itoa(l0Stats.TokensSaved),
+		"wss.stale_read_blocks":        strconv.Itoa(l0Stats.StaleReadBlocks),
+		"wss.stale_read_tokens":        strconv.Itoa(l0Stats.StaleReadTokensSaved),
+		"wss.obsolete_prune_blocks":    strconv.Itoa(l0Stats.ObsoletePruneBlocks),
+		"wss.obsolete_prune_tokens":    strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
+		"wss.output_reduce_applied":    strconv.FormatBool(outputReduceStats.Applied),
+		"wss.output_reduce_added":      strconv.Itoa(outputReduceStats.AddedTokens),
+		"wss.output_reduce_reason":     outputReduceStats.Reason,
+		"wss.replace_applied":          strconv.FormatBool(replaced),
+		"wss.session_id_present":       strconv.FormatBool(meta.SessionID != ""),
 	}
 	if bypassReason != "" {
 		facts["wss.bypass_reason"] = bypassReason

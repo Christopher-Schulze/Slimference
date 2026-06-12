@@ -67,7 +67,13 @@ const (
 	// for this long, so the gate cannot latch permanently when demoted
 	// passes never get under the recovery budget.
 	codexLayer0LatencyDecayAfter = 60 * time.Second
+	codexFootprintEMAAlpha       = 0.1
 )
+
+type codexFootprintEstimate struct {
+	samples  int
+	estimate float64
+}
 
 // Version is the binary version string exposed by health/status surfaces.
 var Version = buildinfo.Version
@@ -164,6 +170,8 @@ type Proxy struct {
 	resourceWindowMu             sync.Mutex
 	lastResourceSample           hostmetrics.ProcessSnapshot
 	lastResourceSampleAt         time.Time
+	codexFootprintMu             sync.Mutex
+	codexFootprintByFamily       map[string]codexFootprintEstimate
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the
@@ -286,22 +294,23 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 func New(cfg *config.Config) *Proxy {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
-		config:              cfg,
-		startedAt:           time.Now(),
-		httpClients:         make(map[types.Provider]*http.Client),
-		analyticsQueue:      make(chan types.AnalyticsEvent, 256),
-		workerCtx:           workerCtx,
-		workerCancel:        workerCancel,
-		shutdownCh:          make(chan struct{}),
-		pipelineHist:        analytics.NewPipelineHistograms(),
-		qualityReRead:       quality.NewReReadDetector(10),
-		qualityCacheSpike:   quality.NewCacheMissSpikeDetector(50, 0.25),
-		qualityNetSavings:   quality.NewNetSavings(),
-		toolPrune:           toolprune.NewUsageTracker(cfg.Compression.Tuning.ToolPruneIdleThresholdTurns),
-		serverState:         sessions.NewResponseStateStore(1024),
-		outputReduceRepair:  make(map[string]pendingOutputReduceSignal),
-		archiveRecoveryNote: make(map[string]struct{}),
-		qualityAB:           qualityab.New(qualityab.Options{}),
+		config:                 cfg,
+		startedAt:              time.Now(),
+		httpClients:            make(map[types.Provider]*http.Client),
+		analyticsQueue:         make(chan types.AnalyticsEvent, 256),
+		workerCtx:              workerCtx,
+		workerCancel:           workerCancel,
+		shutdownCh:             make(chan struct{}),
+		pipelineHist:           analytics.NewPipelineHistograms(),
+		qualityReRead:          quality.NewReReadDetector(10),
+		qualityCacheSpike:      quality.NewCacheMissSpikeDetector(50, 0.25),
+		qualityNetSavings:      quality.NewNetSavings(),
+		toolPrune:              toolprune.NewUsageTracker(cfg.Compression.Tuning.ToolPruneIdleThresholdTurns),
+		serverState:            sessions.NewResponseStateStore(1024),
+		outputReduceRepair:     make(map[string]pendingOutputReduceSignal),
+		archiveRecoveryNote:    make(map[string]struct{}),
+		codexFootprintByFamily: make(map[string]codexFootprintEstimate),
+		qualityAB:              qualityab.New(qualityab.Options{}),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
 			MinSamples:          cfg.Compression.OutputReduce.AutoTuneMinSamples,
@@ -588,6 +597,52 @@ func (p *Proxy) codexRuntimeBudgetExceeded() bool {
 		return false
 	}
 	return p.hostBudgetExceeded.Load() || p.codexLayer0LatencyExceeded.Load()
+}
+
+func (p *Proxy) observeCodexFootprintSessionLength(family string, turns int64) {
+	if p == nil || turns < 1 {
+		return
+	}
+	family = codexFootprintFamily(family)
+	p.codexFootprintMu.Lock()
+	defer p.codexFootprintMu.Unlock()
+	if p.codexFootprintByFamily == nil {
+		p.codexFootprintByFamily = make(map[string]codexFootprintEstimate)
+	}
+	row := p.codexFootprintByFamily[family]
+	if row.samples == 0 {
+		row.estimate = float64(turns)
+	} else {
+		row.estimate = codexFootprintEMAAlpha*float64(turns) + (1-codexFootprintEMAAlpha)*row.estimate
+	}
+	row.samples++
+	p.codexFootprintByFamily[family] = row
+}
+
+func (p *Proxy) codexFootprintRemainingTurns(family string, turnSeq int) int {
+	if p == nil || turnSeq < 1 {
+		return 0
+	}
+	p.codexFootprintMu.Lock()
+	defer p.codexFootprintMu.Unlock()
+	row, ok := p.codexFootprintByFamily[codexFootprintFamily(family)]
+	if !ok || row.samples == 0 {
+		return 0
+	}
+	estimatedLength := int(row.estimate + 0.5)
+	remaining := estimatedLength - turnSeq
+	if remaining < 1 {
+		return 1
+	}
+	return remaining
+}
+
+func codexFootprintFamily(family string) string {
+	family = strings.ToLower(strings.TrimSpace(family))
+	if family == "" {
+		return "unknown"
+	}
+	return family
 }
 
 func (p *Proxy) recordCodexLayer0Stats(stats proxyLayer0Stats) {

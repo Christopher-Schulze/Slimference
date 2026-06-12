@@ -159,14 +159,16 @@ type codexLayer0Request struct {
 	PolicyMode                string
 	ArchiveRecovery           bool
 	TurnSeq                   int
+	RemainingTurnsEstimate    int
 	CachedPriceRatio          float64
+	SearchCompactOptions      filter.SearchCompactOptions
 	RecentEditUncertainty     bool
 	HostBudgetExceeded        bool
 	LatencyBudgetExceeded     bool
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
-	// WSSSearchMutationAllowed opens the E5-proven full-history or explicit lab
-	// path for named search output only. It does not bypass StatefulDeltaMutationBlocked.
+	// WSSSearchMutationAllowed opens only named search output after either the
+	// old full-history/lab proof or the final search-cap proof latch.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// HistoryMutationGuardReason suppresses history/chunk reducers that can
@@ -189,6 +191,18 @@ type codexLayer0Request struct {
 type codexLayer0Result struct {
 	Messages []types.Message
 	Stats    proxyLayer0Stats
+}
+
+type proxyChunkDedupPriorityCandidate struct {
+	Key         [2]int
+	Order       int
+	Score       int
+	BudgetBytes int
+}
+
+type proxyChunkDedupPriorityPlan struct {
+	ByBlock    map[[2]int]proxyChunkDedupPriorityCandidate
+	Candidates []proxyChunkDedupPriorityCandidate
 }
 
 type codexChunkDedupSettings struct {
@@ -351,6 +365,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		baseToolUses = proxyToolUseIndex(req.Messages)
 	}
 	toolUses := mergedProxyToolUseIndex(baseToolUses, req.RememberedToolUse)
+	chunkPriorityPlan := proxyPlanChunkDedupPriority(req, toolUses)
 	cow := messageCow{original: req.Messages}
 	stats := proxyLayer0Stats{Route: req.Route}
 	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessagesWithToolUses(req.Messages, toolUses)) > 0
@@ -394,6 +409,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				return tokens.ForProvider(types.CodexChatGPT).CountString(text)
 			}
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
+			readCtx.SearchCompactOptions = req.SearchCompactOptions
 			readReq := readRequestFromCommandLine(commandLine)
 			readCommand := readReq.FilePath != ""
 			workload := savingspolicy.CodexWorkloadCommand
@@ -402,7 +418,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
-			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.CachedPriceRatio)
+			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			// Under the latency latch every block loosens to full pass, so the
 			// O(output) search-risk scan and the chunk-store budget probe would
 			// be pure overhead that keeps the latch from recovering.
@@ -414,6 +430,19 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), chunkMinBytes)
+			}
+			chunkPriorityReserved := false
+			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
+				if reservedBytes := chunkPriorityPlan.higherPriorityBudgetBytes(msgIdx, blockIdx); reservedBytes > 0 {
+					minReferenceBytes := chunkMinBytes
+					if minReferenceBytes <= 0 {
+						minReferenceBytes = 1
+					}
+					if !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), minReferenceBytes+reservedBytes) {
+						chunkIntegrityBudgetHit = true
+						chunkPriorityReserved = true
+					}
+				}
 			}
 			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
 			policy := savingspolicy.DecideCodexToolOutput(savingspolicy.CodexToolOutputInput{
@@ -435,7 +464,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload, req.TurnSeq, req.CachedPriceRatio))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, policy.Reason, 0, 0, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -447,7 +476,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkReport := chunkdedup.EncodeResult{}
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			candidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, action evidence.Action, reason string) evidence.BlockDecision {
-				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq, req.CachedPriceRatio)
+				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
+			}
+			recordChunkPriorityFullPass := func() {
+				before := countBeforeTokens()
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, proxyLayer0MechanismChunkDedup, evidence.ActionFullPass, "session_integrity_budget", before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
+				req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
 			}
 			if policy.ReadDelta {
 				var cacheReason string
@@ -476,6 +510,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 				}
 				if !changed {
+					if chunkPriorityReserved {
+						recordChunkPriorityFullPass()
+					}
 					continue
 				}
 			}
@@ -501,14 +538,18 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if wssSearchOutputBlocked {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq, req.CachedPriceRatio))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
-			if changed && req.StructuredMutationBlocked &&
+			searchDeltaProofCandidate := workload == savingspolicy.CodexWorkloadSearch &&
+				req.WSSSearchMutationAllowed &&
+				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) &&
+				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope)
+			if changed && req.StructuredMutationBlocked && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
 				changed = false
@@ -524,7 +565,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
-			if changed && !req.StatefulDeltaMutationBlocked && req.Route == codexLayer0RouteWSSPhaseF &&
+			if changed && (!req.StatefulDeltaMutationBlocked || searchDeltaProofCandidate) && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
 				if !archived {
@@ -564,6 +605,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
+				if chunkPriorityReserved {
+					recordChunkPriorityFullPass()
+				}
 				continue
 			}
 			if req.CacheBustDemotedMechanisms.Has(mechanism) {
@@ -574,7 +618,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason))
 				continue
 			}
-			if req.StatefulDeltaMutationBlocked {
+			if req.StatefulDeltaMutationBlocked && !searchDeltaProofCandidate {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate"))
 				continue
 			}
@@ -602,9 +646,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				default:
 					stats.CapturedOutputBlocks++
 				}
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload, req.TurnSeq, req.CachedPriceRatio))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionApplied, "positive_net_savings", before, afterTokens, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 			} else {
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload, req.TurnSeq, req.CachedPriceRatio))
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, evidence.ActionSkipped, "negative_or_zero_net_savings", before, afterTokens, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 			}
 		}
 	}
@@ -613,6 +657,78 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
 	return codexLayer0Result{Messages: cow.out, Stats: stats.finish(started)}
+}
+
+func proxyPlanChunkDedupPriority(req codexLayer0Request, toolUses map[string]types.ContentBlock) proxyChunkDedupPriorityPlan {
+	if !req.ChunkDedupEnabled || req.ChunkStore == nil || strings.TrimSpace(req.SessionID) == "" {
+		return proxyChunkDedupPriorityPlan{}
+	}
+	plan := proxyChunkDedupPriorityPlan{ByBlock: make(map[[2]int]proxyChunkDedupPriorityCandidate)}
+	for msgIdx, msg := range req.Messages {
+		for blockIdx, block := range msg.Content {
+			if block.Type != "tool_result" || len(block.Text) == 0 {
+				continue
+			}
+			use, _ := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := proxyLayer0CommandLine(use)
+			if commandLine == "" {
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+			}
+			if commandLine == "" || proxyCommandLineInvokesReconc(commandLine) {
+				continue
+			}
+			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
+			if !chunkDedupAllowedForCommand(commandLine, readCommand) {
+				continue
+			}
+			minBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
+			if len(block.Text) < minBytes {
+				continue
+			}
+			budgetBytes := proxyChunkDedupCandidateBudgetBytes(len(block.Text), req.ChunkDedupMaxRefPct)
+			candidate := proxyChunkDedupPriorityCandidate{
+				Key:         [2]int{msgIdx, blockIdx},
+				Order:       len(plan.Candidates),
+				Score:       proxyFootprintScoreWithEstimate(len(block.Text)/4, 0, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio),
+				BudgetBytes: budgetBytes,
+			}
+			plan.Candidates = append(plan.Candidates, candidate)
+			plan.ByBlock[candidate.Key] = candidate
+		}
+	}
+	if len(plan.Candidates) == 0 {
+		return proxyChunkDedupPriorityPlan{}
+	}
+	return plan
+}
+
+func proxyChunkDedupCandidateBudgetBytes(outputBytes int, maxReferencePercent int) int {
+	if outputBytes <= 0 {
+		return 1
+	}
+	if maxReferencePercent <= 0 || maxReferencePercent > 100 {
+		maxReferencePercent = 100
+	}
+	budgetBytes := outputBytes * maxReferencePercent / 100
+	if budgetBytes <= 0 {
+		return 1
+	}
+	return budgetBytes
+}
+
+func (p proxyChunkDedupPriorityPlan) higherPriorityBudgetBytes(msgIdx int, blockIdx int) int {
+	current, ok := p.ByBlock[[2]int{msgIdx, blockIdx}]
+	if !ok || current.Score <= 0 {
+		return 0
+	}
+	total := 0
+	for _, candidate := range p.Candidates {
+		if candidate.Order <= current.Order || candidate.Score <= current.Score {
+			continue
+		}
+		total += candidate.BudgetBytes
+	}
+	return total
 }
 
 func proxyLayer0DownstreamStateMechanism(mechanism proxyLayer0Mechanism) bool {
@@ -643,7 +759,7 @@ func (c *messageCow) setText(msgIdx int, blockIdx int, text string) {
 	c.out[msgIdx].Content[blockIdx].Text = text
 }
 
-func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload, turnSeq int, cachedPriceRatio float64) evidence.BlockDecision {
+func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterText string, mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, workload savingspolicy.CodexWorkload, turnSeq int, remainingTurnsEstimate int, cachedPriceRatio float64) evidence.BlockDecision {
 	argv := strings.Fields(commandLine)
 	analysis := evidence.Analyze(argv, []byte(beforeText))
 	preserved := proxyLayer0PreservedEvidence(mechanism, workload)
@@ -655,7 +771,7 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	} else {
 		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
 	}
-	decision.FootprintScore = proxyFootprintScoreWithCachedPriceRatio(decision.OriginalTokens, decision.SavedTokens, turnSeq, cachedPriceRatio)
+	decision.FootprintScore = proxyFootprintScoreWithEstimate(decision.OriginalTokens, decision.SavedTokens, turnSeq, remainingTurnsEstimate, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
 }
@@ -682,6 +798,10 @@ func proxyFootprintRemainingTurnsEstimate(turnSeq int) int {
 }
 
 func proxyFootprintScoreWithCachedPriceRatio(originalTokens int, savedTokens int, turnSeq int, cachedPriceRatio float64) int {
+	return proxyFootprintScoreWithEstimate(originalTokens, savedTokens, turnSeq, 0, cachedPriceRatio)
+}
+
+func proxyFootprintScoreWithEstimate(originalTokens int, savedTokens int, turnSeq int, remainingTurnsEstimate int, cachedPriceRatio float64) int {
 	tokens := savedTokens
 	if tokens <= 0 {
 		tokens = originalTokens
@@ -692,7 +812,10 @@ func proxyFootprintScoreWithCachedPriceRatio(originalTokens int, savedTokens int
 	if cachedPriceRatio <= 0 {
 		cachedPriceRatio = proxyDefaultCachedPriceRatio
 	}
-	equivalentTurns := 1 + float64(proxyFootprintRemainingTurnsEstimate(turnSeq))*cachedPriceRatio
+	if remainingTurnsEstimate <= 0 {
+		remainingTurnsEstimate = proxyFootprintRemainingTurnsEstimate(turnSeq)
+	}
+	equivalentTurns := 1 + float64(remainingTurnsEstimate)*cachedPriceRatio
 	return int(math.Round(float64(tokens) * equivalentTurns))
 }
 
@@ -709,7 +832,7 @@ func proxyFootprintScoreBucketFromScore(score int) string {
 	}
 }
 
-func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq int, cachedPriceRatio float64) int {
+func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq int, remainingTurnsEstimate int, cachedPriceRatio float64) int {
 	if baseMinBytes <= 1 || outputBytes <= 0 || turnSeq <= 0 {
 		return baseMinBytes
 	}
@@ -719,7 +842,7 @@ func proxyScaledChunkDedupMinBytes(baseMinBytes int, outputBytes int, turnSeq in
 	if estimatedTokens <= 0 {
 		estimatedTokens = 1
 	}
-	if proxyFootprintScoreBucketFromScore(proxyFootprintScoreWithCachedPriceRatio(estimatedTokens, 0, turnSeq, cachedPriceRatio)) != "high" {
+	if proxyFootprintScoreBucketFromScore(proxyFootprintScoreWithEstimate(estimatedTokens, 0, turnSeq, remainingTurnsEstimate, cachedPriceRatio)) != "high" {
 		return baseMinBytes
 	}
 	scaled := baseMinBytes / 2

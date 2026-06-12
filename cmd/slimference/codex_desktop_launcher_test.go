@@ -1190,9 +1190,9 @@ func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
 	oldDelay := codexDesktopStartProbeDelay
 	t.Cleanup(func() { codexDesktopStartProbeDelay = oldDelay })
 	// Use the production deadline. Under full package load the forked shell can
-	// be scheduled after a short synthetic 250ms window, falsely reporting a
-	// launch even though the process exits immediately once it runs.
-	codexDesktopStartProbeDelay = 750 * time.Millisecond
+	// be scheduled after a short synthetic window, falsely reporting a launch
+	// even though the process exits immediately once it runs.
+	codexDesktopStartProbeDelay = 2 * time.Second
 
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},

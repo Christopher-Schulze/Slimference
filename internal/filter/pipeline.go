@@ -279,7 +279,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
 		diagnosticReducer("dotnet", "build", []string{"tool", "error code", "file", "line", "message"}, TryCompactDotnet),
 		diagnosticReducer("ruby_output", "test", []string{"tool", "failed example", "file", "line", "message"}, TryCompactRubyOutput),
-		evidenceReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}, TryCompactSearchOutput),
+		searchOutputReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}),
 		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
 		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
 		evidenceReducer("wc", "listing", []string{"count values", "requested count units", "file path", "total row"}, TryCompactWc),
@@ -331,6 +331,23 @@ func argvReducer(id, family string, safety Layer0ReducerSafetyClass, preserved [
 		},
 		fn: func(argv []string, stdout []byte, _ FileReadContext) ([]byte, bool) {
 			return fn(argv, stdout)
+		},
+	}
+}
+
+func searchOutputReducer(id, family string, preserved []string) layer0ReducerSpec {
+	return layer0ReducerSpec{
+		Layer0ReducerInfo: Layer0ReducerInfo{
+			ID:                id,
+			Family:            family,
+			SafetyClass:       Layer0ReducerSafetyStructuredEvidence,
+			DefaultEligible:   true,
+			RequiredFields:    append([]string(nil), preserved...),
+			PreservedEvidence: append([]string(nil), preserved...),
+			RecoveryPath:      "parser fail-open to original output",
+		},
+		fn: func(argv []string, stdout []byte, ctx FileReadContext) ([]byte, bool) {
+			return TryCompactSearchOutputWithOptions(argv, stdout, ctx.SearchCompactOptions)
 		},
 	}
 }

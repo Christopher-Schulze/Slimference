@@ -11,8 +11,9 @@ import (
 // decisions. First file reads full-pass; this context must not enable lossy
 // first-read file compaction.
 type FileReadContext struct {
-	Mode           string
-	RecentlyEdited bool
+	Mode                 string
+	RecentlyEdited       bool
+	SearchCompactOptions SearchCompactOptions
 }
 
 // ReadRequest describes the single file/range read represented by a simple

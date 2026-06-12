@@ -1,6 +1,6 @@
 # Slimference Specification v3
 
-Last updated: 2026-06-09
+Last updated: 2026-06-12
 
 This is the normative implementation target for Slimference. `docs/documentation.md`
 is the explanatory reference; this file defines the compact product and technical
@@ -61,6 +61,14 @@ Requirements:
 - Codex WSS search/path-list/tool-output reduction remains risk-gated and
   full-passes when first-pass evidence, source attribution, or upstream session
   state could become ambiguous;
+- sharper Codex WSS search-output caps may become runtime-active only through a
+  validated focused search-cap proof artifact whose `capture_reports` themselves
+  pass their row gates and prove CLI plus Desktop, two positive search-loop
+  rows, retained evidence, replay safety, delta tool-output mutation proof for
+  the selected cap, and before/after Codex route hygiene with no persistent
+  shared route or legacy base-url keys; the final report must preserve both
+  status snapshot paths and a named selected cap; aggregate proof counters alone
+  are not sufficient, and raw cap values are not product config knobs;
 - every reducer records enough local telemetry to prove hit, miss, block, and
   fail-open reasons without logging raw private payloads.
 
@@ -157,9 +165,11 @@ Default product routing is scoped Codex:
   refreshes read the Codex route state; either path may launch background
   recertification through the same lock/backoff-gated recert path;
 - `slimference codex desktop prove` and
-  `slimference codex launch-desktop --transport=app-server --replace-existing`
-  affect only the launched Codex.app process tree through the process-local
-  app-server shim;
+  `slimference codex launch-desktop --transport=app-server` affect only the
+  launched Codex.app process tree through the process-local app-server shim and
+  fail closed while Codex.app is already running unless `--replace-existing` is
+  explicitly requested; Desktop status must not apply an old green proof to a
+  different currently running Codex.app process;
 - the Desktop app-server shim sets provider WebSocket support from the same
   savings-first auto decision as the CLI: fresh `wss_phasef` enables WSS,
   stale or missing Phase-F uses HTTP Responses savings;
@@ -192,7 +202,9 @@ Fresh configs expose active product surfaces only:
   structure languages, and deterministic thresholds;
 - `[compression.output_reduce]` for output policy, concise-chat hints, stop
   sequences, streamcut, repetition detection, stale/obsolete read pruning,
-  Codex savings policy, and chunk-dedup proof controls;
+  Codex savings policy, chunk-dedup proof controls, and the proof-latched
+  `codex_search_cap_proof_path` search-cap promotion input pointing at the
+  final release proof artifact;
 - `[compression.tuning]` for overflow, in-window compaction, structure preview,
   coordinator, optional tool-prune, streaming, planner, and tuning knobs;
 - `[filter] passthrough_max_chars=2000` by default;

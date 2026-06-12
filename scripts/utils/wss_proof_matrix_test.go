@@ -259,11 +259,58 @@ func TestWSSProofMatrixRequireLiveTokenDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strictReport.CaptureReports[0].GatePassed || strictReport.PositiveSavings != 0 || strictReport.PositiveReplayByteSavings != 1 {
-		t.Fatalf("strict mode should fail without counting replay as positive savings: %+v", strictReport)
+	if strictReport.CaptureReports[0].GatePassed || strictReport.PositiveSavings != 0 || strictReport.PositiveReplayByteSavings != 0 {
+		t.Fatalf("strict mode should fail without counting failed replay row as positive savings: %+v", strictReport)
 	}
 	if !strings.Contains(strings.Join(strictReport.CaptureReports[0].GateFailures, "\n"), "live_delta is required") {
 		t.Fatalf("missing strict live_delta failure: %+v", strictReport.CaptureReports[0].GateFailures)
+	}
+}
+
+func TestWSSProofMatrixCoverageCountsOnlyPassedRows(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofSearchFrames(t, framesPath, "failed-coverage")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "failed-coverage",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+			ParseFailures:            1,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.Captures != 1 || report.CapturesWithIssues != 1 {
+		t.Fatalf("failed row should fail the matrix gate: %+v", report)
+	}
+	if report.CLI != 0 || report.PositiveSavings != 0 || report.PositiveTokenSavings != 0 || report.WorkloadClasses["search_loop"] != 0 {
+		t.Fatalf("failed row must not count toward coverage or savings: %+v", report)
+	}
+	failures := strings.Join(report.GateFailures, "\n")
+	for _, want := range []string{
+		"expected at least 1 valid captures, got 0",
+		"expected at least 1 CLI captures, got 0",
+		"missing workload classes: search_loop",
+		"expected at least 1 positive-token-savings or expected-zero captures, got 0",
+		"1 capture(s) failed per-capture gates",
+	} {
+		if !strings.Contains(failures, want) {
+			t.Fatalf("missing gate failure %q in:\n%s", want, failures)
+		}
 	}
 }
 
@@ -288,7 +335,7 @@ func TestWSSProofMatrixFocusedGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if releaseReport.GatePassed || !strings.Contains(strings.Join(releaseReport.GateFailures, "\n"), "expected at least 10 captures") {
+	if releaseReport.GatePassed || !strings.Contains(strings.Join(releaseReport.GateFailures, "\n"), "expected at least 10 valid captures") {
 		t.Fatalf("single-row release gate should fail: %+v", releaseReport)
 	}
 
@@ -305,6 +352,140 @@ func TestWSSProofMatrixFocusedGate(t *testing.T) {
 	}
 	if !focusedReport.GatePassed || len(focusedReport.MissingWorkloads) != 0 {
 		t.Fatalf("focused proof gate should pass: %+v", focusedReport)
+	}
+}
+
+func TestWSSProofMatrixSearchCapProofGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofFullHistoryFrames(t, framesPath, "matrix-search-cap", 96)
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "matrix-search-cap",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set("8:6"); err != nil {
+		t.Fatal(err)
+	}
+	if err := candidates.Set("4:4"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta:            true,
+		requiredWorkloads:                []string{"search_loop"},
+		searchCapCandidates:              []searchCapProfileCandidate(candidates),
+		searchCapMinCandidateRetainedPct: 40,
+		searchCapMinSearchOutputs:        1,
+		minCaptures:                      1,
+		minCLI:                           1,
+		minPositive:                      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || len(report.CaptureReports) != 1 {
+		t.Fatalf("search-cap proof should pass matrix gate: %+v", report)
+	}
+	proof := report.CaptureReports[0].SearchCapProof
+	if proof == nil || proof.SelectedCandidate == nil || proof.SelectedCandidate.Name != "candidate_8x6" {
+		t.Fatalf("search-cap proof not attached or wrong selection: %+v", report.CaptureReports[0])
+	}
+	if len(report.CaptureReports[0].Replay.Elisions) != 0 {
+		t.Fatalf("matrix report must not carry raw replay elision previews: %+v", report.CaptureReports[0].Replay.Elisions)
+	}
+
+	var text bytes.Buffer
+	writeWSSProofMatrixText(&text, report)
+	if !strings.Contains(text.String(), "search_cap: candidate_8x6") {
+		t.Fatalf("matrix text missing search-cap selection:\n%s", text.String())
+	}
+}
+
+func TestWSSProofMatrixSearchCapDefaultsFailClosed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofFullHistoryFrames(t, framesPath, "matrix-search-cap-defaults", 96)
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "matrix-search-cap-defaults",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set("8:6"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		searchCapCandidates:   []searchCapProfileCandidate(candidates),
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("default search-cap thresholds should fail weak capture: %+v", report)
+	}
+	proof := report.CaptureReports[0].SearchCapProof
+	if proof == nil ||
+		proof.MinCandidateRetainedPct != releaseSearchCapMinRetainedPct ||
+		proof.MinSearchOutputs != releaseSearchCapMinSearchOutputs ||
+		proof.MinExtraReducerTokens != releaseSearchCapMinExtraReducerTokens {
+		t.Fatalf("search-cap defaults not embedded in proof: %+v", proof)
+	}
+	if got := strings.Join(report.CaptureReports[0].GateFailures, "\n"); !strings.Contains(got, "search_cap_proof: search outputs 1 < min 2") {
+		t.Fatalf("missing default min-search-output failure:\n%s", got)
+	}
+}
+
+func TestWSSProofMatrixSearchCapProofFailureFailsCapture(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofFullHistoryFrames(t, framesPath, "matrix-search-cap-fail", 96)
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "matrix-search-cap-fail",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta:     proofMatrixLiveDelta(false),
+	})
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set("8:6"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta:     true,
+		requiredWorkloads:         []string{"search_loop"},
+		searchCapCandidates:       []searchCapProfileCandidate(candidates),
+		searchCapMinSearchOutputs: 2,
+		minCaptures:               1,
+		minCLI:                    1,
+		minPositive:               1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("search-cap proof failure should fail capture: %+v", report)
+	}
+	if got := strings.Join(report.CaptureReports[0].GateFailures, "\n"); !strings.Contains(got, "search_cap_proof: search outputs 1 < min 2") {
+		t.Fatalf("missing search-cap proof failure:\n%s", got)
 	}
 }
 
@@ -449,6 +630,11 @@ func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
 		"--min-positive=3",
 		"--expected-reducer", "chunk_dedup",
 		"--expected-reducer=host_budget_ok",
+		"--search-cap-candidate", "30:15",
+		"--search-cap-candidate=25:15",
+		"--search-cap-min-retained-pct=40",
+		"--search-cap-min-search-outputs=2",
+		"--search-cap-min-extra-tokens=1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -462,11 +648,23 @@ func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
 	if strings.Join(flags.expectedReducers, ",") != "chunk_dedup,host_budget_ok" {
 		t.Fatalf("expected reducers not parsed: %+v", flags.expectedReducers)
 	}
+	if len(flags.searchCapCandidates) != 2 ||
+		flags.searchCapCandidates[0].Options.MaxFilesShown != 30 ||
+		flags.searchCapCandidates[1].Options.MaxMatchesPerFile != 15 ||
+		flags.searchCapMinCandidateRetainedPct != 40 ||
+		flags.searchCapMinSearchOutputs != 2 ||
+		flags.searchCapMinExtraReducerTokens != 1 ||
+		!flags.searchCapMinExtraReducerTokensIsSet {
+		t.Fatalf("search-cap proof flags not parsed: %+v", flags)
+	}
 	if _, err := parseWSSProofMatrixFlags([]string{"--min-captures=-1"}); err == nil {
 		t.Fatal("negative minimum should fail")
 	}
 	if _, err := parseWSSProofMatrixFlags([]string{"--expected-reducer"}); err == nil {
 		t.Fatal("missing expected reducer value should fail")
+	}
+	if _, err := parseWSSProofMatrixFlags([]string{"--search-cap-min-search-outputs=1"}); err == nil {
+		t.Fatal("search-cap thresholds without candidates should fail")
 	}
 }
 

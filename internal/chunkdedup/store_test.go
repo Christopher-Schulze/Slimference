@@ -173,6 +173,21 @@ func TestStore_ReferenceBudgetAvailableReflectsRemainingBudget(t *testing.T) {
 	}
 }
 
+func TestStore_ObserveSeedsWithoutReferencing(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 50}, archiveFake(nil))
+	data := genBytes(32*1024, 33)
+
+	store.Observe("s1", data)
+	if !store.ReferenceBudgetAvailable("s1", 4096) {
+		t.Fatal("observed full-pass data should increase reference budget")
+	}
+	result := store.EncodeWithReportWithMaxReferencePercent("s1", data, 100)
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("observed data should seed future references: saved=%d verified=%v", result.Saved, result.Verified)
+	}
+}
+
 func TestStore_OutputReferenceBudgetLimitsReferences(t *testing.T) {
 	t.Parallel()
 	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 60}, archiveFake(nil))

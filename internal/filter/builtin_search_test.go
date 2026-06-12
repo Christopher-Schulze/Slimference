@@ -763,6 +763,109 @@ func TestGroupSearchResults_manyFiles(t *testing.T) {
 	}
 }
 
+func TestTryCompactSearchOutputWithOptionsDefaultMatchesDefault(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for f := 0; f < 35; f++ {
+		for m := 1; m <= 25; m++ {
+			fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%02d.go:%d:function body content here with enough length\n", f, m)
+		}
+	}
+	input := []byte(sb.String())
+	defaultOut, defaultOK := TryCompactSearchOutput([]string{"rg", "-n", "function"}, input)
+	optionOut, optionOK := TryCompactSearchOutputWithOptions([]string{"rg", "-n", "function"}, input, SearchCompactOptions{})
+	if defaultOK != optionOK || string(defaultOut) != string(optionOut) {
+		t.Fatalf("zero-value options must preserve default behavior: default ok=%v option ok=%v", defaultOK, optionOK)
+	}
+	stats, ok := SearchCompactProfile([]string{"rg", "-n", "function"}, input, SearchCompactOptions{})
+	if !ok ||
+		!stats.Applied ||
+		stats.OriginalFiles != 35 ||
+		stats.OriginalMatches != 875 ||
+		stats.ShownFiles != 30 ||
+		stats.ShownMatches != 600 ||
+		stats.OmittedFiles != 5 ||
+		stats.OmittedMatches != 275 {
+		t.Fatalf("bad default search compact stats: %+v ok=%v", stats, ok)
+	}
+}
+
+func TestTryCompactSearchOutputWithOptionsAggressiveProfileSavesMoreButKeepsSignal(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for f := 0; f < 35; f++ {
+		for m := 1; m <= 25; m++ {
+			msg := "ordinary function body content here with enough length"
+			if f == 17 && m == 13 {
+				msg = "fatal timeout rejected request with enough payload to survive score promotion"
+			}
+			fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%02d.go:%d:%s\n", f, m, msg)
+		}
+	}
+	input := []byte(sb.String())
+	defaultOut, defaultOK := TryCompactSearchOutput([]string{"rg", "-n", "function"}, input)
+	if !defaultOK {
+		t.Fatal("default search compaction should apply")
+	}
+	aggressiveOptions := SearchCompactOptions{MaxFilesShown: 10, MaxMatchesPerFile: 5}
+	aggressiveOut, aggressiveOK := TryCompactSearchOutputWithOptions([]string{"rg", "-n", "function"}, input, aggressiveOptions)
+	if !aggressiveOK {
+		t.Fatal("aggressive search compaction should apply")
+	}
+	if len(aggressiveOut) >= len(defaultOut) {
+		t.Fatalf("aggressive profile should save more bytes: aggressive=%d default=%d", len(aggressiveOut), len(defaultOut))
+	}
+	if !strings.Contains(string(aggressiveOut), "fatal timeout rejected request") {
+		t.Fatalf("high-signal search match must survive aggressive profile: %q", string(aggressiveOut))
+	}
+	stats, ok := SearchCompactProfile([]string{"rg", "-n", "function"}, input, aggressiveOptions)
+	if !ok ||
+		!stats.Applied ||
+		stats.OriginalFiles != 35 ||
+		stats.OriginalMatches != 875 ||
+		stats.ShownFiles != 10 ||
+		stats.ShownMatches != 50 ||
+		stats.OmittedFiles != 25 ||
+		stats.OmittedMatches != 825 {
+		t.Fatalf("bad aggressive search compact stats: %+v ok=%v", stats, ok)
+	}
+}
+
+func TestSearchCompactOptionsFlowThroughFileReadContext(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for f := 0; f < 35; f++ {
+		for m := 1; m <= 25; m++ {
+			msg := "ordinary function body content here with enough length"
+			if f == 17 && m == 13 {
+				msg = "fatal timeout rejected request with enough payload to survive score promotion"
+			}
+			fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%02d.go:%d:%s\n", f, m, msg)
+		}
+	}
+	input := []byte(sb.String())
+	defaultOut, defaultName := applyLayer0FiltersWithContext("", []string{"rg", "-n", "function"}, input, FileReadContext{Mode: "scan"})
+	tightOut, tightName := applyLayer0FiltersWithContext("", []string{"rg", "-n", "function"}, input, FileReadContext{
+		Mode: "scan",
+		SearchCompactOptions: SearchCompactOptions{
+			MaxFilesShown:     10,
+			MaxMatchesPerFile: 5,
+		},
+	})
+	if defaultName != "search_output" || tightName != "search_output" {
+		t.Fatalf("search reducer did not apply: default=%q tight=%q", defaultName, tightName)
+	}
+	if len(tightOut) >= len(defaultOut) {
+		t.Fatalf("context search caps should tighten output: tight=%d default=%d", len(tightOut), len(defaultOut))
+	}
+	if !strings.Contains(string(tightOut), "fatal timeout rejected request") {
+		t.Fatalf("high-signal search match must survive context caps: %q", string(tightOut))
+	}
+}
+
 // TestGroupSearchResults_nonDigitBetweenColons covers the allDigits=false branch
 // when the segment between the first and second colon contains non-digit characters.
 func TestGroupSearchResults_nonDigitBetweenColons(t *testing.T) {

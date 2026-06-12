@@ -26,6 +26,8 @@ type wssABReplayFlags struct {
 	deltaToolOutputMutationLab bool
 	codexChunkDedup            bool
 	chunkDedupMinBytes         int
+	searchCapFiles             int
+	searchCapMatches           int
 	help                       bool
 }
 
@@ -62,6 +64,8 @@ type wssABReplayReport struct {
 	SearchHTTP400Errors        int                 `json:"search_http_400_errors"`
 	SearchInvalidRequests      int                 `json:"search_invalid_request_errors"`
 	SearchResponseFailures     int                 `json:"search_response_failed_frames"`
+	SearchCapFiles             int                 `json:"search_cap_files,omitempty"`
+	SearchCapMatches           int                 `json:"search_cap_matches,omitempty"`
 	ToolOutputMutation         bool                `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutationLab bool                `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
 	Lost                       int                 `json:"lost"`
@@ -105,6 +109,8 @@ Flags:
                            --allow-recovery-note-extra, and
                            --tool-output-mutation
   --chunk-dedup-min-bytes N Set the replay chunk-dedup minimum input bytes
+  --search-cap-files N      Proof-only search-output file cap override
+  --search-cap-matches N    Proof-only search-output per-file match cap
 
 Input format: JSONL records with direction and payload:
   {"direction":"client_to_server","payload":{"model":"gpt-5-codex","input":[]}}
@@ -191,6 +197,38 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 				return flags, err
 			}
 			flags.chunkDedupMinBytes = n
+		case arg == "--search-cap-files":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--search-cap-files requires a value")
+			}
+			i++
+			n, err := parseNonNegativeIntFlag("--search-cap-files", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapFiles = n
+		case strings.HasPrefix(arg, "--search-cap-files="):
+			n, err := parseNonNegativeIntFlag("--search-cap-files", strings.TrimPrefix(arg, "--search-cap-files="))
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapFiles = n
+		case arg == "--search-cap-matches":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--search-cap-matches requires a value")
+			}
+			i++
+			n, err := parseNonNegativeIntFlag("--search-cap-matches", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMatches = n
+		case strings.HasPrefix(arg, "--search-cap-matches="):
+			n, err := parseNonNegativeIntFlag("--search-cap-matches", strings.TrimPrefix(arg, "--search-cap-matches="))
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMatches = n
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -220,6 +258,8 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 			cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = flags.chunkDedupMinBytes
 		}
 	}
+	cfg.Compression.OutputReduce.CodexSearchCapMaxFiles = flags.searchCapFiles
+	cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile = flags.searchCapMatches
 	result, err := proxy.RunWSSPhaseFABReplay(cfg, frames)
 	if err != nil {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
@@ -257,6 +297,8 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		SearchHTTP400Errors:        result.SearchStats.HTTP400Errors,
 		SearchInvalidRequests:      result.SearchStats.InvalidRequestErrors,
 		SearchResponseFailures:     result.SearchStats.ResponseFailedFrames,
+		SearchCapFiles:             flags.searchCapFiles,
+		SearchCapMatches:           flags.searchCapMatches,
 		ToolOutputMutation:         toolOutputMutation,
 		DeltaToolOutputMutationLab: flags.deltaToolOutputMutationLab,
 		Lost:                       result.Report.Lost(),
@@ -277,6 +319,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
+	}
+	if flags.searchCapFiles > 0 || flags.searchCapMatches > 0 {
+		report.Notes = append(report.Notes, "search output caps were overridden for this proof replay only; product defaults remain unchanged")
 	}
 	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions) + result.ExpectedInstructionExtras
 	gateLost := report.Lost
@@ -568,6 +613,9 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 		report.SearchInvalidRequests,
 		report.SearchHTTP400Errors,
 		report.SearchResponseFailures)
+	if report.SearchCapFiles > 0 || report.SearchCapMatches > 0 {
+		fmt.Fprintf(w, "  search_cap:       files=%d matches=%d\n", report.SearchCapFiles, report.SearchCapMatches)
+	}
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
 	if report.ExpectedExtras > 0 {
 		fmt.Fprintf(w, "  expected_extras:  %d\n", report.ExpectedExtras)

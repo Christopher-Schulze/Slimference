@@ -69,8 +69,9 @@ type codexCaptureRunDeps struct {
 }
 
 type codexCaptureDaemon struct {
-	cmd  *exec.Cmd
-	done <-chan error
+	cmd      *exec.Cmd
+	done     <-chan error
+	stateDir string
 }
 
 type codexCaptureResourceProof struct {
@@ -772,6 +773,15 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	if !validCodexCaptureTransport(flags.transport) {
 		return flags, fmt.Errorf("--transport must be auto, http, wss, wss-bridge, or direct")
 	}
+	flags.host = strings.TrimSpace(flags.host)
+	if flags.host == "" {
+		return flags, fmt.Errorf("--host is required")
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(flags.port))
+	if err != nil || port < 1 || port > 65535 {
+		return flags, fmt.Errorf("--port must be 1-65535")
+	}
+	flags.port = strconv.Itoa(port)
 	return flags, nil
 }
 
@@ -1079,12 +1089,17 @@ func ensureNoCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags)
 }
 
 func startCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags, stderr io.Writer) (*codexCaptureDaemon, error) {
+	stateDir, err := os.MkdirTemp(codexCaptureDaemonTempRoot(), "slmcd-*")
+	if err != nil {
+		return nil, fmt.Errorf("create capture daemon state dir: %w", err)
+	}
 	cmd := exec.CommandContext(ctx, flags.binary, "daemon")
-	cmd.Env = append(os.Environ(), "SLIMFERENCE_WSS_AB_CAPTURE="+flags.capturePath)
+	cmd.Env = codexCaptureDaemonEnv(os.Environ(), flags, stateDir)
 	prepareCodexCaptureDaemonCommand(cmd)
 	cmd.Stdout = stderr
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
+		_ = os.RemoveAll(stateDir)
 		return nil, fmt.Errorf("start capture daemon: %w", err)
 	}
 	done := make(chan error, 1)
@@ -1092,7 +1107,38 @@ func startCodexCaptureDaemon(ctx context.Context, flags codexCaptureRunFlags, st
 		done <- cmd.Wait()
 		close(done)
 	}()
-	return &codexCaptureDaemon{cmd: cmd, done: done}, nil
+	return &codexCaptureDaemon{cmd: cmd, done: done, stateDir: stateDir}, nil
+}
+
+func codexCaptureDaemonTempRoot() string {
+	if info, err := os.Stat("/tmp"); err == nil && info.IsDir() {
+		return "/tmp"
+	}
+	return ""
+}
+
+func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir string) []string {
+	env := make([]string, 0, len(base)+4)
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			env = append(env, entry)
+			continue
+		}
+		switch key {
+		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR":
+			continue
+		default:
+			env = append(env, entry)
+		}
+	}
+	env = append(env,
+		"SLIMFERENCE_WSS_AB_CAPTURE="+flags.capturePath,
+		"SLIMFERENCE_LISTEN_ADDRESS="+flags.host,
+		"SLIMFERENCE_LISTEN_PORT="+flags.port,
+		"SLIMFERENCE_DAEMON_STATE_DIR="+stateDir,
+	)
+	return env
 }
 
 func prepareCodexCaptureDaemonCommand(cmd *exec.Cmd) {
@@ -1615,9 +1661,7 @@ func codexCapturePayloadType(payload json.RawMessage) string {
 }
 
 func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
-	args := []string{"codex", "run", "--transport=" + flags.transport, "--"}
-	args = append(args, flags.codexArgs...)
-	cmd := exec.CommandContext(ctx, flags.binary, args...)
+	cmd := exec.CommandContext(ctx, flags.binary, codexCaptureCLIArgs(flags)...)
 	cmd.Stdin = os.Stdin
 	if flags.exitMarker != "" {
 		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags.capturePath, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
@@ -1628,6 +1672,12 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 		return fmt.Errorf("run scoped Codex capture: %w", err)
 	}
 	return nil
+}
+
+func codexCaptureCLIArgs(flags codexCaptureRunFlags) []string {
+	args := []string{"codex", "run", "--transport=" + flags.transport, "--host=" + flags.host, "--port=" + flags.port, "--"}
+	args = append(args, flags.codexArgs...)
+	return args
 }
 
 func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, capturePath, marker string, markerCount int, stdout, stderr io.Writer) error {
@@ -1821,8 +1871,16 @@ func normalizeCodexCaptureMarkerText(s string) string {
 
 func stopCodexCaptureDaemon(ctx context.Context, daemon *codexCaptureDaemon) error {
 	if daemon == nil || daemon.cmd == nil || daemon.cmd.Process == nil {
+		if daemon != nil && daemon.stateDir != "" {
+			_ = os.RemoveAll(daemon.stateDir)
+		}
 		return nil
 	}
+	defer func() {
+		if daemon.stateDir != "" {
+			_ = os.RemoveAll(daemon.stateDir)
+		}
+	}()
 	if daemon.done == nil {
 		return daemon.cmd.Process.Kill()
 	}

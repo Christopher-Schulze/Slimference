@@ -1713,10 +1713,9 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("session_start_auto_injects_light_awareness", func(t *testing.T) {
-		// Default mode (auto) now injects a short awareness preamble so
-		// the model trusts compact tool-result formats. Saves tokens
-		// by preventing speculative re-runs.
+	t.Run("session_start_auto_is_silent", func(t *testing.T) {
+		// Default mode (auto) keeps normal Codex session starts silent.
+		// Explicit compact/aggressive/debug modes own context injection.
 		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
 		readStdinAll = func() ([]byte, error) {
 			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
@@ -1729,12 +1728,8 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
-		out := buf.String()
-		if !strings.Contains(out, `"hookEventName":"SessionStart"`) {
-			t.Fatalf("auto-mode session-start must emit hookEventName, got %q", out)
-		}
-		if !strings.Contains(out, "Slimference may compact") {
-			t.Fatalf("auto-mode awareness preamble missing, got %q", out)
+		if buf.Len() != 0 {
+			t.Fatalf("auto-mode session-start must be silent, got %q", buf.String())
 		}
 	})
 

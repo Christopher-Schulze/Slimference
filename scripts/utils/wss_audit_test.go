@@ -58,6 +58,7 @@ func TestWSSAuditReport(t *testing.T) {
 			DebugFacts: map[string]string{
 				"wss.request_shape":                                   "full_history",
 				"wss.turn_seq":                                        "2",
+				"wss.remaining_turns_estimate":                        "70",
 				"wss.socket_seq":                                      "2",
 				"wss.socket_close_initiator":                          "client_eof",
 				"wss.shadow_mirror_blocks":                            "2",
@@ -223,6 +224,8 @@ func TestWSSAuditReport(t *testing.T) {
 		report.FootprintCoverage.AppliedTokenDecisions != 1 ||
 		report.FootprintCoverage.WithFootprint != 1 ||
 		report.FootprintCoverage.MissingFootprint != 0 ||
+		report.FootprintCoverage.WithRemainingTurnsEstimate != 1 ||
+		report.FootprintCoverage.MissingRemainingTurnsEstimate != 0 ||
 		report.FootprintCoverage.SavedTokens != 60 ||
 		report.FootprintCoverage.ByMechanism["stale_read"] != 1 {
 		t.Fatalf("bad footprint coverage: %+v", report.FootprintCoverage)
@@ -305,6 +308,67 @@ func TestWSSAuditFootprintCoverageReportsMissingTokenEvidence(t *testing.T) {
 		!strings.Contains(stdout.String(), "missing footprint:       1") ||
 		!strings.Contains(stdout.String(), "missing mechanisms:      read_delta:1") {
 		t.Fatalf("text output missing footprint coverage:\n%s", stdout.String())
+	}
+}
+
+func TestWSSAuditFootprintGateRequiresRemainingTurnsEstimate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "footprint-without-remaining",
+		SessionID: "codex-wss:s1",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:            "stale_read",
+			Action:               evidence.ActionApplied,
+			Reason:               "positive_net_savings",
+			OriginalTokens:       1000,
+			FinalTokens:          200,
+			SavedTokens:          800,
+			NetTokens:            800,
+			FootprintScore:       640,
+			FootprintScoreBucket: "high",
+		}},
+		DebugFacts: map[string]string{
+			"wss.request_shape": "full_history",
+			"wss.turn_seq":      "2",
+		},
+	})
+
+	report, err := loadWSSAuditReport(wssAuditFlags{
+		path:                     path,
+		requireFootprintEvidence: true,
+	})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if report.GatePassed ||
+		report.FootprintCoverage == nil ||
+		report.FootprintCoverage.WithFootprint != 1 ||
+		report.FootprintCoverage.MissingRemainingTurnsEstimate != 1 ||
+		report.FootprintCoverage.AppliedMissingRemainingTurnsEstimate != 1 ||
+		report.FootprintCoverage.MissingRemainingTurnsEstimateMechanism["stale_read"] != 1 {
+		t.Fatalf("expected missing remaining-turn gate evidence, report=%+v coverage=%+v", report, report.FootprintCoverage)
+	}
+	failures := strings.Join(report.GateFailures, "\n")
+	if !strings.Contains(failures, "wss.remaining_turns_estimate") {
+		t.Fatalf("missing remaining-turn gate failure: %+v", report.GateFailures)
+	}
+	notes := strings.Join(report.Notes, "\n")
+	if !strings.Contains(notes, "pre-EMA") {
+		t.Fatalf("missing remaining-turn note: %+v", report.Notes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSAudit([]string{path, "--require-footprint-evidence"}, &stdout, &stderr); code != 3 {
+		t.Fatalf("runWSSAudit code=%d want 3 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "missing remaining-turn:  1") ||
+		!strings.Contains(stdout.String(), "wss.remaining_turns_estimate") {
+		t.Fatalf("text output missing remaining-turn evidence:\n%s", stdout.String())
 	}
 }
 
@@ -516,6 +580,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		DebugFacts: map[string]string{
 			"wss.request_shape":                                   "full_history",
 			"wss.turn_seq":                                        "6",
+			"wss.remaining_turns_estimate":                        "64",
 			"wss.socket_seq":                                      "3",
 			"wss.socket_close_initiator":                          "upstream_eof",
 			"wss.shadow_mirror_blocks":                            "1",
@@ -623,7 +688,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	if report.FootprintCoverage == nil ||
 		report.FootprintCoverage.TokenDecisions != 1 ||
 		report.FootprintCoverage.WithFootprint != 1 ||
-		report.FootprintCoverage.MissingFootprint != 0 {
+		report.FootprintCoverage.MissingFootprint != 0 ||
+		report.FootprintCoverage.WithRemainingTurnsEstimate != 1 ||
+		report.FootprintCoverage.MissingRemainingTurnsEstimate != 0 {
 		t.Fatalf("footprint coverage JSON missing: %+v", report.FootprintCoverage)
 	}
 	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {

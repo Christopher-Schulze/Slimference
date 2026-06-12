@@ -10,10 +10,13 @@ import (
 )
 
 type releaseProofReportFlags struct {
-	matrixPath            string
-	resourceProfileProofs []string
-	outputFormat          string
-	help                  bool
+	matrixPath               string
+	resourceProfileProofs    []string
+	searchCapProofReportPath string
+	codexStatusBeforePath    string
+	codexStatusAfterPath     string
+	outputFormat             string
+	help                     bool
 }
 
 type releaseProofReport struct {
@@ -23,6 +26,8 @@ type releaseProofReport struct {
 	ResourceProfileProofClients []string                          `json:"resource_profile_proof_clients,omitempty"`
 	ResourceProfileProofOK      bool                              `json:"resource_profile_proof_ok"`
 	ResourceProfileProofIssues  []string                          `json:"resource_profile_proof_issues,omitempty"`
+	SearchCapProof              *releaseSearchCapProofSummary     `json:"search_cap_proof,omitempty"`
+	CodexRouteHygiene           *releaseCodexRouteHygieneSummary  `json:"codex_route_hygiene,omitempty"`
 	MatrixFiles                 int                               `json:"matrix_files"`
 	Rows                        int                               `json:"rows"`
 	Clients                     map[string]int                    `json:"clients"`
@@ -60,10 +65,50 @@ type releaseProofEconomics struct {
 	OutputReduceNetObservedTokens int64 `json:"output_reduce_net_observed_tokens"`
 }
 
+type releaseSearchCapProofSummary struct {
+	Path                    string   `json:"path"`
+	OK                      bool     `json:"ok"`
+	Issues                  []string `json:"issues,omitempty"`
+	Captures                int      `json:"captures"`
+	CLI                     int      `json:"cli"`
+	Desktop                 int      `json:"desktop"`
+	PositiveSavings         int      `json:"positive_savings_captures"`
+	DeltaToolOutputProof    bool     `json:"delta_tool_output_mutation_proof"`
+	SelectedCandidate       string   `json:"selected_candidate,omitempty"`
+	MaxFilesShown           int      `json:"max_files_shown,omitempty"`
+	MaxMatchesPerFile       int      `json:"max_matches_per_file,omitempty"`
+	TotalExtraReducerTokens int      `json:"total_extra_reducer_tokens,omitempty"`
+	MinMatchRetentionPct    float64  `json:"min_match_retention_pct,omitempty"`
+}
+
+type releaseCodexRouteHygieneSummary struct {
+	OK     bool     `json:"ok"`
+	Before string   `json:"before"`
+	After  string   `json:"after"`
+	Issues []string `json:"issues,omitempty"`
+}
+
+type releaseCodexStatusSnapshot struct {
+	Route struct {
+		Enabled    bool   `json:"enabled"`
+		Complete   bool   `json:"complete"`
+		Conflict   string `json:"conflict,omitempty"`
+		LegacyKeys bool   `json:"legacy_keys"`
+		BaseURL    string `json:"base_url"`
+		Transport  string `json:"transport"`
+	} `json:"route"`
+}
+
+const (
+	releaseSearchCapMinRetainedPct        = 40.0
+	releaseSearchCapMinSearchOutputs      = 2
+	releaseSearchCapMinExtraReducerTokens = 1
+)
+
 const releaseProofReportHelpText = `release-proof-report: produce a content-free release proof summary
 
 Usage:
-  go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
+  go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR [--search-cap-proof-report focused-search-cap.json --codex-status-before before.json --codex-status-after after.json]
 
 The report reads proof-matrix rows only, never raw WSS frame payloads. It keeps
 local billable-input savings, output-wire savings, provider-cache economics,
@@ -77,7 +122,22 @@ workday-finish.json, slimference.sample.txt, and matrix.jsonl. The JSON files
 must prove an OK host budget with parse/degrade/compression deltas at zero, and
 the local matrix.jsonl must contain a positive host_resource_long_workday row
 with host_budget_ok for the matching client, because global proof-matrix rows
-alone do not replace CLI/Desktop pprof or resource-profile evidence.`
+alone do not replace CLI/Desktop pprof or resource-profile evidence.
+
+For T359 search-cap promotion, pass --search-cap-proof-report pointing at a
+content-free focused wss-proof-matrix --json report generated with
+--search-cap-candidate thresholds. release-proof-report validates that report
+without reading raw frames: gate passed, search_loop only, at least one CLI and
+one Desktop row, positive rows, one consistent selected cap across rows, at
+least 40% retained matches, at least two resolved search outputs, and positive
+extra reducer-token savings. CLI/Desktop/positive-row coverage is recomputed
+from validated row-gate-passed capture_reports, not trusted from aggregate
+counters alone. Search-cap promotion also requires --codex-status-before and
+--codex-status-after snapshots from 'slimference codex status --json'; both must
+prove normal direct Codex routing with no marker-owned shared route, no legacy
+base-url keys, and no route conflict. Save the --json output as the final
+release-proof artifact; that final JSON file is the supported
+codex_search_cap_proof_path runtime latch input.`
 
 func runReleaseProofReport(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseReleaseProofReportFlags(args)
@@ -138,6 +198,42 @@ func parseReleaseProofReportFlags(args []string) (releaseProofReportFlags, error
 				return flags, fmt.Errorf("--resource-profile-proof requires a path")
 			}
 			flags.resourceProfileProofs = append(flags.resourceProfileProofs, value)
+		case arg == "--search-cap-proof-report":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return flags, fmt.Errorf("--search-cap-proof-report requires a path")
+			}
+			flags.searchCapProofReportPath = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--search-cap-proof-report="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--search-cap-proof-report="))
+			if value == "" {
+				return flags, fmt.Errorf("--search-cap-proof-report requires a path")
+			}
+			flags.searchCapProofReportPath = value
+		case arg == "--codex-status-before":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return flags, fmt.Errorf("--codex-status-before requires a path")
+			}
+			flags.codexStatusBeforePath = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--codex-status-before="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--codex-status-before="))
+			if value == "" {
+				return flags, fmt.Errorf("--codex-status-before requires a path")
+			}
+			flags.codexStatusBeforePath = value
+		case arg == "--codex-status-after":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return flags, fmt.Errorf("--codex-status-after requires a path")
+			}
+			flags.codexStatusAfterPath = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--codex-status-after="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--codex-status-after="))
+			if value == "" {
+				return flags, fmt.Errorf("--codex-status-after requires a path")
+			}
+			flags.codexStatusAfterPath = value
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -156,6 +252,14 @@ func loadReleaseProofReport(flags releaseProofReportFlags) (releaseProofReport, 
 		return releaseProofReport{}, err
 	}
 	resourceProof := validateReleaseResourceProofs(flags.resourceProfileProofs)
+	searchCapProof, err := validateReleaseSearchCapProofReport(flags.searchCapProofReportPath)
+	if err != nil {
+		return releaseProofReport{}, err
+	}
+	codexHygiene, err := validateReleaseCodexRouteHygiene(flags.codexStatusBeforePath, flags.codexStatusAfterPath)
+	if err != nil {
+		return releaseProofReport{}, err
+	}
 	report := releaseProofReport{
 		MatrixPath:                  flags.matrixPath,
 		ResourceProfileProof:        strings.Join(flags.resourceProfileProofs, ","),
@@ -163,6 +267,8 @@ func loadReleaseProofReport(flags releaseProofReportFlags) (releaseProofReport, 
 		ResourceProfileProofClients: resourceProof.Clients,
 		ResourceProfileProofOK:      resourceProof.OK,
 		ResourceProfileProofIssues:  resourceProof.Issues,
+		SearchCapProof:              searchCapProof,
+		CodexRouteHygiene:           codexHygiene,
 		MatrixFiles:                 inventory.MatrixFiles,
 		Rows:                        inventory.Rows,
 		Clients:                     cloneInventoryIntMap(inventory.Clients),
@@ -269,7 +375,294 @@ func releaseProofGateFailures(report releaseProofReport) []string {
 	if !report.ResourceProfileProofOK {
 		failures = append(failures, "invalid CLI/Desktop pprof/resource profile proof: "+strings.Join(report.ResourceProfileProofIssues, "; "))
 	}
+	if report.SearchCapProof != nil && !report.SearchCapProof.OK {
+		failures = append(failures, "invalid focused search-cap proof: "+strings.Join(report.SearchCapProof.Issues, "; "))
+	}
+	if report.SearchCapProof != nil {
+		if report.CodexRouteHygiene == nil {
+			failures = append(failures, "missing Codex route hygiene proof for search-cap promotion")
+		} else if !report.CodexRouteHygiene.OK {
+			failures = append(failures, "invalid Codex route hygiene proof: "+strings.Join(report.CodexRouteHygiene.Issues, "; "))
+		}
+	}
 	return failures
+}
+
+func validateReleaseCodexRouteHygiene(beforePath, afterPath string) (*releaseCodexRouteHygieneSummary, error) {
+	beforePath = strings.TrimSpace(beforePath)
+	afterPath = strings.TrimSpace(afterPath)
+	if beforePath == "" && afterPath == "" {
+		return nil, nil
+	}
+	summary := &releaseCodexRouteHygieneSummary{Before: beforePath, After: afterPath}
+	if beforePath == "" {
+		summary.Issues = append(summary.Issues, "missing --codex-status-before")
+	}
+	if afterPath == "" {
+		summary.Issues = append(summary.Issues, "missing --codex-status-after")
+	}
+	if beforePath != "" {
+		before, err := readReleaseCodexStatusSnapshot(beforePath)
+		if err != nil {
+			return nil, fmt.Errorf("read Codex route hygiene before snapshot: %w", err)
+		}
+		summary.Issues = append(summary.Issues, releaseCodexStatusSnapshotIssues("before", before)...)
+	}
+	if afterPath != "" {
+		after, err := readReleaseCodexStatusSnapshot(afterPath)
+		if err != nil {
+			return nil, fmt.Errorf("read Codex route hygiene after snapshot: %w", err)
+		}
+		summary.Issues = append(summary.Issues, releaseCodexStatusSnapshotIssues("after", after)...)
+	}
+	summary.OK = len(summary.Issues) == 0
+	return summary, nil
+}
+
+func readReleaseCodexStatusSnapshot(path string) (releaseCodexStatusSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return releaseCodexStatusSnapshot{}, err
+	}
+	var snapshot releaseCodexStatusSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return releaseCodexStatusSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func releaseCodexStatusSnapshotIssues(label string, snapshot releaseCodexStatusSnapshot) []string {
+	var issues []string
+	if snapshot.Route.Enabled {
+		issues = append(issues, label+": advanced shared Codex route enabled")
+	}
+	if snapshot.Route.Complete {
+		issues = append(issues, label+": marker-owned Codex route complete")
+	}
+	if snapshot.Route.LegacyKeys {
+		issues = append(issues, label+": legacy openai_base_url/chatgpt_base_url keys present")
+	}
+	if strings.TrimSpace(snapshot.Route.Conflict) != "" {
+		issues = append(issues, label+": Codex route conflict: "+strings.TrimSpace(snapshot.Route.Conflict))
+	}
+	return issues
+}
+
+func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSummary, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read search-cap proof report: %w", err)
+	}
+	var proof wssProofMatrixReport
+	if err := json.Unmarshal(data, &proof); err != nil {
+		return nil, fmt.Errorf("parse search-cap proof report: %w", err)
+	}
+	summary := &releaseSearchCapProofSummary{
+		Path:            path,
+		Captures:        proof.Captures,
+		CLI:             proof.CLI,
+		Desktop:         proof.Desktop,
+		PositiveSavings: proof.PositiveSavings,
+	}
+	var issues []string
+	if !proof.GatePassed {
+		issues = append(issues, "focused wss-proof-matrix gate did not pass: "+strings.Join(proof.GateFailures, "; "))
+	}
+	if proof.GatePassed && len(proof.GateFailures) > 0 {
+		issues = append(issues, "focused wss-proof-matrix gate passed but still contains gate failures: "+strings.Join(proof.GateFailures, "; "))
+	}
+	if proof.Captures < 2 {
+		issues = append(issues, fmt.Sprintf("expected at least 2 search_loop captures, got %d", proof.Captures))
+	}
+	if proof.CLI < 1 {
+		issues = append(issues, "missing CLI search_loop capture")
+	}
+	if proof.Desktop < 1 {
+		issues = append(issues, "missing Desktop search_loop capture")
+	}
+	if proof.PositiveSavings < 2 {
+		issues = append(issues, fmt.Sprintf("expected at least 2 positive search-cap proof rows, got %d", proof.PositiveSavings))
+	}
+	if proof.WorkloadClasses["search_loop"] != proof.Captures {
+		issues = append(issues, "focused search-cap proof must contain only search_loop captures")
+	}
+	validatedSearchLoopReports := 0
+	validatedCLIReports := 0
+	validatedDesktopReports := 0
+	validatedPositiveReports := 0
+	deltaToolOutputProofReports := 0
+	for _, capture := range proof.CaptureReports {
+		if strings.TrimSpace(capture.WorkloadClass) != "search_loop" {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": focused proof contains non-search_loop capture")
+			continue
+		}
+		validatedSearchLoopReports++
+		candidateValid := true
+		if !capture.GatePassed {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": focused search-cap capture row gate failed: "+strings.Join(capture.GateFailures, "; "))
+			candidateValid = false
+		}
+		if capture.GatePassed && len(capture.GateFailures) > 0 {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": focused search-cap capture row gate passed but still contains gate failures: "+strings.Join(capture.GateFailures, "; "))
+			candidateValid = false
+		}
+		if capture.SearchCapProof == nil {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": missing search_cap_proof")
+			continue
+		}
+		if !capture.SearchCapProof.GatePassed {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof gate failed")
+			candidateValid = false
+		}
+		if capture.SearchCapProof.GatePassed && len(capture.SearchCapProof.GateFailures) > 0 {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof gate passed but still contains gate failures: "+strings.Join(capture.SearchCapProof.GateFailures, "; "))
+			candidateValid = false
+		}
+		if capture.SearchCapProof.MinCandidateRetainedPct+1e-9 < releaseSearchCapMinRetainedPct {
+			issues = append(issues, fmt.Sprintf("%s: search_cap_proof min retention %.2f%% < release min %.2f%%",
+				releaseProofSearchCapCaptureID(capture),
+				capture.SearchCapProof.MinCandidateRetainedPct,
+				releaseSearchCapMinRetainedPct))
+			candidateValid = false
+		}
+		if capture.SearchCapProof.MinSearchOutputs < releaseSearchCapMinSearchOutputs {
+			issues = append(issues, fmt.Sprintf("%s: search_cap_proof min search outputs %d < release min %d",
+				releaseProofSearchCapCaptureID(capture),
+				capture.SearchCapProof.MinSearchOutputs,
+				releaseSearchCapMinSearchOutputs))
+			candidateValid = false
+		}
+		if capture.SearchCapProof.SearchOutputs < releaseSearchCapMinSearchOutputs {
+			issues = append(issues, fmt.Sprintf("%s: search_cap_proof resolved search outputs %d < release min %d",
+				releaseProofSearchCapCaptureID(capture),
+				capture.SearchCapProof.SearchOutputs,
+				releaseSearchCapMinSearchOutputs))
+			candidateValid = false
+		}
+		if capture.SearchCapProof.MinExtraReducerTokens < releaseSearchCapMinExtraReducerTokens {
+			issues = append(issues, fmt.Sprintf("%s: search_cap_proof min extra reducer tokens %d < release min %d",
+				releaseProofSearchCapCaptureID(capture),
+				capture.SearchCapProof.MinExtraReducerTokens,
+				releaseSearchCapMinExtraReducerTokens))
+			candidateValid = false
+		}
+		if !capture.SearchCapProof.DefaultReplay.ToolOutputMutation || !capture.SearchCapProof.DefaultReplay.DeltaToolOutputMutation {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof default replay did not enable delta tool-output mutation proof")
+			candidateValid = false
+		}
+		selected := capture.SearchCapProof.SelectedCandidate
+		if selected == nil {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": missing selected search-cap candidate")
+			continue
+		}
+		if selected.MatchRetentionPct+1e-9 < releaseSearchCapMinRetainedPct {
+			issues = append(issues, fmt.Sprintf("%s: selected search-cap candidate retention %.2f%% < release min %.2f%%",
+				releaseProofSearchCapCaptureID(capture),
+				selected.MatchRetentionPct,
+				releaseSearchCapMinRetainedPct))
+			candidateValid = false
+		}
+		if selected.ExtraReducerTokens <= 0 {
+			issues = append(issues, fmt.Sprintf("%s: selected search-cap candidate has non-positive extra reducer tokens %+d",
+				releaseProofSearchCapCaptureID(capture),
+				selected.ExtraReducerTokens))
+			candidateValid = false
+		}
+		if selected.MaxFilesShown <= 0 || selected.MaxMatchesPerFile <= 0 {
+			issues = append(issues, fmt.Sprintf("%s: selected search-cap candidate has invalid cap %d/%d",
+				releaseProofSearchCapCaptureID(capture),
+				selected.MaxFilesShown,
+				selected.MaxMatchesPerFile))
+			candidateValid = false
+		}
+		if selectedReplay := releaseSearchCapSelectedReplay(capture.SearchCapProof); selectedReplay == nil ||
+			!selectedReplay.ToolOutputMutation || !selectedReplay.DeltaToolOutputMutation {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": selected candidate replay did not enable delta tool-output mutation proof")
+			candidateValid = false
+		}
+		if summary.SelectedCandidate == "" {
+			summary.SelectedCandidate = selected.Name
+			summary.MaxFilesShown = selected.MaxFilesShown
+			summary.MaxMatchesPerFile = selected.MaxMatchesPerFile
+			summary.MinMatchRetentionPct = selected.MatchRetentionPct
+		} else if summary.MaxFilesShown != selected.MaxFilesShown || summary.MaxMatchesPerFile != selected.MaxMatchesPerFile {
+			issues = append(issues, fmt.Sprintf("%s: selected cap %d/%d differs from %d/%d",
+				releaseProofSearchCapCaptureID(capture),
+				selected.MaxFilesShown,
+				selected.MaxMatchesPerFile,
+				summary.MaxFilesShown,
+				summary.MaxMatchesPerFile))
+		}
+		if selected.MatchRetentionPct < summary.MinMatchRetentionPct {
+			summary.MinMatchRetentionPct = selected.MatchRetentionPct
+		}
+		summary.TotalExtraReducerTokens += selected.ExtraReducerTokens
+		if candidateValid {
+			switch strings.TrimSpace(capture.Client) {
+			case "cli":
+				validatedCLIReports++
+			case "desktop":
+				validatedDesktopReports++
+			}
+			validatedPositiveReports++
+			deltaToolOutputProofReports++
+		}
+	}
+	if validatedSearchLoopReports != proof.Captures {
+		issues = append(issues, fmt.Sprintf("validated search_loop capture_reports %d != captures %d", validatedSearchLoopReports, proof.Captures))
+	}
+	if validatedCLIReports < 1 {
+		issues = append(issues, "missing validated CLI search-cap capture report")
+	}
+	if validatedDesktopReports < 1 {
+		issues = append(issues, "missing validated Desktop search-cap capture report")
+	}
+	if validatedPositiveReports < 2 {
+		issues = append(issues, fmt.Sprintf("expected at least 2 validated positive search-cap capture reports, got %d", validatedPositiveReports))
+	}
+	if deltaToolOutputProofReports != validatedPositiveReports || deltaToolOutputProofReports < 2 {
+		issues = append(issues, fmt.Sprintf("expected delta tool-output mutation proof for every positive search-cap capture, got %d/%d", deltaToolOutputProofReports, validatedPositiveReports))
+	} else {
+		summary.DeltaToolOutputProof = true
+	}
+	if summary.SelectedCandidate == "" {
+		issues = append(issues, "no selected search-cap candidate")
+	}
+	if summary.TotalExtraReducerTokens <= 0 {
+		issues = append(issues, fmt.Sprintf("total search-cap extra reducer tokens must be positive, got %+d", summary.TotalExtraReducerTokens))
+	}
+	summary.Issues = issues
+	summary.OK = len(issues) == 0
+	return summary, nil
+}
+
+func releaseSearchCapSelectedReplay(proof *searchCapProofReport) *searchCapProofReplaySummary {
+	if proof == nil || proof.SelectedCandidate == nil {
+		return nil
+	}
+	for i := range proof.Candidates {
+		candidate := &proof.Candidates[i]
+		if strings.TrimSpace(candidate.Name) == strings.TrimSpace(proof.SelectedCandidate.Name) &&
+			candidate.MaxFilesShown == proof.SelectedCandidate.MaxFilesShown &&
+			candidate.MaxMatchesPerFile == proof.SelectedCandidate.MaxMatchesPerFile {
+			return candidate.Replay
+		}
+	}
+	return nil
+}
+
+func releaseProofSearchCapCaptureID(capture wssProofMatrixCapture) string {
+	if strings.TrimSpace(capture.ID) != "" {
+		return strings.TrimSpace(capture.ID)
+	}
+	if strings.TrimSpace(capture.Client) != "" {
+		return strings.TrimSpace(capture.Client)
+	}
+	return "<unknown-search-cap-capture>"
 }
 
 func releaseProofRowID(row wssProofMatrixRecord) string {
@@ -552,6 +945,24 @@ func writeReleaseProofReportText(w io.Writer, report releaseProofReport) {
 		report.ResourceProfileProofOK)
 	if len(report.ResourceProfileProofClients) > 0 {
 		fmt.Fprintf(w, "Resource proof clients: %s\n", strings.Join(report.ResourceProfileProofClients, ","))
+	}
+	if report.SearchCapProof != nil {
+		fmt.Fprintf(w, "Search-cap proof: ok=%v captures=%d cli=%d desktop=%d selected=%s %d/%d extra_tokens=%d min_retention=%.2f%%\n",
+			report.SearchCapProof.OK,
+			report.SearchCapProof.Captures,
+			report.SearchCapProof.CLI,
+			report.SearchCapProof.Desktop,
+			report.SearchCapProof.SelectedCandidate,
+			report.SearchCapProof.MaxFilesShown,
+			report.SearchCapProof.MaxMatchesPerFile,
+			report.SearchCapProof.TotalExtraReducerTokens,
+			report.SearchCapProof.MinMatchRetentionPct)
+	}
+	if report.CodexRouteHygiene != nil {
+		fmt.Fprintf(w, "Codex route hygiene: ok=%v before=%s after=%s\n",
+			report.CodexRouteHygiene.OK,
+			report.CodexRouteHygiene.Before,
+			report.CodexRouteHygiene.After)
 	}
 	fmt.Fprintf(w, "Live reducer hits: %s\n", formatInventoryInt64Map(report.LiveReducerHits))
 	if len(report.MaxxWorkloadStatus) > 0 {

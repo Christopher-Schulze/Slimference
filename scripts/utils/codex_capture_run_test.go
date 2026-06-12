@@ -118,6 +118,105 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 }
 
+func TestCodexCaptureDaemonEnvSetsCaptureAndListenRoute(t *testing.T) {
+	t.Parallel()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	env := codexCaptureDaemonEnv([]string{
+		"PATH=/usr/bin",
+		"SLIMFERENCE_WSS_AB_CAPTURE=/old.jsonl",
+		"SLIMFERENCE_LISTEN_ADDRESS=0.0.0.0",
+		"SLIMFERENCE_LISTEN_PORT=8990",
+		"SLIMFERENCE_DAEMON_STATE_DIR=/old-state",
+		"OTHER=value",
+	}, codexCaptureRunFlags{
+		capturePath: "/tmp/capture.jsonl",
+		host:        "127.0.0.2",
+		port:        "8991",
+	}, stateDir)
+	joined := "\n" + strings.Join(env, "\n") + "\n"
+	for _, want := range []string{
+		"\nPATH=/usr/bin\n",
+		"\nOTHER=value\n",
+		"\nSLIMFERENCE_WSS_AB_CAPTURE=/tmp/capture.jsonl\n",
+		"\nSLIMFERENCE_LISTEN_ADDRESS=127.0.0.2\n",
+		"\nSLIMFERENCE_LISTEN_PORT=8991\n",
+		"\nSLIMFERENCE_DAEMON_STATE_DIR=" + stateDir + "\n",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("env missing %q in %q", want, joined)
+		}
+	}
+	for _, stale := range []string{
+		"SLIMFERENCE_WSS_AB_CAPTURE=/old.jsonl",
+		"SLIMFERENCE_LISTEN_ADDRESS=0.0.0.0",
+		"SLIMFERENCE_LISTEN_PORT=8990",
+		"SLIMFERENCE_DAEMON_STATE_DIR=/old-state",
+	} {
+		if strings.Contains(joined, stale) {
+			t.Fatalf("env kept stale %q in %q", stale, joined)
+		}
+	}
+}
+
+func TestParseCodexCaptureRunFlagsRejectsBadRoute(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "empty host",
+			args: []string{"--host=", "--", "prompt"},
+			want: "--host is required",
+		},
+		{
+			name: "bad port",
+			args: []string{"--port=abc", "--", "prompt"},
+			want: "--port must be 1-65535",
+		},
+		{
+			name: "zero port",
+			args: []string{"--port=0", "--", "prompt"},
+			want: "--port must be 1-65535",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parseCodexCaptureRunFlags(tt.args, now)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err=%v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexCaptureCLIArgsRoutesToManagedDaemon(t *testing.T) {
+	t.Parallel()
+	got := codexCaptureCLIArgs(codexCaptureRunFlags{
+		host:      "127.0.0.2",
+		port:      "8991",
+		transport: "wss",
+		codexArgs: []string{"exec", "hello"},
+	})
+	want := []string{"codex", "run", "--transport=wss", "--host=127.0.0.2", "--port=8991", "--", "exec", "hello"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("args=%#v want %#v", got, want)
+	}
+}
+
+func TestCodexCaptureDaemonTempRootPrefersShortTmp(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat("/tmp"); err == nil {
+		if got := codexCaptureDaemonTempRoot(); got != "/tmp" {
+			t.Fatalf("temp root = %q, want /tmp", got)
+		}
+	}
+}
+
 func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

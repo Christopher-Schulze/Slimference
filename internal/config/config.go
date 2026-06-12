@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -295,6 +296,20 @@ type OutputReduceConfig struct {
 	// SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB=1. It exists only
 	// for reproducing T354 delta failures and must never be persisted.
 	CodexWSSDeltaToolOutputMutationLabEnabled bool `toml:"-"`
+	// CodexSearchCapProofPath points at a final release-proof-report --json
+	// artifact. When the report passes the release minima and Codex route
+	// hygiene proof, the selected search cap is promoted into the runtime search
+	// compactor. Empty keeps the product default search compactor byte-identical.
+	CodexSearchCapProofPath string `toml:"codex_search_cap_proof_path"`
+	// CodexSearchCapMaxFiles and CodexSearchCapMaxMatchesPerFile are resolved
+	// from the proof report above, or set directly by offline replay tools.
+	// They are intentionally not persisted as raw config knobs.
+	CodexSearchCapMaxFiles          int `toml:"-"`
+	CodexSearchCapMaxMatchesPerFile int `toml:"-"`
+	// CodexSearchCapDeltaMutationEnabled is resolved only from the final
+	// proof latch. It enables the narrow named-search WSS delta mutation path
+	// while the broad lab switch remains default-off.
+	CodexSearchCapDeltaMutationEnabled bool `toml:"-"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
@@ -624,6 +639,10 @@ func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
 
 	applyEnvOverrides(cfg)
 
+	if err := applyCodexSearchCapProof(cfg); err != nil {
+		return nil, info, fmt.Errorf("invalid config: %w", err)
+	}
+
 	if err := validate(cfg); err != nil {
 		return nil, info, fmt.Errorf("invalid config: %w", err)
 	}
@@ -774,6 +793,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SAVINGS_POLICY")); v != "" {
 		cfg.Compression.OutputReduce.CodexSavingsPolicyMode = v
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_PATH")); v != "" {
+		cfg.Compression.OutputReduce.CodexSearchCapProofPath = v
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_CHUNK_DEDUP")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexChunkDedupEnabled = b
@@ -823,6 +845,200 @@ func splitCommaEnv(value string) []string {
 		}
 	}
 	return out
+}
+
+const (
+	codexSearchCapReleaseMinRetainedPct        = 40.0
+	codexSearchCapReleaseMinSearchOutputs      = 2
+	codexSearchCapReleaseMinExtraReducerTokens = 1
+)
+
+type codexSearchCapReleaseProofReport struct {
+	MatrixPath                  string                      `json:"matrix_path"`
+	ResourceProfileProofOK      bool                        `json:"resource_profile_proof_ok"`
+	ResourceProfileProofClients []string                    `json:"resource_profile_proof_clients"`
+	ResourceProfileProofIssues  []string                    `json:"resource_profile_proof_issues"`
+	MatrixFiles                 int                         `json:"matrix_files"`
+	Rows                        int                         `json:"rows"`
+	PositiveEconomicTokenRows   int                         `json:"positive_economic_token_rows"`
+	HostBudgetIssueRows         int                         `json:"host_budget_issue_rows"`
+	ProofEventLossRows          int                         `json:"proof_event_loss_rows"`
+	SafetyIssueRows             int                         `json:"safety_issue_rows"`
+	ExpectedZeroLocalViolations int                         `json:"expected_zero_local_violations"`
+	MissingReleaseWorkloads     []string                    `json:"missing_release_workloads"`
+	MissingMaxxWorkloads        []string                    `json:"missing_maxx_workloads"`
+	GatePassed                  bool                        `json:"gate_passed"`
+	GateFailures                []string                    `json:"gate_failures"`
+	SearchCapProof              *codexSearchCapProofReport  `json:"search_cap_proof"`
+	CodexRouteHygiene           *codexSearchCapRouteHygiene `json:"codex_route_hygiene"`
+}
+
+type codexSearchCapProofReport struct {
+	Path                    string   `json:"path"`
+	OK                      bool     `json:"ok"`
+	Issues                  []string `json:"issues"`
+	Captures                int      `json:"captures"`
+	CLI                     int      `json:"cli"`
+	Desktop                 int      `json:"desktop"`
+	PositiveSavings         int      `json:"positive_savings_captures"`
+	SelectedCandidate       string   `json:"selected_candidate"`
+	MaxFilesShown           int      `json:"max_files_shown"`
+	MaxMatchesPerFile       int      `json:"max_matches_per_file"`
+	TotalExtraReducerTokens int      `json:"total_extra_reducer_tokens"`
+	MinMatchRetentionPct    float64  `json:"min_match_retention_pct"`
+	DeltaToolOutputProof    bool     `json:"delta_tool_output_mutation_proof"`
+}
+
+type codexSearchCapRouteHygiene struct {
+	OK     bool     `json:"ok"`
+	Before string   `json:"before"`
+	After  string   `json:"after"`
+	Issues []string `json:"issues"`
+}
+
+func applyCodexSearchCapProof(cfg *Config) error {
+	or := &cfg.Compression.OutputReduce
+	path := strings.TrimSpace(or.CodexSearchCapProofPath)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(expandHome(path))
+	if err != nil {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path read %q: %w", path, err)
+	}
+	var proof codexSearchCapReleaseProofReport
+	if err := json.Unmarshal(data, &proof); err != nil {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path parse %q: %w", path, err)
+	}
+	files, matches, issues := validateCodexSearchCapProof(proof)
+	if len(issues) > 0 {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: %s", path, strings.Join(issues, "; "))
+	}
+	or.CodexSearchCapMaxFiles = files
+	or.CodexSearchCapMaxMatchesPerFile = matches
+	or.CodexSearchCapDeltaMutationEnabled = true
+	return nil
+}
+
+func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, int, []string) {
+	var issues []string
+	if !proof.GatePassed {
+		issues = append(issues, "final release-proof-report gate did not pass: "+strings.Join(proof.GateFailures, "; "))
+	}
+	if proof.GatePassed && len(proof.GateFailures) > 0 {
+		issues = append(issues, "final release-proof-report gate passed but still contains gate failures: "+strings.Join(proof.GateFailures, "; "))
+	}
+	if strings.TrimSpace(proof.MatrixPath) == "" {
+		issues = append(issues, "missing final release matrix_path")
+	}
+	if proof.MatrixFiles < 1 {
+		issues = append(issues, fmt.Sprintf("expected at least 1 release matrix file, got %d", proof.MatrixFiles))
+	}
+	if proof.Rows < 1 {
+		issues = append(issues, fmt.Sprintf("expected release proof rows, got %d", proof.Rows))
+	}
+	if proof.PositiveEconomicTokenRows < 1 {
+		issues = append(issues, "no positive economic-token proof rows")
+	}
+	if !proof.ResourceProfileProofOK {
+		issues = append(issues, "final release resource/profile proof did not pass: "+strings.Join(proof.ResourceProfileProofIssues, "; "))
+	}
+	if proof.ResourceProfileProofOK && len(proof.ResourceProfileProofIssues) > 0 {
+		issues = append(issues, "final release resource/profile proof passed but still contains issues: "+strings.Join(proof.ResourceProfileProofIssues, "; "))
+	}
+	if !codexSearchCapReleaseHasClient(proof.ResourceProfileProofClients, "cli") {
+		issues = append(issues, "missing final release CLI resource/profile proof")
+	}
+	if !codexSearchCapReleaseHasClient(proof.ResourceProfileProofClients, "desktop") {
+		issues = append(issues, "missing final release Desktop resource/profile proof")
+	}
+	if proof.HostBudgetIssueRows > 0 {
+		issues = append(issues, fmt.Sprintf("host budget issue rows=%d", proof.HostBudgetIssueRows))
+	}
+	if proof.ProofEventLossRows > 0 {
+		issues = append(issues, fmt.Sprintf("proof event loss rows=%d", proof.ProofEventLossRows))
+	}
+	if proof.SafetyIssueRows > 0 {
+		issues = append(issues, fmt.Sprintf("safety issue rows=%d", proof.SafetyIssueRows))
+	}
+	if proof.ExpectedZeroLocalViolations > 0 {
+		issues = append(issues, fmt.Sprintf("expected-zero rows had local savings=%d", proof.ExpectedZeroLocalViolations))
+	}
+	if len(proof.MissingReleaseWorkloads) > 0 {
+		issues = append(issues, "missing release workloads: "+strings.Join(proof.MissingReleaseWorkloads, ", "))
+	}
+	if len(proof.MissingMaxxWorkloads) > 0 {
+		issues = append(issues, "missing maxx workloads: "+strings.Join(proof.MissingMaxxWorkloads, ", "))
+	}
+	if proof.SearchCapProof == nil {
+		issues = append(issues, "missing final release search_cap_proof summary")
+		return 0, 0, issues
+	}
+	if proof.CodexRouteHygiene == nil {
+		issues = append(issues, "missing final release Codex route hygiene proof")
+		return 0, 0, issues
+	}
+	searchProof := proof.SearchCapProof
+	if !searchProof.OK {
+		issues = append(issues, "final release search-cap proof did not pass: "+strings.Join(searchProof.Issues, "; "))
+	}
+	if searchProof.OK && len(searchProof.Issues) > 0 {
+		issues = append(issues, "final release search-cap proof passed but still contains issues: "+strings.Join(searchProof.Issues, "; "))
+	}
+	if strings.TrimSpace(searchProof.Path) == "" {
+		issues = append(issues, "missing final release focused search-cap proof path")
+	}
+	if !proof.CodexRouteHygiene.OK {
+		issues = append(issues, "final release Codex route hygiene proof did not pass: "+strings.Join(proof.CodexRouteHygiene.Issues, "; "))
+	}
+	if proof.CodexRouteHygiene.OK && len(proof.CodexRouteHygiene.Issues) > 0 {
+		issues = append(issues, "final release Codex route hygiene proof passed but still contains issues: "+strings.Join(proof.CodexRouteHygiene.Issues, "; "))
+	}
+	if strings.TrimSpace(proof.CodexRouteHygiene.Before) == "" {
+		issues = append(issues, "missing final release Codex route hygiene before snapshot path")
+	}
+	if strings.TrimSpace(proof.CodexRouteHygiene.After) == "" {
+		issues = append(issues, "missing final release Codex route hygiene after snapshot path")
+	}
+	if searchProof.Captures < 2 {
+		issues = append(issues, fmt.Sprintf("expected at least 2 search_loop captures, got %d", searchProof.Captures))
+	}
+	if searchProof.CLI < 1 {
+		issues = append(issues, "missing CLI search_loop capture")
+	}
+	if searchProof.Desktop < 1 {
+		issues = append(issues, "missing Desktop search_loop capture")
+	}
+	if searchProof.PositiveSavings < 2 {
+		issues = append(issues, fmt.Sprintf("expected at least 2 positive search-cap proof rows, got %d", searchProof.PositiveSavings))
+	}
+	if searchProof.MinMatchRetentionPct+1e-9 < codexSearchCapReleaseMinRetainedPct {
+		issues = append(issues, fmt.Sprintf("selected search-cap candidate min retention %.2f%% < release min %.2f%%",
+			searchProof.MinMatchRetentionPct, codexSearchCapReleaseMinRetainedPct))
+	}
+	if searchProof.TotalExtraReducerTokens <= 0 {
+		issues = append(issues, fmt.Sprintf("total search-cap extra reducer tokens must be positive, got %+d", searchProof.TotalExtraReducerTokens))
+	}
+	if !searchProof.DeltaToolOutputProof {
+		issues = append(issues, "missing final release delta tool-output mutation proof for selected search cap")
+	}
+	if strings.TrimSpace(searchProof.SelectedCandidate) == "" {
+		issues = append(issues, "missing selected search-cap candidate name")
+	}
+	if searchProof.MaxFilesShown <= 0 || searchProof.MaxMatchesPerFile <= 0 {
+		issues = append(issues, fmt.Sprintf("selected search-cap candidate has invalid cap %d/%d",
+			searchProof.MaxFilesShown, searchProof.MaxMatchesPerFile))
+	}
+	return searchProof.MaxFilesShown, searchProof.MaxMatchesPerFile, issues
+}
+
+func codexSearchCapReleaseHasClient(clients []string, want string) bool {
+	for _, client := range clients {
+		if strings.TrimSpace(client) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // validate checks that configuration values are within acceptable ranges.
@@ -927,6 +1143,12 @@ func validate(cfg *Config) error {
 	}
 	if or.ReadDeltaRecentFullPassTurns < 0 {
 		return fmt.Errorf("compression.output_reduce.read_delta_recent_full_pass_turns must be >= 0, got %d", or.ReadDeltaRecentFullPassTurns)
+	}
+	if or.CodexSearchCapMaxFiles < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_max_files must be >= 0, got %d", or.CodexSearchCapMaxFiles)
+	}
+	if or.CodexSearchCapMaxMatchesPerFile < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_max_matches_per_file must be >= 0, got %d", or.CodexSearchCapMaxMatchesPerFile)
 	}
 	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
 		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)

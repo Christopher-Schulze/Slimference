@@ -120,6 +120,34 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 	return result.Data, result.Saved
 }
 
+// Observe records model-visible data without emitting references. Use this when
+// a caller deliberately full-passes a chunk-dedup candidate but still needs the
+// store's session denominator and seen-chunk state to match what the model saw.
+func (s *Store) Observe(sessionID string, data []byte) {
+	if s == nil || sessionID == "" || len(data) == 0 {
+		return
+	}
+	fastPlan := newChunkPlan(Chunk(data, s.cfg), "")
+	linePlan, hasLinePlan := newLineChunkPlan(data, s.cfg)
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneExpiredLocked(now)
+	session := s.sessions[sessionID]
+	if session == nil {
+		session = &sessionChunks{chunks: make(map[string]chunkState)}
+		s.sessions[sessionID] = session
+	}
+	session.lastSeen = now
+	session.inBytes += len(data)
+	seedPlanLocked(session, fastPlan, now)
+	if hasLinePlan {
+		seedPlanLocked(session, linePlan, now)
+	}
+	s.pruneSessionLocked(session)
+	s.pruneSessionsLocked()
+}
+
 // EncodeWithReport is Encode plus content-free metadata for tests and callers
 // that need to audit chunk-reference density. Any non-verifiable reference set
 // fails open to the original input.

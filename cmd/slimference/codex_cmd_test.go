@@ -1188,11 +1188,65 @@ func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
 	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" || !got.LiveProofRequired {
 		t.Fatalf("status=%+v", got)
 	}
-	if got.LaunchCommand != "slimference codex launch-desktop --transport=app-server --replace-existing" {
+	if got.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
 		t.Fatalf("launch command=%q", got.LaunchCommand)
 	}
 	if !got.CATrust.Trusted || !got.DaemonReachable {
 		t.Fatalf("readiness not propagated: %+v", got)
+	}
+}
+
+func TestCodexDesktopStatusDoesNotApplyOldProofToDifferentRunningApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:           "desktop_app_server_phasef_proven",
+		Transport:      codexDesktopTransportAppServer,
+		LaunchPID:      111,
+		DesktopProven:  true,
+		DesktopSavings: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{222}, nil
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "codex_desktop_already_running" ||
+		got.FailureClass != "codex_desktop_already_running" ||
+		got.ConversationObserved ||
+		!got.LiveProofRequired ||
+		!strings.Contains(strings.Join(got.Notes, "\n"), "PID 222") {
+		t.Fatalf("stale proof status must not greenlight a different running app: %+v", got)
+	}
+}
+
+func TestCodexDesktopStatusAllowsLastProofForSameRunningApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:           "desktop_app_server_phasef_proven",
+		Transport:      codexDesktopTransportAppServer,
+		LaunchPID:      111,
+		DesktopProven:  true,
+		DesktopSavings: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{111}, nil
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "desktop_app_server_proven" || !got.ConversationObserved || got.LiveProofRequired {
+		t.Fatalf("same running scoped app should keep proof status: %+v", got)
 	}
 }
 
@@ -1257,7 +1311,7 @@ func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t
 	if untrusted.FailureClass != "" ||
 		untrusted.Mode != "ready_for_live_desktop_probe" ||
 		untrusted.ProxyURL != "http://127.0.0.2:19090" ||
-		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=app-server --replace-existing" {
+		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
 		t.Fatalf("untrusted status=%+v", untrusted)
 	}
 	if !strings.Contains(strings.Join(untrusted.Notes, "\n"), "Keychain trust is not required") {
@@ -1353,6 +1407,35 @@ func TestCodexDesktopProveRejectsConnectOnlyDelta(t *testing.T) {
 		got.DeltaWSS.MITMBridged != 14 ||
 		got.DesktopProven ||
 		got.DesktopSavings {
+		t.Fatalf("proof=%+v", got)
+	}
+}
+
+func TestCodexDesktopProveDoesNotReplaceRunningAppWithoutOptIn(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{1234}, nil
+	}
+	startCalled := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		startCalled = true
+		return 0
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--json", "--duration=1ns"}, p)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if startCalled {
+		t.Fatal("desktop proof must not spawn or replace Codex.app without explicit opt-in")
+	}
+	var got codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.FailureClass != "codex_desktop_already_running" ||
+		!strings.Contains(strings.Join(got.Notes, "\n"), "--replace-existing") {
 		t.Fatalf("proof=%+v", got)
 	}
 }
@@ -1820,8 +1903,17 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 		return 0
 	}
 	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
+	if err == nil || !strings.Contains(err.Error(), "codex_desktop_already_running") {
+		t.Fatalf("LaunchCodexApp must not replace running app automatically: msg=%q err=%v", msg, err)
+	}
+	if len(cleaned) != 0 {
+		t.Fatalf("LaunchCodexApp must not clean running Codex.app automatically, cleaned=%v", cleaned)
+	}
+
+	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
+	msg, err = (&serviceControlAdapter{}).LaunchCodexApp()
 	if err != nil {
-		t.Fatalf("LaunchCodexApp success: %v", err)
+		t.Fatalf("LaunchCodexApp success without running app: %v", err)
 	}
 	if !strings.Contains(msg, "Codex App started with Slimference") {
 		t.Fatalf("msg=%q", msg)
@@ -1834,9 +1926,6 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	}
 	if !strings.Contains(joinedEnv, "CODEX_CLI_PATH=") || !strings.Contains(joinedEnv, "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1") {
 		t.Fatalf("desktop TUI launch lost scoped app-server env: %v", launchedEnv)
-	}
-	if fmt.Sprint(cleaned) != "[44]" {
-		t.Fatalf("LaunchCodexApp must replace running Codex.app before scoped launch, cleaned=%v", cleaned)
 	}
 
 	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }

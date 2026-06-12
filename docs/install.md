@@ -154,7 +154,7 @@ Slimference's safe product surfaces touch only scoped Codex paths:
    such as `CODEX_HOME` so MCP servers remain available.
 3. **Process-local Codex Desktop app-server shim** via
    `slimference codex desktop prove` and, after a green proof,
-   `slimference codex launch-desktop --transport=app-server --replace-existing`.
+   `slimference codex launch-desktop --transport=app-server`.
    This does not
    write Codex config, shell startup files, macOS system proxy, `/etc/hosts`, or
    pfctl. It sets `CODEX_CLI_PATH` only on the spawned Codex.app process tree so
@@ -197,7 +197,7 @@ goal.
 | Codex hooks | Signal/local output layer | yes | `slimference install` |
 | One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
 | Process-local Codex Desktop proof | Desktop diagnostic gate | no persistent state | `slimference codex desktop prove --manual --json` then `--finish` |
-| Process-local Codex Desktop launcher | Desktop proven launch only; currently proof-gated | no persistent state | `slimference codex launch-desktop --transport=app-server --replace-existing` |
+| Process-local Codex Desktop launcher | Desktop proven launch only; currently proof-gated | no persistent state | `slimference codex launch-desktop --transport=app-server` |
 | Advanced shared Codex route | Optional/dev shared Codex CLI/App traffic layer | no default | `slimference enable` |
 | Global transparent MITM | Lab certification only | no | `slimference lab ...` |
 | Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
@@ -220,7 +220,7 @@ focuses on Codex CLI and Codex Desktop.
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
 | CA missing during Desktop proxy diagnostics | The current Desktop app-server shim diagnostic does not need CA trust. Legacy proxy diagnostics refuse before a savings claim and print the repair command. Direct Codex.app remains native. |
-| Codex Desktop already running during scoped proof/TUI launch | `codex desktop prove` and TUI Launch Codex App use `--replace-existing`: they quit the existing Codex.app main process, verify it is gone, then spawn the scoped Slimference instance so macOS cannot reuse a stale env. Raw `codex launch-desktop` still refuses unless `--replace-existing` is passed. Direct Codex.app remains native. |
+| Codex Desktop already running during scoped proof/TUI launch | `codex desktop prove`, `codex launch-desktop`, and TUI Launch Codex App fail closed instead of quitting the existing Codex.app main process. Quit Codex.app yourself first, or pass `--replace-existing` only when interrupting that session is intentional. Direct Codex.app remains native. |
 | Codex Desktop app-server shim fails proof | Desktop proof exits non-zero with an explicit failure class. TUI Launch Codex App blocks instead of opening direct or a broken Slimference session, because the TUI item means "Slimference mode". Normal Finder/Spotlight Codex.app remains direct. CLI savings continue. |
 | Codex CLI/Desktop updates | `transport=auto` is savings-first safe. It uses certified WSS Phase-F when green, safe HTTP savings fallback when Phase-F is stale, and direct only when the daemon cannot serve the scoped run. A clean WSS byte-equal bridge proof is still reported for diagnostics and explicit bridge runs, but auto does not prefer a no-mutation bridge over HTTP savings. Background recert can start from daemon startup, scoped `codex run --transport=auto`, TUI startup/status refresh, or TUI repair, and it never blocks the user path. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
@@ -462,20 +462,22 @@ with conversation - NOT itself a savings claim) and `desktop_app_server_proven`
 (full mutation proven). Launching Codex.app normally from Finder/Spotlight remains
 the no-drawback direct Desktop path.
 
-If a normal Codex.app instance is already running, the proof command quits that
-main process, verifies it is gone, then launches the scoped Slimference instance.
-This prevents macOS from foregrounding an app that did not inherit the scoped
-Slimference env. The raw launcher keeps the safer default and refuses while an
-app is running unless `--replace-existing` is passed explicitly:
+If a normal Codex.app instance is already running, the proof command now fails
+closed instead of quitting that main process. This prevents macOS from
+foregrounding an app that did not inherit the scoped Slimference env without also
+surprising the operator by closing an active session. Quit Codex.app yourself
+first, or pass `--replace-existing` only when interrupting that session is
+intentional:
 
 ```bash
 slimference codex launch-desktop --transport=app-server --replace-existing
 ```
 
-The daily TUI `Launch Codex App` item uses the same scoped app-server launcher:
+The daily TUI `Launch Codex App` item uses the same fail-closed scoped
+app-server launcher and will not close an already running Codex.app:
 
 ```bash
-slimference codex launch-desktop --transport=app-server --replace-existing
+slimference codex launch-desktop --transport=app-server
 ```
 
 The launcher starts the app as a detached process-local session, uses the Codex

@@ -161,15 +161,19 @@ type wssFootprintEconomicsAccumulator struct {
 }
 
 type wssFootprintCoverageSummary struct {
-	TokenDecisions          int            `json:"token_decisions"`
-	AppliedTokenDecisions   int            `json:"applied_token_decisions"`
-	WithFootprint           int            `json:"with_footprint"`
-	MissingFootprint        int            `json:"missing_footprint"`
-	AppliedMissingFootprint int            `json:"applied_missing_footprint"`
-	SavedTokens             int            `json:"saved_tokens,omitempty"`
-	MissingSavedTokens      int            `json:"missing_saved_tokens,omitempty"`
-	ByMechanism             map[string]int `json:"by_mechanism,omitempty"`
-	MissingByMechanism      map[string]int `json:"missing_by_mechanism,omitempty"`
+	TokenDecisions                         int            `json:"token_decisions"`
+	AppliedTokenDecisions                  int            `json:"applied_token_decisions"`
+	WithFootprint                          int            `json:"with_footprint"`
+	MissingFootprint                       int            `json:"missing_footprint"`
+	AppliedMissingFootprint                int            `json:"applied_missing_footprint"`
+	WithRemainingTurnsEstimate             int            `json:"with_remaining_turns_estimate"`
+	MissingRemainingTurnsEstimate          int            `json:"missing_remaining_turns_estimate"`
+	AppliedMissingRemainingTurnsEstimate   int            `json:"applied_missing_remaining_turns_estimate"`
+	SavedTokens                            int            `json:"saved_tokens,omitempty"`
+	MissingSavedTokens                     int            `json:"missing_saved_tokens,omitempty"`
+	ByMechanism                            map[string]int `json:"by_mechanism,omitempty"`
+	MissingByMechanism                     map[string]int `json:"missing_by_mechanism,omitempty"`
+	MissingRemainingTurnsEstimateMechanism map[string]int `json:"missing_remaining_turns_estimate_by_mechanism,omitempty"`
 }
 
 type wssFootprintCoverageAccumulator struct {
@@ -230,7 +234,7 @@ Flags:
   --min-full-history=<n>          Fail if fewer than n full-history Phase-F request summaries are present
   --require-savings               Fail if no positive input-token savings are present
   --require-history-evidence      Fail if no stale/obsolete reducer evidence is present
-  --require-footprint-evidence    Fail if no footprint-score economics evidence is present
+  --require-footprint-evidence    Fail if footprint-score or remaining-turn evidence is missing
   --admin-state-file=<path>        Join current /admin/state policy counters into the report
   --since=<rfc3339>               Ignore records before this timestamp
   --json                          Output JSON
@@ -436,7 +440,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			report.RequestShapeSources[resolvedShape.Source]++
 			shapeEconomics.add(summary, resolvedShape)
 			footprintEconomics.add(summary, resolvedShape)
-			footprintCoverage.add(summary.EvidenceDecisions)
+			footprintCoverage.add(summary)
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
@@ -820,11 +824,12 @@ func (a *wssFootprintEconomicsAccumulator) finalize() []wssFootprintEconomicsSum
 	return out
 }
 
-func (a *wssFootprintCoverageAccumulator) add(decisions []evidence.BlockDecision) {
+func (a *wssFootprintCoverageAccumulator) add(summary dbg.RequestSummary) {
 	if a == nil {
 		return
 	}
-	for _, decision := range decisions {
+	hasRemainingTurnsEstimate := wssHasRemainingTurnsEstimate(summary.DebugFacts)
+	for _, decision := range summary.EvidenceDecisions {
 		if !wssFootprintCoverageEligible(decision) {
 			continue
 		}
@@ -840,6 +845,15 @@ func (a *wssFootprintCoverageAccumulator) add(decisions []evidence.BlockDecision
 		}
 		if decision.FootprintScore > 0 || strings.TrimSpace(decision.FootprintScoreBucket) != "" {
 			a.summary.WithFootprint++
+			if hasRemainingTurnsEstimate {
+				a.summary.WithRemainingTurnsEstimate++
+				continue
+			}
+			a.summary.MissingRemainingTurnsEstimate++
+			addWSSAuditCount(&a.summary.MissingRemainingTurnsEstimateMechanism, mechanism)
+			if decision.Action == evidence.ActionApplied {
+				a.summary.AppliedMissingRemainingTurnsEstimate++
+			}
 			continue
 		}
 		a.summary.MissingFootprint++
@@ -856,6 +870,14 @@ func wssFootprintCoverageEligible(decision evidence.BlockDecision) bool {
 		decision.FinalTokens > 0 ||
 		decision.SavedTokens > 0 ||
 		decision.NetTokens != 0
+}
+
+func wssHasRemainingTurnsEstimate(facts map[string]string) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	_, ok := parseNonNegativeInt(facts["wss.remaining_turns_estimate"])
+	return ok
 }
 
 func (a *wssFootprintCoverageAccumulator) finalize() *wssFootprintCoverageSummary {
@@ -1165,6 +1187,9 @@ func wssAuditNotes(report wssAuditReport) []string {
 	if report.FootprintCoverage != nil && report.FootprintCoverage.MissingFootprint > 0 {
 		notes = append(notes, "Token-bearing WSS evidence decisions without footprint_score_bucket were observed; treat this as stale pre-T359 evidence or emission drift before threshold scaling.")
 	}
+	if report.FootprintCoverage != nil && report.FootprintCoverage.MissingRemainingTurnsEstimate > 0 {
+		notes = append(notes, "Footprint-scored WSS evidence decisions without wss.remaining_turns_estimate were observed; treat this as stale pre-EMA evidence before threshold scaling.")
+	}
 	if report.PhaseFRequests > 0 && report.ShadowMirror == nil {
 		notes = append(notes, "No T355 shadow-mirror telemetry observed; this capture may predate normalized mirror facts or contain no text blocks.")
 	}
@@ -1196,6 +1221,9 @@ func wssAuditGateFailures(report wssAuditReport, flags wssAuditFlags) []string {
 	}
 	if flags.requireFootprintEvidence && len(report.FootprintEconomics) == 0 {
 		failures = append(failures, "expected footprint-score economics evidence")
+	}
+	if flags.requireFootprintEvidence && report.FootprintCoverage != nil && report.FootprintCoverage.MissingRemainingTurnsEstimate > 0 {
+		failures = append(failures, "expected footprint evidence with wss.remaining_turns_estimate")
 	}
 	return failures
 }
@@ -1356,11 +1384,14 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		fmt.Fprintf(w, "  with footprint:          %d\n", report.FootprintCoverage.WithFootprint)
 		fmt.Fprintf(w, "  missing footprint:       %d\n", report.FootprintCoverage.MissingFootprint)
 		fmt.Fprintf(w, "  applied missing:         %d\n", report.FootprintCoverage.AppliedMissingFootprint)
+		fmt.Fprintf(w, "  with remaining-turn est: %d\n", report.FootprintCoverage.WithRemainingTurnsEstimate)
+		fmt.Fprintf(w, "  missing remaining-turn:  %d\n", report.FootprintCoverage.MissingRemainingTurnsEstimate)
 		fmt.Fprintf(w, "  saved/missing saved:     %d / %d\n",
 			report.FootprintCoverage.SavedTokens,
 			report.FootprintCoverage.MissingSavedTokens)
 		fmt.Fprintf(w, "  mechanisms:              %s\n", formatWSSAuditCounts(report.FootprintCoverage.ByMechanism))
 		fmt.Fprintf(w, "  missing mechanisms:      %s\n", formatWSSAuditCounts(report.FootprintCoverage.MissingByMechanism))
+		fmt.Fprintf(w, "  missing remaining mechs: %s\n", formatWSSAuditCounts(report.FootprintCoverage.MissingRemainingTurnsEstimateMechanism))
 	}
 	if report.ShadowMirror != nil {
 		fmt.Fprintln(w, "\nShadow mirror density:")

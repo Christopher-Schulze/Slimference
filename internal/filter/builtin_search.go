@@ -16,6 +16,23 @@ const (
 	minLinesForGrouped = 4  // only group if output is at least this many lines
 )
 
+type SearchCompactOptions struct {
+	MaxMatchesPerFile int
+	MaxFilesShown     int
+}
+
+type SearchCompactStats struct {
+	InputBytes      int  `json:"input_bytes"`
+	OutputBytes     int  `json:"output_bytes"`
+	OriginalFiles   int  `json:"original_files"`
+	OriginalMatches int  `json:"original_matches"`
+	ShownFiles      int  `json:"shown_files"`
+	ShownMatches    int  `json:"shown_matches"`
+	OmittedFiles    int  `json:"omitted_files"`
+	OmittedMatches  int  `json:"omitted_matches"`
+	Applied         bool `json:"applied"`
+}
+
 type searchMatchLine struct {
 	lineNum string
 	content string
@@ -31,13 +48,23 @@ type parsedSearchLine struct {
 // groupSearchResults groups grep/rg/fd style "file:line:content" output by file.
 // Returns (grouped, ok). ok=false means unchanged passthrough.
 func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
+	out, _, ok := groupSearchResultsWithOptions(stdout, toolName, SearchCompactOptions{})
+	return out, ok
+}
+
+func groupSearchResultsWithOptions(stdout []byte, toolName string, options SearchCompactOptions) ([]byte, SearchCompactStats, bool) {
+	options = normalizeSearchCompactOptions(options)
+	stats := SearchCompactStats{
+		InputBytes:  len(stdout),
+		OutputBytes: len(stdout),
+	}
 	s := strings.TrimSpace(string(stdout))
 	if s == "" {
-		return stdout, false
+		return stdout, stats, false
 	}
 	lines := strings.Split(s, "\n")
 	if len(lines) < minLinesForGrouped {
-		return stdout, false
+		return stdout, stats, false
 	}
 
 	fileOrder := []string{}
@@ -79,19 +106,25 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 	for _, ms := range fileMatches {
 		totalMatches += len(ms)
 	}
+	stats.OriginalFiles = len(fileOrder)
+	stats.OriginalMatches = totalMatches
 
 	// Robustness guard: only group when this really looks like grep output -
 	// at least one parsed match and noise (colon-less lines) does not dominate.
 	// This keeps a few truncation/header lines from defeating compaction while
 	// refusing to summarize an output that is not actually file:line:content.
 	if totalMatches == 0 || skipped*2 > nonEmpty {
-		return stdout, false
+		return stdout, stats, false
 	}
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
 
-	selectedFiles := selectSearchFileIndexes(fileOrder, fileMatches, maxFilesShown)
+	selectedFiles := selectSearchFileIndexes(fileOrder, fileMatches, options.MaxFilesShown)
+	stats.ShownFiles = len(selectedFiles)
+	if omittedFiles := len(fileOrder) - stats.ShownFiles; omittedFiles > 0 {
+		stats.OmittedFiles = omittedFiles
+	}
 	previousFile := -1
 	for _, fileIdx := range selectedFiles {
 		if previousFile >= 0 && fileIdx > previousFile+1 {
@@ -100,7 +133,11 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		f := fileOrder[fileIdx]
 		ms := fileMatches[f]
 		sb.WriteString(fmt.Sprintf("  %s (%d match(es))\n", f, len(ms)))
-		selectedMatches := selectSearchMatchIndexes(ms, maxMatchesPerFile)
+		selectedMatches := selectSearchMatchIndexes(ms, options.MaxMatchesPerFile)
+		stats.ShownMatches += len(selectedMatches)
+		if omittedMatches := len(ms) - len(selectedMatches); omittedMatches > 0 {
+			stats.OmittedMatches += omittedMatches
+		}
 		previousMatch := -1
 		for _, matchIdx := range selectedMatches {
 			if previousMatch >= 0 && matchIdx > previousMatch+1 {
@@ -116,15 +153,31 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		}
 		previousFile = fileIdx
 	}
+	if omittedMatches := totalMatches - stats.ShownMatches; omittedMatches > 0 {
+		stats.OmittedMatches = omittedMatches
+	}
 	if len(selectedFiles) > 0 && selectedFiles[len(selectedFiles)-1] < len(fileOrder)-1 {
 		sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(fileOrder)-selectedFiles[len(selectedFiles)-1]-1))
 	}
 
 	result := sb.String()
+	stats.OutputBytes = len(result)
 	if len(result) >= len(s) {
-		return stdout, false // no benefit
+		stats.OutputBytes = len(stdout)
+		return stdout, stats, false // no benefit
 	}
-	return []byte(result), true
+	stats.Applied = true
+	return []byte(result), stats, true
+}
+
+func normalizeSearchCompactOptions(options SearchCompactOptions) SearchCompactOptions {
+	if options.MaxMatchesPerFile <= 0 {
+		options.MaxMatchesPerFile = maxMatchesPerFile
+	}
+	if options.MaxFilesShown <= 0 {
+		options.MaxFilesShown = maxFilesShown
+	}
+	return options
 }
 
 func parseSearchMatchLine(line string) (parsedSearchLine, bool) {
@@ -695,6 +748,10 @@ func TryCompactGitGrep(argv []string, stdout []byte) ([]byte, bool) {
 
 // TryCompactSearchOutput chains empty-result detection and then non-empty result grouping (F10).
 func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
+	return TryCompactSearchOutputWithOptions(argv, stdout, SearchCompactOptions{})
+}
+
+func TryCompactSearchOutputWithOptions(argv []string, stdout []byte, options SearchCompactOptions) ([]byte, bool) {
 	// Empty-result detection for all tools.
 	for _, fn := range []func([]string, []byte) ([]byte, bool){
 		TryCompactGitGrep, TryCompactRipgrep, TryCompactGrep,
@@ -719,12 +776,20 @@ func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
 	// meaning of the output instead of just removing repeated file prefixes.
 	if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) {
 		tool := searchToolName(argv)
-		if out, ok := groupSearchResults(stdout, tool); ok {
+		if out, _, ok := groupSearchResultsWithOptions(stdout, tool, options); ok {
 			return out, true
 		}
 	}
 
 	return stdout, false
+}
+
+func SearchCompactProfile(argv []string, stdout []byte, options SearchCompactOptions) (SearchCompactStats, bool) {
+	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) {
+		return SearchCompactStats{InputBytes: len(stdout), OutputBytes: len(stdout)}, false
+	}
+	_, stats, ok := groupSearchResultsWithOptions(stdout, searchToolName(argv), options)
+	return stats, ok
 }
 
 func isPathListTool(argv []string) bool {

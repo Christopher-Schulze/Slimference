@@ -85,6 +85,19 @@ func TestIsLockHeld(t *testing.T) {
 	})
 }
 
+func TestDaemonStateDirEnvOverridesPIDAndLockPaths(t *testing.T) {
+	mu.Lock()
+	defer mu.Unlock()
+	dir := t.TempDir()
+	t.Setenv(stateDirEnv, dir)
+	if got := PIDPath(); got != filepath.Join(dir, "slimference.pid") {
+		t.Fatalf("PIDPath = %q", got)
+	}
+	if got := LockPath(); got != filepath.Join(dir, "slimference.lock") {
+		t.Fatalf("LockPath = %q", got)
+	}
+}
+
 func TestWriteAndReadPID(t *testing.T) {
 	withTempDir(t, func() {
 		if err := WritePID(8990, "/tmp/test.toml"); err != nil {

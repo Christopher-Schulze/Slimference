@@ -26,6 +26,7 @@ type codexDesktopProveFlags struct {
 	duration time.Duration
 	json     bool
 	keepOpen bool
+	replace  bool
 	manual   bool
 	finish   bool
 	help     bool
@@ -148,7 +149,11 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 
 	var launchOut, launchErr strings.Builder
-	rc := runCodexLaunchDesktopCmd([]string{"--transport=app-server", "--replace-existing", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
+	launchArgs := []string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}
+	if flags.replace {
+		launchArgs = append(launchArgs, "--replace-existing")
+	}
+	rc := runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
 		Transport:         codexDesktopTransportAppServer,
@@ -166,6 +171,10 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		msg := strings.TrimSpace(launchErr.String())
 		if msg == "" {
 			msg = out.LaunchOutput
+		}
+		if strings.Contains(msg, "Codex.app is already running") {
+			out.FailureClass = "codex_desktop_already_running"
+			out.Notes = append(out.Notes, "quit Codex.app yourself, or rerun with --replace-existing when interrupting the current Desktop session is intentional")
 		}
 		if msg != "" {
 			out.Notes = append(out.Notes, msg)
@@ -263,6 +272,8 @@ func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) 
 			f.json = true
 		case a == "--keep-open":
 			f.keepOpen = true
+		case a == "--replace-existing":
+			f.replace = true
 		case a == "--manual":
 			f.manual = true
 			f.keepOpen = true
@@ -310,6 +321,7 @@ func parseCodexDesktopStatusFlags(args []string) (codexDesktopStatusFlags, error
 func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOutput {
 	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
 	appRoute := resolveCodexDesktopAppServerRoute()
+	runningPIDs, runningErr := currentCodexDesktopPIDs()
 	out := codexDesktopStatusOutput{
 		Mode:                        "not_ready",
 		ProxyURL:                    proxyURL,
@@ -319,10 +331,13 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		AppServerAutoMode:           appRoute.Mode,
 		AppServerAutoReason:         appRoute.Reason,
 		LiveProofRequired:           true,
-		LaunchCommand:               "slimference codex launch-desktop --transport=app-server --replace-existing",
+		LaunchCommand:               "slimference codex launch-desktop --transport=app-server",
 	}
 	if !appRoute.SupportsWebSockets {
 		out.Notes = append(out.Notes, "next Desktop app-server launch uses HTTP savings fallback until WSS Phase-F is freshly certified")
+	}
+	if runningErr != nil {
+		out.Notes = append(out.Notes, "Codex.app running-state probe failed: "+runningErr.Error())
 	}
 	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
 		out.LastProof = last
@@ -342,6 +357,14 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	if codexDesktopHasWSSActivity(state.WSS) {
 		out.Notes = append(out.Notes, "WSS counters are daemon-wide and may include Codex CLI traffic; Desktop proof requires a pre/post delta tied to the spawned Codex.app process")
 	}
+	if len(runningPIDs) > 0 && !codexDesktopLastProofOwnsRunningApp(out.LastProof, runningPIDs) {
+		out.Mode = "codex_desktop_already_running"
+		out.FailureClass = "codex_desktop_already_running"
+		out.LiveProofRequired = true
+		out.ConversationObserved = false
+		out.Notes = append(out.Notes, "Codex.app is already running (PID "+joinDesktopPIDs(runningPIDs)+"); quit it first so scoped Slimference env can be injected, or pass --replace-existing only when interrupting that session is intentional")
+		return out
+	}
 	if out.LastProof != nil {
 		applyCodexDesktopLastProof(&out, out.LastProof)
 		if out.Mode != "not_ready" {
@@ -354,6 +377,30 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	out.Mode = "ready_for_live_desktop_probe"
 	out.Notes = append(out.Notes, "launch Codex Desktop through the app-server shim and verify .wss deltas in /_slimference/admin/state")
 	return out
+}
+
+func currentCodexDesktopPIDs() ([]int, error) {
+	appPath := strings.TrimSpace(codexDesktopAppPathFn())
+	if appPath == "" {
+		return nil, nil
+	}
+	binary := filepath.Join(appPath, defaultCodexDesktopExecRelPath)
+	if _, err := codexDesktopStatFn(binary); err != nil {
+		return nil, nil
+	}
+	return codexDesktopRunningFn(binary)
+}
+
+func codexDesktopLastProofOwnsRunningApp(last *codexDesktopProofOutput, runningPIDs []int) bool {
+	if last == nil || last.LaunchPID <= 0 {
+		return false
+	}
+	for _, pid := range runningPIDs {
+		if pid == last.LaunchPID {
+			return true
+		}
+	}
+	return false
 }
 
 func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput) {

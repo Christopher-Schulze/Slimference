@@ -12,35 +12,46 @@ import (
 )
 
 type wssProofMatrixFlags struct {
-	path                  string
-	outputFormat          string
-	requireLiveTokenDelta bool
-	requiredWorkloads     []string
-	expectedReducers      []string
-	minCaptures           int
-	minCLI                int
-	minDesktop            int
-	minPositive           int
-	help                  bool
+	path                                string
+	outputFormat                        string
+	requireLiveTokenDelta               bool
+	requiredWorkloads                   []string
+	expectedReducers                    []string
+	searchCapCandidates                 []searchCapProfileCandidate
+	searchCapMinCandidateRetainedPct    float64
+	searchCapMinSearchOutputs           int
+	searchCapMinExtraReducerTokens      int
+	searchCapMinExtraReducerTokensIsSet bool
+	minCaptures                         int
+	minCLI                              int
+	minDesktop                          int
+	minPositive                         int
+	help                                bool
 }
 
 type wssProofMatrixOptions struct {
-	requireLiveTokenDelta bool
-	requiredWorkloads     []string
-	expectedReducers      []string
-	minCaptures           int
-	minCLI                int
-	minDesktop            int
-	minPositive           int
+	requireLiveTokenDelta               bool
+	requiredWorkloads                   []string
+	expectedReducers                    []string
+	searchCapCandidates                 []searchCapProfileCandidate
+	searchCapMinCandidateRetainedPct    float64
+	searchCapMinSearchOutputs           int
+	searchCapMinExtraReducerTokens      int
+	searchCapMinExtraReducerTokensIsSet bool
+	minCaptures                         int
+	minCLI                              int
+	minDesktop                          int
+	minPositive                         int
 }
 
 type wssProofMatrixRequirements struct {
-	requiredWorkloads []string
-	expectedReducers  []string
-	minCaptures       int
-	minCLI            int
-	minDesktop        int
-	minPositive       int
+	requiredWorkloads      []string
+	expectedReducers       []string
+	searchCapProofRequired bool
+	minCaptures            int
+	minCLI                 int
+	minDesktop             int
+	minPositive            int
 }
 
 type wssProofMatrixCapture struct {
@@ -62,6 +73,7 @@ type wssProofMatrixCapture struct {
 	ExpectedReducerHits map[string]int64       `json:"expected_reducer_hits,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	Replay              wssABReplayReport      `json:"replay"`
+	SearchCapProof      *searchCapProofReport  `json:"search_cap_proof,omitempty"`
 	Audit               *wssAuditReport        `json:"audit,omitempty"`
 	GatePassed          bool                   `json:"gate_passed"`
 	GateFailures        []string               `json:"gate_failures,omitempty"`
@@ -141,6 +153,10 @@ Optional focused-proof gates:
   --min-positive=N                Minimum positive-token or expected-zero rows.
   --expected-reducer=NAME         Require one live signal across the matrix; repeatable.
   --expected-reducer NAME         Same as above.
+  --search-cap-candidate=F:M      For search_loop rows, run search-cap-proof with a candidate cap; repeatable.
+  --search-cap-min-retained-pct=N Require candidate match-retention percentage (default 40).
+  --search-cap-min-search-outputs=N Require resolved search-output breadth (default 2).
+  --search-cap-min-extra-tokens=N Require extra reducer tokens vs default replay (default 1).
 
 When focused workload flags are present, only matching workload rows are replayed,
 counted, and gate-checked. If focused mode also passes --expected-reducer, those
@@ -175,13 +191,18 @@ func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	report, err := loadWSSProofMatrixReportWithOptions(flags.path, wssProofMatrixOptions{
-		requireLiveTokenDelta: flags.requireLiveTokenDelta,
-		requiredWorkloads:     flags.requiredWorkloads,
-		expectedReducers:      flags.expectedReducers,
-		minCaptures:           flags.minCaptures,
-		minCLI:                flags.minCLI,
-		minDesktop:            flags.minDesktop,
-		minPositive:           flags.minPositive,
+		requireLiveTokenDelta:               flags.requireLiveTokenDelta,
+		requiredWorkloads:                   flags.requiredWorkloads,
+		expectedReducers:                    flags.expectedReducers,
+		searchCapCandidates:                 flags.searchCapCandidates,
+		searchCapMinCandidateRetainedPct:    flags.searchCapMinCandidateRetainedPct,
+		searchCapMinSearchOutputs:           flags.searchCapMinSearchOutputs,
+		searchCapMinExtraReducerTokens:      flags.searchCapMinExtraReducerTokens,
+		searchCapMinExtraReducerTokensIsSet: flags.searchCapMinExtraReducerTokensIsSet,
+		minCaptures:                         flags.minCaptures,
+		minCLI:                              flags.minCLI,
+		minDesktop:                          flags.minDesktop,
+		minPositive:                         flags.minPositive,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -233,6 +254,37 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 				return flags, fmt.Errorf("--expected-reducer requires a non-empty value")
 			}
 			flags.expectedReducers = append(flags.expectedReducers, value)
+		case arg == "--search-cap-candidate":
+			i++
+			if i >= len(args) {
+				return flags, fmt.Errorf("--search-cap-candidate requires a files:matches value")
+			}
+			if err := appendWSSProofSearchCapCandidate(&flags, args[i]); err != nil {
+				return flags, err
+			}
+		case strings.HasPrefix(arg, "--search-cap-candidate="):
+			if err := appendWSSProofSearchCapCandidate(&flags, strings.TrimPrefix(arg, "--search-cap-candidate=")); err != nil {
+				return flags, err
+			}
+		case strings.HasPrefix(arg, "--search-cap-min-retained-pct="):
+			value, err := parseNonNegativeProofFloat(arg, "--search-cap-min-retained-pct=")
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinCandidateRetainedPct = value
+		case strings.HasPrefix(arg, "--search-cap-min-search-outputs="):
+			value, err := parseNonNegativeProofInt(arg, "--search-cap-min-search-outputs=")
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinSearchOutputs = value
+		case strings.HasPrefix(arg, "--search-cap-min-extra-tokens="):
+			value, err := parseNonNegativeProofInt(arg, "--search-cap-min-extra-tokens=")
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinExtraReducerTokens = value
+			flags.searchCapMinExtraReducerTokensIsSet = true
 		case strings.HasPrefix(arg, "--required-workload="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--required-workload="))
 			if value == "" {
@@ -286,7 +338,19 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 			flags.path = arg
 		}
 	}
+	if len(flags.searchCapCandidates) == 0 && (flags.searchCapMinCandidateRetainedPct > 0 || flags.searchCapMinSearchOutputs > 0 || flags.searchCapMinExtraReducerTokensIsSet) {
+		return flags, fmt.Errorf("search-cap proof thresholds require --search-cap-candidate")
+	}
 	return flags, nil
+}
+
+func appendWSSProofSearchCapCandidate(flags *wssProofMatrixFlags, raw string) error {
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set(raw); err != nil {
+		return fmt.Errorf("--search-cap-candidate %w", err)
+	}
+	flags.searchCapCandidates = append(flags.searchCapCandidates, candidates...)
+	return nil
 }
 
 func parseNonNegativeProofInt(arg, prefix string) (int, error) {
@@ -294,6 +358,15 @@ func parseNonNegativeProofInt(arg, prefix string) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 0 {
 		return 0, fmt.Errorf("%s requires a non-negative integer", strings.TrimSuffix(prefix, "="))
+	}
+	return value, nil
+}
+
+func parseNonNegativeProofFloat(arg, prefix string) (float64, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s requires a non-negative number", strings.TrimSuffix(prefix, "="))
 	}
 	return value, nil
 }
@@ -352,7 +425,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		if err != nil {
 			capture.GateFailures = append(capture.GateFailures, fmt.Sprintf("replay failed: %v", err))
 		} else {
-			capture.Replay = replay
+			capture.Replay = sanitizeWSSProofReplayReport(replay)
 			if !replay.GatePassed {
 				capture.GateFailures = append(capture.GateFailures, replay.GateFailures...)
 			}
@@ -362,11 +435,20 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 				} else if replay.SearchMutatedRequests+replay.SearchCapturedMutated == 0 {
 					capture.GateFailures = append(capture.GateFailures, "search_loop proof has no named search-output mutation")
 				}
-			}
-			if replay.BytesSaved > 0 {
-				report.PositiveReplayByteSavings++
+				if len(options.searchCapCandidates) > 0 {
+					searchCapProof, err := loadSearchCapProofReport(wssProofSearchCapFlags(capture.FramesPath, options))
+					if err != nil {
+						capture.GateFailures = append(capture.GateFailures, fmt.Sprintf("search-cap proof failed: %v", err))
+					} else {
+						capture.SearchCapProof = &searchCapProof
+						if !searchCapProof.GatePassed {
+							capture.GateFailures = append(capture.GateFailures, prefixedSearchCapProofFailures("search_cap_proof", searchCapProof.GateFailures)...)
+						}
+					}
+				}
 			}
 		}
+		var requiredReducerHits map[string]int64
 		if capture.LiveDelta != nil {
 			for _, reducer := range options.expectedReducers {
 				name := strings.TrimSpace(reducer)
@@ -374,14 +456,13 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 					continue
 				}
 				if count, ok := liveReducerCount(name, capture.LiveDelta); ok && count > 0 {
-					report.RequiredReducerHits[name] += count
+					if requiredReducerHits == nil {
+						requiredReducerHits = make(map[string]int64)
+					}
+					requiredReducerHits[name] += count
 				}
 			}
 			tokenPositive := wssProofLiveEconomicSignal(capture)
-			if tokenPositive {
-				report.PositiveTokenSavings++
-				report.PositiveSavings++
-			}
 			if capture.ExpectedZeroSavings && wssProofLiveLocalSavingsSignal(capture.LiveDelta) {
 				capture.GateFailures = append(capture.GateFailures, "expected zero local savings, got positive local savings signal")
 			}
@@ -413,9 +494,6 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			if !capture.ExpectedZeroSavings && capture.Replay.BytesSaved <= 0 {
 				capture.GateFailures = append(capture.GateFailures, "expected positive savings, no live token delta and replay bytes_saved<=0")
 			}
-			if capture.Replay.BytesSaved > 0 {
-				report.PositiveSavings++
-			}
 		}
 		if capture.DecisionsPath != "" {
 			audit, err := loadWSSAuditReport(wssAuditFlags{path: capture.DecisionsPath, minPhaseF: 1})
@@ -431,20 +509,35 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		capture.GatePassed = len(capture.GateFailures) == 0
 		if !capture.GatePassed {
 			report.CapturesWithIssues++
+		} else {
+			if capture.LiveDelta != nil {
+				for name, count := range requiredReducerHits {
+					report.RequiredReducerHits[name] += count
+				}
+				if wssProofLiveEconomicSignal(capture) {
+					report.PositiveTokenSavings++
+					report.PositiveSavings++
+				}
+			} else if capture.Replay.BytesSaved > 0 {
+				report.PositiveSavings++
+			}
+			if capture.Replay.BytesSaved > 0 {
+				report.PositiveReplayByteSavings++
+			}
+			switch capture.Client {
+			case "cli":
+				report.CLI++
+			case "desktop":
+				report.Desktop++
+			}
+			if capture.ExpectedZeroSavings {
+				report.ExpectedZero++
+			}
+			if capture.WorkloadClass != "" {
+				report.WorkloadClasses[capture.WorkloadClass]++
+			}
 		}
 		report.Captures++
-		switch capture.Client {
-		case "cli":
-			report.CLI++
-		case "desktop":
-			report.Desktop++
-		}
-		if capture.ExpectedZeroSavings {
-			report.ExpectedZero++
-		}
-		if capture.WorkloadClass != "" {
-			report.WorkloadClasses[capture.WorkloadClass]++
-		}
 		report.CaptureReports = append(report.CaptureReports, capture)
 	}
 	requirements := wssProofRequirements(options)
@@ -456,6 +549,11 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 	report.GateFailures = wssProofMatrixGateFailures(report, requirements)
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func sanitizeWSSProofReplayReport(report wssABReplayReport) wssABReplayReport {
+	report.Elisions = nil
+	return report
 }
 
 func focusedWSSProofWorkloads(required []string) map[string]bool {
@@ -534,12 +632,13 @@ func wssProofLiveEconomicTokens(workloadClass string, live *codexCaptureLiveDelt
 
 func wssProofRequirements(options wssProofMatrixOptions) wssProofMatrixRequirements {
 	requirements := wssProofMatrixRequirements{
-		requiredWorkloads: requiredWSSProofWorkloads,
-		expectedReducers:  normalizeExpectedReducers(options.expectedReducers),
-		minCaptures:       10,
-		minCLI:            5,
-		minDesktop:        5,
-		minPositive:       7,
+		requiredWorkloads:      requiredWSSProofWorkloads,
+		expectedReducers:       normalizeExpectedReducers(options.expectedReducers),
+		searchCapProofRequired: len(options.searchCapCandidates) > 0,
+		minCaptures:            10,
+		minCLI:                 5,
+		minDesktop:             5,
+		minPositive:            7,
 	}
 	if len(options.requiredWorkloads) > 0 {
 		requirements.requiredWorkloads = append([]string(nil), options.requiredWorkloads...)
@@ -561,6 +660,28 @@ func wssProofRequirements(options wssProofMatrixOptions) wssProofMatrixRequireme
 		requirements.minPositive = options.minPositive
 	}
 	return requirements
+}
+
+func wssProofSearchCapFlags(framesPath string, options wssProofMatrixOptions) searchCapProofFlags {
+	minRetention := options.searchCapMinCandidateRetainedPct
+	if minRetention <= 0 {
+		minRetention = releaseSearchCapMinRetainedPct
+	}
+	minSearchOutputs := options.searchCapMinSearchOutputs
+	if minSearchOutputs <= 0 {
+		minSearchOutputs = releaseSearchCapMinSearchOutputs
+	}
+	minExtra := options.searchCapMinExtraReducerTokens
+	if !options.searchCapMinExtraReducerTokensIsSet {
+		minExtra = releaseSearchCapMinExtraReducerTokens
+	}
+	return searchCapProofFlags{
+		framesPath:              framesPath,
+		candidates:              options.searchCapCandidates,
+		minCandidateRetainedPct: minRetention,
+		minSearchOutputs:        minSearchOutputs,
+		minExtraReducerTokens:   minExtra,
+	}
 }
 
 func normalizeExpectedReducers(values []string) []string {
@@ -736,8 +857,9 @@ func missingWSSRequiredReducers(hits map[string]int64, required []string) []stri
 
 func wssProofMatrixGateFailures(report wssProofMatrixReport, requirements wssProofMatrixRequirements) []string {
 	var failures []string
-	if report.Captures < requirements.minCaptures {
-		failures = append(failures, fmt.Sprintf("expected at least %d captures, got %d", requirements.minCaptures, report.Captures))
+	validCaptures := report.Captures - report.CapturesWithIssues
+	if validCaptures < requirements.minCaptures {
+		failures = append(failures, fmt.Sprintf("expected at least %d valid captures, got %d", requirements.minCaptures, validCaptures))
 	}
 	if report.CLI < requirements.minCLI {
 		failures = append(failures, fmt.Sprintf("expected at least %d CLI captures, got %d", requirements.minCLI, report.CLI))
@@ -750,6 +872,9 @@ func wssProofMatrixGateFailures(report wssProofMatrixReport, requirements wssPro
 	}
 	if len(report.MissingRequiredReducers) > 0 {
 		failures = append(failures, "missing expected reducer signals: "+strings.Join(report.MissingRequiredReducers, ", "))
+	}
+	if requirements.searchCapProofRequired && report.WorkloadClasses["search_loop"] == 0 {
+		failures = append(failures, "search-cap proof requires at least one search_loop capture")
 	}
 	if report.PositiveSavings+report.ExpectedZero < requirements.minPositive {
 		failures = append(failures, fmt.Sprintf("expected at least %d positive-token-savings or expected-zero captures, got %d", requirements.minPositive, report.PositiveSavings+report.ExpectedZero))
@@ -817,6 +942,20 @@ func writeWSSProofMatrixText(w io.Writer, report wssProofMatrixReport) {
 			fmt.Fprintf(w, "  %-24s %-7s %-24s billable_tokens=%d economic_tokens=%d replay_bytes=%d mutated=%d gate=%s\n",
 				capture.ID, capture.Client, capture.WorkloadClass,
 				tokens, economicTokens, capture.Replay.BytesSaved, capture.Replay.MutatedRequests, status)
+			if capture.SearchCapProof != nil {
+				if capture.SearchCapProof.SelectedCandidate != nil {
+					selected := capture.SearchCapProof.SelectedCandidate
+					fmt.Fprintf(w, "    search_cap: %s %d/%d extra_tokens=%+d retained=%.2f%% gate=%s\n",
+						selected.Name,
+						selected.MaxFilesShown,
+						selected.MaxMatchesPerFile,
+						selected.ExtraReducerTokens,
+						selected.MatchRetentionPct,
+						passFail(capture.SearchCapProof.GatePassed))
+				} else {
+					fmt.Fprintf(w, "    search_cap: no selected candidate gate=%s\n", passFail(capture.SearchCapProof.GatePassed))
+				}
+			}
 			for _, failure := range capture.GateFailures {
 				fmt.Fprintf(w, "    - %s\n", failure)
 			}

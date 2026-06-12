@@ -721,14 +721,15 @@ Reports whether the process-local CODEX_CLI_PATH app-server shim is ready
 and whether a live Desktop conversation WSS proof has already been seen.
 `
 
-const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--host=127.0.0.1] [--port=8990]
+const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--replace-existing] [--host=127.0.0.1] [--port=8990]
 
 Starts Codex.app with process-local CODEX_CLI_PATH app-server shim, snapshots daemon WSS
 counters before/after, classifies the result, and closes the spawned app
-unless --keep-open is set. Exit 0 means Desktop Phase-F savings were actually
-proven, or --manual produced a launch-ready proof session that still needs a
-prompt plus --finish. Exit 1 means the proof was not green and the output names
-the failure class.
+unless --keep-open is set. If Codex.app is already running, this command fails
+closed unless --replace-existing is passed explicitly. Exit 0 means Desktop
+Phase-F savings were actually proven, or --manual produced a launch-ready proof
+session that still needs a prompt plus --finish. Exit 1 means the proof was not
+green and the output names the failure class.
 
 Use --manual to start a prompt-driven proof session and keep the launched app
 open when it is ready. Send a prompt in that app, then run --finish to compare

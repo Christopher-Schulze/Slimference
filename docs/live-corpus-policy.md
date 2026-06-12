@@ -52,7 +52,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    go run ./scripts/utils wss-proof-inventory ~/.slimference/captures --json
    go run ./scripts/utils wss-proof-export-corpus ~/.slimference/captures tests/fixtures/live_corpus --json
    go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json
-   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex-cli-resource-proof-bundle-dir> --resource-profile-proof <codex-desktop-resource-proof-bundle-dir> --json
+   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex-cli-resource-proof-bundle-dir> --resource-profile-proof <codex-desktop-resource-proof-bundle-dir> --json > <final-release-proof.json>
    ```
 
    The exporter writes only scrubbed `RequestSummary` counters and
@@ -73,6 +73,23 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    that clean release matrix file or a focused release bundle, not on the whole
    historical capture archive. The archive intentionally contains old
    diagnostic and superseded rows, and those rows fail the strict gate by id.
+   When promoting the T359 search-cap lever, pass the focused
+   `wss-proof-matrix --json` search-cap report through
+   `--search-cap-proof-report`; the final report validates that content-free
+   artifact without reading raw frames, including the 40% retained-match floor,
+   at least two resolved search outputs, and positive extra reducer-token
+   savings. The focused proof must also prove the delta tool-output mutation
+   path for the selected cap; otherwise the runtime latch leaves search caps
+   inactive. The same promotion report must also receive before/after
+   `slimference codex status --json` snapshots through `--codex-status-before`
+   and `--codex-status-after`, proving no persistent shared Codex route,
+   legacy base-url key, or route conflict was active during the proof window.
+   The full T359 promotion shape is:
+
+   ```
+   go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex-cli-resource-proof-bundle-dir> --resource-profile-proof <codex-desktop-resource-proof-bundle-dir> --search-cap-proof-report <focused-search-cap-proof.json> --codex-status-before <codex-status-before.json> --codex-status-after <codex-status-after.json> --json > <final-release-proof.json>
+   ```
+
    The report keeps
    local billable-input savings, output-wire savings, provider-cache economics,
    tool-prune schema-token savings, host-resource status, and safety counters

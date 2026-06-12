@@ -3353,9 +3353,17 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.Tuning.ToolPruneEnabled = true
 	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
-	body := codexWSStaleObsoleteLayer0Body()
+	const sessionID = "codex-wss:single-reconstruct-session"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Read", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Read"})
+	body := codexWSBodyWithTools(t, codexWSStaleObsoleteLayer0Body(),
+		codexToolDefinition("Read", "Read files"),
+		codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+	)
 
 	origReconstruct := reconstructBodyFn
 	origExtract := extractMessagesFn
@@ -3394,12 +3402,19 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 	if !strings.Contains(mutatedText, "[git status]") || strings.Contains(mutatedText, "single_reconstruct_179.go") {
 		t.Fatalf("Layer 0 mutation missing: %s", mutatedText)
 	}
+	if strings.Contains(mutatedText, "ColdTool") || !strings.Contains(mutatedText, "Read") {
+		t.Fatalf("tool-prune did not compose with the single reconstruct: %s", mutatedText)
+	}
 	if l0Stats.TokensSaved == 0 || l0Stats.CapturedOutputBlocks == 0 {
 		t.Fatalf("expected Layer 0 savings stats, got %+v", l0Stats)
 	}
 	snap := p.OutputReduceCountersSnapshot()
 	if snap.StaleReadBlocksReplaced == 0 || snap.ObsoleteReadBlocksPruned == 0 || snap.ProxyLayer0RequestsModified == 0 {
 		t.Fatalf("expected all staged mutation counters, got %+v", snap)
+	}
+	toolSnap := p.toolPrune.Snapshot()
+	if toolSnap.PrunedTotal != 1 || toolSnap.TokensSavedSum <= 0 {
+		t.Fatalf("expected same-request tool-prune savings, got %+v", toolSnap)
 	}
 	if l0Stats.StaleReadBlocks == 0 || l0Stats.StaleReadTokensSaved <= 0 ||
 		l0Stats.ObsoletePruneBlocks == 0 || l0Stats.ObsoletePruneTokensSaved <= 0 {
@@ -3409,6 +3424,16 @@ func TestWSPhaseFRequestSingleReconstructForStagedMutations(t *testing.T) {
 		!hasEvidenceDecision(l0Stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
 		t.Fatalf("expected request-local history evidence decisions, got %+v", l0Stats.EvidenceDecisions)
 	}
+}
+
+func codexWSBodyWithTools(t *testing.T, body []byte, tools ...map[string]any) []byte {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("fixture body json: %v", err)
+	}
+	raw["tools"] = tools
+	return mustMarshal(raw)
 }
 
 func hasEvidenceDecision(decisions []evidence.BlockDecision, mechanism proxyLayer0Mechanism, reason string, action evidence.Action) bool {
@@ -3439,6 +3464,63 @@ func TestWSPhaseFStaleObsoletePreserveToolUseIndex(t *testing.T) {
 	}
 	after := proxyToolUseIndex(pruned)
 	assertSameProxyToolUseIndex(t, before, after)
+}
+
+func TestWSPhaseFWrapperObserversUseBodySessionID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"prompt_cache_key":     "wrapper-observer-session",
+		"previous_response_id": "resp-wrapper",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "call_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/wrapped.go", "patch": "@@ ..."}},
+			{"type": "function_call_output", "call_id": "call_edit", "output": "patch applied"},
+			{"type": "function_call", "call_id": "call_read", "name": "read_file", "arguments": map[string]any{"path": "src/wrapped.go"}},
+			{"type": "function_call_output", "call_id": "call_read", "output": strings.Repeat("wrapped file content\n", 20)},
+		},
+		"stream": true,
+	})
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		t.Fatalf("extract messages: %v", err)
+	}
+
+	adapter.observeWSSRecentEdits(body, messages, nil)
+	hit, err := sessions.RecentlyEditedHookFile(sessions.DefaultHookStateDir(home), "codex-wss:wrapper-observer-session", "src/wrapped.go", 2)
+	if err != nil || !hit {
+		t.Fatalf("wrapper recent-edit observer did not use body session id, hit=%v err=%v", hit, err)
+	}
+	first, firstCount := adapter.observeWSSQualityToolKeys(body, messages, nil)
+	second, secondCount := adapter.observeWSSQualityToolKeys(body, messages, nil)
+	if len(first) != 0 || firstCount != 0 || len(second) == 0 || secondCount == 0 {
+		t.Fatalf("wrapper quality-key observer should detect reread on second call, first=%v/%d second=%v/%d", first, firstCount, second, secondCount)
+	}
+}
+
+func TestWSSPreviousResponseAndSourceRiskPredicates(t *testing.T) {
+	if !wssPreviousResponseIDAvailable([]byte(`{"previous_response_id":"resp_1"}`)) {
+		t.Fatal("previous_response_id should be available")
+	}
+	if wssPreviousResponseIDAvailable([]byte(`{"input":[]}`)) {
+		t.Fatal("missing previous_response_id should not be available")
+	}
+	sourceMessages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type: "tool_result",
+			Text: strings.Repeat("package main\nfunc main() {}\n", 220),
+		}},
+	}}
+	if !wssRiskyPreviousResponseSourceToolOutput(wssRequestMeta{PreviousResponseID: "resp_1"}, sourceMessages) {
+		t.Fatal("large source-like tool output after previous_response_id should be risky")
+	}
+	if wssRiskyPreviousResponseSourceToolOutput(wssRequestMeta{}, sourceMessages) {
+		t.Fatal("source-risk predicate is previous_response_id-specific")
+	}
 }
 
 func TestWSSRequestIndexesMatchStandaloneBuilders(t *testing.T) {

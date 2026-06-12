@@ -162,6 +162,243 @@ func TestReleaseProofReportPassesWithCompleteMatrixAndProfile(t *testing.T) {
 	}
 }
 
+func TestReleaseProofReportAcceptsFocusedSearchCapProofArtifact(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "release-search-cap")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeCompleteReleaseProofRows(t, matrixPath, framesPath)
+	searchCapProofPath := filepath.Join(dir, "search-cap-proof.json")
+	writeReleaseSearchCapProofReport(t, searchCapProofPath, true, "candidate_25x15", "candidate_25x15")
+	codexBefore, codexAfter := writeReleaseCodexStatusProofPair(t, dir)
+
+	report, err := loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: searchCapProofPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.SearchCapProof == nil || !report.SearchCapProof.OK {
+		t.Fatalf("valid search-cap proof artifact should pass: %+v", report)
+	}
+	if report.CodexRouteHygiene == nil || !report.CodexRouteHygiene.OK {
+		t.Fatalf("valid search-cap promotion should include clean route hygiene proof: %+v", report.CodexRouteHygiene)
+	}
+	if report.SearchCapProof.MaxFilesShown != 25 ||
+		report.SearchCapProof.MaxMatchesPerFile != 15 ||
+		report.SearchCapProof.TotalExtraReducerTokens != 14 ||
+		report.SearchCapProof.MinMatchRetentionPct != 40.25 {
+		t.Fatalf("unexpected search-cap summary: %+v", report.SearchCapProof)
+	}
+
+	var text bytes.Buffer
+	writeReleaseProofReportText(&text, report)
+	if !strings.Contains(text.String(), "Search-cap proof: ok=true") ||
+		!strings.Contains(text.String(), "selected=candidate_25x15 25/15") ||
+		!strings.Contains(text.String(), "Codex route hygiene: ok=true") {
+		t.Fatalf("text report missing search-cap summary:\n%s", text.String())
+	}
+}
+
+func TestReleaseProofReportRejectsBadSearchCapProofArtifact(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "release-search-cap-bad")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeCompleteReleaseProofRows(t, matrixPath, framesPath)
+	codexBefore, codexAfter := writeReleaseCodexStatusProofPair(t, dir)
+	searchCapProofPath := filepath.Join(dir, "search-cap-proof-bad.json")
+	writeReleaseSearchCapProofReport(t, searchCapProofPath, true, "candidate_25x15", "candidate_30x15")
+
+	report, err := loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: searchCapProofPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "selected cap 30/15 differs from 25/15") {
+		t.Fatalf("inconsistent search-cap proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	zeroExtraPath := filepath.Join(dir, "search-cap-proof-zero-extra.json")
+	writeReleaseSearchCapProofReportWithExtras(t, zeroExtraPath, true, "candidate_25x15", "candidate_25x15", 0, 0)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: zeroExtraPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "total search-cap extra reducer tokens must be positive") ||
+		!strings.Contains(joined, "selected search-cap candidate has non-positive extra reducer tokens") {
+		t.Fatalf("non-positive search-cap proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	weakThresholdPath := filepath.Join(dir, "search-cap-proof-weak-threshold.json")
+	writeReleaseSearchCapProofReportWithConfig(t, weakThresholdPath, true, "candidate_25x15", "candidate_25x15", 6, 8, 39.5, 1, 0, 39.5, 39.75)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: weakThresholdPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "search_cap_proof min retention 39.50% < release min 40.00%") ||
+		!strings.Contains(joined, "search_cap_proof min search outputs 1 < release min 2") ||
+		!strings.Contains(joined, "search_cap_proof min extra reducer tokens 0 < release min 1") ||
+		!strings.Contains(joined, "selected search-cap candidate retention 39.50% < release min 40.00%") {
+		t.Fatalf("weak search-cap threshold proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	aggregateOnlyPath := filepath.Join(dir, "search-cap-proof-aggregate-only.json")
+	writeReleaseSearchCapAggregateOnlyProofReport(t, aggregateOnlyPath)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: aggregateOnlyPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "validated search_loop capture_reports 1 != captures 2") ||
+		!strings.Contains(joined, "missing validated Desktop search-cap capture report") ||
+		!strings.Contains(joined, "expected at least 2 validated positive search-cap capture reports, got 1") {
+		t.Fatalf("aggregate-only search-cap proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	failedRowPath := filepath.Join(dir, "search-cap-proof-failed-row.json")
+	writeReleaseSearchCapFailedRowProofReport(t, failedRowPath)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: failedRowPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "desktop-search-cap: focused search-cap capture row gate failed: row replay failed") ||
+		!strings.Contains(joined, "missing validated Desktop search-cap capture report") {
+		t.Fatalf("failed search-cap row must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	contradictoryPath := filepath.Join(dir, "search-cap-proof-contradictory.json")
+	writeReleaseSearchCapContradictoryProofReport(t, contradictoryPath)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: contradictoryPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	for _, want := range []string{
+		"focused wss-proof-matrix gate passed but still contains gate failures",
+		"focused search-cap capture row gate passed but still contains gate failures",
+		"search_cap_proof gate passed but still contains gate failures",
+	} {
+		if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK || !strings.Contains(joined, want) {
+			t.Fatalf("contradictory search-cap proof missing %q: passed=%v proof=%+v failures=%v", want, report.GatePassed, report.SearchCapProof, report.GateFailures)
+		}
+	}
+
+	badJSONPath := filepath.Join(dir, "not-json.json")
+	writeTextFile(t, badJSONPath, "{not-json")
+	if _, err := loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: badJSONPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	}); err == nil {
+		t.Fatal("invalid search-cap proof JSON should return an error")
+	}
+}
+
+func TestReleaseProofReportRequiresCleanCodexRouteHygieneForSearchCapPromotion(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "release-search-cap-route-hygiene")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeCompleteReleaseProofRows(t, matrixPath, framesPath)
+	searchCapProofPath := filepath.Join(dir, "search-cap-proof.json")
+	writeReleaseSearchCapProofReport(t, searchCapProofPath, true, "candidate_25x15", "candidate_25x15")
+	resourceProofs := []string{
+		writeReleaseResourceProofBundle(t, dir, "cli"),
+		writeReleaseResourceProofBundle(t, dir, "desktop"),
+	}
+
+	report, err := loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    resourceProofs,
+		searchCapProofReportPath: searchCapProofPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || !strings.Contains(strings.Join(report.GateFailures, "\n"), "missing Codex route hygiene proof for search-cap promotion") {
+		t.Fatalf("search-cap promotion without route hygiene proof must fail: %+v", report)
+	}
+
+	cleanBefore := writeReleaseCodexStatusProof(t, dir, "codex-before.json", false, false, false, "")
+	badAfter := writeReleaseCodexStatusProof(t, dir, "codex-after.json", true, true, true, "top-level model_provider already set")
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    resourceProofs,
+		searchCapProofReportPath: searchCapProofPath,
+		codexStatusBeforePath:    cleanBefore,
+		codexStatusAfterPath:     badAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(report.GateFailures, "\n")
+	for _, want := range []string{
+		"invalid Codex route hygiene proof",
+		"after: advanced shared Codex route enabled",
+		"after: marker-owned Codex route complete",
+		"after: legacy openai_base_url/chatgpt_base_url keys present",
+		"after: Codex route conflict: top-level model_provider already set",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing route hygiene failure %q in:\n%s", want, joined)
+		}
+	}
+}
+
 func TestReleaseProofReportRequiresCLIAndDesktopResourceBundles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -372,6 +609,11 @@ func TestRunReleaseProofReportExitCodes(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout.String(), "release-proof-report") {
 		t.Fatalf("help failed code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runReleaseProofReport([]string{"matrix.jsonl", "--search-cap-proof-report"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("missing search-cap proof report value should be usage error, code=%d stderr=%s", code, stderr.String())
+	}
 }
 
 func releaseProofRow(id, client, workload, framesPath string, live *codexCaptureLiveDelta) wssProofMatrixRecord {
@@ -464,6 +706,36 @@ func writeTextFile(t *testing.T, path, text string) {
 	}
 }
 
+func writeReleaseCodexStatusProofPair(t *testing.T, dir string) (string, string) {
+	t.Helper()
+	return writeReleaseCodexStatusProof(t, dir, "codex-status-before.json", false, false, false, ""),
+		writeReleaseCodexStatusProof(t, dir, "codex-status-after.json", false, false, false, "")
+}
+
+func writeReleaseCodexStatusProof(t *testing.T, dir, name string, enabled, complete, legacy bool, conflict string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	body := map[string]any{
+		"route": map[string]any{
+			"enabled":     enabled,
+			"complete":    complete,
+			"legacy_keys": legacy,
+			"conflict":    conflict,
+			"base_url":    "http://127.0.0.1:8990",
+			"transport":   "",
+		},
+		"daemon": map[string]any{
+			"reachable": false,
+		},
+	}
+	data, err := json.MarshalIndent(body, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTextFile(t, path, string(data)+"\n")
+	return path
+}
+
 func appendJSONLFile(t *testing.T, path string, values ...interface{}) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
@@ -532,4 +804,162 @@ func writeReleaseResourceProofBundle(t *testing.T, dir, client string) string {
 		HostBudgetDegradationOK: true,
 	}))
 	return bundle
+}
+
+func writeReleaseSearchCapProofReport(t *testing.T, path string, gatePassed bool, cliCandidate, desktopCandidate string) {
+	t.Helper()
+	writeReleaseSearchCapProofReportWithExtras(t, path, gatePassed, cliCandidate, desktopCandidate, 6, 8)
+}
+
+func writeReleaseSearchCapProofReportWithExtras(t *testing.T, path string, gatePassed bool, cliCandidate, desktopCandidate string, cliExtra, desktopExtra int) {
+	t.Helper()
+	writeReleaseSearchCapProofReportWithConfig(t, path, gatePassed, cliCandidate, desktopCandidate, cliExtra, desktopExtra, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 40.25, 41.5)
+}
+
+func writeReleaseSearchCapProofReportWithConfig(t *testing.T, path string, gatePassed bool, cliCandidate, desktopCandidate string, cliExtra, desktopExtra int, minRetention float64, minOutputs, minExtra int, cliRetention, desktopRetention float64) {
+	t.Helper()
+	report := wssProofMatrixReport{
+		Path:            "focused-search-cap.jsonl",
+		Captures:        2,
+		CLI:             1,
+		Desktop:         1,
+		PositiveSavings: 2,
+		WorkloadClasses: map[string]int{"search_loop": 2},
+		GatePassed:      gatePassed,
+		CaptureReports: []wssProofMatrixCapture{
+			releaseSearchCapCapture("cli-search-cap", "cli", cliCandidate, cliExtra, minRetention, minOutputs, minExtra, cliRetention),
+			releaseSearchCapCapture("desktop-search-cap", "desktop", desktopCandidate, desktopExtra, minRetention, minOutputs, minExtra, desktopRetention),
+		},
+	}
+	if !gatePassed {
+		report.GateFailures = []string{"focused proof failed"}
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeReleaseSearchCapAggregateOnlyProofReport(t *testing.T, path string) {
+	t.Helper()
+	report := wssProofMatrixReport{
+		Path:            "focused-search-cap.jsonl",
+		Captures:        2,
+		CLI:             1,
+		Desktop:         1,
+		PositiveSavings: 2,
+		WorkloadClasses: map[string]int{"search_loop": 2},
+		GatePassed:      true,
+		CaptureReports: []wssProofMatrixCapture{
+			releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25),
+		},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeReleaseSearchCapFailedRowProofReport(t *testing.T, path string) {
+	t.Helper()
+	failed := releaseSearchCapCapture("desktop-search-cap", "desktop", "candidate_25x15", 8, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.5)
+	failed.GatePassed = false
+	failed.GateFailures = []string{"row replay failed"}
+	report := wssProofMatrixReport{
+		Path:            "focused-search-cap.jsonl",
+		Captures:        2,
+		CLI:             1,
+		Desktop:         1,
+		PositiveSavings: 2,
+		WorkloadClasses: map[string]int{"search_loop": 2},
+		GatePassed:      true,
+		CaptureReports: []wssProofMatrixCapture{
+			releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25),
+			failed,
+		},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeReleaseSearchCapContradictoryProofReport(t *testing.T, path string) {
+	t.Helper()
+	cli := releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25)
+	desktop := releaseSearchCapCapture("desktop-search-cap", "desktop", "candidate_25x15", 8, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.5)
+	desktop.GateFailures = []string{"hidden row issue"}
+	desktop.SearchCapProof.GateFailures = []string{"hidden nested issue"}
+	report := wssProofMatrixReport{
+		Path:            "focused-search-cap.jsonl",
+		Captures:        2,
+		CLI:             1,
+		Desktop:         1,
+		PositiveSavings: 2,
+		WorkloadClasses: map[string]int{"search_loop": 2},
+		GatePassed:      true,
+		GateFailures:    []string{"hidden matrix issue"},
+		CaptureReports:  []wssProofMatrixCapture{cli, desktop},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func releaseSearchCapCapture(id, client, candidate string, extraTokens int, minRetention float64, minOutputs, minExtra int, retention float64) wssProofMatrixCapture {
+	files := 25
+	matches := 15
+	if strings.Contains(candidate, "30x15") {
+		files = 30
+	}
+	return wssProofMatrixCapture{
+		ID:            id,
+		Client:        client,
+		WorkloadClass: "search_loop",
+		SearchCapProof: &searchCapProofReport{
+			SearchOutputs:           minOutputs,
+			MinCandidateRetainedPct: minRetention,
+			MinSearchOutputs:        minOutputs,
+			MinExtraReducerTokens:   minExtra,
+			GatePassed:              true,
+			DefaultReplay: searchCapProofReplaySummary{
+				ToolOutputMutation:      true,
+				DeltaToolOutputMutation: true,
+			},
+			SelectedCandidate: &searchCapProofSelection{
+				Name:               candidate,
+				MaxFilesShown:      files,
+				MaxMatchesPerFile:  matches,
+				ExtraReducerTokens: extraTokens,
+				MatchRetentionPct:  retention,
+			},
+			Candidates: []searchCapProofCandidateRow{
+				{
+					Name:               candidate,
+					MaxFilesShown:      files,
+					MaxMatchesPerFile:  matches,
+					ExtraReducerTokens: extraTokens,
+					Replay: &searchCapProofReplaySummary{
+						ToolOutputMutation:      true,
+						DeltaToolOutputMutation: true,
+					},
+					GatePassed: true,
+				},
+			},
+		},
+		GatePassed: true,
+	}
 }

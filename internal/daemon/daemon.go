@@ -19,6 +19,8 @@ import (
 // DefaultPIDDir is the directory for the PID file.
 const DefaultPIDDir = "~/.slimference"
 
+const stateDirEnv = "SLIMFERENCE_DAEMON_STATE_DIR"
+
 const launchdLabel = "com.slimference.daemon"
 
 // PIDFile holds metadata about a running daemon instance.
@@ -59,8 +61,15 @@ func expandHome(path string) string { return expandHomeFn(path) }
 
 // PIDPath returns the path to the PID file.
 func PIDPath() string {
-	dir := expandHome(DefaultPIDDir)
+	dir := daemonStateDir()
 	return filepath.Join(dir, "slimference.pid")
+}
+
+func daemonStateDir() string {
+	if dir := strings.TrimSpace(os.Getenv(stateDirEnv)); dir != "" {
+		return dir
+	}
+	return expandHome(DefaultPIDDir)
 }
 
 // WritePID creates or overwrites the PID file with the current process info.
@@ -561,7 +570,7 @@ func itoa(n int) string {
 // The socket is atomically created by the OS - if bind() succeeds, we hold the lock.
 // If bind() fails with EADDRINUSE, another process is already running.
 func LockPath() string {
-	dir := expandHome(DefaultPIDDir)
+	dir := daemonStateDir()
 	return filepath.Join(dir, "slimference.lock")
 }
 
