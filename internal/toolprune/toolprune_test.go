@@ -118,6 +118,41 @@ func TestDecide_PrunesIdleTools(t *testing.T) {
 	}
 }
 
+func TestMarkMissCooldownExpiresAndWarmsPrunedDefinitions(t *testing.T) {
+	u := NewUsageTracker(1)
+	const session = "s"
+	u.ObserveTurn(session, []string{"ColdTool"})
+	u.ObserveTurn(session, []string{"Other"})
+	u.ObserveTurn(session, []string{"Other"})
+	first := u.Decide(session, []string{"ColdTool"}, 0)
+	if len(first.Pruned) != 1 || first.Pruned[0] != "ColdTool" {
+		t.Fatalf("expected initial prune: %+v", first)
+	}
+	u.RememberPrunedDef(session, "ColdTool", []byte(`{"name":"ColdTool"}`))
+
+	u.MarkMiss(session)
+	if !u.Disabled(session) {
+		t.Fatal("missing-tool miss should start quality cooldown")
+	}
+	cooldown := u.Decide(session, []string{"ColdTool"}, 0)
+	if cooldown.Reason != "quality_cooldown" || len(cooldown.Pruned) != 0 || len(cooldown.Keep) != 1 {
+		t.Fatalf("cooldown should keep full schema: %+v", cooldown)
+	}
+	if u.Disabled(session) {
+		t.Fatal("one-turn cooldown should expire after one matching decision")
+	}
+	warmed := u.Decide(session, []string{"ColdTool"}, 0)
+	if len(warmed.Pruned) != 0 || len(warmed.Keep) != 1 {
+		t.Fatalf("missed pruned tool should be warmed after cooldown: %+v", warmed)
+	}
+	u.ObserveTurn(session, []string{"Other"})
+	u.ObserveTurn(session, []string{"Other"})
+	restored := u.Decide(session, []string{"ColdTool"}, 0)
+	if len(restored.Pruned) != 1 || restored.Pruned[0] != "ColdTool" {
+		t.Fatalf("expired cooldown should restore pruning after the idle window: %+v", restored)
+	}
+}
+
 func TestDecide_EmptySession(t *testing.T) {
 	u := NewUsageTracker(5)
 	d := u.Decide("", []string{"a", "b"}, 0)
@@ -260,8 +295,11 @@ func TestSafetyAndTelemetryBranches(t *testing.T) {
 	if decision.Reason != "quality_cooldown" || len(decision.Keep) != 1 {
 		t.Fatalf("cooldown decision mismatch: %+v", decision)
 	}
+	if tracker.Disabled("sess") {
+		t.Fatal("one-turn cooldown should expire after the matching decision")
+	}
 	stats := tracker.Snapshot()
-	if stats.MissTotal != 2 || stats.RetryTotal != 1 || stats.AlwaysKeepTotal != 3 || stats.DisabledSessions != 1 {
+	if stats.MissTotal != 2 || stats.RetryTotal != 1 || stats.AlwaysKeepTotal != 3 || stats.DisabledSessions != 0 {
 		t.Fatalf("stats mismatch: %+v", stats)
 	}
 }

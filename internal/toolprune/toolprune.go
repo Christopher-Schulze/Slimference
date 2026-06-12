@@ -37,9 +37,9 @@ type sessionUsage struct {
 	// pruned from this session so a follow-up turn that mentions the
 	// tool name can reattach the original definition. T103b.
 	prunedDefs map[string]json.RawMessage
-	// disabled is set after a missing-tool fallback. Once a session proves
-	// the pruner guessed wrong, future turns keep the full schema.
-	disabled bool
+	// qualityCooldown keeps the full schema for a bounded number of future prune
+	// decisions after a missing-tool fallback proves the pruner guessed wrong.
+	qualityCooldown int
 }
 
 // NewUsageTracker returns a tracker with the supplied idle threshold
@@ -123,9 +123,9 @@ func (u *UsageTracker) MarkReattached() {
 	u.reattachTotal++
 }
 
-// MarkMiss records a suspected missing-tool failure and disables future
-// pruning for the session. Empty session id still increments global miss
-// telemetry but cannot disable a bucket.
+// MarkMiss records a suspected missing-tool failure and starts a bounded
+// quality cooldown for the session. Empty session id still increments global
+// miss telemetry but cannot cool down a bucket.
 func (u *UsageTracker) MarkMiss(sessionID string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -141,7 +141,13 @@ func (u *UsageTracker) MarkMiss(sessionID string) {
 		st = &sessionUsage{lastSeen: make(map[string]int)}
 		u.sessions[sessionID] = st
 	}
-	st.disabled = true
+	st.qualityCooldown = u.idleThreshold
+	if st.qualityCooldown <= 0 {
+		st.qualityCooldown = 1
+	}
+	for name := range st.prunedDefs {
+		st.lastSeen[name] = st.turn
+	}
 	st.lastActivity = time.Now()
 }
 
@@ -172,7 +178,7 @@ func (u *UsageTracker) Disabled(sessionID string) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	st, ok := u.sessions[sessionID]
-	return ok && st.disabled
+	return ok && st.qualityCooldown > 0
 }
 
 // RememberPrunedDef caches the original JSON definition of a tool that
@@ -312,7 +318,7 @@ func (u *UsageTracker) Snapshot() Stats {
 	defer u.mu.Unlock()
 	disabledSessions := 0
 	for _, st := range u.sessions {
-		if st.disabled {
+		if st.qualityCooldown > 0 {
 			disabledSessions++
 		}
 	}
@@ -378,7 +384,7 @@ func (u *UsageTracker) DecideWithOptions(sessionID string, tools []string, opts 
 		out.Reason = "no_session"
 		return out
 	}
-	if u.Disabled(sessionID) {
+	if u.consumeQualityCooldown(sessionID) {
 		out.Keep = append(out.Keep, tools...)
 		out.Reason = "quality_cooldown"
 		return out
@@ -435,4 +441,16 @@ func (u *UsageTracker) DecideWithOptions(sessionID string, tools []string, opts 
 		out.Reason = "idle_tools"
 	}
 	return out
+}
+
+func (u *UsageTracker) consumeQualityCooldown(sessionID string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	if !ok || st.qualityCooldown <= 0 {
+		return false
+	}
+	st.qualityCooldown--
+	st.lastActivity = time.Now()
+	return true
 }

@@ -309,9 +309,10 @@ func TestPruneToolDefinitions_LargeBody_Savings(t *testing.T) {
 
 func TestDecideWithOptions_AlwaysKeepAndCooldown(t *testing.T) {
 	t.Parallel()
-	u := NewUsageTracker(1)
+	u := NewUsageTracker(2)
 	const session = "s"
 	u.ObserveTurn(session, []string{"Bash", "ColdTool", "CustomKeep"})
+	u.ObserveTurn(session, []string{"Other"})
 	u.ObserveTurn(session, []string{"Other"})
 	u.ObserveTurn(session, []string{"Other"})
 
