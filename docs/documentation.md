@@ -2802,7 +2802,9 @@ HTTP compression requests, the same request-local plan now also controls the
 first behavior gates: L0 proxy compaction skips planner `bypass`, and L1 skips
 planner `bypass` and uses cheap-only mode for planner `cheap_only`. Layer-local
 fallbacks remain active; the planner is an early governor, not the only safety
-mechanism.
+mechanism. Negative-savings history routes L1 to `cheap_only` rather than
+`bypass`, matching the runtime policy that preserves lossless/exact savings while
+demoting heavier reducers.
 
 `slimference plan inspect` dry-runs the same planner without sending upstream
 traffic. It accepts provider/model/route/token/cache/WebSocket facts, can

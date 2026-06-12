@@ -74,6 +74,26 @@ func TestBuildCompressionPlan_DrivesRecentEditActions(t *testing.T) {
 	}
 }
 
+func TestBuildCompressionPlan_NegativeSavingsUsesCheapOnly(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	plan := p.buildCompressionPlan(plannerInput{
+		provider:               types.OpenAI,
+		model:                  "gpt-5",
+		routeMode:              "upstream",
+		estimatedInputTokens:   12_000,
+		contentClasses:         []string{"source_file"},
+		negativeSavingsHistory: true,
+	})
+	l1, ok := plannerDecisionForLayer(plan, planner.Layer1)
+	if !ok || l1.Action != planner.ActionCheapOnly || l1.Reason != "negative_savings_history_cheap_only" {
+		t.Fatalf("L1 negative-savings decision = %+v, ok=%v", l1, ok)
+	}
+	if plan.SafetyBlocked {
+		t.Fatalf("negative savings should soften L1, not safety-block the plan: %+v", plan)
+	}
+}
+
 func TestPlannerRecentEditFact_UsesSessionHookState(t *testing.T) {
 	home := t.TempDir()
 	oldHome := proxyUserHomeDir

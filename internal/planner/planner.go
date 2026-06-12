@@ -111,7 +111,7 @@ func decideL1(f RequestFacts) LayerDecision {
 		return decision(Layer1, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
 	if f.NegativeSavingsHistory {
-		return decision(Layer1, ActionBypass, "negative_savings_history", 0, "blocked", "high")
+		return decision(Layer1, ActionCheapOnly, "negative_savings_history_cheap_only", f.EstimatedInputTokens/40, "low", "high")
 	}
 	if f.RecentEdit {
 		return decision(Layer1, ActionCheapOnly, "recent_edit_preserve_full_context", f.EstimatedInputTokens/30, "low", "medium")

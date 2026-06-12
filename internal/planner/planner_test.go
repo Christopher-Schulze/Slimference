@@ -60,12 +60,12 @@ func TestPlan_ManualDisableOverridesLayer(t *testing.T) {
 
 func TestPlan_L1SafetyGates(t *testing.T) {
 	t.Parallel()
-	blocked := Plan(RequestFacts{EstimatedInputTokens: 5000, NegativeSavingsHistory: true})
-	if d := findDecision(t, blocked, Layer1); d.Action != ActionBypass || d.Risk != "blocked" {
+	negative := Plan(RequestFacts{EstimatedInputTokens: 5000, NegativeSavingsHistory: true})
+	if d := findDecision(t, negative, Layer1); d.Action != ActionCheapOnly || d.Reason != "negative_savings_history_cheap_only" || d.Risk != "low" {
 		t.Fatalf("negative history L1=%+v", d)
 	}
-	if !blocked.SafetyBlocked {
-		t.Fatalf("negative history should mark plan blocked")
+	if negative.SafetyBlocked {
+		t.Fatalf("negative history should not mark plan blocked")
 	}
 	recent := Plan(RequestFacts{EstimatedInputTokens: 5000, RecentEdit: true})
 	if d := findDecision(t, recent, Layer1); d.Action != ActionCheapOnly || d.Reason != "recent_edit_preserve_full_context" {
