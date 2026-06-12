@@ -752,8 +752,13 @@ repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
 build/test reports, partial file ranges, or custom deterministic tools without
 introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
 search-output reducer paths currently fail open before first-pass grouping and
-repeated search delta, including grep-style search, path-list tools such as
-`find` / `fd`, empty-result search tools, and output-inferred search payloads.
+repeated search delta, including grep-style search, broad path-list tools such
+as `fd`, rich/side-effect `find`, empty-result search tools, and
+output-inferred search payloads. Bounded names-only `ls` and conservative
+`find ... -print` listings are a separate stateful-safe class: they may seed
+and later use exact archive-backed repeated-output savings, while source-like,
+search-like, rich `ls -l`, recursive, oversized, or side-effect listings still
+full-pass.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
 upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and
@@ -1017,8 +1022,11 @@ search-output mutation, and later Desktop sessions showed the same class after
 broader WSS tool-output mutation. Those rows are kept as historical replay/proof
 evidence, not as broad default-WSS promotion claims. Current WSS allows only
 proof-fresh exact/recoverable read-delta and state-safe status compaction by
-default; search/path-list, source-like, inferred search, and `find`/`fd`
-path-list payloads still fail open until separately re-certified. The strict
+default; search/path-list, source-like, inferred search, and broad `find`/`fd`
+path-list payloads still fail open until separately re-certified. Bounded
+names-only `ls` and conservative `find ... -print` listings are allowed only as
+stateful-safe exact-repeat/archive-backed evidence, not as semantic summaries.
+The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,
 and mixed-workday reducers in the product path. The

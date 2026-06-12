@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -1449,6 +1450,10 @@ const (
 	wssSourceToolResultFullPassMinBytes = 4096
 	wssSafeStatusToolOutputMaxBytes     = 2 * 1024 * 1024
 	wssSafeGitLogOnelineMaxCommits      = 200
+	wssSafeListingOutputMaxBytes        = 16 * 1024
+	wssSafeListingOutputMaxEntries      = 300
+	wssSafeListingOutputMaxLineBytes    = 512
+	wssSafeFindMaxDepth                 = 6
 )
 
 func wssPreviousResponseUnknownToolOutputFullPass(meta wssRequestMeta, requestContainsToolOutput bool, statefulMutationSafe bool, toolOutputKnown bool) bool {
@@ -1539,6 +1544,10 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	case wssSafeGitLogOnelineOutput(commandLine, payload):
 		return true
 	case wssSafeWcOutput(commandLine, payload):
+		return true
+	case wssSafeLsListingOutput(commandLine, payload):
+		return true
+	case wssSafeFindListingOutput(commandLine, payload):
 		return true
 	default:
 		return false
@@ -1758,6 +1767,129 @@ func wssSafeWcOutput(commandLine, payload string) bool {
 	}
 	_, ok := filter.TryCompactWc(argv, []byte(payload))
 	return ok
+}
+
+func wssSafeLsListingOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || wssCommandBase(argv[0]) != "ls" {
+		return false
+	}
+	if !wssSafeLsArgs(argv[1:]) {
+		return false
+	}
+	return wssSafeListingPayload(payload)
+}
+
+func wssSafeLsArgs(args []string) bool {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--all" || arg == "--almost-all" || arg == "--directory" ||
+				arg == "--classify" || arg == "--file-type" || arg == "--color=never":
+				continue
+			case strings.HasPrefix(arg, "--indicator-style="):
+				continue
+			default:
+				return false
+			}
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			for _, ch := range arg[1:] {
+				switch ch {
+				case '1', 'a', 'A', 'd', 'p', 'F':
+				default:
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+func wssSafeFindListingOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || wssCommandBase(argv[0]) != "find" {
+		return false
+	}
+	if !wssSafeFindArgs(argv[1:]) {
+		return false
+	}
+	return wssSafeListingPayload(payload)
+}
+
+func wssSafeFindArgs(args []string) bool {
+	sawMaxDepth := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		switch arg {
+		case "-exec", "-execdir", "-ok", "-okdir", "-delete", "-printf", "-fprintf",
+			"-ls", "-fls", "-print0", "-fprint", "-fprint0":
+			return false
+		case "-maxdepth", "-mindepth":
+			isMaxDepth := arg == "-maxdepth"
+			i++
+			if i >= len(args) {
+				return false
+			}
+			_, ok := parsePositiveBoundedInt(args[i], wssSafeFindMaxDepth)
+			if !ok && strings.TrimSpace(args[i]) != "0" {
+				return false
+			}
+			if isMaxDepth {
+				sawMaxDepth = true
+			}
+		case "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-type":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+		case "-print", "-empty", "-not", "!", "-a", "-and", "-o", "-or", "(", ")":
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return false
+			}
+		}
+	}
+	return sawMaxDepth
+}
+
+func wssSafeListingPayload(payload string) bool {
+	if len(payload) == 0 || len(payload) > wssSafeListingOutputMaxBytes || strings.ContainsRune(payload, '\x00') {
+		return false
+	}
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || looksLikeSource(trimmed) || proxyToolResultLooksLikeSearchOutput(trimmed) {
+		return false
+	}
+	entries := 0
+	for _, raw := range strings.Split(trimmed, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if len(line) > wssSafeListingOutputMaxLineBytes || strings.HasPrefix(line, "total ") {
+			return false
+		}
+		entries++
+		if entries > wssSafeListingOutputMaxEntries {
+			return false
+		}
+	}
+	return entries > 0
+}
+
+func wssCommandBase(path string) string {
+	return strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(path)), ".exe"))
 }
 
 func wssRiskyPreviousResponseSourceToolOutput(meta wssRequestMeta, messages []types.Message) bool {
