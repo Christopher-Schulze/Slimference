@@ -254,6 +254,111 @@ func TestWSSProofExportCorpusRefreshesExistingRowsWithWireDenominators(t *testin
 	}
 }
 
+func TestWSSProofExportCorpusCountsReleaseSafeSearchCapExtraWithoutInflatingOriginal(t *testing.T) {
+	dir := t.TempDir()
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	if err := os.WriteFile(matrixPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	framesPath := filepath.Join(dir, "frames-search.jsonl")
+	writeJSONLFile(t, framesPath, map[string]any{
+		"direction": "server_to_client",
+		"payload": map[string]any{
+			"type": "response.completed",
+			"response": map[string]any{
+				"usage": map[string]any{"input_tokens": 2100, "output_tokens": 33},
+			},
+		},
+	})
+	searchCapPath := filepath.Join(dir, "focused-search-cap.json")
+	searchCapReport := wssProofMatrixReport{
+		CaptureReports: []wssProofMatrixCapture{{
+			ID:             "desktop-search-cap",
+			Client:         "desktop",
+			WorkloadClass:  "search_loop",
+			FramesPath:     framesPath,
+			Model:          "gpt-5.5",
+			SearchCapProof: validCorpusSearchCapProof(120, 50),
+			GatePassed:     true,
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 900,
+				ProxyLayer0Captured:      1,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		}},
+	}
+	data, err := json.Marshal(searchCapReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(searchCapPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join(dir, "corpus")
+	categoryDir := filepath.Join(root, "desktop_search_loop")
+	if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONLFile(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"), wssProofCorpusSummary{RequestSummary: dbg.RequestSummary{
+		RequestID:           "desktop-search-cap",
+		Source:              "wss-proof-export",
+		Provider:            "codex_chatgpt",
+		ClientFamily:        "codex_desktop",
+		RouteMode:           "wss_phasef",
+		ProviderInputTokens: 2100,
+		Tokens:              dbg.TokenCounts{Original: 3000, Final: 2100, Saved: 900},
+	}})
+	report, err := exportWSSProofCorpusWithOptions(matrixPath, root, wssProofCorpusExportOptions{searchCapProofReportPath: searchCapPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsRead != 1 || report.RowsExported != 1 || report.CategoriesWritten != 1 ||
+		report.SearchCapProofReportPath != searchCapPath {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	rec := readFirstExportSummary(t, filepath.Join(root, "desktop_search_loop", "session_wss_proof_export_001.jsonl"))
+	if rec.ProviderInputTokens != 2100 || rec.Tokens.Original != 3000 ||
+		rec.Tokens.Final != 1980 || rec.Tokens.Saved != 1020 {
+		t.Fatalf("search-cap extra accounting inflated denominator or missed final reduction: %+v", rec)
+	}
+	meta := readExportMetadata(t, filepath.Join(root, "desktop_search_loop", "metadata.json"))
+	if meta.ExpectedSavedTokensMin != 1020 {
+		t.Fatalf("search-cap extra not reflected in metadata: %+v", meta)
+	}
+}
+
+func TestWSSProofCorpusSearchCapExtraReducerTokensFailsClosed(t *testing.T) {
+	valid := wssProofMatrixRecord{
+		Client:         "desktop",
+		WorkloadClass:  "search_loop",
+		FramesPath:     "frames.jsonl",
+		SearchCapProof: validCorpusSearchCapProof(120, 50),
+		GatePassed:     true,
+		LiveDelta:      &codexCaptureLiveDelta{ProviderInputTokens: 2100},
+	}
+	if got := wssProofCorpusSearchCapExtraReducerTokens(valid); got != 120 {
+		t.Fatalf("valid release-safe proof extra=%d want 120", got)
+	}
+	weakRetention := valid
+	weakRetention.SearchCapProof = validCorpusSearchCapProof(120, 39.5)
+	if got := wssProofCorpusSearchCapExtraReducerTokens(weakRetention); got != 0 {
+		t.Fatalf("weak retention must not count extra, got %d", got)
+	}
+	failedGate := valid
+	failedGate.GatePassed = false
+	if got := wssProofCorpusSearchCapExtraReducerTokens(failedGate); got != 0 {
+		t.Fatalf("failed row gate must not count extra, got %d", got)
+	}
+	noDenominator := valid
+	noDenominator.LiveDelta = &codexCaptureLiveDelta{ProviderInputTokens: 120}
+	if got := wssProofCorpusSearchCapExtraReducerTokens(noDenominator); got != 0 {
+		t.Fatalf("extra without enough provider denominator must not count, got %d", got)
+	}
+}
+
 func TestWSSProofExportCorpusRefreshesDoubleCountedProviderCacheRows(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "corpus")
@@ -417,4 +522,54 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func validCorpusSearchCapProof(extra int, retention float64) *searchCapProofReport {
+	selected := &searchCapProofSelection{
+		Name:                    "candidate_25x15",
+		MaxFilesShown:           25,
+		MaxMatchesPerFile:       15,
+		ExtraReducerTokens:      extra,
+		SavedBytesVsDefault:     extra * 8,
+		MatchRetentionPct:       retention,
+		OmittedMatchesVsDefault: 10,
+	}
+	replay := &searchCapProofReplaySummary{
+		ReducerTokensSaved:      1000 + extra,
+		BytesSaved:              extra * 8,
+		SearchRequestTurns:      2,
+		SearchMutatedRequests:   2,
+		ToolOutputMutation:      true,
+		DeltaToolOutputMutation: true,
+		GatePassed:              true,
+	}
+	return &searchCapProofReport{
+		Path:                    "focused-search-cap.json",
+		SearchOutputs:           releaseSearchCapMinSearchOutputs,
+		MinCandidateRetainedPct: releaseSearchCapMinRetainedPct,
+		MinSearchOutputs:        releaseSearchCapMinSearchOutputs,
+		MinExtraReducerTokens:   releaseSearchCapMinExtraReducerTokens,
+		DefaultReplay: searchCapProofReplaySummary{
+			ReducerTokensSaved:      1000,
+			SearchRequestTurns:      2,
+			SearchMutatedRequests:   2,
+			ToolOutputMutation:      true,
+			DeltaToolOutputMutation: true,
+			GatePassed:              true,
+		},
+		SelectedCandidate: selected,
+		Candidates: []searchCapProofCandidateRow{{
+			Name:                    selected.Name,
+			MaxFilesShown:           selected.MaxFilesShown,
+			MaxMatchesPerFile:       selected.MaxMatchesPerFile,
+			Applied:                 true,
+			SavedBytesVsDefault:     selected.SavedBytesVsDefault,
+			MatchRetentionPct:       selected.MatchRetentionPct,
+			OmittedMatchesVsDefault: selected.OmittedMatchesVsDefault,
+			ExtraReducerTokens:      selected.ExtraReducerTokens,
+			Replay:                  replay,
+			GatePassed:              true,
+		}},
+		GatePassed: true,
+	}
 }

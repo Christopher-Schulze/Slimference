@@ -2878,7 +2878,13 @@ This keeps unit tests and synthetic fixtures useful while preventing a default
 promotion from vague or one-sided evidence.
 `wss-proof-export-corpus` appends deduplicated content-free proof rows to
 existing categories and recalculates category gates from the combined records,
-so new weaker rows cannot replace stronger existing proof.
+so new weaker rows cannot replace stronger existing proof. When passed
+`--search-cap-proof-report`, it can also merge focused T359 search-cap proof
+rows, but selected-cap extra reducer tokens count only with a passing row gate,
+passing nested search-cap gate, release-grade retention/output/extra-token
+thresholds, selected replay mutation proof, and a known provider-input
+denominator; otherwise those counterfactual extra tokens remain excluded from
+`S_local`.
 
 `go run ./scripts/verify -mode release-proof-plan` prints the deterministic
 operator ceremony for a release/default-on decision. The runbook starts from a

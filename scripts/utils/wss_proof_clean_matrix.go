@@ -103,7 +103,7 @@ func parseWSSProofCleanMatrixFlags(args []string) (wssProofCleanMatrixFlags, err
 }
 
 func writeWSSProofCleanMatrix(inputPath, outputPath string) (wssProofCleanMatrixReport, error) {
-	rows, err := readWSSProofCorpusRows(inputPath)
+	rows, err := readWSSProofCorpusRows(inputPath, wssProofCorpusExportOptions{})
 	if err != nil {
 		return wssProofCleanMatrixReport{}, err
 	}

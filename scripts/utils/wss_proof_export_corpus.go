@@ -16,15 +16,20 @@ import (
 )
 
 type wssProofCorpusExportReport struct {
-	MatrixPath        string            `json:"matrix_path"`
-	CorpusRoot        string            `json:"corpus_root"`
-	RowsRead          int               `json:"rows_read"`
-	RowsExported      int               `json:"rows_exported"`
-	RowsSkipped       int               `json:"rows_skipped"`
-	CategoriesWritten int               `json:"categories_written"`
-	SkippedReasons    map[string]int    `json:"skipped_reasons,omitempty"`
-	Categories        map[string]int    `json:"categories,omitempty"`
-	WorkloadMapping   map[string]string `json:"workload_mapping,omitempty"`
+	MatrixPath               string            `json:"matrix_path"`
+	SearchCapProofReportPath string            `json:"search_cap_proof_report_path,omitempty"`
+	CorpusRoot               string            `json:"corpus_root"`
+	RowsRead                 int               `json:"rows_read"`
+	RowsExported             int               `json:"rows_exported"`
+	RowsSkipped              int               `json:"rows_skipped"`
+	CategoriesWritten        int               `json:"categories_written"`
+	SkippedReasons           map[string]int    `json:"skipped_reasons,omitempty"`
+	Categories               map[string]int    `json:"categories,omitempty"`
+	WorkloadMapping          map[string]string `json:"workload_mapping,omitempty"`
+}
+
+type wssProofCorpusExportOptions struct {
+	searchCapProofReportPath string
 }
 
 type wssProofCorpusExportCategory struct {
@@ -68,7 +73,7 @@ type CategoryMetadataLite struct {
 const wssProofExportCorpusHelpText = `wss-proof-export-corpus: export content-free WSS proof rows into benchmark-corpus format
 
 Usage:
-  go run ./scripts/utils wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json]
+  go run ./scripts/utils wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json] [--search-cap-proof-report focused-search-cap.json]
 
 The exporter reads proof-matrix JSONL rows and, when a row-local frames_path is
 available, reads only provider usage counters from the WSS frames. It writes
@@ -78,23 +83,42 @@ raw WSS frames, decisions logs, command output, file contents, prompts, or auth.
 
 func runWSSProofExportCorpus(args []string, stdout, stderr io.Writer) int {
 	jsonOut := false
+	options := wssProofCorpusExportOptions{}
 	var rest []string
-	for _, arg := range args {
-		switch arg {
-		case "--json":
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
 			jsonOut = true
-		case "--help", "-h":
+		case arg == "--search-cap-proof-report":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				fmt.Fprintln(stderr, "--search-cap-proof-report requires a non-empty path")
+				return 2
+			}
+			options.searchCapProofReportPath = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--search-cap-proof-report="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--search-cap-proof-report="))
+			if value == "" {
+				fmt.Fprintln(stderr, "--search-cap-proof-report requires a non-empty path")
+				return 2
+			}
+			options.searchCapProofReportPath = value
+		case arg == "--help" || arg == "-h":
 			fmt.Fprint(stdout, wssProofExportCorpusHelpText)
 			return 0
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(stderr, "unknown flag: %s\n", arg)
+			return 2
 		default:
 			rest = append(rest, arg)
 		}
 	}
 	if len(rest) != 2 {
-		fmt.Fprintln(stderr, "Usage: wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json]")
+		fmt.Fprintln(stderr, "Usage: wss-proof-export-corpus <dir-or-matrix.jsonl> <live-corpus-root> [--json] [--search-cap-proof-report focused-search-cap.json]")
 		return 2
 	}
-	report, err := exportWSSProofCorpus(rest[0], rest[1])
+	report, err := exportWSSProofCorpusWithOptions(rest[0], rest[1], options)
 	if err != nil {
 		fmt.Fprintf(stderr, "wss-proof-export-corpus: %v\n", err)
 		return 1
@@ -117,17 +141,22 @@ func runWSSProofExportCorpus(args []string, stdout, stderr io.Writer) int {
 }
 
 func exportWSSProofCorpus(matrixPath, corpusRoot string) (wssProofCorpusExportReport, error) {
-	rows, err := readWSSProofCorpusRows(matrixPath)
+	return exportWSSProofCorpusWithOptions(matrixPath, corpusRoot, wssProofCorpusExportOptions{})
+}
+
+func exportWSSProofCorpusWithOptions(matrixPath, corpusRoot string, options wssProofCorpusExportOptions) (wssProofCorpusExportReport, error) {
+	rows, err := readWSSProofCorpusRows(matrixPath, options)
 	if err != nil {
 		return wssProofCorpusExportReport{}, err
 	}
 	report := wssProofCorpusExportReport{
-		MatrixPath:      matrixPath,
-		CorpusRoot:      corpusRoot,
-		RowsRead:        len(rows),
-		SkippedReasons:  map[string]int{},
-		Categories:      map[string]int{},
-		WorkloadMapping: map[string]string{},
+		MatrixPath:               matrixPath,
+		SearchCapProofReportPath: options.searchCapProofReportPath,
+		CorpusRoot:               corpusRoot,
+		RowsRead:                 len(rows),
+		SkippedReasons:           map[string]int{},
+		Categories:               map[string]int{},
+		WorkloadMapping:          map[string]string{},
 	}
 	categories := map[string]*wssProofCorpusExportCategory{}
 	for _, row := range rows {
@@ -201,7 +230,7 @@ func exportWSSProofCorpus(matrixPath, corpusRoot string) (wssProofCorpusExportRe
 	return report, nil
 }
 
-func readWSSProofCorpusRows(path string) ([]wssProofMatrixRecord, error) {
+func readWSSProofCorpusRows(path string, options wssProofCorpusExportOptions) ([]wssProofMatrixRecord, error) {
 	files, err := wssProofInventoryFiles(path)
 	if err != nil {
 		return nil, err
@@ -214,7 +243,56 @@ func readWSSProofCorpusRows(path string) ([]wssProofMatrixRecord, error) {
 		}
 		out = append(out, rows...)
 	}
+	if strings.TrimSpace(options.searchCapProofReportPath) != "" {
+		rows, err := readWSSProofSearchCapReportRows(options.searchCapProofReportPath)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
 	return out, nil
+}
+
+func readWSSProofSearchCapReportRows(path string) ([]wssProofMatrixRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read search-cap proof report %s: %w", path, err)
+	}
+	var report wssProofMatrixReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("decode search-cap proof report %s: %w", path, err)
+	}
+	var rows []wssProofMatrixRecord
+	for _, capture := range report.CaptureReports {
+		row := wssProofMatrixRecord{
+			ID:                  capture.ID,
+			Client:              capture.Client,
+			WorkloadClass:       capture.WorkloadClass,
+			FramesPath:          capture.FramesPath,
+			DecisionsPath:       capture.DecisionsPath,
+			CodexVersion:        capture.CodexVersion,
+			SlimferenceCommit:   capture.SlimferenceCommit,
+			Repo:                capture.Repo,
+			Model:               capture.Model,
+			ABPairID:            capture.ABPairID,
+			ABVariant:           capture.ABVariant,
+			StartedAt:           capture.StartedAt,
+			EndedAt:             capture.EndedAt,
+			ExpectedReducers:    append([]string(nil), capture.ExpectedReducers...),
+			ExpectedZeroSavings: capture.ExpectedZeroSavings,
+			LiveDelta:           capture.LiveDelta,
+			SearchCapProof:      capture.SearchCapProof,
+			GatePassed:          capture.GatePassed,
+			GateFailures:        append([]string(nil), capture.GateFailures...),
+		}
+		if looksLikeProofMatrixRow(row) {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("search-cap proof report %s contained no exportable capture_reports", path)
+	}
+	return rows, nil
 }
 
 func wssProofCorpusLiveDeltaWithWireUsage(row wssProofMatrixRecord) *codexCaptureLiveDelta {
@@ -264,7 +342,9 @@ func corpusWorkloadFromWSS(workload string) (string, bool) {
 
 func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSummary {
 	live := row.LiveDelta
-	saved := int(clampInt64ToInt(live.BillableInputTokensSaved))
+	searchCapExtra := int(clampInt64ToInt(wssProofCorpusSearchCapExtraReducerTokens(row)))
+	liveBillableSaved := int(clampInt64ToInt(live.BillableInputTokensSaved))
+	saved := liveBillableSaved + searchCapExtra
 	savedFromProviderCache := false
 	if row.WorkloadClass == "tool_heavy" && live.ToolPruneTokensSaved > 0 {
 		saved = int(clampInt64ToInt(live.ToolPruneTokensSaved))
@@ -282,8 +362,8 @@ func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSumma
 		outputTokens = providerOutput
 	}
 	if providerInput > 0 && saved > 0 && !savedFromProviderCache {
-		original = providerInput + saved
-		final = providerInput
+		original = providerInput + liveBillableSaved
+		final = providerInput - searchCapExtra
 	}
 	if saved == 0 && final < 1 {
 		final = 1
@@ -496,6 +576,12 @@ func wssProofCorpusRecordHasBetterCounters(candidate, current wssProofCorpusSumm
 	if current.HostBudgetStatus == "" && candidate.HostBudgetStatus != "" {
 		return true
 	}
+	if candidate.Tokens.Original > 0 &&
+		candidate.Tokens.Original == current.Tokens.Original &&
+		candidate.Tokens.Saved > current.Tokens.Saved &&
+		(current.Tokens.Final == 0 || candidate.Tokens.Final < current.Tokens.Final) {
+		return true
+	}
 	return false
 }
 
@@ -540,8 +626,49 @@ func hasWSSProofCorpusEconomicSignal(row wssProofMatrixRecord) bool {
 	case "tool_heavy":
 		return row.LiveDelta.ToolPruneTokensSaved > 0
 	default:
-		return row.LiveDelta.BillableInputTokensSaved > 0
+		return row.LiveDelta.BillableInputTokensSaved > 0 ||
+			wssProofCorpusSearchCapExtraReducerTokens(row) > 0
 	}
+}
+
+func wssProofCorpusSearchCapExtraReducerTokens(row wssProofMatrixRecord) int64 {
+	if strings.TrimSpace(row.WorkloadClass) != "search_loop" ||
+		row.LiveDelta == nil ||
+		row.SearchCapProof == nil ||
+		!row.GatePassed ||
+		len(row.GateFailures) > 0 ||
+		!row.SearchCapProof.GatePassed ||
+		len(row.SearchCapProof.GateFailures) > 0 ||
+		row.SearchCapProof.SelectedCandidate == nil {
+		return 0
+	}
+	proof := row.SearchCapProof
+	selected := proof.SelectedCandidate
+	if proof.MinCandidateRetainedPct+1e-9 < releaseSearchCapMinRetainedPct ||
+		proof.MinSearchOutputs < releaseSearchCapMinSearchOutputs ||
+		proof.SearchOutputs < releaseSearchCapMinSearchOutputs ||
+		proof.MinExtraReducerTokens < releaseSearchCapMinExtraReducerTokens ||
+		selected.MatchRetentionPct+1e-9 < releaseSearchCapMinRetainedPct ||
+		selected.ExtraReducerTokens <= 0 {
+		return 0
+	}
+	selectedReplay := releaseSearchCapSelectedReplay(proof)
+	if selectedReplay == nil ||
+		!selectedReplay.ToolOutputMutation ||
+		!selectedReplay.DeltaToolOutputMutation ||
+		selectedReplay.UpstreamInvalidRequests > 0 ||
+		selectedReplay.UpstreamHTTP400Errors > 0 ||
+		selectedReplay.UpstreamResponseFailures > 0 ||
+		selectedReplay.Lost > 0 ||
+		!proof.DefaultReplay.ToolOutputMutation ||
+		!proof.DefaultReplay.DeltaToolOutputMutation {
+		return 0
+	}
+	extra := int64(selected.ExtraReducerTokens)
+	if row.LiveDelta.ProviderInputTokens <= extra {
+		return 0
+	}
+	return extra
 }
 
 func normalizeWSSClient(client string) string {

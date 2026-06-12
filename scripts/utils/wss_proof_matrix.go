@@ -115,6 +115,9 @@ type wssProofMatrixRecord struct {
 	ExpectedReducers    []string               `json:"expected_reducers"`
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
+	SearchCapProof      *searchCapProofReport  `json:"search_cap_proof,omitempty"`
+	GatePassed          bool                   `json:"gate_passed,omitempty"`
+	GateFailures        []string               `json:"gate_failures,omitempty"`
 }
 
 var requiredWSSProofWorkloads = []string{

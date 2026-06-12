@@ -9,7 +9,7 @@
   "tool_mix": "codex_wss",
   "expected_savings_min": 0,
   "expected_savings_max": 0,
-  "expected_saved_tokens_min": 51400,
+  "expected_saved_tokens_min": 58900,
   "expected_request_count": 7,
   "expected_max_errors": 0,
   "expected_latency_p95_max_ms": 2500,
