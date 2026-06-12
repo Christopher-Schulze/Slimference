@@ -171,14 +171,49 @@ func TestTrackerAutoTuneCooldownExpires(t *testing.T) {
 	if !tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
 		t.Fatal("bucket should enter cooldown after downgrade")
 	}
-	outcome.Failed = false
-	tr.ObserveOutcome(outcome)
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
+		t.Fatalf("first cooldown request should use softened profile, got %s", got)
+	}
 	if !tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
 		t.Fatal("cooldown should remain after one decrement")
 	}
-	tr.ObserveOutcome(outcome)
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
+		t.Fatalf("last cooldown request should still use softened profile, got %s", got)
+	}
 	if tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
 		t.Fatal("cooldown should expire after configured turns")
+	}
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileAggressive {
+		t.Fatalf("expired cooldown must restore requested profile, got %s", got)
+	}
+}
+
+func TestTrackerAutoTuneExpiredCooldownNextDowngradeSoftensOneStep(t *testing.T) {
+	t.Parallel()
+	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{
+		Enabled:             true,
+		MinSamples:          1,
+		MaxFailureRateDelta: 0.1,
+		CooldownTurns:       1,
+	})
+	outcome := Outcome{
+		Provider:  "openai",
+		Model:     "gpt",
+		Profile:   string(ProfileAggressive),
+		TaskShape: ShapeDebugging,
+		Applied:   true,
+		Failed:    true,
+	}
+	tr.ObserveOutcome(outcome)
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
+		t.Fatalf("first downgrade should soften aggressive to standard, got %s", got)
+	}
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileAggressive {
+		t.Fatalf("expired cooldown should restore aggressive, got %s", got)
+	}
+	tr.ObserveOutcome(outcome)
+	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
+		t.Fatalf("second downgrade should still soften one step to standard, got %s", got)
 	}
 }
 

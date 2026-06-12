@@ -379,7 +379,9 @@ missing detail, malformed patches, failed apply-patch
 feedback, and German `fehlt`/`nochmal ausführlicher` style re-asks are stored by
 session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
-window.
+window. The downgrade is bounded by the configured cooldown matching selections;
+after expiry the requested profile is restored, so a quality guard cannot become
+a permanent savings disable without fresh failures.
 Runtime controls live under `[compression.output_reduce]`. Directive injection
 uses `enabled`, `profile`, `custom_directive_path`, `signature_marker`,
 `max_added_bytes`, `min_input_tokens`, and auto-tune thresholds. The conservative
@@ -2747,15 +2749,16 @@ registered Phase-F-compatible shapes rather than arbitrary JSON envelopes.
 Layer 3 cooldown is sourced from the T141 output-reduce tracker and the T151
 tool-prune session bucket; the planner marks it as a `cheap_only`
 `quality_cooldown_soften_layer3` decision because the runtime softens Layer 3
-rather than blindly continuing aggressive behavior. Output-reduce task-shape
-selection now bypasses unproven detail-sensitive shapes instead of merely
-capping them to `standard`: code edits, new-file generation, debugging, reviews,
-tool-result reasoning, command-output relay, final summaries, read-only
-analysis, deep explanations, and planning. Those shapes need complete evidence
-or exact workflow content more than maximal terse output. The planner mirrors
-the runtime output-reduce guard for its own summaries: exact replies,
-command-output relay, repair follow-ups, unproven detail shapes, and low-ROI
-direct-answer tasks bypass Layer 3 in the plan. Tool-schema
+rather than blindly continuing aggressive behavior. The cooldown softens only
+for the configured matching request count and then removes the downgrade.
+Output-reduce task-shape selection now bypasses unproven detail-sensitive shapes
+instead of merely capping them to `standard`: code edits, new-file generation,
+debugging, reviews, tool-result reasoning, command-output relay, final
+summaries, read-only analysis, deep explanations, and planning. Those shapes
+need complete evidence or exact workflow content more than maximal terse output.
+The planner mirrors the runtime output-reduce guard for its own summaries: exact
+replies, command-output relay, repair follow-ups, unproven detail shapes, and
+low-ROI direct-answer tasks bypass Layer 3 in the plan. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.

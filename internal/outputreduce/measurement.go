@@ -78,7 +78,17 @@ func (t *Tracker) SelectProfile(provider, model string, requested Profile, shape
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if downgraded, ok := t.downgrades[bucketKey(provider, model, requested, shape)]; ok {
+	key := bucketKey(provider, model, requested, shape)
+	if downgraded, ok := t.downgrades[key]; ok {
+		b := t.buckets[key]
+		if b == nil || b.cooldown <= 0 {
+			delete(t.downgrades, key)
+			if b != nil {
+				b.profile = requested
+			}
+			return requested
+		}
+		b.cooldown--
 		return downgraded
 	}
 	return requested
@@ -126,6 +136,9 @@ func (t *Tracker) ObserveOutcome(outcome Outcome) {
 		b = &bucket{profile: Profile(outcome.Profile)}
 		t.buckets[key] = b
 	}
+	if b.cooldown <= 0 {
+		b.profile = Profile(outcome.Profile)
+	}
 	b.samples++
 	b.inputOverheadTokens += int64(outcome.InputOverheadTokens)
 	b.outputTokens += int64(outcome.OutputTokens)
@@ -133,7 +146,6 @@ func (t *Tracker) ObserveOutcome(outcome Outcome) {
 		b.failures++
 	}
 	if b.cooldown > 0 {
-		b.cooldown--
 		return
 	}
 	if b.samples < int64(t.auto.MinSamples) {
