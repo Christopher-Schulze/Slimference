@@ -465,15 +465,19 @@ keeps representative match context plus the recovery path of re-running the sear
 On a real codebase-exploration session the default-auto reducers saved 36533
 billable tokens with zero parse/compression/degraded errors.
 
-Public savings claims are session-scoped, not universal averages. The realistic
-slightly optimistic contribution ranges are: Layer 0 usually 15-45% with 50%+
-bursts on repeated tool output; Layer 1 usually 3-15% with 20-30% on highly
-structured/repeated context; Layer 2 usually 0-25% with 30-50% when provider
-cache reuse is strong; Layer 3 usually 0-8% with 10-20% on exact-answer or
-tool-heavy shapes. These ranges overlap and must not be added together. Combined
-routed Codex sessions should be described as roughly 25-50% for normal
-tool-heavy coding, 35-65% for long refactor/debug loops, 45-70% for
-search/read/log-heavy loops, and 0-15% for short one-off prompts.
+Public savings claims are session-scoped and route-scoped, not universal
+averages. Current route truth is: scoped HTTP Codex CLI is the strongest local
+fallback measured in the latest real-shaped corpus (22.22% local input reduction,
+72.93% combined saved with provider-cache discount); scoped WSS Codex CLI remains
+the standard target route and is currently cache-dominated in the same corpus
+(6.10% local input reduction, 75.63% combined saved); scoped Codex Desktop
+app-server route was proven on 2026-06-12 with 9 Phase-F requests, zero
+parser/degrade/compression/upstream errors, zero full-history reconnects, and no
+local mutation in that prompt. Hook/non-WSS tool-output paths can still be much
+stronger when repeated reads/search/test/git/log bytes hit deterministic
+reducers. Layer ranges overlap and must not be added together; broad 25-70%
+figures are targets for route/workload classes that actually exercise those
+reducers, not a promise for every WSS/Desktop prompt.
 
 Retired path: first-read AST/structure scan-mode elision is not part of the Codex
 product mode. It saved tokens in narrow probes, but it gave the model less file

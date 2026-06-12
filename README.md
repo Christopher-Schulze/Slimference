@@ -195,31 +195,22 @@ the built-in reports.
 
 Savings are reported per routed Codex session and split by source: local input
 reduction, provider-cache effects, output-wire accounting, and tool-surface
-pruning. The realistic but optimistic target zone is:
+pruning. Route matters; one global savings band would be misleading.
 
-| Layer | Typical contribution in routed sessions | Strong-case contribution | Notes |
-|---|---:|---:|---|
-| Layer 0: tool-output reducers | 15-45% | 50%+ bursts | Biggest lever when reads, search, git, tests, or logs repeat |
-| Layer 1: deterministic compression | 3-15% | 20-30% | Helps on structured/repeated context; never semantic paraphrase |
-| Layer 2: response/provider-cache leverage | 0-25% | 30-50% | Workload-dependent and reported separately from local input deletion |
-| Layer 3: output/chat/tool-surface reduction | 0-8% | 10-20% | Conservative by default; concise chat hints only on safe answer shapes |
+| Route / session shape | Current measured posture | What to expect |
+|---|---:|---|
+| Scoped HTTP Codex CLI fallback | Strong local reducer path; latest real-shaped CLI corpus: 22.22% local input reduction and 72.93% combined saved with provider-cache discount | Best current local-reduction fallback for CLI workloads that tolerate HTTP transport |
+| Scoped WSS Codex CLI | Standard target route; latest real-shaped CLI corpus: 6.10% local input reduction and 75.63% combined saved, mostly provider-cache dominated | Delta turns stay byte-preserved unless state-safe; full-history/non-delta rows can still save sharply |
+| Scoped Codex Desktop app-server | Route proven on 2026-06-12 with 9 Phase-F requests, 0 parser/degrade/compression/upstream errors, 0 full-history reconnects, and 0 local mutation in that prompt | Desktop route is real; Desktop savings require workload shapes that trigger safe reducers |
+| Hook / non-WSS deterministic tool output | Historically strongest local reducer surface on repeated tool output | High savings when hooks see repeated reads/search/test/git/log bytes |
+| Short one-off prompt | Low local savings | Little repeated context means little deterministic waste |
 
-Layer contributions overlap and are not additive. The combined session outcome
-depends on how much repeated project/tool context exists:
-
-| Routed Codex session shape | Realistic session range | Strong-session upside | Why |
-|---|---:|---:|---|
-| Normal tool-heavy coding | 25-50% input-token reduction | 50-60% | Repeated reads, search results, git/test output, and cache-stable context |
-| Long refactor/debug loop | 35-65% input-token reduction | 65-75% | Same files, failures, commands, and repo slices recur across turns |
-| Search/read/log heavy loop | 45-70% input-token reduction | 70%+ bursts | Layer-0 reducers remove the most repeated tool bytes before they enter context |
-| Short one-off prompt | 0-15% | 20% | Little repeated context means little deterministic waste |
-| Output tokens | Usually modest | High only on exact-answer/chat shapes | Slimference keeps answer quality ahead of aggressive brevity |
-
-Those are not billing guarantees and not a promise for every project. They are
-the expected range for Codex-heavy text sessions that repeat project context.
-Checked-in v0.6.0 gates currently pass on 55 live-corpus requests and 51 real
-Codex CLI/Desktop sessions; the synthetic smoke corpus stays at 57.14% only as
-a regression fixture, not as a production average.
+Layer contributions overlap and are not additive. Local input reduction,
+provider-cache discount, and output/tool-surface savings are shown separately in
+`slimference savings`; `S_combined` is the session-level number that includes
+provider-cache economics and negative retry costs. The broad 25-70% figures are
+targets for route/workload classes that actually exercise the reducers, not a
+promise for every WSS/Desktop prompt.
 
 ## Design Boundaries
 
