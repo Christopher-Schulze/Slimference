@@ -434,7 +434,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		// reducers guarded on any live full-history socket until their proof
 		// corpus is complete.
 		requestShape := wssRequestShape(meta, messages)
-		fullHistoryHistoryMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
+		historyMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled
+		fullHistoryDownstreamStateMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
+		fullHistoryHistoryMutationBlocked := fullHistoryDownstreamStateMutationBlocked && !historyMutationLabEnabled
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
@@ -469,6 +471,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
 		} else if fullHistoryHistoryMutationBlocked {
 			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
+		}
+		downstreamStateMutationGuardReason := ""
+		if statefulDeltaMutationBlocked {
+			downstreamStateMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+		} else if fullHistoryDownstreamStateMutationBlocked {
+			downstreamStateMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		}
 		effectiveMutationGuardReason := structuredMutationGuardReason
 		if statefulDeltaMutationBlocked {
@@ -588,7 +596,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				(!statefulDeltaMutationBlocked || searchCapDeltaProofed) &&
 				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapDeltaProofed),
 			CacheBustDemotedMechanisms:   cacheBustDemoted,
-			HistoryMutationGuardReason:   historyMutationGuardReason,
+			HistoryMutationGuardReason:   downstreamStateMutationGuardReason,
 			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
 		})
 		l0Messages, stats := result.Messages, result.Stats
@@ -654,6 +662,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				meta.DebugFacts = make(map[string]string)
 			}
 			meta.DebugFacts["wss.history_mutation_guard"] = historyMutationGuardReason
+		}
+		if downstreamStateMutationGuardReason != "" && downstreamStateMutationGuardReason != historyMutationGuardReason {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.downstream_state_mutation_guard"] = downstreamStateMutationGuardReason
 		}
 		if statefulDeltaMutationBlocked {
 			if meta.DebugFacts == nil {

@@ -162,6 +162,31 @@ func TestPruneCustomMutateToolNames(t *testing.T) {
 	}
 }
 
+func TestPruneApplyPatchToolWithPatchText(t *testing.T) {
+	patch := `*** Begin Patch
+*** Update File: src/x.go
+@@
+-old
++new
+*** End Patch
+`
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{readUse("r1", "src/x.go")}},
+		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("old custom patch body ", 80))}},
+		{Content: []types.ContentBlock{{
+			Type: "tool_use", ToolUseID: "p1", ToolName: "apply_patch",
+			ToolInput: patch,
+		}}},
+	}
+	out, stats := PruneObsoleteReads(msgs, ObsoleteOptions{})
+	if stats.BlocksReplaced != 1 {
+		t.Fatalf("apply_patch patch text should prune prior read, got %+v", stats)
+	}
+	if !strings.Contains(out[1].Content[0].Text, "kind=obsolete-read") {
+		t.Fatalf("obsolete marker missing for patch text: %q", out[1].Content[0].Text)
+	}
+}
+
 func TestPruneShellReadThenShellApplyPatch(t *testing.T) {
 	patch := `apply_patch <<'PATCH'
 *** Begin Patch

@@ -316,7 +316,7 @@ func codexResponseItemPayloadToMessage(index int, fields map[string]json.RawMess
 
 func codexLooksLikeToolCall(itemType string, fields map[string]json.RawMessage) bool {
 	switch itemType {
-	case "function_call", "local_shell_call", "shell_call", "tool_call", "mcp_call", "computer_call":
+	case "function_call", "custom_tool_call", "local_shell_call", "shell_call", "tool_call", "mcp_call", "computer_call":
 		return true
 	}
 	if rawJSONString(fields["call_id"]) == "" && rawJSONString(fields["id"]) == "" {
@@ -330,7 +330,7 @@ func codexLooksLikeToolCall(itemType string, fields map[string]json.RawMessage) 
 
 func codexLooksLikeToolOutput(itemType string, fields map[string]json.RawMessage) bool {
 	switch itemType {
-	case "function_call_output", "local_shell_call_output", "shell_call_output", "tool_result", "tool_output", "mcp_call_output", "computer_call_output":
+	case "function_call_output", "custom_tool_call_output", "local_shell_call_output", "shell_call_output", "tool_result", "tool_output", "mcp_call_output", "computer_call_output":
 		return true
 	}
 	if !strings.HasSuffix(itemType, "_output") && itemType != "output" {

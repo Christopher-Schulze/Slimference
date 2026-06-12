@@ -80,6 +80,9 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 				if path := extractPath(blk.ToolInput); path != "" {
 					mutationTurns[path] = append(mutationTurns[path], i)
 				}
+				for _, path := range patchMutationPaths(blk.ToolInput, "") {
+					mutationTurns[path] = append(mutationTurns[path], i)
+				}
 				continue
 			}
 			if looksLikeShellToolName(blk.ToolName) {
@@ -154,6 +157,10 @@ func shellMutationPaths(rawInput string) []string {
 	if commandLine == "" || !strings.Contains(commandLine, "apply_patch") {
 		return nil
 	}
+	return patchMutationPaths(commandLine, workdir)
+}
+
+func patchMutationPaths(patchText, workdir string) []string {
 	var out []string
 	add := func(path string) {
 		path = strings.TrimSpace(path)
@@ -164,7 +171,7 @@ func shellMutationPaths(rawInput string) []string {
 		path = strings.TrimPrefix(path, "b/")
 		out = append(out, pathWithWorkdir(path, workdir))
 	}
-	for _, line := range strings.Split(commandLine, "\n") {
+	for _, line := range strings.Split(patchText, "\n") {
 		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "+++ ", "--- "} {
 			if strings.HasPrefix(line, prefix) {
 				add(strings.TrimPrefix(line, prefix))

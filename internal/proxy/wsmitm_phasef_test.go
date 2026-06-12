@@ -3490,6 +3490,44 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFHistoryMutationLabOpensLiveFullHistoryReducers(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(codexWSStaleObsoleteLayer0Body())
+	mutatedText := string(mutated)
+	if !changed {
+		t.Fatal("history mutation lab should mutate the live full-history fixture")
+	}
+	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("history mutation lab should apply stale-read aging: %s", mutatedText)
+	}
+	if strings.Contains(mutatedText, "obsolete y content") || !strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("history mutation lab should apply obsolete-read pruning: %s", mutatedText)
+	}
+	if stats.StaleReadBlocks == 0 || stats.ObsoletePruneBlocks == 0 || stats.TokensSaved <= 0 {
+		t.Fatalf("history mutation lab should count applied history savings: %+v", stats)
+	}
+	if meta.DebugFacts["wss.history_mutation_guard"] != "" ||
+		meta.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		meta.DebugFacts["wss.downstream_state_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" {
+		t.Fatalf("history mutation lab should only keep the downstream-state proof gate: %+v", meta.DebugFacts)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("history mutation lab should emit applied history evidence: %+v", stats.EvidenceDecisions)
+	}
+}
+
 func TestWSPhaseFPreviousResponseBypassKeepsHistoryReducerEvidence(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

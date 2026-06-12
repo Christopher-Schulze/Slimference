@@ -296,6 +296,11 @@ type OutputReduceConfig struct {
 	// SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB=1. It exists only
 	// for reproducing T354 delta failures and must never be persisted.
 	CodexWSSDeltaToolOutputMutationLabEnabled bool `toml:"-"`
+	// CodexWSSHistoryMutationLabEnabled is intentionally env-only:
+	// SLIMFERENCE_CODEX_WSS_HISTORY_MUTATION_LAB=1. It exists only for
+	// proving whether reconnect/full-history history reducers can safely
+	// survive the following downstream delta turn. It must never be persisted.
+	CodexWSSHistoryMutationLabEnabled bool `toml:"-"`
 	// CodexSearchCapProofPath points at a final release-proof-report --json
 	// artifact. When the report passes the release minima and Codex route
 	// hygiene proof, the selected search cap is promoted into the runtime search
@@ -777,6 +782,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_HISTORY_MUTATION_LAB")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = b
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE")); v != "" {

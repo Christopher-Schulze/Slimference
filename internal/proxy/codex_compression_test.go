@@ -255,12 +255,28 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("function call fallback mapping: ok=%v msg=%#v", ok, msg)
 	}
 
+	msg, ok, err = codexInputItemToMessage(8, json.RawMessage(`{"type":"custom_tool_call","call_id":"call_patch","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/main.go\n*** End Patch\n"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Role != "assistant" || msg.Content[0].ToolUseID != "call_patch" || msg.Content[0].ToolName != "apply_patch" || !strings.Contains(msg.Content[0].ToolInput, "src/main.go") {
+		t.Fatalf("custom tool call mapping: ok=%v msg=%#v", ok, msg)
+	}
+
 	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","id":"call_out","output":{"ok":true}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ok || msg.Role != "tool" || msg.Content[0].ToolResultID != "call_out" || msg.Content[0].Text != `{"ok":true}` {
 		t.Fatalf("function output fallback mapping: ok=%v msg=%#v", ok, msg)
+	}
+
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"custom_tool_call_output","call_id":"call_patch","output":"Success. Updated the following files:\nM src/main.go\n"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Role != "tool" || msg.Content[0].ToolResultID != "call_patch" || !strings.Contains(msg.Content[0].Text, "Success. Updated") {
+		t.Fatalf("custom tool output mapping: ok=%v msg=%#v", ok, msg)
 	}
 
 	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","id":"call_wrapped","output":{"stdout":"ok  github.com/Christopher-Schulze/Slimference/internal/proxy  0.041s\nPASS\n","exit_code":0}}`))
