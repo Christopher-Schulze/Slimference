@@ -2226,6 +2226,70 @@ func TestWSPhaseFToolPruneSkipsPreviousResponseDeltaTurns(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFToolPruneDeltaGuardRefreshesResolvedToolUsage(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-delta-refresh"
+	const callID = "call_cold_tool"
+	p.toolPrune.ObserveTurn(sessionID, []string{"ColdTool", "IdleTool"})
+	p.toolPrune.ObserveTurn(sessionID, nil)
+	p.toolPrune.ObserveTurn(sessionID, nil)
+
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-tool-prune-delta-refresh",
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": callID, "output": "cold tool result just arrived"},
+			{"type": "message", "role": "user", "content": "Continue."},
+		},
+		"tools": []map[string]any{
+			codexToolDefinition("ColdTool", strings.Repeat("Recently used expensive schema. ", 80)),
+			codexToolDefinition("IdleTool", strings.Repeat("Idle expensive schema. ", 80)),
+		},
+		"stream": true,
+	})
+	messages := []types.Message{
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:         "tool_result",
+				ToolResultID: callID,
+				Text:         "cold tool result just arrived",
+			}},
+		},
+		{
+			Role:    "user",
+			Content: []types.ContentBlock{{Type: "text", Text: "Continue."}},
+		},
+	}
+	meta := wssRequestMeta{
+		SessionID:          sessionID,
+		PreviousResponseID: "resp-tool-prune-delta-refresh",
+		HasUserPromptInput: true,
+		HasToolDefinitions: true,
+		ToolUseIndex: map[string]types.ContentBlock{
+			callID: {Type: "tool_use", ToolUseID: callID, ToolName: "ColdTool"},
+		},
+	}
+
+	out, changed, result := adapter.applyWSSToolPrune(body, messages, meta)
+	if changed || !bytes.Equal(out, body) {
+		t.Fatalf("delta guard must not mutate body: changed=%v out=%s", changed, out)
+	}
+	if result.GuardReason != "wss_tool_prune_delta_guard" || result.Summary.Applied || result.Summary.SavedTokens != 0 {
+		t.Fatalf("delta guard summary mismatch: %+v", result)
+	}
+	if !p.toolPrune.Active(sessionID, "ColdTool") {
+		t.Fatal("delta guard must refresh resolved tool-result usage for ColdTool")
+	}
+	if p.toolPrune.Active(sessionID, "IdleTool") {
+		t.Fatal("unmentioned idle tool should remain prunable")
+	}
+}
+
 func TestWSPhaseFToolPruneAllowsPreviousResponseFullHistoryTurns(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false

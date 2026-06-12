@@ -731,7 +731,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	reattachedToolNames := []string(nil)
 	mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID)
 	if reason := wssToolPruneMutationGuardReason(messages, meta, mentions); reason != "" {
-		a.observeWSSToolPruneUserTurn(sessionID, messages)
+		a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, meta.ToolUseIndex)
 		summary.Reason = reason
 		return body, false, wssToolPruneResult{Summary: summary, GuardReason: reason}
 	}
@@ -791,13 +791,6 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	summary.PrunedTools = len(removed)
 	summary.SavedTokens = saved
 	return prunedBody, true, wssToolPruneResult{Summary: summary}
-}
-
-func (a *wsPhaseFAdapter) observeWSSToolPruneUserTurn(sessionID string, messages []types.Message) {
-	if a == nil || a.p == nil || a.p.toolPrune == nil || sessionID == "" {
-		return
-	}
-	a.p.toolPrune.ObserveTurn(sessionID, extractUsedToolNames(messages))
 }
 
 func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
