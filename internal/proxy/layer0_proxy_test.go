@@ -821,6 +821,30 @@ func TestReduceCodexLayer0WSSSearchProofLatchBypassesDeltaGate(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGateForCodexEnvelope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src`
+	original := "Chunk ID: live-regression\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" +
+		proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-envelope-delta", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-envelope-delta", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-envelope-delta-proof",
+		StructuredMutationBlocked:    true,
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_stateful_structured_mutation_guard") {
+		t.Fatalf("proofed delta search must not bypass the structured guard for codex envelopes, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
 func TestReduceCodexLayer0WSSSearchProofRejectsInferredSearch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

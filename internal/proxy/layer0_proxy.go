@@ -584,7 +584,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			searchDeltaProofCandidate := workload == savingspolicy.CodexWorkloadSearch &&
 				req.WSSSearchMutationAllowed &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) &&
-				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope)
+				mechanism == proxyLayer0MechanismCapturedOut
 			if changed && req.StructuredMutationBlocked && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
