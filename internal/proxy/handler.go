@@ -845,10 +845,10 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 9. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, upstreamBody)
-	if err == nil && promptCacheDecision.Applied && upstreamResp != nil && peekPromptCacheUnsupportedError(upstreamResp) {
+	if unsupportedFields, unsupportedPromptCache := peekPromptCacheUnsupportedFields(upstreamResp); err == nil && promptCacheDecision.Applied && upstreamResp != nil && unsupportedPromptCache {
 		log.Warn("openai prompt-cache fields rejected, retrying without cache hints",
 			"reason", promptCacheDecision.Reason)
-		p.markOpenAIPromptCacheRejected(provider, model, time.Now())
+		p.markOpenAIPromptCacheRejected(provider, model, unsupportedFields, time.Now())
 		upstreamResp.Body.Close()
 		upstreamBody = prePromptCacheBody
 		promptCacheDecision = openAIPromptCacheDecision{Reason: "rejected_retry"}

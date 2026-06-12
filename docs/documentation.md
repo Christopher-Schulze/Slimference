@@ -1578,10 +1578,12 @@ or model-gated `24h`; `auto` leaves the provider default untouched. Existing
 caller-owned fields are preserved, and a per-key rate cap disables the hint
 before it can create high-cardinality cache churn. If OpenAI rejects the fields
 with a relevant 4xx response, the proxy retries once without those hints while
-preserving any server-state rewrite, then suppresses prompt-cache steering for
-that provider/model for 30 minutes. Debug/flight telemetry records only
-content-free fields: applied/reason, retention, stable-prefix token estimate,
-and stable-prefix hash.
+preserving any server-state rewrite, then suppresses only the rejected field for
+that provider/model for 30 minutes. A `prompt_cache_key` rejection does not block
+`prompt_cache_retention`, and a retention rejection does not block cache keys;
+generic prompt-cache rejection text still fail-opens both optional fields.
+Debug/flight telemetry records only content-free fields: applied/reason,
+retention, stable-prefix token estimate, and stable-prefix hash.
 
 Provider usage is also fed back into a per-key negative-net guard. After 2
 negative samples and at least 1024 net-lost provider cache tokens, only that

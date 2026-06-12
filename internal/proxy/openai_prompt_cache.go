@@ -22,6 +22,8 @@ type promptCacheRateBucket struct {
 const openAIPromptCacheRejectTTL = 30 * time.Minute
 const openAIPromptCacheNetMinNegativeSamples = 2
 const openAIPromptCacheNetMinLossTokens = 1024
+const openAIPromptCacheFieldKey = "prompt_cache_key"
+const openAIPromptCacheFieldRetention = "prompt_cache_retention"
 
 type promptCacheNetBucket struct {
 	readTokens      int
@@ -37,6 +39,11 @@ type openAIPromptCacheDecision struct {
 	Reason             string
 	StablePrefixHash   string
 	StablePrefixTokens int
+}
+
+type openAIPromptCacheUnsupportedFields struct {
+	Key       bool
+	Retention bool
 }
 
 type openAIStablePrefixPlan struct {
@@ -55,9 +62,6 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 		return body, openAIPromptCacheDecision{Reason: "unsupported_provider"}
 	}
 	now := time.Now()
-	if p.openAIPromptCacheRejected(provider, model, now) {
-		return body, openAIPromptCacheDecision{Reason: "rejected_cooldown"}
-	}
 	caps := types.CapabilitiesFor(provider)
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(body, &root); err != nil {
@@ -83,22 +87,30 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 		StablePrefixTokens: plan.Tokens,
 	}
 	if _, exists := root["prompt_cache_key"]; !exists && caps.SupportsPromptCacheKey {
-		key := buildOpenAIPromptCacheKey(cfg, model, sessionID, plan.Hash)
-		if key != "" {
-			if p.openAIPromptCacheKeyRejected(provider, model, key, now) {
-				decision.Reason = "negative_net_cooldown"
-			} else if p.allowOpenAIPromptCacheKey(key, cfg.MaxRequestsPerKeyPerMinute, now) {
-				raw, _ := json.Marshal(key)
-				root["prompt_cache_key"] = raw
-				decision.Key = key
-				changed = true
-			} else {
-				decision.Reason = "rate_limited"
+		if p.openAIPromptCacheFieldRejected(provider, model, openAIPromptCacheFieldKey, now) {
+			decision.Reason = "prompt_cache_key_rejected_cooldown"
+		} else {
+			key := buildOpenAIPromptCacheKey(cfg, model, sessionID, plan.Hash)
+			if key != "" {
+				if p.openAIPromptCacheKeyRejected(provider, model, key, now) {
+					decision.Reason = "negative_net_cooldown"
+				} else if p.allowOpenAIPromptCacheKey(key, cfg.MaxRequestsPerKeyPerMinute, now) {
+					raw, _ := json.Marshal(key)
+					root["prompt_cache_key"] = raw
+					decision.Key = key
+					changed = true
+				} else {
+					decision.Reason = "rate_limited"
+				}
 			}
 		}
 	}
 	if _, exists := root["prompt_cache_retention"]; !exists && caps.SupportsPromptCacheRetention {
-		if retention := resolveOpenAIPromptCacheRetention(cfg.Retention, model); retention != "" {
+		if p.openAIPromptCacheFieldRejected(provider, model, openAIPromptCacheFieldRetention, now) {
+			if decision.Reason == "" {
+				decision.Reason = "prompt_cache_retention_rejected_cooldown"
+			}
+		} else if retention := resolveOpenAIPromptCacheRetention(cfg.Retention, model); retention != "" {
 			raw, _ := json.Marshal(retention)
 			root["prompt_cache_retention"] = raw
 			decision.Retention = retention
@@ -206,9 +218,8 @@ func (p *Proxy) allowOpenAIPromptCacheKey(key string, maxPerMinute int, now time
 	return true
 }
 
-func (p *Proxy) markOpenAIPromptCacheRejected(provider types.Provider, model string, now time.Time) {
-	key := openAIPromptCacheRejectKey(provider, model)
-	if key == "" {
+func (p *Proxy) markOpenAIPromptCacheRejected(provider types.Provider, model string, fields openAIPromptCacheUnsupportedFields, now time.Time) {
+	if !fields.Key && !fields.Retention {
 		return
 	}
 	p.openAIPromptCacheMu.Lock()
@@ -216,7 +227,16 @@ func (p *Proxy) markOpenAIPromptCacheRejected(provider types.Provider, model str
 	if p.openAIPromptCacheRejects == nil {
 		p.openAIPromptCacheRejects = make(map[string]time.Time)
 	}
-	p.openAIPromptCacheRejects[key] = now
+	if fields.Key {
+		if key := openAIPromptCacheFieldRejectKey(provider, model, openAIPromptCacheFieldKey); key != "" {
+			p.openAIPromptCacheRejects[key] = now
+		}
+	}
+	if fields.Retention {
+		if key := openAIPromptCacheFieldRejectKey(provider, model, openAIPromptCacheFieldRetention); key != "" {
+			p.openAIPromptCacheRejects[key] = now
+		}
+	}
 }
 
 func (p *Proxy) observeOpenAIPromptCacheNet(provider types.Provider, model string, decision openAIPromptCacheDecision, usage cacheUsage, now time.Time) {
@@ -257,7 +277,12 @@ func (p *Proxy) observeOpenAIPromptCacheNet(provider types.Provider, model strin
 }
 
 func (p *Proxy) openAIPromptCacheRejected(provider types.Provider, model string, now time.Time) bool {
-	key := openAIPromptCacheRejectKey(provider, model)
+	return p.openAIPromptCacheFieldRejected(provider, model, openAIPromptCacheFieldKey, now) ||
+		p.openAIPromptCacheFieldRejected(provider, model, openAIPromptCacheFieldRetention, now)
+}
+
+func (p *Proxy) openAIPromptCacheFieldRejected(provider types.Provider, model string, field string, now time.Time) bool {
+	key := openAIPromptCacheFieldRejectKey(provider, model, field)
 	if key == "" {
 		return false
 	}
@@ -300,6 +325,14 @@ func openAIPromptCacheRejectKey(provider types.Provider, model string) string {
 	return provider.String() + "\x00" + model
 }
 
+func openAIPromptCacheFieldRejectKey(provider types.Provider, model string, field string) string {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return ""
+	}
+	return openAIPromptCacheRejectKey(provider, model) + "\x00field\x00" + field
+}
+
 func openAIPromptCacheKeyRejectKey(provider types.Provider, model string, promptCacheKey string) string {
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	if promptCacheKey == "" {
@@ -309,15 +342,28 @@ func openAIPromptCacheKeyRejectKey(provider types.Provider, model string, prompt
 }
 
 func peekPromptCacheUnsupportedError(resp *http.Response) bool {
+	_, ok := peekPromptCacheUnsupportedFields(resp)
+	return ok
+}
+
+func peekPromptCacheUnsupportedFields(resp *http.Response) (openAIPromptCacheUnsupportedFields, bool) {
 	if resp == nil || resp.StatusCode < 400 || resp.StatusCode >= 500 {
-		return false
+		return openAIPromptCacheUnsupportedFields{}, false
 	}
 	const maxPeek = 64 * 1024
 	buf, _ := io.ReadAll(io.LimitReader(resp.Body, maxPeek))
 	resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(buf))
 	lower := strings.ToLower(string(buf))
-	return strings.Contains(lower, "prompt_cache_key") || strings.Contains(lower, "prompt_cache_retention")
+	fields := openAIPromptCacheUnsupportedFields{
+		Key:       strings.Contains(lower, openAIPromptCacheFieldKey),
+		Retention: strings.Contains(lower, openAIPromptCacheFieldRetention),
+	}
+	if !fields.Key && !fields.Retention && strings.Contains(lower, "prompt_cache") {
+		fields.Key = true
+		fields.Retention = true
+	}
+	return fields, fields.Key || fields.Retention
 }
 
 func planOpenAIStablePrefix(body []byte) openAIStablePrefixPlan {

@@ -277,7 +277,7 @@ func TestOpenAIPromptCacheRejectedCooldown(t *testing.T) {
 	if p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", now) {
 		t.Fatal("unexpected rejection before mark")
 	}
-	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", now)
+	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", openAIPromptCacheUnsupportedFields{Key: true}, now)
 	if !p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", now.Add(time.Minute)) {
 		t.Fatal("expected rejection cooldown")
 	}
@@ -286,10 +286,34 @@ func TestOpenAIPromptCacheRejectedCooldown(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
-	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", time.Now())
+	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", openAIPromptCacheUnsupportedFields{Key: true}, time.Now())
 	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 100, "sess")
-	if decision.Applied || decision.Reason != "rejected_cooldown" || string(out) != string(body) {
+	if decision.Applied || decision.Reason != "prompt_cache_key_rejected_cooldown" || string(out) != string(body) {
 		t.Fatalf("decision=%+v body=%s", decision, out)
+	}
+}
+
+func TestOpenAIPromptCacheFieldRejectedCooldownIsPrecise(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
+
+	cfg := config.Defaults()
+	cfg.Proxy.OpenAIPromptCache.Enabled = true
+	cfg.Proxy.OpenAIPromptCache.PromptCacheKeyStrategy = "static"
+	cfg.Proxy.OpenAIPromptCache.StaticPromptCacheKey = "still-usable-key"
+	cfg.Proxy.OpenAIPromptCache.Retention = "in_memory"
+	cfg.Proxy.OpenAIPromptCache.MinTokens = 0
+	keyProxy := New(cfg)
+	keyProxy.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", openAIPromptCacheUnsupportedFields{Key: true}, time.Now())
+	out, decision := keyProxy.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 2000, "sess")
+	if !decision.Applied || decision.Key != "" || decision.Retention != "in_memory" || strings.Contains(string(out), "prompt_cache_key") || !strings.Contains(string(out), `"prompt_cache_retention":"in_memory"`) {
+		t.Fatalf("key cooldown should keep retention usable: decision=%+v body=%s", decision, out)
+	}
+
+	retentionProxy := New(cfg)
+	retentionProxy.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", openAIPromptCacheUnsupportedFields{Retention: true}, time.Now())
+	out, decision = retentionProxy.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 2000, "sess")
+	if !decision.Applied || decision.Key != "still-usable-key" || decision.Retention != "" || !strings.Contains(string(out), `"prompt_cache_key":"still-usable-key"`) || strings.Contains(string(out), "prompt_cache_retention") {
+		t.Fatalf("retention cooldown should keep key usable: decision=%+v body=%s", decision, out)
 	}
 }
 
@@ -347,6 +371,22 @@ func TestPromptCacheUnsupportedPeekRestoresBody(t *testing.T) {
 	if !strings.Contains(string(body), "prompt_cache_key") {
 		t.Fatalf("body was not restored: %s", body)
 	}
+	retentionResp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(`{"error":"unsupported prompt_cache_retention"}`)),
+	}
+	fields, ok := peekPromptCacheUnsupportedFields(retentionResp)
+	if !ok || fields.Key || !fields.Retention {
+		t.Fatalf("expected retention-only unsupported fields: ok=%v fields=%+v", ok, fields)
+	}
+	genericResp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(`{"error":"prompt_cache is not supported"}`)),
+	}
+	fields, ok = peekPromptCacheUnsupportedFields(genericResp)
+	if !ok || !fields.Key || !fields.Retention {
+		t.Fatalf("generic prompt_cache rejection should cool down both fields: ok=%v fields=%+v", ok, fields)
+	}
 	if peekPromptCacheUnsupportedError(nil) {
 		t.Fatal("nil response should not match")
 	}
@@ -401,6 +441,7 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	cfg.Proxy.OpenAIPromptCache.Enabled = true
 	cfg.Proxy.OpenAIPromptCache.PromptCacheKeyStrategy = "static"
 	cfg.Proxy.OpenAIPromptCache.StaticPromptCacheKey = "pc-key"
+	cfg.Proxy.OpenAIPromptCache.Retention = "in_memory"
 	cfg.Proxy.OpenAIPromptCache.MinTokens = 0
 	p := New(cfg)
 	p.serverState.Set("conv-cache", "resp_old")
@@ -417,13 +458,20 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	if len(bodies) != 2 {
 		t.Fatalf("expected rejected request + retry, got %d bodies", len(bodies))
 	}
-	if !strings.Contains(bodies[0], `"prompt_cache_key":"pc-key"`) || !strings.Contains(bodies[0], `"previous_response_id":"resp_old"`) {
+	if !strings.Contains(bodies[0], `"prompt_cache_key":"pc-key"`) || !strings.Contains(bodies[0], `"prompt_cache_retention":"in_memory"`) || !strings.Contains(bodies[0], `"previous_response_id":"resp_old"`) {
 		t.Fatalf("first body missing cache key or previous response id: %s", bodies[0])
 	}
-	if strings.Contains(bodies[1], "prompt_cache_key") || !strings.Contains(bodies[1], `"previous_response_id":"resp_old"`) {
+	if strings.Contains(bodies[1], "prompt_cache_key") || strings.Contains(bodies[1], "prompt_cache_retention") || !strings.Contains(bodies[1], `"previous_response_id":"resp_old"`) {
 		t.Fatalf("retry must remove cache hints and preserve server state: %s", bodies[1])
 	}
 	if !p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", time.Now()) {
-		t.Fatal("rejected cache hints should activate per-model cooldown")
+		t.Fatal("rejected cache hints should activate field cooldown")
+	}
+	if p.openAIPromptCacheFieldRejected(types.OpenAI, "gpt-5", openAIPromptCacheFieldRetention, time.Now()) {
+		t.Fatal("prompt_cache_key rejection must not cool down retention")
+	}
+	out, decision := p.injectOpenAIPromptCache(types.OpenAI, []byte(body), "gpt-5", 2000, "sess")
+	if !decision.Applied || decision.Key != "" || decision.Retention != "in_memory" || strings.Contains(string(out), "prompt_cache_key") || !strings.Contains(string(out), `"prompt_cache_retention":"in_memory"`) {
+		t.Fatalf("future requests should keep retention while key is cooling down: decision=%+v body=%s", decision, out)
 	}
 }
