@@ -440,6 +440,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
+			historyMutationGuardReason := ""
+			if meta.PreviousResponseID != "" && deltaShape {
+				historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			} else if fullHistoryHistoryMutationBlocked {
+				historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
+			}
+			l0Stats = mergeWSSHistoryReducerStats(l0Stats, a.wssGuardedHistoryReducerEvidence(out, messages, historyMutationGuardReason, meta.TurnSeq))
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
@@ -1610,6 +1617,32 @@ func mergeWSSHistoryReducerStats(base proxyLayer0Stats, history proxyLayer0Stats
 		base.EvidenceDecisions = append(append([]evidence.BlockDecision(nil), history.EvidenceDecisions...), base.EvidenceDecisions...)
 	}
 	return base
+}
+
+func (a *wsPhaseFAdapter) wssGuardedHistoryReducerEvidence(out []byte, messages []types.Message, guardReason string, turnSeq int) proxyLayer0Stats {
+	if guardReason == "" {
+		return proxyLayer0Stats{}
+	}
+	historyStats := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF}
+	if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
+		aged, stats := staleread.AgeMessages(messages, staleread.Options{
+			MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+		})
+		if stats.BlocksReplaced > 0 {
+			beforeTokens := wssPlannerTokenCount(out, messages)
+			afterTokens := wssPlannerTokenCount(out, aged)
+			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, guardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+		}
+	}
+	if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
+		pruned, stats := staleread.PruneObsoleteReads(messages, staleread.ObsoleteOptions{})
+		if stats.BlocksReplaced > 0 {
+			beforeTokens := wssPlannerTokenCount(out, messages)
+			afterTokens := wssPlannerTokenCount(out, pruned)
+			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, guardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+		}
+	}
+	return historyStats
 }
 
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {

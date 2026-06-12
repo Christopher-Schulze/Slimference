@@ -3490,6 +3490,59 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFPreviousResponseBypassKeepsHistoryReducerEvidence(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"prompt_cache_key":     "previous-response-history-evidence",
+		"previous_response_id": "resp-history-evidence",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+			{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+			{"type": "function_call", "call_id": "call_y_old", "name": "Read", "arguments": map[string]any{"path": "src/y.go"}},
+			{"type": "function_call_output", "call_id": "call_y_old", "output": strings.Repeat("obsolete y content ", 80)},
+			{"type": "message", "role": "user", "content": "filler one"},
+			{"type": "message", "role": "user", "content": "filler two"},
+			{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+			{"type": "function_call", "call_id": "call_y_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/y.go", "patch": "@@ ..."}},
+			{"type": "function_call_output", "call_id": "call_y_edit", "output": "patch applied"},
+			{"type": "function_call_output", "call_id": "call_unknown", "output": "unknown tool output keeps the previous_response guard active"},
+		},
+		"stream": true,
+	})
+
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("previous_response unknown-tool bypass must stay byte-preserving changed=%v body=%s", changed, mutated)
+	}
+	if meta.BypassReason != "wss_previous_response_tool_output_full_pass" {
+		t.Fatalf("expected previous_response bypass, got %+v", meta)
+	}
+	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 || stats.TokensSaved != 0 {
+		t.Fatalf("bypass history evidence must not count applied savings: %+v", stats)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("previous_response bypass must keep guarded history evidence: %+v", stats.EvidenceDecisions)
+	}
+	if meta.DebugFacts["wss.bypass_reason"] != "wss_previous_response_tool_output_full_pass" ||
+		meta.DebugFacts["wss.request_shape"] != "full_history" ||
+		meta.DebugFacts["wss.stale_read_blocks"] != "0" ||
+		meta.DebugFacts["wss.obsolete_prune_blocks"] != "0" {
+		t.Fatalf("debug facts must stay honest for byte-preserving bypass: %+v", meta.DebugFacts)
+	}
+}
+
 func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
