@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const qualityCooldownDecisions = 1
+
 // UsageTracker holds per-session tool-name -> last-seen-turn maps with
 // a sliding window. When a tool is observed inside the window, it is
 // considered "active" and survives pruning.
@@ -37,8 +39,10 @@ type sessionUsage struct {
 	// pruned from this session so a follow-up turn that mentions the
 	// tool name can reattach the original definition. T103b.
 	prunedDefs map[string]json.RawMessage
-	// qualityCooldown keeps the full schema for a bounded number of future prune
-	// decisions after a missing-tool fallback proves the pruner guessed wrong.
+	// qualityCooldown keeps the full schema for one follow-up prune decision
+	// after a missing-tool fallback proves the pruner guessed wrong. The
+	// concrete pruned definitions are warmed separately below, so the broad
+	// schema guard only needs to absorb the immediate recovery turn.
 	qualityCooldown int
 }
 
@@ -141,10 +145,7 @@ func (u *UsageTracker) MarkMiss(sessionID string) {
 		st = &sessionUsage{lastSeen: make(map[string]int)}
 		u.sessions[sessionID] = st
 	}
-	st.qualityCooldown = u.idleThreshold
-	if st.qualityCooldown <= 0 {
-		st.qualityCooldown = 1
-	}
+	st.qualityCooldown = qualityCooldownDecisions
 	for name := range st.prunedDefs {
 		st.lastSeen[name] = st.turn
 	}

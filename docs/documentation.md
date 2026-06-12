@@ -1709,10 +1709,10 @@ a conservative missing-tool 4xx, including common provider phrasings such as
 unknown tool, no tool named, not in available tools, tool/function not found, or
 not a valid function, the proxy retries once with the full pre-prune schema,
 records miss/retry telemetry, and starts a bounded quality cooldown for that
-session bucket. The cooldown keeps the full schema for the configured idle-window
-decision count, warms the just-pruned definitions as active, and then restores
-normal pruning instead of permanently disabling tool-schema savings for the
-session. `slimference
+session bucket. The cooldown keeps the full schema for one follow-up prune
+decision, warms the just-pruned definitions as active, and then restores normal
+pruning instead of disabling unrelated tool-schema savings for the session.
+`slimference
 gain --proxy` includes tool-prune saved-token, pruned-tool, reattach, miss, and
 retry totals from the decision log.
 
@@ -2767,8 +2767,8 @@ tool-prune session bucket; the planner marks it as a `cheap_only`
 `quality_cooldown_soften_layer3` decision because the runtime softens Layer 3
 rather than blindly continuing aggressive behavior. The cooldown softens only
 for the configured matching request count and then removes the downgrade;
-tool-prune miss cooldowns likewise keep the full schema only for the bounded
-idle-window decision count before restoring pruning.
+tool-prune miss cooldowns likewise keep the full schema only for one follow-up
+decision before restoring pruning.
 Output-reduce task-shape selection now bypasses unproven detail-sensitive shapes
 instead of merely capping them to `standard`: code edits, new-file generation,
 debugging, reviews, tool-result reasoning, command-output relay, final

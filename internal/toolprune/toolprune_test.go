@@ -153,6 +153,33 @@ func TestMarkMissCooldownExpiresAndWarmsPrunedDefinitions(t *testing.T) {
 	}
 }
 
+func TestMarkMissCooldownIsOneDecisionEvenWithLongIdleThreshold(t *testing.T) {
+	u := NewUsageTracker(20)
+	const session = "s"
+	u.ObserveTurn(session, []string{"ColdTool", "AnotherColdTool"})
+	for i := 0; i < 22; i++ {
+		u.ObserveTurn(session, []string{"Other"})
+	}
+	first := u.Decide(session, []string{"ColdTool", "AnotherColdTool"}, 0)
+	if len(first.Pruned) != 2 {
+		t.Fatalf("expected both cold tools to prune before miss: %+v", first)
+	}
+	u.RememberPrunedDef(session, "ColdTool", []byte(`{"name":"ColdTool"}`))
+
+	u.MarkMiss(session)
+	cooldown := u.Decide(session, []string{"ColdTool", "AnotherColdTool"}, 0)
+	if cooldown.Reason != "quality_cooldown" || len(cooldown.Pruned) != 0 {
+		t.Fatalf("first decision after miss must keep full schema: %+v", cooldown)
+	}
+	if u.Disabled(session) {
+		t.Fatal("quality cooldown must expire after one decision")
+	}
+	narrowed := u.Decide(session, []string{"ColdTool", "AnotherColdTool"}, 0)
+	if !containsString(narrowed.Keep, "ColdTool") || !containsString(narrowed.Pruned, "AnotherColdTool") {
+		t.Fatalf("expired cooldown should keep warmed pruned defs but restore unrelated pruning: %+v", narrowed)
+	}
+}
+
 func TestDecide_EmptySession(t *testing.T) {
 	u := NewUsageTracker(5)
 	d := u.Decide("", []string{"a", "b"}, 0)

@@ -336,7 +336,7 @@ func TestDecideWithOptions_AlwaysKeepAndCooldown(t *testing.T) {
 		t.Fatalf("cooldown decision: %+v", cooldown)
 	}
 	snap := u.Snapshot()
-	if snap.MissTotal != 1 || snap.DisabledSessions != 1 {
+	if snap.MissTotal != 1 || snap.DisabledSessions != 0 {
 		t.Fatalf("snapshot after miss: %+v", snap)
 	}
 }
