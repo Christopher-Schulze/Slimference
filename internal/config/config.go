@@ -235,10 +235,10 @@ type OutputReduceConfig struct {
 	// SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT=0 disables.
 	StreamCutEnabled bool `toml:"streamcut_enabled"`
 	// RepetitionDetectionEnabled (T167) builds a per-request index of
-	// the prompt's tool_result and code-fence content; the proxy then
-	// rewrites verbatim echoes in the response into compact
-	// "[unchanged: <name>:L<from>-<to>]" markers. Default true. Env
-	// override: SLIMFERENCE_OUTPUT_REDUCE_REPDET=0 disables.
+	// tool_result content; the proxy then rewrites verbatim tool-output
+	// echoes in the response into compact "[unchanged: <name>:L<from>-<to>]"
+	// markers. Default true. Env override: SLIMFERENCE_OUTPUT_REDUCE_REPDET=0
+	// disables.
 	RepetitionDetectionEnabled bool `toml:"repetition_detection_enabled"`
 	// StaleReadAgingEnabled (T170) replaces older Read(...) tool_results
 	// in the conversation with `[stale read: <path> superseded by

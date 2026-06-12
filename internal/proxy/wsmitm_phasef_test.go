@@ -81,18 +81,26 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
-	promptText := strings.Repeat("large unchanged prompt block ", 18)
+	toolOutput := strings.Repeat("large unchanged tool output block ", 18)
 
 	req := parseWSJSON(t, map[string]any{
 		"type": string(wsmitm.FrameKindRequest),
 		"body": map[string]any{
 			"model":           "gpt-5-codex",
 			"conversation_id": "conv-repdet",
-			"input": []map[string]any{{
-				"type":    "message",
-				"role":    "user",
-				"content": promptText,
-			}},
+			"input": []map[string]any{
+				{
+					"type":      "function_call",
+					"call_id":   "call_repdet",
+					"name":      "exec_command",
+					"arguments": map[string]any{"cmd": "cat large.txt"},
+				},
+				{
+					"type":    "function_call_output",
+					"call_id": "call_repdet",
+					"output":  toolOutput,
+				},
+			},
 			"stream": true,
 		},
 	})
@@ -106,7 +114,7 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 
 	resp := parseWSJSON(t, map[string]any{
 		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
-		"delta": "Here is the same content again: " + promptText,
+		"delta": "Here is the same content again: " + toolOutput,
 	})
 	replace, err = adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp)
 	if err != nil {
@@ -115,7 +123,7 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 	if !replace {
 		t.Fatal("expected repdet to re-encode streamed delta")
 	}
-	if !strings.Contains(resp.Delta, "[unchanged: prompt-text]") {
+	if !strings.Contains(resp.Delta, "[unchanged:") {
 		t.Fatalf("repdet marker missing: %q", resp.Delta)
 	}
 	if got := p.OutputReduceCountersSnapshot().RepdetResponsesRewritten; got != 1 {
@@ -128,6 +136,43 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 		snap.ResponseTextDeltasSeen != 1 ||
 		snap.Mutations != 1 {
 		t.Fatalf("unexpected Phase-F adapter telemetry: %+v", snap)
+	}
+}
+
+func TestWSPhaseFRepdetSkipsLongUserText(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	promptText := strings.Repeat("large user prompt block ", 18)
+
+	req := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "conv-repdet-user-text",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": promptText,
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || replace {
+		t.Fatalf("request should seed without mutation, replace=%v err=%v", replace, err)
+	}
+
+	resp := parseWSJSON(t, map[string]any{
+		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
+		"delta": "Echo: " + promptText,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp)
+	if err != nil {
+		t.Fatalf("response handle: %v", err)
+	}
+	if replace || strings.Contains(resp.Delta, "[unchanged:") {
+		t.Fatalf("long user text must not seed repdet, replace=%v delta=%q", replace, resp.Delta)
 	}
 }
 
@@ -3049,15 +3094,23 @@ func TestWSPhaseFTopLevelUnknownRequestBodySeedsState(t *testing.T) {
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
-	promptText := strings.Repeat("top level prompt block ", 20)
+	toolOutput := strings.Repeat("top level tool output block ", 20)
 
 	env := parseWSJSON(t, map[string]any{
 		"model": "gpt-5-codex",
-		"input": []map[string]any{{
-			"type":    "message",
-			"role":    "user",
-			"content": promptText,
-		}},
+		"input": []map[string]any{
+			{
+				"type":      "function_call",
+				"call_id":   "call_top_repdet",
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cat top.txt"},
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": "call_top_repdet",
+				"output":  toolOutput,
+			},
+		},
 		"stream": true,
 	})
 	if env.Kind != wsmitm.FrameKindUnknown {
@@ -3073,13 +3126,13 @@ func TestWSPhaseFTopLevelUnknownRequestBodySeedsState(t *testing.T) {
 
 	resp := parseWSJSON(t, map[string]any{
 		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
-		"delta": "Echo: " + promptText,
+		"delta": "Echo: " + toolOutput,
 	})
 	replace, err = adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp)
 	if err != nil {
 		t.Fatalf("delta handle: %v", err)
 	}
-	if !replace || !strings.Contains(resp.Delta, "[unchanged: prompt-text]") {
+	if !replace || !strings.Contains(resp.Delta, "[unchanged:") {
 		t.Fatalf("top-level request did not seed repdet replace=%v delta=%q", replace, resp.Delta)
 	}
 
@@ -3215,7 +3268,7 @@ func TestWSPhaseFTerminalResponseRepdetStaysByteEqual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("terminal handle: %v", err)
 	}
-	if replace || strings.Contains(string(resp.Response), "[unchanged: prompt-text]") {
+	if replace || strings.Contains(string(resp.Response), "[unchanged:") {
 		t.Fatalf("terminal response should stay byte-equal, replace=%v response=%s", replace, resp.Response)
 	}
 }

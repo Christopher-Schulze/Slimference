@@ -188,6 +188,18 @@ func TestRewriteAnthropicResponseBodyEchoRewritten(t *testing.T) {
 	if strings.Contains(string(out), block) {
 		t.Errorf("echo block not replaced")
 	}
+	var parsed struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("decode rewritten body: %v", err)
+	}
+	wantSaved := len("intro "+block+" outro") - len(parsed.Content[0].Text)
+	if saved != wantSaved {
+		t.Errorf("saved=%d want net %d", saved, wantSaved)
+	}
 }
 
 func TestBuildRepdetIndexEmptyMessages(t *testing.T) {
@@ -209,7 +221,7 @@ func TestBuildRepdetIndexSkipsShortText(t *testing.T) {
 	}
 }
 
-func TestBuildRepdetIndexIncludesLongText(t *testing.T) {
+func TestBuildRepdetIndexSkipsLongText(t *testing.T) {
 	longText := strings.Repeat("X", repdet.MinMatch+repdet.WindowSize+10)
 	idx := buildRepdetIndex([]types.Message{{
 		Role: "user",
@@ -217,8 +229,21 @@ func TestBuildRepdetIndexIncludesLongText(t *testing.T) {
 			{Type: "text", Text: longText},
 		},
 	}})
+	if len(idx.Blocks()) != 0 {
+		t.Errorf("expected long prompt text to be skipped, got %d blocks", len(idx.Blocks()))
+	}
+}
+
+func TestBuildRepdetIndexIncludesToolResult(t *testing.T) {
+	toolOutput := strings.Repeat("X", repdet.MinMatch+repdet.WindowSize+10)
+	idx := buildRepdetIndex([]types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{
+			{Type: "tool_result", ToolName: "Read", Text: toolOutput},
+		},
+	}})
 	if len(idx.Blocks()) != 1 {
-		t.Errorf("expected long text indexed, got %d blocks", len(idx.Blocks()))
+		t.Errorf("expected tool_result indexed, got %d blocks", len(idx.Blocks()))
 	}
 }
 
@@ -276,6 +301,20 @@ func TestRewriteOpenAIChatCompletionsRewritten(t *testing.T) {
 	}
 	if strings.Contains(string(out), block) {
 		t.Errorf("echo block not replaced")
+	}
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("decode rewritten body: %v", err)
+	}
+	wantSaved := len("intro "+block+" outro") - len(parsed.Choices[0].Message.Content)
+	if saved != wantSaved {
+		t.Errorf("saved=%d want net %d", saved, wantSaved)
 	}
 }
 

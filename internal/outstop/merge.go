@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
@@ -29,6 +30,10 @@ type Result struct {
 // Other providers: passthrough (returns body unchanged, OK=true).
 // Responses-API shaped requests (`input`, or no `messages` array) are
 // passthrough because the Responses API rejects Chat-Completions `stop`.
+// Exact-reply, code-edit, read-only, review, debugging, planning,
+// final-summary, and unknown task shapes are also passthrough so stop
+// optimisation never cuts content the user explicitly asked the model
+// to produce or relay.
 //
 // Errors are deliberately swallowed: if the body is malformed JSON we
 // return the original bytes with OK=false so the caller forwards it
@@ -59,8 +64,17 @@ func MergeIntoBody(provider types.Provider, body []byte) ([]byte, Result) {
 		res.OK = true
 		return body, res
 	}
+	if !StopOptimizationAllowed(provider, body) {
+		res.OK = true
+		return body, res
+	}
 
-	existing, hadField := decodeExistingStop(raw[res.FieldUsed])
+	stopRaw, hadField := raw[res.FieldUsed]
+	existing, validField := decodeExistingStop(stopRaw)
+	if hadField && !validField {
+		res.OK = true
+		return body, res
+	}
 	merged, added := mergePreservingUser(existing, PhrasesTopN(4))
 	if added == 0 && hadField {
 		res.OK = true
@@ -89,26 +103,49 @@ func supportsStopInjectionShape(raw map[string]json.RawMessage) bool {
 	return json.Unmarshal(messagesRaw, &messages) == nil
 }
 
+func StopOptimizationAllowed(provider types.Provider, body []byte) bool {
+	return ShapeAllowsStopOptimization(outputreduce.DetectTaskShape(provider, body))
+}
+
+func ShapeAllowsStopOptimization(shape outputreduce.TaskShape) bool {
+	switch shape {
+	case outputreduce.ShapeDirectAnswer, outputreduce.ShapeExplanation:
+		return true
+	default:
+		return false
+	}
+}
+
 // decodeExistingStop accepts both shapes the OpenAI/Anthropic APIs
 // historically allow for the stop field: a single string or an array
 // of strings. Returns the normalised slice and whether the field was
-// present at all.
+// valid for merging.
 func decodeExistingStop(raw json.RawMessage) ([]string, bool) {
-	if len(bytes.TrimSpace(raw)) == 0 {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, true
+	}
+	switch trimmed[0] {
+	case '[':
+	case '"':
+	default:
 		return nil, false
 	}
 	var arr []string
-	if err := json.Unmarshal(raw, &arr); err == nil {
+	if trimmed[0] == '[' {
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			return nil, false
+		}
 		return arr, true
 	}
 	var single string
-	if err := json.Unmarshal(raw, &single); err == nil {
-		if single == "" {
-			return nil, true
-		}
-		return []string{single}, true
+	if err := json.Unmarshal(raw, &single); err != nil {
+		return nil, false
 	}
-	return nil, false
+	if single == "" {
+		return nil, true
+	}
+	return []string{single}, true
 }
 
 // mergePreservingUser unions existing user entries (kept first, in

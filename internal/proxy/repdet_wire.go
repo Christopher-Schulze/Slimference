@@ -59,9 +59,8 @@ func (p *Proxy) passthroughAnthropicWithRepdet(w http.ResponseWriter, upstreamRe
 	return out
 }
 
-// buildRepdetIndex constructs a fresh per-request Index from the
-// prompt's tool_result blocks and substantial text blocks. Empty
-// index when there are no candidates - the matcher then returns
+// buildRepdetIndex constructs a fresh per-request Index from tool_result
+// blocks. Empty index when there are no candidates - the matcher then returns
 // nothing without allocating per request.
 //
 // Per-request lifetime is deliberate: the dominant repeat case is
@@ -74,20 +73,18 @@ func buildRepdetIndex(messages []types.Message) *repdet.Index {
 		for _, block := range msg.Content {
 			switch block.Type {
 			case "tool_result":
-				name := blockNameForToolResult(block)
-				idx.AddBlock(name, 0, 0, block.Text)
-			case "text":
-				// Only register prompt text long enough to matter.
-				// MinMatch+WindowSize guards against indexing
-				// short user prose that would never reach a
-				// confirmable echo length.
-				if len(block.Text) >= repdet.MinMatch+repdet.WindowSize {
-					idx.AddBlock("prompt-text", 0, 0, block.Text)
-				}
+				addRepdetToolResultBlock(idx, block)
 			}
 		}
 	}
 	return idx
+}
+
+func addRepdetToolResultBlock(idx *repdet.Index, block types.ContentBlock) {
+	if idx == nil {
+		return
+	}
+	idx.AddBlock(blockNameForToolResult(block), 0, 0, block.Text)
 }
 
 // blockNameForToolResult picks a human-readable identifier for the
@@ -149,9 +146,7 @@ func rewriteAnthropicResponseBody(body []byte, idx *repdet.Index) ([]byte, int) 
 		if len(matches) == 0 {
 			continue
 		}
-		for _, m := range matches {
-			saved += m.Length
-		}
+		saved += len(text) - len(rewritten)
 		// json.Marshal on a string cannot fail; same for a slice of
 		// maps whose values came from json.Unmarshal. Errors elided.
 		newText, _ := json.Marshal(rewritten)
@@ -256,9 +251,7 @@ func rewriteOpenAIResponseBody(body []byte, idx *repdet.Index) ([]byte, int) {
 				if len(matches) == 0 {
 					continue
 				}
-				for _, m := range matches {
-					saved += m.Length
-				}
+				saved += len(text) - len(rewritten)
 				newText, _ := json.Marshal(rewritten)
 				msg["content"] = newText
 				newMsg, _ := json.Marshal(msg)
@@ -308,9 +301,7 @@ func rewriteOpenAIResponseBody(body []byte, idx *repdet.Index) ([]byte, int) {
 					if len(matches) == 0 {
 						continue
 					}
-					for _, m := range matches {
-						saved += m.Length
-					}
+					saved += len(text) - len(rewritten)
 					newText, _ := json.Marshal(rewritten)
 					parts[j]["text"] = newText
 					partsMutated = true

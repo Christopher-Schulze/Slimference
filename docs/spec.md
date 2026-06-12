@@ -127,6 +127,13 @@ Requirements:
 
 - output directives must be idempotent and provider-shape valid;
 - exact-answer and repair-followup turns skip directive injection;
+- stop-sequence injection and HTTP/SSE streamcut may apply only to
+  direct-answer and explanation task shapes; exact replies, code edits,
+  read-only analysis, reviews, debugging, planning, final summaries, and
+  unknown shapes must pass through;
+- repetition detection may rewrite response text only from tool-result-derived
+  source indexes, never from arbitrary user prompt text or pasted/code-fence
+  text;
 - concise-chat hints may apply only to direct-answer and explanation turns, must
   full-pass code/docs/JSON/log/diff/repair/review/planning/tool-output turns,
   and must respect a low-ROI input-token guard;

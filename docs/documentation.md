@@ -396,6 +396,13 @@ Codex WSS, prompt-cache-prefix frames stay byte-equal. Stop sequences, HTTP/SSE
 streamcut, repetition detection, stale-read aging, obsolete-read pruning, and
 the default-off be-terse hint are independent toggles so operators can keep
 deterministic response-side guards without forcing prompt-directive injection.
+Stop-sequence injection and HTTP/SSE streamcut are still task-shape gated: only
+direct-answer and explanation turns receive them; exact replies, code edits,
+read-only analysis, reviews, debugging, planning, final summaries, and unknown
+shapes pass through so requested content is never cut. Repetition detection
+indexes tool-result content only; arbitrary user prompt text and
+pasted/code-fence text are not response-rewrite sources because an exact long
+reproduction request must stay byte-available to the model and client.
 The output status/admin payload reports injected/skipped turns, directive input
 overhead, observed output tokens, last skip reason, auto-tune downgrades,
 stop-sequence additions, streamcut fires, repetition rewrites, stale/obsolete
@@ -2601,7 +2608,8 @@ adapter:
   are forwarded byte-equal and recorded as content-free upstream-error
   summaries for diagnostics; after such an error the current adapter full-passes
   subsequent request bodies until reconnect
-- server-to-client text deltas run repdet
+- server-to-client text deltas run repdet against tool-result-derived indexes
+  only; arbitrary long user prompt text is not indexed for output rewrite
 - terminal response payloads stay byte-equal on WSS to avoid double-counting
   streaming repdet savings or corrupting final code/patch text
 - WSS streamcut is intentionally disabled until T236 proves a terminal-safe

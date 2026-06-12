@@ -927,7 +927,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	if isStreamingRequest(body) {
 		var cutter *streamcut.Cutter
-		if p.config.Compression.OutputReduce.StreamCutEnabled {
+		if p.config.Compression.OutputReduce.StreamCutEnabled && outstop.ShapeAllowsStopOptimization(taskShape) {
 			// 3-line holdback (T184): the trailing-commentary opener
 			// is queued, so when the cutter fires the opener bytes
 			// never reach the client. Lossless for natural stream
@@ -942,12 +942,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	} else {
 		// T167: for non-streaming responses we build a per-request
-		// repdet Index from the prompt's tool_result / long text
-		// blocks and rewrite any verbatim echo into a
-		// "[unchanged: <name>]" marker before forwarding to the
-		// client. Per-provider helpers handle their own wire shape;
-		// providers we don't recognise fall through to plain
-		// passthrough so we never break a response to optimise.
+		// repdet Index from tool_result blocks and rewrite any
+		// verbatim echo into a "[unchanged: <name>]" marker before
+		// forwarding to the client. Per-provider helpers handle their
+		// own wire shape; providers we don't recognise fall through to
+		// plain passthrough so we never break a response to optimise.
 		responseBody = p.passthroughWithOptionalRepdet(w, upstreamResp, provider, messages, log)
 		outputTokens = estimateTokensFromText(string(responseBody))
 		upstreamCacheUsage = extractCacheUsageFromBody(provider.String(), responseBody)

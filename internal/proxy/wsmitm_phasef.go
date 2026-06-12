@@ -901,13 +901,7 @@ func wssRequestIndexes(messages []types.Message, includeRepdet bool) (map[string
 					toolUses[block.ToolUseID] = block
 				}
 			case "tool_result":
-				if repdetIndex != nil {
-					repdetIndex.AddBlock(blockNameForToolResult(block), 0, 0, block.Text)
-				}
-			case "text":
-				if repdetIndex != nil && len(block.Text) >= repdet.MinMatch+repdet.WindowSize {
-					repdetIndex.AddBlock("prompt-text", 0, 0, block.Text)
-				}
+				addRepdetToolResultBlock(repdetIndex, block)
 			}
 		}
 	}
@@ -2098,10 +2092,7 @@ func (a *wsPhaseFAdapter) applyRepdetDelta(env *wsmitm.Envelope) bool {
 	if len(matches) == 0 {
 		return false
 	}
-	saved := 0
-	for _, m := range matches {
-		saved += m.Length
-	}
+	saved := len(env.Delta) - len(rewritten)
 	env.Delta = rewritten
 	a.p.outputReduceCounters.RecordRepdetRewrite(len(matches), saved)
 	return true

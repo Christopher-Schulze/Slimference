@@ -361,6 +361,49 @@ func TestStreamcutDisabledLetsTailThrough(t *testing.T) {
 	}
 }
 
+func TestStreamcutSkipsCodeEditShape(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		writeAnthropicDelta := func(text string) {
+			b, _ := json.Marshal(text)
+			fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":%s}}\n\n", b)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		writeAnthropicDelta(strings.Repeat("Substantive patch explanation. ", 4))
+		writeAnthropicDelta("\nHope this helps with your patch.")
+		for i := 0; i < 10; i++ {
+			writeAnthropicDelta(" more trailing chatter here.")
+		}
+		fmt.Fprintf(w, "data: {\"type\":\"message_stop\"}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.OutputReduce.StreamCutEnabled = true
+	p := New(cfg)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages",
+		strings.NewReader(`{"model":"claude","stream":true,"messages":[{"role":"user","content":"apply_patch this file and preserve exact strings"}]}`))
+	req.Header.Set("x-api-key", "test")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	out := rec.Body.String()
+	if strings.Count(out, "more trailing chatter") < 5 {
+		t.Errorf("code-edit shape should not be streamcut. count=%d body=%q", strings.Count(out, "more trailing chatter"), out)
+	}
+	if got := p.OutputReduceCountersSnapshot().StreamcutFired; got != 0 {
+		t.Errorf("streamcut counter=%d want 0 for code-edit shape", got)
+	}
+}
+
 // TestRepdetWiredRewritesAnthropicResponse proves T167 rewrites the
 // non-streaming Anthropic response when the prompt contains a
 // tool_result block that the model echoes verbatim.
