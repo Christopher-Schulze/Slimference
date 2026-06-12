@@ -342,7 +342,7 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	fmt.Println("")
 	fmt.Println("5. Run WSS proof and release promotion gates:")
 	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --require-live-token-delta --json\n", matrixPath)
-	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --expected-reducer codex_exec_envelope --search-cap-candidate=30:15 --search-cap-candidate=25:15 --search-cap-min-retained-pct=40 --search-cap-min-search-outputs=2 --search-cap-min-extra-tokens=1 --json > %s\n", matrixPath, searchCapProofPath)
+	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --expected-reducer captured_output --search-cap-candidate=30:15 --search-cap-candidate=25:15 --search-cap-min-retained-pct=40 --search-cap-min-search-outputs=2 --search-cap-min-extra-tokens=1 --json > %s\n", matrixPath, searchCapProofPath)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check\n", root)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check --json\n", root)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check\n", root)

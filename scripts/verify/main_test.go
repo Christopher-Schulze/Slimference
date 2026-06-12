@@ -408,6 +408,7 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"host_resource_long_workday",
 		"wss-proof-matrix ~/.slimference/captures/release-proof-20260531_080910.jsonl --require-live-token-delta --json",
 		"wss-proof-matrix ~/.slimference/captures/release-proof-20260531_080910.jsonl --require-live-token-delta --required-workload=search_loop",
+		"--expected-reducer captured_output",
 		"--search-cap-candidate=30:15",
 		"--search-cap-candidate=25:15",
 		"--search-cap-min-retained-pct=40",
@@ -440,6 +441,9 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("release runbook missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "--expected-reducer codex_exec_envelope") {
+		t.Fatalf("release runbook still promotes unsafe WSS delta envelope mutation:\n%s", out)
 	}
 }
 

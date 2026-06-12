@@ -553,7 +553,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			preFilterRepeated := false
-			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && policy.RepeatedOutput {
+			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && !req.StatefulDeltaMutationBlocked && policy.RepeatedOutput {
 				preFilterRepeated = true
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
@@ -616,7 +616,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = countCandidateTokens(candidateText) < countBeforeTokens()
 			}
-			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && candidateEligible && policy.RepeatedOutput {
+			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && !req.StatefulDeltaMutationBlocked && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()

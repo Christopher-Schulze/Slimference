@@ -821,6 +821,41 @@ func TestReduceCodexLayer0WSSSearchProofLatchBypassesDeltaGate(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSSearchProofSkipsRepeatedOutputDeltaCandidate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src`
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-delta-repeated", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-delta-repeated", Text: original}}},
+	}
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-search-delta-repeated",
+	})
+	if seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.TokensSaved != 0 {
+		t.Fatalf("first search output should seed repeated-output only: %+v", seed.Stats)
+	}
+
+	proofed := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-delta-repeated",
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	text := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 || proofed.Stats.CapturedOutputBlocks != 1 ||
+		proofed.Stats.RepeatedOutputBlocks != 0 || proofed.Stats.RepeatedOutputLatencyNs != 0 ||
+		!strings.Contains(text, "[rg]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(text, "src/file_079.go:80:needle") {
+		t.Fatalf("proofed delta search must skip blocked repeated-output and use captured-output, stats=%+v text=%q", proofed.Stats, text)
+	}
+}
+
 func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGateForCodexEnvelope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
