@@ -34,24 +34,25 @@ import (
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu                 sync.Mutex
-	messages           []types.Message
-	repdetIndex        *repdet.Index
-	toolUses           map[string]types.ContentBlock
-	sessionID          string
-	degraded           bool
-	degradedReason     string
-	toolUseHydrated    bool
-	collapsedKeys      map[string]struct{}
-	qualityCohort      qualityab.Cohort
-	responseChains     map[string]wssResponseChain
-	pendingChain       wssResponseChain
-	pendingOutput      []json.RawMessage
-	pendingRecovery    *wssRecoveryCandidate
-	activeRecovery     *wssRecoveryCandidate
-	recoveryAccepted   bool
-	recoveryResponseID string
-	recoveryWriter     func([]byte) error
+	mu                     sync.Mutex
+	messages               []types.Message
+	repdetIndex            *repdet.Index
+	toolUses               map[string]types.ContentBlock
+	sessionID              string
+	degraded               bool
+	degradedReason         string
+	toolUseHydrated        bool
+	collapsedKeys          map[string]struct{}
+	qualityCohort          qualityab.Cohort
+	responseChains         map[string]wssResponseChain
+	pendingChain           wssResponseChain
+	pendingOutput          []json.RawMessage
+	pendingRecovery        *wssRecoveryCandidate
+	activeRecovery         *wssRecoveryCandidate
+	recoveryAccepted       bool
+	recoveryResponseID     string
+	recoveryWriter         func([]byte) error
+	historyRecoveryGuarded bool
 	// lastDecisionRequestID correlates the turn's response usage frame with
 	// the decision record written at request time (T352-A attribution).
 	lastDecisionRequestID      string
@@ -435,26 +436,71 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		// corpus is complete.
 		requestShape := wssRequestShape(meta, messages)
 		historyMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled
+		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded()
 		fullHistoryDownstreamStateMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
 		fullHistoryHistoryMutationBlocked := fullHistoryDownstreamStateMutationBlocked && !historyMutationLabEnabled
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
+		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
+		if cacheBustDemoted != 0 {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
+		}
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
 			historyMutationGuardReason := ""
 			if meta.PreviousResponseID != "" && deltaShape {
 				historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			} else if historyMutationRecoveryGuarded && requestShape == "full_history" {
+				historyMutationGuardReason = "wss_recovery_history_mutation_guard"
 			} else if fullHistoryHistoryMutationBlocked {
 				historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 			}
-			l0Stats = mergeWSSHistoryReducerStats(l0Stats, a.wssGuardedHistoryReducerEvidence(out, messages, historyMutationGuardReason, meta.TurnSeq))
+			historyResult := a.applyWSSHistoryReducers(out, messages, historyMutationGuardReason, cacheBustDemoted, meta.TurnSeq)
+			l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyResult.Stats)
+			changed := false
+			detachedPreviousResponseID := false
+			if historyResult.Mutated {
+				if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, historyResult.Messages); rebuildErr == nil {
+					out = rebuilt
+					if requestShape == "full_history" && meta.PreviousResponseID != "" {
+						if detached, detachedOK := detachCodexPreviousResponseID(out); detachedOK {
+							out = detached
+							detachedPreviousResponseID = true
+						}
+					}
+					messages = historyResult.Messages
+					changed = true
+					if historyResult.StaleBlocksReplaced > 0 {
+						a.p.outputReduceCounters.RecordStaleReadAging(historyResult.StaleBlocksReplaced, historyResult.StaleBytesReplaced)
+					}
+					if historyResult.ObsoleteBlocksPruned > 0 {
+						a.p.outputReduceCounters.RecordObsoleteReadPrune(historyResult.ObsoleteBlocksPruned, historyResult.ObsoleteBytesPruned)
+					}
+					a.p.recordCodexLayer0Stats(l0Stats)
+				} else {
+					l0Stats = l0Stats.withoutSavings()
+					a.p.recordCodexLayer0Stats(l0Stats)
+				}
+			}
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
-			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
+			if changed {
+				meta.BypassReason = "wss_previous_response_history_only"
+			}
+			meta.DebugFacts = wssRequestDebugFacts(body, out, messages, l0Stats, changed, meta.BypassReason, meta, outputReduceStats)
+			if detachedPreviousResponseID {
+				meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
+			}
+			if historyMutationRecoveryGuarded && requestShape == "full_history" {
+				meta.DebugFacts["wss.history_mutation_recovery_guard"] = "true"
+			}
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
-			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
+			return out, messages, changed, l0Stats, reReadCount, meta, outputReduceStats
 		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
@@ -469,6 +515,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		historyMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
 			historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+		} else if historyMutationRecoveryGuarded && requestShape == "full_history" {
+			historyMutationGuardReason = "wss_recovery_history_mutation_guard"
 		} else if fullHistoryHistoryMutationBlocked {
 			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		}
@@ -481,13 +529,6 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		effectiveMutationGuardReason := structuredMutationGuardReason
 		if statefulDeltaMutationBlocked {
 			effectiveMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
-		}
-		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
-		if cacheBustDemoted != 0 {
-			if meta.DebugFacts == nil {
-				meta.DebugFacts = make(map[string]string)
-			}
-			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
 		}
 		stagedMessages := messages
 		messageMutationPending := false
@@ -1659,6 +1700,80 @@ func (a *wsPhaseFAdapter) wssGuardedHistoryReducerEvidence(out []byte, messages 
 	return historyStats
 }
 
+type wssHistoryReducerResult struct {
+	Messages             []types.Message
+	Stats                proxyLayer0Stats
+	Mutated              bool
+	StaleBlocksReplaced  int
+	StaleBytesReplaced   int
+	ObsoleteBlocksPruned int
+	ObsoleteBytesPruned  int
+}
+
+func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.Message, guardReason string, cacheBustDemoted proxyLayer0MechanismMask, turnSeq int) wssHistoryReducerResult {
+	result := wssHistoryReducerResult{
+		Messages: messages,
+		Stats:    proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF},
+	}
+	stagedMessages := messages
+	if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
+		staleGuardReason := ""
+		if guardReason != "" {
+			staleGuardReason = guardReason
+		} else if cacheBustDemoted.Has(proxyLayer0MechanismStaleRead) {
+			staleGuardReason = "cache_bust_guard"
+		}
+		aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
+			MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+		})
+		if stats.BlocksReplaced > 0 {
+			beforeTokens := wssPlannerTokenCount(body, stagedMessages)
+			afterTokens := wssPlannerTokenCount(body, aged)
+			if staleGuardReason != "" {
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			} else {
+				stagedMessages = aged
+				result.Mutated = true
+				result.StaleBlocksReplaced = stats.BlocksReplaced
+				result.StaleBytesReplaced = stats.BytesReplaced
+				result.Stats.StaleReadBlocks = stats.BlocksReplaced
+				result.Stats.StaleReadBytesSaved = stats.BytesReplaced
+				result.Stats.StaleReadTokensSaved = beforeTokens - afterTokens
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			}
+		}
+	}
+	if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
+		obsoleteGuardReason := ""
+		if guardReason != "" {
+			obsoleteGuardReason = guardReason
+		} else if cacheBustDemoted.Has(proxyLayer0MechanismObsoletePrune) {
+			obsoleteGuardReason = "cache_bust_guard"
+		}
+		pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
+		if stats.BlocksReplaced > 0 {
+			beforeTokens := wssPlannerTokenCount(body, stagedMessages)
+			afterTokens := wssPlannerTokenCount(body, pruned)
+			if obsoleteGuardReason != "" {
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			} else {
+				stagedMessages = pruned
+				result.Mutated = true
+				result.ObsoleteBlocksPruned = stats.BlocksReplaced
+				result.ObsoleteBytesPruned = stats.BytesReplaced
+				result.Stats.ObsoletePruneBlocks = stats.BlocksReplaced
+				result.Stats.ObsoletePruneBytesSaved = stats.BytesReplaced
+				result.Stats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			}
+		}
+	}
+	result.Messages = stagedMessages
+	result.Stats.BlocksModified = result.Stats.StaleReadBlocks + result.Stats.ObsoletePruneBlocks
+	result.Stats.TokensSaved = result.Stats.StaleReadTokensSaved + result.Stats.ObsoletePruneTokensSaved
+	return result
+}
+
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
 	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
@@ -2356,6 +2471,22 @@ func wssPlannerModelFromRaw(raw map[string]json.RawMessage) string {
 
 func wssPreviousResponseIDFromRaw(raw map[string]json.RawMessage) string {
 	return rawJSONString(raw["previous_response_id"])
+}
+
+func detachCodexPreviousResponseID(body []byte) ([]byte, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body, false
+	}
+	if _, ok := raw["previous_response_id"]; !ok {
+		return body, false
+	}
+	delete(raw, "previous_response_id")
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return body, false
+	}
+	return out, true
 }
 
 func wssCodexSessionIDFromRaw(raw map[string]json.RawMessage) string {

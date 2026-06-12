@@ -75,6 +75,24 @@ func (a *wsPhaseFAdapter) setRecoveryWriter(writer func([]byte) error) {
 	a.mu.Unlock()
 }
 
+func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryGuarded() {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.historyRecoveryGuarded = true
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) wssHistoryMutationRecoveryGuarded() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.historyRecoveryGuarded
+}
+
 func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body []byte, meta wssRequestMeta) {
 	if a == nil || env == nil || len(body) == 0 {
 		return
@@ -106,8 +124,6 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 					}
 				}
 			}
-		} else {
-			fullInput = nil
 		}
 	}
 
@@ -197,6 +213,7 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	a.activeRecovery = cloneWSSRecoveryCandidate(candidate)
 	a.recoveryAccepted = false
 	a.recoveryResponseID = ""
+	a.historyRecoveryGuarded = true
 	a.mu.Unlock()
 
 	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, map[string]string{

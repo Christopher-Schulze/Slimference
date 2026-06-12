@@ -1347,6 +1347,125 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFRecoveryChainsFullHistoryWhenPreviousChainMissing(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var retryPayloads [][]byte
+	adapter.setRecoveryWriter(func(payload []byte) error {
+		retryPayloads = append(retryPayloads, append([]byte(nil), payload...))
+		return nil
+	})
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5.5",
+			"previous_response_id": "resp-missing-local-chain",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-full-history-recovery","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "first prompt"},
+				{"type": "function_call", "call_id": "call_old", "name": "exec_command", "arguments": `{"cmd":"cat src/a.txt"}`},
+				{"type": "function_call_output", "call_id": "call_old", "output": "old output"},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory); err != nil || replace {
+		t.Fatalf("full-history request replace=%v err=%v", replace, err)
+	}
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_next",
+			"name":      "exec_command",
+			"arguments": `{"cmd":"cat src/b.txt"}`,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("output item replace=%v err=%v", replace, err)
+	}
+	fullHistoryDone := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-full-history-new", "output": []any{}},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &fullHistoryDone); err != nil || replace {
+		t.Fatalf("full-history completion replace=%v err=%v", replace, err)
+	}
+
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5.5",
+			"previous_response_id": "resp-full-history-new",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-full-history-recovery","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "call_next",
+				"output":  "new output",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &delta); err != nil || replace {
+		t.Fatalf("delta request replace=%v err=%v", replace, err)
+	}
+	upstreamErr := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "Invalid request",
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &upstreamErr)
+	if !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
+		t.Fatalf("invalid request should be consumed for recovery, replace=%v err=%v", replace, err)
+	}
+	if len(retryPayloads) != 1 {
+		t.Fatalf("retry payloads=%d want 1", len(retryPayloads))
+	}
+	retryEnv, parseErr := wsmitm.Parse(retryPayloads[0])
+	if parseErr != nil {
+		t.Fatalf("parse retry payload: %v", parseErr)
+	}
+	retryBody, _, ok := wsRequestBody(&retryEnv)
+	if !ok {
+		t.Fatalf("retry payload has no request body: %s", retryPayloads[0])
+	}
+	var retry map[string]json.RawMessage
+	if err := json.Unmarshal(retryBody, &retry); err != nil {
+		t.Fatalf("retry body json: %v", err)
+	}
+	if _, exists := retry["previous_response_id"]; exists {
+		t.Fatalf("retry must remove previous_response_id: %s", retryBody)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(retry["input"], &input); err != nil {
+		t.Fatalf("retry input json: %v", err)
+	}
+	if len(input) != 5 {
+		t.Fatalf("retry input len=%d want full-history chain plus current output: %s", len(input), retryBody)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_retry" {
+		t.Fatalf("missing recovery retry summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.chain_items"] != "4" ||
+		summaries[0].DebugFacts["wss.recovery.current_input_items"] != "1" {
+		t.Fatalf("bad recovery facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
 func TestWSPhaseFRecoverySuccessDoesNotRequireCompletedResponseID(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)
@@ -3578,6 +3697,107 @@ func TestWSPhaseFPreviousResponseBypassKeepsHistoryReducerEvidence(t *testing.T)
 		meta.DebugFacts["wss.stale_read_blocks"] != "0" ||
 		meta.DebugFacts["wss.obsolete_prune_blocks"] != "0" {
 		t.Fatalf("debug facts must stay honest for byte-preserving bypass: %+v", meta.DebugFacts)
+	}
+}
+
+func TestWSPhaseFHistoryLabAppliesBeforePreviousResponseBypass(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"prompt_cache_key":     "previous-response-history-lab",
+		"previous_response_id": "resp-history-lab",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+			{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+			{"type": "function_call", "call_id": "call_y_old", "name": "Read", "arguments": map[string]any{"path": "src/y.go"}},
+			{"type": "function_call_output", "call_id": "call_y_old", "output": strings.Repeat("obsolete y content ", 80)},
+			{"type": "message", "role": "user", "content": "filler one"},
+			{"type": "message", "role": "user", "content": "filler two"},
+			{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+			{"type": "function_call", "call_id": "call_y_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/y.go", "patch": "@@ ..."}},
+			{"type": "function_call_output", "call_id": "call_y_edit", "output": "patch applied"},
+			{"type": "function_call_output", "call_id": "call_unknown", "output": "unknown tool output keeps the previous_response guard active"},
+		},
+		"stream": true,
+	})
+
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	mutatedText := string(mutated)
+	if !changed {
+		t.Fatal("history lab should apply safe history reducers before previous-response bypass")
+	}
+	if strings.Contains(mutatedText, "stale x content") || !strings.Contains(mutatedText, "kind=stale-read") {
+		t.Fatalf("stale-read mutation missing before bypass: %s", mutatedText)
+	}
+	if strings.Contains(mutatedText, "obsolete y content") || !strings.Contains(mutatedText, "kind=obsolete-read") {
+		t.Fatalf("obsolete-prune mutation missing before bypass: %s", mutatedText)
+	}
+	if bytes.Contains(mutated, []byte("previous_response_id")) {
+		t.Fatalf("history-only full-history mutation must detach previous_response_id: %s", mutated)
+	}
+	if meta.BypassReason != "wss_previous_response_history_only" ||
+		meta.DebugFacts["wss.bypass_reason"] != "wss_previous_response_history_only" {
+		t.Fatalf("history-only bypass reason missing: %+v facts=%+v", meta, meta.DebugFacts)
+	}
+	if meta.DebugFacts["wss.full_history_detached_previous_response"] != "true" {
+		t.Fatalf("detach fact missing: %+v", meta.DebugFacts)
+	}
+	if stats.StaleReadBlocks == 0 || stats.ObsoletePruneBlocks == 0 || stats.TokensSaved <= 0 {
+		t.Fatalf("history-only bypass should count applied history savings: %+v", stats)
+	}
+}
+
+func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+	adapter.markWSSHistoryMutationRecoveryGuarded()
+	body := mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "history-recovery-guard",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "read src/x.go and src/y.go"},
+			{"type": "function_call", "call_id": "call_x_old", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_old", "output": strings.Repeat("stale x content ", 80)},
+			{"type": "function_call", "call_id": "call_y_old", "name": "Read", "arguments": map[string]any{"path": "src/y.go"}},
+			{"type": "function_call_output", "call_id": "call_y_old", "output": strings.Repeat("obsolete y content ", 80)},
+			{"type": "message", "role": "user", "content": "filler one"},
+			{"type": "message", "role": "user", "content": "filler two"},
+			{"type": "function_call", "call_id": "call_x_fresh", "name": "Read", "arguments": map[string]any{"path": "src/x.go"}},
+			{"type": "function_call_output", "call_id": "call_x_fresh", "output": "fresh x content"},
+			{"type": "function_call", "call_id": "call_y_edit", "name": "apply_patch", "arguments": map[string]any{"path": "src/y.go", "patch": "@@ ..."}},
+			{"type": "function_call_output", "call_id": "call_y_edit", "output": "patch applied"},
+		},
+		"stream": true,
+	})
+
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("recovery guard must full-pass later full-history mutations: changed=%v body=%s", changed, mutated)
+	}
+	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 || stats.TokensSaved != 0 {
+		t.Fatalf("recovery-guarded history savings must be evidence-only: %+v", stats)
+	}
+	if meta.DebugFacts["wss.history_mutation_guard"] != "wss_recovery_history_mutation_guard" {
+		t.Fatalf("recovery history guard fact missing: %+v", meta.DebugFacts)
 	}
 }
 
