@@ -420,10 +420,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
-			// Under the latency latch every block loosens to full pass, so the
-			// O(output) search-risk scan and the chunk-store budget probe would
-			// be pure overhead that keeps the latch from recovering.
-			wssSearchOutputBlocked := !req.LatencyBudgetExceeded && req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
 			if wssSearchOutputBlocked && req.WSSSearchMutationAllowed &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) {
 				wssSearchOutputBlocked = false
@@ -979,14 +976,18 @@ func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action
 }
 
 func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {
+	if proxyWSSSearchOutputCommandRisk(commandLine, workload) {
+		return true
+	}
+	return proxyToolResultLooksLikeSearchOutput(text)
+}
+
+func proxyWSSSearchOutputCommandRisk(commandLine string, workload savingspolicy.CodexWorkload) bool {
 	if workload == savingspolicy.CodexWorkloadSearch {
 		return true
 	}
 	workDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
-	if filter.SearchOutputReducerEligibleFromCommandLine(filterCommandLine, workDir) {
-		return true
-	}
-	return proxyToolResultLooksLikeSearchOutput(text)
+	return filter.SearchOutputReducerEligibleFromCommandLine(filterCommandLine, workDir)
 }
 
 func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock, commandFromToolUse bool, workload savingspolicy.CodexWorkload) bool {
@@ -1463,7 +1464,14 @@ func proxyLooksLikeGoTestOutput(payload string) bool {
 func proxyLooksLikeSearchOutput(payload string) bool {
 	nonEmpty := 0
 	matches := 0
-	for _, line := range strings.Split(payload, "\n") {
+	for len(payload) > 0 && nonEmpty < 12 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "Total output lines:") {
 			continue
@@ -1471,9 +1479,6 @@ func proxyLooksLikeSearchOutput(payload string) bool {
 		nonEmpty++
 		if proxyLooksLikeSearchResultLine(line) {
 			matches++
-		}
-		if nonEmpty >= 12 {
-			break
 		}
 	}
 	return matches >= 3 && matches*2 >= nonEmpty

@@ -652,16 +652,24 @@ attention demotes recoverable or heavier mechanisms such as chunk references
 while keeping cheap lossless/exact cache-hit reducers (`read_delta`,
 `repeated_output`) available, so a transient local resource spike does not erase
 the safest savings. Repeated Layer-0 latency budget breaches set a separate
-`latency_budget_full_context` gate after three slow frames and recover after
-cheap frames, so one spike does not disable savings but repeated local overhead
-cannot degrade Codex UX. A reducer pass that actually saved tokens is measured
-against a higher 250 ms productive ceiling instead of the 25 ms breach budget:
-time spent producing real savings is invisible next to multi-second inference
-and must not count as overhead pressure. Demoted full-pass passes stay cheap
-because per-block evidence classification is bounded to a 64 KB prefix and the
-search-risk and chunk-store probes are skipped while the gate is latched, so the
-latch can always recover; if cheap frames never reach the recovery budget, one
-strike still decays per 60 s without a breach so the gate cannot latch forever.
+latency gate after three slow frames and recover after cheap frames, so one spike
+does not disable savings but repeated local overhead cannot degrade Codex UX.
+The latency gate demotes recoverable or heavier mechanisms with
+`latency_budget_full_context` while keeping cheap lossless/exact cache-hit
+reducers eligible with `lossless_or_exact_reducer_latency_budget`; local
+overhead pressure is not a reason to erase model-safe savings. On WSS search
+output, the search-risk gate stays active under latency pressure; its text
+heuristic is prefix-bounded, so wrapper-generated search output still keeps the
+`wss_search_output_risk_gate` unless the explicit proof latch allows that exact
+path. A reducer pass that
+actually saved tokens is measured against a higher 250 ms productive ceiling
+instead of the 25 ms breach budget: time spent producing real savings is
+invisible next to multi-second inference and must not count as overhead pressure.
+Demoted full-pass passes stay cheap because per-block evidence classification is
+bounded to a 64 KB prefix and the search-risk and chunk-store probes are skipped
+while the gate is latched, so the latch can always recover; if cheap frames
+never reach the recovery budget, one strike still decays per 60 s without a
+breach so the gate cannot latch forever.
 The latency demotion bucket is persisted under
 `.slimference/runtime-budget` with a 30 minute TTL and capped strike debt, so a
 daemon restart does not immediately forget recent local-overhead pressure, while

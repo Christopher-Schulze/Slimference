@@ -737,6 +737,61 @@ func TestReduceCodexLayer0WSSSearchOutputInferencePassesThrough(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsRiskGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src`
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-latency", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-latency", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                 codexLayer0RouteWSSPhaseF,
+		Messages:              messages,
+		SessionID:             "sess-wss-search-latency",
+		LatencyBudgetExceeded: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 ||
+		result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("WSS search latency gate must keep search risk guard: stats=%+v text=%q evidence=%+v",
+			result.Stats, result.Messages[1].Content[0].Text, result.Stats.EvidenceDecisions)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsTextRiskGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-wrapper-latency", ToolName: "exec_command", ToolInput: `{"cmd":"python grep_wrapper.py --pattern needle"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-wrapper-latency", Text: original}}},
+	}
+	req := codexLayer0Request{
+		Route:                 codexLayer0RouteWSSPhaseF,
+		Messages:              messages,
+		SessionID:             "sess-wss-wrapper-search-latency",
+		LatencyBudgetExceeded: true,
+	}
+	seed := reduceCodexLayer0(req)
+	if seed.Stats.BlocksModified != 0 || seed.Stats.TokensSaved != 0 ||
+		seed.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(seed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("WSS search text-risk gate must stay active under latency: stats=%+v text=%q evidence=%+v",
+			seed.Stats, seed.Messages[1].Content[0].Text, seed.Stats.EvidenceDecisions)
+	}
+
+	repeated := reduceCodexLayer0(req)
+	if repeated.Stats.BlocksModified != 0 || repeated.Stats.TokensSaved != 0 ||
+		repeated.Stats.RepeatedOutputBlocks != 0 ||
+		repeated.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(repeated.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("WSS search text-risk gate must also block latency repeated-output collapse: stats=%+v text=%q evidence=%+v",
+			repeated.Stats, repeated.Messages[1].Content[0].Text, repeated.Stats.EvidenceDecisions)
+	}
+}
+
 func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -1152,9 +1207,9 @@ func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 	latencyReq := baseReq
 	latencyReq.LatencyBudgetExceeded = true
 	latencyBudgeted := reduceCodexLayer0(latencyReq)
-	if latencyBudgeted.Stats.TokensSaved != 0 || latencyBudgeted.Stats.RepeatedOutputBlocks != 0 ||
-		latencyBudgeted.Messages[1].Content[0].Text != body {
-		t.Fatalf("latency budget must full-pass existing cache hit, stats=%+v text=%q", latencyBudgeted.Stats, latencyBudgeted.Messages[1].Content[0].Text)
+	if latencyBudgeted.Stats.TokensSaved <= 0 || latencyBudgeted.Stats.RepeatedOutputBlocks != 1 ||
+		!strings.Contains(latencyBudgeted.Messages[1].Content[0].Text, "[context-elided kind=tool-output status=unchanged") {
+		t.Fatalf("latency budget should keep cheap lossless cache hits, stats=%+v text=%q", latencyBudgeted.Stats, latencyBudgeted.Messages[1].Content[0].Text)
 	}
 	unblocked := reduceCodexLayer0(baseReq)
 	if unblocked.Stats.TokensSaved <= 0 || unblocked.Stats.RepeatedOutputBlocks != 1 {
