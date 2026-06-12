@@ -429,10 +429,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		// surface as a follow-up 400. Later full-history history-reducer
 		// captures showed the same downstream-delta failure class. Capture L
 		// then proved reconnect full-history search mutation can poison the
-		// following turn too, so only non-reconnect full-history keeps the
-		// archive-backed structured proof path.
+		// following turn too. Keep first-socket full-history structured
+		// mutations eligible for archive-backed savings, but keep history
+		// reducers guarded on any live full-history socket until their proof
+		// corpus is complete.
 		requestShape := wssRequestShape(meta, messages)
-		fullHistoryDownstreamMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
+		fullHistoryHistoryMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
+		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
@@ -443,7 +446,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
-		} else if requestContainsToolOutput && fullHistoryDownstreamMutationBlocked && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
+		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
@@ -457,7 +460,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		historyMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
 			historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
-		} else if fullHistoryDownstreamMutationBlocked {
+		} else if fullHistoryHistoryMutationBlocked {
 			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		}
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)

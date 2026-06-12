@@ -811,12 +811,14 @@ match list must be capped, first/last evidence stays visible and high-signal
 rows (`error`, `fatal`, `timeout`, `rejected`, `warning`, `security`, `secret`,
 `auth`, `todo`, `fixme`, etc.) are promoted into the visible window before
 plain middle rows.
-For Codex WSS Phase-F, search-output reducer paths are pass-through until the
-WSS protocol shape is re-certified live. That includes grep-style output,
-path-list output from tools such as `find` / `fd`, and search-looking output
-inferred from shell wrappers or unresolved tool calls. The cost is lower WSS
-search-token savings, but the product contract is stronger: no upstream 400s
-and no model-facing context loss.
+For Codex WSS Phase-F, search-output reducer paths stay risk-gated by request
+shape and recovery proof. Recoverable full-history tool output on the first
+live socket may compact with an archive marker; reconnect full-history and
+ambiguous stateful/delta tool output full-pass until fresh live proof shows the
+current WSS contract accepts that mutation without upstream 400s or model-facing
+context loss. This keeps exact WSS search-token savings where the recovery path
+is deterministic without turning historical downstream-delta risk into a broad
+savings kill switch.
 
 Unknown or unsafe stateful Codex WSS tool-output request bodies full-pass by
 default. The guard is route- and shape-scoped, not a global savings kill switch:

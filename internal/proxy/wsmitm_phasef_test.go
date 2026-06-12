@@ -4646,6 +4646,57 @@ func TestWSPhaseFDefaultFullHistorySearchOutputCompactsWithArchive(t *testing.T)
 	}
 }
 
+func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(1)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-first-socket-full-history",
+		"prompt_cache_key":     "search-first-socket-full-history-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-first-socket-full-history", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-first-socket-full-history", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("first-socket full-history search output handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if !replace ||
+		!strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("first-socket full-history search output should compact with archive recovery: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("first-socket full-history search output should save without guards: %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
+		t.Fatalf("first-socket full-history search output should record Layer 0 savings: %+v", snap)
+	}
+}
+
 func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
