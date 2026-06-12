@@ -1003,8 +1003,31 @@ func wssInputHasUserPromptInput(input json.RawMessage) bool {
 		_ = json.Unmarshal(item["type"], &itemType)
 		var role string
 		_ = json.Unmarshal(item["role"], &role)
-		if itemType == "message" && role == "user" && len(item["content"]) > 0 {
+		if itemType == "message" && role == "user" && wssContentHasUserPromptText(item["content"]) {
 			return true
+		}
+	}
+	return false
+}
+
+func wssContentHasUserPromptText(content json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) == 0 {
+		return false
+	}
+	if trimmed[0] == '"' {
+		return strings.TrimSpace(rawJSONString(content)) != ""
+	}
+	var parts []map[string]json.RawMessage
+	if err := json.Unmarshal(content, &parts); err != nil {
+		return false
+	}
+	for _, part := range parts {
+		switch rawJSONString(part["type"]) {
+		case "input_text", "text":
+			if strings.TrimSpace(rawJSONString(part["text"])) != "" {
+				return true
+			}
 		}
 	}
 	return false

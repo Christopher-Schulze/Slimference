@@ -650,6 +650,26 @@ func TestWSSUserPromptPresenceHelpers(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "blank_user_message_content",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"user","content":"   "}]`)},
+			want: false,
+		},
+		{
+			name: "empty_user_message_content_parts",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"user","content":[]}]`)},
+			want: false,
+		},
+		{
+			name: "image_only_user_message_content",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"user","content":[{"type":"input_image","url":"local"}]}]`)},
+			want: false,
+		},
+		{
+			name: "multi_text_user_message_content",
+			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"user","content":[{"type":"input_text","text":"one"},{"type":"text","text":"two"}]}]`)},
+			want: true,
+		},
+		{
 			name: "assistant_message_item",
 			raw:  map[string]json.RawMessage{"input": json.RawMessage(`[{"type":"message","role":"assistant","content":"done"}]`)},
 			want: false,
@@ -784,6 +804,50 @@ func TestWSPhaseFConciseChatInjectsOnlyChatHint(t *testing.T) {
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 1 || snap.LastReason != "applied" || snap.LastAddedTokens == 0 {
 		t.Fatalf("output-reduce tracker = %+v, want concise chat injection", snap)
+	}
+}
+
+func TestWSPhaseFConciseChatSkipsSemanticallyEmptyUserPrompt(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ConciseChatText = "answer tight but keep important details"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	cfg.Compression.OutputReduce.ConciseChatMinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "concise-chat-empty-user-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "   ",
+			}},
+			"stream": true,
+		},
+	})
+	original := append([]byte(nil), env.Body...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace || !bytes.Equal(original, env.Body) {
+		t.Fatalf("semantically empty user prompt must stay byte-equal: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "answer tight but keep important details") {
+		t.Fatalf("semantically empty user prompt must not receive concise-chat hint: %s", env.Body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
+		t.Fatalf("semantically empty user prompt should not be an output-reduce candidate: %+v", snap)
 	}
 }
 
