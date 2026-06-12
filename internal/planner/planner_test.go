@@ -137,7 +137,7 @@ func TestPlan_L3OutputReduce(t *testing.T) {
 		t.Fatalf("cooldown L3=%+v", d)
 	}
 	toolCooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, ToolPruneCooldown: true})
-	if d := findDecision(t, toolCooldown, Layer3); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer3" {
+	if d := findDecision(t, toolCooldown, Layer3); d.Action != ActionRun || d.Reason != "output_tokens_or_task_size_justify_directive" {
 		t.Fatalf("tool cooldown L3=%+v", d)
 	}
 	exact := Plan(RequestFacts{TaskShape: " exact_reply ", EstimatedInputTokens: 5000, ExpectedOutputTokens: 1000})

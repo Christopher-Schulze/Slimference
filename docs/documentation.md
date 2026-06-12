@@ -2762,13 +2762,13 @@ edited files. Live-corpus confidence defaults to `unknown`, can be asserted via
 by the inspect-only `wscompact.ShapeRegistry`; it records observed JSON frame
 shapes without changing bytes, and it exposes mutation confidence only for
 registered Phase-F-compatible shapes rather than arbitrary JSON envelopes.
-Layer 3 cooldown is sourced from the T141 output-reduce tracker and the T151
-tool-prune session bucket; the planner marks it as a `cheap_only`
-`quality_cooldown_soften_layer3` decision because the runtime softens Layer 3
-rather than blindly continuing aggressive behavior. The cooldown softens only
-for the configured matching request count and then removes the downgrade;
-tool-prune miss cooldowns likewise keep the full schema only for one follow-up
-decision before restoring pruning.
+Layer 3 cooldown is sourced only from the T141 output-reduce tracker; the
+planner marks it as a `cheap_only` `quality_cooldown_soften_layer3` decision
+because the runtime softens output directives rather than blindly continuing
+aggressive behavior. The cooldown softens only for the configured matching
+request count and then removes the downgrade. Tool-prune miss cooldowns are
+schema-scoped instead: they keep the full tool schema only for one follow-up
+decision before restoring pruning and do not soften output-reduce planning.
 Output-reduce task-shape selection now bypasses unproven detail-sensitive shapes
 instead of merely capping them to `standard`: code edits, new-file generation,
 debugging, reviews, tool-result reasoning, command-output relay, final

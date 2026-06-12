@@ -158,7 +158,7 @@ func decideL3(f RequestFacts) LayerDecision {
 	if d, guarded := decideL3ShapeGuard(f); guarded {
 		return d
 	}
-	if f.OutputReduceCooldown || f.ToolPruneCooldown {
+	if f.OutputReduceCooldown {
 		return decision(Layer3, ActionCheapOnly, "quality_cooldown_soften_layer3", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
 	}
 	if f.ExpectedOutputTokens >= 200 || f.EstimatedInputTokens >= 1000 {
