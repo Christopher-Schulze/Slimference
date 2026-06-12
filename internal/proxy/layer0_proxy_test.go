@@ -941,9 +941,42 @@ func TestReduceCodexLayer0GuardedCandidateEvidenceCarriesFootprint(t *testing.T)
 	if got.Mechanism == "" {
 		t.Fatalf("guarded candidate evidence missing: %+v", guarded.Stats.EvidenceDecisions)
 	}
-	if got.OriginalTokens <= 0 || got.FinalTokens <= 0 || got.SavedTokens <= 0 ||
-		got.FootprintScore <= 0 || got.FootprintScoreBucket == "" {
-		t.Fatalf("guarded candidate must carry token and footprint evidence: %+v", got)
+	if got.OriginalTokens <= 0 || got.FinalTokens != got.OriginalTokens || got.SavedTokens != 0 ||
+		got.FootprintScore <= 0 || got.FootprintScoreBucket == "" ||
+		guarded.Stats.ReadDeltaLatencyNs != 0 || guarded.Stats.ReadDeltaAttempts != 0 {
+		t.Fatalf("guarded candidate must be cheap byte-equal footprint evidence: decision=%+v stats=%+v", got, guarded.Stats)
+	}
+}
+
+func TestReduceCodexLayer0StatefulDeltaSkipsRepeatedOutputHotpath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	body := strings.Repeat("deterministic report row with unchanged non-file data\n", 160)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-report", ToolName: "exec_command", ToolInput: `{"cmd":"python generate_report.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-report", Text: body}}},
+	}
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-guarded-repeated",
+		TurnSeq:   1,
+	})
+	if seed.Stats.TokensSaved != 0 || seed.Stats.RepeatedOutputBlocks != 0 {
+		t.Fatalf("first output should seed only: %+v", seed.Stats)
+	}
+
+	guarded := reduceCodexLayer0(codexLayer0Request{
+		Messages:                     messages,
+		SessionID:                    "sess-guarded-repeated",
+		TurnSeq:                      2,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if guarded.Stats.TokensSaved != 0 || guarded.Stats.RepeatedOutputBlocks != 0 ||
+		guarded.Stats.RepeatedOutputLatencyNs != 0 ||
+		guarded.Messages[1].Content[0].Text != body {
+		t.Fatalf("stateful delta guard must skip repeated-output hotpath and full-pass bytes: %+v", guarded.Stats)
+	}
+	if !proxyLayer0EvidenceHasReason(guarded.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
+		t.Fatalf("guarded repeated output evidence missing: %+v", guarded.Stats.EvidenceDecisions)
 	}
 }
 

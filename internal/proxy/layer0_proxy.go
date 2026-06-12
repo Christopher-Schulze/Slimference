@@ -469,9 +469,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
-			if readDeltaAttempted {
-				stats.ReadDeltaAttempts++
-			}
 			afterText, changed := "", false
 			mechanism := proxyLayer0MechanismReadDelta
 			chunkReport := chunkdedup.EncodeResult{}
@@ -479,10 +476,48 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			candidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, action evidence.Action, reason string) evidence.BlockDecision {
 				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			}
+			guardedCandidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, reason string) evidence.BlockDecision {
+				before := countBeforeTokens()
+				return proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, mechanism, evidence.ActionFullPass, reason, before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
+			}
 			recordChunkPriorityFullPass := func() {
 				before := countBeforeTokens()
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, proxyLayer0MechanismChunkDedup, evidence.ActionFullPass, "session_integrity_budget", before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 				req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
+			}
+			downstreamStateGuardReason := ""
+			if req.HistoryMutationGuardReason != "" {
+				downstreamStateGuardReason = req.HistoryMutationGuardReason
+			} else if req.StatefulDeltaMutationBlocked {
+				downstreamStateGuardReason = "wss_stateful_delta_mutation_proof_gate"
+			}
+			if readCommand && downstreamStateGuardReason != "" {
+				if policy.ReadDelta {
+					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismReadDelta, downstreamStateGuardReason))
+				}
+				if policy.ChunkDedup && chunkAllowed {
+					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismChunkDedup, downstreamStateGuardReason))
+					if req.ChunkStore != nil {
+						req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
+					}
+				}
+				continue
+			}
+			statefulDeltaOutputMutationAllowed := req.WSSSearchMutationAllowed &&
+				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
+			if !readCommand && req.StatefulDeltaMutationBlocked && !statefulDeltaOutputMutationAllowed {
+				if policy.RepeatedOutput {
+					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismRepeatedOut, "wss_stateful_delta_mutation_proof_gate"))
+				}
+				reason := "wss_stateful_delta_mutation_proof_gate"
+				if wssSearchOutputBlocked {
+					reason = "wss_search_output_risk_gate"
+				}
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismCapturedOut, reason))
+				continue
+			}
+			if readDeltaAttempted {
+				stats.ReadDeltaAttempts++
 			}
 			if policy.ReadDelta {
 				var cacheReason string
