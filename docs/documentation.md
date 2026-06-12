@@ -1085,10 +1085,11 @@ search outputs with `--min-search-outputs`, runs default replay, then runs each
 profile-passing candidate through WSS A/B replay with `lost=0`, upstream-error,
 and configurable extra reducer-token gates (`--min-extra-reducer-tokens`,
 default 1). Search-cap proof replays enable the delta tool-output mutation proof
-path and record that fact in JSON; the final runtime latch rejects artifacts
-that do not carry this proof bit. Its JSON emits only content-free
-profile/replay counters plus the selected candidate. Candidates that fail
-breadth, retention, or replay stay rejected without changing product defaults.
+path and record reducer identity in JSON; the final runtime latch rejects
+artifacts that do not carry `required_reducer_hits.captured_output > 0`. Its JSON
+emits only content-free profile/replay counters plus the selected candidate.
+Candidates that fail breadth, retention, or replay stay rejected without changing
+product defaults.
 Focused `wss-proof-matrix` can now run that same promotion proof for
 `search_loop` rows when passed `--search-cap-candidate files:matches` values.
 The optional matrix gate forwards retention, breadth, and extra-savings
@@ -1104,9 +1105,10 @@ route-hygiene proof passed, the route-hygiene summary carries both before/after
 `slimference codex status --json` snapshot paths, and the summary still
 satisfies the release minima (CLI plus Desktop, at least two positive rows, at
 least 40% retained matches, positive extra reducer tokens, and a named valid
-selected cap) plus the delta tool-output mutation proof bit before copying the
-selected files/matches cap into the WSS runtime path and opening the narrow
-named-search WSS delta mutation path. A focused
+selected cap) plus the delta proof bit and
+`required_reducer_hits.captured_output > 0` before copying the selected
+files/matches cap into the WSS runtime path and opening the narrow named-search
+WSS delta mutation path. A focused
 `wss-proof-matrix --json` report alone is rejected by config loading because it
 does not prove route hygiene. Without the final proof path, or when the final
 proof is weak, the runtime cap fields stay zero and the default search compactor
@@ -2951,10 +2953,11 @@ The optional search-cap proof input is a focused `wss-proof-matrix --json`
 report, also content-free; the release report validates that it passed, contains
 only `search_loop` rows, covers CLI plus Desktop, and selects one consistent cap
 across rows with at least 40% retained matches, at least two resolved search
-outputs, and positive extra reducer-token savings. The CLI/Desktop/positive-row
-checks are recomputed from validated `capture_reports`; each counted capture
-report must have its own row gate passed, so aggregate report counters cannot
-make a thin or failed focused artifact pass. Search-cap promotion additionally
+outputs, positive extra reducer-token savings, and
+`required_reducer_hits.captured_output > 0`. The CLI/Desktop/positive-row checks
+are recomputed from validated `capture_reports`; each counted capture report
+must have its own row gate passed, so aggregate report counters cannot make a
+thin or failed focused artifact pass. Search-cap promotion additionally
 requires before/after `slimference codex status --json` snapshots proving normal
 direct Codex routing: no marker-owned shared route, no legacy base-url keys, and
 no route conflict. The final JSON must preserve those before/after snapshot

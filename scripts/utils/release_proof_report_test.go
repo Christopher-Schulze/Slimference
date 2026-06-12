@@ -192,7 +192,8 @@ func TestReleaseProofReportAcceptsFocusedSearchCapProofArtifact(t *testing.T) {
 	if report.SearchCapProof.MaxFilesShown != 25 ||
 		report.SearchCapProof.MaxMatchesPerFile != 15 ||
 		report.SearchCapProof.TotalExtraReducerTokens != 14 ||
-		report.SearchCapProof.MinMatchRetentionPct != 40.25 {
+		report.SearchCapProof.MinMatchRetentionPct != 40.25 ||
+		report.SearchCapProof.RequiredReducerHits["captured_output"] != 2 {
 		t.Fatalf("unexpected search-cap summary: %+v", report.SearchCapProof)
 	}
 
@@ -332,6 +333,24 @@ func TestReleaseProofReportRejectsBadSearchCapProofArtifact(t *testing.T) {
 		if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK || !strings.Contains(joined, want) {
 			t.Fatalf("contradictory search-cap proof missing %q: passed=%v proof=%+v failures=%v", want, report.GatePassed, report.SearchCapProof, report.GateFailures)
 		}
+	}
+
+	envelopeOnlyPath := filepath.Join(dir, "search-cap-proof-envelope-only.json")
+	writeReleaseSearchCapProofReportWithReducerHits(t, envelopeOnlyPath, map[string]int64{"codex_exec_envelope": 2})
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: envelopeOnlyPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "focused search-cap proof missing required captured_output reducer hit") {
+		t.Fatalf("envelope-only search-cap proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
 	}
 
 	badJSONPath := filepath.Join(dir, "not-json.json")
@@ -818,14 +837,25 @@ func writeReleaseSearchCapProofReportWithExtras(t *testing.T, path string, gateP
 
 func writeReleaseSearchCapProofReportWithConfig(t *testing.T, path string, gatePassed bool, cliCandidate, desktopCandidate string, cliExtra, desktopExtra int, minRetention float64, minOutputs, minExtra int, cliRetention, desktopRetention float64) {
 	t.Helper()
+	writeReleaseSearchCapProofReportWithConfigAndReducerHits(t, path, gatePassed, cliCandidate, desktopCandidate, cliExtra, desktopExtra, minRetention, minOutputs, minExtra, cliRetention, desktopRetention, map[string]int64{"captured_output": 2})
+}
+
+func writeReleaseSearchCapProofReportWithReducerHits(t *testing.T, path string, requiredReducerHits map[string]int64) {
+	t.Helper()
+	writeReleaseSearchCapProofReportWithConfigAndReducerHits(t, path, true, "candidate_25x15", "candidate_25x15", 6, 8, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 40.25, 41.5, requiredReducerHits)
+}
+
+func writeReleaseSearchCapProofReportWithConfigAndReducerHits(t *testing.T, path string, gatePassed bool, cliCandidate, desktopCandidate string, cliExtra, desktopExtra int, minRetention float64, minOutputs, minExtra int, cliRetention, desktopRetention float64, requiredReducerHits map[string]int64) {
+	t.Helper()
 	report := wssProofMatrixReport{
-		Path:            "focused-search-cap.jsonl",
-		Captures:        2,
-		CLI:             1,
-		Desktop:         1,
-		PositiveSavings: 2,
-		WorkloadClasses: map[string]int{"search_loop": 2},
-		GatePassed:      gatePassed,
+		Path:                "focused-search-cap.jsonl",
+		Captures:            2,
+		CLI:                 1,
+		Desktop:             1,
+		PositiveSavings:     2,
+		WorkloadClasses:     map[string]int{"search_loop": 2},
+		RequiredReducerHits: requiredReducerHits,
+		GatePassed:          gatePassed,
 		CaptureReports: []wssProofMatrixCapture{
 			releaseSearchCapCapture("cli-search-cap", "cli", cliCandidate, cliExtra, minRetention, minOutputs, minExtra, cliRetention),
 			releaseSearchCapCapture("desktop-search-cap", "desktop", desktopCandidate, desktopExtra, minRetention, minOutputs, minExtra, desktopRetention),
@@ -846,13 +876,14 @@ func writeReleaseSearchCapProofReportWithConfig(t *testing.T, path string, gateP
 func writeReleaseSearchCapAggregateOnlyProofReport(t *testing.T, path string) {
 	t.Helper()
 	report := wssProofMatrixReport{
-		Path:            "focused-search-cap.jsonl",
-		Captures:        2,
-		CLI:             1,
-		Desktop:         1,
-		PositiveSavings: 2,
-		WorkloadClasses: map[string]int{"search_loop": 2},
-		GatePassed:      true,
+		Path:                "focused-search-cap.jsonl",
+		Captures:            2,
+		CLI:                 1,
+		Desktop:             1,
+		PositiveSavings:     2,
+		WorkloadClasses:     map[string]int{"search_loop": 2},
+		RequiredReducerHits: map[string]int64{"captured_output": 2},
+		GatePassed:          true,
 		CaptureReports: []wssProofMatrixCapture{
 			releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25),
 		},
@@ -878,7 +909,10 @@ func writeReleaseSearchCapFailedRowProofReport(t *testing.T, path string) {
 		Desktop:         1,
 		PositiveSavings: 2,
 		WorkloadClasses: map[string]int{"search_loop": 2},
-		GatePassed:      true,
+		RequiredReducerHits: map[string]int64{
+			"captured_output": 2,
+		},
+		GatePassed: true,
 		CaptureReports: []wssProofMatrixCapture{
 			releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25),
 			failed,
@@ -906,9 +940,12 @@ func writeReleaseSearchCapContradictoryProofReport(t *testing.T, path string) {
 		Desktop:         1,
 		PositiveSavings: 2,
 		WorkloadClasses: map[string]int{"search_loop": 2},
-		GatePassed:      true,
-		GateFailures:    []string{"hidden matrix issue"},
-		CaptureReports:  []wssProofMatrixCapture{cli, desktop},
+		RequiredReducerHits: map[string]int64{
+			"captured_output": 2,
+		},
+		GatePassed:     true,
+		GateFailures:   []string{"hidden matrix issue"},
+		CaptureReports: []wssProofMatrixCapture{cli, desktop},
 	}
 	data, err := json.Marshal(report)
 	if err != nil {

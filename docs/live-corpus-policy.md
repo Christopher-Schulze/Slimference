@@ -78,9 +78,11 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    `--search-cap-proof-report`; the final report validates that content-free
    artifact without reading raw frames, including the 40% retained-match floor,
    at least two resolved search outputs, and positive extra reducer-token
-   savings. The focused proof must also prove the delta tool-output mutation
-   path for the selected cap; otherwise the runtime latch leaves search caps
-   inactive. The same promotion report must also receive before/after
+   savings. The focused proof must also prove the concrete `captured_output`
+   delta tool-output mutation path for the selected cap through
+   `required_reducer_hits.captured_output > 0`; otherwise the runtime latch
+   leaves search caps inactive. The same promotion report must also receive
+   before/after
    `slimference codex status --json` snapshots through `--codex-status-before`
    and `--codex-status-after`, proving no persistent shared Codex route,
    legacy base-url key, or route conflict was active during the proof window.

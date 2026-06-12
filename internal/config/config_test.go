@@ -234,6 +234,39 @@ codex_search_cap_proof_path = %q
 	}
 }
 
+func TestLoadWithOptions_CodexSearchCapProofRejectsEnvelopeOnlyReducerProof(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:               25,
+		matches:             15,
+		retention:           41.25,
+		extraTokens:         120,
+		routeOK:             true,
+		resourceOK:          true,
+		matrixPath:          "clean-release-matrix.jsonl",
+		matrixFiles:         1,
+		rows:                12,
+		positiveRows:        9,
+		clients:             []string{"cli", "desktop"},
+		requiredReducerHits: map[string]int64{"codex_exec_envelope": 2},
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected envelope-only reducer proof to reject config")
+	}
+	if !strings.Contains(err.Error(), "missing final release captured_output reducer proof for selected search cap") {
+		t.Fatalf("rejection did not explain missing captured_output proof: %v", err)
+	}
+}
+
 func TestLoadWithOptions_CodexSearchCapProofRejectsFocusedMatrixReport(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := filepath.Join(dir, "focused-search-cap-proof.json")
@@ -481,26 +514,27 @@ func writeCodexSearchCapProofFixtureWithRouteHygiene(t *testing.T, dir string, f
 }
 
 type codexSearchCapProofFixtureOptions struct {
-	files              int
-	matches            int
-	retention          float64
-	extraTokens        int
-	selectedCandidate  string
-	selectedExplicit   bool
-	routeOK            bool
-	routeBefore        string
-	routeAfter         string
-	routeExplicit      bool
-	routeIssues        []string
-	resourceOK         bool
-	resourceIssues     []string
-	searchCapIssues    []string
-	reportGateFailures []string
-	matrixPath         string
-	matrixFiles        int
-	rows               int
-	positiveRows       int
-	clients            []string
+	files               int
+	matches             int
+	retention           float64
+	extraTokens         int
+	selectedCandidate   string
+	selectedExplicit    bool
+	routeOK             bool
+	routeBefore         string
+	routeAfter          string
+	routeExplicit       bool
+	routeIssues         []string
+	resourceOK          bool
+	resourceIssues      []string
+	searchCapIssues     []string
+	reportGateFailures  []string
+	matrixPath          string
+	matrixFiles         int
+	rows                int
+	positiveRows        int
+	clients             []string
+	requiredReducerHits map[string]int64
 }
 
 func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts codexSearchCapProofFixtureOptions) string {
@@ -516,6 +550,10 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 	routeAfter := opts.routeAfter
 	if routeAfter == "" && opts.routeOK && !opts.routeExplicit {
 		routeAfter = "codex-status-after.json"
+	}
+	requiredReducerHits := opts.requiredReducerHits
+	if requiredReducerHits == nil {
+		requiredReducerHits = map[string]int64{"captured_output": 2}
 	}
 	path := filepath.Join(dir, "release-proof-report.json")
 	report := map[string]any{
@@ -548,6 +586,7 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 			"total_extra_reducer_tokens":       opts.extraTokens,
 			"min_match_retention_pct":          opts.retention,
 			"delta_tool_output_mutation_proof": true,
+			"required_reducer_hits":            requiredReducerHits,
 		},
 		"codex_route_hygiene": map[string]any{
 			"before": routeBefore,

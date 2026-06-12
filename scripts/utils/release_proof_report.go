@@ -66,19 +66,20 @@ type releaseProofEconomics struct {
 }
 
 type releaseSearchCapProofSummary struct {
-	Path                    string   `json:"path"`
-	OK                      bool     `json:"ok"`
-	Issues                  []string `json:"issues,omitempty"`
-	Captures                int      `json:"captures"`
-	CLI                     int      `json:"cli"`
-	Desktop                 int      `json:"desktop"`
-	PositiveSavings         int      `json:"positive_savings_captures"`
-	DeltaToolOutputProof    bool     `json:"delta_tool_output_mutation_proof"`
-	SelectedCandidate       string   `json:"selected_candidate,omitempty"`
-	MaxFilesShown           int      `json:"max_files_shown,omitempty"`
-	MaxMatchesPerFile       int      `json:"max_matches_per_file,omitempty"`
-	TotalExtraReducerTokens int      `json:"total_extra_reducer_tokens,omitempty"`
-	MinMatchRetentionPct    float64  `json:"min_match_retention_pct,omitempty"`
+	Path                    string           `json:"path"`
+	OK                      bool             `json:"ok"`
+	Issues                  []string         `json:"issues,omitempty"`
+	Captures                int              `json:"captures"`
+	CLI                     int              `json:"cli"`
+	Desktop                 int              `json:"desktop"`
+	PositiveSavings         int              `json:"positive_savings_captures"`
+	DeltaToolOutputProof    bool             `json:"delta_tool_output_mutation_proof"`
+	RequiredReducerHits     map[string]int64 `json:"required_reducer_hits,omitempty"`
+	SelectedCandidate       string           `json:"selected_candidate,omitempty"`
+	MaxFilesShown           int              `json:"max_files_shown,omitempty"`
+	MaxMatchesPerFile       int              `json:"max_matches_per_file,omitempty"`
+	TotalExtraReducerTokens int              `json:"total_extra_reducer_tokens,omitempty"`
+	MinMatchRetentionPct    float64          `json:"min_match_retention_pct,omitempty"`
 }
 
 type releaseCodexRouteHygieneSummary struct {
@@ -462,11 +463,12 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 		return nil, fmt.Errorf("parse search-cap proof report: %w", err)
 	}
 	summary := &releaseSearchCapProofSummary{
-		Path:            path,
-		Captures:        proof.Captures,
-		CLI:             proof.CLI,
-		Desktop:         proof.Desktop,
-		PositiveSavings: proof.PositiveSavings,
+		Path:                path,
+		Captures:            proof.Captures,
+		CLI:                 proof.CLI,
+		Desktop:             proof.Desktop,
+		PositiveSavings:     proof.PositiveSavings,
+		RequiredReducerHits: cloneInventoryInt64Map(proof.RequiredReducerHits),
 	}
 	var issues []string
 	if !proof.GatePassed {
@@ -489,6 +491,9 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 	}
 	if proof.WorkloadClasses["search_loop"] != proof.Captures {
 		issues = append(issues, "focused search-cap proof must contain only search_loop captures")
+	}
+	if proof.RequiredReducerHits["captured_output"] <= 0 {
+		issues = append(issues, "focused search-cap proof missing required captured_output reducer hit")
 	}
 	validatedSearchLoopReports := 0
 	validatedCLIReports := 0

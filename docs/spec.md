@@ -64,11 +64,12 @@ Requirements:
 - sharper Codex WSS search-output caps may become runtime-active only through a
   validated focused search-cap proof artifact whose `capture_reports` themselves
   pass their row gates and prove CLI plus Desktop, two positive search-loop
-  rows, retained evidence, replay safety, delta tool-output mutation proof for
-  the selected cap, and before/after Codex route hygiene with no persistent
-  shared route or legacy base-url keys; the final report must preserve both
-  status snapshot paths and a named selected cap; aggregate proof counters alone
-  are not sufficient, and raw cap values are not product config knobs;
+  rows, retained evidence, replay safety, `captured_output` delta tool-output
+  mutation proof for the selected cap, and before/after Codex route hygiene with
+  no persistent shared route or legacy base-url keys; the final report must
+  preserve both status snapshot paths, `required_reducer_hits.captured_output`,
+  and a named selected cap; aggregate proof counters alone are not sufficient,
+  and raw cap values are not product config knobs;
 - every reducer records enough local telemetry to prove hit, miss, block, and
   fail-open reasons without logging raw private payloads.
 
