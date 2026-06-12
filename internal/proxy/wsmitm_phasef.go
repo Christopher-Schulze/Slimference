@@ -463,6 +463,10 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		} else if fullHistoryHistoryMutationBlocked {
 			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		}
+		effectiveMutationGuardReason := structuredMutationGuardReason
+		if statefulDeltaMutationBlocked {
+			effectiveMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+		}
 		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
 		if cacheBustDemoted != 0 {
 			if meta.DebugFacts == nil {
@@ -631,6 +635,24 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				meta.DebugFacts = make(map[string]string)
 			}
 			meta.DebugFacts["wss.structured_mutation_guard"] = structuredMutationGuardReason
+		}
+		if effectiveMutationGuardReason != "" {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.effective_mutation_guard"] = effectiveMutationGuardReason
+		}
+		if historyMutationGuardReason != "" {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.history_mutation_guard"] = historyMutationGuardReason
+		}
+		if statefulDeltaMutationBlocked {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.stateful_delta_mutation_blocked"] = "true"
 		}
 		if toolOutputResults > 0 {
 			if meta.DebugFacts == nil {

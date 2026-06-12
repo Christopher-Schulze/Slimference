@@ -3447,7 +3447,7 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 	adapter.setSocketSeq(1)
 	body := codexWSStaleObsoleteLayer0Body()
 
-	mutated, _, changed, stats, _ := adapter.applyInputPipeline(body)
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
 	mutatedText := string(mutated)
 	if !changed {
 		t.Fatal("live-socket fixture should still allow non-history savings")
@@ -3463,6 +3463,10 @@ func TestWSPhaseFFullHistoryHistoryReducersFullPassOnLiveSocket(t *testing.T) {
 	}
 	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 {
 		t.Fatalf("guarded history reducers must not count applied savings: %+v", stats)
+	}
+	if meta.DebugFacts["wss.history_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		meta.DebugFacts["wss.effective_mutation_guard"] != "" {
+		t.Fatalf("history guard must not masquerade as an effective structured mutation guard: %+v", meta.DebugFacts)
 	}
 	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) ||
 		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
@@ -4173,7 +4177,9 @@ func TestWSPhaseFKnownPreviousResponseReadKeepsLayer0Savings(t *testing.T) {
 		}
 	}
 	if secondSummary.BypassReason != "" || !gated ||
-		secondSummary.DebugFacts["wss.tool_results_resolved"] != "1" {
+		secondSummary.DebugFacts["wss.tool_results_resolved"] != "1" ||
+		secondSummary.DebugFacts["wss.effective_mutation_guard"] != "wss_stateful_delta_mutation_proof_gate" ||
+		secondSummary.DebugFacts["wss.stateful_delta_mutation_blocked"] != "true" {
 		t.Fatalf("second known read should carry the proof-gate reason: %+v", secondSummary)
 	}
 }
@@ -4278,7 +4284,9 @@ func TestWSPhaseFBroadToolOutputMutationFlagDoesNotBypassDeltaGate(t *testing.T)
 			gated = true
 		}
 	}
-	if !gated || summary.DebugFacts["wss.request_shape"] != "delta" {
+	if !gated || summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_stateful_delta_mutation_proof_gate" ||
+		summary.DebugFacts["wss.stateful_delta_mutation_blocked"] != "true" {
 		t.Fatalf("broad flag delta turn should carry proof-gate evidence: %+v", summary)
 	}
 }
@@ -4688,9 +4696,11 @@ func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testin
 	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
 		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.history_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
-		t.Fatalf("first-socket full-history search output should save without guards: %+v", summary)
+		t.Fatalf("first-socket full-history search output should save without an effective structured guard: %+v", summary)
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
 		t.Fatalf("first-socket full-history search output should record Layer 0 savings: %+v", snap)
@@ -4738,6 +4748,7 @@ func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *tes
 	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
 		summary.DebugFacts["wss.structured_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
 		summary.Tokens.Saved != 0 ||
 		summary.MessagesCompressed != 0 {
 		t.Fatalf("reconnect full-history search output should be guarded: %+v", summary)
