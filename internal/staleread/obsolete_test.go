@@ -80,10 +80,10 @@ func TestPruneReadAfterMutateNotPruned(t *testing.T) {
 	}
 }
 
-func TestPruneOnlyEarliestMutationCounts(t *testing.T) {
-	// Earliest mutation determines pruning. Reads BEFORE the
-	// earliest mutation are obsolete; reads BETWEEN mutations are
-	// also obsolete (the later mutation post-dates them).
+func TestPruneUsesFirstMutationAfterEachRead(t *testing.T) {
+	// Each read is pruned by the first mutation that post-dates that
+	// specific read. Reads between two mutations are obsolete after
+	// the later mutation.
 	msgs := []types.Message{
 		{Content: []types.ContentBlock{readUse("r1", "x.go")}},
 		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("v1 ", 60))}},
@@ -93,16 +93,16 @@ func TestPruneOnlyEarliestMutationCounts(t *testing.T) {
 		{Content: []types.ContentBlock{writeUse("p2", "x.go", "Edit")}},
 	}
 	out, stats := PruneObsoleteReads(msgs, ObsoleteOptions{})
-	// r1 is pruned (first mutation at turn 2 > read turn 1).
-	// r2 is NOT pruned (first mutation at turn 2 < read turn 4, but
-	// we only track the FIRST mutation; a more elaborate version
-	// would prune r2 too via turn-5 mutation. v1 simplification:
-	// only first mutation is used; pruning r2 needs a follow-up.)
-	if stats.BlocksReplaced != 1 {
-		t.Errorf("expected 1 prune (r1), got %d", stats.BlocksReplaced)
+	if stats.BlocksReplaced != 2 {
+		t.Errorf("expected 2 prunes (r1 and r2), got %d", stats.BlocksReplaced)
 	}
-	if !strings.Contains(out[1].Content[0].Text, "kind=obsolete-read") {
+	if !strings.Contains(out[1].Content[0].Text, "kind=obsolete-read") ||
+		!strings.Contains(out[1].Content[0].Text, "edited_turn=2") {
 		t.Errorf("r1 not pruned: %q", out[1].Content[0].Text)
+	}
+	if !strings.Contains(out[4].Content[0].Text, "kind=obsolete-read") ||
+		!strings.Contains(out[4].Content[0].Text, "edited_turn=5") {
+		t.Errorf("r2 not pruned by later mutation: %q", out[4].Content[0].Text)
 	}
 }
 
@@ -261,14 +261,14 @@ func TestToolResultRefIDFallbackToToolUseID(t *testing.T) {
 	}
 }
 
-func TestPruneMultipleMutationsOnlyFirstTracked(t *testing.T) {
-	// Two mutations of the same path; first wins for the
-	// pruning-threshold check. Confirms the dedup branch in pass 1.
+func TestPruneMultipleMutationsUsesFirstLaterMutation(t *testing.T) {
+	// Two mutations after the same read; the earliest later mutation
+	// is reported in the marker.
 	msgs := []types.Message{
 		{Content: []types.ContentBlock{readUse("r1", "x.go")}},
 		{Content: []types.ContentBlock{readResult("r1", strings.Repeat("v1 ", 60))}},
 		{Content: []types.ContentBlock{writeUse("p1", "x.go", "Edit")}},
-		{Content: []types.ContentBlock{writeUse("p2", "x.go", "Write")}}, // second mutation, must not overwrite firstMutationTurn
+		{Content: []types.ContentBlock{writeUse("p2", "x.go", "Write")}},
 	}
 	out, stats := PruneObsoleteReads(msgs, ObsoleteOptions{})
 	if stats.BlocksReplaced != 1 {

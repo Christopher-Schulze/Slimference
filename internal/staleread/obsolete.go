@@ -62,9 +62,10 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 	}
 
 	// First pass: tool_use_id -> read identity for Read/safe shell reads;
-	// path -> earliest mutation turn for explicit file mutations.
+	// path -> mutation turns for explicit file mutations. Keep every mutation
+	// turn so reads between two edits can still be pruned by the later edit.
 	idToPath := map[string]string{}
-	firstMutationTurn := map[string]int{}
+	mutationTurns := map[string][]int{}
 	for i, msg := range messages {
 		for _, blk := range msg.Content {
 			if blk.Type != "tool_use" {
@@ -77,25 +78,18 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 			}
 			if _, isMut := mutSet[blk.ToolName]; isMut {
 				if path := extractPath(blk.ToolInput); path != "" {
-					// Iteration is monotonic in i, so the first
-					// time we observe a mutation of `path` is
-					// also the earliest. Skip later mutations.
-					if _, ok := firstMutationTurn[path]; !ok {
-						firstMutationTurn[path] = i
-					}
+					mutationTurns[path] = append(mutationTurns[path], i)
 				}
 				continue
 			}
 			if looksLikeShellToolName(blk.ToolName) {
 				for _, path := range shellMutationPaths(blk.ToolInput) {
-					if _, ok := firstMutationTurn[path]; !ok {
-						firstMutationTurn[path] = i
-					}
+					mutationTurns[path] = append(mutationTurns[path], i)
 				}
 			}
 		}
 	}
-	if len(idToPath) == 0 || len(firstMutationTurn) == 0 {
+	if len(idToPath) == 0 || len(mutationTurns) == 0 {
 		return messages, ObsoleteStats{}
 	}
 
@@ -116,7 +110,7 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 			if !ok {
 				continue
 			}
-			mutTurn, hasMut := firstMutationTurn[path]
+			mutTurn, hasMut := firstMutationAfter(mutationTurns[path], i)
 			if !hasMut || mutTurn <= i {
 				continue
 			}
@@ -144,6 +138,15 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 	}
 	stats.PathsPruned = len(prunedPaths)
 	return out, stats
+}
+
+func firstMutationAfter(turns []int, readTurn int) (int, bool) {
+	for _, turn := range turns {
+		if turn > readTurn {
+			return turn, true
+		}
+	}
+	return 0, false
 }
 
 func shellMutationPaths(rawInput string) []string {
