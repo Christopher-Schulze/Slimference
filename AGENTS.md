@@ -123,6 +123,10 @@ When changing any savings-related path:
 - Tests for guarded paths must prove both sides: forbidden mutation stays
   byte-equal, and safe observation/telemetry/seeding still happens when it can
   recover future local savings without drawdown.
+- The standard live-corpus CI gate must include Promotion/Maxx proof breadth and
+  an explicit `S_local` floor (`real_current_local_savings_ratio` plus
+  `real_current_local_saved_tokens`). Updating that floor requires fresh
+  evidence and must not count provider-cache discount as local savings.
 
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 

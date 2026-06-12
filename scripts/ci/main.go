@@ -51,7 +51,14 @@ func defaultSteps() []step {
 		{
 			label: "live corpus gate",
 			cmd:   "go",
-			args:  []string{"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus", "--check"},
+			args: []string{
+				"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus",
+				"--check",
+				"--promotion-check",
+				"--maxx-check",
+				"--real-local-min-ratio=0.0578",
+				"--real-local-min-saved=321302",
+			},
 		},
 		{
 			label: "leaf audit gate",

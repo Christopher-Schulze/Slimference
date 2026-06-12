@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -118,6 +120,7 @@ type CorpusReport struct {
 	HasReal                      bool                 `json:"has_real"`
 	PromotionGate                *PromotionGateReport `json:"promotion_gate,omitempty"`
 	MaxxGate                     *MaxxGateReport      `json:"maxx_gate,omitempty"`
+	RealLocalGate                *RealLocalGateReport `json:"real_local_gate,omitempty"`
 	SessionsByClient             map[string]int       `json:"sessions_by_client,omitempty"`
 	SessionsByWorkload           map[string]int       `json:"sessions_by_workload,omitempty"`
 }
@@ -144,6 +147,18 @@ type MaxxGateReport struct {
 	SessionsByClient   map[string]int `json:"sessions_by_client"`
 	SessionsByWorkload map[string]int `json:"sessions_by_workload"`
 	Failures           []string       `json:"failures,omitempty"`
+}
+
+// RealLocalGateReport is the hard no-regression verdict for local input-token
+// savings only. Provider cache is intentionally excluded by the aggregate.
+type RealLocalGateReport struct {
+	Passed            bool     `json:"passed"`
+	MinRatio          float64  `json:"min_ratio,omitempty"`
+	MinSavedTokens    int64    `json:"min_saved_tokens,omitempty"`
+	ActualRatio       float64  `json:"actual_ratio"`
+	ActualSavedTokens int64    `json:"actual_saved_tokens"`
+	ActualOrigTokens  int64    `json:"actual_orig_tokens"`
+	Failures          []string `json:"failures,omitempty"`
 }
 
 // LoadCategoryMetadata reads `<dir>/metadata.json` and returns it. The
@@ -665,6 +680,32 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 	return gate
 }
 
+// EvaluateRealLocalGate applies the current-product S_local floor. It does not
+// count provider-cache-only rows, output-reduce diagnostics, synthetic rows, or
+// historical paths because categoryCountsTowardRealCurrentLocalRatio already
+// excludes them from the aggregate.
+func EvaluateRealLocalGate(report CorpusReport, minRatio float64, minSavedTokens int64) RealLocalGateReport {
+	gate := RealLocalGateReport{
+		MinRatio:          minRatio,
+		MinSavedTokens:    minSavedTokens,
+		ActualRatio:       report.RealCurrentLocalSavingsRatio,
+		ActualSavedTokens: report.RealCurrentLocalSavedTokens,
+		ActualOrigTokens:  report.RealCurrentLocalOrigTokens,
+	}
+	if minRatio > 0 {
+		if report.RealCurrentLocalOrigTokens <= 0 {
+			gate.Failures = append(gate.Failures, "real_current_local_orig_tokens=0; cannot prove S_local ratio")
+		} else if report.RealCurrentLocalSavingsRatio+1e-9 < minRatio {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("real_current_local_savings_ratio=%.6f < min=%.6f", report.RealCurrentLocalSavingsRatio, minRatio))
+		}
+	}
+	if minSavedTokens > 0 && report.RealCurrentLocalSavedTokens < minSavedTokens {
+		gate.Failures = append(gate.Failures, fmt.Sprintf("real_current_local_saved_tokens=%d < min=%d", report.RealCurrentLocalSavedTokens, minSavedTokens))
+	}
+	gate.Passed = len(gate.Failures) == 0
+	return gate
+}
+
 func cloneCountMap(in map[string]int) map[string]int {
 	out := make(map[string]int, len(in))
 	for key, value := range in {
@@ -888,6 +929,28 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  clients:      %s\n", formatCountMap(report.MaxxGate.SessionsByClient)))
 		sb.WriteString(fmt.Sprintf("  workloads:    %s\n", formatCountMap(report.MaxxGate.SessionsByWorkload)))
 	}
+	if report.RealLocalGate != nil {
+		sb.WriteString("\nReal S_local gate\n")
+		if report.RealLocalGate.Passed {
+			sb.WriteString("  gate:         PASS\n")
+		} else {
+			sb.WriteString("  gate:         FAIL\n")
+			for _, f := range report.RealLocalGate.Failures {
+				sb.WriteString(fmt.Sprintf("    - %s\n", f))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  actual:       %.4f%% saved=%d orig=%d\n",
+			report.RealLocalGate.ActualRatio*100,
+			report.RealLocalGate.ActualSavedTokens,
+			report.RealLocalGate.ActualOrigTokens,
+		))
+		if report.RealLocalGate.MinRatio > 0 {
+			sb.WriteString(fmt.Sprintf("  min ratio:    %.4f%%\n", report.RealLocalGate.MinRatio*100))
+		}
+		if report.RealLocalGate.MinSavedTokens > 0 {
+			sb.WriteString(fmt.Sprintf("  min saved:    %d\n", report.RealLocalGate.MinSavedTokens))
+		}
+	}
 	if report.HasSynthetic && !report.HasReal {
 		sb.WriteString("\nNOTE: corpus is synthetic-only. See docs/live-corpus-policy.md for the\n")
 		sb.WriteString("operator-driven path to a real-session corpus (T118b).\n")
@@ -960,13 +1023,15 @@ func CorpusReportJSON(report CorpusReport) (string, error) {
 // runBenchmarkCorpus is the CLI entrypoint hooked from main.go.
 func runBenchmarkCorpus(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json] [--promotion-check] [--maxx-check]")
+		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json] [--promotion-check] [--maxx-check] [--real-local-min-ratio=<ratio>] [--real-local-min-saved=<tokens>]")
 		return 2
 	}
 	check := false
 	jsonOut := false
 	promotionCheck := false
 	maxxCheck := false
+	realLocalMinRatio := 0.0
+	var realLocalMinSaved int64
 	var root string
 	for _, a := range args {
 		switch a {
@@ -979,6 +1044,24 @@ func runBenchmarkCorpus(args []string) int {
 		case "--maxx-check":
 			maxxCheck = true
 		default:
+			if strings.HasPrefix(a, "--real-local-min-ratio=") {
+				value, err := parseFloatFlag(a, "--real-local-min-ratio=")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "benchmark-corpus: %v\n", err)
+					return 2
+				}
+				realLocalMinRatio = value
+				continue
+			}
+			if strings.HasPrefix(a, "--real-local-min-saved=") {
+				value, err := parseInt64Flag(a, "--real-local-min-saved=")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "benchmark-corpus: %v\n", err)
+					return 2
+				}
+				realLocalMinSaved = value
+				continue
+			}
 			if strings.HasPrefix(a, "--") {
 				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
 				return 2
@@ -994,7 +1077,8 @@ func runBenchmarkCorpus(args []string) int {
 		fmt.Fprintln(os.Stderr, "benchmark-corpus: corpus root required")
 		return 2
 	}
-	if check && !promotionCheck && !maxxCheck {
+	realLocalGateConfigured := realLocalMinRatio > 0 || realLocalMinSaved > 0
+	if check && !promotionCheck && !maxxCheck && !realLocalGateConfigured {
 		return CorpusGate(root, os.Stdout, os.Stderr)
 	}
 	report, err := EvaluateCorpus(root, os.Stderr)
@@ -1010,6 +1094,10 @@ func runBenchmarkCorpus(args []string) int {
 		gate := EvaluateMaxxGate(report)
 		report.MaxxGate = &gate
 	}
+	if realLocalGateConfigured {
+		gate := EvaluateRealLocalGate(report, realLocalMinRatio, realLocalMinSaved)
+		report.RealLocalGate = &gate
+	}
 	if jsonOut {
 		s, err := CorpusReportJSON(report)
 		if err != nil {
@@ -1021,6 +1109,9 @@ func runBenchmarkCorpus(args []string) int {
 			return 1
 		}
 		if maxxCheck && !report.MaxxGate.Passed {
+			return 1
+		}
+		if realLocalGateConfigured && !report.RealLocalGate.Passed {
 			return 1
 		}
 		if check {
@@ -1037,10 +1128,47 @@ func runBenchmarkCorpus(args []string) int {
 		fmt.Fprintf(os.Stdout, "benchmark-corpus maxx: FAIL on %s\n", root)
 		return 1
 	}
+	if realLocalGateConfigured && !report.RealLocalGate.Passed {
+		fmt.Fprintf(os.Stdout, "benchmark-corpus real-local: FAIL on %s\n", root)
+		return 1
+	}
 	if check {
 		return corpusReportExitCode(report, root)
 	}
 	return 0
+}
+
+func parseFloatFlag(arg, prefix string) (float64, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	if raw == "" {
+		return 0, fmt.Errorf("%s requires a value", strings.TrimSuffix(prefix, "="))
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", strings.TrimSuffix(prefix, "="), err)
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("%s must be finite", strings.TrimSuffix(prefix, "="))
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", strings.TrimSuffix(prefix, "="))
+	}
+	return value, nil
+}
+
+func parseInt64Flag(arg, prefix string) (int64, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	if raw == "" {
+		return 0, fmt.Errorf("%s requires a value", strings.TrimSuffix(prefix, "="))
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", strings.TrimSuffix(prefix, "="), err)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", strings.TrimSuffix(prefix, "="))
+	}
+	return value, nil
 }
 
 func corpusReportExitCode(report CorpusReport, root string) int {

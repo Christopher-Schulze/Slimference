@@ -35,7 +35,14 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	if steps[5].label != "codex smoke gate" {
 		t.Fatalf("codex smoke gate label: got %q want %q", steps[5].label, "codex smoke gate")
 	}
-	wantCorpusGate := []string{"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus", "--check"}
+	wantCorpusGate := []string{
+		"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus",
+		"--check",
+		"--promotion-check",
+		"--maxx-check",
+		"--real-local-min-ratio=0.0578",
+		"--real-local-min-saved=321302",
+	}
 	if !reflect.DeepEqual(steps[6].args, wantCorpusGate) {
 		t.Fatalf("live corpus gate args: got %v want %v", steps[6].args, wantCorpusGate)
 	}

@@ -551,6 +551,81 @@ func TestEvaluateCorpus_TracksSyntheticVsReal(t *testing.T) {
 	}
 }
 
+func TestEvaluateCorpus_RealLocalSavingsExcludesProviderCacheAndDiagnostics(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:           "real_local",
+		EvidenceLevel:      "live_operator",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.10,
+	}, []string{sampleHighSavingsRecord})
+	writeCategory(t, root, "provider_cache", CategoryMetadata{
+		Category:                     "provider_cache",
+		EvidenceLevel:                "live_operator",
+		ClientFamily:                 "codex_cli",
+		WorkloadClass:                "provider_cache_long_session",
+		ExpectedProviderCacheReadMin: 1,
+	}, []string{sampleHighSavingsRecord})
+	writeCategory(t, root, "output_reduce", CategoryMetadata{
+		Category:                       "output_reduce",
+		EvidenceLevel:                  "live_operator",
+		ClientFamily:                   "codex_cli",
+		WorkloadClass:                  "output_reduce_aggressive",
+		ExpectedOutputReduceAppliedMin: 1,
+	}, []string{sampleHighSavingsRecord})
+	writeCategory(t, root, "synthetic", CategoryMetadata{
+		Category:           "synthetic",
+		Synthetic:          true,
+		ExpectedSavingsMin: 0.10,
+	}, []string{sampleHighSavingsRecord})
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.RealCurrentLocalOrigTokens != 1000 ||
+		report.RealCurrentLocalSavedTokens != 400 ||
+		report.RealCurrentLocalSavingsRatio < 0.399 ||
+		report.RealCurrentLocalSavingsRatio > 0.401 {
+		t.Fatalf("real local aggregate should include only ordinary current local rows, got %+v", report)
+	}
+}
+
+func TestEvaluateRealLocalGate_PassAndFail(t *testing.T) {
+	t.Parallel()
+	report := CorpusReport{
+		RealCurrentLocalOrigTokens:   1000,
+		RealCurrentLocalSavedTokens:  400,
+		RealCurrentLocalSavingsRatio: 0.40,
+	}
+	if gate := EvaluateRealLocalGate(report, 0.399, 400); !gate.Passed {
+		t.Fatalf("expected gate pass, got %+v", gate)
+	}
+	gate := EvaluateRealLocalGate(report, 0.401, 401)
+	if gate.Passed {
+		t.Fatalf("expected gate failure, got %+v", gate)
+	}
+	got := strings.Join(gate.Failures, "\n")
+	for _, want := range []string{"real_current_local_savings_ratio", "real_current_local_saved_tokens"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures:\n%s", want, got)
+		}
+	}
+}
+
+func TestEvaluateRealLocalGate_FailsWithoutLocalDenominator(t *testing.T) {
+	t.Parallel()
+	gate := EvaluateRealLocalGate(CorpusReport{}, 0.01, 0)
+	if gate.Passed {
+		t.Fatalf("expected no-denominator failure, got %+v", gate)
+	}
+	if !strings.Contains(strings.Join(gate.Failures, "\n"), "cannot prove S_local ratio") {
+		t.Fatalf("expected denominator failure, got %+v", gate.Failures)
+	}
+}
+
 func promotionMeta(category, client, workload string) CategoryMetadata {
 	return CategoryMetadata{
 		Category:                category,
@@ -1083,6 +1158,25 @@ func TestFormatCorpusReport_RendersPromotionGate(t *testing.T) {
 	}
 }
 
+func TestFormatCorpusReport_RendersRealLocalGate(t *testing.T) {
+	t.Parallel()
+	report := CorpusReport{
+		Root:                         "fixture",
+		Categories:                   []CategoryResult{{Category: "real", EvidenceLevel: "live_operator"}},
+		RealCurrentLocalOrigTokens:   1000,
+		RealCurrentLocalSavedTokens:  400,
+		RealCurrentLocalSavingsRatio: 0.40,
+	}
+	gate := EvaluateRealLocalGate(report, 0.39, 400)
+	report.RealLocalGate = &gate
+	s := FormatCorpusReport(report)
+	for _, want := range []string{"Real S_local gate", "gate:         PASS", "actual:       40.0000%", "min saved:    400"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in report:\n%s", want, s)
+		}
+	}
+}
+
 func TestFormatCorpusReport_RendersScenarioValidators(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -1257,6 +1351,53 @@ func TestRunBenchmarkCorpus_CheckMaxxDoesNotBypassMaxxGate(t *testing.T) {
 	rc := runBenchmarkCorpus([]string{root, "--check", "--maxx-check"})
 	if rc != 1 {
 		t.Fatalf("expected maxx failure with --check --maxx-check, got %d", rc)
+	}
+}
+
+func TestRunBenchmarkCorpus_CheckRealLocalGatePasses(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "ok", CategoryMetadata{
+		Category:           "ok",
+		EvidenceLevel:      "live_operator",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.30,
+	}, []string{sampleHighSavingsRecord})
+	rc := runBenchmarkCorpus([]string{root, "--check", "--real-local-min-ratio=0.39", "--real-local-min-saved=400"})
+	if rc != 0 {
+		t.Fatalf("expected real local gate pass, got %d", rc)
+	}
+}
+
+func TestRunBenchmarkCorpus_CheckRealLocalGateFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "ok", CategoryMetadata{
+		Category:           "ok",
+		EvidenceLevel:      "live_operator",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.30,
+	}, []string{sampleHighSavingsRecord})
+	rc := runBenchmarkCorpus([]string{root, "--check", "--real-local-min-ratio=0.41", "--real-local-min-saved=401"})
+	if rc != 1 {
+		t.Fatalf("expected real local gate failure, got %d", rc)
+	}
+}
+
+func TestRunBenchmarkCorpus_InvalidRealLocalFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "ok", CategoryMetadata{Category: "ok", ExpectedSavingsMin: 0.30, Synthetic: true}, []string{sampleHighSavingsRecord})
+	if rc := runBenchmarkCorpus([]string{root, "--real-local-min-ratio=bad"}); rc != 2 {
+		t.Fatalf("expected invalid ratio flag exit 2, got %d", rc)
+	}
+	if rc := runBenchmarkCorpus([]string{root, "--real-local-min-ratio=NaN"}); rc != 2 {
+		t.Fatalf("expected NaN ratio flag exit 2, got %d", rc)
+	}
+	if rc := runBenchmarkCorpus([]string{root, "--real-local-min-saved=-1"}); rc != 2 {
+		t.Fatalf("expected invalid saved flag exit 2, got %d", rc)
 	}
 }
 
