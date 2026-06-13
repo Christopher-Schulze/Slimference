@@ -260,6 +260,7 @@ type wssRequestMeta struct {
 	HasToolDefinitions     bool
 	HasPromptCachePrefix   bool
 	PromptCacheKeyHash     string
+	InputShape             wssRawInputShapeFacts
 	OriginalMessages       []types.Message
 	ToolUseIndex           map[string]types.ContentBlock
 	RepdetIndex            *repdet.Index
@@ -614,6 +615,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			if changed {
 				meta.BypassReason = "wss_previous_response_history_only"
+			}
+			if len(l0Stats.EvidenceDecisions) == 0 {
+				toolResultBlocks, toolResultBytes := wssToolResultPayloadStats(messages)
+				if toolResultBytes > 0 {
+					l0Stats.ToolResultBlocks += toolResultBlocks
+					l0Stats.ToolResultBytes += toolResultBytes
+					l0Stats.EvidenceDecisions = append(l0Stats.EvidenceDecisions, wssGuardedToolOutputFullPassEvidenceDecision(meta.BypassReason, toolResultBytes, meta.TurnSeq, meta.RemainingTurnsEstimate, a.p.config.Savings.CachedPriceRatio))
+				}
 			}
 			meta.DebugFacts = wssRequestDebugFacts(body, out, messages, l0Stats, changed, meta.BypassReason, meta, outputReduceStats)
 			if detachedPreviousResponseID {
@@ -2490,6 +2499,41 @@ func wssSourceToolResultBytes(messages []types.Message) (totalBytes int, maxByte
 	return totalBytes, maxBytes
 }
 
+func wssToolResultPayloadStats(messages []types.Message) (blocks int, totalBytes int) {
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			blocks++
+			totalBytes += len(block.Text)
+		}
+	}
+	return blocks, totalBytes
+}
+
+func wssGuardedToolOutputFullPassEvidenceDecision(reason string, payloadBytes int, turnSeq int, remainingTurnsEstimate int, cachedPriceRatio float64) evidence.BlockDecision {
+	tokenEstimate := tokens.Estimate(payloadBytes)
+	if payloadBytes > 0 && tokenEstimate <= 0 {
+		tokenEstimate = 1
+	}
+	decision := evidence.DecisionFromObservation(
+		0,
+		string(proxyLayer0MechanismCapturedOut),
+		proxyLayer0EvidenceSafety(proxyLayer0MechanismCapturedOut),
+		evidence.ActionFullPass,
+		reason,
+		evidence.Analysis{ContentClass: evidence.ContentUnknown},
+		[]string{"tool result boundary", "byte-identical original output"},
+		"fail-open to original output",
+		tokenEstimate,
+		tokenEstimate,
+	)
+	decision.FootprintScore = proxyFootprintScoreWithEstimate(decision.OriginalTokens, decision.SavedTokens, turnSeq, remainingTurnsEstimate, cachedPriceRatio)
+	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
+	return decision
+}
+
 func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToolResults int, toolUses int) {
 	for _, message := range messages {
 		for _, block := range message.Content {
@@ -2551,6 +2595,19 @@ func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
 		return "delta"
 	}
 	return "full_history"
+}
+
+func wssRequestShapeSource(meta wssRequestMeta, messages []types.Message) string {
+	if wssRequestHasHistoryShape(messages) {
+		return "message_history"
+	}
+	if meta.PreviousResponseID == "" {
+		return "root_without_previous_response"
+	}
+	if wssRequestIsDeltaShape(messages) {
+		return "previous_response_delta_shape"
+	}
+	return "previous_response_full_history_fallback"
 }
 
 func mergeWSSHistoryReducerStats(base proxyLayer0Stats, history proxyLayer0Stats) proxyLayer0Stats {
@@ -2776,6 +2833,8 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.tool_definition_parameters_bytes":               strconv.Itoa(prefixMetrics.ParametersBytes),
 		"wss.tool_definition_other_bytes":                    strconv.Itoa(prefixMetrics.OtherBytes),
 		"wss.instructions_bytes":                             strconv.Itoa(prefixMetrics.InstructionBytes),
+		"wss.prefix_total_bytes":                             strconv.Itoa(prefixMetrics.TotalBytes),
+		"wss.prefix_estimated_tokens":                        strconv.Itoa(tokens.Estimate(prefixMetrics.TotalBytes)),
 		"wss.tool_definition_default_keep":                   strconv.Itoa(prefixMetrics.DefaultKeepTools),
 		"wss.tool_definition_default_keep_bytes":             strconv.Itoa(prefixMetrics.DefaultKeepBytes),
 		"wss.tool_definition_default_keep_description_bytes": strconv.Itoa(prefixMetrics.DefaultKeepDescriptionBytes),
@@ -2791,7 +2850,16 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.turn_seq":                                       strconv.Itoa(meta.TurnSeq),
 		"wss.remaining_turns_estimate":                       strconv.Itoa(meta.RemainingTurnsEstimate),
 		"wss.request_shape":                                  wssRequestShape(meta, messages),
+		"wss.request_shape_source":                           wssRequestShapeSource(meta, messages),
 		"wss.delta_shape":                                    strconv.FormatBool(deltaShape),
+		"wss.raw_input_items":                                strconv.Itoa(meta.InputShape.Items),
+		"wss.raw_input_message_items":                        strconv.Itoa(meta.InputShape.MessageItems),
+		"wss.raw_input_user_messages":                        strconv.Itoa(meta.InputShape.UserMessages),
+		"wss.raw_input_assistant_messages":                   strconv.Itoa(meta.InputShape.AssistantMessages),
+		"wss.raw_input_function_calls":                       strconv.Itoa(meta.InputShape.FunctionCalls),
+		"wss.raw_input_function_call_outputs":                strconv.Itoa(meta.InputShape.FunctionCallOutputs),
+		"wss.raw_input_reasoning_items":                      strconv.Itoa(meta.InputShape.ReasoningItems),
+		"wss.raw_input_other_items":                          strconv.Itoa(meta.InputShape.OtherItems),
 		"wss.messages":                                       strconv.Itoa(len(messages)),
 		"wss.tool_results":                                   strconv.Itoa(toolResults),
 		"wss.source_tool_results":                            strconv.Itoa(sourceToolResults),
@@ -2992,6 +3060,7 @@ type wssRootPrefixMetricsResult struct {
 	ToolDefinitionBytes         int
 	ToolDefinitions             int
 	InstructionBytes            int
+	TotalBytes                  int
 	NameBytes                   int
 	DescriptionBytes            int
 	ParametersBytes             int
@@ -3019,6 +3088,7 @@ func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
 		ToolDefinitionBytes: len(root["tools"]),
 		InstructionBytes:    len(root["instructions"]),
 	}
+	result.TotalBytes = result.ToolDefinitionBytes + result.InstructionBytes
 	if result.ToolDefinitionBytes > 0 {
 		var tools []json.RawMessage
 		if json.Unmarshal(root["tools"], &tools) == nil {
@@ -3774,7 +3844,63 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 		HasToolDefinitions:   wssRawHasToolDefinitions(raw),
 		HasPromptCachePrefix: wssRawHasPromptCachePrefix(raw),
 		PromptCacheKeyHash:   wssPromptCacheKeyHashFromRaw(raw),
+		InputShape:           wssRawInputShapeFactsFromRaw(raw),
 	}
+}
+
+type wssRawInputShapeFacts struct {
+	Items               int
+	MessageItems        int
+	UserMessages        int
+	AssistantMessages   int
+	FunctionCalls       int
+	FunctionCallOutputs int
+	ReasoningItems      int
+	OtherItems          int
+}
+
+func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputShapeFacts {
+	if len(raw) == 0 || len(raw["input"]) == 0 {
+		return wssRawInputShapeFacts{}
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["input"], &items); err != nil {
+		return wssRawInputShapeFacts{}
+	}
+	facts := wssRawInputShapeFacts{Items: len(items)}
+	for _, item := range items {
+		itemType := strings.TrimSpace(rawJSONString(item["type"]))
+		role := strings.TrimSpace(rawJSONString(item["role"]))
+		switch itemType {
+		case "message":
+			facts.MessageItems++
+			switch role {
+			case "user":
+				facts.UserMessages++
+			case "assistant":
+				facts.AssistantMessages++
+			}
+		case "function_call":
+			facts.FunctionCalls++
+		case "function_call_output":
+			facts.FunctionCallOutputs++
+		case "reasoning":
+			facts.ReasoningItems++
+		default:
+			if role != "" {
+				facts.MessageItems++
+				switch role {
+				case "user":
+					facts.UserMessages++
+				case "assistant":
+					facts.AssistantMessages++
+				}
+				continue
+			}
+			facts.OtherItems++
+		}
+	}
+	return facts
 }
 
 func wssPromptCacheKeyHashFromRaw(raw map[string]json.RawMessage) string {

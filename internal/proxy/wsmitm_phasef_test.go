@@ -816,6 +816,11 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 		facts["wss.tool_definition_nondefault"] != "0" ||
 		facts["wss.tool_definition_nondefault_names"] != "" ||
 		facts["wss.tool_definition_unnamed"] != "0" ||
+		facts["wss.request_shape_source"] != "root_without_previous_response" ||
+		facts["wss.raw_input_items"] != "1" ||
+		facts["wss.raw_input_message_items"] != "1" ||
+		facts["wss.raw_input_user_messages"] != "1" ||
+		facts["wss.raw_input_function_call_outputs"] != "0" ||
 		facts["wss.output_reduce_reason"] != "prompt_cache_prefix_full_pass" {
 		t.Fatalf("prefix facts missing: %+v", facts)
 	}
@@ -851,6 +856,67 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	}
 	if n, err := strconv.Atoi(facts["wss.instructions_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("instructions_bytes=%q err=%v", facts["wss.instructions_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.prefix_total_bytes"]); err != nil || n <= 0 {
+		t.Fatalf("prefix_total_bytes=%q err=%v", facts["wss.prefix_total_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.prefix_estimated_tokens"]); err != nil || n <= 0 {
+		t.Fatalf("prefix_estimated_tokens=%q err=%v", facts["wss.prefix_estimated_tokens"], err)
+	}
+}
+
+func TestWSSRawInputShapeFactsFromRawCountsContentFreeItemTypes(t *testing.T) {
+	body := mustMarshal(map[string]any{
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "hello"},
+			{"type": "message", "role": "assistant", "content": "done"},
+			{"type": "function_call", "call_id": "call_1", "name": "exec_command"},
+			{"type": "function_call_output", "call_id": "call_1", "output": "ok"},
+			{"type": "reasoning", "summary": []string{"hidden"}},
+			{"role": "user", "content": "legacy role item"},
+			{"type": "custom_item"},
+		},
+	})
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("decode raw input shape fixture: %v", err)
+	}
+
+	facts := wssRawInputShapeFactsFromRaw(raw)
+	if facts.Items != 7 ||
+		facts.MessageItems != 3 ||
+		facts.UserMessages != 2 ||
+		facts.AssistantMessages != 1 ||
+		facts.FunctionCalls != 1 ||
+		facts.FunctionCallOutputs != 1 ||
+		facts.ReasoningItems != 1 ||
+		facts.OtherItems != 1 {
+		t.Fatalf("bad raw input shape facts: %+v", facts)
+	}
+}
+
+func TestWSSGuardedToolOutputFullPassEvidenceDecisionUsesPayloadEstimate(t *testing.T) {
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type: "tool_result",
+			Text: strings.Repeat("opaque output\n", 20),
+		}},
+	}}
+	blocks, payloadBytes := wssToolResultPayloadStats(messages)
+	if blocks != 1 || payloadBytes <= 0 {
+		t.Fatalf("bad payload stats blocks=%d bytes=%d", blocks, payloadBytes)
+	}
+
+	decision := wssGuardedToolOutputFullPassEvidenceDecision("wss_previous_response_tool_output_full_pass", payloadBytes, 2, 10, 0.1)
+	if decision.Mechanism != string(proxyLayer0MechanismCapturedOut) ||
+		decision.Action != evidence.ActionFullPass ||
+		decision.Reason != "wss_previous_response_tool_output_full_pass" ||
+		decision.OriginalTokens <= 0 ||
+		decision.FinalTokens != decision.OriginalTokens ||
+		decision.NetTokens != 0 ||
+		decision.FootprintScore <= 0 {
+		t.Fatalf("bad guarded evidence decision: %+v", decision)
 	}
 }
 
@@ -6241,6 +6307,11 @@ func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T
 		summary.DebugFacts["wss.output_reduce_eligible_input_tokens"] != "0" ||
 		summary.DebugFacts["wss.output_reduce_request_contains_tool_output"] != "true" {
 		t.Fatalf("unknown previous_response bypass should expose output-reduce disabled facts: %+v", summary.DebugFacts)
+	}
+	if !hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "wss_previous_response_tool_output_full_pass", evidence.ActionFullPass) ||
+		len(summary.Mechanisms) == 0 ||
+		summary.Mechanisms[0].OriginalTokens <= 0 {
+		t.Fatalf("unknown previous_response bypass should emit guarded tool-output evidence: %+v mechanisms=%+v", summary.EvidenceDecisions, summary.Mechanisms)
 	}
 }
 

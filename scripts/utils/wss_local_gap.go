@@ -49,6 +49,7 @@ type wssLocalGapReport struct {
 	ErrorRequests           int                          `json:"error_requests"`
 	UpstreamErrorRequests   int                          `json:"upstream_error_requests"`
 	HTTP400ErrorRequests    int                          `json:"http_400_error_requests"`
+	RequestShapeSources     map[string]int               `json:"request_shape_sources,omitempty"`
 	RequestShapes           []wssLocalGapShapeRow        `json:"request_shapes,omitempty"`
 	RequestGuards           []wssLocalGapRequestGuardRow `json:"request_guards,omitempty"`
 	Mechanisms              []wssLocalGapMechanismRow    `json:"mechanisms,omitempty"`
@@ -133,6 +134,8 @@ type wssLocalGapActionableRow struct {
 	Decisions                        int            `json:"decisions,omitempty"`
 	OutputReduceInputTokens          int            `json:"output_reduce_input_tokens,omitempty"`
 	OutputReduceEligibleInputTokens  int            `json:"output_reduce_eligible_input_tokens,omitempty"`
+	PrefixTotalBytes                 int            `json:"prefix_total_bytes,omitempty"`
+	PrefixEstimatedTokens            int            `json:"prefix_estimated_tokens,omitempty"`
 	PrefixToolDefinitionBytes        int            `json:"prefix_tool_definition_bytes,omitempty"`
 	PrefixInstructionBytes           int            `json:"prefix_instruction_bytes,omitempty"`
 	PrefixToolNameBytes              int            `json:"prefix_tool_name_bytes,omitempty"`
@@ -321,8 +324,9 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 	}
 	acc := wssLocalGapAccumulator{
 		report: wssLocalGapReport{
-			Path:       flags.path,
-			GatePassed: true,
+			Path:                flags.path,
+			RequestShapeSources: make(map[string]int),
+			GatePassed:          true,
 		},
 		shapeRows:     make(map[string]*wssLocalGapShapeRow),
 		requestGuards: make(map[string]*wssLocalGapRequestGuardRow),
@@ -358,10 +362,12 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 
 func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	a.report.PhaseFRequests++
-	shape := wssAuditResolveRequestShape(summary).Shape
+	shapeResolution := wssAuditResolveRequestShape(summary)
+	shape := shapeResolution.Shape
 	if shape == "" {
 		shape = "unknown"
 	}
+	addWSSAuditCount(&a.report.RequestShapeSources, shapeResolution.Source)
 	original := maxInt(0, summary.Tokens.Original)
 	saved := maxInt(0, summary.Tokens.Saved)
 	a.report.OriginalTokens += original
@@ -408,20 +414,22 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	}
 	noEvidence := len(summary.EvidenceDecisions) == 0
 	toolCommandClasses := wssLocalGapFactCountPairs(summary.DebugFacts, "wss.tool_command_classes")
-	a.addRequestGuardFacts(summary, shape, original, saved, noEvidence)
+	a.addRequestGuardFacts(summary, shape, shapeResolution.Source, original, saved, noEvidence)
 	if noEvidence {
-		a.addNoEvidenceActionable(summary, shape, original, saved, toolCommandClasses)
+		a.addNoEvidenceActionable(summary, shape, shapeResolution.Source, original, saved, toolCommandClasses)
 	}
 	for _, decision := range summary.EvidenceDecisions {
 		a.addDecision(decision, shape, toolCommandClasses)
 	}
 }
 
-func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape string, original, saved int, noEvidence bool) {
+func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape, shapeSource string, original, saved int, noEvidence bool) {
 	if a == nil {
 		return
 	}
-	if noEvidence && strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "" {
+	if noEvidence &&
+		strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "" &&
+		strings.TrimSpace(shapeSource) == "unresolved" {
 		a.addRequestGuard("wss.request_shape=(missing)", shape, original, saved, noEvidence)
 	}
 	if reason := strings.TrimSpace(summary.BypassReason); reason != "" {
@@ -563,11 +571,11 @@ func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape 
 	}, shape, mechanism)
 }
 
-func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSummary, shape string, original, saved int, toolCommandClasses map[string]int) {
+func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSummary, shape, shapeSource string, original, saved int, toolCommandClasses map[string]int) {
 	if a == nil || original <= 0 {
 		return
 	}
-	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary)
+	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary, shapeSource)
 	a.addActionable(wssLocalGapActionableRow{
 		Category:                         category,
 		Source:                           source,
@@ -577,6 +585,8 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		Requests:                         1,
 		OutputReduceInputTokens:          wssLocalGapFactInt(summary.DebugFacts, "wss.output_reduce_input_tokens"),
 		OutputReduceEligibleInputTokens:  wssLocalGapFactInt(summary.DebugFacts, "wss.output_reduce_eligible_input_tokens"),
+		PrefixTotalBytes:                 wssLocalGapFactInt(summary.DebugFacts, "wss.prefix_total_bytes"),
+		PrefixEstimatedTokens:            wssLocalGapFactInt(summary.DebugFacts, "wss.prefix_estimated_tokens"),
 		PrefixToolDefinitionBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_bytes"),
 		PrefixInstructionBytes:           wssLocalGapFactInt(summary.DebugFacts, "wss.instructions_bytes"),
 		PrefixToolNameBytes:              wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_name_bytes"),
@@ -620,6 +630,8 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		existing.Decisions += row.Decisions
 		existing.OutputReduceInputTokens += row.OutputReduceInputTokens
 		existing.OutputReduceEligibleInputTokens += row.OutputReduceEligibleInputTokens
+		existing.PrefixTotalBytes += row.PrefixTotalBytes
+		existing.PrefixEstimatedTokens += row.PrefixEstimatedTokens
 		existing.PrefixToolDefinitionBytes += row.PrefixToolDefinitionBytes
 		existing.PrefixInstructionBytes += row.PrefixInstructionBytes
 		existing.PrefixToolNameBytes += row.PrefixToolNameBytes
@@ -910,7 +922,7 @@ func wssLocalGapDecisionAction(reason string) (string, string, string) {
 	}
 }
 
-func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, string, string) {
+func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string) (string, string, string, string) {
 	facts := summary.DebugFacts
 	outputReason := strings.TrimSpace(facts["wss.output_reduce_reason"])
 	toolResults := strings.TrimSpace(facts["wss.tool_results"])
@@ -958,7 +970,7 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 			"no_evidence:no_tool_output",
 			"no tool-output bytes were present for Layer-0 reducers",
 			"look for prompt/root/context mechanisms, not tool-output guard loosening"
-	case strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "":
+	case strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "" && strings.TrimSpace(shapeSource) == "unresolved":
 		return "needs_instrumentation",
 			"no_evidence:wss.request_shape_missing",
 			"request shape was not recorded, so savings loss cannot be assigned safely",

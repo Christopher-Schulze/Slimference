@@ -435,7 +435,7 @@ func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
 			"wss.tool_definition_description_bytes":  "6000",
 			"wss.tool_definition_parameters_bytes":   "5000",
 		},
-	})
+	}, "fact")
 	if category != "prefix_stateful_elision_proof_required" ||
 		source != "no_evidence:prompt_cache_prefix_default_keep_tools_and_instructions" ||
 		!strings.Contains(policy, "no schema pruning") ||
@@ -455,12 +455,54 @@ func TestWSSLocalGapNoEvidenceActionClassifiesPreviousResponseBypassAsProofBlock
 			"wss.output_reduce_disabled_predicate": "tool_output_context",
 			"wss.tool_results":                     "1",
 		},
-	})
+	}, "fact")
 	if category != "unsafe_without_fresh_live_proof" ||
 		source != "no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass" ||
 		!strings.Contains(policy, "protects Codex server state") ||
 		!strings.Contains(nextStep, "downstream-delta live proof") {
 		t.Fatalf("previous-response bypass action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
+	}
+}
+
+func TestWSSLocalGapResolvedLegacyShapeDoesNotBecomeShapeInstrumentationBlocker(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID:              "legacy-delta-no-shape-fact",
+		Path:                   "/backend-api/codex/responses",
+		RouteMode:              "websocket_phasef",
+		PreviousResponseIDUsed: true,
+		Tokens:                 dbg.TokenCounts{Original: 6000, Final: 6000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.output_reduce_reason":                "disabled",
+			"wss.output_reduce_disabled_predicate":    "tool_output_context",
+			"wss.output_reduce_input_tokens":          "5900",
+			"wss.output_reduce_eligible_input_tokens": "0",
+			"wss.tool_results":                        "1",
+			"wss.source_tool_bytes":                   "0",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.RequestShapeSources["legacy_previous_response_id"] != 1 {
+		t.Fatalf("legacy previous_response_id source not recorded: %+v", report.RequestShapeSources)
+	}
+	for _, row := range report.RequestGuards {
+		if row.Guard == "wss.request_shape=(missing)" {
+			t.Fatalf("resolved legacy shape must not be a shape-missing blocker: %+v", row)
+		}
+	}
+	if len(report.ActionablePotential) != 1 ||
+		report.ActionablePotential[0].Category != "not_output_reduce_target" ||
+		report.ActionablePotential[0].Source != "no_evidence:wss.output_reduce_disabled_predicate=tool_output_context" ||
+		report.ActionablePotential[0].RequestShapes["delta"] != 1 ||
+		report.ActionablePotential[0].OutputReduceInputTokens != 5900 {
+		t.Fatalf("resolved legacy shape should classify by concrete predicate: %+v", report.ActionablePotential)
 	}
 }
 
