@@ -32,6 +32,7 @@ type WSSABReplayFrame struct {
 // the normal WSS runtime path.
 type WSSABReplayOptions struct {
 	UniformChunkDedupBudget bool
+	StatefulPrefixElision   bool
 }
 
 // WSSABReplayResult is the offline comprehension report plus basic reducer
@@ -45,6 +46,7 @@ type WSSABReplayResult struct {
 	MutatedShapes             WSSABReplayShapeCounts
 	CapturedMutatedShapes     WSSABReplayShapeCounts
 	PrefixSurfaces            []WSSABReplayPrefixSurface
+	PrefixElisionStats        WSSABReplayPrefixElisionStats
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
 	SearchStats               WSSABReplaySearchStats
@@ -110,6 +112,17 @@ type WSSABReplayPrefixSurface struct {
 	StatefulCandidatePrefixBytes int    `json:"stateful_candidate_prefix_bytes"`
 }
 
+// WSSABReplayPrefixElisionStats reports proof-only stateful prefix elision in
+// the offline replay harness. The product runtime never reads these counters.
+type WSSABReplayPrefixElisionStats struct {
+	Requests              int `json:"requests"`
+	ToolRequests          int `json:"tool_requests"`
+	InstructionRequests   int `json:"instruction_requests"`
+	PrefixBytesSaved      int `json:"prefix_bytes_saved"`
+	ToolBytesSaved        int `json:"tool_bytes_saved"`
+	InstructionBytesSaved int `json:"instruction_bytes_saved"`
+}
+
 // WSSABReplayReducerStats is the content-free reducer activity observed while
 // replaying WSS frames. It is intentionally separate from Report.Saved(): the
 // comprehension report expands archive references back to their original bytes,
@@ -170,6 +183,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 	turns := make([]abharness.Turn, 0, len(frames))
 	out := WSSABReplayResult{}
 	lastRequestWasSearch := false
+	prefixElider := wssReplayPrefixElisionState{}
 
 	for i, frame := range frames {
 		env, err := wsmitm.Parse(frame.Payload)
@@ -222,6 +236,15 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(requestBody)
 			out.ReducerStats.add(stats)
 			out.ObserveStats.add(shape, stats)
+			if options.StatefulPrefixElision {
+				var prefixChanged bool
+				var prefixStats WSSABReplayPrefixElisionStats
+				mutatedBody, prefixStats, prefixChanged = prefixElider.apply(mutatedBody)
+				out.PrefixElisionStats.add(prefixStats)
+				if prefixChanged {
+					changed = true
+				}
+			}
 			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
@@ -414,6 +437,106 @@ func (r *WSSABReplayResult) prefixSurfaceForShape(shape string) *WSSABReplayPref
 	}
 	r.PrefixSurfaces = append(r.PrefixSurfaces, WSSABReplayPrefixSurface{Shape: shape})
 	return &r.PrefixSurfaces[len(r.PrefixSurfaces)-1]
+}
+
+func (s *WSSABReplayPrefixElisionStats) add(other WSSABReplayPrefixElisionStats) {
+	if s == nil {
+		return
+	}
+	s.Requests += other.Requests
+	s.ToolRequests += other.ToolRequests
+	s.InstructionRequests += other.InstructionRequests
+	s.PrefixBytesSaved += other.PrefixBytesSaved
+	s.ToolBytesSaved += other.ToolBytesSaved
+	s.InstructionBytesSaved += other.InstructionBytesSaved
+}
+
+type wssReplayPrefixElisionState struct {
+	seenInstructions map[string]struct{}
+	seenTools        map[string]struct{}
+}
+
+func (s *wssReplayPrefixElisionState) apply(body []byte) ([]byte, WSSABReplayPrefixElisionStats, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body, WSSABReplayPrefixElisionStats{}, false
+	}
+	scope := strings.TrimSpace(rawJSONString(raw["prompt_cache_key"]))
+	if scope == "" {
+		return body, WSSABReplayPrefixElisionStats{}, false
+	}
+	previousResponse := strings.TrimSpace(rawJSONString(raw["previous_response_id"])) != ""
+	stats := WSSABReplayPrefixElisionStats{}
+	changed := false
+
+	if instructions, ok := codexReplayInstructions(body); ok {
+		key := scope + "\x00" + instructions
+		if previousResponse && s.hasSeenInstruction(key) {
+			stats.InstructionRequests = 1
+			stats.InstructionBytesSaved = len(raw["instructions"])
+			delete(raw, "instructions")
+			changed = true
+		} else {
+			s.markSeenInstruction(key)
+		}
+	}
+	if tools, ok := codexReplayToolSchemaSurface(body); ok {
+		key := scope + "\x00" + tools
+		if previousResponse && s.hasSeenTools(key) {
+			stats.ToolRequests = 1
+			stats.ToolBytesSaved = len(raw["tools"])
+			delete(raw, "tools")
+			changed = true
+		} else {
+			s.markSeenTools(key)
+		}
+	}
+	if !changed {
+		return body, WSSABReplayPrefixElisionStats{}, false
+	}
+	stats.Requests = 1
+	stats.PrefixBytesSaved = stats.ToolBytesSaved + stats.InstructionBytesSaved
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return body, WSSABReplayPrefixElisionStats{}, false
+	}
+	return out, stats, true
+}
+
+func (s *wssReplayPrefixElisionState) hasSeenInstruction(key string) bool {
+	if s == nil || s.seenInstructions == nil {
+		return false
+	}
+	_, ok := s.seenInstructions[key]
+	return ok
+}
+
+func (s *wssReplayPrefixElisionState) markSeenInstruction(key string) {
+	if s == nil || key == "" {
+		return
+	}
+	if s.seenInstructions == nil {
+		s.seenInstructions = make(map[string]struct{})
+	}
+	s.seenInstructions[key] = struct{}{}
+}
+
+func (s *wssReplayPrefixElisionState) hasSeenTools(key string) bool {
+	if s == nil || s.seenTools == nil {
+		return false
+	}
+	_, ok := s.seenTools[key]
+	return ok
+}
+
+func (s *wssReplayPrefixElisionState) markSeenTools(key string) {
+	if s == nil || key == "" {
+		return
+	}
+	if s.seenTools == nil {
+		s.seenTools = make(map[string]struct{})
+	}
+	s.seenTools[key] = struct{}{}
 }
 
 func wssReplayExpectedInstructionExtra(before, after []byte) bool {

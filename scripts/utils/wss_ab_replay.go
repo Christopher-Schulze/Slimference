@@ -26,6 +26,7 @@ type wssABReplayFlags struct {
 	deltaToolOutputMutationLab bool
 	searchCapProofLatch        bool
 	codexChunkDedup            bool
+	statefulPrefixElisionProof bool
 	chunkDedupMinBytes         int
 	chunkDedupMaxSessionRefPct int
 	searchCapFiles             int
@@ -57,6 +58,8 @@ type wssABReplayReport struct {
 	MutatedShapes                 replayShapeCounts                `json:"mutated_shapes"`
 	CapturedMutatedShapes         replayShapeCounts                `json:"captured_mutated_shapes,omitempty"`
 	PrefixSurfaces                []wssABReplayPrefixSurfaceRow    `json:"prefix_surfaces,omitempty"`
+	PrefixElisionProof            bool                             `json:"stateful_prefix_elision_proof_enabled,omitempty"`
+	PrefixElision                 *wssABReplayPrefixElisionReport  `json:"stateful_prefix_elision,omitempty"`
 	BytesBefore                   int                              `json:"bytes_before"`
 	BytesAfter                    int                              `json:"bytes_after"`
 	BytesSaved                    int                              `json:"bytes_saved"`
@@ -132,6 +135,15 @@ type wssABReplayPrefixSurfaceRow struct {
 	StatefulCandidatePrefixBytes int    `json:"stateful_candidate_prefix_bytes"`
 }
 
+type wssABReplayPrefixElisionReport struct {
+	Requests              int `json:"requests"`
+	ToolRequests          int `json:"tool_requests"`
+	InstructionRequests   int `json:"instruction_requests"`
+	PrefixBytesSaved      int `json:"prefix_bytes_saved"`
+	ToolBytesSaved        int `json:"tool_bytes_saved"`
+	InstructionBytesSaved int `json:"instruction_bytes_saved"`
+}
+
 const wssABReplayHelpText = `wss-ab-replay: run Codex WSS frames through the Phase-F comprehension A/B harness
 
 Usage:
@@ -155,6 +167,12 @@ Flags:
                            proof gate; only for reproducing known T354 400s
   --search-cap-proof-latch Enable the product search-cap proof latch during
                            replay without broader WSS tool-output mutation
+  --stateful-prefix-elision-proof
+                           Proof-only replay: omit repeated top-level tools and
+                           instructions on previous_response_id requests only
+                           after the same canonical prefix was seen earlier in
+                           the same prompt_cache_key scope. Product runtime is
+                           unchanged; this is an offline candidate proof.
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
                            --archive-recovery-note,
@@ -187,7 +205,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]")
+		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--stateful-prefix-elision-proof|--codex-chunk-dedup]")
 		return 2
 	}
 	report, err := loadWSSABReplayReport(flags)
@@ -238,6 +256,8 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 			flags.toolOutputMutation = true
 		case arg == "--search-cap-proof-latch":
 			flags.searchCapProofLatch = true
+		case arg == "--stateful-prefix-elision-proof":
+			flags.statefulPrefixElisionProof = true
 		case arg == "--codex-chunk-dedup":
 			flags.codexChunkDedup = true
 			flags.archiveRecoveryNote = true
@@ -354,7 +374,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	upstream := wssABReplayUpstreamDiagnostics(frames)
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg := wssABReplayConfig(flags)
-	result, err := proxy.RunWSSPhaseFABReplay(cfg, frames)
+	result, err := proxy.RunWSSPhaseFABReplayWithOptions(cfg, frames, proxy.WSSABReplayOptions{
+		StatefulPrefixElision: flags.statefulPrefixElisionProof,
+	})
 	if err != nil {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
 	}
@@ -368,6 +390,8 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		MutatedShapes:                 replayShapeCountsFromProxy(result.MutatedShapes),
 		CapturedMutatedShapes:         replayShapeCountsFromProxy(result.CapturedMutatedShapes),
 		PrefixSurfaces:                wssABReplayPrefixSurfacesFromProxy(result.PrefixSurfaces),
+		PrefixElisionProof:            flags.statefulPrefixElisionProof,
+		PrefixElision:                 wssABReplayPrefixElisionFromProxy(result.PrefixElisionStats),
 		BytesBefore:                   result.Report.BytesBefore,
 		BytesAfter:                    result.Report.BytesAfter,
 		BytesSaved:                    result.Report.Saved(),
@@ -422,6 +446,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	if flags.searchCapProofLatch {
 		report.Notes = append(report.Notes, "product search-cap proof latch was enabled for this replay; broader WSS tool-output mutation remains disabled unless separately requested")
+	}
+	if flags.statefulPrefixElisionProof {
+		report.Notes = append(report.Notes, "stateful prefix elision proof was enabled offline only; product runtime keeps top-level tools and instructions byte-equal until a separate live backend proof passes")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
@@ -616,6 +643,20 @@ func wssABReplayPrefixSurfacesFromProxy(rows []proxy.WSSABReplayPrefixSurface) [
 	return out
 }
 
+func wssABReplayPrefixElisionFromProxy(stats proxy.WSSABReplayPrefixElisionStats) *wssABReplayPrefixElisionReport {
+	if stats.Requests == 0 && stats.PrefixBytesSaved == 0 {
+		return nil
+	}
+	return &wssABReplayPrefixElisionReport{
+		Requests:              stats.Requests,
+		ToolRequests:          stats.ToolRequests,
+		InstructionRequests:   stats.InstructionRequests,
+		PrefixBytesSaved:      stats.PrefixBytesSaved,
+		ToolBytesSaved:        stats.ToolBytesSaved,
+		InstructionBytesSaved: stats.InstructionBytesSaved,
+	}
+}
+
 func parseNonNegativeIntFlag(name, raw string) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil {
@@ -792,6 +833,19 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 				row.UnnamedBytes,
 				row.InstructionBytes)
 		}
+	}
+	if report.PrefixElision != nil {
+		stats := report.PrefixElision
+		fmt.Fprintf(w, "  prefix_elision:  proof=%t requests=%d tools=%d instructions=%d prefix_bytes_saved=%d tool_bytes_saved=%d instruction_bytes_saved=%d\n",
+			report.PrefixElisionProof,
+			stats.Requests,
+			stats.ToolRequests,
+			stats.InstructionRequests,
+			stats.PrefixBytesSaved,
+			stats.ToolBytesSaved,
+			stats.InstructionBytesSaved)
+	} else if report.PrefixElisionProof {
+		fmt.Fprintln(w, "  prefix_elision:  proof=true requests=0 tools=0 instructions=0 prefix_bytes_saved=0")
 	}
 	fmt.Fprintf(w, "  bytes_before:     %d\n", report.BytesBefore)
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)

@@ -268,6 +268,103 @@ func TestRunWSSPhaseFABReplayReportsUnnamedPrefixSurface(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayStatefulPrefixElisionProof(t *testing.T) {
+	sharedTools := []map[string]any{
+		codexToolDefinition("Bash", "Run shell commands"),
+	}
+	frames := []WSSABReplayFrame{
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "prefix-elision-session",
+				"instructions":     "shared instructions",
+				"input": []map[string]any{{
+					"type":    "message",
+					"role":    "user",
+					"content": "start",
+				}},
+				"tools":  sharedTools,
+				"stream": true,
+			}),
+		},
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":                "gpt-5-codex",
+				"prompt_cache_key":     "prefix-elision-session",
+				"previous_response_id": "resp-prefix-elision",
+				"instructions":         "shared instructions",
+				"input": []map[string]any{{
+					"type":    "function_call_output",
+					"call_id": "delta-call",
+					"output":  "delta output",
+				}},
+				"tools":  sharedTools,
+				"stream": true,
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplayWithOptions(config.Defaults(), frames, WSSABReplayOptions{StatefulPrefixElision: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MutatedRequests != 1 || got.MutatedShapes.Delta != 1 {
+		t.Fatalf("stateful prefix proof should mutate only the second delta request: %+v", got)
+	}
+	if got.PrefixElisionStats.Requests != 1 || got.PrefixElisionStats.ToolRequests != 1 ||
+		got.PrefixElisionStats.InstructionRequests != 1 || got.PrefixElisionStats.PrefixBytesSaved == 0 {
+		t.Fatalf("stateful prefix proof stats mismatch: %+v", got.PrefixElisionStats)
+	}
+	if got.Report.Lost() != 0 || got.Report.Saved() <= 0 {
+		t.Fatalf("stateful prefix proof should be recoverable after prior full prefix: report=%+v stats=%+v", got.Report, got.PrefixElisionStats)
+	}
+}
+
+func TestRunWSSPhaseFABReplayStatefulPrefixElisionRequiresPriorScopedPrefix(t *testing.T) {
+	frame := WSSABReplayFrame{
+		Direction: wsmitm.DirClientToServer,
+		Payload: mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "prefix-elision-session",
+			"previous_response_id": "resp-prefix-elision",
+			"instructions":         "shared instructions",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "delta-call",
+				"output":  "delta output",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run shell commands"),
+			},
+			"stream": true,
+		}),
+	}
+
+	got, err := RunWSSPhaseFABReplayWithOptions(config.Defaults(), []WSSABReplayFrame{frame}, WSSABReplayOptions{StatefulPrefixElision: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MutatedRequests != 0 || got.PrefixElisionStats.Requests != 0 {
+		t.Fatalf("prefix elision must fail closed without prior scoped prefix: %+v", got)
+	}
+
+	noScopeBody := map[string]any{}
+	if err := json.Unmarshal(frame.Payload, &noScopeBody); err != nil {
+		t.Fatal(err)
+	}
+	delete(noScopeBody, "prompt_cache_key")
+	noScope := WSSABReplayFrame{Direction: wsmitm.DirClientToServer, Payload: mustMarshal(noScopeBody)}
+	got, err = RunWSSPhaseFABReplayWithOptions(config.Defaults(), []WSSABReplayFrame{frame, noScope}, WSSABReplayOptions{StatefulPrefixElision: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PrefixElisionStats.Requests != 0 {
+		t.Fatalf("prefix elision must fail closed without prompt_cache_key scope: %+v", got.PrefixElisionStats)
+	}
+}
+
 func TestRunWSSPhaseFABReplaySkipsClientControlFrames(t *testing.T) {
 	got, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{{
 		Direction: wsmitm.DirClientToServer,

@@ -1224,6 +1224,15 @@ nondefault vs unnamed tool schemas, and the subset carried on
 candidates only; the report does not by itself prove that the backend accepts
 omitting them, and product runtime stays byte-equal until a separate live proof
 closes that gap.
+`--stateful-prefix-elision-proof` is an offline-only replay flag for that
+candidate. It removes repeated top-level `tools` and `instructions` only on
+`previous_response_id` requests, only inside the same `prompt_cache_key` scope,
+and only after the same canonical prefix was already seen earlier in the replay.
+The A/B comparison must still pass with `lost=0`; a capture that starts
+mid-session or changes tool/instruction content fails closed by sending the
+prefix unchanged. This proves local model-context recoverability, not backend
+acceptance; a live scoped WSS proof is still required before any product
+runtime activation.
 Known output-reduce directive suffixes are audited separately as expected
 instruction extras: the direct instructions must remain a prefix, the suffix
 must contain the output-reduce marker, and unknown instruction rewrites still
@@ -1233,7 +1242,7 @@ tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
 reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--search-cap-proof-latch|--codex-chunk-dedup]`
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--search-cap-proof-latch|--stateful-prefix-elision-proof|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it mirrors the
 product WSS guard: safe read-delta savings may fire, while unknown or unsafe
 stateful tool-output request bodies stay byte-equal, and previous-response-id

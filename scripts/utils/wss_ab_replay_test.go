@@ -305,6 +305,73 @@ func TestWSSABReplayReportIncludesPrefixSurfaces(t *testing.T) {
 	}
 }
 
+func TestWSSABReplayStatefulPrefixElisionProofFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	sharedTools := []map[string]any{
+		wssABReplayTestToolDefinition("Bash", "Run shell commands"),
+	}
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "prefix-elision-report",
+			"instructions":     "shared instructions",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "start",
+			}},
+			"tools":  sharedTools,
+			"stream": true,
+		}),
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "prefix-elision-report",
+			"previous_response_id": "resp-prefix-elision-report",
+			"instructions":         "shared instructions",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "delta-call",
+				"output":  "delta output",
+			}},
+			"tools":  sharedTools,
+			"stream": true,
+		}),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                       path,
+		statefulPrefixElisionProof: true,
+		failOnLost:                 true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || !report.PrefixElisionProof || report.PrefixElision == nil ||
+		report.PrefixElision.Requests != 1 || report.PrefixElision.PrefixBytesSaved == 0 ||
+		report.Lost != 0 || report.MutatedShapes.Delta != 1 {
+		t.Fatalf("stateful prefix elision proof report mismatch: %+v", report)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path, "--stateful-prefix-elision-proof", "--fail-on-lost"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSABReplay code=%d stderr=%s", code, stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{
+		"prefix_elision:",
+		"proof=true",
+		"requests=1",
+		"prefix_bytes_saved=",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestRunWSSABReplayJSONAndGateFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -784,6 +851,13 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	}
 	if flags.searchCapFiles != 25 || flags.searchCapMatches != 15 {
 		t.Fatalf("search cap flags not parsed: %+v", flags)
+	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--stateful-prefix-elision-proof"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flags.statefulPrefixElisionProof {
+		t.Fatalf("stateful prefix elision proof flag not parsed: %+v", flags)
 	}
 }
 
