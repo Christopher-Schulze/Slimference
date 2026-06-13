@@ -77,6 +77,9 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.CodexSavingsPolicyMode != "auto" {
 		t.Fatalf("Codex savings policy default = %q, want auto", cfg.Compression.OutputReduce.CodexSavingsPolicyMode)
 	}
+	if !cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled {
+		t.Fatal("Codex WSS stateful tool-prefix elision should default on after live proof")
+	}
 	if cfg.Compression.OutputReduce.CodexSearchCapProofPath != "" {
 		t.Fatalf("Codex search-cap proof path default = %q, want empty", cfg.Compression.OutputReduce.CodexSearchCapProofPath)
 	}
@@ -150,6 +153,7 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_WSS_TOOL_OUTPUT_MUTATION", "true")
 	t.Setenv("SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB", "true")
 	t.Setenv("SLIMFERENCE_CODEX_WSS_HISTORY_MUTATION_LAB", "true")
+	t.Setenv("SLIMFERENCE_CODEX_WSS_STATEFUL_TOOL_PREFIX_ELISION", "false")
 	t.Setenv("SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF", "true")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP", "true")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_PROOF_LEVEL", "replay")
@@ -182,7 +186,8 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 		or.CodexChunkDedupMaxReferencePercent != 78 ||
 		or.CodexChunkDedupMaxSessionReferencePercent != 67 ||
 		!or.CodexWSSToolOutputMutationEnabled || !or.CodexWSSDeltaToolOutputMutationLabEnabled ||
-		!or.CodexWSSHistoryMutationLabEnabled || !or.CodexWSSStatefulPrefixElisionProofEnabled {
+		!or.CodexWSSHistoryMutationLabEnabled || or.CodexWSSStatefulToolPrefixElisionEnabled ||
+		!or.CodexWSSStatefulPrefixElisionProofEnabled {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 	if !cfg.Compression.Tuning.ToolPruneEnabled ||
@@ -1070,6 +1075,9 @@ func TestDefaultTOML(t *testing.T) {
 	}
 	if !strings.Contains(out, `codex_search_cap_proof_path = ""`) {
 		t.Error("DefaultTOML() should expose the disabled search-cap proof latch")
+	}
+	if !strings.Contains(out, "codex_wss_stateful_tool_prefix_elision_enabled = true") {
+		t.Error("DefaultTOML() should expose default-on WSS stateful tool-prefix elision")
 	}
 	if !strings.Contains(out, "tool_prune_enabled = false") ||
 		!strings.Contains(out, "wss_full_history_tool_prune_enabled = true") ||

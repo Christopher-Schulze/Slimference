@@ -63,6 +63,7 @@ type wsPhaseFAdapter struct {
 	lastDecisionRequestID      string
 	lastUsageSessionID         string
 	lastUsageMutatedMechanisms proxyLayer0MechanismMask
+	lastUsagePrefixElision     bool
 	lastUsageRequestShape      string
 	lastUsageCacheBustScope    string
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
@@ -81,66 +82,84 @@ const (
 )
 
 type wssProviderCacheBustSample struct {
-	cachedShare       float64
-	mutatedMechanisms proxyLayer0MechanismMask
-	requestShape      string
-	promptCacheKey    string
+	cachedShare           float64
+	mutatedMechanisms     proxyLayer0MechanismMask
+	statefulPrefixElision bool
+	requestShape          string
+	promptCacheKey        string
 }
 
 type wssProviderCacheBustSession struct {
-	samples        [wssProviderCacheBustRingSize]wssProviderCacheBustSample
-	next           int
-	count          int
-	seen           int
-	demoted        proxyLayer0MechanismMask
-	demotedByScope map[string]proxyLayer0MechanismMask
+	samples                             [wssProviderCacheBustRingSize]wssProviderCacheBustSample
+	next                                int
+	count                               int
+	seen                                int
+	demoted                             proxyLayer0MechanismMask
+	demotedByScope                      map[string]proxyLayer0MechanismMask
+	statefulPrefixElisionDemoted        bool
+	statefulPrefixElisionDemotedByScope map[string]bool
 }
 
 type wssProviderCacheBustEvent struct {
-	Fired               bool
-	Trigger             proxyLayer0MechanismMask
-	Demoted             proxyLayer0MechanismMask
-	TriggerRequestShape string
-	TriggerScope        string
-	PreviousShare       float64
-	CurrentShare        float64
-	ObservedSamples     int
+	Fired                        bool
+	Trigger                      proxyLayer0MechanismMask
+	StatefulPrefixElisionTrigger bool
+	Demoted                      proxyLayer0MechanismMask
+	StatefulPrefixElisionDemoted bool
+	TriggerRequestShape          string
+	TriggerScope                 string
+	PreviousShare                float64
+	CurrentShare                 float64
+	ObservedSamples              int
 }
 
-func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechanisms proxyLayer0MechanismMask, requestShape string, promptCacheKeyHash string) wssProviderCacheBustEvent {
+func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechanisms proxyLayer0MechanismMask, statefulPrefixElision bool, requestShape string, promptCacheKeyHash string) wssProviderCacheBustEvent {
 	requestShape = wssCacheBustRequestShape(requestShape)
 	promptCacheKeyHash = strings.TrimSpace(promptCacheKeyHash)
 	event := wssProviderCacheBustEvent{
-		Demoted:         s.demoted,
-		CurrentShare:    cachedShare,
-		ObservedSamples: s.seen + 1,
+		Demoted:                      s.demoted,
+		StatefulPrefixElisionDemoted: s.statefulPrefixElisionDemoted,
+		CurrentShare:                 cachedShare,
+		ObservedSamples:              s.seen + 1,
 	}
 	if previous, ok := s.last(); ok {
 		event.PreviousShare = previous.cachedShare
 		if event.ObservedSamples >= wssProviderCacheBustWarmupTurns &&
-			previous.mutatedMechanisms != 0 &&
+			(previous.mutatedMechanisms != 0 || previous.statefulPrefixElision) &&
 			wssCacheBustSamePromptCacheKey(previous.promptCacheKey, promptCacheKeyHash) &&
 			previous.cachedShare >= wssProviderCacheBustMinPrevShare &&
 			cachedShare < previous.cachedShare-wssProviderCacheBustDropThreshold {
 			previousShape := wssCacheBustRequestShape(previous.requestShape)
 			previousScope := wssCacheBustScope(previousShape, previous.promptCacheKey)
-			if s.demotedByScope == nil {
-				s.demotedByScope = make(map[string]proxyLayer0MechanismMask)
+			if previous.mutatedMechanisms != 0 {
+				if s.demotedByScope == nil {
+					s.demotedByScope = make(map[string]proxyLayer0MechanismMask)
+				}
+				s.demotedByScope[previousScope] |= previous.mutatedMechanisms
+				s.demoted |= previous.mutatedMechanisms
 			}
-			s.demotedByScope[previousScope] |= previous.mutatedMechanisms
-			s.demoted |= previous.mutatedMechanisms
+			if previous.statefulPrefixElision {
+				if s.statefulPrefixElisionDemotedByScope == nil {
+					s.statefulPrefixElisionDemotedByScope = make(map[string]bool)
+				}
+				s.statefulPrefixElisionDemotedByScope[previousScope] = true
+				s.statefulPrefixElisionDemoted = true
+			}
 			event.Fired = true
 			event.Trigger = previous.mutatedMechanisms
+			event.StatefulPrefixElisionTrigger = previous.statefulPrefixElision
 			event.Demoted = s.demoted
+			event.StatefulPrefixElisionDemoted = s.statefulPrefixElisionDemoted
 			event.TriggerRequestShape = previousShape
 			event.TriggerScope = previousScope
 		}
 	}
 	s.samples[s.next] = wssProviderCacheBustSample{
-		cachedShare:       cachedShare,
-		mutatedMechanisms: mutatedMechanisms,
-		requestShape:      requestShape,
-		promptCacheKey:    promptCacheKeyHash,
+		cachedShare:           cachedShare,
+		mutatedMechanisms:     mutatedMechanisms,
+		statefulPrefixElision: statefulPrefixElision,
+		requestShape:          requestShape,
+		promptCacheKey:        promptCacheKeyHash,
 	}
 	s.next = (s.next + 1) % wssProviderCacheBustRingSize
 	if s.count < wssProviderCacheBustRingSize {
@@ -158,6 +177,16 @@ func (s *wssProviderCacheBustSession) demotedForScope(requestShape string, promp
 		return s.demoted
 	}
 	return s.demotedByScope[wssCacheBustScope(requestShape, promptCacheKeyHash)]
+}
+
+func (s *wssProviderCacheBustSession) statefulPrefixElisionDemotedForScope(requestShape string, promptCacheKeyHash string) bool {
+	if s == nil {
+		return false
+	}
+	if len(s.statefulPrefixElisionDemotedByScope) == 0 {
+		return s.statefulPrefixElisionDemoted
+	}
+	return s.statefulPrefixElisionDemotedByScope[wssCacheBustScope(requestShape, promptCacheKeyHash)]
 }
 
 func wssCacheBustRequestShape(requestShape string) string {
@@ -921,8 +950,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		a.rememberWSSQualityCohort(recordCohort)
 	}
-	if prefixOut, prefixProof, prefixChanged := a.applyWSSStatefulPrefixElisionProof(out); prefixProof.Enabled {
+	prefixRequestShape := wssRequestShape(meta, messages)
+	prefixCacheBustDemoted := a.wssStatefulPrefixElisionCacheBustDemoted(meta.SessionID, prefixRequestShape, meta.PromptCacheKeyHash)
+	if prefixOut, prefixProof, prefixChanged := a.applyWSSStatefulToolPrefixElision(out, prefixCacheBustDemoted); prefixProof.Enabled {
 		attachWSSStatefulPrefixElisionDebugFacts(&meta, prefixProof, prefixChanged)
+		if prefixCacheBustDemoted {
+			meta.DebugFacts["wss.stateful_prefix_elision_cache_bust_scope"] = wssCacheBustScope(prefixRequestShape, meta.PromptCacheKeyHash)
+		}
 		if prefixChanged {
 			out = prefixOut
 			if a.p != nil {
@@ -1567,6 +1601,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	requestID := newRequestIDFn()
 	mutatedMechanisms := proxyLayer0MechanismMaskFromStats(l0Stats)
 	requestShape := wssRequestShape(meta, messages)
+	statefulPrefixElisionApplied := meta.DebugFacts["wss.stateful_prefix_elision_changed"] == "true"
 	if mutatedMechanisms != 0 {
 		debugFacts["wss.layer0_mutated_mechanisms"] = mutatedMechanisms.String()
 	}
@@ -1574,6 +1609,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.lastDecisionRequestID = requestID
 	a.lastUsageSessionID = meta.SessionID
 	a.lastUsageMutatedMechanisms = mutatedMechanisms
+	a.lastUsagePrefixElision = statefulPrefixElisionApplied
 	a.lastUsageRequestShape = requestShape
 	a.lastUsageCacheBustScope = wssCacheBustScope(requestShape, meta.PromptCacheKeyHash)
 	if a.socketDecisionRequestID == "" && meta.SocketSeq > 0 {
@@ -3276,6 +3312,22 @@ func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsForScope(sessionID string
 	return session.demotedForScope(requestShape, promptCacheKeyHash)
 }
 
+func (a *wsPhaseFAdapter) wssStatefulPrefixElisionCacheBustDemoted(sessionID string, requestShape string, promptCacheKeyHash string) bool {
+	if a == nil || sessionID == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cacheBustSessions == nil {
+		return false
+	}
+	session := a.cacheBustSessions[sessionID]
+	if session == nil {
+		return false
+	}
+	return session.statefulPrefixElisionDemotedForScope(requestShape, promptCacheKeyHash)
+}
+
 func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsAggregate(sessionID string) proxyLayer0MechanismMask {
 	if a == nil || sessionID == "" {
 		return 0
@@ -3301,6 +3353,10 @@ func (a *wsPhaseFAdapter) observeWSSProviderCacheBustForShape(sessionID string, 
 }
 
 func (a *wsPhaseFAdapter) observeWSSProviderCacheBustForScope(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask, requestShape string, cacheBustScope string) wssProviderCacheBustEvent {
+	return a.observeWSSProviderCacheBustForScopeWithPrefixElision(sessionID, inputTokens, cachedTokens, mutatedMechanisms, false, requestShape, cacheBustScope)
+}
+
+func (a *wsPhaseFAdapter) observeWSSProviderCacheBustForScopeWithPrefixElision(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask, statefulPrefixElision bool, requestShape string, cacheBustScope string) wssProviderCacheBustEvent {
 	if a == nil || sessionID == "" || inputTokens <= 0 || cachedTokens < 0 {
 		return wssProviderCacheBustEvent{}
 	}
@@ -3318,13 +3374,15 @@ func (a *wsPhaseFAdapter) observeWSSProviderCacheBustForScope(sessionID string, 
 		a.cacheBustSessions[sessionID] = session
 	}
 	promptCacheKeyHash := wssCacheBustPromptCacheKeyHashFromScope(cacheBustScope)
-	event := session.observe(cachedShare, mutatedMechanisms, requestShape, promptCacheKeyHash)
+	event := session.observe(cachedShare, mutatedMechanisms, statefulPrefixElision, requestShape, promptCacheKeyHash)
 	a.mu.Unlock()
 	if event.Fired {
 		slog.Warn("codex wss provider cache bust guard demoted layer0 mechanisms",
 			slog.String("session", sessionID),
 			slog.String("trigger_mechanisms", event.Trigger.String()),
 			slog.String("demoted_mechanisms", event.Demoted.String()),
+			slog.Bool("stateful_prefix_elision_trigger", event.StatefulPrefixElisionTrigger),
+			slog.Bool("stateful_prefix_elision_demoted", event.StatefulPrefixElisionDemoted),
 			slog.String("request_shape", event.TriggerRequestShape),
 			slog.String("scope", event.TriggerScope),
 			slog.Float64("previous_cached_share", event.PreviousShare),
@@ -3352,6 +3410,7 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	requestID := a.lastDecisionRequestID
 	sessionID := a.lastUsageSessionID
 	mutatedMechanisms := a.lastUsageMutatedMechanisms
+	statefulPrefixElision := a.lastUsagePrefixElision
 	requestShape := a.lastUsageRequestShape
 	cacheBustScope := a.lastUsageCacheBustScope
 	a.mu.Unlock()
@@ -3360,7 +3419,7 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 			a.p.debugRecorder.AttachProviderUsage(requestID, usage.InputTokens, usage.ReadTokens, usage.CreateTokens, usage.OutputTokens)
 		}
 	}
-	a.observeWSSProviderCacheBustForScope(sessionID, usage.InputTokens, usage.ReadTokens, mutatedMechanisms, requestShape, cacheBustScope)
+	a.observeWSSProviderCacheBustForScopeWithPrefixElision(sessionID, usage.InputTokens, usage.ReadTokens, mutatedMechanisms, statefulPrefixElision, requestShape, cacheBustScope)
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),

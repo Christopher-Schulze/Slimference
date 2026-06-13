@@ -12,7 +12,7 @@ type wssStatefulPrefixElisionState struct {
 	seenTools map[string]struct{}
 }
 
-type wssStatefulPrefixElisionProofResult struct {
+type wssStatefulPrefixElisionResult struct {
 	Enabled               bool
 	Reason                string
 	Requests              int
@@ -23,12 +23,17 @@ type wssStatefulPrefixElisionProofResult struct {
 	InstructionBytesSaved int
 }
 
-func (a *wsPhaseFAdapter) applyWSSStatefulPrefixElisionProof(body []byte) ([]byte, wssStatefulPrefixElisionProofResult, bool) {
+func (a *wsPhaseFAdapter) applyWSSStatefulToolPrefixElision(body []byte, cacheBustDemoted bool) ([]byte, wssStatefulPrefixElisionResult, bool) {
 	if a == nil || a.p == nil || a.p.config == nil ||
-		!a.p.config.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled {
-		return body, wssStatefulPrefixElisionProofResult{}, false
+		(!a.p.config.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled &&
+			!a.p.config.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled) {
+		return body, wssStatefulPrefixElisionResult{}, false
 	}
-	result := wssStatefulPrefixElisionProofResult{Enabled: true, Reason: "guarded"}
+	result := wssStatefulPrefixElisionResult{Enabled: true, Reason: "guarded"}
+	if cacheBustDemoted {
+		result.Reason = "cache_bust_guard"
+		return body, result, false
+	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		result.Reason = "malformed_json"
@@ -103,7 +108,7 @@ func wssStatefulPrefixElisionKey(scope string, kind string, value string) string
 	return kind + ":" + hex.EncodeToString(scopeSum[:8]) + ":" + hex.EncodeToString(valueSum[:16])
 }
 
-func attachWSSStatefulPrefixElisionDebugFacts(meta *wssRequestMeta, result wssStatefulPrefixElisionProofResult, changed bool) {
+func attachWSSStatefulPrefixElisionDebugFacts(meta *wssRequestMeta, result wssStatefulPrefixElisionResult, changed bool) {
 	if meta == nil || !result.Enabled {
 		return
 	}

@@ -3931,7 +3931,6 @@ func TestWSPhaseFStatefulPrefixElisionProofElidesToolsOnlyAfterSeed(t *testing.T
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
-	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	tools := []map[string]any{{
@@ -3998,7 +3997,6 @@ func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutScope(t *testing.T)
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
-	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	body := mustMarshal(map[string]any{
@@ -4033,7 +4031,6 @@ func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutSeed(t *testing.T) 
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
-	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	body := mustMarshal(map[string]any{
@@ -4063,8 +4060,75 @@ func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutSeed(t *testing.T) 
 	}
 }
 
+func TestWSPhaseFStatefulPrefixElisionCacheBustDemotionFullPasses(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	tools := []map[string]any{{
+		"type":        "function",
+		"name":        "exec_command",
+		"description": strings.Repeat("cached tool schema block ", 20),
+	}}
+	body := func(previousResponseID string) []byte {
+		raw := map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "prefix-cache-bust-session",
+			"instructions":     strings.Repeat("cached system instruction block ", 40),
+			"tools":            tools,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "continue",
+			}},
+			"stream": true,
+		}
+		if previousResponseID != "" {
+			raw["previous_response_id"] = previousResponseID
+		}
+		return mustMarshal(raw)
+	}
+
+	seed := body("")
+	if mutated, _, changed, _, _, _, _ := adapter.applyInputPipelineDetailed(seed); changed || !bytes.Equal(mutated, seed) {
+		t.Fatalf("root prefix should seed only, changed=%v body=%s", changed, mutated)
+	}
+	delta := body("resp_seeded")
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(delta, &raw); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := wsCodexSessionID(delta)
+	scope := wssCacheBustScope("delta", wssPromptCacheKeyHashFromRaw(raw))
+	adapter.mu.Lock()
+	adapter.cacheBustSessions = map[string]*wssProviderCacheBustSession{
+		sessionID: {
+			statefulPrefixElisionDemoted: true,
+			statefulPrefixElisionDemotedByScope: map[string]bool{
+				scope: true,
+			},
+		},
+	}
+	adapter.mu.Unlock()
+
+	mutated, _, changed, _, _, meta, _ := adapter.applyInputPipelineDetailed(delta)
+	if changed || !bytes.Equal(mutated, delta) {
+		t.Fatalf("cache-bust-demoted prefix elision must full-pass, changed=%v body=%s", changed, mutated)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_reason"]; got != "cache_bust_guard" {
+		t.Fatalf("guard reason=%q facts=%+v", got, meta.DebugFacts)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_cache_bust_scope"]; got != scope {
+		t.Fatalf("cache-bust scope=%q want %q facts=%+v", got, scope, meta.DebugFacts)
+	}
+}
+
 func TestWSSStatefulPrefixElisionProofGuardReasons(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = false
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	body := mustMarshal(map[string]any{
@@ -4077,17 +4141,17 @@ func TestWSSStatefulPrefixElisionProofGuardReasons(t *testing.T) {
 		}},
 		"stream": true,
 	})
-	if mutated, proof, changed := adapter.applyWSSStatefulPrefixElisionProof(body); changed || proof.Enabled || !bytes.Equal(mutated, body) {
+	if mutated, proof, changed := adapter.applyWSSStatefulToolPrefixElision(body, false); changed || proof.Enabled || !bytes.Equal(mutated, body) {
 		t.Fatalf("disabled proof must be invisible: changed=%v proof=%+v body=%s", changed, proof, mutated)
 	}
 
 	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
-	mutated, proof, changed := adapter.applyWSSStatefulPrefixElisionProof([]byte(`{"prompt_cache_key":`))
+	mutated, proof, changed := adapter.applyWSSStatefulToolPrefixElision([]byte(`{"prompt_cache_key":`), false)
 	if changed || !proof.Enabled || proof.Reason != "malformed_json" || string(mutated) != `{"prompt_cache_key":` {
 		t.Fatalf("malformed guard mismatch: changed=%v proof=%+v body=%s", changed, proof, mutated)
 	}
 
-	mutated, proof, changed = adapter.applyWSSStatefulPrefixElisionProof(body)
+	mutated, proof, changed = adapter.applyWSSStatefulToolPrefixElision(body, false)
 	if changed || !bytes.Equal(mutated, body) || proof.Reason != "no_prefix" {
 		t.Fatalf("no-prefix guard mismatch: changed=%v proof=%+v body=%s", changed, proof, mutated)
 	}

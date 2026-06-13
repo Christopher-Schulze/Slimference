@@ -301,13 +301,16 @@ type OutputReduceConfig struct {
 	// proving whether reconnect/full-history history reducers can safely
 	// survive the following downstream delta turn. It must never be persisted.
 	CodexWSSHistoryMutationLabEnabled bool `toml:"-"`
-	// CodexWSSStatefulPrefixElisionProofEnabled is intentionally env-only:
-	// SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF=1. It exists only
-	// for scoped live proof that repeated WSS top-level tools can be elided
-	// after the same canonical tool schema was already forwarded in the same
-	// prompt_cache_key scope. Instructions stay on the wire because Codex WSS
-	// rejects previous_response_id requests without them. It must never be
-	// persisted.
+	// CodexWSSStatefulToolPrefixElisionEnabled removes repeated top-level
+	// Codex WSS tool schemas only after the same canonical tool schema was
+	// already forwarded in the same prompt_cache_key scope. Instructions stay
+	// on the wire because Codex WSS rejects previous_response_id requests
+	// without them. Cache-bust demotion disables this exact scope if provider
+	// cached-token share drops after an elided turn.
+	CodexWSSStatefulToolPrefixElisionEnabled bool `toml:"codex_wss_stateful_tool_prefix_elision_enabled"`
+	// CodexWSSStatefulPrefixElisionProofEnabled is the legacy env-only proof
+	// override: SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF=1. It may
+	// force the guarded path during scoped proof runs but is never persisted.
 	CodexWSSStatefulPrefixElisionProofEnabled bool `toml:"-"`
 	// CodexSearchCapProofPath points at a final release-proof-report --json
 	// artifact. When the report passes the release minima and Codex route
@@ -800,6 +803,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_HISTORY_MUTATION_LAB")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexWSSHistoryMutationLabEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_STATEFUL_TOOL_PREFIX_ELISION")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = b
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF")); v != "" {

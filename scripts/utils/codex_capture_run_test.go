@@ -898,7 +898,12 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	    "repdet_responses_rewritten": 3,
 	    "stale_read_blocks_replaced": 4,
 	    "obsolete_read_blocks_pruned": 5,
-	    "beterse_injections": 6
+	    "beterse_injections": 6,
+	    "wss_stateful_prefix_elision_requests": 7,
+	    "wss_stateful_prefix_elision_tool_requests": 7,
+	    "wss_stateful_prefix_elision_bytes_saved": 1600,
+	    "wss_stateful_prefix_elision_tokens_saved": 400,
+	    "wss_stateful_prefix_elision_instructions_kept": 7
 	  },
 	  "host_budget": {
 	    "status": "ok",
@@ -936,6 +941,13 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	if snapshot.OutputReduceInjected != 3 || snapshot.OutputReduceDowngrades != 1 || snapshot.BeterseInjections != 6 {
 		t.Fatalf("output reduce fields missing: %+v", snapshot)
 	}
+	if snapshot.WSSStatefulPrefixElisionRequests != 7 ||
+		snapshot.WSSStatefulPrefixElisionTools != 7 ||
+		snapshot.WSSStatefulPrefixElisionBytes != 1600 ||
+		snapshot.WSSStatefulPrefixElisionTokens != 400 ||
+		snapshot.WSSStatefulPrefixInstructionsKept != 7 {
+		t.Fatalf("prefix-elision fields missing: %+v", snapshot)
+	}
 	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 ||
 		snapshot.HostBudgetGoRetainedB != 77 || snapshot.HostBudgetEffectiveRSSB != 77 ||
 		snapshot.HostBudgetCPUWindowSec != 2.5 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
@@ -966,7 +978,12 @@ func TestMergeCodexCaptureAdminStatusAddsToolPrune(t *testing.T) {
 	    "input_overhead_tokens": 5
 	  },
 	  "output_reduce_counters": {
-	    "stop_seq_requests_modified": 3
+	    "stop_seq_requests_modified": 3,
+	    "wss_stateful_prefix_elision_requests": 2,
+	    "wss_stateful_prefix_elision_tool_requests": 2,
+	    "wss_stateful_prefix_elision_bytes_saved": 800,
+	    "wss_stateful_prefix_elision_tokens_saved": 200,
+	    "wss_stateful_prefix_elision_instructions_kept": 2
 	  }
 	}`))
 	if err != nil {
@@ -982,6 +999,13 @@ func TestMergeCodexCaptureAdminStatusAddsToolPrune(t *testing.T) {
 	}
 	if snapshot.OutputReduceInjected != 1 || snapshot.OutputReduceInputOverheadTokens != 5 || snapshot.StopSeqRequestsModified != 3 {
 		t.Fatalf("status output-reduce fields missing after merge: %+v", snapshot)
+	}
+	if snapshot.WSSStatefulPrefixElisionRequests != 2 ||
+		snapshot.WSSStatefulPrefixElisionTools != 2 ||
+		snapshot.WSSStatefulPrefixElisionBytes != 800 ||
+		snapshot.WSSStatefulPrefixElisionTokens != 200 ||
+		snapshot.WSSStatefulPrefixInstructionsKept != 2 {
+		t.Fatalf("status prefix-elision fields missing after merge: %+v", snapshot)
 	}
 	if snapshot.HostBudgetStatus != "ok" || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
 		t.Fatalf("state host budget lost during merge: %+v", snapshot)
@@ -999,6 +1023,14 @@ func TestValidateCodexCaptureExpectedReducers(t *testing.T) {
 	failures = validateCodexCaptureExpectedReducers([]string{"output_reduce_injected"}, &codexCaptureLiveDelta{})
 	if len(failures) != 1 || !strings.Contains(failures[0], "output_reduce_injected did not fire") {
 		t.Fatalf("expected missing reducer failure, got %v", failures)
+	}
+
+	failures = validateCodexCaptureExpectedReducers([]string{"wss_stateful_prefix_elision", "wss_stateful_prefix_elision_tokens"}, &codexCaptureLiveDelta{
+		WSSStatefulPrefixElisionRequests: 1,
+		WSSStatefulPrefixElisionTokens:   128,
+	})
+	if len(failures) != 0 {
+		t.Fatalf("prefix-elision reducer should pass, got %v", failures)
 	}
 
 	failures = validateCodexCaptureExpectedReducers([]string{"does_not_exist"}, &codexCaptureLiveDelta{})
@@ -1075,6 +1107,11 @@ func TestWaitCodexCaptureAggregateReportWithHostWindowFailsClosed(t *testing.T) 
 
 func TestDeltaCodexCaptureAdminSnapshotIncludesPolicyAndCacheDeltas(t *testing.T) {
 	base := codexCaptureAdminSnapshot{
+		WSSStatefulPrefixElisionRequests:  1,
+		WSSStatefulPrefixElisionTools:     1,
+		WSSStatefulPrefixElisionBytes:     400,
+		WSSStatefulPrefixElisionTokens:    100,
+		WSSStatefulPrefixInstructionsKept: 1,
 		ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
 			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "block", Reason: "below_min_bytes", BlockReason: "below_min_bytes", Count: 2},
 			{Route: "wss_phasef", Mechanism: "read_delta", Action: "allow", Reason: "lossless_or_exact_reducer", Count: 5},
@@ -1084,6 +1121,11 @@ func TestDeltaCodexCaptureAdminSnapshotIncludesPolicyAndCacheDeltas(t *testing.T
 		},
 	}
 	current := codexCaptureAdminSnapshot{
+		WSSStatefulPrefixElisionRequests:  4,
+		WSSStatefulPrefixElisionTools:     3,
+		WSSStatefulPrefixElisionBytes:     2000,
+		WSSStatefulPrefixElisionTokens:    500,
+		WSSStatefulPrefixInstructionsKept: 4,
 		ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
 			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "block", Reason: "below_min_bytes", BlockReason: "below_min_bytes", Count: 2},
 			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "allow", Reason: "recoverable_chunk_dedup", Count: 3},
@@ -1095,6 +1137,13 @@ func TestDeltaCodexCaptureAdminSnapshotIncludesPolicyAndCacheDeltas(t *testing.T
 		},
 	}
 	delta := deltaCodexCaptureAdminSnapshot(base, current)
+	if delta.WSSStatefulPrefixElisionRequests != 3 ||
+		delta.WSSStatefulPrefixElisionTools != 2 ||
+		delta.WSSStatefulPrefixElisionBytes != 1600 ||
+		delta.WSSStatefulPrefixElisionTokens != 400 ||
+		delta.WSSStatefulPrefixInstructionsKept != 3 {
+		t.Fatalf("prefix-elision delta mismatch: %+v", delta)
+	}
 	if len(delta.ProxyLayer0Policy) != 2 {
 		t.Fatalf("policy delta count = %d: %+v", len(delta.ProxyLayer0Policy), delta.ProxyLayer0Policy)
 	}

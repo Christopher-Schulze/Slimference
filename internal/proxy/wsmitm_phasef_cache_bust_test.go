@@ -71,6 +71,36 @@ func TestWSPhaseFProviderCacheBustDemotionScopesToPromptCacheKey(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFProviderCacheBustDemotesStatefulPrefixElisionByScope(t *testing.T) {
+	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
+	scopeA := wssCacheBustScope("delta", "prefix-a")
+	scopeB := wssCacheBustScope("delta", "prefix-b")
+
+	crossPrefixSession := "codex-wss:cache-bust-prefix-elision-cross"
+	adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(crossPrefixSession, 1000, 820, 0, false, "delta", scopeA)
+	adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(crossPrefixSession, 1000, 810, 0, true, "delta", scopeA)
+	if event := adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(crossPrefixSession, 1000, 470, 0, false, "delta", scopeB); event.Fired {
+		t.Fatalf("cache-share drop on a different prompt-cache key must not demote prefix elision: %+v", event)
+	}
+	if adapter.wssStatefulPrefixElisionCacheBustDemoted(crossPrefixSession, "delta", "prefix-a") {
+		t.Fatal("prefix A elision demoted from prefix B usage drop")
+	}
+
+	samePrefixSession := "codex-wss:cache-bust-prefix-elision-same"
+	adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(samePrefixSession, 1000, 820, 0, false, "delta", scopeA)
+	adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(samePrefixSession, 1000, 810, 0, true, "delta", scopeA)
+	event := adapter.observeWSSProviderCacheBustForScopeWithPrefixElision(samePrefixSession, 1000, 470, 0, false, "delta", scopeA)
+	if !event.Fired || !event.StatefulPrefixElisionTrigger || !event.StatefulPrefixElisionDemoted || event.TriggerScope != scopeA {
+		t.Fatalf("matching prompt-cache key should demote exact prefix-elision scope: %+v", event)
+	}
+	if !adapter.wssStatefulPrefixElisionCacheBustDemoted(samePrefixSession, "delta", "prefix-a") {
+		t.Fatal("prefix A elision was not demoted")
+	}
+	if adapter.wssStatefulPrefixElisionCacheBustDemoted(samePrefixSession, "delta", "prefix-b") {
+		t.Fatal("prefix B must not inherit prefix A elision demotion")
+	}
+}
+
 func TestWSPhaseFProviderCacheBustLegacyAggregateDemotionStillApplies(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
 	sessionID := "codex-wss:cache-bust-legacy"

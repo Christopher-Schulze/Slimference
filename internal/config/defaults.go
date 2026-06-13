@@ -93,6 +93,7 @@ func defaultsRaw() *Config {
 				BeTerseHintEnabled:                        false,
 				ArchiveRecoveryNoteEnabled:                false,
 				CodexSavingsPolicyMode:                    "auto",
+				CodexWSSStatefulToolPrefixElisionEnabled:  true,
 				CodexChunkDedupEnabled:                    false,
 				CodexChunkDedupProofLevel:                 "live",
 				CodexChunkDedupMinBytes:                   4096,
@@ -276,6 +277,11 @@ codex_savings_policy_mode = "auto"
 # that carry tool output because current Codex Desktop Responses chains can
 # reject later previous_response_id turns after a prior WSS tool-output rewrite.
 codex_wss_tool_output_mutation_enabled = false
+# Product-safe WSS prefix shaving: removes repeated top-level tool schemas only
+# after the same canonical schema was already forwarded in the same
+# prompt_cache_key scope. Instructions stay on the wire. Cache-bust demotion
+# disables the exact scope if provider cached-token share drops after elision.
+codex_wss_stateful_tool_prefix_elision_enabled = true
 # T359 search-output cap promotion latch. Leave empty unless the final
 # release-proof-report JSON path passed with focused search_loop proof, named
 # selected cap, and before/after Codex route hygiene snapshot paths. Raw cap

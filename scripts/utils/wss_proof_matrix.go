@@ -172,8 +172,10 @@ Expected signal names include:
 	  tool_prune_retry, tool_prune_tokens_saved, output_reduce_injected,
 	  output_reduce_output_tokens, output_reduce_skipped,
 	  output_reduce_downgraded, stop_seq, streamcut, repdet, stale_read,
-	  obsolete_prune, beterse, provider_cache_read, provider_cache_create,
-	  host_budget_ok.
+	  obsolete_prune, beterse, wss_stateful_prefix_elision,
+	  wss_stateful_prefix_elision_tools, wss_stateful_prefix_elision_bytes,
+	  wss_stateful_prefix_elision_tokens, provider_cache_read,
+	  provider_cache_create, host_budget_ok.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -834,6 +836,14 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ObsoleteReadBlocksPruned, true
 	case "beterse":
 		return live.BeterseInjections, true
+	case "wss_stateful_prefix_elision":
+		return live.WSSStatefulPrefixElisionRequests, true
+	case "wss_stateful_prefix_elision_tools":
+		return live.WSSStatefulPrefixElisionTools, true
+	case "wss_stateful_prefix_elision_bytes":
+		return live.WSSStatefulPrefixElisionBytes, true
+	case "wss_stateful_prefix_elision_tokens":
+		return live.WSSStatefulPrefixElisionTokens, true
 	case "provider_cache_read":
 		return live.ProviderCacheReadTokens, true
 	case "provider_cache_create":

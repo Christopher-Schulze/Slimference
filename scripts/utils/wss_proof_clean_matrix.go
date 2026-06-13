@@ -194,6 +194,8 @@ func cleanObservedExpectedReducers(live *codexCaptureLiveDelta) []string {
 		"tool_prune_tokens_saved",
 		"output_reduce_injected",
 		"output_reduce_output_tokens",
+		"wss_stateful_prefix_elision",
+		"wss_stateful_prefix_elision_tokens",
 		"provider_cache_read",
 		"provider_cache_create",
 	}

@@ -127,17 +127,22 @@ type codexCaptureAdminSnapshot struct {
 	ToolPruneDisabled    int64 `json:"tool_prune_disabled_sessions"`
 	ToolPruneTokensSaved int64 `json:"tool_prune_tokens_saved_sum"`
 
-	OutputReduceInjected             int64 `json:"output_reduce_injected_turns"`
-	OutputReduceSkipped              int64 `json:"output_reduce_skipped_turns"`
-	OutputReduceInputOverheadTokens  int64 `json:"output_reduce_input_overhead_tokens"`
-	OutputReduceOutputTokensObserved int64 `json:"output_reduce_output_tokens_observed"`
-	OutputReduceDowngrades           int64 `json:"output_reduce_downgrades"`
-	StopSeqRequestsModified          int64 `json:"stop_seq_requests_modified"`
-	StreamcutFired                   int64 `json:"streamcut_fired"`
-	RepdetResponsesRewritten         int64 `json:"repdet_responses_rewritten"`
-	StaleReadBlocksReplaced          int64 `json:"stale_read_blocks_replaced"`
-	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
-	BeterseInjections                int64 `json:"beterse_injections"`
+	OutputReduceInjected              int64 `json:"output_reduce_injected_turns"`
+	OutputReduceSkipped               int64 `json:"output_reduce_skipped_turns"`
+	OutputReduceInputOverheadTokens   int64 `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceOutputTokensObserved  int64 `json:"output_reduce_output_tokens_observed"`
+	OutputReduceDowngrades            int64 `json:"output_reduce_downgrades"`
+	StopSeqRequestsModified           int64 `json:"stop_seq_requests_modified"`
+	StreamcutFired                    int64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten          int64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced           int64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned          int64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections                 int64 `json:"beterse_injections"`
+	WSSStatefulPrefixElisionRequests  int64 `json:"wss_stateful_prefix_elision_requests"`
+	WSSStatefulPrefixElisionTools     int64 `json:"wss_stateful_prefix_elision_tool_requests"`
+	WSSStatefulPrefixElisionBytes     int64 `json:"wss_stateful_prefix_elision_bytes_saved"`
+	WSSStatefulPrefixElisionTokens    int64 `json:"wss_stateful_prefix_elision_tokens_saved"`
+	WSSStatefulPrefixInstructionsKept int64 `json:"wss_stateful_prefix_elision_instructions_kept"`
 
 	ParseFailures                     int64 `json:"parse_failures"`
 	DegradedSessions                  int64 `json:"degraded_sessions"`
@@ -193,17 +198,22 @@ type codexCaptureLiveDelta struct {
 	ToolPruneDisabled    int64 `json:"tool_prune_disabled_sessions"`
 	ToolPruneTokensSaved int64 `json:"tool_prune_tokens_saved_sum"`
 
-	OutputReduceInjected             int64 `json:"output_reduce_injected_turns"`
-	OutputReduceSkipped              int64 `json:"output_reduce_skipped_turns"`
-	OutputReduceInputOverheadTokens  int64 `json:"output_reduce_input_overhead_tokens"`
-	OutputReduceOutputTokensObserved int64 `json:"output_reduce_output_tokens_observed"`
-	OutputReduceDowngrades           int64 `json:"output_reduce_downgrades"`
-	StopSeqRequestsModified          int64 `json:"stop_seq_requests_modified"`
-	StreamcutFired                   int64 `json:"streamcut_fired"`
-	RepdetResponsesRewritten         int64 `json:"repdet_responses_rewritten"`
-	StaleReadBlocksReplaced          int64 `json:"stale_read_blocks_replaced"`
-	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
-	BeterseInjections                int64 `json:"beterse_injections"`
+	OutputReduceInjected              int64 `json:"output_reduce_injected_turns"`
+	OutputReduceSkipped               int64 `json:"output_reduce_skipped_turns"`
+	OutputReduceInputOverheadTokens   int64 `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceOutputTokensObserved  int64 `json:"output_reduce_output_tokens_observed"`
+	OutputReduceDowngrades            int64 `json:"output_reduce_downgrades"`
+	StopSeqRequestsModified           int64 `json:"stop_seq_requests_modified"`
+	StreamcutFired                    int64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten          int64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced           int64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned          int64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections                 int64 `json:"beterse_injections"`
+	WSSStatefulPrefixElisionRequests  int64 `json:"wss_stateful_prefix_elision_requests"`
+	WSSStatefulPrefixElisionTools     int64 `json:"wss_stateful_prefix_elision_tool_requests"`
+	WSSStatefulPrefixElisionBytes     int64 `json:"wss_stateful_prefix_elision_bytes_saved"`
+	WSSStatefulPrefixElisionTokens    int64 `json:"wss_stateful_prefix_elision_tokens_saved"`
+	WSSStatefulPrefixInstructionsKept int64 `json:"wss_stateful_prefix_elision_instructions_kept"`
 
 	ParseFailures                     int64 `json:"parse_failures"`
 	DegradedSessions                  int64 `json:"degraded_sessions"`
@@ -251,12 +261,17 @@ type codexCaptureOutputReduceSnapshot struct {
 }
 
 type codexCaptureOutputReduceCountersSnapshot struct {
-	StopSeqRequestsModified  uint64 `json:"stop_seq_requests_modified"`
-	StreamcutFired           uint64 `json:"streamcut_fired"`
-	RepdetResponsesRewritten uint64 `json:"repdet_responses_rewritten"`
-	StaleReadBlocksReplaced  uint64 `json:"stale_read_blocks_replaced"`
-	ObsoleteReadBlocksPruned uint64 `json:"obsolete_read_blocks_pruned"`
-	BeterseInjections        uint64 `json:"beterse_injections"`
+	StopSeqRequestsModified           uint64 `json:"stop_seq_requests_modified"`
+	StreamcutFired                    uint64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten          uint64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced           uint64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned          uint64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections                 uint64 `json:"beterse_injections"`
+	WSSStatefulPrefixElisionRequests  uint64 `json:"wss_stateful_prefix_elision_requests"`
+	WSSStatefulPrefixElisionTools     uint64 `json:"wss_stateful_prefix_elision_tool_requests"`
+	WSSStatefulPrefixElisionBytes     uint64 `json:"wss_stateful_prefix_elision_bytes_saved"`
+	WSSStatefulPrefixElisionTokens    uint64 `json:"wss_stateful_prefix_elision_tokens_saved"`
+	WSSStatefulPrefixInstructionsKept uint64 `json:"wss_stateful_prefix_elision_instructions_kept"`
 }
 
 const codexCaptureRunHelpText = `codex-capture-run: run a scoped Codex CLI capture with a managed foreground daemon
@@ -1312,17 +1327,22 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 		ToolPruneDisabled:    int64(setup.ToolPrune.DisabledSessions),
 		ToolPruneTokensSaved: setup.ToolPrune.TokensSavedSum,
 
-		OutputReduceInjected:             setup.OutputReduce.InjectedTurns,
-		OutputReduceSkipped:              setup.OutputReduce.SkippedTurns,
-		OutputReduceInputOverheadTokens:  setup.OutputReduce.InputOverheadTokens,
-		OutputReduceOutputTokensObserved: setup.OutputReduce.OutputTokensObserved,
-		OutputReduceDowngrades:           int64(len(setup.OutputReduce.Downgrades)),
-		StopSeqRequestsModified:          int64(setup.OutputReduceCounters.StopSeqRequestsModified),
-		StreamcutFired:                   int64(setup.OutputReduceCounters.StreamcutFired),
-		RepdetResponsesRewritten:         int64(setup.OutputReduceCounters.RepdetResponsesRewritten),
-		StaleReadBlocksReplaced:          int64(setup.OutputReduceCounters.StaleReadBlocksReplaced),
-		ObsoleteReadBlocksPruned:         int64(setup.OutputReduceCounters.ObsoleteReadBlocksPruned),
-		BeterseInjections:                int64(setup.OutputReduceCounters.BeterseInjections),
+		OutputReduceInjected:              setup.OutputReduce.InjectedTurns,
+		OutputReduceSkipped:               setup.OutputReduce.SkippedTurns,
+		OutputReduceInputOverheadTokens:   setup.OutputReduce.InputOverheadTokens,
+		OutputReduceOutputTokensObserved:  setup.OutputReduce.OutputTokensObserved,
+		OutputReduceDowngrades:            int64(len(setup.OutputReduce.Downgrades)),
+		StopSeqRequestsModified:           int64(setup.OutputReduceCounters.StopSeqRequestsModified),
+		StreamcutFired:                    int64(setup.OutputReduceCounters.StreamcutFired),
+		RepdetResponsesRewritten:          int64(setup.OutputReduceCounters.RepdetResponsesRewritten),
+		StaleReadBlocksReplaced:           int64(setup.OutputReduceCounters.StaleReadBlocksReplaced),
+		ObsoleteReadBlocksPruned:          int64(setup.OutputReduceCounters.ObsoleteReadBlocksPruned),
+		BeterseInjections:                 int64(setup.OutputReduceCounters.BeterseInjections),
+		WSSStatefulPrefixElisionRequests:  int64(setup.OutputReduceCounters.WSSStatefulPrefixElisionRequests),
+		WSSStatefulPrefixElisionTools:     int64(setup.OutputReduceCounters.WSSStatefulPrefixElisionTools),
+		WSSStatefulPrefixElisionBytes:     int64(setup.OutputReduceCounters.WSSStatefulPrefixElisionBytes),
+		WSSStatefulPrefixElisionTokens:    int64(setup.OutputReduceCounters.WSSStatefulPrefixElisionTokens),
+		WSSStatefulPrefixInstructionsKept: int64(setup.OutputReduceCounters.WSSStatefulPrefixInstructionsKept),
 
 		ParseFailures:                     setup.WSS.ParseFailures,
 		DegradedSessions:                  setup.WSS.DegradedSessions,
@@ -1378,17 +1398,22 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		ToolPruneDisabled:    nonNegativeDelta(current.ToolPruneDisabled, base.ToolPruneDisabled),
 		ToolPruneTokensSaved: nonNegativeDelta(current.ToolPruneTokensSaved, base.ToolPruneTokensSaved),
 
-		OutputReduceInjected:             nonNegativeDelta(current.OutputReduceInjected, base.OutputReduceInjected),
-		OutputReduceSkipped:              nonNegativeDelta(current.OutputReduceSkipped, base.OutputReduceSkipped),
-		OutputReduceInputOverheadTokens:  nonNegativeDelta(current.OutputReduceInputOverheadTokens, base.OutputReduceInputOverheadTokens),
-		OutputReduceOutputTokensObserved: nonNegativeDelta(current.OutputReduceOutputTokensObserved, base.OutputReduceOutputTokensObserved),
-		OutputReduceDowngrades:           nonNegativeDelta(current.OutputReduceDowngrades, base.OutputReduceDowngrades),
-		StopSeqRequestsModified:          nonNegativeDelta(current.StopSeqRequestsModified, base.StopSeqRequestsModified),
-		StreamcutFired:                   nonNegativeDelta(current.StreamcutFired, base.StreamcutFired),
-		RepdetResponsesRewritten:         nonNegativeDelta(current.RepdetResponsesRewritten, base.RepdetResponsesRewritten),
-		StaleReadBlocksReplaced:          nonNegativeDelta(current.StaleReadBlocksReplaced, base.StaleReadBlocksReplaced),
-		ObsoleteReadBlocksPruned:         nonNegativeDelta(current.ObsoleteReadBlocksPruned, base.ObsoleteReadBlocksPruned),
-		BeterseInjections:                nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
+		OutputReduceInjected:              nonNegativeDelta(current.OutputReduceInjected, base.OutputReduceInjected),
+		OutputReduceSkipped:               nonNegativeDelta(current.OutputReduceSkipped, base.OutputReduceSkipped),
+		OutputReduceInputOverheadTokens:   nonNegativeDelta(current.OutputReduceInputOverheadTokens, base.OutputReduceInputOverheadTokens),
+		OutputReduceOutputTokensObserved:  nonNegativeDelta(current.OutputReduceOutputTokensObserved, base.OutputReduceOutputTokensObserved),
+		OutputReduceDowngrades:            nonNegativeDelta(current.OutputReduceDowngrades, base.OutputReduceDowngrades),
+		StopSeqRequestsModified:           nonNegativeDelta(current.StopSeqRequestsModified, base.StopSeqRequestsModified),
+		StreamcutFired:                    nonNegativeDelta(current.StreamcutFired, base.StreamcutFired),
+		RepdetResponsesRewritten:          nonNegativeDelta(current.RepdetResponsesRewritten, base.RepdetResponsesRewritten),
+		StaleReadBlocksReplaced:           nonNegativeDelta(current.StaleReadBlocksReplaced, base.StaleReadBlocksReplaced),
+		ObsoleteReadBlocksPruned:          nonNegativeDelta(current.ObsoleteReadBlocksPruned, base.ObsoleteReadBlocksPruned),
+		BeterseInjections:                 nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
+		WSSStatefulPrefixElisionRequests:  nonNegativeDelta(current.WSSStatefulPrefixElisionRequests, base.WSSStatefulPrefixElisionRequests),
+		WSSStatefulPrefixElisionTools:     nonNegativeDelta(current.WSSStatefulPrefixElisionTools, base.WSSStatefulPrefixElisionTools),
+		WSSStatefulPrefixElisionBytes:     nonNegativeDelta(current.WSSStatefulPrefixElisionBytes, base.WSSStatefulPrefixElisionBytes),
+		WSSStatefulPrefixElisionTokens:    nonNegativeDelta(current.WSSStatefulPrefixElisionTokens, base.WSSStatefulPrefixElisionTokens),
+		WSSStatefulPrefixInstructionsKept: nonNegativeDelta(current.WSSStatefulPrefixInstructionsKept, base.WSSStatefulPrefixInstructionsKept),
 
 		ParseFailures:                     nonNegativeDelta(current.ParseFailures, base.ParseFailures),
 		DegradedSessions:                  nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
@@ -2026,6 +2051,13 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
 			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,
 			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)
+		if result.LiveDelta.WSSStatefulPrefixElisionRequests > 0 {
+			fmt.Fprintf(w, "  wss_prefix_elision req/tools/tokens/bytes: %d / %d / %d / %d\n",
+				result.LiveDelta.WSSStatefulPrefixElisionRequests,
+				result.LiveDelta.WSSStatefulPrefixElisionTools,
+				result.LiveDelta.WSSStatefulPrefixElisionTokens,
+				result.LiveDelta.WSSStatefulPrefixElisionBytes)
+		}
 		fmt.Fprintf(w, "  safety_parse/degraded/compression: %d / %d / %d\n",
 			result.LiveDelta.ParseFailures, result.LiveDelta.DegradedSessions, result.LiveDelta.CompressionErrors)
 		fmt.Fprintf(w, "  analytics_proof/low_dropped: %d / %d\n",
