@@ -75,7 +75,9 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    economic signal unless the row is an expected-zero control.
    `release-proof-report` is the final content-free proof summary. Run it on
    that clean release matrix file or a focused release bundle, not on the whole
-   historical capture archive. The archive intentionally contains old
+   historical capture archive. The generated JSON includes
+   `proof_schema_version`; stale unversioned final reports fail closed at
+   runtime and do not open search caps. The archive intentionally contains old
    diagnostic and superseded rows, and those rows fail the strict gate by id.
    When promoting the T359 search-cap lever, pass the focused
    `wss-proof-matrix --json` search-cap report through

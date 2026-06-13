@@ -152,6 +152,9 @@ func TestReleaseProofReportPassesWithCompleteMatrixAndProfile(t *testing.T) {
 	if !report.GatePassed {
 		t.Fatalf("complete report should pass: %+v", report.GateFailures)
 	}
+	if report.ProofSchemaVersion != releaseProofReportSchemaVersion {
+		t.Fatalf("proof schema version = %d, want %d", report.ProofSchemaVersion, releaseProofReportSchemaVersion)
+	}
 	if report.Economics.LocalBillableInputTokensSaved == 0 ||
 		report.Economics.ProviderCacheReadTokens == 0 ||
 		report.Economics.ToolPruneTokensSaved == 0 ||

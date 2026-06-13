@@ -20,6 +20,7 @@ type releaseProofReportFlags struct {
 }
 
 type releaseProofReport struct {
+	ProofSchemaVersion          int                               `json:"proof_schema_version"`
 	MatrixPath                  string                            `json:"matrix_path"`
 	ResourceProfileProof        string                            `json:"resource_profile_proof,omitempty"`
 	ResourceProfileProofs       []string                          `json:"resource_profile_proofs,omitempty"`
@@ -101,6 +102,7 @@ type releaseCodexStatusSnapshot struct {
 }
 
 const (
+	releaseProofReportSchemaVersion       = 1
 	releaseSearchCapMinRetainedPct        = 40.0
 	releaseSearchCapMinSearchOutputs      = 2
 	releaseSearchCapMinExtraReducerTokens = 1
@@ -137,7 +139,7 @@ counters alone. Search-cap promotion also requires --codex-status-before and
 --codex-status-after snapshots from 'slimference codex status --json'; both must
 prove normal direct Codex routing with no marker-owned shared route, no legacy
 base-url keys, and no route conflict. Save the --json output as the final
-release-proof artifact; that final JSON file is the supported
+versioned release-proof artifact; that final JSON file is the supported
 codex_search_cap_proof_path runtime latch input.`
 
 func runReleaseProofReport(args []string, stdout, stderr io.Writer) int {
@@ -262,6 +264,7 @@ func loadReleaseProofReport(flags releaseProofReportFlags) (releaseProofReport, 
 		return releaseProofReport{}, err
 	}
 	report := releaseProofReport{
+		ProofSchemaVersion:          releaseProofReportSchemaVersion,
 		MatrixPath:                  flags.matrixPath,
 		ResourceProfileProof:        strings.Join(flags.resourceProfileProofs, ","),
 		ResourceProfileProofs:       append([]string(nil), flags.resourceProfileProofs...),

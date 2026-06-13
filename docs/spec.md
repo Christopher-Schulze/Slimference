@@ -1,6 +1,6 @@
 # Slimference Specification v3
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 This is the normative implementation target for Slimference. `docs/documentation.md`
 is the explanatory reference; this file defines the compact product and technical
@@ -64,14 +64,15 @@ Requirements:
   `rg --files`, `fd`/`fdfind`, and conservative bounded `find` may compact
   only after both command shape and payload pass strict path-list parsers;
 - sharper Codex WSS search-output caps may become runtime-active only through a
-  validated focused search-cap proof artifact whose `capture_reports` themselves
-  pass their row gates and prove CLI plus Desktop, two positive search-loop
-  rows, retained evidence, replay safety, `captured_output` delta tool-output
-  mutation proof for the selected cap, and before/after Codex route hygiene with
-  no persistent shared route or legacy base-url keys; the final report must
-  preserve both status snapshot paths, `required_reducer_hits.captured_output`,
-  and a named selected cap; aggregate proof counters alone are not sufficient,
-  and raw cap values are not product config knobs;
+  a versioned final release proof artifact whose nested focused search-cap
+  proof `capture_reports` themselves pass their row gates and prove CLI plus
+  Desktop, two positive search-loop rows, retained evidence, replay safety,
+  `captured_output` delta tool-output mutation proof for the selected cap, and
+  before/after Codex route hygiene with no persistent shared route or legacy
+  base-url keys; the final report must preserve `proof_schema_version`, both
+  status snapshot paths, `required_reducer_hits.captured_output`, and a named
+  selected cap; aggregate proof counters, stale unversioned final reports, and
+  raw cap values are not product config knobs;
 - every reducer records enough local telemetry to prove hit, miss, block, and
   fail-open reasons without logging raw private payloads.
 
@@ -214,7 +215,7 @@ Fresh configs expose active product surfaces only:
   sequences, streamcut, repetition detection, stale/obsolete read pruning,
   Codex savings policy, chunk-dedup proof controls, and the proof-latched
   `codex_search_cap_proof_path` search-cap promotion input pointing at the
-  final release proof artifact;
+  versioned final release proof artifact;
 - `[compression.tuning]` for overflow, in-window compaction, structure preview,
   coordinator, optional tool-prune, streaming, planner, and tuning knobs;
 - `[filter] passthrough_max_chars=2000` by default;

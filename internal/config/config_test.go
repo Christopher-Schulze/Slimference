@@ -237,6 +237,45 @@ codex_search_cap_proof_path = %q
 	}
 }
 
+func TestLoadWithOptions_CodexSearchCapProofIgnoresUnversionedFinalReport(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:                  25,
+		matches:                15,
+		retention:              41.25,
+		extraTokens:            120,
+		routeOK:                true,
+		resourceOK:             true,
+		matrixPath:             "clean-release-matrix.jsonl",
+		matrixFiles:            1,
+		rows:                   12,
+		positiveRows:           9,
+		clients:                []string{"cli", "desktop"},
+		omitProofSchemaVersion: true,
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions returned error for stale final proof: %v", err)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.CodexSearchCapProofPath != proofPath {
+		t.Fatalf("proof path changed: %+v", or)
+	}
+	if or.CodexSearchCapMaxFiles != 0 ||
+		or.CodexSearchCapMaxMatchesPerFile != 0 ||
+		or.CodexSearchCapDeltaMutationEnabled {
+		t.Fatalf("stale unversioned final proof must fail closed without promotion: %+v", or)
+	}
+}
+
 func TestLoadWithOptions_CodexSearchCapProofRejectsWeakReport(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 39.5, 0)
@@ -339,7 +378,7 @@ codex_search_cap_proof_path = %q
 		t.Fatal("expected focused search-cap matrix proof to reject config")
 	}
 	text := err.Error()
-	if !strings.Contains(text, "missing final release search_cap_proof summary") {
+	if !strings.Contains(text, "missing proof_schema_version on unsupported proof artifact") {
 		t.Fatalf("rejection did not explain focused matrix bypass: %v", err)
 	}
 }
@@ -539,27 +578,28 @@ func writeCodexSearchCapProofFixtureWithRouteHygiene(t *testing.T, dir string, f
 }
 
 type codexSearchCapProofFixtureOptions struct {
-	files               int
-	matches             int
-	retention           float64
-	extraTokens         int
-	selectedCandidate   string
-	selectedExplicit    bool
-	routeOK             bool
-	routeBefore         string
-	routeAfter          string
-	routeExplicit       bool
-	routeIssues         []string
-	resourceOK          bool
-	resourceIssues      []string
-	searchCapIssues     []string
-	reportGateFailures  []string
-	matrixPath          string
-	matrixFiles         int
-	rows                int
-	positiveRows        int
-	clients             []string
-	requiredReducerHits map[string]int64
+	files                  int
+	matches                int
+	retention              float64
+	extraTokens            int
+	selectedCandidate      string
+	selectedExplicit       bool
+	routeOK                bool
+	routeBefore            string
+	routeAfter             string
+	routeExplicit          bool
+	routeIssues            []string
+	resourceOK             bool
+	resourceIssues         []string
+	searchCapIssues        []string
+	reportGateFailures     []string
+	matrixPath             string
+	matrixFiles            int
+	rows                   int
+	positiveRows           int
+	clients                []string
+	requiredReducerHits    map[string]int64
+	omitProofSchemaVersion bool
 }
 
 func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts codexSearchCapProofFixtureOptions) string {
@@ -582,6 +622,7 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 	}
 	path := filepath.Join(dir, "release-proof-report.json")
 	report := map[string]any{
+		"proof_schema_version":           codexSearchCapRequiredProofSchemaVersion,
 		"matrix_path":                    opts.matrixPath,
 		"resource_profile_proof_ok":      opts.resourceOK,
 		"resource_profile_proof_clients": opts.clients,
@@ -619,6 +660,9 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 			"ok":     opts.routeOK,
 			"issues": opts.routeIssues,
 		},
+	}
+	if opts.omitProofSchemaVersion {
+		delete(report, "proof_schema_version")
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

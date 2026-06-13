@@ -1159,11 +1159,14 @@ product search-cap defaults remain unchanged until a fresh scoped matrix row
 passes with live token evidence and the candidate is explicitly promoted.
 Runtime promotion is proof-latched, not a raw tuning knob:
 `compression.output_reduce.codex_search_cap_proof_path` may point at the
-final `release-proof-report --json` artifact. Config loading validates that the
-final release gate passed, the nested search-cap proof passed, the nested Codex
-route-hygiene proof passed, the route-hygiene summary carries both before/after
-`slimference codex status --json` snapshot paths, and the summary still
-satisfies the release minima (CLI plus Desktop, at least two positive rows, at
+versioned final `release-proof-report --json` artifact. Config loading first
+requires `proof_schema_version=1`; stale unversioned final reports fail closed
+without opening runtime caps, and unsupported proof artifacts are rejected.
+Versioned final reports are then validated for a passed final release gate, a
+passed nested search-cap proof, a passed nested Codex route-hygiene proof, both
+before/after `slimference codex status --json` snapshot paths, and a summary
+that still satisfies the release minima (CLI plus Desktop, at least two
+positive rows, at
 least 40% retained matches, positive extra reducer tokens, and a named valid
 	selected cap) plus the product search-cap latch proof bit and
 	`required_reducer_hits.captured_output > 0` before copying the selected
@@ -1175,8 +1178,8 @@ least 40% retained matches, positive extra reducer tokens, and a named valid
 	byte-equal. A focused
 `wss-proof-matrix --json` report alone is rejected by config loading because it
 does not prove route hygiene. Without the final proof path, or when the final
-proof is weak, the runtime cap fields stay zero and the default search compactor
-remains byte-identical. `release-proof-plan` writes the final
+proof is stale, unversioned, or weak, the runtime cap fields stay zero and the
+default search compactor remains byte-identical. `release-proof-plan` writes the final
 `release-proof-report --json` artifact and prints that final report path in the
 `codex_search_cap_proof_path` TOML line.
 `wss-ab-replay` also accepts proof-only `--search-cap-files` and
@@ -3110,11 +3113,12 @@ direct Codex routing: no marker-owned shared route, no legacy base-url keys, and
 no route conflict. The final JSON must preserve those before/after snapshot
 paths in `codex_route_hygiene`; otherwise config loading rejects the promotion
 artifact.
-The final `release-proof-report --json` artifact is the only supported
-runtime-promotion input for the search-cap lever through
-`compression.output_reduce.codex_search_cap_proof_path`; raw cap counts and the
-focused matrix report are not product config inputs because they would bypass
-the zero-drawdown route-hygiene proof gate.
+The versioned final `release-proof-report --json` artifact is the only
+supported runtime-promotion input for the search-cap lever through
+`compression.output_reduce.codex_search_cap_proof_path`; raw cap counts,
+stale unversioned final reports, and the focused matrix report are not product
+config inputs because they would bypass the current zero-drawdown route-hygiene
+proof gate.
 The report keeps local billable-input token deletion, request-side bytes,
 output-wire bytes, provider-cache read/create tokens, tool-prune schema tokens,
 output-reduce input overhead,

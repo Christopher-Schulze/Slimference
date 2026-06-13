@@ -310,10 +310,11 @@ type OutputReduceConfig struct {
 	// override: SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF=1. It may
 	// force the guarded path during scoped proof runs but is never persisted.
 	CodexWSSStatefulPrefixElisionProofEnabled bool `toml:"-"`
-	// CodexSearchCapProofPath points at a final release-proof-report --json
-	// artifact. When the report passes the release minima and Codex route
+	// CodexSearchCapProofPath points at a versioned final release-proof-report
+	// --json artifact. When the report passes the release minima and Codex route
 	// hygiene proof, the selected search cap is promoted into the runtime search
-	// compactor. Empty keeps the product default search compactor byte-identical.
+	// compactor. Empty or stale unversioned final reports keep the product
+	// default search compactor byte-identical.
 	CodexSearchCapProofPath string `toml:"codex_search_cap_proof_path"`
 	// CodexSearchCapMaxFiles and CodexSearchCapMaxMatchesPerFile are resolved
 	// from the proof report above, or set directly by offline replay tools.
@@ -890,9 +891,11 @@ const (
 	codexSearchCapReleaseMinRetainedPct        = 40.0
 	codexSearchCapReleaseMinSearchOutputs      = 2
 	codexSearchCapReleaseMinExtraReducerTokens = 1
+	codexSearchCapRequiredProofSchemaVersion   = 1
 )
 
 type codexSearchCapReleaseProofReport struct {
+	ProofSchemaVersion          int                         `json:"proof_schema_version"`
 	MatrixPath                  string                      `json:"matrix_path"`
 	ResourceProfileProofOK      bool                        `json:"resource_profile_proof_ok"`
 	ResourceProfileProofClients []string                    `json:"resource_profile_proof_clients"`
@@ -950,6 +953,16 @@ func applyCodexSearchCapProof(cfg *Config) error {
 	if err := json.Unmarshal(data, &proof); err != nil {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path parse %q: %w", path, err)
 	}
+	if proof.ProofSchemaVersion == 0 {
+		if codexSearchCapLooksLikeFinalReleaseProof(proof) {
+			return nil
+		}
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: missing proof_schema_version on unsupported proof artifact", path)
+	}
+	if proof.ProofSchemaVersion < codexSearchCapRequiredProofSchemaVersion {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: proof_schema_version %d < required %d",
+			path, proof.ProofSchemaVersion, codexSearchCapRequiredProofSchemaVersion)
+	}
 	files, matches, issues := validateCodexSearchCapProof(proof)
 	if len(issues) > 0 {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: %s", path, strings.Join(issues, "; "))
@@ -958,6 +971,13 @@ func applyCodexSearchCapProof(cfg *Config) error {
 	or.CodexSearchCapMaxMatchesPerFile = matches
 	or.CodexSearchCapDeltaMutationEnabled = true
 	return nil
+}
+
+func codexSearchCapLooksLikeFinalReleaseProof(proof codexSearchCapReleaseProofReport) bool {
+	return strings.TrimSpace(proof.MatrixPath) != "" ||
+		proof.SearchCapProof != nil ||
+		proof.CodexRouteHygiene != nil ||
+		len(proof.ResourceProfileProofClients) > 0
 }
 
 func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, int, []string) {
