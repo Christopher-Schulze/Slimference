@@ -82,6 +82,8 @@ type wssLocalGapRequestGuardRow struct {
 	LocalSavedTokens      int            `json:"local_saved_tokens"`
 	ZeroSavingsRequests   int            `json:"zero_savings_requests"`
 	ZeroSavingsOrigTokens int            `json:"zero_savings_original_tokens"`
+	NoEvidenceRequests    int            `json:"no_evidence_requests"`
+	NoEvidenceOrigTokens  int            `json:"no_evidence_original_tokens"`
 	RequestShapes         map[string]int `json:"request_shapes,omitempty"`
 }
 
@@ -362,18 +364,22 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	if len(summary.Errors) > 0 {
 		shapeRow.ErrorRequests++
 	}
-	a.addRequestGuardFacts(summary, shape, original, saved)
+	noEvidence := len(summary.EvidenceDecisions) == 0
+	a.addRequestGuardFacts(summary, shape, original, saved, noEvidence)
 	for _, decision := range summary.EvidenceDecisions {
 		a.addDecision(decision, shape)
 	}
 }
 
-func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape string, original, saved int) {
+func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape string, original, saved int, noEvidence bool) {
 	if a == nil {
 		return
 	}
+	if noEvidence && strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "" {
+		a.addRequestGuard("wss.request_shape=(missing)", shape, original, saved, noEvidence)
+	}
 	if reason := strings.TrimSpace(summary.BypassReason); reason != "" {
-		a.addRequestGuard("bypass_reason="+reason, shape, original, saved)
+		a.addRequestGuard("bypass_reason="+reason, shape, original, saved, noEvidence)
 	}
 	for _, key := range []string{
 		"wss.structured_mutation_guard",
@@ -389,11 +395,11 @@ func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary
 		if value == "" {
 			continue
 		}
-		a.addRequestGuard(key+"="+value, shape, original, saved)
+		a.addRequestGuard(key+"="+value, shape, original, saved, noEvidence)
 	}
 }
 
-func (a *wssLocalGapAccumulator) addRequestGuard(guard, shape string, original, saved int) {
+func (a *wssLocalGapAccumulator) addRequestGuard(guard, shape string, original, saved int, noEvidence bool) {
 	row := a.requestGuards[guard]
 	if row == nil {
 		row = &wssLocalGapRequestGuardRow{Guard: guard}
@@ -405,6 +411,10 @@ func (a *wssLocalGapAccumulator) addRequestGuard(guard, shape string, original, 
 	if saved == 0 {
 		row.ZeroSavingsRequests++
 		row.ZeroSavingsOrigTokens += original
+	}
+	if noEvidence {
+		row.NoEvidenceRequests++
+		row.NoEvidenceOrigTokens += original
 	}
 	addWSSAuditCount(&row.RequestShapes, shape)
 }
@@ -701,12 +711,13 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	if len(report.RequestGuards) > 0 {
 		fmt.Fprintln(w, "\nRequest-level guards:")
 		for _, row := range report.RequestGuards {
-			fmt.Fprintf(w, "  %-72s requests=%d original=%d saved=%d zero_orig=%d shapes=%s\n",
+			fmt.Fprintf(w, "  %-72s requests=%d original=%d saved=%d zero_orig=%d no_evidence_orig=%d shapes=%s\n",
 				row.Guard,
 				row.Requests,
 				row.OriginalTokens,
 				row.LocalSavedTokens,
 				row.ZeroSavingsOrigTokens,
+				row.NoEvidenceOrigTokens,
 				formatWSSAuditCounts(row.RequestShapes))
 		}
 	}

@@ -214,6 +214,60 @@ func TestWSSLocalGapSinceAndSavedGate(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID: "legacy-no-evidence",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000, Saved: 0},
+		},
+		dbg.RequestSummary{
+			RequestID:    "bypassed-no-evidence",
+			Path:         "/backend-api/codex/responses",
+			RouteMode:    "websocket_phasef",
+			BypassReason: "wss_tool_output_state_full_pass",
+			Tokens:       dbg.TokenCounts{Original: 4000, Final: 4000, Saved: 0},
+			DebugFacts: map[string]string{
+				"wss.request_shape": "delta",
+			},
+		},
+	)
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	missingShape := wssLocalGapRequestGuardRow{}
+	bypass := wssLocalGapRequestGuardRow{}
+	for _, row := range report.RequestGuards {
+		switch row.Guard {
+		case "wss.request_shape=(missing)":
+			missingShape = row
+		case "bypass_reason=wss_tool_output_state_full_pass":
+			bypass = row
+		}
+	}
+	if missingShape.Requests != 1 ||
+		missingShape.OriginalTokens != 9000 ||
+		missingShape.NoEvidenceRequests != 1 ||
+		missingShape.NoEvidenceOrigTokens != 9000 ||
+		missingShape.RequestShapes["unknown"] != 1 {
+		t.Fatalf("missing-shape no-evidence guard row mismatch: %+v", missingShape)
+	}
+	if bypass.Requests != 1 ||
+		bypass.OriginalTokens != 4000 ||
+		bypass.ZeroSavingsOrigTokens != 4000 ||
+		bypass.NoEvidenceOrigTokens != 4000 ||
+		bypass.RequestShapes["delta"] != 1 {
+		t.Fatalf("bypass no-evidence guard row mismatch: %+v", bypass)
+	}
+}
+
 func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 	t.Parallel()
 
