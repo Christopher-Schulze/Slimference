@@ -1900,6 +1900,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeTestAllPassOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeGoTestFailureDiagnosticOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2344,6 +2347,38 @@ func wssSafeTestAllPassOutput(commandLine, payload string) bool {
 	compacted, ok := filter.TryCompactDotnet(argv, stdout)
 	return ok && strings.HasPrefix(string(compacted), "[dotnet test] ok") &&
 		!strings.Contains(strings.ToLower(string(compacted)), "warning")
+}
+
+func wssSafeGoTestFailureDiagnosticOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || !wssPlainGoTestFailurePayload(payload) {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssCompactedGoTestFailureDiagnostic(compacted)
+}
+
+func wssPlainGoTestFailurePayload(payload string) bool {
+	text := strings.TrimSpace(payload)
+	if text == "" ||
+		!strings.Contains(text, "--- FAIL:") ||
+		!strings.Contains("\n"+text, "\nFAIL\t") {
+		return false
+	}
+	for _, marker := range []string{"DATA RACE", "panic:", "--- TIMEOUT", "build failed"} {
+		if strings.Contains(text, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+func wssCompactedGoTestFailureDiagnostic(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	return strings.HasPrefix(text, "[go test] FAILED\n") &&
+		strings.Contains(text, "--- FAIL:") &&
+		strings.Contains("\n"+text, "\nFAIL\t")
 }
 
 func wssCompactedTestOutputOK(compacted []byte) bool {

@@ -38,7 +38,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	rgLargeListingOutput := wssListingFixture(wssSafeListingOutputMaxEntries + 1)
 	treeOutput := wssTreeFixture(40)
 	goTestAllPass := wssGoTestVerboseAllPassFixture(80)
-	goTestFailure := "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\n    broken_test.go:12: expected alpha got beta\nFAIL\tslimtest/lib\t0.006s\n"
+	goTestFailure := wssGoTestVerboseFailureFixture(40)
 	goTestRace := "=== RUN   TestRacy\nWARNING: DATA RACE\n--- PASS: TestRacy (0.00s)\nPASS\nok  \tslimtest/lib\t0.006s\n"
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
@@ -97,7 +97,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git show patch payload", command: "git show --stat HEAD", output: wssGitShowPatchFixture(), wantGuard: "git show patch payload stays guarded"},
 		{name: "git diff name-status rename metadata", command: "git diff --name-status -M", output: "R100\told/path.go\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git diff rename name-status stays guarded"},
 		{name: "full git diff source", command: "git diff", output: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n", wantGuard: "full git diff must stay guarded"},
-		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantGuard: "go test failures stay guarded"},
+		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantSafe: true},
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
@@ -590,6 +590,83 @@ func TestWSSStatefulSafeGoTestAllPassCompactsFullHistoryTurn(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafeGoTestFailureCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: go-test-failure-safe\nWall time: 0.0010 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" +
+		wssGoTestVerboseFailureFixture(120)
+
+	env := parseWSJSON(t, wssGoTestRequestBody("resp-go-test-failure", "call_go_test_failure", "GOCACHE=/tmp/slimference-cache go test ./... -v", envelope))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle go test failure request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history go test failure output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[go test] FAILED") ||
+		!strings.Contains(body, "SLIMFERENCE_TEST_FAILURE_SENTINEL") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "TestPassing119") ||
+		strings.Contains(body, "--- PASS: TestPassing000") {
+		t.Fatalf("go test failure output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" {
+		t.Fatalf("stateful-safe go test failure should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGoTestFailureDeltaStillGuarded(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: go-test-failure-delta\nWall time: 0.0010 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" +
+		wssGoTestVerboseFailureFixture(120)
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-go-test-failure-delta",
+			"prompt_cache_key":     "stateful-go-test-failure-delta-session",
+			"input": []map[string]any{
+				{"type": "function_call_output", "call_id": "call_go_test_failure_delta", "output": envelope},
+			},
+			"stream": true,
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle go test failure delta request: %v", err)
+	}
+	if replace ||
+		strings.Contains(string(env.Body), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(env.Body), "[go test] FAILED") {
+		t.Fatalf("delta go test failure must stay byte-identical under the delta proof gate: %s", env.Body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_stateful_delta_mutation_proof_gate" ||
+		summary.DebugFacts["wss.stateful_delta_mutation_blocked"] != "true" ||
+		summary.DebugFacts["wss.request_shape"] != "delta" {
+		t.Fatalf("delta go test failure should keep only the delta proof gate: %+v", summary.DebugFacts)
+	}
+}
+
 func TestWSSStatefulSafeGitLogOnelineRepeatCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -669,10 +746,10 @@ func TestWSSStatefulSafeInferredCommandOutputBoundary(t *testing.T) {
 	}
 
 	failingTestEnvelope := "Chunk ID: inferred-test-fail\nWall time: 0.0010 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" +
-		"=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\n    broken_test.go:12: expected alpha got beta\nFAIL\texample.test/liveproof\t0.015s\n"
+		wssGoTestVerboseFailureFixture(40)
 	if command := proxyInferCommandLineFromToolResult(failingTestEnvelope); command != "go test" ||
-		wssSafeStatefulStatusCommandOutput(command, failingTestEnvelope) {
-		t.Fatalf("inferred failing test must stay guarded, command=%q", command)
+		!wssSafeStatefulStatusCommandOutput(command, failingTestEnvelope) {
+		t.Fatalf("inferred failing go test should be structured-safe, command=%q", command)
 	}
 
 	sourceEnvelope := "Chunk ID: inferred-source\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
@@ -1217,6 +1294,18 @@ func wssGoTestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	out.WriteString("PASS\nok  \tslimtest/lib\t0.006s\n")
+	return out.String()
+}
+
+func wssGoTestVerboseFailureFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	out.WriteString("=== RUN   TestSlimferenceFailure\n")
+	out.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	out.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	out.WriteString("FAIL\tslimtest/lib\t0.006s\n")
 	return out.String()
 }
 
