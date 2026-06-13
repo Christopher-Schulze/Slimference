@@ -79,15 +79,6 @@ func (a *wsPhaseFAdapter) setRecoveryWriter(writer func([]byte) error) {
 	a.mu.Unlock()
 }
 
-func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryGuarded() {
-	if a == nil {
-		return
-	}
-	a.mu.Lock()
-	a.historyRecoveryGuarded = true
-	a.mu.Unlock()
-}
-
 func (a *wsPhaseFAdapter) markWSSHistoryMutationRecoveryLineage(responseID string) {
 	if a == nil || strings.TrimSpace(responseID) == "" {
 		return
@@ -129,9 +120,6 @@ func (a *wsPhaseFAdapter) wssHistoryMutationRecoveryGuarded(previousResponseID s
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.historyRecoveryGuarded {
-		return true
-	}
 	if strings.TrimSpace(previousResponseID) == "" || len(a.historyRecoveryGuardedResponseIDs) == 0 {
 		return false
 	}

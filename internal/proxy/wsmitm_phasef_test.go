@@ -4277,7 +4277,7 @@ func TestWSPhaseFHistoryLabAppliesBeforePreviousResponseBypass(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
+func TestWSPhaseFRecoveryGuardDoesNotBlockUnrelatedRootHistoryMutation(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -4288,7 +4288,7 @@ func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	adapter.setSocketSeq(1)
-	adapter.markWSSHistoryMutationRecoveryGuarded()
+	adapter.markWSSHistoryMutationRecoveryLineage("resp-recovered")
 	body := mustMarshal(map[string]any{
 		"model":            "gpt-5-codex",
 		"prompt_cache_key": "history-recovery-guard",
@@ -4309,14 +4309,15 @@ func TestWSPhaseFRecoveryGuardStopsFurtherHistoryLabMutation(t *testing.T) {
 	})
 
 	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
-	if changed || !bytes.Equal(mutated, body) {
-		t.Fatalf("recovery guard must full-pass later full-history mutations: changed=%v body=%s", changed, mutated)
+	if !changed || bytes.Equal(mutated, body) {
+		t.Fatalf("unrelated root full-history mutation should not inherit recovery guard: changed=%v body=%s", changed, mutated)
 	}
-	if stats.StaleReadBlocks != 0 || stats.ObsoletePruneBlocks != 0 || stats.TokensSaved != 0 {
-		t.Fatalf("recovery-guarded history savings must be evidence-only: %+v", stats)
+	if stats.StaleReadBlocks == 0 || stats.ObsoletePruneBlocks == 0 || stats.TokensSaved <= 0 {
+		t.Fatalf("unrelated root history savings should still apply: %+v", stats)
 	}
-	if meta.DebugFacts["wss.history_mutation_guard"] != "wss_recovery_history_mutation_guard" {
-		t.Fatalf("recovery history guard fact missing: %+v", meta.DebugFacts)
+	if meta.DebugFacts["wss.history_mutation_guard"] == "wss_recovery_history_mutation_guard" ||
+		meta.DebugFacts["wss.history_mutation_recovery_guard"] == "true" {
+		t.Fatalf("unrelated root request must not carry recovery guard facts: %+v", meta.DebugFacts)
 	}
 }
 

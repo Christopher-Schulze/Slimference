@@ -55,7 +55,6 @@ type wsPhaseFAdapter struct {
 	recoveryAccepted                  bool
 	recoveryResponseID                string
 	recoveryWriter                    func([]byte) error
-	historyRecoveryGuarded            bool
 	historyRecoveryGuardedResponseIDs map[string]struct{}
 	pendingHistoryRecoveryGuarded     bool
 	historyStatelessMode              bool
