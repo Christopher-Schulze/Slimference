@@ -1025,7 +1025,7 @@ func TestReduceCodexLayer0WSSSearchProofRejectsInferredSearch(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofRejectsPathList(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofAllowsNonDeltaFindPathList(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	var output strings.Builder
@@ -1043,9 +1043,26 @@ func TestReduceCodexLayer0WSSSearchProofRejectsPathList(t *testing.T) {
 		SessionID:                "sess-wss-find-proof",
 		WSSSearchMutationAllowed: true,
 	})
-	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("path-list output must not enter WSS search proof path, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CapturedOutputBlocks != 1 {
+		t.Fatalf("proofed non-delta find path-list should compact, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+	text := result.Messages[1].Content[0].Text
+	if !strings.Contains(text, "[find paths]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(text, ".reconc/audit/0079.jsonl") {
+		t.Fatalf("path-list output was not grouped through archive-backed proof path: %q", text)
+	}
+
+	delta := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-find-proof-delta",
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if delta.Stats.BlocksModified != 0 || delta.Stats.TokensSaved != 0 || delta.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(delta.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("delta path-list output must remain guarded, stats=%+v text=%q", delta.Stats, delta.Messages[1].Content[0].Text)
 	}
 }
 

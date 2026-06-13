@@ -420,7 +420,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			workload := savingspolicy.CodexWorkloadCommand
 			if readCommand {
 				workload = savingspolicy.CodexWorkloadRead
-			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
+			} else if proxyWSSSearchOutputReducerEligible(commandLine) {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
@@ -1039,6 +1039,13 @@ func proxyWSSSearchOutputCommandRisk(commandLine string, workload savingspolicy.
 	if workload == savingspolicy.CodexWorkloadSearch {
 		return true
 	}
+	return proxyWSSSearchOutputReducerEligible(commandLine)
+}
+
+func proxyWSSSearchOutputReducerEligible(commandLine string) bool {
+	if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
+		return true
+	}
 	workDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
 	return filter.SearchOutputReducerEligibleFromCommandLine(filterCommandLine, workDir)
 }
@@ -1050,7 +1057,7 @@ func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock
 	if strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
 		return false
 	}
-	return filter.SearchOutputKeyFromCommandLine(commandLine) != ""
+	return proxyWSSSearchOutputReducerEligible(commandLine)
 }
 
 func proxyWSSSearchProofMechanism(mechanism proxyLayer0Mechanism) bool {

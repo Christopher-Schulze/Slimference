@@ -313,6 +313,109 @@ func TestWSSStatefulSafeGitDiffNameStatusCompactsFullHistoryTurn(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafeFindPathListCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssListingFixture(90)
+
+	env := parseWSJSON(t, wssFindPathListRequestBody("resp-find-path-list", "call_find_paths", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle find path-list request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history find path-list output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[find paths]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "internal/proxy/") ||
+		!strings.Contains(body, "generated_listing_050.go") ||
+		strings.Contains(body, "internal/proxy/generated_listing_050.go") {
+		t.Fatalf("find path-list output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe find path-list should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeWcCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	command, output := wssWcFixture(45)
+
+	env := parseWSJSON(t, wssWcRequestBody("resp-wc", "call_wc", command, output))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle wc request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history wc output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[wc prefix=internal/proxy/generated/very/deep/path/]") ||
+		!strings.Contains(body, "total:") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "144 internal/proxy/generated/very/deep/path/file_44.go") {
+		t.Fatalf("wc output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe wc output should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGitLogOnelineRepeatCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	logOutput := wssGitLogOnelineFixture(90)
+
+	first := parseWSJSON(t, wssGitLogOnelineRequestBody("resp-log-1", "call_log_1", logOutput))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &first)
+	if err != nil {
+		t.Fatalf("handle first git log request: %v", err)
+	}
+	if replace {
+		t.Fatalf("first git log oneline observation should seed only, got mutation: %s", first.Body)
+	}
+
+	second := parseWSJSON(t, wssGitLogOnelineRequestBody("resp-log-2", "call_log_2", logOutput))
+	replace, err = adapter.handle(context.Background(), wsmitm.DirClientToServer, &second)
+	if err != nil {
+		t.Fatalf("handle second git log request: %v", err)
+	}
+	if !replace {
+		t.Fatal("second identical git log oneline output should compact through repeated-output archive reference")
+	}
+	body := string(second.Body)
+	if !strings.Contains(body, "context-elided kind=tool-output status=unchanged") ||
+		!strings.Contains(body, "archive=local-archive://") ||
+		strings.Contains(body, "commit subject 089") {
+		t.Fatalf("git log repeat was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe git log oneline repeat should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSGitStatusPathspecBoundary(t *testing.T) {
 	command := "git status --short ."
 	output := " M internal/proxy/wsmitm_phasef.go\n"
@@ -531,6 +634,57 @@ func wssGitDiffNameStatusRequestBody(previousResponseID, callID, listing string)
 	}
 }
 
+func wssFindPathListRequestBody(previousResponseID, callID, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-find-path-list-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the bounded find path list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "find internal/proxy -maxdepth 2 -type f -name '*.go' -print"}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssWcRequestBody(previousResponseID, callID, command, output string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-wc-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the line counts"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": command}},
+				{"type": "function_call_output", "call_id": callID, "output": output},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssGitLogOnelineRequestBody(previousResponseID, callID, output string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-git-log-oneline-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the recent commits"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "git log --oneline -n 90"}},
+				{"type": "function_call_output", "call_id": callID, "output": output},
+			},
+			"stream": true,
+		},
+	}
+}
+
 func wssListingFixture(files int) string {
 	var out strings.Builder
 	for i := 0; i < files; i++ {
@@ -546,5 +700,29 @@ func wssTreeFixture(files int) string {
 		out.WriteString(fmt.Sprintf("|-- tree_file_%03d.go\n", i))
 	}
 	out.WriteString(fmt.Sprintf("\n1 directory, %d files\n", files))
+	return out.String()
+}
+
+func wssWcFixture(files int) (string, string) {
+	var command strings.Builder
+	var output strings.Builder
+	command.WriteString("wc -l")
+	total := 0
+	for i := 0; i < files; i++ {
+		path := fmt.Sprintf(" internal/proxy/generated/very/deep/path/file_%02d.go", i)
+		count := i + 100
+		total += count
+		command.WriteString(path)
+		output.WriteString(fmt.Sprintf("%8d%s\n", count, path))
+	}
+	output.WriteString(fmt.Sprintf("%8d total\n", total))
+	return command.String(), output.String()
+}
+
+func wssGitLogOnelineFixture(commits int) string {
+	var out strings.Builder
+	for i := 0; i < commits; i++ {
+		fmt.Fprintf(&out, "%07x commit subject %03d\n", i+1, i)
+	}
 	return out.String()
 }
