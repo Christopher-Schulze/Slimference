@@ -1909,6 +1909,62 @@ func TestReduceCodexLayer0ChunkDedupReservesBudgetForHigherFootprint(t *testing.
 	}
 }
 
+func TestReduceCodexLayer0ChunkBudgetFullPassSeedsFutureChunkState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(
+		chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096},
+		chunkdedup.StoreLimits{},
+		func(_, id string, chunk []byte) string {
+			if len(chunk) == 0 || id == "" {
+				return ""
+			}
+			return "local-archive://" + id
+		},
+	)
+	shared := strings.Repeat("session integrity budget full-pass shared report row\n", 700)
+	messages := func(callID string, command string, tail string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: callID, ToolName: "exec_command", ToolInput: fmt.Sprintf(`{"cmd":%q}`, command)}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: callID, Text: shared + tail}}},
+		}
+	}
+	req := func(messages []types.Message, budgetHit bool) codexLayer0Request {
+		return codexLayer0Request{
+			Messages:                  messages,
+			SessionID:                 "sess-budget-full-pass-seed",
+			ChunkDedupEnabled:         true,
+			ChunkDedupProof:           savingspolicy.CodexProofLive,
+			ChunkDedupMinBytes:        4096,
+			ChunkDedupMaxRefPct:       100,
+			ChunkStore:                store,
+			ArchiveRecovery:           true,
+			ChunkIntegrityBudgetHit:   budgetHit,
+			RecentFullPassTurns:       0,
+			RemainingTurnsEstimate:    0,
+			StructuredMutationBlocked: false,
+		}
+	}
+
+	seedText := shared + "first full-pass tail\n"
+	seed := reduceCodexLayer0(req(messages("budget-seed", "python report.py --case seed", "first full-pass tail\n"), true))
+	if seed.Stats.TokensSaved != 0 || seed.Stats.BlocksModified != 0 ||
+		seed.Messages[1].Content[0].Text != seedText {
+		t.Fatalf("budget full-pass seed must preserve original output: stats=%+v text=%q", seed.Stats, seed.Messages[1].Content[0].Text)
+	}
+	if !hasEvidenceDecision(seed.Stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "session_integrity_budget", evidence.ActionFullPass) {
+		t.Fatalf("budget full-pass seed must emit chunk evidence: %+v", seed.Stats.EvidenceDecisions)
+	}
+
+	out := reduceCodexLayer0(req(messages("budget-hit", "python report.py --case hit", "second chunk-dedup tail\n"), false))
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(text, "[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(text, "second chunk-dedup tail") {
+		t.Fatalf("post-budget similar output should use full-pass seed: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupLowFootprintKeepsConfiguredMinBytes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -551,7 +551,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), chunkMinBytes)
 			}
-			chunkPriorityReserved := false
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
 				if reservedBytes := chunkPriorityPlan.higherPriorityBudgetBytes(msgIdx, blockIdx); reservedBytes > 0 {
 					minReferenceBytes := chunkMinBytes
@@ -560,7 +559,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					}
 					if !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), minReferenceBytes+reservedBytes) {
 						chunkIntegrityBudgetHit = true
-						chunkPriorityReserved = true
 					}
 				}
 			}
@@ -607,10 +605,16 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				before := countBeforeTokens()
 				return proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, mechanism, evidence.ActionFullPass, reason, before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			}
-			recordChunkPriorityFullPass := func() {
-				before := countBeforeTokens()
-				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, proxyLayer0MechanismChunkDedup, evidence.ActionFullPass, "session_integrity_budget", before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
-				req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
+			recordChunkIntegrityBudgetFullPass := func() {
+				minBytes := chunkMinBytes
+				if minBytes <= 0 {
+					minBytes = 1
+				}
+				if chunkIntegrityBudgetHit && req.ChunkStore != nil && req.SessionID != "" && !req.HostBudgetExceeded && !req.LatencyBudgetExceeded && chunkAllowed && len(block.Text) >= minBytes {
+					before := countBeforeTokens()
+					stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, proxyLayer0MechanismChunkDedup, evidence.ActionFullPass, "session_integrity_budget", before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
+					req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
+				}
 			}
 			downstreamStateGuardReason := ""
 			if req.HistoryMutationGuardReason != "" {
@@ -702,9 +706,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 				}
 				if !changed {
-					if chunkPriorityReserved {
-						recordChunkPriorityFullPass()
-					}
+					recordChunkIntegrityBudgetFullPass()
 					continue
 				}
 			}
@@ -807,9 +809,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
-				if chunkPriorityReserved {
-					recordChunkPriorityFullPass()
-				}
+				recordChunkIntegrityBudgetFullPass()
 				continue
 			}
 			if proxyLayer0CacheBustCandidateDemoted(req, commandLine, block.Text, mechanism) {

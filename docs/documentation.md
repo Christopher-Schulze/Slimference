@@ -951,12 +951,13 @@ another useful chunk reference, the policy full-passes only chunk dedup with
 reason `session_integrity_budget`; lossless read-delta and exact repeated-output
 reducers remain eligible. This avoids spending hot-path CPU on a recoverable
 reference mechanism that the integrity budget would reject while preserving the
-safe cache hits. When several chunk candidates in the same request compete for a
-tight session reference budget, Layer-0 reserves budget for later candidates with
-higher T359 footprint scores before allowing lower-score earlier candidates to
-spend it. A reserved lower-score block still full-passes and seeds the chunk
-store with the model-visible bytes, so later savings keep an honest denominator
-and seen-chunk state without adding a new mutation path.
+safe cache hits. When a chunk candidate full-passes for `session_integrity_budget`
+and host/latency budgets are still healthy, Layer-0 still observes the unchanged
+model-visible bytes, so later turns can benefit from the honest denominator and
+seen-chunk state without adding a new mutation path. When several chunk
+candidates in the same request compete for a tight session reference budget,
+Layer-0 reserves budget for later candidates with higher T359 footprint scores
+before allowing lower-score earlier candidates to spend it.
 Those footprint scores use the WSS remaining-turn EMA when available and keep
 the previous deterministic turn-band fallback otherwise.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
