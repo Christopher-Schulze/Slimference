@@ -150,6 +150,137 @@ func TestRunWSSPhaseFABReplayClassifiesRequestShapes(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayUnwrapsRequestEnvelopeBody(t *testing.T) {
+	frames := []WSSABReplayFrame{{
+		Direction: wsmitm.DirClientToServer,
+		Payload: mustMarshal(map[string]any{
+			"type": string(wsmitm.FrameKindRequest),
+			"body": map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "envelope-prefix-session",
+				"instructions":     "envelope instructions",
+				"input": []map[string]any{{
+					"type":    "message",
+					"role":    "user",
+					"content": "start",
+				}},
+				"stream": true,
+			},
+		}),
+	}}
+
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestTurns != 1 || got.RequestShapes.Root != 1 {
+		t.Fatalf("envelope body must be replayed as a real request: %+v", got)
+	}
+	root := wssReplayPrefixSurfaceForTest(t, got.PrefixSurfaces, "root")
+	if root.InstructionPrefixRequests != 1 || root.InstructionBytes == 0 || root.PromptCacheRequests != 1 {
+		t.Fatalf("envelope body prefix surface not measured: %+v", root)
+	}
+}
+
+func TestRunWSSPhaseFABReplayReportsPrefixSurfaces(t *testing.T) {
+	frames := []WSSABReplayFrame{
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "prefix-session",
+				"instructions":     "root instructions",
+				"input": []map[string]any{{
+					"type":    "message",
+					"role":    "user",
+					"content": "start",
+				}},
+				"tools": []map[string]any{
+					codexToolDefinition("Bash", "Run shell commands"),
+					codexToolDefinition("ColdTool", "Cold nondefault schema"),
+				},
+				"stream": true,
+			}),
+		},
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":                "gpt-5-codex",
+				"prompt_cache_key":     "prefix-session",
+				"previous_response_id": "resp-delta-prefix",
+				"instructions":         "delta instructions",
+				"input": []map[string]any{{
+					"type":    "function_call_output",
+					"call_id": "delta-call",
+					"output":  "delta output",
+				}},
+				"tools": []map[string]any{
+					codexToolDefinition("Bash", "Run shell commands"),
+				},
+				"stream": true,
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := wssReplayPrefixSurfaceForTest(t, got.PrefixSurfaces, "root")
+	if root.Requests != 1 || root.PreviousResponseRequests != 0 || root.StatefulCandidateRequests != 0 ||
+		root.ToolDefinitions != 2 || root.DefaultKeepTools != 1 || root.NonDefaultTools != 1 ||
+		root.NonDefaultToolRequests != 1 || root.InstructionPrefixRequests != 1 || root.PrefixBytes == 0 {
+		t.Fatalf("root prefix surface mismatch: %+v", root)
+	}
+	delta := wssReplayPrefixSurfaceForTest(t, got.PrefixSurfaces, "delta")
+	if delta.Requests != 1 || delta.PreviousResponseRequests != 1 || delta.StatefulCandidateRequests != 1 ||
+		delta.StatefulCandidatePrefixBytes == 0 || delta.DefaultKeepOnlyToolRequests != 1 ||
+		delta.NonDefaultTools != 0 || delta.InstructionBytes == 0 {
+		t.Fatalf("delta prefix surface mismatch: %+v", delta)
+	}
+}
+
+func TestRunWSSPhaseFABReplayReportsUnnamedPrefixSurface(t *testing.T) {
+	frames := []WSSABReplayFrame{{
+		Direction: wsmitm.DirClientToServer,
+		Payload: mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "unnamed-prefix-session",
+			"previous_response_id": "resp-unnamed-prefix",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "delta-call",
+				"output":  "delta output",
+			}},
+			"tools":  []map[string]any{{"type": "unknown_special_tool"}},
+			"stream": true,
+		}),
+	}}
+
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delta := wssReplayPrefixSurfaceForTest(t, got.PrefixSurfaces, "delta")
+	if delta.UnnamedTools != 1 || delta.UnnamedToolRequests != 1 || delta.UnnamedBytes == 0 ||
+		delta.StatefulCandidateRequests != 1 {
+		t.Fatalf("unnamed tool prefix surface mismatch: %+v", delta)
+	}
+}
+
+func TestRunWSSPhaseFABReplaySkipsClientControlFrames(t *testing.T) {
+	got, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{{
+		Direction: wsmitm.DirClientToServer,
+		Payload:   mustMarshal(map[string]any{"type": string(wsmitm.FrameKindPing)}),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestTurns != 0 || got.RequestShapes.Root != 0 || len(got.PrefixSurfaces) != 0 {
+		t.Fatalf("client control frame must not be replayed as request body: %+v", got)
+	}
+}
+
 func TestRunWSSPhaseFABReplayDefaultToolPruneMutatesOnlyFullHistoryShape(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
@@ -195,8 +326,11 @@ func TestRunWSSPhaseFABReplayDefaultToolPruneMutatesOnlyFullHistoryShape(t *test
 	if got.MutatedShapes.FullHistory != 1 || got.MutatedShapes.Delta != 0 || got.MutatedShapes.Root != 0 {
 		t.Fatalf("default tool-prune safe slice must mutate only full-history, got %+v", got.MutatedShapes)
 	}
-	if got.MutatedRequests != 1 || got.Report.Lost() != 0 {
-		t.Fatalf("tool-prune replay should have exactly one no-loss mutation: %+v", got)
+	if got.MutatedRequests != 1 {
+		t.Fatalf("tool-prune replay should have exactly one mutation: %+v", got)
+	}
+	if got.Report.Lost() == 0 {
+		t.Fatalf("tool-prune replay must expose tool-schema capability changes: %+v", got.Report)
 	}
 }
 
@@ -541,6 +675,71 @@ func TestRunWSSPhaseFABReplayInstructionsAreModelFacing(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayToolSchemaIsModelFacing(t *testing.T) {
+	direct := mustMarshal(map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"tools": []map[string]any{
+			codexToolDefinition("Bash", "Run shell commands"),
+			codexToolDefinition("ColdTool", "Cold nondefault schema"),
+		},
+		"stream": true,
+	})
+	compressed := mustMarshal(map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"tools": []map[string]any{
+			codexToolDefinition("Bash", "Run shell commands"),
+		},
+		"stream": true,
+	})
+
+	before, err := extractWSSReplayModelFacingMessages(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := extractWSSReplayModelFacingMessages(compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := abharness.Compare([]abharness.Turn{{Before: before, After: after}})
+	if rep.Lost() == 0 || len(rep.Elisions) == 0 {
+		t.Fatalf("tool schema removal must be audited as model-facing context loss: %+v", rep)
+	}
+}
+
+func TestWSSReplayToolSchemaCanonicalizationIgnoresJSONFormatting(t *testing.T) {
+	direct := []byte(`{"model":"gpt-5-codex","input":[],"tools":[{"type":"function","function":{"name":"Bash","description":"Run shell commands","parameters":{"type":"object","properties":{}}}}],"stream":true}`)
+	reshaped := []byte(`{"stream":true,"tools":[{"function":{"parameters":{"properties":{},"type":"object"},"description":"Run shell commands","name":"Bash"},"type":"function"}],"input":[],"model":"gpt-5-codex"}`)
+
+	before, err := extractWSSReplayModelFacingMessages(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := extractWSSReplayModelFacingMessages(reshaped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := abharness.Compare([]abharness.Turn{{Before: before, After: after}})
+	if rep.Lost() != 0 {
+		t.Fatalf("canonical tool schema should ignore JSON formatting/order only: %+v", rep)
+	}
+	if got, ok := codexReplayCanonicalJSON(nil); ok || got != "" {
+		t.Fatalf("empty canonical JSON should fail, got %q ok=%t", got, ok)
+	}
+	if got, ok := codexReplayCanonicalJSON(json.RawMessage(`{`)); ok || got != "" {
+		t.Fatalf("malformed canonical JSON should fail, got %q ok=%t", got, ok)
+	}
+}
+
 func TestWSSReplayExpectedInstructionExtraOnlyAllowsOutputReduceSuffix(t *testing.T) {
 	base := mustMarshal(map[string]any{
 		"model":        "gpt-5-codex",
@@ -667,4 +866,15 @@ func wssReplaySearchOutputFixture(needle string, count int) string {
 		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
 	}
 	return out.String()
+}
+
+func wssReplayPrefixSurfaceForTest(t *testing.T, rows []WSSABReplayPrefixSurface, shape string) WSSABReplayPrefixSurface {
+	t.Helper()
+	for _, row := range rows {
+		if row.Shape == shape {
+			return row
+		}
+	}
+	t.Fatalf("missing prefix surface for shape %q in %+v", shape, rows)
+	return WSSABReplayPrefixSurface{}
 }

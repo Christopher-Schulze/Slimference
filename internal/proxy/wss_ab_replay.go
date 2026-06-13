@@ -44,6 +44,7 @@ type WSSABReplayResult struct {
 	RequestShapes             WSSABReplayShapeCounts
 	MutatedShapes             WSSABReplayShapeCounts
 	CapturedMutatedShapes     WSSABReplayShapeCounts
+	PrefixSurfaces            []WSSABReplayPrefixSurface
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
 	SearchStats               WSSABReplaySearchStats
@@ -80,6 +81,33 @@ type WSSABReplayObserveStats struct {
 	GuardedDeltaReadDeltaMisses      int
 	GuardedDeltaRepeatedOutputHits   int
 	GuardedDeltaRepeatedOutputMisses int
+}
+
+// WSSABReplayPrefixSurface is content-free proof metadata for repeated WSS
+// root-prefix mass. It measures tool schema and instruction bytes that could
+// only be recovered by a separate stateful-prefix-elision proof.
+type WSSABReplayPrefixSurface struct {
+	Shape                        string `json:"shape"`
+	Requests                     int    `json:"requests"`
+	PreviousResponseRequests     int    `json:"previous_response_requests"`
+	PromptCacheRequests          int    `json:"prompt_cache_requests"`
+	ToolPrefixRequests           int    `json:"tool_prefix_requests"`
+	InstructionPrefixRequests    int    `json:"instruction_prefix_requests"`
+	PrefixBytes                  int    `json:"prefix_bytes"`
+	ToolDefinitions              int    `json:"tool_definitions"`
+	ToolDefinitionBytes          int    `json:"tool_definition_bytes"`
+	InstructionBytes             int    `json:"instruction_bytes"`
+	DefaultKeepTools             int    `json:"default_keep_tools"`
+	DefaultKeepBytes             int    `json:"default_keep_bytes"`
+	NonDefaultTools              int    `json:"nondefault_tools"`
+	NonDefaultBytes              int    `json:"nondefault_bytes"`
+	UnnamedTools                 int    `json:"unnamed_tools"`
+	UnnamedBytes                 int    `json:"unnamed_bytes"`
+	DefaultKeepOnlyToolRequests  int    `json:"default_keep_only_tool_requests"`
+	NonDefaultToolRequests       int    `json:"nondefault_tool_requests"`
+	UnnamedToolRequests          int    `json:"unnamed_tool_requests"`
+	StatefulCandidateRequests    int    `json:"stateful_candidate_requests"`
+	StatefulCandidatePrefixBytes int    `json:"stateful_candidate_prefix_bytes"`
 }
 
 // WSSABReplayReducerStats is the content-free reducer activity observed while
@@ -157,15 +185,23 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 				return WSSABReplayResult{}, fmt.Errorf("handle server frame %d: %w", i, err)
 			}
 		case wsmitm.DirClientToServer:
-			searchRequest, err := wssReplayRequestHasNamedSearchOutput(frame.Payload, adapter)
+			requestBody, ok, err := wssReplayRequestBody(frame.Payload)
+			if err != nil {
+				return WSSABReplayResult{}, fmt.Errorf("extract request body %d: %w", i, err)
+			}
+			if !ok {
+				lastRequestWasSearch = false
+				continue
+			}
+			searchRequest, err := wssReplayRequestHasNamedSearchOutput(requestBody, adapter)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("classify search request %d: %w", i, err)
 			}
-			before, err := extractWSSReplayModelFacingMessages(frame.Payload)
+			before, err := extractWSSReplayModelFacingMessages(requestBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract direct request %d: %w", i, err)
 			}
-			shape, err := wssReplayRequestShape(frame.Payload)
+			shape, err := wssReplayRequestShape(requestBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("classify request shape %d: %w", i, err)
 			}
@@ -179,10 +215,11 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 				continue
 			}
 			out.RequestShapes.add(shape)
+			out.addPrefixSurface(shape, requestBody)
 			if searchRequest {
 				out.SearchStats.RequestTurns++
 			}
-			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
+			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(requestBody)
 			out.ReducerStats.add(stats)
 			out.ObserveStats.add(shape, stats)
 			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
@@ -193,14 +230,14 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 				turns = append(turns, abharness.Turn{Before: before, After: after})
 				out.RequestTurns++
 			}
-			if changed && !bytes.Equal(frame.Payload, mutatedBody) {
+			if changed && !bytes.Equal(requestBody, mutatedBody) {
 				out.MutatedRequests++
 				out.MutatedShapes.add(shape)
 				if searchRequest {
 					out.SearchStats.MutatedRequests++
 				}
 			}
-			if wssReplayExpectedInstructionExtra(frame.Payload, mutatedBody) {
+			if wssReplayExpectedInstructionExtra(requestBody, mutatedBody) {
 				out.ExpectedInstructionExtras++
 			}
 			rememberReplayRequestState(adapter, runtimeMessages)
@@ -214,6 +251,18 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		return body, err
 	})
 	return out, nil
+}
+
+func wssReplayRequestBody(payload []byte) ([]byte, bool, error) {
+	env, err := wsmitm.Parse(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		return nil, false, nil
+	}
+	return append([]byte(nil), body...), true, nil
 }
 
 func wssReplayRequestShape(body []byte) (string, error) {
@@ -302,6 +351,71 @@ func (c *WSSABReplayShapeCounts) add(shape string) {
 	}
 }
 
+func (r *WSSABReplayResult) addPrefixSurface(shape string, body []byte) {
+	if r == nil {
+		return
+	}
+	if shape == "" {
+		shape = "unknown"
+	}
+	row := r.prefixSurfaceForShape(shape)
+	row.Requests++
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return
+	}
+	previousResponse := strings.TrimSpace(rawJSONString(raw["previous_response_id"])) != ""
+	if previousResponse {
+		row.PreviousResponseRequests++
+	}
+	if strings.TrimSpace(rawJSONString(raw["prompt_cache_key"])) != "" {
+		row.PromptCacheRequests++
+	}
+
+	metrics := wssRootPrefixMetrics(body)
+	prefixBytes := metrics.ToolDefinitionBytes + metrics.InstructionBytes
+	row.PrefixBytes += prefixBytes
+	row.ToolDefinitions += metrics.ToolDefinitions
+	row.ToolDefinitionBytes += metrics.ToolDefinitionBytes
+	row.InstructionBytes += metrics.InstructionBytes
+	row.DefaultKeepTools += metrics.DefaultKeepTools
+	row.DefaultKeepBytes += metrics.DefaultKeepBytes
+	row.NonDefaultTools += metrics.NonDefaultTools
+	row.NonDefaultBytes += metrics.NonDefaultBytes
+	row.UnnamedTools += metrics.UnnamedTools
+	row.UnnamedBytes += metrics.UnnamedBytes
+	if metrics.ToolDefinitionBytes > 0 {
+		row.ToolPrefixRequests++
+	}
+	if metrics.InstructionBytes > 0 {
+		row.InstructionPrefixRequests++
+	}
+	if metrics.ToolDefinitions > 0 && metrics.DefaultKeepTools == metrics.ToolDefinitions {
+		row.DefaultKeepOnlyToolRequests++
+	}
+	if metrics.NonDefaultTools > 0 {
+		row.NonDefaultToolRequests++
+	}
+	if metrics.UnnamedTools > 0 {
+		row.UnnamedToolRequests++
+	}
+	if previousResponse && prefixBytes > 0 {
+		row.StatefulCandidateRequests++
+		row.StatefulCandidatePrefixBytes += prefixBytes
+	}
+}
+
+func (r *WSSABReplayResult) prefixSurfaceForShape(shape string) *WSSABReplayPrefixSurface {
+	for i := range r.PrefixSurfaces {
+		if r.PrefixSurfaces[i].Shape == shape {
+			return &r.PrefixSurfaces[i]
+		}
+	}
+	r.PrefixSurfaces = append(r.PrefixSurfaces, WSSABReplayPrefixSurface{Shape: shape})
+	return &r.PrefixSurfaces[len(r.PrefixSurfaces)-1]
+}
+
 func wssReplayExpectedInstructionExtra(before, after []byte) bool {
 	beforeInstructions, beforeOK := codexReplayInstructions(before)
 	afterInstructions, afterOK := codexReplayInstructions(after)
@@ -320,19 +434,33 @@ func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	prefix := make([]types.Message, 0, 2)
 	instructions, ok := codexReplayInstructions(body)
-	if !ok {
+	if ok {
+		prefix = append(prefix, types.Message{
+			Index: -2,
+			Role:  "system",
+			Content: []types.ContentBlock{{
+				Type: "text",
+				Text: instructions,
+			}},
+		})
+	}
+	toolSchema, ok := codexReplayToolSchemaSurface(body)
+	if ok {
+		prefix = append(prefix, types.Message{
+			Index: -1,
+			Role:  "system",
+			Content: []types.ContentBlock{{
+				Type: "text",
+				Text: toolSchema,
+			}},
+		})
+	}
+	if len(prefix) == 0 {
 		return messages, nil
 	}
-	system := types.Message{
-		Index: -1,
-		Role:  "system",
-		Content: []types.ContentBlock{{
-			Type: "text",
-			Text: instructions,
-		}},
-	}
-	return append([]types.Message{system}, messages...), nil
+	return append(prefix, messages...), nil
 }
 
 func codexReplayInstructions(body []byte) (string, bool) {
@@ -352,6 +480,37 @@ func codexReplayInstructions(body []byte) (string, bool) {
 		return "", false
 	}
 	return instructions, true
+}
+
+func codexReplayToolSchemaSurface(body []byte) (string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", false
+	}
+	toolsRaw, ok := raw["tools"]
+	if !ok {
+		return "", false
+	}
+	canonical, ok := codexReplayCanonicalJSON(toolsRaw)
+	if !ok {
+		return "", false
+	}
+	return "codex tools: " + canonical, true
+}
+
+func codexReplayCanonicalJSON(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
 
 func (s *WSSABReplayReducerStats) add(stats proxyLayer0Stats) {

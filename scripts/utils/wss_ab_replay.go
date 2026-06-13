@@ -56,6 +56,7 @@ type wssABReplayReport struct {
 	RequestShapes                 replayShapeCounts                `json:"request_shapes"`
 	MutatedShapes                 replayShapeCounts                `json:"mutated_shapes"`
 	CapturedMutatedShapes         replayShapeCounts                `json:"captured_mutated_shapes,omitempty"`
+	PrefixSurfaces                []wssABReplayPrefixSurfaceRow    `json:"prefix_surfaces,omitempty"`
 	BytesBefore                   int                              `json:"bytes_before"`
 	BytesAfter                    int                              `json:"bytes_after"`
 	BytesSaved                    int                              `json:"bytes_saved"`
@@ -105,6 +106,30 @@ type replayShapeCounts struct {
 	Root        int `json:"root"`
 	Delta       int `json:"delta"`
 	FullHistory int `json:"full_history"`
+}
+
+type wssABReplayPrefixSurfaceRow struct {
+	Shape                        string `json:"shape"`
+	Requests                     int    `json:"requests"`
+	PreviousResponseRequests     int    `json:"previous_response_requests"`
+	PromptCacheRequests          int    `json:"prompt_cache_requests"`
+	ToolPrefixRequests           int    `json:"tool_prefix_requests"`
+	InstructionPrefixRequests    int    `json:"instruction_prefix_requests"`
+	PrefixBytes                  int    `json:"prefix_bytes"`
+	ToolDefinitions              int    `json:"tool_definitions"`
+	ToolDefinitionBytes          int    `json:"tool_definition_bytes"`
+	InstructionBytes             int    `json:"instruction_bytes"`
+	DefaultKeepTools             int    `json:"default_keep_tools"`
+	DefaultKeepBytes             int    `json:"default_keep_bytes"`
+	NonDefaultTools              int    `json:"nondefault_tools"`
+	NonDefaultBytes              int    `json:"nondefault_bytes"`
+	UnnamedTools                 int    `json:"unnamed_tools"`
+	UnnamedBytes                 int    `json:"unnamed_bytes"`
+	DefaultKeepOnlyToolRequests  int    `json:"default_keep_only_tool_requests"`
+	NonDefaultToolRequests       int    `json:"nondefault_tool_requests"`
+	UnnamedToolRequests          int    `json:"unnamed_tool_requests"`
+	StatefulCandidateRequests    int    `json:"stateful_candidate_requests"`
+	StatefulCandidatePrefixBytes int    `json:"stateful_candidate_prefix_bytes"`
 }
 
 const wssABReplayHelpText = `wss-ab-replay: run Codex WSS frames through the Phase-F comprehension A/B harness
@@ -342,6 +367,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		RequestShapes:                 replayShapeCountsFromProxy(result.RequestShapes),
 		MutatedShapes:                 replayShapeCountsFromProxy(result.MutatedShapes),
 		CapturedMutatedShapes:         replayShapeCountsFromProxy(result.CapturedMutatedShapes),
+		PrefixSurfaces:                wssABReplayPrefixSurfacesFromProxy(result.PrefixSurfaces),
 		BytesBefore:                   result.Report.BytesBefore,
 		BytesAfter:                    result.Report.BytesAfter,
 		BytesSaved:                    result.Report.Saved(),
@@ -557,6 +583,39 @@ func replayShapeCountsFromProxy(counts proxy.WSSABReplayShapeCounts) replayShape
 	}
 }
 
+func wssABReplayPrefixSurfacesFromProxy(rows []proxy.WSSABReplayPrefixSurface) []wssABReplayPrefixSurfaceRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]wssABReplayPrefixSurfaceRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, wssABReplayPrefixSurfaceRow{
+			Shape:                        row.Shape,
+			Requests:                     row.Requests,
+			PreviousResponseRequests:     row.PreviousResponseRequests,
+			PromptCacheRequests:          row.PromptCacheRequests,
+			ToolPrefixRequests:           row.ToolPrefixRequests,
+			InstructionPrefixRequests:    row.InstructionPrefixRequests,
+			PrefixBytes:                  row.PrefixBytes,
+			ToolDefinitions:              row.ToolDefinitions,
+			ToolDefinitionBytes:          row.ToolDefinitionBytes,
+			InstructionBytes:             row.InstructionBytes,
+			DefaultKeepTools:             row.DefaultKeepTools,
+			DefaultKeepBytes:             row.DefaultKeepBytes,
+			NonDefaultTools:              row.NonDefaultTools,
+			NonDefaultBytes:              row.NonDefaultBytes,
+			UnnamedTools:                 row.UnnamedTools,
+			UnnamedBytes:                 row.UnnamedBytes,
+			DefaultKeepOnlyToolRequests:  row.DefaultKeepOnlyToolRequests,
+			NonDefaultToolRequests:       row.NonDefaultToolRequests,
+			UnnamedToolRequests:          row.UnnamedToolRequests,
+			StatefulCandidateRequests:    row.StatefulCandidateRequests,
+			StatefulCandidatePrefixBytes: row.StatefulCandidatePrefixBytes,
+		})
+	}
+	return out
+}
+
 func parseNonNegativeIntFlag(name, raw string) (int, error) {
 	n, err := strconv.Atoi(raw)
 	if err != nil {
@@ -711,6 +770,28 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	if report.CapturedMutatedRequests > 0 {
 		fmt.Fprintf(w, "  captured_shapes:  root=%d delta=%d full_history=%d\n",
 			report.CapturedMutatedShapes.Root, report.CapturedMutatedShapes.Delta, report.CapturedMutatedShapes.FullHistory)
+	}
+	if len(report.PrefixSurfaces) > 0 {
+		fmt.Fprintln(w, "  prefix_surfaces:")
+		for _, row := range report.PrefixSurfaces {
+			fmt.Fprintf(w, "    - shape=%s requests=%d previous_response=%d prompt_cache=%d prefix_bytes=%d stateful_candidates=%d stateful_candidate_bytes=%d tools=%d tool_bytes=%d default_keep=%d default_keep_bytes=%d nondefault=%d nondefault_bytes=%d unnamed=%d unnamed_bytes=%d instructions_bytes=%d\n",
+				row.Shape,
+				row.Requests,
+				row.PreviousResponseRequests,
+				row.PromptCacheRequests,
+				row.PrefixBytes,
+				row.StatefulCandidateRequests,
+				row.StatefulCandidatePrefixBytes,
+				row.ToolDefinitions,
+				row.ToolDefinitionBytes,
+				row.DefaultKeepTools,
+				row.DefaultKeepBytes,
+				row.NonDefaultTools,
+				row.NonDefaultBytes,
+				row.UnnamedTools,
+				row.UnnamedBytes,
+				row.InstructionBytes)
+		}
 	}
 	fmt.Fprintf(w, "  bytes_before:     %d\n", report.BytesBefore)
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)

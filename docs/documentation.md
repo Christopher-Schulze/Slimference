@@ -1213,10 +1213,17 @@ the direct and compressed model-facing request context, and feeds both into
 read-delta is recoverable because the first full read was already sent, and that
 the recovery note is visibly audited as an expected extra model-facing context
 change when a recoverable-reference mechanism needs it.
-The replay extractor includes Codex Responses top-level `instructions` as
-model-facing system context, so recovery-note or output-reduce hint injection
-cannot bypass the no-drawdown comparison just because it does not live in
-`input`.
+The replay extractor includes Codex Responses top-level `instructions` and
+canonicalized `tools` as model-facing system context, so recovery-note,
+output-reduce hint injection, or tool-schema removal cannot bypass the
+no-drawdown comparison just because it does not live in `input`.
+The report also emits content-free `prefix_surfaces` by WSS request shape. These
+rows count repeated top-level `tools` and `instructions` bytes, default-keep vs
+nondefault vs unnamed tool schemas, and the subset carried on
+`previous_response_id` requests. Those bytes are stateful-prefix-elision
+candidates only; the report does not by itself prove that the backend accepts
+omitting them, and product runtime stays byte-equal until a separate live proof
+closes that gap.
 Known output-reduce directive suffixes are audited separately as expected
 instruction extras: the direct instructions must remain a prefix, the suffix
 must contain the output-reduce marker, and unknown instruction rewrites still

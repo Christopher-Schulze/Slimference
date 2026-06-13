@@ -235,6 +235,76 @@ func TestWSSABReplayReportIncludesRequestShapes(t *testing.T) {
 	}
 }
 
+func TestWSSABReplayReportIncludesPrefixSurfaces(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "prefix-report-session",
+			"instructions":     "root instructions",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "start",
+			}},
+			"tools": []map[string]any{
+				wssABReplayTestToolDefinition("Bash", "Run shell commands"),
+				wssABReplayTestToolDefinition("ColdTool", "Cold nondefault schema"),
+			},
+			"stream": true,
+		}),
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "prefix-report-session",
+			"previous_response_id": "resp-prefix-report",
+			"instructions":         "delta instructions",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "delta-call",
+				"output":  "delta output",
+			}},
+			"tools": []map[string]any{
+				wssABReplayTestToolDefinition("Bash", "Run shell commands"),
+			},
+			"stream": true,
+		}),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := wssABReplayPrefixSurfaceForTest(t, report.PrefixSurfaces, "root")
+	if root.Requests != 1 || root.DefaultKeepTools != 1 || root.NonDefaultTools != 1 ||
+		root.StatefulCandidateRequests != 0 || root.PrefixBytes == 0 {
+		t.Fatalf("root prefix surface mismatch: %+v", root)
+	}
+	delta := wssABReplayPrefixSurfaceForTest(t, report.PrefixSurfaces, "delta")
+	if delta.Requests != 1 || delta.PreviousResponseRequests != 1 || delta.StatefulCandidateRequests != 1 ||
+		delta.StatefulCandidatePrefixBytes == 0 || delta.DefaultKeepOnlyToolRequests != 1 {
+		t.Fatalf("delta prefix surface mismatch: %+v", delta)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSABReplay code=%d stderr=%s", code, stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{
+		"prefix_surfaces:",
+		"shape=delta",
+		"stateful_candidates=1",
+		"nondefault=1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestRunWSSABReplayJSONAndGateFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -799,4 +869,29 @@ func wssABReplayTestFullHistoryBody(callID string, promptCacheKey string, previo
 		},
 		"stream": true,
 	}
+}
+
+func wssABReplayTestToolDefinition(name string, description string) map[string]any {
+	return map[string]any{
+		"type": "function",
+		"function": map[string]any{
+			"name":        name,
+			"description": description,
+			"parameters": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+	}
+}
+
+func wssABReplayPrefixSurfaceForTest(t *testing.T, rows []wssABReplayPrefixSurfaceRow, shape string) wssABReplayPrefixSurfaceRow {
+	t.Helper()
+	for _, row := range rows {
+		if row.Shape == shape {
+			return row
+		}
+	}
+	t.Fatalf("missing prefix surface for shape %q in %+v", shape, rows)
+	return wssABReplayPrefixSurfaceRow{}
 }
