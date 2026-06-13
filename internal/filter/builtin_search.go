@@ -823,11 +823,20 @@ func groupPathListResults(stdout []byte, toolName string) ([]byte, bool) {
 			return stdout, false
 		}
 		idx := strings.LastIndex(line, "/")
-		if idx <= 0 || idx == len(line)-1 {
+		if idx == len(line)-1 {
 			return stdout, false
 		}
-		dir := line[:idx+1]
-		base := line[idx+1:]
+		dir := "./"
+		base := line
+		if idx >= 0 {
+			dir = line[:idx+1]
+			base = line[idx+1:]
+		} else if !safeRootPathListLine(line) {
+			return stdout, false
+		}
+		if base == "." || base == ".." {
+			return stdout, false
+		}
 		if dir != currentDir {
 			sb.WriteString(dir)
 			sb.WriteByte('\n')
@@ -856,6 +865,14 @@ func safePathListLine(line string) bool {
 		if r < 0x20 {
 			return false
 		}
+	}
+	return true
+}
+
+func safeRootPathListLine(line string) bool {
+	if strings.Contains(line, "://") || strings.HasPrefix(line, "-") ||
+		strings.ContainsAny(line, " \t:;|<>\"'`$\\") {
+		return false
 	}
 	return true
 }

@@ -34,6 +34,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	}
 	wcOutput.WriteString("     6190 total\n")
 	listingOutput := wssListingFixture(40)
+	rgLargeListingOutput := wssListingFixture(wssSafeListingOutputMaxEntries + 1)
 	treeOutput := wssTreeFixture(40)
 
 	tests := []struct {
@@ -54,6 +55,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
 		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
 		{name: "rg files path list", command: "rg --files -g '*.go' internal/proxy", output: listingOutput, wantSafe: true},
+		{name: "rg files large path list", command: "rg --files", output: rgLargeListingOutput, wantSafe: true},
 		{name: "find small listing", command: "find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
 		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
@@ -70,6 +72,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "format output with diagnostic", command: "prettier --write src", output: "src/file_001.ts\nerror: failed to parse src/file_002.ts\n", wantGuard: "formatter diagnostics stay guarded"},
 		{name: "rg files unsupported output mode", command: "rg --files --json", output: listingOutput, wantGuard: "rg --files rich output modes stay guarded"},
 		{name: "rg files search list", command: "rg -l needle internal/proxy", output: listingOutput, wantGuard: "rg match file list stays search-guarded"},
+		{name: "rg files too large", command: "rg --files", output: wssListingFixture(wssSafeRgFilesOutputMaxEntries + 1), wantGuard: "oversized rg --files output stays guarded"},
 		{name: "tree unbounded", command: "tree internal/proxy", output: treeOutput, wantGuard: "unbounded tree output stays guarded"},
 		{name: "tree separator without depth", command: "tree -- internal/proxy", output: treeOutput, wantGuard: "unbounded tree with separator stays guarded"},
 		{name: "tree deep", command: "tree -L 99 internal/proxy", output: treeOutput, wantGuard: "deep tree output stays guarded"},
@@ -240,6 +243,39 @@ func TestWSSStatefulSafeGitLsFilesCompactsFullHistoryTurn(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe git ls-files should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeRgFilesRootPathListCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssRgFilesRootListingFixture(90)
+
+	env := parseWSJSON(t, wssRgFilesRequestBody("resp-rg-files-root", "call_rg_files_root", "rg --files", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle rg --files root path-list request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history rg --files root path-list output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[rg --files paths]") ||
+		!strings.Contains(body, "./") ||
+		!strings.Contains(body, "AGENTS.md") ||
+		!strings.Contains(body, "internal/proxy/generated/deep/path/") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "internal/proxy/generated/deep/path/file_050.go") {
+		t.Fatalf("rg --files root path-list output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe rg --files root path-list should save without structured guard: %+v", summary)
 	}
 }
 
@@ -654,6 +690,23 @@ func wssFindPathListRequestBody(previousResponseID, callID, listing string) map[
 	}
 }
 
+func wssRgFilesRequestBody(previousResponseID, callID, command, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-rg-files-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the ripgrep file list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": command}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
 func wssWcRequestBody(previousResponseID, callID, command, output string) map[string]any {
 	return map[string]any{
 		"type": string(wsmitm.FrameKindRequest),
@@ -692,6 +745,18 @@ func wssListingFixture(files int) string {
 	var out strings.Builder
 	for i := 0; i < files; i++ {
 		out.WriteString(fmt.Sprintf("internal/proxy/generated_listing_%03d.go\n", i))
+	}
+	return out.String()
+}
+
+func wssRgFilesRootListingFixture(files int) string {
+	var out strings.Builder
+	for _, path := range []string{"README.md", "AGENTS.md", "go.mod", "SECURITY.md"} {
+		out.WriteString(path)
+		out.WriteByte('\n')
+	}
+	for i := 0; i < files; i++ {
+		out.WriteString(fmt.Sprintf("internal/proxy/generated/deep/path/file_%03d.go\n", i))
 	}
 	return out.String()
 }

@@ -88,6 +88,53 @@ func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	}
 }
 
+func TestTryCompactPathListOutputRipgrepFilesRootEntries(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for _, path := range []string{"README.md", "AGENTS.md", "go.mod", "SECURITY.md"} {
+		sb.WriteString(path)
+		sb.WriteByte('\n')
+	}
+	for i := 0; i < 40; i++ {
+		sb.WriteString("internal/proxy/generated/deep/path/file_")
+		if i < 10 {
+			sb.WriteByte('0')
+		}
+		sb.WriteString(string(rune('0' + i/10)))
+		sb.WriteString(string(rune('0' + i%10)))
+		sb.WriteString(".go\n")
+	}
+
+	out, ok := TryCompactPathListOutput([]string{"rg", "--files"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("rg --files root path list should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[rg --files paths]\n./\n  README.md\n") ||
+		!strings.Contains(text, "internal/proxy/generated/deep/path/") ||
+		!strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected root path-list compaction: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("root path-list compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+
+	var diagnostic strings.Builder
+	for i := 0; i < 12; i++ {
+		if i == 3 {
+			diagnostic.WriteString("warning: ambiguous path\n")
+			continue
+		}
+		diagnostic.WriteString("internal/proxy/generated/deep/path/file_")
+		diagnostic.WriteString(string(rune('0' + i/10)))
+		diagnostic.WriteString(string(rune('0' + i%10)))
+		diagnostic.WriteString(".go\n")
+	}
+	if _, ok := TryCompactPathListOutput([]string{"rg", "--files"}, []byte(diagnostic.String())); ok {
+		t.Fatal("root-level diagnostic path-list line must fail open")
+	}
+}
+
 func TestTryCompactPathListOutputRipgrepFilesFailOpen(t *testing.T) {
 	t.Parallel()
 	listOutput := []byte(strings.Repeat("src/a.go\nsrc/b.go\n", 8))

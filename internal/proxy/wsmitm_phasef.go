@@ -1655,6 +1655,8 @@ const (
 	wssSafeListingOutputMaxBytes        = 16 * 1024
 	wssSafeListingOutputMaxEntries      = 300
 	wssSafeListingOutputMaxLineBytes    = 512
+	wssSafeRgFilesOutputMaxBytes        = 128 * 1024
+	wssSafeRgFilesOutputMaxEntries      = 2500
 	wssSafeFindMaxDepth                 = 6
 	wssSafeTreeMaxDepth                 = 6
 )
@@ -2048,11 +2050,15 @@ func wssSafeRgFilesPathListOutput(commandLine, payload string) bool {
 	if _, ok := filter.TryCompactPathListOutput(argv, []byte(payload)); !ok {
 		return false
 	}
-	return wssSafePlainPathListPayload(payload)
+	return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
 }
 
 func wssSafePlainPathListPayload(payload string) bool {
-	if len(payload) == 0 || len(payload) > wssSafeListingOutputMaxBytes || strings.ContainsRune(payload, '\x00') {
+	return wssSafeBoundedPlainPathListPayload(payload, wssSafeListingOutputMaxBytes, wssSafeListingOutputMaxEntries)
+}
+
+func wssSafeBoundedPlainPathListPayload(payload string, maxBytes, maxEntries int) bool {
+	if len(payload) == 0 || len(payload) > maxBytes || strings.ContainsRune(payload, '\x00') {
 		return false
 	}
 	trimmed := strings.TrimSpace(payload)
@@ -2069,7 +2075,7 @@ func wssSafePlainPathListPayload(payload string) bool {
 			return false
 		}
 		entries++
-		if entries > wssSafeListingOutputMaxEntries {
+		if entries > maxEntries {
 			return false
 		}
 	}
