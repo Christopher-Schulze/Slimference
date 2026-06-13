@@ -4002,6 +4002,7 @@ func TestWSPhaseFStatefulPrefixElisionProofElidesToolsOnlyAfterSeed(t *testing.T
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	tools := []map[string]any{{
@@ -4068,6 +4069,7 @@ func TestWSPhaseFStatefulPrefixElisionDecisionAccounting(t *testing.T) {
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	tools := []map[string]any{{
@@ -4133,6 +4135,7 @@ func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutScope(t *testing.T)
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	body := mustMarshal(map[string]any{
@@ -4167,6 +4170,7 @@ func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutSeed(t *testing.T) 
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	body := mustMarshal(map[string]any{
@@ -4202,6 +4206,7 @@ func TestWSPhaseFStatefulPrefixElisionCacheBustDemotionFullPasses(t *testing.T) 
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled = true
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	tools := []map[string]any{{

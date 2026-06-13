@@ -42,6 +42,8 @@ type wssLocalGapReport struct {
 	TargetSavedTokens       int                          `json:"target_saved_tokens"`
 	TargetDeficitTokens     int                          `json:"target_deficit_tokens"`
 	PositiveSavingsRequests int                          `json:"positive_savings_requests"`
+	PositiveSavingsOrig     int                          `json:"positive_savings_original_tokens"`
+	PositiveSavingsRatio    float64                      `json:"positive_savings_local_ratio"`
 	ZeroSavingsRequests     int                          `json:"zero_savings_requests"`
 	ZeroSavingsOrigTokens   int                          `json:"zero_savings_original_tokens"`
 	NoEvidenceRequests      int                          `json:"no_evidence_requests"`
@@ -379,6 +381,7 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	a.report.OutputTokens += maxInt(0, summary.OutputTokens+summary.ProviderOutputTokens)
 	if saved > 0 {
 		a.report.PositiveSavingsRequests++
+		a.report.PositiveSavingsOrig += original
 	} else {
 		a.report.ZeroSavingsRequests++
 		a.report.ZeroSavingsOrigTokens += original
@@ -711,6 +714,7 @@ func (a *wssLocalGapAccumulator) finalize(flags wssLocalGapFlags) {
 	a.report.TargetSavedTokens = targetSavedTokens(a.report.OriginalTokens, targetRatio)
 	a.report.TargetDeficitTokens = maxInt(0, a.report.TargetSavedTokens-a.report.LocalSavedTokens)
 	a.report.LocalSavingsRatio = wssLocalGapRatio(a.report.LocalSavedTokens, a.report.OriginalTokens)
+	a.report.PositiveSavingsRatio = wssLocalGapRatio(a.report.LocalSavedTokens, a.report.PositiveSavingsOrig)
 	a.report.RequestShapes = finalizeWSSLocalGapShapes(a.shapeRows, targetRatio)
 	a.report.RequestGuards = finalizeWSSLocalGapRequestGuards(a.requestGuards)
 	a.report.Mechanisms = finalizeWSSLocalGapMechanisms(a.mechanismRows)
@@ -841,13 +845,20 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 		notes = append(notes, "Provider-cache tokens are present but excluded from S_local by AGENTS.md 3.2.")
 	}
 	if report.LocalSavingsRatio < 0.48 && report.OriginalTokens > 0 {
-		notes = append(notes, "S_local is below the owner target; prioritize the highest guarded_potential_tokens rows before widening any guard.")
+		if wssLocalGapTotalGuardedPotential(report) > 0 {
+			notes = append(notes, "S_local is below the owner target; prioritize the highest guarded_potential_tokens rows before widening any guard.")
+		} else {
+			notes = append(notes, "S_local is below the owner target, but no full-pass evidence potential is present; inspect actionable/no-evidence rows and active positive-savings ratio before changing guards.")
+		}
 	}
 	if report.NoEvidenceOrigTokens > 0 {
 		notes = append(notes, "Some WSS Phase-F token mass has no evidence decisions; add instrumentation before treating the remaining gap as a known guard problem.")
 	}
 	if len(report.ActionablePotential) > 0 {
 		notes = append(notes, "Actionable-potential rows classify the next proof/engineering move; they are diagnostic and not a promise that guarded tokens are safely recoverable.")
+	}
+	if wssLocalGapHasActionableCategory(report.ActionablePotential, "prefix_capability_context_guarded") {
+		notes = append(notes, "Capability-prefix rows quantify protected model-facing context, not a safe product-savings candidate.")
 	}
 	if len(report.Guards) == 0 && report.PhaseFRequests > 0 {
 		notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
@@ -871,6 +882,23 @@ func wssLocalGapGateFailures(report wssLocalGapReport, flags wssLocalGapFlags) [
 		failures = append(failures, fmt.Sprintf("local_saved_tokens=%d < min=%d", report.LocalSavedTokens, flags.minLocalSaved))
 	}
 	return failures
+}
+
+func wssLocalGapHasActionableCategory(rows []wssLocalGapActionableRow, category string) bool {
+	for _, row := range rows {
+		if row.Category == category {
+			return true
+		}
+	}
+	return false
+}
+
+func wssLocalGapTotalGuardedPotential(report wssLocalGapReport) int {
+	total := 0
+	for _, row := range report.Guards {
+		total += row.GuardedPotential
+	}
+	return total
 }
 
 func wssLocalGapDecisionAction(reason string) (string, string, string) {
@@ -942,16 +970,16 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			nextStep = "measure schema-vs-instruction mass, then prove prefix-safe tool-prune or keep full-pass"
 			if defaultKeepBytes > 0 && nonDefaultBytes == 0 {
 				source = "no_evidence:prompt_cache_prefix_default_keep_tools_and_instructions"
-				policy = "default-keep/control tool and instruction prefixes must stay capability-stable; no schema pruning"
-				nextStep = "only a previous_response_id/stateful-prefix elision proof can recover this mass; do not prune control tools"
+				policy = "default-keep/control tool and instruction prefixes are model-facing capability context; live WSS command proof showed schema elision can suppress command_execution"
+				nextStep = "keep this mass in the product path; recover savings through Layer-0 tool-output reducers, search proof latches, or non-capability prefixes"
 			}
 		case toolDefinitionBytes > 0:
 			source = "no_evidence:prompt_cache_prefix_tools"
 			nextStep = "measure tool-schema mass, then prove prefix-safe tool-prune before pruning"
 			if defaultKeepBytes > 0 && nonDefaultBytes == 0 {
 				source = "no_evidence:prompt_cache_prefix_default_keep_tools"
-				policy = "default-keep/control tool prefixes must stay capability-stable; no schema pruning"
-				nextStep = "only a previous_response_id/stateful-prefix elision proof can recover this mass; do not prune control tools"
+				policy = "default-keep/control tool prefixes are model-facing capability context; live WSS command proof showed schema elision can suppress command_execution"
+				nextStep = "keep this mass in the product path; recover savings through Layer-0 tool-output reducers, search proof latches, or non-capability prefixes"
 			}
 		case instructionBytes > 0:
 			source = "no_evidence:prompt_cache_prefix_instructions"
@@ -959,7 +987,7 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 		}
 		category := "prefix_safe_new_mechanism_required"
 		if strings.Contains(source, "prompt_cache_prefix_default_keep_tools") {
-			category = "prefix_stateful_elision_proof_required"
+			category = "prefix_capability_context_guarded"
 		}
 		return category,
 			source,
@@ -1111,6 +1139,7 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "WSS / Phase-F requests:    %d / %d\n", report.WSSRequests, report.PhaseFRequests)
 	fmt.Fprintf(w, "Local original/final:      %d / %d\n", report.OriginalTokens, report.FinalTokens)
 	fmt.Fprintf(w, "S_local saved/ratio:       %d / %.2f%%\n", report.LocalSavedTokens, report.LocalSavingsRatio*100)
+	fmt.Fprintf(w, "Positive-savings ratio:    %d/%d / %.2f%%\n", report.LocalSavedTokens, report.PositiveSavingsOrig, report.PositiveSavingsRatio*100)
 	fmt.Fprintf(w, "Target saved/deficit:      %d / %d at %.2f%%\n", report.TargetSavedTokens, report.TargetDeficitTokens, report.TargetRatio*100)
 	fmt.Fprintf(w, "Provider cache read/cached/create: %d / %d / %d\n",
 		report.ProviderCacheReadTokens,

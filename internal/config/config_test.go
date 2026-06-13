@@ -77,8 +77,8 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.CodexSavingsPolicyMode != "auto" {
 		t.Fatalf("Codex savings policy default = %q, want auto", cfg.Compression.OutputReduce.CodexSavingsPolicyMode)
 	}
-	if !cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled {
-		t.Fatal("Codex WSS stateful tool-prefix elision should default on after live proof")
+	if cfg.Compression.OutputReduce.CodexWSSStatefulToolPrefixElisionEnabled {
+		t.Fatal("Codex WSS stateful tool-prefix elision must default off because tool schemas are model-facing")
 	}
 	if cfg.Compression.OutputReduce.CodexSearchCapProofPath != "" {
 		t.Fatalf("Codex search-cap proof path default = %q, want empty", cfg.Compression.OutputReduce.CodexSearchCapProofPath)
@@ -1076,8 +1076,8 @@ func TestDefaultTOML(t *testing.T) {
 	if !strings.Contains(out, `codex_search_cap_proof_path = ""`) {
 		t.Error("DefaultTOML() should expose the disabled search-cap proof latch")
 	}
-	if !strings.Contains(out, "codex_wss_stateful_tool_prefix_elision_enabled = true") {
-		t.Error("DefaultTOML() should expose default-on WSS stateful tool-prefix elision")
+	if !strings.Contains(out, "codex_wss_stateful_tool_prefix_elision_enabled = false") {
+		t.Error("DefaultTOML() should expose default-off WSS stateful tool-prefix elision")
 	}
 	if !strings.Contains(out, "tool_prune_enabled = false") ||
 		!strings.Contains(out, "wss_full_history_tool_prune_enabled = true") ||

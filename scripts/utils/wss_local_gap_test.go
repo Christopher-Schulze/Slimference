@@ -93,6 +93,8 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 	if report.OriginalTokens != 15000 ||
 		report.LocalSavedTokens != 500 ||
 		report.LocalSavingsRatio != 500.0/15000.0 ||
+		report.PositiveSavingsOrig != 10000 ||
+		report.PositiveSavingsRatio != 500.0/10000.0 ||
 		report.ProviderCacheReadTokens != 1000 ||
 		report.ProviderCacheTokens != 2000 ||
 		report.ProviderCacheCreate != 300 ||
@@ -174,6 +176,7 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 		t.Fatalf("runWSSLocalGap text code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "S_local saved/ratio:") ||
+		!strings.Contains(stdout.String(), "Positive-savings ratio:") ||
 		!strings.Contains(stdout.String(), "60.00%") ||
 		!strings.Contains(stdout.String(), "read_delta") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
@@ -188,7 +191,7 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("parse json output: %v\n%s", err, stdout.String())
 	}
-	if !report.GatePassed || report.LocalSavingsRatio != 0.6 {
+	if !report.GatePassed || report.LocalSavingsRatio != 0.6 || report.PositiveSavingsRatio != 0.6 {
 		t.Fatalf("bad json report: %+v", report)
 	}
 }
@@ -436,10 +439,11 @@ func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
 			"wss.tool_definition_parameters_bytes":   "5000",
 		},
 	}, "fact")
-	if category != "prefix_stateful_elision_proof_required" ||
+	if category != "prefix_capability_context_guarded" ||
 		source != "no_evidence:prompt_cache_prefix_default_keep_tools_and_instructions" ||
-		!strings.Contains(policy, "no schema pruning") ||
-		!strings.Contains(nextStep, "stateful-prefix elision proof") {
+		!strings.Contains(policy, "model-facing capability context") ||
+		!strings.Contains(policy, "suppress command_execution") ||
+		!strings.Contains(nextStep, "keep this mass in the product path") {
 		t.Fatalf("default-keep prefix action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
 	}
 }
