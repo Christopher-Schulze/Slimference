@@ -551,6 +551,11 @@ func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 			want: "wc -l",
 		},
 		{
+			name: "plain_path_list",
+			text: "Process exited with code 0\nOutput:\n" + wssListingFixture(40),
+			want: proxyInferredPlainPathListCommandLine,
+		},
+		{
 			name: "git_diff_stat_without_summary",
 			text: "Process exited with code 0\nOutput:\n internal/proxy/a.go | 10 +++++-----\n",
 			want: "",
@@ -559,6 +564,11 @@ func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 			name: "ambiguous",
 			text: "Process exited with code 0\nOutput:\nthis is just prose with a:colon\nand another line\n",
 			want: "",
+		},
+		{
+			name: "search_style_path_matches",
+			text: "Process exited with code 0\nOutput:\n" + proxyWSSSearchOutputFixture("needle", 20),
+			want: "rg",
 		},
 		{
 			name: "not_envelope",
@@ -1194,6 +1204,39 @@ func TestReduceCodexLayer0WSSSearchProofRejectsInferredSearch(t *testing.T) {
 	if result.Stats.WSSSearchRiskBlocks != 1 || result.Stats.WSSSearchProofAllowed != 0 ||
 		result.Stats.WSSSearchProofBlocked != 1 || result.Stats.WSSSearchProofReasons["tool_use_unbound"] != 1 {
 		t.Fatalf("inferred WSS search should record tool-use-unbound proof telemetry: %+v", result.Stats)
+	}
+}
+
+func TestReduceCodexLayer0WSSInferredPlainPathListCompactsWithoutSearchProof(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var listing strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&listing, "internal/proxy/generated/deep/path/file_%03d.go\n", i)
+	}
+	original := "Chunk ID: inferred-paths\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + listing.String()
+	messages := []types.Message{
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-inferred-paths", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-plain-path-list-inference",
+	})
+	text := result.Messages[0].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CodexExecEnvelopeBlocks != 1 ||
+		result.Stats.WSSSearchRiskBlocks != 0 || result.Stats.WSSSearchProofAllowed != 0 || result.Stats.WSSSearchProofBlocked != 0 {
+		t.Fatalf("metadata-less plain path-list should compact without search proof telemetry: stats=%+v text=%q", result.Stats, text)
+	}
+	if !strings.Contains(text, "[plain paths]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(text, "internal/proxy/generated/deep/path/") ||
+		!strings.Contains(text, "file_079.go") ||
+		strings.Contains(text, "internal/proxy/generated/deep/path/file_079.go") {
+		t.Fatalf("metadata-less path-list output was not neutral archive-backed compaction: %q", text)
+	}
+	if proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("plain path-list inference must not trip search risk gate: %+v", result.Stats.EvidenceDecisions)
 	}
 }
 

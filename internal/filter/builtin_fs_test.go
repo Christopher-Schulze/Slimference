@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -85,6 +86,47 @@ func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	}
 	if !PathListOutputReducerEligibleFromCommandLine(`cd /repo/app && rg --files --hidden -g '*.go' src`) {
 		t.Fatal("cd-wrapped rg --files command should be path-list eligible")
+	}
+}
+
+func TestTryCompactPlainPathListOutput(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&sb, "src/generated/deep/package/file_%02d.go\n", i)
+	}
+	out, ok := TryCompactPlainPathListOutput([]byte(sb.String()))
+	if !ok {
+		t.Fatal("plain path list should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[plain paths]") ||
+		!strings.Contains(text, "src/generated/deep/package/") ||
+		!strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected plain path-list compaction: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("plain path-list compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+}
+
+func TestTryCompactPlainPathListOutputFailOpen(t *testing.T) {
+	t.Parallel()
+	searchOutput := strings.Repeat("src/a.go:10:needle context\n", 12)
+	if _, ok := TryCompactPlainPathListOutput([]byte(searchOutput)); ok {
+		t.Fatal("search-style output must not compact as a plain path list")
+	}
+	diagnostic := strings.Repeat("warning: generated file skipped\n", 12)
+	if _, ok := TryCompactPlainPathListOutput([]byte(diagnostic)); ok {
+		t.Fatal("diagnostic prose must not compact as a plain path list")
+	}
+	withSpaces := strings.Repeat("src/generated file.go\n", 12)
+	if _, ok := TryCompactPlainPathListOutput([]byte(withSpaces)); ok {
+		t.Fatal("space-containing ambiguous paths must fail open without command metadata")
+	}
+	withLeadingSpace := strings.Repeat(" src/generated/file.go\n", 12)
+	if _, ok := TryCompactPlainPathListOutput([]byte(withLeadingSpace)); ok {
+		t.Fatal("whitespace-padded paths must fail open without command metadata")
 	}
 }
 

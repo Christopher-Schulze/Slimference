@@ -63,6 +63,10 @@ Requirements:
   state could become ambiguous; exact parser-proven path-list classes such as
   `rg --files`, `fd`/`fdfind`, and conservative bounded `find` may compact
   only after both command shape and payload pass strict path-list parsers;
+  metadata-less WSS outputs may compact as neutral plain path lists only when a
+  payload-only parser rejects search hits, source, diagnostics, prose, shell
+  metacharacters, and oversized listings, and the compacted text must not claim
+  a specific originating command;
 - sharper Codex WSS search-output caps may become runtime-active only through a
   a versioned final release proof artifact whose nested focused search-cap
   proof `capture_reports` themselves pass their row gates and prove CLI plus

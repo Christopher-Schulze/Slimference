@@ -35,6 +35,8 @@ const (
 	proxyLayer0MechanismObsoletePrune proxyLayer0Mechanism = "obsolete_prune"
 )
 
+const proxyInferredPlainPathListCommandLine = "(inferred plain path-list)"
+
 type proxyLayer0MechanismMask uint32
 
 const (
@@ -1495,6 +1497,13 @@ func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext
 }
 
 func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileReadContext) (string, bool, proxyLayer0Mechanism) {
+	if proxyInferredPlainPathListCommand(commandLine) {
+		out, changed := compactProxyInferredPlainPathList(text)
+		if changed {
+			return out, true, proxyLayer0MechanismCodexEnvelope
+		}
+		return "", false, ""
+	}
 	filterWorkDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
 	out, changed := compactCodexExecEnvelopeWithWorkDir(filterWorkDir, filterCommandLine, text, ctx)
 	if changed {
@@ -1534,6 +1543,10 @@ func compactProxyLayer0CapturedOutputFirst(commandLine, text string, ctx filter.
 		}
 	}
 	return "", false
+}
+
+func proxyInferredPlainPathListCommand(commandLine string) bool {
+	return strings.TrimSpace(commandLine) == proxyInferredPlainPathListCommandLine
 }
 
 func proxyLayer0FilterCommandForCompaction(commandLine string) (string, string) {
@@ -1591,6 +1604,9 @@ func proxyInferCommandLineFromToolResult(text string) string {
 	}
 	if proxyLooksLikeWcOutput(payload) {
 		return "wc -l"
+	}
+	if proxyLooksLikePlainPathListOutput(payload) {
+		return proxyInferredPlainPathListCommandLine
 	}
 	return ""
 }
@@ -1699,6 +1715,14 @@ func proxyLooksLikeWcOutput(payload string) bool {
 	return wssSafeWcOutput("wc -l", payload)
 }
 
+func proxyLooksLikePlainPathListOutput(payload string) bool {
+	if !wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries) {
+		return false
+	}
+	_, ok := filter.TryCompactPlainPathListOutput([]byte(payload))
+	return ok
+}
+
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(compacted) == "" || original == "" {
 		return "", false
@@ -1733,6 +1757,18 @@ func compactCodexExecEnvelopeWithWorkDir(workDir, commandLine, text string, ctx 
 		return "", false
 	}
 	compacted, changed := filter.CompactCapturedOutputWithContext(workDir, commandLine, payload, 0, ctx)
+	if !changed {
+		return "", false
+	}
+	return header + string(compacted), true
+}
+
+func compactProxyInferredPlainPathList(text string) (string, bool) {
+	header, payload, ok := splitCodexExecEnvelope(text)
+	if !ok {
+		return "", false
+	}
+	compacted, changed := filter.TryCompactPlainPathListOutput([]byte(payload))
 	if !changed {
 		return "", false
 	}

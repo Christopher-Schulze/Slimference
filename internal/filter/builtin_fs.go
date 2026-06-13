@@ -53,6 +53,17 @@ func TryCompactPathListOutput(argv []string, stdout []byte) ([]byte, bool) {
 	return groupPathListResults(stdout, pathListOutputLabel(argv))
 }
 
+// TryCompactPlainPathListOutput compacts metadata-less newline-delimited path
+// lists with a neutral label. It is deliberately stricter than command-bound
+// path-list reducers because no tool command is available to disambiguate
+// search output, diagnostics, or prose.
+func TryCompactPlainPathListOutput(stdout []byte) ([]byte, bool) {
+	if !plainPathListPayloadSafe(stdout) {
+		return stdout, false
+	}
+	return groupPathListResults(stdout, "plain")
+}
+
 // PathListOutputReducerEligibleFromCommandLine reports whether commandLine can
 // use the path-list reducer without being treated as grep/search-match output.
 func PathListOutputReducerEligibleFromCommandLine(commandLine string) bool {
@@ -100,6 +111,40 @@ func pathListOutputLabel(argv []string) string {
 		return "find"
 	}
 	return "paths"
+}
+
+func plainPathListPayloadSafe(stdout []byte) bool {
+	const (
+		maxBytes     = 128 * 1024
+		maxEntries   = 2500
+		maxLineBytes = 512
+	)
+	payload := string(stdout)
+	if len(stdout) == 0 || len(stdout) > maxBytes || strings.ContainsRune(payload, '\x00') {
+		return false
+	}
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" {
+		return false
+	}
+	entries := 0
+	for _, raw := range strings.Split(strings.TrimRight(payload, "\n"), "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" || len(line) > maxLineBytes || strings.ContainsAny(line, " \t:;|<>\"'`$\\") ||
+			strings.Contains(line, "://") || strings.HasPrefix(line, "-") || strings.TrimSpace(line) != line {
+			return false
+		}
+		for _, r := range line {
+			if r < 32 || r == 127 {
+				return false
+			}
+		}
+		entries++
+		if entries > maxEntries {
+			return false
+		}
+	}
+	return entries > 0
 }
 
 func ripgrepFilesArgv(argv []string) bool {

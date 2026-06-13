@@ -761,7 +761,10 @@ as unbounded or rich/side-effect `find`, empty-result search tools, and
 output-inferred search payloads. Exact `rg --files`, strict `fd`/`fdfind`, and
 conservative bounded `find` path-list output are separated from
 grep/search-match risk and can use archive-backed path-list compaction only
-when the command flags and output pass strict path-list parsers.
+when the command flags and output pass strict path-list parsers. Metadata-less
+plain path-list outputs may compact only under the neutral `[plain paths]`
+label after a payload-only parser rejects search hits, source, diagnostics,
+prose, shell metacharacters, and oversized listings.
 Bounded names-only `ls`, conservative `find ... -print`, strict `fd` path
 lists, and bounded `tree -L` listings are separate stateful-safe classes: they
 may seed and later use exact archive-backed repeated-output savings, while
@@ -1046,7 +1049,9 @@ path-list payloads, and unsafe `fd` modes still fail open until separately
 re-certified. Exact `rg --files` path lists, strict `fd`/`fdfind` path lists,
 bounded names-only `ls`, conservative `find ... -print`, and bounded `tree -L`
 listings are allowed only as archive-backed path-list or stateful-safe
-exact-repeat evidence, not as semantic summaries.
+exact-repeat evidence, not as semantic summaries. Metadata-less plain path-list
+outputs are allowed only with a neutral label and payload-only strict parsing,
+never with a guessed `rg`, `find`, `fd`, `ls`, or `tree` command label.
 The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,
