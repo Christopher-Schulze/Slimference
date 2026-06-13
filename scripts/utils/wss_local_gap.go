@@ -54,6 +54,7 @@ type wssLocalGapReport struct {
 	Mechanisms              []wssLocalGapMechanismRow    `json:"mechanisms,omitempty"`
 	Guards                  []wssLocalGapGuardRow        `json:"guards,omitempty"`
 	ContentClasses          []wssLocalGapContentClassRow `json:"content_classes,omitempty"`
+	ActionablePotential     []wssLocalGapActionableRow   `json:"actionable_potential,omitempty"`
 	GatePassed              bool                         `json:"gate_passed"`
 	GateFailures            []string                     `json:"gate_failures,omitempty"`
 	Notes                   []string                     `json:"notes,omitempty"`
@@ -122,6 +123,20 @@ type wssLocalGapContentClassRow struct {
 	Mechanisms       map[string]int `json:"mechanisms,omitempty"`
 }
 
+type wssLocalGapActionableRow struct {
+	Category         string         `json:"category"`
+	Source           string         `json:"source"`
+	TokenBasis       string         `json:"token_basis"`
+	Tokens           int            `json:"tokens"`
+	LocalSavedTokens int            `json:"local_saved_tokens,omitempty"`
+	Requests         int            `json:"requests,omitempty"`
+	Decisions        int            `json:"decisions,omitempty"`
+	Policy           string         `json:"policy"`
+	NextStep         string         `json:"next_step"`
+	RequestShapes    map[string]int `json:"request_shapes,omitempty"`
+	Mechanisms       map[string]int `json:"mechanisms,omitempty"`
+}
+
 type wssLocalGapAccumulator struct {
 	report        wssLocalGapReport
 	shapeRows     map[string]*wssLocalGapShapeRow
@@ -129,6 +144,7 @@ type wssLocalGapAccumulator struct {
 	mechanismRows map[string]*wssLocalGapMechanismRow
 	guardRows     map[string]*wssLocalGapGuardRow
 	contentRows   map[string]*wssLocalGapContentClassRow
+	actionRows    map[string]*wssLocalGapActionableRow
 }
 
 const wssLocalGapHelpText = `wss-local-gap: rank the remaining WSS local-savings gap without provider-cache credit
@@ -148,7 +164,9 @@ tokens are reported separately and never counted toward local savings. Target
 deficit is the local-token reduction still needed to reach the requested floor.
 Guarded potential is the original-token mass carried by evidence decisions whose
 action is full_pass; it is an opportunity ledger, not a claim that all tokens are
-safely recoverable.`
+safely recoverable. Actionable potential separates known guard work from
+no-evidence instrumentation gaps and safety guards; rows are diagnostic and not
+additive unless they share the same token_basis.`
 
 func runWSSLocalGap(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSLocalGapFlags(args)
@@ -288,6 +306,7 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 		mechanismRows: make(map[string]*wssLocalGapMechanismRow),
 		guardRows:     make(map[string]*wssLocalGapGuardRow),
 		contentRows:   make(map[string]*wssLocalGapContentClassRow),
+		actionRows:    make(map[string]*wssLocalGapActionableRow),
 	}
 	if !flags.since.IsZero() {
 		since := flags.since
@@ -366,6 +385,9 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	}
 	noEvidence := len(summary.EvidenceDecisions) == 0
 	a.addRequestGuardFacts(summary, shape, original, saved, noEvidence)
+	if noEvidence {
+		a.addNoEvidenceActionable(summary, shape, original, saved)
+	}
 	for _, decision := range summary.EvidenceDecisions {
 		a.addDecision(decision, shape)
 	}
@@ -495,6 +517,63 @@ func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, sh
 	guardRow.GuardedPotential += guarded
 	addWSSAuditCount(&guardRow.Mechanisms, mechanism)
 	addWSSAuditCount(&guardRow.RequestShapes, shape)
+	a.addDecisionActionable(reason, mechanism, shape, guarded, saved)
+}
+
+func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int) {
+	if a == nil || tokens <= 0 {
+		return
+	}
+	category, policy, nextStep := wssLocalGapDecisionAction(reason)
+	a.addActionable(wssLocalGapActionableRow{
+		Category:         category,
+		Source:           "evidence:" + reason,
+		TokenBasis:       "full_pass_block_original_tokens",
+		Tokens:           tokens,
+		LocalSavedTokens: saved,
+		Decisions:        1,
+		Policy:           policy,
+		NextStep:         nextStep,
+	}, shape, mechanism)
+}
+
+func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSummary, shape string, original, saved int) {
+	if a == nil || original <= 0 {
+		return
+	}
+	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary)
+	a.addActionable(wssLocalGapActionableRow{
+		Category:         category,
+		Source:           source,
+		TokenBasis:       "request_original_tokens",
+		Tokens:           original,
+		LocalSavedTokens: saved,
+		Requests:         1,
+		Policy:           policy,
+		NextStep:         nextStep,
+	}, shape, "")
+}
+
+func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, shape, mechanism string) {
+	if a == nil || row.Tokens <= 0 {
+		return
+	}
+	key := row.Category + "\x00" + row.Source + "\x00" + row.TokenBasis
+	existing := a.actionRows[key]
+	if existing == nil {
+		copy := row
+		a.actionRows[key] = &copy
+		existing = &copy
+	} else {
+		existing.Tokens += row.Tokens
+		existing.LocalSavedTokens += row.LocalSavedTokens
+		existing.Requests += row.Requests
+		existing.Decisions += row.Decisions
+	}
+	addWSSAuditCount(&existing.RequestShapes, shape)
+	if strings.TrimSpace(mechanism) != "" {
+		addWSSAuditCount(&existing.Mechanisms, mechanism)
+	}
 }
 
 func (a *wssLocalGapAccumulator) shapeRow(shape string) *wssLocalGapShapeRow {
@@ -551,6 +630,7 @@ func (a *wssLocalGapAccumulator) finalize(flags wssLocalGapFlags) {
 	a.report.Mechanisms = finalizeWSSLocalGapMechanisms(a.mechanismRows)
 	a.report.Guards = finalizeWSSLocalGapGuards(a.guardRows)
 	a.report.ContentClasses = finalizeWSSLocalGapContentClasses(a.contentRows)
+	a.report.ActionablePotential = finalizeWSSLocalGapActionable(a.actionRows)
 	a.report.Notes = wssLocalGapNotes(a.report)
 	a.report.GateFailures = wssLocalGapGateFailures(a.report, flags)
 	a.report.GatePassed = len(a.report.GateFailures) == 0
@@ -635,6 +715,23 @@ func finalizeWSSLocalGapContentClasses(rows map[string]*wssLocalGapContentClassR
 	return out
 }
 
+func finalizeWSSLocalGapActionable(rows map[string]*wssLocalGapActionableRow) []wssLocalGapActionableRow {
+	out := make([]wssLocalGapActionableRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tokens != out[j].Tokens {
+			return out[i].Tokens > out[j].Tokens
+		}
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
 func wssLocalGapRatio(saved, original int) float64 {
 	if original <= 0 || saved <= 0 {
 		return 0
@@ -663,6 +760,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 	if report.NoEvidenceOrigTokens > 0 {
 		notes = append(notes, "Some WSS Phase-F token mass has no evidence decisions; add instrumentation before treating the remaining gap as a known guard problem.")
 	}
+	if len(report.ActionablePotential) > 0 {
+		notes = append(notes, "Actionable-potential rows classify the next proof/engineering move; they are diagnostic and not a promise that guarded tokens are safely recoverable.")
+	}
 	if len(report.Guards) == 0 && report.PhaseFRequests > 0 {
 		notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
 	}
@@ -685,6 +785,94 @@ func wssLocalGapGateFailures(report wssLocalGapReport, flags wssLocalGapFlags) [
 		failures = append(failures, fmt.Sprintf("local_saved_tokens=%d < min=%d", report.LocalSavedTokens, flags.minLocalSaved))
 	}
 	return failures
+}
+
+func wssLocalGapDecisionAction(reason string) (string, string, string) {
+	switch strings.TrimSpace(reason) {
+	case "wss_search_output_risk_gate":
+		return "proof_latch_candidate",
+			"allow only through final search-cap proof latch for the exact command/envelope shape",
+			"verify the active proof covers this mechanism and command shape, then narrow the guard only for that proofed shape"
+	case "wss_stateful_structured_mutation_guard":
+		return "stateful_safe_parser_candidate",
+			"do not broadly mutate stateful tool output; add exact parser/size/command guards per class",
+			"build one deterministic parser class with live A/B before allowing savings"
+	case "wss_stateful_delta_mutation_proof_gate":
+		return "unsafe_without_fresh_live_proof",
+			"previous_response_id delta mutation has known downstream 400 risk",
+			"keep full-pass unless a fresh downstream-delta-safe live proof covers this exact mechanism"
+	case "wss_full_history_downstream_delta_proof_gate":
+		return "unsafe_without_fresh_live_proof",
+			"full-history reconnect/downstream mutation can poison the following delta turn",
+			"keep guarded unless lineage/stateless continuation proof covers this exact path"
+	case "wss_recovery_history_mutation_guard":
+		return "unsafe_without_fresh_live_proof",
+			"recovery lineage was already damaged once; further history mutation needs recovery-specific proof",
+			"keep lineage guard unless fresh recovery replay/live proof proves clean continuation"
+	case "wss_tool_prune_delta_guard":
+		return "unsafe_without_fresh_live_proof",
+			"delta tool-schema pruning needs reattach and downstream safety proof",
+			"prove reattach plus following-turn stability before enabling"
+	case "cache_bust_guard":
+		return "cache_stability_guard",
+			"provider-cache drop was attributed to this mechanism",
+			"tighten by route/shape/prefix hash only after cache-stability telemetry proves the narrower cause"
+	case "session_integrity_budget":
+		return "resource_budget_guard",
+			"session reference budget protects recovery and recency density",
+			"raise or reshape only with resource and recovery proof"
+	case "latency_budget_full_context":
+		return "resource_budget_guard",
+			"hotpath latency budget blocked non-essential work",
+			"optimize the reducer path before raising latency budgets"
+	case "post_collapse_reread_full_context", "recent_edit_full_context", "recent_edit_uncertain_chunk_full_context":
+		return "context_fidelity_guard",
+			"recent edits or post-collapse rereads require full context for model fidelity",
+			"only replace with an exact state mirror or archive-backed proof for the same file lineage"
+	default:
+		return "unclassified_guard",
+			"unknown full-pass reason; do not treat as safe savings",
+			"instrument and classify this guard before changing product behavior"
+	}
+}
+
+func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, string, string) {
+	facts := summary.DebugFacts
+	outputReason := strings.TrimSpace(facts["wss.output_reduce_reason"])
+	toolResults := strings.TrimSpace(facts["wss.tool_results"])
+	sourceToolBytes := strings.TrimSpace(facts["wss.source_tool_bytes"])
+	switch {
+	case outputReason == "prompt_cache_prefix_full_pass":
+		return "prefix_safe_new_mechanism_required",
+			"no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass",
+			"prompt-cache-prefix frames must stay byte/semantic stable; no WSS directive injection",
+			"design a prefix-preserving deterministic reducer or keep full-pass"
+	case toolResults == "0" && sourceToolBytes == "0":
+		return "not_tool_output_reducer_target",
+			"no_evidence:no_tool_output",
+			"no tool-output bytes were present for Layer-0 reducers",
+			"look for prompt/root/context mechanisms, not tool-output guard loosening"
+	case strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "":
+		return "needs_instrumentation",
+			"no_evidence:wss.request_shape_missing",
+			"request shape was not recorded, so savings loss cannot be assigned safely",
+			"add content-free shape/debug facts before changing guards"
+	case strings.TrimSpace(summary.BypassReason) != "":
+		return "needs_instrumentation",
+			"no_evidence:bypass_reason=" + strings.TrimSpace(summary.BypassReason),
+			"bypass fired without block-level evidence",
+			"wire the bypass to evidence decisions before changing behavior"
+	case outputReason == "disabled":
+		return "needs_instrumentation",
+			"no_evidence:wss.output_reduce_reason=disabled",
+			"output reducer was disabled for this shape without block-level opportunity evidence",
+			"record the concrete disabling predicate and eligible token mass"
+	default:
+		return "needs_instrumentation",
+			"no_evidence:unclassified",
+			"no block-level evidence exists for this token mass",
+			"add content-free evidence decisions before treating it as a savings candidate"
+	}
 }
 
 func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
@@ -723,6 +911,23 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 				row.ProviderCacheTokens,
 				row.GuardedPotential,
 				row.ErrorRequests)
+		}
+	}
+	if len(report.ActionablePotential) > 0 {
+		fmt.Fprintln(w, "\nActionable potential:")
+		for _, row := range report.ActionablePotential {
+			fmt.Fprintf(w, "  %-40s source=%-58s tokens=%d basis=%s requests=%d decisions=%d saved=%d shapes=%s mechanisms=%s\n",
+				row.Category,
+				row.Source,
+				row.Tokens,
+				row.TokenBasis,
+				row.Requests,
+				row.Decisions,
+				row.LocalSavedTokens,
+				formatWSSAuditCounts(row.RequestShapes),
+				formatWSSAuditCounts(row.Mechanisms))
+			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
+			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
 		}
 	}
 	if len(report.RequestGuards) > 0 {

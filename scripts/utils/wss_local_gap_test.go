@@ -112,6 +112,18 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 		report.Mechanisms[0].GuardedPotential != 6000 {
 		t.Fatalf("bad mechanism ranking: %+v", report.Mechanisms)
 	}
+	if len(report.ActionablePotential) != 2 ||
+		report.ActionablePotential[0].Category != "proof_latch_candidate" ||
+		report.ActionablePotential[0].Source != "evidence:wss_search_output_risk_gate" ||
+		report.ActionablePotential[0].Tokens != 6000 ||
+		report.ActionablePotential[0].TokenBasis != "full_pass_block_original_tokens" ||
+		report.ActionablePotential[0].Decisions != 1 ||
+		report.ActionablePotential[0].Mechanisms["captured_output"] != 1 ||
+		report.ActionablePotential[1].Category != "unsafe_without_fresh_live_proof" ||
+		report.ActionablePotential[1].Source != "evidence:wss_stateful_delta_mutation_proof_gate" ||
+		report.ActionablePotential[1].Tokens != 3500 {
+		t.Fatalf("bad actionable potential rows: %+v", report.ActionablePotential)
+	}
 	if len(report.RequestShapes) != 2 ||
 		report.RequestShapes[0].Shape != "full_history" ||
 		report.RequestShapes[0].ProviderCacheTokens != 3000 ||
@@ -287,6 +299,18 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		noOutputReduce.NoEvidenceOrigTokens != 4000 ||
 		noOutputReduce.RequestShapes["delta"] != 1 {
 		t.Fatalf("no-output-reduce no-evidence guard row mismatch: %+v", noOutputReduce)
+	}
+	if len(report.ActionablePotential) != 2 ||
+		report.ActionablePotential[0].Category != "needs_instrumentation" ||
+		report.ActionablePotential[0].Source != "no_evidence:wss.request_shape_missing" ||
+		report.ActionablePotential[0].TokenBasis != "request_original_tokens" ||
+		report.ActionablePotential[0].Tokens != 9000 ||
+		report.ActionablePotential[0].Requests != 1 ||
+		report.ActionablePotential[1].Category != "prefix_safe_new_mechanism_required" ||
+		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
+		report.ActionablePotential[1].Tokens != 4000 ||
+		report.ActionablePotential[1].Requests != 1 {
+		t.Fatalf("bad no-evidence actionable rows: %+v", report.ActionablePotential)
 	}
 }
 
