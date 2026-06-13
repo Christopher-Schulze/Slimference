@@ -47,6 +47,7 @@ type WSSABReplayResult struct {
 	ExpectedInstructionExtras int
 	ReducerStats              WSSABReplayReducerStats
 	SearchStats               WSSABReplaySearchStats
+	ObserveStats              WSSABReplayObserveStats
 }
 
 // WSSABReplayShapeCounts classifies request bodies by the state shape Codex
@@ -70,6 +71,15 @@ type WSSABReplaySearchStats struct {
 	HTTP400Errors           int
 	InvalidRequestErrors    int
 	ResponseFailedFrames    int
+}
+
+// WSSABReplayObserveStats counts cache state learned on guarded WSS delta
+// turns. These counters prove local state seeding without claiming wire savings.
+type WSSABReplayObserveStats struct {
+	GuardedDeltaReadDeltaHits        int
+	GuardedDeltaReadDeltaMisses      int
+	GuardedDeltaRepeatedOutputHits   int
+	GuardedDeltaRepeatedOutputMisses int
 }
 
 // WSSABReplayReducerStats is the content-free reducer activity observed while
@@ -174,6 +184,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			}
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
 			out.ReducerStats.add(stats)
+			out.ObserveStats.add(shape, stats)
 			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
@@ -367,6 +378,39 @@ func (s *WSSABReplayReducerStats) add(stats proxyLayer0Stats) {
 			s.HighFootprintAppliedDecisions++
 		}
 	}
+}
+
+func (s *WSSABReplayObserveStats) add(shape string, stats proxyLayer0Stats) {
+	if s == nil || shape != "delta" || !wssReplayStatsHasGuardedDeltaEvidence(stats) {
+		return
+	}
+	for _, event := range stats.CacheEvents {
+		switch event.Mechanism {
+		case savingspolicy.CodexMechanismReadDelta:
+			switch event.Action {
+			case proxyLayer0CacheHit:
+				s.GuardedDeltaReadDeltaHits++
+			case proxyLayer0CacheMiss:
+				s.GuardedDeltaReadDeltaMisses++
+			}
+		case savingspolicy.CodexMechanismRepeatedOutput:
+			switch event.Action {
+			case proxyLayer0CacheHit:
+				s.GuardedDeltaRepeatedOutputHits++
+			case proxyLayer0CacheMiss:
+				s.GuardedDeltaRepeatedOutputMisses++
+			}
+		}
+	}
+}
+
+func wssReplayStatsHasGuardedDeltaEvidence(stats proxyLayer0Stats) bool {
+	for _, decision := range stats.EvidenceDecisions {
+		if decision.Action == evidence.ActionFullPass && decision.Reason == "wss_stateful_delta_mutation_proof_gate" {
+			return true
+		}
+	}
+	return false
 }
 
 func rememberReplayRequestState(adapter *wsPhaseFAdapter, messages []types.Message) {

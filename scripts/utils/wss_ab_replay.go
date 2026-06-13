@@ -72,6 +72,10 @@ type wssABReplayReport struct {
 	CompoundedEstimateTokens      int                              `json:"compounded_estimate_tokens"`
 	FootprintAppliedDecisions     int                              `json:"footprint_applied_decisions"`
 	HighFootprintAppliedDecisions int                              `json:"high_footprint_applied_decisions"`
+	GuardedDeltaReadDeltaHits     int                              `json:"guarded_delta_read_delta_hits,omitempty"`
+	GuardedDeltaReadDeltaMisses   int                              `json:"guarded_delta_read_delta_misses,omitempty"`
+	GuardedDeltaRepeatedHits      int                              `json:"guarded_delta_repeated_output_hits,omitempty"`
+	GuardedDeltaRepeatedMisses    int                              `json:"guarded_delta_repeated_output_misses,omitempty"`
 	UniformChunkBudgetControl     *wssABReplayUniformControlReport `json:"uniform_chunk_budget_control,omitempty"`
 	UpstreamErrorFrames           int                              `json:"upstream_error_frames"`
 	UpstreamHTTP400Errors         int                              `json:"upstream_http_400_errors"`
@@ -354,6 +358,10 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		CompoundedEstimateTokens:      result.ReducerStats.CompoundedEstimateTokens,
 		FootprintAppliedDecisions:     result.ReducerStats.FootprintAppliedDecisions,
 		HighFootprintAppliedDecisions: result.ReducerStats.HighFootprintAppliedDecisions,
+		GuardedDeltaReadDeltaHits:     result.ObserveStats.GuardedDeltaReadDeltaHits,
+		GuardedDeltaReadDeltaMisses:   result.ObserveStats.GuardedDeltaReadDeltaMisses,
+		GuardedDeltaRepeatedHits:      result.ObserveStats.GuardedDeltaRepeatedOutputHits,
+		GuardedDeltaRepeatedMisses:    result.ObserveStats.GuardedDeltaRepeatedOutputMisses,
 		UpstreamErrorFrames:           upstream.ErrorFrames,
 		UpstreamHTTP400Errors:         upstream.HTTP400Errors,
 		UpstreamInvalidRequests:       upstream.InvalidRequestErrors,
@@ -722,6 +730,14 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 		report.CompoundedEstimateTokens,
 		report.FootprintAppliedDecisions,
 		report.HighFootprintAppliedDecisions)
+	if report.GuardedDeltaReadDeltaHits > 0 || report.GuardedDeltaReadDeltaMisses > 0 ||
+		report.GuardedDeltaRepeatedHits > 0 || report.GuardedDeltaRepeatedMisses > 0 {
+		fmt.Fprintf(w, "  guarded_delta_observe: read_delta_hit=%d read_delta_miss=%d repeated_hit=%d repeated_miss=%d\n",
+			report.GuardedDeltaReadDeltaHits,
+			report.GuardedDeltaReadDeltaMisses,
+			report.GuardedDeltaRepeatedHits,
+			report.GuardedDeltaRepeatedMisses)
+	}
 	if report.UniformChunkBudgetControl != nil {
 		control := report.UniformChunkBudgetControl
 		fmt.Fprintf(w, "  uniform_control: reducer_tokens=%d compounded=%d delta_tokens=%d delta_compounded=%d delta_high=%d improved=%t lost=%d\n",

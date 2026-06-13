@@ -198,6 +198,42 @@ func TestRunWSSPhaseFABReplayCountsCapturedMutatedFullHistoryShape(t *testing.T)
 	}
 }
 
+func TestRunWSSPhaseFABReplayReportsGuardedDeltaObserveOnly(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+
+	readPayload := strings.Repeat("guarded delta read observation line\n", 120)
+	repeatedPayload := strings.Repeat("guarded delta report observation row\n", 120)
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("read-delta-1", "read_file", map[string]any{"path": "src/guarded.go"}),
+		wssReplayClientToolOutputFrame("read-delta-1", "guarded-observe-session", "resp-read-1", readPayload),
+		wssReplayServerToolCallFrame("read-delta-2", "read_file", map[string]any{"path": "src/guarded.go"}),
+		wssReplayClientToolOutputFrame("read-delta-2", "guarded-observe-session", "resp-read-2", readPayload),
+		wssReplayServerToolCallFrame("report-delta-1", "exec_command", map[string]any{"cmd": "python generate_report.py"}),
+		wssReplayClientToolOutputFrame("report-delta-1", "guarded-observe-session", "resp-report-1", repeatedPayload),
+		wssReplayServerToolCallFrame("report-delta-2", "exec_command", map[string]any{"cmd": "python generate_report.py"}),
+		wssReplayClientToolOutputFrame("report-delta-2", "guarded-observe-session", "resp-report-2", repeatedPayload),
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MutatedRequests != 0 || got.Report.Saved() != 0 || got.ReducerStats.TokensSaved != 0 ||
+		got.ReducerStats.ReadDeltaBlocks != 0 || got.ReducerStats.RepeatedOutputBlocks != 0 {
+		t.Fatalf("guarded delta observe-only must not claim wire savings: %+v", got)
+	}
+	if got.ObserveStats.GuardedDeltaReadDeltaMisses != 1 ||
+		got.ObserveStats.GuardedDeltaReadDeltaHits != 1 ||
+		got.ObserveStats.GuardedDeltaRepeatedOutputMisses != 1 ||
+		got.ObserveStats.GuardedDeltaRepeatedOutputHits != 1 {
+		t.Fatalf("guarded delta observe-only counters mismatch: %+v", got.ObserveStats)
+	}
+}
+
 func TestRunWSSPhaseFABReplayUniformChunkBudgetControlShowsCompoundLift(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

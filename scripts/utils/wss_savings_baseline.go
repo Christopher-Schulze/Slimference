@@ -74,6 +74,10 @@ type wssSavingsBaselineReplaySummary struct {
 	ReducerChunkRefs              int               `json:"reducer_chunk_dedup_references"`
 	CompoundedEstimateTokens      int               `json:"compounded_estimate_tokens"`
 	HighFootprintAppliedDecisions int               `json:"high_footprint_applied_decisions"`
+	GuardedDeltaReadDeltaHits     int               `json:"guarded_delta_read_delta_hits,omitempty"`
+	GuardedDeltaReadDeltaMisses   int               `json:"guarded_delta_read_delta_misses,omitempty"`
+	GuardedDeltaRepeatedHits      int               `json:"guarded_delta_repeated_output_hits,omitempty"`
+	GuardedDeltaRepeatedMisses    int               `json:"guarded_delta_repeated_output_misses,omitempty"`
 	SearchMutatedRequests         int               `json:"search_mutated_requests"`
 	SearchCapturedMutated         int               `json:"search_captured_mutated_requests,omitempty"`
 	UpstreamErrorFrames           int               `json:"upstream_error_frames"`
@@ -87,26 +91,30 @@ type wssSavingsBaselineReplaySummary struct {
 }
 
 type wssSavingsBaselineTotal struct {
-	RequestTurns                    int `json:"request_turns"`
-	SearchRequestTurns              int `json:"search_request_turns"`
-	ProductPositiveFiles            int `json:"product_positive_files"`
-	ProductReducerTokensSaved       int `json:"product_reducer_tokens_saved"`
-	ProductBytesSaved               int `json:"product_bytes_saved"`
-	SearchCapPositiveExtraFiles     int `json:"search_cap_positive_extra_files"`
-	SearchCapExtraTokens            int `json:"search_cap_extra_tokens"`
-	SearchCapExtraBytes             int `json:"search_cap_extra_bytes"`
-	SearchDeltaGuardedFiles         int `json:"search_delta_guarded_files"`
-	FullHistorySearchCapFiles       int `json:"full_history_search_cap_files"`
-	BroadToolOutputPositiveFiles    int `json:"broad_tool_output_positive_files"`
-	BroadToolOutputExtraTokens      int `json:"broad_tool_output_extra_tokens"`
-	BroadToolOutputExtraBytes       int `json:"broad_tool_output_extra_bytes"`
-	UnsafeDeltaLabPositiveFiles     int `json:"unsafe_delta_lab_positive_files,omitempty"`
-	UnsafeDeltaLabExtraTokens       int `json:"unsafe_delta_lab_extra_tokens,omitempty"`
-	UnsafeDeltaLabExtraBytes        int `json:"unsafe_delta_lab_extra_bytes,omitempty"`
-	ProductSafetyIssueFiles         int `json:"product_safety_issue_files"`
-	SearchCapSafetyIssueFiles       int `json:"search_cap_safety_issue_files"`
-	BroadToolOutputSafetyIssueFiles int `json:"broad_tool_output_safety_issue_files"`
-	UnsafeDeltaLabSafetyIssueFiles  int `json:"unsafe_delta_lab_safety_issue_files,omitempty"`
+	RequestTurns                      int `json:"request_turns"`
+	SearchRequestTurns                int `json:"search_request_turns"`
+	ProductPositiveFiles              int `json:"product_positive_files"`
+	ProductReducerTokensSaved         int `json:"product_reducer_tokens_saved"`
+	ProductBytesSaved                 int `json:"product_bytes_saved"`
+	ProductGuardedDeltaReadHits       int `json:"product_guarded_delta_read_delta_hits"`
+	ProductGuardedDeltaReadMisses     int `json:"product_guarded_delta_read_delta_misses"`
+	ProductGuardedDeltaRepeatedHits   int `json:"product_guarded_delta_repeated_output_hits"`
+	ProductGuardedDeltaRepeatedMisses int `json:"product_guarded_delta_repeated_output_misses"`
+	SearchCapPositiveExtraFiles       int `json:"search_cap_positive_extra_files"`
+	SearchCapExtraTokens              int `json:"search_cap_extra_tokens"`
+	SearchCapExtraBytes               int `json:"search_cap_extra_bytes"`
+	SearchDeltaGuardedFiles           int `json:"search_delta_guarded_files"`
+	FullHistorySearchCapFiles         int `json:"full_history_search_cap_files"`
+	BroadToolOutputPositiveFiles      int `json:"broad_tool_output_positive_files"`
+	BroadToolOutputExtraTokens        int `json:"broad_tool_output_extra_tokens"`
+	BroadToolOutputExtraBytes         int `json:"broad_tool_output_extra_bytes"`
+	UnsafeDeltaLabPositiveFiles       int `json:"unsafe_delta_lab_positive_files,omitempty"`
+	UnsafeDeltaLabExtraTokens         int `json:"unsafe_delta_lab_extra_tokens,omitempty"`
+	UnsafeDeltaLabExtraBytes          int `json:"unsafe_delta_lab_extra_bytes,omitempty"`
+	ProductSafetyIssueFiles           int `json:"product_safety_issue_files"`
+	SearchCapSafetyIssueFiles         int `json:"search_cap_safety_issue_files"`
+	BroadToolOutputSafetyIssueFiles   int `json:"broad_tool_output_safety_issue_files"`
+	UnsafeDeltaLabSafetyIssueFiles    int `json:"unsafe_delta_lab_safety_issue_files,omitempty"`
 }
 
 type wssSavingsBaselineSkip struct {
@@ -367,6 +375,10 @@ func wssSavingsBaselineReplaySummaryFrom(report wssABReplayReport) wssSavingsBas
 		ReducerChunkRefs:              report.ReducerChunkRefs,
 		CompoundedEstimateTokens:      report.CompoundedEstimateTokens,
 		HighFootprintAppliedDecisions: report.HighFootprintAppliedDecisions,
+		GuardedDeltaReadDeltaHits:     report.GuardedDeltaReadDeltaHits,
+		GuardedDeltaReadDeltaMisses:   report.GuardedDeltaReadDeltaMisses,
+		GuardedDeltaRepeatedHits:      report.GuardedDeltaRepeatedHits,
+		GuardedDeltaRepeatedMisses:    report.GuardedDeltaRepeatedMisses,
 		SearchMutatedRequests:         report.SearchMutatedRequests,
 		SearchCapturedMutated:         report.SearchCapturedMutated,
 		UpstreamErrorFrames:           report.UpstreamErrorFrames,
@@ -411,6 +423,10 @@ func applyWSSSavingsBaselineRow(total *wssSavingsBaselineTotal, row wssSavingsBa
 	total.SearchRequestTurns += row.SearchRequestTurns
 	total.ProductReducerTokensSaved += row.Product.ReducerTokensSaved
 	total.ProductBytesSaved += row.Product.BytesSaved
+	total.ProductGuardedDeltaReadHits += row.Product.GuardedDeltaReadDeltaHits
+	total.ProductGuardedDeltaReadMisses += row.Product.GuardedDeltaReadDeltaMisses
+	total.ProductGuardedDeltaRepeatedHits += row.Product.GuardedDeltaRepeatedHits
+	total.ProductGuardedDeltaRepeatedMisses += row.Product.GuardedDeltaRepeatedMisses
 	if row.ProductPositive {
 		total.ProductPositiveFiles++
 	}
@@ -459,6 +475,12 @@ func wssSavingsBaselineFindings(report wssSavingsBaselineReport) []string {
 	if report.Totals.ProductPositiveFiles > 0 {
 		findings = append(findings, fmt.Sprintf("product_default_positive_files=%d", report.Totals.ProductPositiveFiles))
 	}
+	if hits := report.Totals.ProductGuardedDeltaReadHits + report.Totals.ProductGuardedDeltaRepeatedHits; hits > 0 {
+		findings = append(findings, fmt.Sprintf("product_guarded_delta_observe_hits=%d", hits))
+	}
+	if misses := report.Totals.ProductGuardedDeltaReadMisses + report.Totals.ProductGuardedDeltaRepeatedMisses; misses > 0 {
+		findings = append(findings, fmt.Sprintf("product_guarded_delta_observe_misses=%d", misses))
+	}
 	if report.Totals.SearchDeltaGuardedFiles > 0 {
 		findings = append(findings, fmt.Sprintf("search_delta_guarded_files=%d", report.Totals.SearchDeltaGuardedFiles))
 	}
@@ -499,6 +521,14 @@ func writeWSSSavingsBaselineText(w io.Writer, report wssSavingsBaselineReport) {
 		report.Totals.ProductReducerTokensSaved,
 		report.Totals.ProductBytesSaved,
 		report.Totals.ProductSafetyIssueFiles)
+	if report.Totals.ProductGuardedDeltaReadHits > 0 || report.Totals.ProductGuardedDeltaReadMisses > 0 ||
+		report.Totals.ProductGuardedDeltaRepeatedHits > 0 || report.Totals.ProductGuardedDeltaRepeatedMisses > 0 {
+		fmt.Fprintf(w, "  guarded_delta_obs: read_hit=%d read_miss=%d repeated_hit=%d repeated_miss=%d\n",
+			report.Totals.ProductGuardedDeltaReadHits,
+			report.Totals.ProductGuardedDeltaReadMisses,
+			report.Totals.ProductGuardedDeltaRepeatedHits,
+			report.Totals.ProductGuardedDeltaRepeatedMisses)
+	}
 	fmt.Fprintf(w, "  search_cap_latch:  files=%d extra_tokens=%d extra_bytes=%d guarded_delta_files=%d full_history_files=%d safety_issues=%d\n",
 		report.Totals.SearchCapPositiveExtraFiles,
 		report.Totals.SearchCapExtraTokens,
