@@ -872,6 +872,111 @@ func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFUnavailableRequestUserInputPrunesInDefaultMode(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "default-mode-unavailable-tool",
+			"instructions":     "Normal default-mode Codex instructions.",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("exec_command", "Run shell commands"),
+				codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode. "+strings.Repeat("Plan-mode user prompt. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected default-mode unavailable tool prune mutation")
+	}
+	body := string(env.Body)
+	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(env.Body, types.CodexChatGPT)
+	if !schemaSafe {
+		t.Fatalf("mutated tool schema not safe: %s", body)
+	}
+	for _, name := range toolNames {
+		if name == "request_user_input" {
+			t.Fatalf("default-mode unavailable tool still present in tools[]: names=%v body=%s", toolNames, body)
+		}
+	}
+	hasExec := false
+	for _, name := range toolNames {
+		if name == "exec_command" {
+			hasExec = true
+		}
+	}
+	if !hasExec {
+		t.Fatalf("available tool was removed: names=%v body=%s", toolNames, body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "unavailable_tools_default_mode" ||
+		summary.ToolPrune.PrunedTools != 1 ||
+		summary.ToolPrune.SavedTokens <= 0 {
+		t.Fatalf("unavailable tool-prune summary mismatch: %+v tokens=%+v", summary.ToolPrune, summary.Tokens)
+	}
+	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 {
+		t.Fatalf("tool-prune snapshot missing unavailable prune: %+v", snap)
+	}
+}
+
+func TestWSPhaseFUnavailableRequestUserInputFullPassesPlanModeAndDelta(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "plan-mode-available-tool",
+		"instructions": "# Collaboration Mode: Plan\n" +
+			"request_user_input is only available in Plan mode.",
+		"tools": []map[string]any{
+			codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode."),
+		},
+		"stream": true,
+	})
+
+	out, changed, summary, retry := adapter.applyWSSUnavailableToolPrune(body, wssRequestMeta{HasToolDefinitions: true})
+	if changed || !bytes.Equal(out, body) || summary.Applied || len(retry) > 0 {
+		t.Fatalf("plan mode must keep request_user_input: changed=%v summary=%+v retry=%d out=%s", changed, summary, len(retry), out)
+	}
+
+	defaultBody := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp_prev",
+		"prompt_cache_key":     "default-delta-unavailable-tool",
+		"instructions": "# Collaboration Mode: Default\n" +
+			"request_user_input is only available in Plan mode.",
+		"tools": []map[string]any{
+			codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode."),
+		},
+		"stream": true,
+	})
+	out, changed, summary, retry = adapter.applyWSSUnavailableToolPrune(defaultBody, wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true})
+	if changed || !bytes.Equal(out, defaultBody) || summary.Applied || len(retry) > 0 {
+		t.Fatalf("previous-response delta must keep request_user_input: changed=%v summary=%+v retry=%d out=%s", changed, summary, len(retry), out)
+	}
+}
+
 func TestWSPhaseFConciseChatInjectsOnlyChatHint(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

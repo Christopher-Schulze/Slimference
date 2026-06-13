@@ -1712,6 +1712,14 @@ T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, and MCP tool classes are always kept, and
 `tool_prune_always_keep = []` can add project-specific exact tool names with
 case-insensitive matching.
+Independently of idle pruning, Codex WSS Phase-F removes only the
+`request_user_input` tool definition when that tool definition itself states
+that it is available only in Plan mode, the request instructions do not
+explicitly declare `# Collaboration Mode: Plan`, and the request has no
+`previous_response_id`. Explicit Plan-mode requests and previous-response delta
+turns keep the tool schema byte-equal. This default-on path is classified as
+`unavailable_tools_default_mode` and carries its own retry body for fail-open
+recovery.
 Focused tool-heavy proof runs can enable the pruner without editing the config
 file via `SLIMFERENCE_TOOL_PRUNE_ENABLED=1`, shorten the proof-only idle window
 via `SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS=1`, and provide
