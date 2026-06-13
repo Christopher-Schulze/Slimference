@@ -15,6 +15,16 @@ import (
 func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T) {
 	meta := wssRequestMeta{SessionID: "codex-wss:stateful-safe", PreviousResponseID: "resp-stateful-safe"}
 	diffStat := wssDiffStatFixture(36)
+	var nameStatusOutput strings.Builder
+	for i := 0; i < 40; i++ {
+		status := "M"
+		if i%3 == 0 {
+			status = "A"
+		}
+		nameStatusOutput.WriteString(status)
+		nameStatusOutput.WriteByte('\t')
+		nameStatusOutput.WriteString(fmt.Sprintf("internal/proxy/generated/very/deep/path/file_%02d.go\n", i))
+	}
 	var wcOutput strings.Builder
 	wcArgs := make([]string, 0, 20)
 	for i := 0; i < 20; i++ {
@@ -34,8 +44,11 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		wantGuard string
 	}{
 		{name: "git diff stat", command: "git diff --stat", output: diffStat, wantSafe: true},
+		{name: "git diff name-only path list", command: "git diff --name-only --cached", output: listingOutput, wantSafe: true},
+		{name: "git diff name-status path list", command: "git diff --name-status --cached", output: nameStatusOutput.String(), wantSafe: true},
 		{name: "git status short pathspec", command: "git status --short .", output: " M internal/proxy/wsmitm_phasef.go\n", wantSafe: true},
 		{name: "git log oneline bounded", command: "git log --oneline -n 3", output: "a1b2c3d Tighten guard\nb2c3d4e Recover savings\nc3d4e5f Add proof\n", wantSafe: true},
+		{name: "git ls-files path list", command: "git ls-files --cached", output: listingOutput, wantSafe: true},
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
@@ -44,8 +57,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "git status rich output", command: "git status", output: "On branch main\nChanges not staged for commit:\n\tmodified: internal/proxy/wsmitm_phasef.go\n", wantGuard: "rich git status output stays guarded"},
+		{name: "git ls-files staged metadata", command: "git ls-files --stage", output: "100644 abcdef1234567890abcdef1234567890abcdef12 0\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git ls-files metadata stays guarded"},
 		{name: "git log oneline unbounded", command: "git log --oneline", output: "a1b2c3d Tighten guard\n", wantGuard: "unbounded log output stays guarded"},
 		{name: "git log rich output", command: "git log --stat -n 3", output: "commit a1b2c3d4\n\n    Tighten guard\n\n file.go | 2 ++\n", wantGuard: "rich log output stays guarded"},
+		{name: "git diff name-status rename metadata", command: "git diff --name-status -M", output: "R100\told/path.go\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git diff rename name-status stays guarded"},
 		{name: "full git diff source", command: "git diff", output: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n", wantGuard: "full git diff must stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
@@ -190,6 +205,111 @@ func TestWSSStatefulSafeFormatPathListCompactsFullHistoryTurn(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe format path-list should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGitLsFilesCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssListingFixture(90)
+
+	env := parseWSJSON(t, wssGitLsFilesRequestBody("resp-git-ls-files", "call_git_ls_files", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle git ls-files request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history git ls-files output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git ls-files paths]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "internal/proxy/") ||
+		!strings.Contains(body, "generated_listing_050.go") ||
+		strings.Contains(body, "internal/proxy/generated_listing_050.go") {
+		t.Fatalf("git ls-files output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe git ls-files should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGitDiffNameOnlyCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssListingFixture(90)
+
+	env := parseWSJSON(t, wssGitDiffNameOnlyRequestBody("resp-git-diff-name-only", "call_git_diff_name_only", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle git diff --name-only request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history git diff --name-only output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git diff --name-only paths]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "internal/proxy/") ||
+		!strings.Contains(body, "generated_listing_050.go") ||
+		strings.Contains(body, "internal/proxy/generated_listing_050.go") {
+		t.Fatalf("git diff --name-only output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe git diff --name-only should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGitDiffNameStatusCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	var listing strings.Builder
+	for i := 0; i < 90; i++ {
+		status := "M"
+		if i%3 == 0 {
+			status = "A"
+		}
+		listing.WriteString(status)
+		listing.WriteByte('\t')
+		listing.WriteString(fmt.Sprintf("internal/proxy/generated_listing_%03d.go\n", i))
+	}
+
+	env := parseWSJSON(t, wssGitDiffNameStatusRequestBody("resp-git-diff-name-status", "call_git_diff_name_status", listing.String()))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle git diff --name-status request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history git diff --name-status output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git diff --name-status paths]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "internal/proxy/") ||
+		!strings.Contains(body, "M generated_listing_050.go") ||
+		strings.Contains(body, "M\tinternal/proxy/generated_listing_050.go") {
+		t.Fatalf("git diff --name-status output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe git diff --name-status should save without structured guard: %+v", summary)
 	}
 }
 
@@ -353,6 +473,57 @@ func wssFormatPathListRequestBody(previousResponseID, callID, listing string) ma
 			"input": []map[string]any{
 				{"type": "message", "role": "user", "content": "show the formatter path list"},
 				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "gofmt -l ."}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssGitLsFilesRequestBody(previousResponseID, callID, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-git-ls-files-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the tracked file list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "git ls-files --cached"}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssGitDiffNameOnlyRequestBody(previousResponseID, callID, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-git-diff-name-only-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the changed file list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "git diff --name-only --cached"}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssGitDiffNameStatusRequestBody(previousResponseID, callID, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-git-diff-name-status-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the changed file status list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "git diff --name-status --cached"}},
 				{"type": "function_call_output", "call_id": callID, "output": listing},
 			},
 			"stream": true,

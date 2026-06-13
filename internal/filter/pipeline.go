@@ -271,6 +271,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		structuredReducer("tier1_terraform_show_json", "terraform", []string{"resource address", "action", "attribute path", "sensitive marker"}, TryCompactTerraformShowJSON),
 
 		evidenceReducer("git_status", "git", []string{"staged count", "worktree count", "untracked count", "renames", "conflicts"}, TryCompactGitStatus),
+		evidenceReducer("git_ls_files", "listing", []string{"file path", "directory grouping", "path count"}, TryCompactGitLsFiles),
 		evidenceReducer("git_diff", "git", []string{"file path", "hunk header", "added line", "removed line"}, TryCompactGitDiff),
 		evidenceReducer("git_log", "git", []string{"commit hash", "subject", "file count", "insertions", "deletions"}, TryCompactGitLog),
 		evidenceReducer("git_show", "git", []string{"commit hash", "subject", "file path", "hunk header", "added line", "removed line"}, TryCompactGitShow),

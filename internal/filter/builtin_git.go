@@ -145,6 +145,12 @@ func TryCompactGitDiff(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[git diff] empty\n"), true
 	}
+	if isGitDiffNameOnlyPathListArgv(argv) {
+		return groupPathListResults(stdout, "git diff --name-only")
+	}
+	if isGitDiffNameStatusPathListArgv(argv) {
+		return groupNameStatusPathListResults(stdout, "git diff --name-status")
+	}
 	if isGitDiffStatArgv(argv) {
 		compact := compactGitDiffStat(s)
 		if compact == "" || len(compact) >= len(s) {
@@ -325,6 +331,68 @@ func splitGitDiffStatLine(line string) (string, string, bool) {
 		return "", "", false
 	}
 	return path, stat, true
+}
+
+func groupNameStatusPathListResults(stdout []byte, toolName string) ([]byte, bool) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 8 {
+		return stdout, false
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[")
+	sb.WriteString(toolName)
+	sb.WriteString(" paths]\n")
+	currentDir := ""
+	grouped := 0
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		status, path, ok := splitGitNameStatusPathLine(line)
+		if !ok {
+			return stdout, false
+		}
+		idx := strings.LastIndex(path, "/")
+		if idx <= 0 || idx == len(path)-1 {
+			return stdout, false
+		}
+		dir := path[:idx+1]
+		base := path[idx+1:]
+		if dir != currentDir {
+			sb.WriteString(dir)
+			sb.WriteByte('\n')
+			currentDir = dir
+			grouped++
+		}
+		sb.WriteString("  ")
+		sb.WriteString(status)
+		sb.WriteByte(' ')
+		sb.WriteString(base)
+		sb.WriteByte('\n')
+	}
+	out := sb.String()
+	if grouped == 0 || len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func splitGitNameStatusPathLine(line string) (string, string, bool) {
+	status, path, ok := strings.Cut(line, "\t")
+	if !ok || strings.Contains(path, "\t") {
+		return "", "", false
+	}
+	status = strings.TrimSpace(status)
+	if len(status) != 1 || !strings.Contains("AMDTUXB", status) {
+		return "", "", false
+	}
+	if !safePathListLine(path) {
+		return "", "", false
+	}
+	return status, path, true
 }
 
 func isGitDiffMetadataLine(line string) bool {
@@ -513,6 +581,17 @@ func TryCompactGitStatus(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte(out), true
 }
 
+// TryCompactGitLsFiles summarizes plain path-list output from `git ls-files`.
+func TryCompactGitLsFiles(argv []string, stdout []byte) ([]byte, bool) {
+	if !isGitLsFilesPathListArgv(argv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[git ls-files] no paths\n"), true
+	}
+	return groupPathListResults(stdout, "git ls-files")
+}
+
 func isGitStatusArgv(argv []string) bool {
 	if len(argv) < 2 {
 		return false
@@ -528,8 +607,90 @@ func isGitStatusArgv(argv []string) bool {
 	return false
 }
 
+func isGitLsFilesPathListArgv(argv []string) bool {
+	idx := gitSubcommandIndex(argv, "ls-files")
+	if idx < 0 {
+		return false
+	}
+	for i := idx + 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return true
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch arg {
+			case "--cached", "--deleted", "--modified", "--others", "--exclude-standard",
+				"--deduplicate", "--full-name", "--directory", "--no-empty-directory",
+				"--recurse-submodules":
+				continue
+			default:
+				return false
+			}
+		}
+		if strings.HasPrefix(arg, "-") {
+			if !gitLsFilesShortFlagsSafe(arg) {
+				return false
+			}
+			continue
+		}
+	}
+	return true
+}
+
+func gitLsFilesShortFlagsSafe(arg string) bool {
+	if len(arg) < 2 || !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false
+	}
+	for _, r := range arg[1:] {
+		switch r {
+		case 'c', 'd', 'm', 'o':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func isGitArgv(argv []string) bool {
 	return len(argv) >= 2 && filepath.Base(argv[0]) == "git"
+}
+
+func gitSubcommandIndex(argv []string, subcommand string) int {
+	if !isGitArgv(argv) {
+		return -1
+	}
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == subcommand {
+			return i
+		}
+		switch {
+		case arg == "-C" || arg == "-c" || arg == "--git-dir" || arg == "--work-tree" ||
+			arg == "--namespace" || arg == "--exec-path":
+			i++
+			if i >= len(argv) {
+				return -1
+			}
+		case strings.HasPrefix(arg, "--git-dir="), strings.HasPrefix(arg, "--work-tree="),
+			strings.HasPrefix(arg, "--namespace="), strings.HasPrefix(arg, "--exec-path="),
+			strings.HasPrefix(arg, "-c"):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return -1
+		}
+	}
+	return -1
 }
 
 func isGitLogArgv(argv []string) bool {
@@ -566,6 +727,108 @@ func isGitDiffStatArgv(argv []string) bool {
 		}
 	}
 	return false
+}
+
+func isGitDiffNameOnlyPathListArgv(argv []string) bool {
+	idx := gitSubcommandIndex(argv, "diff")
+	if idx < 0 {
+		return false
+	}
+	hasNameOnly := false
+	for i := idx + 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return hasNameOnly
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--name-only":
+				hasNameOnly = true
+			case arg == "--cached" || arg == "--staged" || arg == "--no-renames" ||
+				arg == "--relative" || strings.HasPrefix(arg, "--relative=") ||
+				strings.HasPrefix(arg, "--find-renames") || strings.HasPrefix(arg, "--find-copies") ||
+				strings.HasPrefix(arg, "--diff-filter="):
+			case arg == "--diff-filter":
+				i++
+				if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+					return false
+				}
+			default:
+				return false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			switch {
+			case arg == "-M" || arg == "-C":
+				continue
+			case strings.HasPrefix(arg, "-M") || strings.HasPrefix(arg, "-C"):
+				continue
+			default:
+				return false
+			}
+		}
+	}
+	return hasNameOnly
+}
+
+func isGitDiffNameStatusPathListArgv(argv []string) bool {
+	idx := gitSubcommandIndex(argv, "diff")
+	if idx < 0 {
+		return false
+	}
+	hasNameStatus := false
+	for i := idx + 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return hasNameStatus
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--name-status":
+				hasNameStatus = true
+			case arg == "--cached" || arg == "--staged" || arg == "--no-renames" ||
+				arg == "--relative" || strings.HasPrefix(arg, "--relative=") ||
+				strings.HasPrefix(arg, "--find-renames") || strings.HasPrefix(arg, "--find-copies") ||
+				strings.HasPrefix(arg, "--diff-filter="):
+			case arg == "--diff-filter":
+				i++
+				if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+					return false
+				}
+			default:
+				return false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			switch {
+			case arg == "-M" || arg == "-C":
+				continue
+			case strings.HasPrefix(arg, "-M") || strings.HasPrefix(arg, "-C"):
+				continue
+			default:
+				return false
+			}
+		}
+	}
+	return hasNameStatus
 }
 
 func isGitShowArgv(argv []string) bool {

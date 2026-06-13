@@ -52,6 +52,7 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 	for _, id := range []string{
 		"tier1_sarif",
 		"git_status",
+		"git_ls_files",
 		"build_output",
 		"test_output",
 		"search_output",

@@ -350,12 +350,14 @@ func (p *Proxy) codexChunkDedupSettings() codexChunkDedupSettings {
 	}
 }
 
-func (p *Proxy) codexHTTPChunkDedupSettings() codexChunkDedupSettings {
+func (p *Proxy) codexHTTPChunkDedupSettings(provider types.Provider) codexChunkDedupSettings {
 	settings := p.codexChunkDedupSettings()
-	settings.Store = nil
-	settings.Enabled = false
-	settings.Explicit = false
-	settings.ArchiveRecovery = false
+	if provider != types.CodexChatGPT {
+		settings.Store = nil
+		settings.Enabled = false
+		settings.Explicit = false
+		settings.ArchiveRecovery = false
+	}
 	return settings
 }
 

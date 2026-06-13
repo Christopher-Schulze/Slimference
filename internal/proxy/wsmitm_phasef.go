@@ -1542,7 +1542,13 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	case wssSafeGitDiffStatCommand(commandLine):
 		_, ok := filter.TryCompactGitDiff(argv, []byte(payload))
 		return ok
+	case wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload):
+		return true
+	case wssSafeGitDiffNameStatusPathListOutput(commandLine, payload):
+		return true
 	case wssSafeGitLogOnelineOutput(commandLine, payload):
+		return true
+	case wssSafeGitLsFilesPathListOutput(commandLine, payload):
 		return true
 	case wssSafeWcOutput(commandLine, payload):
 		return true
@@ -1623,6 +1629,28 @@ func wssSafeGitDiffStatCommand(commandLine string) bool {
 		i++
 	}
 	return hasStat
+}
+
+func wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactGitDiff(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafePlainPathListPayload(payload)
+}
+
+func wssSafeGitDiffNameStatusPathListOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactGitDiff(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafeGitNameStatusPathListPayload(payload)
 }
 
 func wssGitSubcommand(commandLine, subcommand string) ([]string, int, bool) {
@@ -1727,6 +1755,17 @@ func wssGitLogOnelinePayloadSafe(payload string, maxCount int) bool {
 		}
 	}
 	return true
+}
+
+func wssSafeGitLsFilesPathListOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactGitLsFiles(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafePlainPathListPayload(payload)
 }
 
 func parsePositiveBoundedInt(raw string, maxValue int) (int, bool) {
@@ -1836,6 +1875,35 @@ func wssSafePlainPathListLine(line string) bool {
 		}
 	}
 	return true
+}
+
+func wssSafeGitNameStatusPathListPayload(payload string) bool {
+	if len(payload) == 0 || len(payload) > wssSafeListingOutputMaxBytes || strings.ContainsRune(payload, '\x00') {
+		return false
+	}
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || looksLikeSource(trimmed) || proxyToolResultLooksLikeSearchOutput(trimmed) {
+		return false
+	}
+	entries := 0
+	for _, raw := range strings.Split(trimmed, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		status, path, ok := strings.Cut(line, "\t")
+		if !ok || strings.Contains(path, "\t") || len(status) != 1 || !strings.Contains("AMDTUXB", status) {
+			return false
+		}
+		if !wssSafePlainPathListLine(path) {
+			return false
+		}
+		entries++
+		if entries > wssSafeListingOutputMaxEntries {
+			return false
+		}
+	}
+	return entries > 0
 }
 
 func wssSafeLsArgs(args []string) bool {

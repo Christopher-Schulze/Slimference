@@ -1889,19 +1889,28 @@ func TestCodexChunkDedupSettingsAutoPolicyEnablesRecoverableChunks(t *testing.T)
 	}
 }
 
-func TestCodexHTTPChunkDedupSettingsStayConservative(t *testing.T) {
+func TestCodexHTTPChunkDedupSettingsScopeToCodexChatGPT(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "max"
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p := New(cfg)
-	settings := p.codexHTTPChunkDedupSettings()
-	if settings.Enabled || settings.Store != nil || settings.Explicit || settings.ArchiveRecovery ||
-		settings.PolicyMode != "max" || settings.Proof != savingspolicy.CodexProofLive ||
-		settings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
-		settings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
-		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: %+v", settings)
+
+	codexSettings := p.codexHTTPChunkDedupSettings(types.CodexChatGPT)
+	if !codexSettings.Enabled || codexSettings.Store == nil || !codexSettings.Explicit || !codexSettings.ArchiveRecovery ||
+		codexSettings.PolicyMode != "max" || codexSettings.Proof != savingspolicy.CodexProofLive ||
+		codexSettings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
+		codexSettings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("codex http route should allow recoverable chunk refs: %+v", codexSettings)
+	}
+
+	openAISettings := p.codexHTTPChunkDedupSettings(types.OpenAI)
+	if openAISettings.Enabled || openAISettings.Store != nil || openAISettings.Explicit || openAISettings.ArchiveRecovery ||
+		openAISettings.PolicyMode != "max" || openAISettings.Proof != savingspolicy.CodexProofLive ||
+		openAISettings.MinBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes ||
+		openAISettings.MaxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("non-codex http route must not emit chunk/archive refs: %+v", openAISettings)
 	}
 }
 

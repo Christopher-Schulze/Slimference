@@ -201,13 +201,13 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyShadow, reason: "live_proof_required",
 		},
 		{
-			name: "http archive refs blocked even in max",
+			name: "http recoverable chunk allow with archive note",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeMax), Route: CodexRouteHTTP,
 				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
 				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MinBytes: 1, Explicit: true,
 			},
-			action: CodexPolicyBlock, reason: "http_archive_recovery_unproven",
+			action: CodexPolicyAllow, reason: "recoverable_chunk_dedup", note: true,
 		},
 		{
 			name: "conservative recoverable chunk needs explicit",
@@ -262,6 +262,15 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 				ArchiveRecoveryAvailable: true, Proof: CodexProofLive, OutputBytes: 9000,
 			},
 			action: CodexPolicyAllow, reason: "recoverable_with_archive", note: true,
+		},
+		{
+			name: "http generic archive recovery stays blocked",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeMax), Route: CodexRouteHTTP,
+				Mechanism: "future_recoverable", Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofLive, OutputBytes: 9000,
+			},
+			action: CodexPolicyBlock, reason: "http_archive_recovery_unproven",
 		},
 		{
 			name: "session budget hit full pass",
@@ -550,17 +559,17 @@ func TestDecideCodexToolOutputIncludesShadowTelemetryForFutureCandidates(t *test
 	}
 }
 
-func TestDecideCodexToolOutputHTTPBlocksArchiveRefs(t *testing.T) {
+func TestDecideCodexToolOutputHTTPAllowsRecoverableChunkRefs(t *testing.T) {
 	t.Parallel()
 	got := DecideCodexToolOutput(CodexToolOutputInput{
 		Mode: string(CodexModeMax), Route: CodexRouteHTTP, ArchiveRecoveryAvailable: true,
 		ExplicitChunkDedup: true, OutputBytes: 9000, ChunkMinBytes: 1,
 	})
-	if got.ChunkDedup || got.NeedsRecoveryNote {
-		t.Fatalf("HTTP must not emit archive-backed chunk refs: %+v", got)
+	if !got.ChunkDedup || !got.NeedsRecoveryNote {
+		t.Fatalf("HTTP should allow recoverable chunk refs with route recovery note: %+v", got)
 	}
-	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyBlock {
-		t.Fatalf("HTTP chunk mechanism should be blocked: %+v", got.Mechanisms)
+	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyAllow {
+		t.Fatalf("HTTP chunk mechanism should be allowed: %+v", got.Mechanisms)
 	}
 }
 

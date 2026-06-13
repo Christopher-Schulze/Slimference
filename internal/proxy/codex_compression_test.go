@@ -828,6 +828,115 @@ func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_CodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T) {
+	t.Parallel()
+	shared := uniqueProxyReadPayload("shared http chunk")
+	firstTail := uniqueProxyReadPayload("first http tail")
+	secondTail := uniqueProxyReadPayload("second http tail")
+	bodyFor := func(callID, command, output string) []byte {
+		t.Helper()
+		bodyMap := map[string]interface{}{
+			"model": "codex-test",
+			"input": []interface{}{
+				map[string]interface{}{
+					"type": "message",
+					"role": "user",
+					"content": []interface{}{
+						map[string]interface{}{"type": "input_text", "text": "read file"},
+					},
+				},
+				map[string]interface{}{
+					"type":      "function_call",
+					"call_id":   callID,
+					"name":      "shell",
+					"arguments": map[string]interface{}{"command": command},
+				},
+				map[string]interface{}{
+					"type":    "function_call_output",
+					"call_id": callID,
+					"output":  output,
+				},
+			},
+			"stream": false,
+		}
+		body, err := json.Marshal(bodyMap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+
+	var capturedBodies [][]byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBodies = append(capturedBodies, append([]byte(nil), body...))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_chunk","usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":0},"output_tokens":5}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	firstBody := bodyFor("call_a", "cat a.txt", shared+firstTail)
+	firstReq := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(firstBody))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.Header.Set("User-Agent", "codex/0.130.0")
+	firstReq.Header.Set("x-codex-session-id", "sess-http-chunk")
+	firstRec := httptest.NewRecorder()
+	p.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first status %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+
+	secondBody := bodyFor("call_b", "cat b.txt", shared+secondTail)
+	secondReq := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(secondBody))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.Header.Set("User-Agent", "codex/0.130.0")
+	secondReq.Header.Set("x-codex-session-id", "sess-http-chunk")
+	secondRec := httptest.NewRecorder()
+	p.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second status %d: %s", secondRec.Code, secondRec.Body.String())
+	}
+	if len(capturedBodies) != 2 {
+		t.Fatalf("captured bodies=%d", len(capturedBodies))
+	}
+
+	secondWire := string(capturedBodies[1])
+	if !strings.Contains(secondWire, "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("second upstream body missing chunk ref: %s", secondWire)
+	}
+	if !strings.Contains(secondWire, `"instructions"`) || !strings.Contains(secondWire, "request that exact URI") {
+		t.Fatalf("second upstream body missing archive recovery instructions: %s", secondWire)
+	}
+	if len(capturedBodies[1]) >= len(secondBody) {
+		t.Fatalf("second upstream body was not shortened, original=%d captured=%d body=%s", len(secondBody), len(capturedBodies[1]), secondWire)
+	}
+	if strings.Contains(secondWire, "shared http chunk unique payload line 000") {
+		t.Fatalf("first shared chunk line was not replaced in second upstream body: %s", secondWire)
+	}
+	summaries := p.DebugRecorder().Last(2, false)
+	if len(summaries) != 2 {
+		t.Fatalf("debug summaries=%d", len(summaries))
+	}
+	secondSummary := summaries[0]
+	if !slices.Contains(secondSummary.LayersApplied, 0) ||
+		secondSummary.Tokens.AfterLayer0 >= secondSummary.Tokens.Original ||
+		secondSummary.Tokens.Saved <= 0 {
+		t.Fatalf("second summary missing positive HTTP chunk savings: %#v", secondSummary)
+	}
+}
+
 func TestServeHTTP_CodexResponsesProxyLayer0CompactsLocalShellEnvelope(t *testing.T) {
 	t.Parallel()
 	var status strings.Builder

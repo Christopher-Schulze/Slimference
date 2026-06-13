@@ -346,9 +346,6 @@ func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanism
 }
 
 func decideChunkDedup(base CodexMechanismDecision, in CodexMechanismInput, mode CodexMode) CodexMechanismDecision {
-	if in.Route == CodexRouteHTTP {
-		return block(base, "http_archive_recovery_unproven")
-	}
 	if !in.ArchiveRecoveryAvailable {
 		return block(base, "archive_recovery_unavailable")
 	}

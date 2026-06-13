@@ -396,7 +396,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// history through the proxied Responses request, run the same
 	// deterministic captured-output filters here.
 	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
-		chunkSettings := p.codexHTTPChunkDedupSettings()
+		chunkSettings := p.codexHTTPChunkDedupSettings(provider)
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                 codexLayer0RouteHTTP,
 			Messages:              compressedMessages,
@@ -415,7 +415,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
-		p.recordCodexLayer0Stats(stats)
 		if stats.TokensSaved > 0 {
 			compressedMessages = l0Messages
 			layer0Savings = stats.TokensSaved
@@ -493,6 +492,47 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
 		return
 	}
+	if l0Stats.ChunkDedupBlocks > 0 {
+		note := archiveRecoveryNoteText(p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
+		noteReserved := p.reserveArchiveRecoveryNote(sessionID, true)
+		if !noteReserved && strings.TrimSpace(sessionID) == "" {
+			log.Warn("http archive recovery note missing session; reverting recoverable chunk refs")
+			compressedMessages = messages
+			compressedTokens = origTokens
+			layer0Savings = 0
+			layer1Savings = 0
+			appliedLayers = nil
+			l0Stats = l0Stats.withoutSavings()
+			newBody, err = reconstructBodyFn(provider, body, compressedMessages)
+			if err != nil {
+				log.Error("body reconstruction failed after archive-note session fallback", "error", err)
+				p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
+				return
+			}
+		} else if noteReserved {
+			injectedBody, res := beterse.Inject(provider, newBody, note)
+			if !res.Applied {
+				p.forgetArchiveRecoveryNote(sessionID)
+				log.Warn("http archive recovery note injection failed; reverting recoverable chunk refs")
+				compressedMessages = messages
+				compressedTokens = origTokens
+				layer0Savings = 0
+				layer1Savings = 0
+				appliedLayers = nil
+				l0Stats = l0Stats.withoutSavings()
+				newBody, err = reconstructBodyFn(provider, body, compressedMessages)
+				if err != nil {
+					log.Error("body reconstruction failed after archive-note fallback", "error", err)
+					p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
+					return
+				}
+			} else {
+				newBody = injectedBody
+				compressedTokens += tokens.ForProvider(provider).CountString(note)
+			}
+		}
+	}
+	p.recordCodexLayer0Stats(l0Stats)
 
 	totalSaved := origTokens - compressedTokens
 	compressionRatio := 1.0

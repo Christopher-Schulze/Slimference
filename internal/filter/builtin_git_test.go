@@ -136,6 +136,72 @@ func TestTryCompactGitStatus_emptyAndEmptyLine(t *testing.T) {
 	}
 }
 
+func TestTryCompactGitLsFilesPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	for i := 0; i < 40; i++ {
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitLsFiles([]string{"git", "ls-files", "--cached"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git ls-files path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git ls-files paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "file_39.go") {
+		t.Fatalf("compact output lost path-list evidence: %q", s)
+	}
+	if strings.Contains(s, "internal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter ls-files output: got %d input %d", len(s), input.Len())
+	}
+
+	if _, ok := TryCompactGitLsFiles([]string{"git", "-C", "/repo", "ls-files", "-co", "--exclude-standard", "--", "src"}, []byte(input.String())); !ok {
+		t.Fatal("safe git globals, combined short flags, and pathspec should compact")
+	}
+
+	empty, ok := TryCompactGitLsFiles([]string{"git", "ls-files", "--modified"}, nil)
+	if !ok || string(empty) != "[git ls-files] no paths\n" {
+		t.Fatalf("empty ls-files output: ok=%v out=%q", ok, empty)
+	}
+
+	short := "internal/proxy/file_00.go\ninternal/proxy/file_01.go\n"
+	if _, ok := TryCompactGitLsFiles([]string{"git", "ls-files"}, []byte(short)); ok {
+		t.Fatal("short path lists should fail open to avoid no-value rewrites")
+	}
+
+	for _, argv := range [][]string{
+		{"git", "ls-files", "--stage"},
+		{"git", "ls-files", "-s"},
+		{"git", "ls-files", "--debug"},
+		{"git", "ls-files", "--eol"},
+		{"git", "ls-files", "-z"},
+		{"git", "ls-files", "--format=%(path)"},
+		{"git", "-c", "ls-files", "status"},
+	} {
+		if _, ok := TryCompactGitLsFiles(argv, []byte(input.String())); ok {
+			t.Fatalf("risky/non-ls-files argv should fail open: %#v", argv)
+		}
+	}
+
+	var diagnostic strings.Builder
+	for i := 0; i < 8; i++ {
+		if i == 3 {
+			diagnostic.WriteString("error: index corrupt\n")
+			continue
+		}
+		diagnostic.WriteString(fmt.Sprintf("internal/proxy/generated/file_%02d.go\n", i))
+	}
+	if _, ok := TryCompactGitLsFiles([]string{"git", "ls-files"}, []byte(diagnostic.String())); ok {
+		t.Fatal("diagnostic lines must fail open")
+	}
+}
+
 func TestTryCompactGitLog_nonEmpty(t *testing.T) {
 	t.Parallel()
 	// Non-empty stdout → pass through (final return false)
@@ -426,6 +492,114 @@ func TestTryCompactGitDiffStat(t *testing.T) {
 
 	if _, ok := TryCompactGitDiff([]string{"git", "diff", "--stat"}, []byte("warning\n file.go | 2 ++\n")); ok {
 		t.Fatal("unparseable diffstat prelude must fail open")
+	}
+}
+
+func TestTryCompactGitDiffNameOnlyPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	for i := 0; i < 40; i++ {
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitDiff([]string{"git", "diff", "--name-only", "--cached"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git diff --name-only path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git diff --name-only paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "file_39.go") {
+		t.Fatalf("compact output lost path-list evidence: %q", s)
+	}
+	if strings.Contains(s, "internal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter name-only output: got %d input %d", len(s), input.Len())
+	}
+
+	if _, ok := TryCompactGitDiff([]string{"git", "-C", "/repo", "diff", "--name-only", "--diff-filter", "M", "--", "src"}, []byte(input.String())); !ok {
+		t.Fatal("safe git globals, diff-filter, and pathspec should compact")
+	}
+
+	for _, argv := range [][]string{
+		{"git", "diff", "--name-status"},
+		{"git", "diff", "--name-only", "--name-status"},
+		{"git", "diff", "--name-only", "--numstat"},
+		{"git", "diff", "--name-only", "--raw"},
+		{"git", "diff", "--name-only", "--stat"},
+		{"git", "diff", "--name-only", "-z"},
+		{"git", "diff", "--name-only", "--word-diff"},
+	} {
+		if _, ok := TryCompactGitDiff(argv, []byte(input.String())); ok {
+			t.Fatalf("risky/non-name-only argv should fail open: %#v", argv)
+		}
+	}
+
+	var diagnostic strings.Builder
+	for i := 0; i < 8; i++ {
+		if i == 3 {
+			diagnostic.WriteString("warning: ambiguous path\n")
+			continue
+		}
+		diagnostic.WriteString(fmt.Sprintf("internal/proxy/generated/file_%02d.go\n", i))
+	}
+	if _, ok := TryCompactGitDiff([]string{"git", "diff", "--name-only"}, []byte(diagnostic.String())); ok {
+		t.Fatal("diagnostic lines must fail open")
+	}
+}
+
+func TestTryCompactGitDiffNameStatusPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	for i := 0; i < 40; i++ {
+		status := "M"
+		if i%3 == 0 {
+			status = "A"
+		}
+		input.WriteString(status)
+		input.WriteByte('\t')
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitDiff([]string{"git", "diff", "--name-status", "--cached"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git diff --name-status path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git diff --name-status paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "A file_39.go") {
+		t.Fatalf("compact output lost name-status evidence: %q", s)
+	}
+	if strings.Contains(s, "M\tinternal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter name-status output: got %d input %d", len(s), input.Len())
+	}
+
+	if _, ok := TryCompactGitDiff([]string{"git", "-C", "/repo", "diff", "--name-status", "--diff-filter", "M", "--", "src"}, []byte(input.String())); !ok {
+		t.Fatal("safe git globals, diff-filter, and pathspec should compact")
+	}
+
+	for _, tc := range []struct {
+		argv []string
+		out  string
+	}{
+		{[]string{"git", "diff", "--name-status", "-z"}, input.String()},
+		{[]string{"git", "diff", "--name-status", "--numstat"}, input.String()},
+		{[]string{"git", "diff", "--name-status", "--raw"}, input.String()},
+		{[]string{"git", "diff", "--name-status", "--word-diff"}, input.String()},
+		{[]string{"git", "diff", "--name-status", "-M"}, "R100\told/path.go\tinternal/proxy/generated/very/deep/path/file_00.go\n"},
+		{[]string{"git", "diff", "--name-status"}, "warning: ambiguous path\nM\tinternal/proxy/generated/very/deep/path/file_00.go\n"},
+	} {
+		if _, ok := TryCompactGitDiff(tc.argv, []byte(tc.out)); ok {
+			t.Fatalf("risky/non-simple name-status should fail open: %#v", tc.argv)
+		}
 	}
 }
 
