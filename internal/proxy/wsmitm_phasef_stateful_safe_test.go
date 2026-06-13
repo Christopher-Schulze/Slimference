@@ -226,6 +226,44 @@ func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0StructuredMixedToolOutputsAllowsOnlySafeBlocks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	safeOutput := wssDiffStatFixture(80)
+	unsafeOutput := "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n"
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{
+			{Type: "tool_use", ToolUseID: "call_diffstat", ToolName: "exec_command", ToolInput: `{"cmd":"git diff --stat"}`},
+			{Type: "tool_use", ToolUseID: "call_diff", ToolName: "exec_command", ToolInput: `{"cmd":"git diff"}`},
+		}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call_diffstat", Text: safeOutput}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call_diff", Text: unsafeOutput}}},
+	}
+
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-mixed-stateful-safe",
+		StructuredMutationBlocked:    true,
+		StatefulDeltaMutationBlocked: false,
+	})
+	safeText := result.Messages[1].Content[0].Text
+	unsafeText := result.Messages[2].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CapturedOutputBlocks != 1 {
+		t.Fatalf("mixed request should mutate exactly the stateful-safe block, stats=%+v", result.Stats)
+	}
+	if safeText == safeOutput {
+		t.Fatal("safe diffstat block should be compacted")
+	}
+	if !strings.Contains(safeText, "[git diff --stat] 80 file(s)") ||
+		!strings.Contains(safeText, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("safe diffstat block did not compact through archive-backed output: %s", safeText)
+	}
+	if unsafeText != unsafeOutput {
+		t.Fatalf("unsafe full diff block changed: %q", unsafeText)
+	}
+}
+
 func wssDiffStatFixture(files int) string {
 	var out strings.Builder
 	for i := 0; i < files; i++ {

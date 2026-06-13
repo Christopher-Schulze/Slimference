@@ -470,6 +470,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			mechanism := proxyLayer0MechanismReadDelta
 			chunkReport := chunkdedup.EncodeResult{}
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
+			statefulSafeToolOutputBlock := req.Route == codexLayer0RouteWSSPhaseF &&
+				!readCommand &&
+				toolUseResolved &&
+				wssSafeStatefulStatusToolOutput(use, block.Text)
+			// The delta guard protects Codex server state, not just output shape.
+			// Safe output classes only narrow the broader structured mutation guard.
+			statefulDeltaBlockedForBlock := req.StatefulDeltaMutationBlocked
+			structuredMutationBlockedForBlock := req.StructuredMutationBlocked && !statefulSafeToolOutputBlock
 			candidateEvidenceDecision := func(mechanism proxyLayer0Mechanism, action evidence.Action, reason string) evidence.BlockDecision {
 				return proxyLayer0EvidenceDecision(commandLine, block.Text, afterText, mechanism, action, reason, countBeforeTokens(), countCandidateTokens(afterText), workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			}
@@ -520,7 +528,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			statefulDeltaOutputMutationAllowed := req.WSSSearchMutationAllowed &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
-			if !readCommand && req.StatefulDeltaMutationBlocked && !statefulDeltaOutputMutationAllowed {
+			if !readCommand && statefulDeltaBlockedForBlock && !statefulDeltaOutputMutationAllowed {
 				if policy.RepeatedOutput {
 					latencyStart := time.Now()
 					_, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
@@ -580,7 +588,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			preFilterRepeated := false
-			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && !req.StatefulDeltaMutationBlocked && policy.RepeatedOutput {
+			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && !statefulDeltaBlockedForBlock && policy.RepeatedOutput {
 				preFilterRepeated = true
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
@@ -612,7 +620,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				req.WSSSearchMutationAllowed &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) &&
 				mechanism == proxyLayer0MechanismCapturedOut
-			if changed && req.StructuredMutationBlocked && !searchDeltaProofCandidate &&
+			if changed && structuredMutationBlockedForBlock && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
 				changed = false
@@ -628,7 +636,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
-			if changed && (!req.StatefulDeltaMutationBlocked || searchDeltaProofCandidate) && req.Route == codexLayer0RouteWSSPhaseF &&
+			if changed && (!statefulDeltaBlockedForBlock || searchDeltaProofCandidate) && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
 				if !archived {
@@ -643,7 +651,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = countCandidateTokens(candidateText) < countBeforeTokens()
 			}
-			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && !req.StatefulDeltaMutationBlocked && candidateEligible && policy.RepeatedOutput {
+			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && !statefulDeltaBlockedForBlock && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
@@ -681,7 +689,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, req.HistoryMutationGuardReason))
 				continue
 			}
-			if req.StatefulDeltaMutationBlocked && !searchDeltaProofCandidate {
+			if statefulDeltaBlockedForBlock && !searchDeltaProofCandidate {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_delta_mutation_proof_gate"))
 				continue
 			}
