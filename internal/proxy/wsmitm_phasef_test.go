@@ -4245,6 +4245,108 @@ func TestWSPhaseFHistoryDetachMakesFollowingDeltaStatelessFullHistory(t *testing
 	}
 }
 
+func TestWSPhaseFFullHistoryMutationWithoutPreviousResponseMakesFollowingDeltaStateless(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "thread-full-history-no-prev",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-full-history-no-prev","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "search for needle"},
+				{"type": "function_call", "call_id": "call_search", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+				{"type": "function_call_output", "call_id": "call_search", "output": proxyWSSSearchOutputFixture("needle", 90)},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory); err != nil || !replace {
+		t.Fatalf("full-history no-prev search request should mutate replace=%v err=%v", replace, err)
+	}
+	firstSummary := p.DebugRecorder().Last(1, false)[0]
+	if firstSummary.DebugFacts["wss.request_shape"] != "full_history" ||
+		firstSummary.DebugFacts["wss.previous_response_id"] != "false" ||
+		firstSummary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		firstSummary.Tokens.Saved <= 0 {
+		t.Fatalf("mutated no-prev full-history must arm stateless follow-up: %+v", firstSummary)
+	}
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_next",
+			"name":      "exec_command",
+			"arguments": `{"cmd":"git status --short"}`,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("output item replace=%v err=%v", replace, err)
+	}
+	completed := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-full-history-no-prev-child", "output": []any{}},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &completed); err != nil || replace {
+		t.Fatalf("completion replace=%v err=%v", replace, err)
+	}
+
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-full-history-no-prev-child",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-full-history-no-prev","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "call_next",
+				"output":  " M internal/proxy/wsmitm_phasef.go\n",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("following delta should be rewritten as stateless full-history replace=%v err=%v", replace, err)
+	}
+	deltaBody, _, ok := wsRequestBody(&delta)
+	if !ok {
+		t.Fatal("rewritten delta body missing")
+	}
+	if bytes.Contains(deltaBody, []byte("previous_response_id")) {
+		t.Fatalf("stateless follow-up must drop previous_response_id: %s", deltaBody)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(deltaBody, &raw); err != nil {
+		t.Fatalf("delta body json: %v", err)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(raw["input"], &input); err != nil {
+		t.Fatalf("delta input json: %v", err)
+	}
+	if len(input) <= 1 {
+		t.Fatalf("stateless follow-up must include prior full history, got %d input items: %s", len(input), deltaBody)
+	}
+}
+
 func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

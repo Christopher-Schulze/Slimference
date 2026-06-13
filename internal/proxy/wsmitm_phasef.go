@@ -490,14 +490,18 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyResult.Stats)
 			changed := false
 			detachedPreviousResponseID := false
+			statelessFollowup := false
 			if historyResult.Mutated {
 				if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, historyResult.Messages); rebuildErr == nil {
 					out = rebuilt
-					if requestShape == "full_history" && meta.PreviousResponseID != "" {
-						if detached, detachedOK := detachCodexPreviousResponseID(out); detachedOK {
-							out = detached
-							detachedPreviousResponseID = true
-							a.markWSSHistoryStatelessMode()
+					if requestShape == "full_history" {
+						a.markWSSHistoryStatelessMode()
+						statelessFollowup = true
+						if meta.PreviousResponseID != "" {
+							if detached, detachedOK := detachCodexPreviousResponseID(out); detachedOK {
+								out = detached
+								detachedPreviousResponseID = true
+							}
 						}
 					}
 					messages = historyResult.Messages
@@ -523,6 +527,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts = wssRequestDebugFacts(body, out, messages, l0Stats, changed, meta.BypassReason, meta, outputReduceStats)
 			if detachedPreviousResponseID {
 				meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
+			}
+			if statelessFollowup {
+				meta.DebugFacts["wss.full_history_stateless_followup"] = "true"
 			}
 			if historyMutationRecoveryGuarded && requestShape == "full_history" {
 				meta.DebugFacts["wss.history_mutation_recovery_guard"] = "true"
@@ -635,7 +642,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
-		searchCapDeltaProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
+		searchCapProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                   codexLayer0RouteWSSPhaseF,
 			Messages:                stagedMessages,
@@ -663,9 +670,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed: (structuredMutationAllowed || searchCapDeltaProofed) &&
-				(!statefulDeltaMutationBlocked || searchCapDeltaProofed) &&
-				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapDeltaProofed),
+			WSSSearchMutationAllowed: (structuredMutationAllowed || searchCapProofed) &&
+				!statefulDeltaMutationBlocked &&
+				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapProofed),
 			CacheBustDemotedMechanisms:   cacheBustDemoted,
 			HistoryMutationGuardReason:   downstreamStateMutationGuardReason,
 			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
@@ -708,6 +715,16 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				a.p.recordCodexLayer0Stats(stats)
 				if stats.TokensSaved > 0 {
 					a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
+					if requestShape == "full_history" || (meta.PreviousResponseID != "" && !statefulDeltaMutationBlocked) {
+						a.markWSSHistoryStatelessMode()
+						if meta.DebugFacts == nil {
+							meta.DebugFacts = make(map[string]string)
+						}
+						if requestShape == "full_history" {
+							meta.DebugFacts["wss.full_history_stateless_followup"] = "true"
+						}
+						meta.DebugFacts["wss.stateful_mutation_stateless_followup"] = "true"
+					}
 				}
 			} else if stats.TokensSaved > 0 {
 				l0Stats = stats.withoutSavings()

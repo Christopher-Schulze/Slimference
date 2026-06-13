@@ -169,7 +169,10 @@ type codexLayer0Request struct {
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
 	// WSSSearchMutationAllowed opens only named search output after either the
-	// old full-history/lab proof or the final search-cap proof latch.
+	// old full-history/lab proof or the final search-cap proof latch. It must
+	// not bypass StatefulDeltaMutationBlocked; live long-run proof showed a
+	// proofed previous_response_id delta search mutation still poisons the next
+	// delta turn with 400 invalid_request.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// HistoryMutationGuardReason suppresses history/chunk reducers that can
@@ -422,9 +425,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
+			wssSearchProofAllowed := req.WSSSearchMutationAllowed &&
+				!req.StatefulDeltaMutationBlocked &&
+				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
 			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
-			if wssSearchOutputBlocked && req.WSSSearchMutationAllowed &&
-				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) {
+			if wssSearchOutputBlocked && wssSearchProofAllowed {
 				wssSearchOutputBlocked = false
 			}
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
@@ -528,8 +533,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 				continue
 			}
-			statefulDeltaOutputMutationAllowed := req.WSSSearchMutationAllowed &&
-				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
+			statefulDeltaOutputMutationAllowed := wssSearchProofAllowed
 			if !readCommand && statefulDeltaBlockedForBlock && !statefulDeltaOutputMutationAllowed {
 				if policy.RepeatedOutput {
 					latencyStart := time.Now()
@@ -619,8 +623,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			searchDeltaProofCandidate := workload == savingspolicy.CodexWorkloadSearch &&
-				req.WSSSearchMutationAllowed &&
-				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) &&
+				wssSearchProofAllowed &&
 				proxyWSSSearchProofMechanism(mechanism)
 			if changed && structuredMutationBlockedForBlock && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
