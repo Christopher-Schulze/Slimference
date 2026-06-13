@@ -1033,6 +1033,11 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no_evidence:wss.source_tool_bytes>=4096",
 			policy,
 			nextStep
+	case toolResults != "" && toolResults != "0" && sourceToolBytes == "0" && toolResultOutputBytesFact == "" && wssLocalGapPrefixDominatesRequest(summary):
+		return "prefix_bound_tool_output_context",
+			"no_evidence:missing_tool_output_bytes_prefix_bound",
+			"request token mass is dominated by protected prompt-cache prefix, not measurable tool-output bytes",
+			"keep payload-byte instrumentation on; do not widen Layer-0 reducers until non-prefix output bytes are measured"
 	case toolResults == "0" && sourceToolBytes == "0":
 		return "not_tool_output_reducer_target",
 			"no_evidence:no_tool_output",
@@ -1099,6 +1104,15 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no block-level evidence exists for this token mass",
 			"add content-free evidence decisions before treating it as a savings candidate"
 	}
+}
+
+func wssLocalGapPrefixDominatesRequest(summary dbg.RequestSummary) bool {
+	original := maxInt(0, summary.Tokens.Original)
+	if original <= 0 {
+		return false
+	}
+	prefixEstimate := wssLocalGapFactInt(summary.DebugFacts, "wss.prefix_estimated_tokens")
+	return prefixEstimate > 0 && prefixEstimate*100 >= original*90
 }
 
 func wssLocalGapNoEvidenceGuardAction(facts map[string]string) (string, string, string, string, bool) {

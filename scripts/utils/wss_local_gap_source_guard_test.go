@@ -135,6 +135,50 @@ func TestWSSLocalGapClassifiesEmptyToolOutputContext(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapClassifiesMissingPayloadBytesAsPrefixBound(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "prefix-bound-tool-output",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9386, Final: 9386, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                    "delta",
+			"wss.previous_response_id":             "true",
+			"wss.output_reduce_reason":             "disabled",
+			"wss.output_reduce_disabled_predicate": "tool_output_context",
+			"wss.messages":                         "1",
+			"wss.tool_results":                     "1",
+			"wss.source_tool_bytes":                "0",
+			"wss.prefix_estimated_tokens":          "9058",
+			"wss.prefix_total_bytes":               "36232",
+			"wss.tool_command_classes":             "git_status=1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "prefix_bound_tool_output_context" ||
+		row.Source != "no_evidence:missing_tool_output_bytes_prefix_bound" ||
+		row.Tokens != 9386 ||
+		row.Requests != 1 ||
+		row.PrefixEstimatedTokens != 9058 ||
+		row.ToolCommandClasses["git_status"] != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad prefix-bound row: %+v", row)
+	}
+}
+
 func TestWSSLocalGapClassifiesNoEvidenceDownstreamGuardBeforeOutputReduceDisabled(t *testing.T) {
 	t.Parallel()
 
