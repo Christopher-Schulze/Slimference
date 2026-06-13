@@ -2616,6 +2616,41 @@ func TestProxyRepeatedOutputIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T)
 	}
 }
 
+func TestProxyRepeatedOutputDiffStatUnchangedMarkerKeepsSummary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	payload := wssDiffStatFixture(120)
+	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 2400\nOutput:\n" + payload
+	second := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 2401\nOutput:\n" + payload
+	command := "git diff --stat"
+	key := proxyLayer0QualityToolKey(command)
+	if key == "" {
+		t.Fatal("git diff --stat must have a repeated-output quality key")
+	}
+
+	if out, ok := compactProxyRepeatedToolOutputWithKey("sess-repeated-diffstat-summary", key, command, first); ok || out != "" {
+		t.Fatalf("first diffstat envelope output must seed without mutation, ok=%v out=%q", ok, out)
+	}
+	out, ok := compactProxyRepeatedToolOutputWithKey("sess-repeated-diffstat-summary", key, command, second)
+	if !ok {
+		t.Fatalf("second diffstat envelope output should collapse despite volatile header")
+	}
+	for _, want := range []string{
+		"Chunk ID: bbb222",
+		"[context-elided kind=tool-output status=unchanged command=\"git diff --stat\"",
+		"[unchanged-evidence]",
+		"[git diff --stat] 120 file(s)",
+		"summary: 120 files changed, 1440 insertions(+), 720 deletions(-)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("unchanged diffstat marker missing %q: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "file_xxxxxxxxxxxx_119.go") {
+		t.Fatalf("unchanged diffstat marker must not leak the file list: %q", out)
+	}
+}
+
 func uniqueProxyReadPayload(prefix string) string {
 	var b strings.Builder
 	for i := 0; i < 120; i++ {

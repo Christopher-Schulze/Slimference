@@ -1819,9 +1819,6 @@ func wssStatefulToolOutputMutationSafeWithToolUses(meta wssRequestMeta, requestC
 	if !requestContainsToolOutput || (meta.SessionID == "" && meta.PreviousResponseID == "") {
 		return false
 	}
-	if len(toolUses) == 0 {
-		return false
-	}
 	seenToolResult := false
 	for _, message := range messages {
 		for _, block := range message.Content {
@@ -1829,8 +1826,15 @@ func wssStatefulToolOutputMutationSafeWithToolUses(meta wssRequestMeta, requestC
 				continue
 			}
 			seenToolResult = true
+			commandLine := ""
 			toolUse, resolved := proxyResolveToolUseDetailed(block, toolUses)
-			if !resolved || !wssSafeStatefulStatusToolOutput(toolUse, block.Text) {
+			if resolved {
+				commandLine = proxyLayer0CommandLine(toolUse)
+			}
+			if commandLine == "" {
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+			}
+			if !wssSafeStatefulStatusCommandOutput(commandLine, block.Text) {
 				return false
 			}
 		}
@@ -1871,7 +1875,10 @@ func wssToolOutputResolutionStatsWithToolUses(messages []types.Message, toolUses
 }
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
-	commandLine := proxyLayer0CommandLine(toolUse)
+	return wssSafeStatefulStatusCommandOutput(proxyLayer0CommandLine(toolUse), output)
+}
+
+func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	payload := output
 	if _, execPayload, ok := splitCodexExecEnvelope(output); ok {
 		payload = execPayload
@@ -1885,6 +1892,9 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
+	}
+	if proxyInferredPlainPathListCommand(commandLine) {
+		return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
 	}
 	argv := filter.ArgvForCapturedOutput(commandLine)
 	switch {
@@ -2990,7 +3000,11 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	if meta.SocketSeq > 0 {
 		facts["wss.socket_seq"] = strconv.FormatUint(meta.SocketSeq, 10)
 	}
-	if classes, classed, unclassed := wssToolCommandClassFacts(messages, meta.ToolUseIndex); classed+unclassed > 0 {
+	classMessages := messages
+	if len(meta.OriginalMessages) > 0 {
+		classMessages = meta.OriginalMessages
+	}
+	if classes, classed, unclassed := wssToolCommandClassFacts(classMessages, meta.ToolUseIndex); classed+unclassed > 0 {
 		if classes != "" {
 			facts["wss.tool_command_classes"] = classes
 		}

@@ -776,6 +776,11 @@ transcripts are separate stateful-safe classes: they may seed and later use
 exact archive-backed repeated-output savings, while source-like, search-like,
 rich `ls -l`, deep or unknown-flag `tree`, recursive, oversized, diagnostic,
 failing, data-race, or side-effect outputs still full-pass.
+When Codex tool-use metadata is unavailable, WSS may still treat a tool output
+as stateful-safe only if the existing payload inference resolves a strict
+command class and the same command/output parser accepts the exact payload;
+inferred search, failing tests, source-like content, and ambiguous output stay
+guarded.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
 upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and
@@ -1068,6 +1073,10 @@ only as archive-backed path-list or stateful-safe exact evidence, not as
 semantic summaries. Metadata-less plain path-list
 outputs are allowed only with a neutral label and payload-only strict parsing,
 never with a guessed `rg`, `find`, `fd`, `ls`, or `tree` command label.
+If tool-use metadata is missing, the same WSS stateful-safe classes can compact
+only after payload inference resolves a strict command class and that class'
+parser accepts the payload; broad search, source, diagnostic, failing, or
+ambiguous outputs remain byte-equal.
 The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,

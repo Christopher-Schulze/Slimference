@@ -374,6 +374,71 @@ func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
 	}
 }
 
+func TestEvaluateObservedOutput_DiffStatRepeatKeepsSummaryEvidence(t *testing.T) {
+	t.Parallel()
+
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	req := OutputRequest{
+		SessionID:   "s1",
+		TurnID:      "turn-1",
+		Key:         "command:git diff --stat",
+		CommandLine: "git diff --stat",
+	}
+	body := readcacheDiffStatFixture(120)
+	decision, err := EvaluateObservedOutput(dir, req, body, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("first diffstat output should allow: %+v", decision)
+	}
+
+	req.TurnID = "turn-2"
+	decision, err = EvaluateObservedOutput(dir, req, body, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
+		!strings.Contains(decision.Reason, "kind=tool-output") ||
+		!strings.Contains(decision.Reason, "[unchanged-evidence]") ||
+		!strings.Contains(decision.Reason, "[git diff --stat] 120 file(s)") ||
+		!strings.Contains(decision.Reason, "summary: 120 files changed, 1440 insertions(+), 720 deletions(-)") {
+		t.Fatalf("repeated diffstat should keep compact evidence summary: %+v", decision)
+	}
+	if strings.Contains(decision.Reason, "file_xxxxxxxxxxxx_119.go") {
+		t.Fatalf("diffstat unchanged marker must not leak file list: %q", decision.Reason)
+	}
+}
+
+func TestUnchangedOutputEvidenceSummaryOnlyForDiffStat(t *testing.T) {
+	t.Parallel()
+
+	summary := unchangedOutputEvidenceSummary("git diff --stat", readcacheDiffStatFixture(12))
+	if !strings.Contains(summary, "[unchanged-evidence]") ||
+		!strings.Contains(summary, "[git diff --stat] 12 file(s)") ||
+		!strings.Contains(summary, "summary: 12 files changed, 144 insertions(+), 72 deletions(-)") {
+		t.Fatalf("diffstat summary missing expected evidence: %q", summary)
+	}
+	for _, tc := range []struct {
+		name    string
+		command string
+		content string
+	}{
+		{name: "empty command", content: readcacheDiffStatFixture(12)},
+		{name: "empty content", command: "git diff --stat"},
+		{name: "plain command", command: "python report.py", content: readcacheDiffStatFixture(12)},
+		{name: "name only diff", command: "git diff --name-only", content: "a.go\nb.go\n"},
+		{name: "non diffstat prose", command: "git diff --stat", content: strings.Repeat("plain output line\n", 40)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := unchangedOutputEvidenceSummary(tc.command, tc.content); got != "" {
+				t.Fatalf("unexpected evidence summary for %s: %q", tc.name, got)
+			}
+		})
+	}
+}
+
 func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
 	t.Parallel()
 
@@ -579,4 +644,15 @@ func TestEvaluateObserved_InjectedErrorBranches(t *testing.T) {
 	if _, err := EvaluateObserved(dir, req, content+"changed\n", archiveDir, false); err == nil {
 		t.Fatal("expected changed save error")
 	}
+}
+
+func readcacheDiffStatFixture(files int) string {
+	var out strings.Builder
+	for i := 0; i < files; i++ {
+		out.WriteString(" internal/readcache/generated/very/deep/path/file_")
+		out.WriteString(strings.Repeat("x", 12))
+		out.WriteString(fmt.Sprintf("_%02d.go | %d +++++-----\n", i, i+1))
+	}
+	out.WriteString(fmt.Sprintf(" %d files changed, %d insertions(+), %d deletions(-)\n", files, files*12, files*6))
+	return out.String()
 }

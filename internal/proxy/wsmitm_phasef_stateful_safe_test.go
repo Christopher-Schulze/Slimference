@@ -606,6 +606,36 @@ func TestWSSGitStatusPathspecBoundary(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafeInferredCommandOutputBoundary(t *testing.T) {
+	diffEnvelope := "Chunk ID: inferred-diffstat\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssDiffStatFixture(40)
+	if command := proxyInferCommandLineFromToolResult(diffEnvelope); command != "git diff --stat" ||
+		!wssSafeStatefulStatusCommandOutput(command, diffEnvelope) {
+		t.Fatalf("inferred diffstat should be stateful-safe, command=%q", command)
+	}
+
+	searchEnvelope := "Chunk ID: inferred-search\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		"internal/proxy/a.go:10:needle\ninternal/proxy/b.go:20:needle\ninternal/proxy/c.go:30:needle\n"
+	if command := proxyInferCommandLineFromToolResult(searchEnvelope); command != "rg" ||
+		wssSafeStatefulStatusCommandOutput(command, searchEnvelope) {
+		t.Fatalf("inferred search must stay guarded, command=%q", command)
+	}
+
+	failingTestEnvelope := "Chunk ID: inferred-test-fail\nWall time: 0.0010 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" +
+		"=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\n    broken_test.go:12: expected alpha got beta\nFAIL\texample.test/liveproof\t0.015s\n"
+	if command := proxyInferCommandLineFromToolResult(failingTestEnvelope); command != "go test" ||
+		wssSafeStatefulStatusCommandOutput(command, failingTestEnvelope) {
+		t.Fatalf("inferred failing test must stay guarded, command=%q", command)
+	}
+
+	sourceEnvelope := "Chunk ID: inferred-source\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		"package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n"
+	if command := proxyInferCommandLineFromToolResult(sourceEnvelope); command != "" ||
+		wssSafeStatefulStatusCommandOutput(command, sourceEnvelope) {
+		t.Fatalf("source-like inferred output must stay guarded, command=%q", command)
+	}
+}
+
 func TestWSSToolCommandClassFactsAreContentFree(t *testing.T) {
 	messages := []types.Message{{
 		Role: "tool",
@@ -727,6 +757,55 @@ func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe diffstat should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSPhaseFInferredStatefulSafeFullHistoryDiffStatCompacts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: inferred-diffstat-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssDiffStatFixture(80)
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-inferred-diffstat-safe",
+			"prompt_cache_key":     "stateful-inferred-diffstat-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "summarize the diff stat"},
+				{"type": "message", "role": "assistant", "content": "checking the diff stat"},
+				{"type": "function_call_output", "call_id": "call_evicted_diffstat", "output": envelope},
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle inferred diffstat request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history inferred diffstat should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git diff --stat] 80 file(s)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "internal/proxy/generated/very/deep/path/file_xxxxxxxxxxxx_79.go") {
+		t.Fatalf("inferred diffstat compaction did not preserve compact evidence: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.tool_results_inferred"] != "1" ||
+		summary.DebugFacts["wss.tool_command_classes"] != "git_diff_stat=1" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("inferred stateful-safe diffstat should save without structured guard: %+v", summary)
 	}
 }
 

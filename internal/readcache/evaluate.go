@@ -183,7 +183,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 		}
 		decision := Decision{
 			Type:      DecisionBlock,
-			Reason:    unchangedOutputReferenceForIdentity(req.CommandLine, archiveURI, searchIdentity),
+			Reason:    unchangedOutputReferenceForIdentity(req.CommandLine, archiveURI, searchIdentity, content),
 			BlockKind: BlockKindUnchanged,
 		}
 		return decision, RecordDecision(dir, decision)
@@ -408,15 +408,52 @@ func unchangedOutputReference(commandLine string, archiveURI string) string {
 	return fmt.Sprintf("[context-elided kind=tool-output status=unchanged command=%q archive=%s]", commandLine, archiveURI)
 }
 
-func unchangedOutputReferenceForIdentity(commandLine string, archiveURI string, searchIdentity bool) string {
+func unchangedOutputReferenceForIdentity(commandLine string, archiveURI string, searchIdentity bool, content string) string {
 	if !searchIdentity {
-		return unchangedOutputReference(commandLine, archiveURI)
+		reference := unchangedOutputReference(commandLine, archiveURI)
+		if summary := unchangedOutputEvidenceSummary(commandLine, content); summary != "" {
+			return reference + "\n" + summary
+		}
+		return reference
 	}
 	commandLine = strings.TrimSpace(commandLine)
 	if commandLine == "" {
 		commandLine = "this search command"
 	}
 	return fmt.Sprintf("[context-elided kind=search-output status=same-match-set command=%q archive=%s]", commandLine, archiveURI)
+}
+
+func unchangedOutputEvidenceSummary(commandLine, content string) string {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || strings.TrimSpace(content) == "" {
+		return ""
+	}
+	compacted, ok := filter.TryCompactGitDiff(argv, []byte(content))
+	if !ok {
+		return ""
+	}
+	lines := selectedUnchangedEvidenceLines(string(compacted), "[git diff --stat]", "summary:")
+	if len(lines) == 0 {
+		return ""
+	}
+	return "[unchanged-evidence]\n" + strings.Join(lines, "\n")
+}
+
+func selectedUnchangedEvidenceLines(compacted string, prefixes ...string) []string {
+	lines := make([]string, 0, len(prefixes))
+	for _, raw := range strings.Split(strings.TrimSpace(compacted), "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(line, prefix) {
+				lines = append(lines, line)
+				break
+			}
+		}
+	}
+	return lines
 }
 
 func buildSearchSetDeltaSummary(commandLine string, oldIdentity string, newIdentity string) string {

@@ -664,8 +664,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			statefulSafeToolOutputBlock := req.Route == codexLayer0RouteWSSPhaseF &&
 				!readCommand &&
-				toolUseResolved &&
-				wssSafeStatefulStatusToolOutput(use, block.Text)
+				wssSafeStatefulStatusCommandOutput(commandLine, block.Text)
 			// The delta guard protects Codex server state, not just output shape.
 			// Safe output classes only narrow the broader structured mutation guard.
 			statefulDeltaBlockedForBlock := req.StatefulDeltaMutationBlocked
