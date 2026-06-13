@@ -1037,6 +1037,14 @@ func TestValidateCodexCaptureExpectedReducers(t *testing.T) {
 	if len(failures) != 1 || !strings.Contains(failures[0], "unknown expected reducer") {
 		t.Fatalf("expected unknown reducer failure, got %v", failures)
 	}
+
+	failures = validateCodexCaptureExpectedReducers([]string{"captured_output"}, &codexCaptureLiveDelta{
+		WireSurfaceFrames:       3,
+		WireFunctionCallOutputs: 0,
+	})
+	if len(failures) != 1 || !strings.Contains(failures[0], "no function_call_output input items were observed") {
+		t.Fatalf("expected captured_output surface failure, got %v", failures)
+	}
 }
 
 func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {
@@ -1068,6 +1076,66 @@ func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {
 	live = augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{OutputReduceInjected: 3, ProviderInputTokens: 22, ProviderOutputTokens: 11})
 	if live.OutputReduceInjected != 3 || live.ProviderInputTokens != 22 || live.ProviderOutputTokens != 11 {
 		t.Fatalf("existing live counters overwritten: %+v", live)
+	}
+}
+
+func TestAugmentCodexCaptureLiveDeltaFromWireSurface(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.jsonl")
+	encodedClientPayload := `"{\"type\":\"response.create\",\"tools\":[{\"type\":\"function\"}],\"input\":[]}"`
+	data := strings.Join([]string{
+		`{"direction":"c2s","payload":{"type":"response.create","tools":[{"type":"function"},{"type":"function"}],"input":[{"type":"message"},{"type":"function_call_output"}]}}`,
+		`{"direction":"client_to_server","payload":` + encodedClientPayload + `}`,
+		`{"direction":"s2c","payload":{"type":"response.output_item.done","item":{"type":"function_call"}}}`,
+		`{"direction":"server_to_client","payload":{"type":"response.completed","output":[{"type":"message"},{"type":"reasoning"}],"response":{"output":[{"type":"function_call"}]}}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := augmentCodexCaptureLiveDeltaFromWire(path, &codexCaptureLiveDelta{})
+	if live.WireSurfaceFrames != 4 ||
+		live.WireClientResponseCreates != 2 ||
+		live.WireClientDeclaredTools != 3 ||
+		live.WireClientDeclaredToolsMax != 2 ||
+		live.WireClientInputItems != 2 ||
+		live.WireFunctionCallOutputs != 1 ||
+		live.WireServerOutputItems != 4 ||
+		live.WireServerFunctionCalls != 2 {
+		t.Fatalf("wire surface counters mismatch: %+v", live)
+	}
+	if live.WireClientInputItemTypes["message"] != 1 ||
+		live.WireClientInputItemTypes["function_call_output"] != 1 {
+		t.Fatalf("wire client input types mismatch: %+v", live.WireClientInputItemTypes)
+	}
+	if live.WireServerOutputItemTypes["function_call"] != 2 ||
+		live.WireServerOutputItemTypes["message"] != 1 ||
+		live.WireServerOutputItemTypes["reasoning"] != 1 {
+		t.Fatalf("wire server output types mismatch: %+v", live.WireServerOutputItemTypes)
+	}
+
+	var summary bytes.Buffer
+	writeCodexCaptureRunSummary(&summary, codexCaptureRunResult{
+		CapturePath: path,
+		Replay:      wssABReplayReport{GatePassed: true},
+		LiveDelta:   live,
+	})
+	if !strings.Contains(summary.String(), "wire_surface frames/client_creates/tools_max/input_items/function_outputs/server_items/function_calls: 4 / 2 / 2 / 2 / 1 / 4 / 2") ||
+		!strings.Contains(summary.String(), "wire_client_input_types: function_call_output=1,message=1") ||
+		!strings.Contains(summary.String(), "wire_server_output_types: function_call=2,message=1,reasoning=1") {
+		t.Fatalf("wire surface summary missing:\n%s", summary.String())
+	}
+
+	noFunctionOutputPath := filepath.Join(t.TempDir(), "no-function-output.jsonl")
+	if err := os.WriteFile(noFunctionOutputPath, []byte(`{"direction":"c2s","payload":{"type":"response.create","tools":[{"type":"function"}],"input":[{"type":"message"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noFunctionOutputLive := augmentCodexCaptureLiveDeltaFromWire(noFunctionOutputPath, &codexCaptureLiveDelta{})
+	encoded, err := json.Marshal(noFunctionOutputLive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"wire_function_call_output_items":0`) {
+		t.Fatalf("zero function_call_output counter must remain explicit in JSON: %s", string(encoded))
 	}
 }
 

@@ -165,14 +165,24 @@ type codexCaptureAdminSnapshot struct {
 }
 
 type codexCaptureLiveDelta struct {
-	BillableInputTokensSaved  int64 `json:"billable_input_tokens_saved"`
-	InputTokensSaved          int64 `json:"input_tokens_saved"`
-	OutputWireBytesSaved      int64 `json:"output_wire_bytes_saved"`
-	RequestSideBytesReduced   int64 `json:"request_side_bytes_reduced"`
-	ProviderCacheReadTokens   int64 `json:"provider_cache_read_tokens"`
-	ProviderCacheCreateTokens int64 `json:"provider_cache_create_tokens"`
-	ProviderInputTokens       int64 `json:"provider_input_tokens_observed,omitempty"`
-	ProviderOutputTokens      int64 `json:"provider_output_tokens_observed,omitempty"`
+	BillableInputTokensSaved   int64            `json:"billable_input_tokens_saved"`
+	InputTokensSaved           int64            `json:"input_tokens_saved"`
+	OutputWireBytesSaved       int64            `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced    int64            `json:"request_side_bytes_reduced"`
+	ProviderCacheReadTokens    int64            `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens  int64            `json:"provider_cache_create_tokens"`
+	ProviderInputTokens        int64            `json:"provider_input_tokens_observed,omitempty"`
+	ProviderOutputTokens       int64            `json:"provider_output_tokens_observed,omitempty"`
+	WireSurfaceFrames          int64            `json:"wire_surface_frames_observed"`
+	WireClientResponseCreates  int64            `json:"wire_client_response_create_requests"`
+	WireClientDeclaredTools    int64            `json:"wire_client_declared_tools_total"`
+	WireClientDeclaredToolsMax int64            `json:"wire_client_declared_tools_max"`
+	WireClientInputItems       int64            `json:"wire_client_input_items"`
+	WireFunctionCallOutputs    int64            `json:"wire_function_call_output_items"`
+	WireServerOutputItems      int64            `json:"wire_server_output_items"`
+	WireServerFunctionCalls    int64            `json:"wire_server_function_call_items"`
+	WireClientInputItemTypes   map[string]int64 `json:"wire_client_input_item_types,omitempty"`
+	WireServerOutputItemTypes  map[string]int64 `json:"wire_server_output_item_types,omitempty"`
 
 	PhasefBridged             int64 `json:"phasef_bridged"`
 	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
@@ -506,6 +516,17 @@ func augmentCodexCaptureLiveDeltaFromWire(path string, live *codexCaptureLiveDel
 	if live.OutputReduceInjected == 0 && codexCaptureWireHasOutputReduceMarker(path, outputreduce.DefaultMarker) {
 		live.OutputReduceInjected = 1
 	}
+	surface := codexCaptureWireSurfaceObserved(path)
+	live.WireSurfaceFrames = surface.Frames
+	live.WireClientResponseCreates = surface.ClientResponseCreates
+	live.WireClientDeclaredTools = surface.ClientDeclaredTools
+	live.WireClientDeclaredToolsMax = surface.ClientDeclaredToolsMax
+	live.WireClientInputItems = surface.ClientInputItems
+	live.WireFunctionCallOutputs = surface.FunctionCallOutputs
+	live.WireServerOutputItems = surface.ServerOutputItems
+	live.WireServerFunctionCalls = surface.ServerFunctionCalls
+	live.WireClientInputItemTypes = surface.ClientInputItemTypes
+	live.WireServerOutputItemTypes = surface.ServerOutputItemTypes
 	return live
 }
 
@@ -516,6 +537,155 @@ func codexCaptureWireOutputTokensObserved(path string) int64 {
 type codexCaptureWireUsage struct {
 	InputTokens  int64
 	OutputTokens int64
+}
+
+type codexCaptureWireSurface struct {
+	Frames                 int64
+	ClientResponseCreates  int64
+	ClientDeclaredTools    int64
+	ClientDeclaredToolsMax int64
+	ClientInputItems       int64
+	FunctionCallOutputs    int64
+	ServerOutputItems      int64
+	ServerFunctionCalls    int64
+	ClientInputItemTypes   map[string]int64
+	ServerOutputItemTypes  map[string]int64
+}
+
+func codexCaptureWireSurfaceObserved(path string) codexCaptureWireSurface {
+	surface := codexCaptureWireSurface{
+		ClientInputItemTypes:  make(map[string]int64),
+		ServerOutputItemTypes: make(map[string]int64),
+	}
+	if strings.TrimSpace(path) == "" {
+		return surface
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return surface
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	for {
+		var frame struct {
+			Direction string          `json:"direction"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := dec.Decode(&frame); err != nil {
+			if errors.Is(err, io.EOF) {
+				return surface
+			}
+			return surface
+		}
+		payload := codexCaptureDecodedPayload(frame.Payload)
+		if len(payload) == 0 {
+			continue
+		}
+		surface.Frames++
+		switch {
+		case codexCaptureFrameFromClient(frame.Direction):
+			codexCaptureWireSurfaceObserveClient(payload, &surface)
+		case codexCaptureFrameFromServer(frame.Direction):
+			codexCaptureWireSurfaceObserveServer(payload, &surface)
+		}
+	}
+}
+
+func codexCaptureWireSurfaceObserveClient(payload json.RawMessage, surface *codexCaptureWireSurface) {
+	if surface == nil {
+		return
+	}
+	var env struct {
+		Type  string `json:"type"`
+		Tools []struct {
+			Type string `json:"type"`
+		} `json:"tools"`
+		Input []struct {
+			Type string `json:"type"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return
+	}
+	if strings.TrimSpace(env.Type) == "response.create" {
+		surface.ClientResponseCreates++
+	}
+	toolCount := int64(len(env.Tools))
+	surface.ClientDeclaredTools += toolCount
+	if toolCount > surface.ClientDeclaredToolsMax {
+		surface.ClientDeclaredToolsMax = toolCount
+	}
+	for _, item := range env.Input {
+		itemType := strings.TrimSpace(item.Type)
+		if itemType == "" {
+			itemType = "unknown"
+		}
+		surface.ClientInputItems++
+		surface.ClientInputItemTypes[itemType]++
+		if itemType == "function_call_output" {
+			surface.FunctionCallOutputs++
+		}
+	}
+}
+
+func codexCaptureWireSurfaceObserveServer(payload json.RawMessage, surface *codexCaptureWireSurface) {
+	if surface == nil {
+		return
+	}
+	var env struct {
+		Item *struct {
+			Type string `json:"type"`
+		} `json:"item"`
+		Output []struct {
+			Type string `json:"type"`
+		} `json:"output"`
+		Response *struct {
+			Output []struct {
+				Type string `json:"type"`
+			} `json:"output"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return
+	}
+	if env.Item != nil {
+		codexCaptureWireSurfaceCountServerItem(env.Item.Type, surface)
+	}
+	for _, item := range env.Output {
+		codexCaptureWireSurfaceCountServerItem(item.Type, surface)
+	}
+	if env.Response != nil {
+		for _, item := range env.Response.Output {
+			codexCaptureWireSurfaceCountServerItem(item.Type, surface)
+		}
+	}
+}
+
+func codexCaptureWireSurfaceCountServerItem(itemType string, surface *codexCaptureWireSurface) {
+	itemType = strings.TrimSpace(itemType)
+	if itemType == "" {
+		itemType = "unknown"
+	}
+	surface.ServerOutputItems++
+	surface.ServerOutputItemTypes[itemType]++
+	if itemType == "function_call" {
+		surface.ServerFunctionCalls++
+	}
+}
+
+func codexCaptureDecodedPayload(payload json.RawMessage) json.RawMessage {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return nil
+	}
+	if payload[0] != '"' {
+		return payload
+	}
+	var encoded string
+	if err := json.Unmarshal(payload, &encoded); err != nil {
+		return nil
+	}
+	return bytes.TrimSpace([]byte(encoded))
 }
 
 func codexCaptureWireTokenUsageObserved(path string) codexCaptureWireUsage {
@@ -2048,6 +2218,7 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 			result.LiveDelta.ProviderCacheReadTokens, result.LiveDelta.ProviderCacheCreateTokens)
 		fmt.Fprintf(w, "  provider_input_tokens:       %d\n", result.LiveDelta.ProviderInputTokens)
 		fmt.Fprintf(w, "  provider_output_tokens:      %d\n", result.LiveDelta.ProviderOutputTokens)
+		writeCodexCaptureWireSurfaceSummary(w, result.LiveDelta)
 		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
 			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,
 			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)
@@ -2074,6 +2245,42 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		result.Replay.UpstreamResponseFailures)
 	fmt.Fprintf(w, "  lost:          %d\n", result.Replay.Lost)
 	fmt.Fprintf(w, "  gate:          %s\n", passFail(result.Replay.GatePassed))
+}
+
+func writeCodexCaptureWireSurfaceSummary(w io.Writer, delta *codexCaptureLiveDelta) {
+	if delta == nil || delta.WireSurfaceFrames == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  wire_surface frames/client_creates/tools_max/input_items/function_outputs/server_items/function_calls: %d / %d / %d / %d / %d / %d / %d\n",
+		delta.WireSurfaceFrames,
+		delta.WireClientResponseCreates,
+		delta.WireClientDeclaredToolsMax,
+		delta.WireClientInputItems,
+		delta.WireFunctionCallOutputs,
+		delta.WireServerOutputItems,
+		delta.WireServerFunctionCalls)
+	if len(delta.WireClientInputItemTypes) > 0 {
+		fmt.Fprintf(w, "  wire_client_input_types: %s\n", formatCodexCaptureInt64Map(delta.WireClientInputItemTypes))
+	}
+	if len(delta.WireServerOutputItemTypes) > 0 {
+		fmt.Fprintf(w, "  wire_server_output_types: %s\n", formatCodexCaptureInt64Map(delta.WireServerOutputItemTypes))
+	}
+}
+
+func formatCodexCaptureInt64Map(values map[string]int64) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, values[key]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func writeCodexCaptureHostBudgetSummary(w io.Writer, delta *codexCaptureLiveDelta) {

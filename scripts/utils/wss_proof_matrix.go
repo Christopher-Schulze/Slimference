@@ -782,13 +782,23 @@ func validateExpectedReducers(expected []string, live *codexCaptureLiveDelta) (m
 		}
 		hits[name] = count
 		if count <= 0 {
-			failures = append(failures, fmt.Sprintf("expected reducer %s did not fire in live delta", name))
+			failures = append(failures, expectedReducerMissingFailure(name, live))
 		}
 	}
 	if len(hits) == 0 {
 		return nil, failures
 	}
 	return hits, failures
+}
+
+func expectedReducerMissingFailure(name string, live *codexCaptureLiveDelta) string {
+	if name == "captured_output" &&
+		live != nil &&
+		live.WireSurfaceFrames > 0 &&
+		live.WireFunctionCallOutputs == 0 {
+		return "expected reducer captured_output did not fire in live delta; no function_call_output input items were observed in the WSS capture"
+	}
+	return fmt.Sprintf("expected reducer %s did not fire in live delta", name)
 }
 
 func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
