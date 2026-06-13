@@ -814,6 +814,42 @@ func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSRgFilesPathListCompactsWithoutSearchProof(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	var output strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&output, "internal/proxy/generated/deep/path/file_%03d.go\n", i)
+	}
+	original := output.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-rg-files", ToolName: "exec_command", ToolInput: `{"cmd":"rg --files -g '*.go' internal/proxy"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-rg-files", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-rg-files",
+	})
+	text := result.Messages[1].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CapturedOutputBlocks != 1 {
+		t.Fatalf("WSS rg --files path-list output should compact, stats=%+v text=%q", result.Stats, text)
+	}
+	if !strings.Contains(text, "[rg --files paths]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(text, "internal/proxy/generated/deep/path/") ||
+		!strings.Contains(text, "file_089.go") ||
+		strings.Contains(text, "internal/proxy/generated/deep/path/file_089.go") {
+		t.Fatalf("rg --files output was not archive-backed path-list compaction: %s", text)
+	}
+	if proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("rg --files path-list must not trip search risk gate: %+v", result.Stats.EvidenceDecisions)
+	}
+}
+
 func TestReduceCodexLayer0WSSSearchProofAllowsNamedDirectSearch(t *testing.T) {
 	home := t.TempDir()
 	oldHome := proxyUserHomeDir

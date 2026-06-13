@@ -19,7 +19,9 @@ func CompactCapturedOutputWithContext(workDir, commandLine, output string, maxRu
 	stripped := compression.StripANSICodes(output)
 	argv := primaryArgvForCapturedOutput(commandLine)
 	if len(argv) == 0 {
-		if normalized := NormalizeSearchCommandLine(commandLine, workDir); normalized != "" {
+		if normalized := NormalizePathListCommandLine(commandLine, workDir); normalized != "" {
+			argv = primaryArgvForCapturedOutput(normalized)
+		} else if normalized := NormalizeSearchCommandLine(commandLine, workDir); normalized != "" {
 			argv = primaryArgvForCapturedOutput(normalized)
 		}
 	}

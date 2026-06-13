@@ -420,6 +420,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			workload := savingspolicy.CodexWorkloadCommand
 			if readCommand {
 				workload = savingspolicy.CodexWorkloadRead
+			} else if proxyWSSPathListOutputReducerEligible(commandLine) {
+				workload = savingspolicy.CodexWorkloadCommand
 			} else if proxyWSSSearchOutputReducerEligible(commandLine) {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
@@ -1036,10 +1038,18 @@ func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.C
 }
 
 func proxyWSSSearchOutputCommandRisk(commandLine string, workload savingspolicy.CodexWorkload) bool {
+	if proxyWSSPathListOutputReducerEligible(commandLine) {
+		return false
+	}
 	if workload == savingspolicy.CodexWorkloadSearch {
 		return true
 	}
 	return proxyWSSSearchOutputReducerEligible(commandLine)
+}
+
+func proxyWSSPathListOutputReducerEligible(commandLine string) bool {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	return filter.PathListOutputReducerEligibleFromCommandLine(filterCommandLine)
 }
 
 func proxyWSSSearchOutputReducerEligible(commandLine string) bool {

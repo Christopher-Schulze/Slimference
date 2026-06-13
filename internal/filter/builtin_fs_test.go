@@ -55,6 +55,122 @@ func TestTryCompactLs_manyEntries(t *testing.T) {
 	}
 }
 
+func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		sb.WriteString("src/generated/deep/package/file_")
+		if i < 10 {
+			sb.WriteByte('0')
+		}
+		sb.WriteString(string(rune('0' + i/10)))
+		sb.WriteString(string(rune('0' + i%10)))
+		sb.WriteString(".go\n")
+	}
+	out, ok := TryCompactPathListOutput([]string{"rg", "--files", "-g", "*.go", "src"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("rg --files path list should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[rg --files paths]") ||
+		!strings.Contains(text, "src/generated/deep/package/") ||
+		!strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected rg --files compaction: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("path-list compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`rg --files --hidden -g '*.go' src`) {
+		t.Fatal("direct rg --files command should be path-list eligible")
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`cd /repo/app && rg --files --hidden -g '*.go' src`) {
+		t.Fatal("cd-wrapped rg --files command should be path-list eligible")
+	}
+}
+
+func TestTryCompactPathListOutputRipgrepFilesFailOpen(t *testing.T) {
+	t.Parallel()
+	listOutput := []byte(strings.Repeat("src/a.go\nsrc/b.go\n", 8))
+	if _, ok := TryCompactPathListOutput([]string{"rg", "-l", "needle"}, listOutput); ok {
+		t.Fatal("rg -l search result lists must stay out of path-list reducer")
+	}
+	if _, ok := TryCompactPathListOutput([]string{"rg", "--files", "--json"}, listOutput); ok {
+		t.Fatal("rg --files with unsupported output flags must fail open")
+	}
+	if _, ok := TryCompactPathListOutput([]string{"rg", "--files", "--null"}, []byte("src/a.go\x00src/b.go\x00")); ok {
+		t.Fatal("NUL path-list output must fail open")
+	}
+}
+
+func TestCompactCapturedOutputWithContextCDWrappedPathList(t *testing.T) {
+	t.Parallel()
+
+	var input strings.Builder
+	for i := 0; i < 40; i++ {
+		input.WriteString("src/generated/deep/package/file_")
+		if i < 10 {
+			input.WriteByte('0')
+		}
+		input.WriteString(string(rune('0' + i/10)))
+		input.WriteString(string(rune('0' + i%10)))
+		input.WriteString(".go\n")
+	}
+	out, changed := CompactCapturedOutputWithContext("", `cd /repo/app && rg --files -g '*.go' src`, input.String(), 0, FileReadContext{Mode: "scan"})
+	if !changed {
+		t.Fatal("cd-wrapped rg --files output should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[rg --files paths]") || !strings.Contains(text, "src/generated/deep/package/") {
+		t.Fatalf("unexpected cd-wrapped path-list compaction: %q", text)
+	}
+}
+
+func TestPathListOutputParserEdges(t *testing.T) {
+	t.Parallel()
+
+	eligible := [][]string{
+		{"ripgrep", "--files", "--glob=*.go", "src"},
+		{"rg", "--files", "-g*.go", "src"},
+		{"rg", "--files", "--type", "go", "--max-depth", "2", "--sort=path"},
+		{"rg", "--files", "-Tvendor", "--sortr", "path"},
+		{"rg", "--files", "--"},
+	}
+	for _, argv := range eligible {
+		if !pathListOutputEligibleArgv(argv) {
+			t.Fatalf("argv should be path-list eligible: %#v", argv)
+		}
+	}
+
+	ineligible := [][]string{
+		nil,
+		{"fd", "--files"},
+		{"rg", "--"},
+		{"rg", "--files", "--glob="},
+		{"rg", "--files", "--max-depth"},
+		{"rg", "--files", "-g"},
+		{"rg", "--files", "-z"},
+		{"rg", "--files", ""},
+	}
+	for _, argv := range ineligible {
+		if pathListOutputEligibleArgv(argv) {
+			t.Fatalf("argv should fail open: %#v", argv)
+		}
+	}
+
+	if got := pathListOutputLabel([]string{"fd", "."}); got != "paths" {
+		t.Fatalf("fallback path-list label = %q", got)
+	}
+	if PathListOutputReducerEligibleFromCommandLine("go test ./...") {
+		t.Fatal("non-path-list command must not be path-list eligible")
+	}
+	if normalized := NormalizePathListCommandLine("", ""); normalized != "" {
+		t.Fatalf("empty path-list command normalized to %q", normalized)
+	}
+	if normalized := NormalizePathListCommandLine("cd repo && rg --files", ""); normalized != "" {
+		t.Fatalf("relative cd wrapper must fail open, got %q", normalized)
+	}
+}
+
 func TestTryCompactTree_withSummary(t *testing.T) {
 	t.Parallel()
 	input := ".\n├── src\n│   ├── main.go\n│   └── config.go\n├── go.mod\n└── README.md\n\n2 directories, 4 files\n"

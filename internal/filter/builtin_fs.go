@@ -43,6 +43,135 @@ func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
+// TryCompactPathListOutput compacts commands whose stdout is a deterministic
+// newline-delimited file list, not search match output.
+func TryCompactPathListOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if !pathListOutputEligibleArgv(argv) {
+		return stdout, false
+	}
+	return groupPathListResults(stdout, pathListOutputLabel(argv))
+}
+
+// PathListOutputReducerEligibleFromCommandLine reports whether commandLine can
+// use the path-list reducer without being treated as grep/search-match output.
+func PathListOutputReducerEligibleFromCommandLine(commandLine string) bool {
+	for _, candidate := range []string{commandLine, NormalizePathListCommandLine(commandLine, "")} {
+		if candidate == "" {
+			continue
+		}
+		if pathListOutputEligibleArgv(primaryArgvForCapturedOutput(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizePathListCommandLine returns the inner command for supported
+// `cd <abs> && <path-list command>` wrappers. Path-list reducers only need the
+// command shape; stdout still carries the actual paths.
+func NormalizePathListCommandLine(commandLine, workdir string) string {
+	_ = workdir
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return ""
+	}
+	if _, inner, ok := splitLeadingCDSearch(commandLine); ok {
+		commandLine = inner
+	}
+	if !pathListOutputEligibleArgv(primaryArgvForCapturedOutput(commandLine)) {
+		return ""
+	}
+	return commandLine
+}
+
+func pathListOutputEligibleArgv(argv []string) bool {
+	return ripgrepFilesArgv(argv)
+}
+
+func pathListOutputLabel(argv []string) string {
+	if ripgrepFilesArgv(argv) {
+		return "rg --files"
+	}
+	return "paths"
+}
+
+func ripgrepFilesArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(argv[0])), ".exe"))
+	if base != "rg" && base != "ripgrep" {
+		return false
+	}
+	sawFiles := false
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			return sawFiles
+		}
+		switch {
+		case arg == "--files":
+			sawFiles = true
+		case ripgrepFilesBoolFlag(arg):
+		case ripgrepFilesValueFlag(arg):
+			i++
+			if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+				return false
+			}
+		case ripgrepFilesInlineValueFlag(arg):
+		case strings.HasPrefix(arg, "-"):
+			return false
+		default:
+			// Explicit search roots/path args keep stdout a path list.
+		}
+	}
+	return sawFiles
+}
+
+func ripgrepFilesBoolFlag(arg string) bool {
+	switch arg {
+	case "--hidden", "--no-hidden", "--follow", "-L",
+		"--no-ignore", "--no-ignore-vcs", "--no-ignore-dot",
+		"--no-ignore-exclude", "--no-ignore-files",
+		"--one-file-system", "-u", "-uu", "-uuu":
+		return true
+	default:
+		return false
+	}
+}
+
+func ripgrepFilesValueFlag(arg string) bool {
+	switch arg {
+	case "-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not",
+		"--max-depth", "--ignore-file", "--sort", "--sortr":
+		return true
+	default:
+		return false
+	}
+}
+
+func ripgrepFilesInlineValueFlag(arg string) bool {
+	switch {
+	case strings.HasPrefix(arg, "--glob="),
+		strings.HasPrefix(arg, "--iglob="),
+		strings.HasPrefix(arg, "--type="),
+		strings.HasPrefix(arg, "--type-not="),
+		strings.HasPrefix(arg, "--max-depth="),
+		strings.HasPrefix(arg, "--ignore-file="),
+		strings.HasPrefix(arg, "--sort="),
+		strings.HasPrefix(arg, "--sortr="):
+		_, value, _ := strings.Cut(arg, "=")
+		return strings.TrimSpace(value) != ""
+	case strings.HasPrefix(arg, "-g"), strings.HasPrefix(arg, "-t"), strings.HasPrefix(arg, "-T"):
+		return len(arg) > 2 && strings.TrimSpace(arg[2:]) != ""
+	default:
+		return false
+	}
+}
+
 func lsOnlyTotalLines(s string) bool {
 	lines := strings.Split(s, "\n")
 	sawLine := false

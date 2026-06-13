@@ -1758,6 +1758,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 		return true
 	case wssSafeFormatPathListOutput(commandLine, payload):
 		return true
+	case wssSafeRgFilesPathListOutput(commandLine, payload):
+		return true
 	case wssSafeFindListingOutput(commandLine, payload):
 		return true
 	case wssSafeTreeListingOutput(commandLine, payload):
@@ -2032,6 +2034,18 @@ func wssSafeFormatPathListOutput(commandLine, payload string) bool {
 		return false
 	}
 	if _, ok := filter.TryCompactFormatOutput(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafePlainPathListPayload(payload)
+}
+
+func wssSafeRgFilesPathListOutput(commandLine, payload string) bool {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	argv := filter.ArgvForCapturedOutput(filterCommandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactPathListOutput(argv, []byte(payload)); !ok {
 		return false
 	}
 	return wssSafePlainPathListPayload(payload)

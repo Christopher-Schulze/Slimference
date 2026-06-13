@@ -280,6 +280,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
 		diagnosticReducer("dotnet", "build", []string{"tool", "error code", "file", "line", "message"}, TryCompactDotnet),
 		diagnosticReducer("ruby_output", "test", []string{"tool", "failed example", "file", "line", "message"}, TryCompactRubyOutput),
+		evidenceReducer("path_list_output", "listing", []string{"file path", "directory grouping", "path count"}, TryCompactPathListOutput),
 		searchOutputReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}),
 		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
 		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
