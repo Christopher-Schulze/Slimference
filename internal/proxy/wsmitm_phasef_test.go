@@ -811,10 +811,10 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	if facts["wss.prompt_cache_prefix"] != "true" ||
 		facts["wss.has_tool_definitions"] != "true" ||
 		facts["wss.tool_definitions"] != "3" ||
-		facts["wss.tool_definition_default_keep"] != "2" ||
-		facts["wss.tool_definition_default_keep_names"] != "apply_patch,exec_command" ||
-		facts["wss.tool_definition_nondefault"] != "1" ||
-		facts["wss.tool_definition_nondefault_names"] != "request_user_input" ||
+		facts["wss.tool_definition_default_keep"] != "3" ||
+		facts["wss.tool_definition_default_keep_names"] != "apply_patch,exec_command,request_user_input" ||
+		facts["wss.tool_definition_nondefault"] != "0" ||
+		facts["wss.tool_definition_nondefault_names"] != "" ||
 		facts["wss.tool_definition_unnamed"] != "0" ||
 		facts["wss.output_reduce_reason"] != "prompt_cache_prefix_full_pass" {
 		t.Fatalf("prefix facts missing: %+v", facts)
@@ -829,8 +829,6 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 		"wss.tool_definition_other_bytes",
 		"wss.tool_definition_default_keep_description_bytes",
 		"wss.tool_definition_default_keep_parameters_bytes",
-		"wss.tool_definition_nondefault_description_bytes",
-		"wss.tool_definition_nondefault_parameters_bytes",
 	} {
 		if n, err := strconv.Atoi(facts[key]); err != nil || n <= 0 {
 			t.Fatalf("%s=%q err=%v", key, facts[key], err)
@@ -839,8 +837,14 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	if n, err := strconv.Atoi(facts["wss.tool_definition_default_keep_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_default_keep_bytes=%q err=%v", facts["wss.tool_definition_default_keep_bytes"], err)
 	}
-	if n, err := strconv.Atoi(facts["wss.tool_definition_nondefault_bytes"]); err != nil || n <= 0 {
-		t.Fatalf("tool_definition_nondefault_bytes=%q err=%v", facts["wss.tool_definition_nondefault_bytes"], err)
+	for _, key := range []string{
+		"wss.tool_definition_nondefault_bytes",
+		"wss.tool_definition_nondefault_description_bytes",
+		"wss.tool_definition_nondefault_parameters_bytes",
+	} {
+		if n, err := strconv.Atoi(facts[key]); err != nil || n != 0 {
+			t.Fatalf("%s=%q err=%v", key, facts[key], err)
+		}
 	}
 	if n, err := strconv.Atoi(facts["wss.tool_definition_unnamed_bytes"]); err != nil || n != 0 {
 		t.Fatalf("tool_definition_unnamed_bytes=%q err=%v", facts["wss.tool_definition_unnamed_bytes"], err)
@@ -1035,7 +1039,8 @@ func TestWSPhaseFRequestUserInputToolSchemaStaysByteEqualByDefault(t *testing.T)
 	if summary.ToolPrune.Applied || summary.ToolPrune.SavedTokens != 0 || summary.Tokens.Saved != 0 {
 		t.Fatalf("byte-equal request_user_input root must not book tool-prune savings: %+v tokens=%+v", summary.ToolPrune, summary.Tokens)
 	}
-	if summary.DebugFacts["wss.tool_definition_nondefault_names"] != "request_user_input" ||
+	if summary.DebugFacts["wss.tool_definition_default_keep_names"] != "exec_command,request_user_input" ||
+		summary.DebugFacts["wss.tool_definition_nondefault_names"] != "" ||
 		summary.DebugFacts["wss.changed"] != "false" {
 		t.Fatalf("request_user_input prefix telemetry missing or mutated: %+v", summary.DebugFacts)
 	}

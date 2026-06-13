@@ -272,7 +272,7 @@ func TestSafetyAndTelemetryBranches(t *testing.T) {
 	if IsDefaultAlwaysKeep("customDomainLookup") {
 		t.Fatal("custom tool must not match default keep tokens")
 	}
-	for _, name := range []string{"mcp__repo_search", "Apply_Patch", "terminal.exec", "image_generation"} {
+	for _, name := range []string{"mcp__repo_search", "Apply_Patch", "terminal.exec", "image_generation", "request_user_input", "create_goal", "get_goal", "update_goal", "request_plugin_install"} {
 		if !IsDefaultAlwaysKeep(name) {
 			t.Fatalf("%q should be default-keep", name)
 		}

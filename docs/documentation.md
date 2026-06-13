@@ -1728,7 +1728,8 @@ same archive/reattach/retry recovery. Root requests and steady
 operator flag is explicitly enabled.
 
 T151/T268 make the pruner soak-safe enough for wider testing: shell,
-edit, read, safety, browser, and MCP tool classes are always kept, and
+edit, read, safety, browser, MCP, Goal-loop, plugin-install, and
+`request_user_input` tool classes are always kept, and
 `tool_prune_always_keep = []` can add project-specific exact tool names with
 case-insensitive matching.
 Codex WSS Phase-F no longer has a separate unavailable-tool prune for
@@ -1737,9 +1738,9 @@ tool from a root request could still be followed by a client-side
 `previous_response_id` continuation that reintroduced the full tool registry,
 and the upstream rejected the chain with a generic `invalid_request_error`.
 Because the saving was tiny and the failure was a real product drawdown, the
-default WSS product path keeps the `request_user_input` tool schema byte-equal.
-The tool remains visible in content-free prefix telemetry as a non-default tool
-candidate, but any future re-enable needs a full live multi-turn proof that all
+default WSS product path keeps the `request_user_input` tool schema byte-equal
+and treats it as a built-in always-keep control tool. Any future re-enable that
+would remove this class needs a full live multi-turn proof that all
 continuations carry a byte-compatible tool registry before it can become a
 product feature.
 Focused tool-heavy proof runs can enable the pruner without editing the config

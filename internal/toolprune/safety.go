@@ -6,8 +6,10 @@ var defaultAlwaysKeepTokens = []string{
 	"apply_patch",
 	"bash",
 	"browser",
+	"create_goal",
 	"edit",
 	"exec",
+	"get_goal",
 	"glob",
 	"grep",
 	"image",
@@ -21,20 +23,24 @@ var defaultAlwaysKeepTokens = []string{
 	"permission",
 	"plan",
 	"read",
+	"request_plugin_install",
+	"request_user_input",
 	"rg",
 	"safety",
 	"search",
 	"shell",
 	"terminal",
+	"update_goal",
 	"update_plan",
 	"view",
 	"write",
 }
 
 // AlwaysKeepSet returns a map for names that must never be pruned. The
-// default class keeps shell, edit, read, safety, browser, and MCP tools
-// attached. Extra names are exact tool names supplied by config, matched
-// case-insensitively because provider/tool casing is not a capability boundary.
+// default class keeps shell, edit, read, safety, browser, MCP, and Codex
+// control tools attached. Extra names are exact tool names supplied by config,
+// matched case-insensitively because provider/tool casing is not a capability
+// boundary.
 func AlwaysKeepSet(extra []string) map[string]bool {
 	out := make(map[string]bool, len(extra))
 	for _, name := range extra {
