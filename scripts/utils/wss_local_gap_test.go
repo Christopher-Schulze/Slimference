@@ -236,6 +236,48 @@ func TestWSSLocalGapActionableUsesBlockCommandClassWhenPresent(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapSearchRiskUsesProofBlockReason(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "search-looking-unbound-output",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 11000, Final: 11000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":               "delta",
+			"wss.search_proof_block_reasons":  "workload_not_search=1",
+			"wss.search_proof_blocked_blocks": "1",
+			"wss.search_risk_blocks":          "1",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "captured_output",
+			ContentClass:   evidence.ContentSearch,
+			Action:         evidence.ActionFullPass,
+			Reason:         "wss_search_output_risk_gate",
+			OriginalTokens: 4200,
+			FinalTokens:    4200,
+		}},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "search_command_binding_required" ||
+		row.Source != "evidence:wss_search_output_risk_gate:workload_not_search" ||
+		row.Tokens != 4200 ||
+		!strings.Contains(row.NextStep, "command/tool-use binding") {
+		t.Fatalf("search risk row must use proof block reason, got %+v", row)
+	}
+}
+
 func TestWSSLocalGapSinceAndSavedGate(t *testing.T) {
 	t.Parallel()
 

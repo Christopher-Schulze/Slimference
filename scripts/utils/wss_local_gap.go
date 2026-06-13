@@ -430,7 +430,7 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 		a.addNoEvidenceActionable(summary, shape, shapeResolution.Source, original, saved, toolCommandClasses)
 	}
 	for _, decision := range summary.EvidenceDecisions {
-		a.addDecision(decision, shape, toolCommandClasses)
+		a.addDecision(decision, shape, toolCommandClasses, summary.DebugFacts)
 	}
 }
 
@@ -504,7 +504,7 @@ func (a *wssLocalGapAccumulator) addRequestGuard(guard, shape string, original, 
 	addWSSAuditCount(&row.RequestShapes, shape)
 }
 
-func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, shape string, toolCommandClasses map[string]int) {
+func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, shape string, toolCommandClasses map[string]int, facts map[string]string) {
 	mechanism := strings.TrimSpace(decision.Mechanism)
 	if mechanism == "" || mechanism == "provider_prompt_cache" {
 		return
@@ -563,7 +563,7 @@ func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, sh
 	guardRow.GuardedPotential += guarded
 	addWSSAuditCount(&guardRow.Mechanisms, mechanism)
 	addWSSAuditCount(&guardRow.RequestShapes, shape)
-	a.addDecisionActionable(reason, mechanism, shape, guarded, saved, wssLocalGapDecisionCommandClasses(decision, toolCommandClasses))
+	a.addDecisionActionable(reason, mechanism, shape, guarded, saved, wssLocalGapDecisionCommandClasses(decision, toolCommandClasses), facts)
 }
 
 func wssLocalGapDecisionCommandClasses(decision evidence.BlockDecision, requestClasses map[string]int) map[string]int {
@@ -574,14 +574,14 @@ func wssLocalGapDecisionCommandClasses(decision evidence.BlockDecision, requestC
 	return map[string]int{class: 1}
 }
 
-func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int, toolCommandClasses map[string]int) {
+func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int, toolCommandClasses map[string]int, facts map[string]string) {
 	if a == nil || tokens <= 0 {
 		return
 	}
-	category, policy, nextStep := wssLocalGapDecisionAction(reason)
+	category, source, policy, nextStep := wssLocalGapDecisionActionForFacts(reason, facts)
 	a.addActionable(wssLocalGapActionableRow{
 		Category:           category,
-		Source:             "evidence:" + reason,
+		Source:             source,
 		TokenBasis:         "full_pass_block_original_tokens",
 		Tokens:             tokens,
 		LocalSavedTokens:   saved,
@@ -989,6 +989,69 @@ func wssLocalGapDecisionAction(reason string) (string, string, string) {
 			"unknown full-pass reason; do not treat as safe savings",
 			"instrument and classify this guard before changing product behavior"
 	}
+}
+
+func wssLocalGapDecisionActionForFacts(reason string, facts map[string]string) (string, string, string, string) {
+	reason = strings.TrimSpace(reason)
+	source := "evidence:" + reason
+	if reason != "wss_search_output_risk_gate" {
+		category, policy, nextStep := wssLocalGapDecisionAction(reason)
+		return category, source, policy, nextStep
+	}
+	blockReason := wssLocalGapSearchProofBlockReason(facts)
+	if blockReason == "" {
+		category, policy, nextStep := wssLocalGapDecisionAction(reason)
+		return category, source, policy, nextStep
+	}
+	source += ":" + blockReason
+	switch blockReason {
+	case "tool_use_unbound", "tool_use_empty", "workload_not_search":
+		return "search_command_binding_required",
+			source,
+			"search-looking output is not enough; the search-cap latch requires a bound exact command and search workload",
+			"fix command/tool-use binding or workload classification for this shape before considering search-output mutation"
+	case "delta_key_missing":
+		return "search_key_parser_candidate",
+			source,
+			"stateful-delta search mutation requires a stable search key for the exact command shape",
+			"extend SearchOutputKey parsing only with exact command-shape proof, otherwise keep full-pass"
+	case "reducer_ineligible":
+		return "search_reducer_ineligible",
+			source,
+			"the output looked search-like but the command is outside the proven reducer surface",
+			"add a reducer proof for the exact command shape or keep full-pass"
+	case "latch_disabled":
+		return "proof_latch_candidate",
+			source,
+			"search-output mutation is blocked because the final proof latch is not active",
+			"verify and configure the final search-cap proof path before changing runtime guards"
+	default:
+		category, policy, nextStep := wssLocalGapDecisionAction(reason)
+		return category, source, policy, nextStep
+	}
+}
+
+func wssLocalGapSearchProofBlockReason(facts map[string]string) string {
+	counts := wssLocalGapFactCountPairs(facts, "wss.search_proof_block_reasons")
+	if len(counts) == 0 {
+		return ""
+	}
+	for _, reason := range []string{"tool_use_unbound", "tool_use_empty", "workload_not_search", "delta_key_missing", "reducer_ineligible", "latch_disabled"} {
+		if counts[reason] > 0 {
+			return reason
+		}
+	}
+	keys := make([]string, 0, len(counts))
+	for reason := range counts {
+		if strings.TrimSpace(reason) != "" {
+			keys = append(keys, reason)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
 }
 
 func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string) (string, string, string, string) {
