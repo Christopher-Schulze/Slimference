@@ -872,7 +872,7 @@ func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFUnavailableRequestUserInputPrunesInDefaultMode(t *testing.T) {
+func TestWSPhaseFRequestUserInputToolSchemaStaysByteEqualByDefault(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -887,7 +887,7 @@ func TestWSPhaseFUnavailableRequestUserInputPrunesInDefaultMode(t *testing.T) {
 		"type": string(wsmitm.FrameKindRequest),
 		"body": map[string]any{
 			"model":            "gpt-5-codex",
-			"prompt_cache_key": "default-mode-unavailable-tool",
+			"prompt_cache_key": "default-mode-request-user-input-tool",
 			"instructions":     "Normal default-mode Codex instructions.",
 			"input": []map[string]any{{
 				"type":    "message",
@@ -901,79 +901,87 @@ func TestWSPhaseFUnavailableRequestUserInputPrunesInDefaultMode(t *testing.T) {
 			"stream": true,
 		},
 	})
+	original := append([]byte(nil), env.Body...)
 
 	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected default-mode unavailable tool prune mutation")
+	if replace || !bytes.Equal(env.Body, original) {
+		t.Fatalf("default WSS request_user_input schema must stay byte-equal, replace=%v body=%s", replace, env.Body)
 	}
-	body := string(env.Body)
 	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(env.Body, types.CodexChatGPT)
 	if !schemaSafe {
-		t.Fatalf("mutated tool schema not safe: %s", body)
+		t.Fatalf("tool schema not parseable: %s", env.Body)
 	}
-	for _, name := range toolNames {
-		if name == "request_user_input" {
-			t.Fatalf("default-mode unavailable tool still present in tools[]: names=%v body=%s", toolNames, body)
-		}
-	}
-	hasExec := false
-	for _, name := range toolNames {
-		if name == "exec_command" {
-			hasExec = true
-		}
-	}
-	if !hasExec {
-		t.Fatalf("available tool was removed: names=%v body=%s", toolNames, body)
+	if !hasString(toolNames, "request_user_input") || !hasString(toolNames, "exec_command") {
+		t.Fatalf("request_user_input and exec_command must stay attached: names=%v body=%s", toolNames, env.Body)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if !summary.ToolPrune.Applied ||
-		summary.ToolPrune.Reason != "unavailable_tools_default_mode" ||
-		summary.ToolPrune.PrunedTools != 1 ||
-		summary.ToolPrune.SavedTokens <= 0 {
-		t.Fatalf("unavailable tool-prune summary mismatch: %+v tokens=%+v", summary.ToolPrune, summary.Tokens)
+	if summary.ToolPrune.Applied || summary.ToolPrune.SavedTokens != 0 || summary.Tokens.Saved != 0 {
+		t.Fatalf("byte-equal request_user_input root must not book tool-prune savings: %+v tokens=%+v", summary.ToolPrune, summary.Tokens)
 	}
-	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 {
-		t.Fatalf("tool-prune snapshot missing unavailable prune: %+v", snap)
+	if summary.DebugFacts["wss.tool_definition_nondefault_names"] != "request_user_input" ||
+		summary.DebugFacts["wss.changed"] != "false" {
+		t.Fatalf("request_user_input prefix telemetry missing or mutated: %+v", summary.DebugFacts)
 	}
 }
 
-func TestWSPhaseFUnavailableRequestUserInputFullPassesPlanModeAndDelta(t *testing.T) {
+func TestWSPhaseFRequestUserInputPreviousResponsePrefixUsesDeltaGuard(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
 	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
-	body := mustMarshal(map[string]any{
-		"model":            "gpt-5-codex",
-		"prompt_cache_key": "plan-mode-available-tool",
-		"instructions": "# Collaboration Mode: Plan\n" +
-			"request_user_input is only available in Plan mode.",
-		"tools": []map[string]any{
-			codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode."),
-		},
-		"stream": true,
-	})
+	const sessionID = "codex-wss:request-user-input-delta-prefix"
+	p.toolPrune.ObserveTurn(sessionID, []string{"exec_command", "request_user_input"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"exec_command"})
 
-	out, changed, summary, retry := adapter.applyWSSUnavailableToolPrune(body, wssRequestMeta{HasToolDefinitions: true})
-	if changed || !bytes.Equal(out, body) || summary.Applied || len(retry) > 0 {
-		t.Fatalf("plan mode must keep request_user_input: changed=%v summary=%+v retry=%d out=%s", changed, summary, len(retry), out)
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-request-user-input-delta",
+			"prompt_cache_key":     "request-user-input-delta-prefix",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("exec_command", "Run shell commands"),
+				codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode. "+strings.Repeat("Plan-mode user prompt. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	original := append([]byte(nil), env.Body...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
 	}
-
-	defaultBody := mustMarshal(map[string]any{
-		"model":                "gpt-5-codex",
-		"previous_response_id": "resp_prev",
-		"prompt_cache_key":     "default-delta-unavailable-tool",
-		"instructions": "# Collaboration Mode: Default\n" +
-			"request_user_input is only available in Plan mode.",
-		"tools": []map[string]any{
-			codexToolDefinition("request_user_input", "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode."),
-		},
-		"stream": true,
-	})
-	out, changed, summary, retry = adapter.applyWSSUnavailableToolPrune(defaultBody, wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true})
-	if changed || !bytes.Equal(out, defaultBody) || summary.Applied || len(retry) > 0 {
-		t.Fatalf("previous-response delta must keep request_user_input: changed=%v summary=%+v retry=%d out=%s", changed, summary, len(retry), out)
+	if replace || !bytes.Equal(env.Body, original) {
+		t.Fatalf("previous_response_id request_user_input prefix must stay byte-equal, replace=%v body=%s", replace, env.Body)
+	}
+	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(env.Body, types.CodexChatGPT)
+	if !schemaSafe {
+		t.Fatalf("tool schema not parseable: %s", env.Body)
+	}
+	if !hasString(toolNames, "request_user_input") || !hasString(toolNames, "exec_command") {
+		t.Fatalf("delta guard must preserve request_user_input and exec_command: names=%v body=%s", toolNames, env.Body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.tool_prune_guard"] != "wss_tool_prune_delta_guard" ||
+		summary.ToolPrune.Applied ||
+		summary.ToolPrune.SavedTokens != 0 ||
+		summary.Tokens.Saved != 0 {
+		t.Fatalf("request_user_input previous_response_id prefix must be guarded without savings: %+v", summary)
 	}
 }
 

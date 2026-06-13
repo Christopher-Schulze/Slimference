@@ -864,9 +864,6 @@ type wssToolPruneResult struct {
 }
 
 func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, wssToolPruneResult) {
-	if pruned, changed, summary, retryBody := a.applyWSSUnavailableToolPrune(body, meta); changed {
-		return pruned, true, wssToolPruneResult{Summary: summary, RetryBody: retryBody}
-	}
 	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
 		return body, false, wssToolPruneResult{}
 	}
@@ -943,105 +940,6 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	summary.PrunedTools = len(removed)
 	summary.SavedTokens = saved
 	return prunedBody, true, wssToolPruneResult{Summary: summary, RetryBody: retryBody}
-}
-
-func (a *wsPhaseFAdapter) applyWSSUnavailableToolPrune(body []byte, meta wssRequestMeta) ([]byte, bool, dbg.ToolPruneSummary, []byte) {
-	const unavailableTool = "request_user_input"
-	if a == nil || a.p == nil || a.p.toolPrune == nil || !wssRequestUserInputUnavailableInDefaultMode(body, meta) {
-		return body, false, dbg.ToolPruneSummary{}, nil
-	}
-	prunedBody, removed, err := toolprune.PruneToolDefinitions(body, types.CodexChatGPT, map[string]bool{unavailableTool: true})
-	if err != nil || len(removed) == 0 {
-		return body, false, dbg.ToolPruneSummary{}, nil
-	}
-	saved := tokens.ForProvider(types.CodexChatGPT).CountString(string(body)) - tokens.ForProvider(types.CodexChatGPT).CountString(string(prunedBody))
-	if saved <= 0 {
-		return body, false, dbg.ToolPruneSummary{}, nil
-	}
-	a.p.toolPrune.MarkPruned(saved)
-	summary := dbg.ToolPruneSummary{
-		Applied:       true,
-		Reason:        "unavailable_tools_default_mode",
-		PrunedTools:   len(removed),
-		SavedTokens:   saved,
-		SessionKeySet: meta.SessionID != "",
-	}
-	return prunedBody, true, summary, append([]byte(nil), body...)
-}
-
-func wssRequestUserInputUnavailableInDefaultMode(body []byte, meta wssRequestMeta) bool {
-	if meta.PreviousResponseID != "" || !meta.HasToolDefinitions {
-		return false
-	}
-	if wssBodyDeclaresPlanCollaborationMode(body) {
-		return false
-	}
-	names, schemaSafe := toolprune.ExtractToolNamesForPruning(body, types.CodexChatGPT)
-	if !schemaSafe {
-		return false
-	}
-	for _, name := range names {
-		if name == "request_user_input" {
-			return wssBodyHasPlanOnlyRequestUserInputTool(body) || wssBodyDeclaresDefaultCollaborationMode(body)
-		}
-	}
-	return false
-}
-
-func wssBodyDeclaresPlanCollaborationMode(body []byte) bool {
-	instructions, ok := wssBodyInstructions(body)
-	return ok && strings.Contains(instructions, "# Collaboration Mode: Plan")
-}
-
-func wssBodyDeclaresDefaultCollaborationMode(body []byte) bool {
-	instructions, ok := wssBodyInstructions(body)
-	return ok && strings.Contains(instructions, "# Collaboration Mode: Default")
-}
-
-func wssBodyInstructions(body []byte) (string, bool) {
-	var raw map[string]json.RawMessage
-	if len(body) == 0 || json.Unmarshal(body, &raw) != nil {
-		return "", false
-	}
-	var instructions string
-	if len(raw["instructions"]) == 0 || json.Unmarshal(raw["instructions"], &instructions) != nil {
-		return "", false
-	}
-	return instructions, true
-}
-
-func wssBodyHasPlanOnlyRequestUserInputTool(body []byte) bool {
-	var raw map[string]json.RawMessage
-	if len(body) == 0 || json.Unmarshal(body, &raw) != nil {
-		return false
-	}
-	var tools []json.RawMessage
-	if len(raw["tools"]) == 0 || json.Unmarshal(raw["tools"], &tools) != nil {
-		return false
-	}
-	for _, entry := range tools {
-		var tool struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			Function    struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-			} `json:"function"`
-		}
-		if json.Unmarshal(entry, &tool) != nil {
-			return false
-		}
-		name := tool.Name
-		description := tool.Description
-		if name == "" {
-			name = tool.Function.Name
-			description = tool.Function.Description
-		}
-		if name == "request_user_input" && strings.Contains(description, "only available in Plan mode") {
-			return true
-		}
-	}
-	return false
 }
 
 func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
