@@ -346,7 +346,7 @@ func TestWSSABReplayReportsResponseFailedFrame(t *testing.T) {
 	}
 }
 
-func TestWSSABReplaySearchCapProofLatchKeepsNamedDeltaSearchByteEqual(t *testing.T) {
+func TestWSSABReplaySearchCapProofLatchMutatesNamedDeltaSearch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
@@ -383,14 +383,14 @@ func TestWSSABReplaySearchCapProofLatchKeepsNamedDeltaSearchByteEqual(t *testing
 	if !report.GatePassed ||
 		report.ToolOutputMutation ||
 		!report.SearchCapProofLatch ||
-		report.MutatedRequests != 0 ||
-		report.SearchMutatedRequests != 0 ||
-		report.MutatedShapes.Delta != 0 ||
-		report.ReducerCapturedBlocks != 0 ||
+		report.MutatedRequests != 1 ||
+		report.SearchMutatedRequests != 1 ||
+		report.MutatedShapes.Delta != 1 ||
+		report.ReducerCapturedBlocks != 1 ||
 		report.ReducerEnvelopeBlocks != 0 ||
-		report.ReducerTokensSaved != 0 ||
+		report.ReducerTokensSaved <= 0 ||
 		report.Lost != 0 {
-		t.Fatalf("product search-cap proof latch must not mutate named delta search after live 400 proof: %+v", report)
+		t.Fatalf("product search-cap proof latch should mutate only named delta search through captured-output reducer: %+v", report)
 	}
 }
 

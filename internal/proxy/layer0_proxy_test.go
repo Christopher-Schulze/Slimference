@@ -876,7 +876,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDirectSearch(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofAllowsNamedDeltaSearch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -903,14 +903,18 @@ func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
 		WSSSearchMutationAllowed:     true,
 		StatefulDeltaMutationBlocked: true,
 	})
-	if proofed.Stats.BlocksModified != 0 || proofed.Stats.TokensSaved != 0 || proofed.Stats.CapturedOutputBlocks != 0 ||
-		proofed.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search must stay byte-equal after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+	proofedText := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 || proofed.Stats.CapturedOutputBlocks != 1 ||
+		proofedText == original ||
+		!strings.Contains(proofedText, "[rg]") ||
+		!strings.Contains(proofedText, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(proofedText, "src/file_079.go:80:needle") ||
+		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("proofed named delta search should compact through search-cap latch, stats=%+v text=%q", proofed.Stats, proofedText)
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchDeltaObserveOnlyStillBlocksProofedSavings(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchDeltaProofPrefersCapturedOutputSavings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -935,17 +939,20 @@ func TestReduceCodexLayer0WSSSearchDeltaObserveOnlyStillBlocksProofedSavings(t *
 		WSSSearchMutationAllowed:     true,
 		StatefulDeltaMutationBlocked: true,
 	})
-	if proofed.Stats.BlocksModified != 0 || proofed.Stats.TokensSaved != 0 ||
-		proofed.Stats.CapturedOutputBlocks != 0 || proofed.Stats.RepeatedOutputBlocks != 0 ||
-		proofed.Stats.RepeatedOutputLatencyNs == 0 ||
-		proofed.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") ||
-		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search should observe only and stay byte-equal, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+	proofedText := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 ||
+		proofed.Stats.CapturedOutputBlocks != 1 || proofed.Stats.RepeatedOutputBlocks != 0 ||
+		proofedText == original ||
+		!strings.Contains(proofedText, "[rg]") ||
+		!strings.Contains(proofedText, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(proofedText, "src/file_079.go:80:needle") ||
+		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") ||
+		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("proofed stateful delta search should compact through captured-output latch, stats=%+v text=%q", proofed.Stats, proofedText)
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofKeepsCodexEnvelopeDeltaBlocked(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofAllowsCodexEnvelopeDeltaCapturedOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -975,11 +982,16 @@ func TestReduceCodexLayer0WSSSearchProofKeepsCodexEnvelopeDeltaBlocked(t *testin
 		WSSSearchMutationAllowed:     true,
 		StatefulDeltaMutationBlocked: true,
 	})
-	if proofed.Stats.BlocksModified != 0 || proofed.Stats.TokensSaved != 0 ||
-		proofed.Stats.CapturedOutputBlocks != 0 || proofed.Stats.CodexExecEnvelopeBlocks != 0 ||
-		proofed.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search envelope must stay blocked after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+	proofedText := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 ||
+		proofed.Stats.CapturedOutputBlocks != 1 || proofed.Stats.CodexExecEnvelopeBlocks != 0 ||
+		proofedText == original ||
+		strings.HasPrefix(proofedText, "Chunk ID: live-regression") ||
+		!strings.Contains(proofedText, "[rg]") ||
+		!strings.Contains(proofedText, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(proofedText, "src/file_079.go:80:needle") ||
+		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("proofed stateful delta search envelope should compact through captured-output latch, stats=%+v text=%q", proofed.Stats, proofedText)
 	}
 }
 

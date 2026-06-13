@@ -6239,7 +6239,7 @@ func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFSearchCapProofKeepsCapturedOutputDeltaByteEqual(t *testing.T) {
+func TestWSPhaseFSearchCapProofCompactsCapturedOutputDelta(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -6284,25 +6284,25 @@ func TestWSPhaseFSearchCapProofKeepsCapturedOutputDeltaByteEqual(t *testing.T) {
 		t.Fatalf("proofed search delta handle: %v", err)
 	}
 	raw := string(env.Raw)
-	if replace ||
-		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
-		strings.Contains(raw, "[rg]") ||
-		!strings.Contains(raw, "src/file_089.go:90:needle") {
-		t.Fatalf("proofed captured-output search delta must remain byte-equal after live 400 proof: replace=%v raw=%s", replace, raw)
+	if !replace ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(raw, "[rg]") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("proofed captured-output search delta should compact through search-cap latch: replace=%v raw=%s", replace, raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "delta" ||
 		summary.DebugFacts["wss.previous_response_id"] != "true" ||
-		summary.Tokens.Saved != 0 ||
-		summary.MessagesCompressed != 0 {
-		t.Fatalf("proofed search delta should record no live savings: %+v", summary)
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("proofed search delta should record live search-cap savings: %+v", summary)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
-		t.Fatalf("proofed search delta must not record Layer 0 savings: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
+		t.Fatalf("proofed search delta should record Layer 0 savings: %+v", snap)
 	}
 }
 
-func TestWSPhaseFSearchCapProofKeepsSearchEnvelopeDeltaByteEqual(t *testing.T) {
+func TestWSPhaseFSearchCapProofCompactsSearchEnvelopeDeltaAsCapturedOutput(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -6348,21 +6348,21 @@ func TestWSPhaseFSearchCapProofKeepsSearchEnvelopeDeltaByteEqual(t *testing.T) {
 		t.Fatalf("proofed search envelope delta handle: %v", err)
 	}
 	raw := string(env.Raw)
-	if replace ||
-		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
-		strings.Contains(raw, "[rg]") ||
-		!strings.Contains(raw, "Chunk ID: search-envelope") ||
-		!strings.Contains(raw, "src/file_089.go:90:needle") {
-		t.Fatalf("proofed search envelope delta must remain byte-equal after live 400 proof: replace=%v raw=%s", replace, raw)
+	if !replace ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(raw, "[rg]") ||
+		strings.Contains(raw, "Chunk ID: search-envelope") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("proofed search envelope delta should compact through captured-output latch: replace=%v raw=%s", replace, raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "delta" ||
-		summary.Tokens.Saved != 0 ||
-		summary.MessagesCompressed != 0 {
-		t.Fatalf("proofed search envelope delta should record no live savings: %+v", summary)
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("proofed search envelope delta should record live search-cap savings: %+v", summary)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0EnvelopeBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
-		t.Fatalf("proofed search envelope delta must not record Layer 0 savings: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0EnvelopeBlocks != 0 || snap.ProxyLayer0TokensSaved <= 0 {
+		t.Fatalf("proofed search envelope delta should record captured-output Layer 0 savings only: %+v", snap)
 	}
 }
 

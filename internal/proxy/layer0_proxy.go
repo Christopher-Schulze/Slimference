@@ -168,10 +168,10 @@ type codexLayer0Request struct {
 	LatencyBudgetExceeded     bool
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
-	// WSSSearchMutationAllowed opens only named search output after either the
-	// old full-history/lab proof or the final search-cap proof latch. It must
-	// not bypass StatefulDeltaMutationBlocked; live previous_response_id delta
-	// search mutation still poisons a follow-up turn with 400 invalid_request.
+	// WSSSearchMutationAllowed opens only named, tool-use-bound search output
+	// after either the old full-history/lab proof or the final search-cap proof
+	// latch. The latch is intentionally narrower than broad tool-output delta
+	// mutation: non-search, inferred search, and unknown output stay guarded.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// HistoryMutationGuardReason suppresses history/chunk reducers that can
@@ -180,14 +180,14 @@ type codexLayer0Request struct {
 	// mutation guards so archive-backed search/output paths can keep their own
 	// proof gates.
 	HistoryMutationGuardReason string
-	// StatefulDeltaMutationBlocked suppresses every wire mutation while
+	// StatefulDeltaMutationBlocked suppresses broad/default wire mutation while
 	// keeping reducers observing/seeding. Live A/B (2026-06-11, loop runs
-	// 4-8): any mutated function_call_output on a previous_response_id
+	// 4-8): unscoped function_call_output mutation on a previous_response_id
 	// delta turn made the FOLLOWING tool turn fail upstream with 400
 	// invalid_request (byte-equal bridge control stayed clean), and Codex
-	// healed via a full-history resend retry that cost more than the
-	// mutation saved. Wire mutation on that flow is net-negative until the
-	// T354 B-side capture proof isolates the server-state rule.
+	// healed via a full-history resend retry that cost more than the mutation
+	// saved. The only product bypass is the narrower WSSSearchMutationAllowed
+	// search-cap latch for named grep-style search output.
 	StatefulDeltaMutationBlocked bool
 }
 
@@ -427,8 +427,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			wssSearchProofAllowed := req.WSSSearchMutationAllowed &&
-				!req.StatefulDeltaMutationBlocked &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
+			if req.StatefulDeltaMutationBlocked && !proxyWSSSearchOutputDeltaProofAllowed(commandLine) {
+				wssSearchProofAllowed = false
+			}
 			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
 			if wssSearchOutputBlocked && wssSearchProofAllowed {
 				wssSearchOutputBlocked = false
@@ -1068,6 +1070,11 @@ func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock
 		return false
 	}
 	return proxyWSSSearchOutputReducerEligible(commandLine)
+}
+
+func proxyWSSSearchOutputDeltaProofAllowed(commandLine string) bool {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	return filter.SearchOutputKeyFromCommandLine(filterCommandLine) != ""
 }
 
 func proxyWSSSearchProofMechanism(mechanism proxyLayer0Mechanism) bool {

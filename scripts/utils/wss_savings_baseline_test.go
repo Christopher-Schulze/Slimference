@@ -39,14 +39,14 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 	if report.Totals.SearchCapPositiveExtraFiles == 0 || report.Totals.SearchCapExtraTokens == 0 {
 		t.Fatalf("root search-cap proof savings missing: %+v", report.Totals)
 	}
-	if report.Totals.SearchDeltaGuardedFiles != 1 {
-		t.Fatalf("delta search guard gap not counted: %+v", report.Totals)
+	if report.Totals.SearchDeltaGuardedFiles != 0 {
+		t.Fatalf("delta search guard gap should be closed by search-cap proof latch: %+v", report.Totals)
 	}
 	if report.Totals.ProductGuardedDeltaRepeatedMisses != 1 {
 		t.Fatalf("guarded delta repeated-output observe miss not counted: %+v", report.Totals)
 	}
-	if !strings.Contains(strings.Join(report.Findings, "\n"), "search_delta_guarded_files=1") {
-		t.Fatalf("findings did not surface delta guard gap: %+v", report.Findings)
+	if strings.Contains(strings.Join(report.Findings, "\n"), "search_delta_guarded_files=") {
+		t.Fatalf("findings should not surface closed delta search guard gap: %+v", report.Findings)
 	}
 	if !strings.Contains(strings.Join(report.Findings, "\n"), "product_guarded_delta_observe_misses=1") {
 		t.Fatalf("findings did not surface guarded delta observe-only state: %+v", report.Findings)
