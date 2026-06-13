@@ -771,10 +771,10 @@ plain path-list outputs may compact only under the neutral `[plain paths]`
 label after a payload-only parser rejects search hits, source, diagnostics,
 prose, shell metacharacters, and oversized listings.
 Bounded names-only `ls`, conservative `find ... -print`, strict `fd` path
-lists, bounded `tree -L` listings, and verbose all-pass `go test` transcripts
-are separate stateful-safe classes: they may seed and later use exact
-archive-backed repeated-output savings, while source-like, search-like, rich
-`ls -l`, deep or unknown-flag `tree`, recursive, oversized, diagnostic,
+lists, bounded `tree -L` listings, and strict parser-backed all-pass test
+transcripts are separate stateful-safe classes: they may seed and later use
+exact archive-backed repeated-output savings, while source-like, search-like,
+rich `ls -l`, deep or unknown-flag `tree`, recursive, oversized, diagnostic,
 failing, data-race, or side-effect outputs still full-pass.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
 upstream `invalid_request_error` after broad WSS tool-output mutation even with
@@ -1063,9 +1063,9 @@ default; grep-style search, source-like, inferred search, broad `find`
 path-list payloads, and unsafe `fd` modes still fail open until separately
 re-certified. Exact `rg --files` path lists, strict `fd`/`fdfind` path lists,
 bounded names-only `ls`, conservative `find ... -print`, bounded `tree -L`
-listings, and verbose all-pass `go test` roll-call elision are allowed only as
-archive-backed path-list or stateful-safe exact evidence, not as semantic
-summaries. Metadata-less plain path-list
+listings, and strict parser-backed all-pass test roll-call elision are allowed
+only as archive-backed path-list or stateful-safe exact evidence, not as
+semantic summaries. Metadata-less plain path-list
 outputs are allowed only with a neutral label and payload-only strict parsing,
 never with a guessed `rg`, `find`, `fd`, `ls`, or `tree` command label.
 The strict

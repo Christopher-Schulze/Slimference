@@ -1880,6 +1880,9 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	if trimmedPayload == "" || len(payload) > wssSafeStatusToolOutputMaxBytes {
 		return false
 	}
+	if wssSafeTestAllPassOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -1902,8 +1905,6 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	case wssSafeGitLsFilesPathListOutput(commandLine, payload):
 		return true
 	case wssSafeWcOutput(commandLine, payload):
-		return true
-	case wssSafeGoTestAllPassOutput(commandLine, payload):
 		return true
 	case wssSafeLsListingOutput(commandLine, payload):
 		return true
@@ -2223,16 +2224,51 @@ func wssSafeWcOutput(commandLine, payload string) bool {
 	return ok
 }
 
-func wssSafeGoTestAllPassOutput(commandLine, payload string) bool {
+var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
+	filter.TryCompactGoTestJSON,
+	filter.TryCompactGoTest,
+	filter.TryCompactCargoTest,
+	filter.TryCompactCargoNextest,
+	filter.TryCompactCtest,
+	filter.TryCompactPytest,
+	filter.TryCompactUvRunPytest,
+	filter.TryCompactPoetryRunPytest,
+	filter.TryCompactHatchTest,
+	filter.TryCompactNoxTest,
+	filter.TryCompactPythonUnittest,
+	filter.TryCompactPhpunit,
+	filter.TryCompactGradleTest,
+	filter.TryCompactVitest,
+	filter.TryCompactJest,
+	filter.TryCompactDartTest,
+	filter.TryCompactFlutterTest,
+	filter.TryCompactDenoTest,
+}
+
+func wssSafeTestAllPassOutput(commandLine, payload string) bool {
 	argv := filter.ArgvForCapturedOutput(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
-	compacted, ok := filter.TryCompactGoTest(argv, []byte(payload))
-	if !ok {
+	stdout := []byte(payload)
+	for _, parse := range wssSafeTestAllPassParsers {
+		compacted, ok := parse(argv, stdout)
+		if ok && wssCompactedTestOutputOK(compacted) {
+			return true
+		}
+	}
+	compacted, ok := filter.TryCompactDotnet(argv, stdout)
+	return ok && strings.HasPrefix(string(compacted), "[dotnet test] ok") &&
+		!strings.Contains(strings.ToLower(string(compacted)), "warning")
+}
+
+func wssCompactedTestOutputOK(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	closeBracket := strings.Index(text, "]")
+	if !strings.HasPrefix(text, "[") || closeBracket < 0 {
 		return false
 	}
-	return strings.HasPrefix(string(compacted), "[go test] ok")
+	return strings.HasPrefix(strings.TrimSpace(text[closeBracket+1:]), "ok")
 }
 
 func wssSafeLsListingOutput(commandLine, payload string) bool {

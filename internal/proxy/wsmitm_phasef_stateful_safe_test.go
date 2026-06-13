@@ -40,6 +40,11 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	goTestAllPass := wssGoTestVerboseAllPassFixture(80)
 	goTestFailure := "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\n    broken_test.go:12: expected alpha got beta\nFAIL\tslimtest/lib\t0.006s\n"
 	goTestRace := "=== RUN   TestRacy\nWARNING: DATA RACE\n--- PASS: TestRacy (0.00s)\nPASS\nok  \tslimtest/lib\t0.006s\n"
+	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
+	pytestAllPass := wssPytestVerboseAllPassFixture(80)
+	jestAllPass := wssJestVerboseAllPassFixture(70)
+	dotnetAllPass := wssDotnetTestAllPassFixture(60)
+	dotnetWarning := "Passed!  - Failed: 0, Passed: 60, Skipped: 0, Total: 60, Duration: 1 s - Tests.dll (net8.0)\nWarning: diagnostics were emitted\n"
 
 	tests := []struct {
 		name      string
@@ -57,6 +62,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git ls-files path list", command: "git ls-files --cached", output: listingOutput, wantSafe: true},
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "go test verbose all-pass", command: "GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
+		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
+		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
+		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
+		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
 		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
@@ -78,6 +87,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "full git diff source", command: "git diff", output: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n", wantGuard: "full git diff must stay guarded"},
 		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantGuard: "go test failures stay guarded"},
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
+		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
+		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
+		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
+		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
 		{name: "find exec", command: "find internal -type f -exec cat {} ;", output: listingOutput, wantGuard: "find side-effect/rich predicates stay guarded"},
@@ -120,6 +133,38 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 				t.Fatalf("stateful safety=%v want %v (%s)", got, tt.wantSafe, tt.wantGuard)
 			}
 		})
+	}
+}
+
+func TestWSSStatefulSafeGenericTestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: pytest-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssPytestVerboseAllPassFixture(120)
+
+	env := parseWSJSON(t, wssGoTestRequestBody("resp-pytest-all-pass", "call_pytest_all_pass", "pytest -v", envelope))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle pytest all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history pytest all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[pytest] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "test_op_119") {
+		t.Fatalf("pytest all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe pytest all-pass should save without structured guard: %+v", summary)
 	}
 }
 
@@ -1014,6 +1059,46 @@ func wssGoTestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	out.WriteString("PASS\nok  \tslimtest/lib\t0.006s\n")
+	return out.String()
+}
+
+func wssCargoTestVerboseAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("   Compiling slimtest v0.1.0\n    Finished test profile\n     Running unittests src/lib.rs\n\nrunning ")
+	fmt.Fprintf(&out, "%d tests\n", count)
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "test alpha::op_%03d ... ok\n", i)
+	}
+	fmt.Fprintf(&out, "\ntest result: ok. %d passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n", count)
+	return out.String()
+}
+
+func wssPytestVerboseAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("============================= test session starts ==============================\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "tests/test_alpha.py::test_op_%03d PASSED                                  [ %2d%%]\n", i, i)
+	}
+	fmt.Fprintf(&out, "============================== %d passed in 0.42s ===============================\n", count)
+	return out.String()
+}
+
+func wssJestVerboseAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("PASS src/alpha.test.ts\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  \u2713 renders op %03d (2 ms)\n", i)
+	}
+	fmt.Fprintf(&out, "\nTests: %d passed, %d total\nTime: 1.2 s\n", count, count)
+	return out.String()
+}
+
+func wssDotnetTestAllPassFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  Passed Test%03d [1 ms]\n", i)
+	}
+	fmt.Fprintf(&out, "Passed!  - Failed: 0, Passed: %d, Skipped: 0, Total: %d, Duration: 1 s - Tests.dll (net8.0)\n", count, count)
 	return out.String()
 }
 
