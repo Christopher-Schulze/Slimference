@@ -179,6 +179,52 @@ func TestWSSLocalGapClassifiesMissingPayloadBytesAsPrefixBound(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapClassifiesTinyPayloadBytesAsSmallToolOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "tiny-tool-output",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 8427, Final: 8427, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                       "delta",
+			"wss.previous_response_id":                "true",
+			"wss.output_reduce_reason":                "disabled",
+			"wss.output_reduce_disabled_predicate":    "tool_output_context",
+			"wss.messages":                            "1",
+			"wss.tool_results":                        "1",
+			"wss.tool_result_bytes":                   "152",
+			"wss.tool_result_output_bytes":            "49",
+			"wss.source_tool_bytes":                   "0",
+			"wss.tool_command_classes":                "git_diff_stat=1",
+			"wss.output_reduce_input_tokens":          "8427",
+			"wss.output_reduce_eligible_input_tokens": "0",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "small_tool_output_context" ||
+		row.Source != "no_evidence:wss.tool_result_output_bytes<=255" ||
+		row.Tokens != 8427 ||
+		row.Requests != 1 ||
+		row.OutputReduceInputTokens != 8427 ||
+		row.ToolCommandClasses["git_diff_stat"] != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad small-tool-output row: %+v", row)
+	}
+}
+
 func TestWSSLocalGapClassifiesNoEvidenceDownstreamGuardBeforeOutputReduceDisabled(t *testing.T) {
 	t.Parallel()
 

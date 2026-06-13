@@ -199,7 +199,10 @@ safely recoverable. Actionable potential separates known guard work from
 no-evidence instrumentation gaps and safety guards; rows are diagnostic and not
 additive unless they share the same token_basis.`
 
-const wssLocalGapSourceContextMinBytes = 4096
+const (
+	wssLocalGapSourceContextMinBytes  = 4096
+	wssLocalGapTinyToolOutputMaxBytes = 255
+)
 
 func runWSSLocalGap(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSLocalGapFlags(args)
@@ -1038,6 +1041,11 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no_evidence:missing_tool_output_bytes_prefix_bound",
 			"request token mass is dominated by protected prompt-cache prefix, not measurable tool-output bytes",
 			"keep payload-byte instrumentation on; do not widen Layer-0 reducers until non-prefix output bytes are measured"
+	case toolResults != "" && toolResults != "0" && toolResultOutputBytesFact != "" && toolResultOutputBytes > 0 && toolResultOutputBytes <= wssLocalGapTinyToolOutputMaxBytes:
+		return "small_tool_output_context",
+			"no_evidence:wss.tool_result_output_bytes<=255",
+			"measured tool-output payload is too small for a net-positive archive or structured replacement",
+			"ignore as a request-token savings candidate; rely on larger/repeated outputs or prefix-safe mechanisms"
 	case toolResults == "0" && sourceToolBytes == "0":
 		return "not_tool_output_reducer_target",
 			"no_evidence:no_tool_output",
