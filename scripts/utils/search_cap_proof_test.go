@@ -32,8 +32,12 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "candidate_4x4" {
 		t.Fatalf("expected 4x4 selected proof candidate: %+v", report)
 	}
-	if report.DefaultReplay.ReducerTokensSaved <= 0 || report.SelectedCandidate.ExtraReducerTokens <= 0 {
-		t.Fatalf("expected positive default and extra replay savings: %+v", report)
+	if report.ProductReplay.SearchCapProofLatch ||
+		!report.ProductReplay.GatePassed ||
+		report.DefaultReplay.ReducerTokensSaved <= 0 ||
+		report.SelectedCandidate.ExtraReducerTokens <= 0 ||
+		report.SelectedCandidate.ProductExtraReducerTokens <= 0 {
+		t.Fatalf("expected product baseline plus positive default and candidate replay savings: %+v", report)
 	}
 	if len(report.Candidates) != 2 || !report.Candidates[0].GatePassed || !report.Candidates[1].GatePassed {
 		t.Fatalf("unexpected candidate gates: %+v", report.Candidates)
@@ -82,8 +86,51 @@ func TestRunSearchCapProofFailsWithoutPassingCandidate(t *testing.T) {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
 	if report.GatePassed || report.SelectedCandidate != nil ||
-		!strings.Contains(strings.Join(report.GateFailures, "\n"), "no candidate passed") {
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "no candidate or default retention-floor latch passed") {
 		t.Fatalf("expected no-candidate proof failure: %+v", report)
+	}
+}
+
+func TestRunSearchCapProofPromotesDefaultRetentionFloor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofBroadDeltaFrames(t, path, "search-cap-proof-default-floor", 100)
+
+	var stdout, stderr bytes.Buffer
+	code := runSearchCapProof([]string{
+		"--frames", path,
+		"--candidate", "4:4",
+		"--candidate", "8:6",
+		"--min-candidate-retained-pct", "50",
+		"--min-search-outputs", "1",
+		"--min-extra-reducer-tokens", "1",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runSearchCapProof default floor code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report searchCapProofReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "default_retention_floor" {
+		t.Fatalf("expected default retention floor selection: %+v", report)
+	}
+	if report.ProductReplay.SearchCapProofLatch ||
+		report.ProductReplay.SearchMutatedRequests != 0 ||
+		!report.DefaultReplay.SearchCapProofLatch ||
+		report.DefaultReplay.SearchMutatedRequests == 0 ||
+		report.SelectedCandidate.ExtraReducerTokens <= 0 ||
+		report.SelectedCandidate.ProductExtraReducerTokens != report.SelectedCandidate.ExtraReducerTokens ||
+		report.SelectedCandidate.MinRetainedPct != 50 ||
+		report.SelectedCandidate.MatchRetentionPct < 50 {
+		t.Fatalf("default retention floor did not prove product-safe positive savings: %+v", report)
+	}
+	for _, candidate := range report.Candidates {
+		if candidate.GatePassed || !strings.Contains(strings.Join(candidate.GateFailures, "\n"), "profile did not save more bytes than default") {
+			t.Fatalf("aggressive candidates should fail without blocking default floor: %+v", report.Candidates)
+		}
 	}
 }
 
@@ -155,6 +202,28 @@ func writeSearchCapProofFullHistoryFrames(t *testing.T, path, session string, li
 		},
 		"stream": true,
 	}))
+}
+
+func writeSearchCapProofBroadDeltaFrames(t *testing.T, path, session string, lines int) {
+	t.Helper()
+	callID := session + "-search-1"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": `{"cmd":"cd /repo/search && rg -n needle src"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(
+			callID,
+			session,
+			session+"-response",
+			wssABReplayBroadSearchOutputFixture("needle", lines),
+		)),
+	)
 }
 
 func TestRunSearchCapProofRejectsMissingCandidate(t *testing.T) {

@@ -15,6 +15,7 @@ type searchCapProofReport struct {
 	MinCandidateRetainedPct float64                      `json:"min_candidate_retained_pct,omitempty"`
 	MinSearchOutputs        int                          `json:"min_search_outputs,omitempty"`
 	MinExtraReducerTokens   int                          `json:"min_extra_reducer_tokens,omitempty"`
+	ProductReplay           searchCapProofReplaySummary  `json:"product_replay"`
 	DefaultReplay           searchCapProofReplaySummary  `json:"default_replay"`
 	SelectedCandidate       *searchCapProofSelection     `json:"selected_candidate,omitempty"`
 	Candidates              []searchCapProofCandidateRow `json:"candidates"`
@@ -23,29 +24,33 @@ type searchCapProofReport struct {
 }
 
 type searchCapProofCandidateRow struct {
-	Name                    string                       `json:"name"`
-	MaxFilesShown           int                          `json:"max_files_shown"`
-	MaxMatchesPerFile       int                          `json:"max_matches_per_file"`
-	MinRetainedPct          float64                      `json:"min_retained_pct,omitempty"`
-	Applied                 bool                         `json:"applied"`
-	SavedBytesVsDefault     int                          `json:"saved_bytes_vs_default"`
-	MatchRetentionPct       float64                      `json:"match_retention_pct"`
-	OmittedMatchesVsDefault int                          `json:"omitted_matches_vs_default"`
-	ExtraReducerTokens      int                          `json:"extra_reducer_tokens,omitempty"`
-	Replay                  *searchCapProofReplaySummary `json:"replay,omitempty"`
-	GatePassed              bool                         `json:"gate_passed"`
-	GateFailures            []string                     `json:"gate_failures,omitempty"`
+	Name                      string                       `json:"name"`
+	MaxFilesShown             int                          `json:"max_files_shown"`
+	MaxMatchesPerFile         int                          `json:"max_matches_per_file"`
+	MinRetainedPct            float64                      `json:"min_retained_pct,omitempty"`
+	Applied                   bool                         `json:"applied"`
+	SavedBytesVsDefault       int                          `json:"saved_bytes_vs_default"`
+	MatchRetentionPct         float64                      `json:"match_retention_pct"`
+	OmittedMatchesVsDefault   int                          `json:"omitted_matches_vs_default"`
+	ExtraReducerTokens        int                          `json:"extra_reducer_tokens,omitempty"`
+	ProductExtraReducerTokens int                          `json:"product_extra_reducer_tokens,omitempty"`
+	ProductExtraBytes         int                          `json:"product_extra_bytes,omitempty"`
+	Replay                    *searchCapProofReplaySummary `json:"replay,omitempty"`
+	GatePassed                bool                         `json:"gate_passed"`
+	GateFailures              []string                     `json:"gate_failures,omitempty"`
 }
 
 type searchCapProofSelection struct {
-	Name                    string  `json:"name"`
-	MaxFilesShown           int     `json:"max_files_shown"`
-	MaxMatchesPerFile       int     `json:"max_matches_per_file"`
-	MinRetainedPct          float64 `json:"min_retained_pct,omitempty"`
-	ExtraReducerTokens      int     `json:"extra_reducer_tokens"`
-	SavedBytesVsDefault     int     `json:"saved_bytes_vs_default"`
-	MatchRetentionPct       float64 `json:"match_retention_pct"`
-	OmittedMatchesVsDefault int     `json:"omitted_matches_vs_default"`
+	Name                      string  `json:"name"`
+	MaxFilesShown             int     `json:"max_files_shown"`
+	MaxMatchesPerFile         int     `json:"max_matches_per_file"`
+	MinRetainedPct            float64 `json:"min_retained_pct,omitempty"`
+	ExtraReducerTokens        int     `json:"extra_reducer_tokens"`
+	ProductExtraReducerTokens int     `json:"product_extra_reducer_tokens,omitempty"`
+	ProductExtraBytes         int     `json:"product_extra_bytes,omitempty"`
+	SavedBytesVsDefault       int     `json:"saved_bytes_vs_default"`
+	MatchRetentionPct         float64 `json:"match_retention_pct"`
+	OmittedMatchesVsDefault   int     `json:"omitted_matches_vs_default"`
 }
 
 type searchCapProofReplaySummary struct {
@@ -154,6 +159,14 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
+	productReplay, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                flags.framesPath,
+		failOnLost:          true,
+		failOnUpstreamError: true,
+	})
+	if err != nil {
+		return searchCapProofReport{}, err
+	}
 	defaultReplay, err := loadWSSABReplayReport(wssABReplayFlags{
 		path:                    flags.framesPath,
 		failOnLost:              true,
@@ -171,6 +184,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		MinCandidateRetainedPct: flags.minCandidateRetainedPct,
 		MinSearchOutputs:        flags.minSearchOutputs,
 		MinExtraReducerTokens:   flags.minExtraReducerTokens,
+		ProductReplay:           searchCapProofReplaySummaryFrom(productReplay),
 		DefaultReplay:           searchCapProofReplaySummaryFrom(defaultReplay),
 		GatePassed:              true,
 	}
@@ -179,6 +193,9 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	if flags.minSearchOutputs > 0 && profile.SearchOutputs < flags.minSearchOutputs {
 		report.GateFailures = append(report.GateFailures, fmt.Sprintf("search outputs %d < min %d", profile.SearchOutputs, flags.minSearchOutputs))
+	}
+	if !productReplay.GatePassed {
+		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("product replay", productReplay.GateFailures)...)
 	}
 	if !defaultReplay.GatePassed {
 		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("default replay", defaultReplay.GateFailures)...)
@@ -213,6 +230,8 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 			summary := searchCapProofReplaySummaryFrom(replay)
 			candidate.Replay = &summary
 			candidate.ExtraReducerTokens = replay.ReducerTokensSaved - defaultReplay.ReducerTokensSaved
+			candidate.ProductExtraReducerTokens = replay.ReducerTokensSaved - productReplay.ReducerTokensSaved
+			candidate.ProductExtraBytes = replay.BytesSaved - productReplay.BytesSaved
 			if !replay.GatePassed {
 				candidate.GateFailures = append(candidate.GateFailures, prefixedSearchCapProofFailures("replay", replay.GateFailures)...)
 			}
@@ -224,24 +243,62 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		report.Candidates = append(report.Candidates, candidate)
 		if candidate.GatePassed && searchCapProofCandidateBeatsSelection(candidate, selected) {
 			selected = &searchCapProofSelection{
-				Name:                    candidate.Name,
-				MaxFilesShown:           candidate.MaxFilesShown,
-				MaxMatchesPerFile:       candidate.MaxMatchesPerFile,
-				MinRetainedPct:          candidate.MinRetainedPct,
-				ExtraReducerTokens:      candidate.ExtraReducerTokens,
-				SavedBytesVsDefault:     candidate.SavedBytesVsDefault,
-				MatchRetentionPct:       candidate.MatchRetentionPct,
-				OmittedMatchesVsDefault: candidate.OmittedMatchesVsDefault,
+				Name:                      candidate.Name,
+				MaxFilesShown:             candidate.MaxFilesShown,
+				MaxMatchesPerFile:         candidate.MaxMatchesPerFile,
+				MinRetainedPct:            candidate.MinRetainedPct,
+				ExtraReducerTokens:        candidate.ExtraReducerTokens,
+				ProductExtraReducerTokens: candidate.ProductExtraReducerTokens,
+				ProductExtraBytes:         candidate.ProductExtraBytes,
+				SavedBytesVsDefault:       candidate.SavedBytesVsDefault,
+				MatchRetentionPct:         candidate.MatchRetentionPct,
+				OmittedMatchesVsDefault:   candidate.OmittedMatchesVsDefault,
 			}
 		}
 	}
 	if selected == nil {
-		report.GateFailures = append(report.GateFailures, "no candidate passed profile retention, replay lost=0, upstream-error, and positive replay-savings gates")
+		if len(report.GateFailures) == 0 {
+			selected = searchCapProofDefaultRetentionFloorSelection(profile.Profiles[0], productReplay, defaultReplay, flags)
+		}
+		if selected == nil {
+			report.GateFailures = append(report.GateFailures, "no candidate or default retention-floor latch passed profile retention, replay lost=0, upstream-error, and positive replay-savings gates")
+		} else {
+			report.SelectedCandidate = selected
+		}
 	} else if len(report.GateFailures) == 0 {
 		report.SelectedCandidate = selected
 	}
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func searchCapProofDefaultRetentionFloorSelection(row searchCapProfileRow, productReplay, defaultReplay wssABReplayReport, flags searchCapProofFlags) *searchCapProofSelection {
+	if !row.Applied || !productReplay.GatePassed || !defaultReplay.GatePassed || !searchCapReplayUsesProductLatch(searchCapProofReplaySummaryFrom(defaultReplay)) {
+		return nil
+	}
+	if flags.minCandidateRetainedPct > 0 && row.MatchRetentionPct+1e-9 < flags.minCandidateRetainedPct {
+		return nil
+	}
+	extraTokens := defaultReplay.ReducerTokensSaved - productReplay.ReducerTokensSaved
+	if extraTokens < flags.minExtraReducerTokens {
+		return nil
+	}
+	extraBytes := defaultReplay.BytesSaved - productReplay.BytesSaved
+	if extraTokens <= 0 && extraBytes <= 0 {
+		return nil
+	}
+	return &searchCapProofSelection{
+		Name:                      "default_retention_floor",
+		MaxFilesShown:             row.MaxFilesShown,
+		MaxMatchesPerFile:         row.MaxMatchesPerFile,
+		MinRetainedPct:            row.MinRetainedPct,
+		ExtraReducerTokens:        extraTokens,
+		ProductExtraReducerTokens: extraTokens,
+		ProductExtraBytes:         extraBytes,
+		SavedBytesVsDefault:       extraBytes,
+		MatchRetentionPct:         row.MatchRetentionPct,
+		OmittedMatchesVsDefault:   row.OmittedMatchesVsDefault,
+	}
 }
 
 func searchCapProofProfileFailures(row searchCapProfileRow, flags searchCapProofFlags) []string {
@@ -315,6 +372,12 @@ func writeSearchCapProofText(w io.Writer, report searchCapProofReport) {
 	if report.MinExtraReducerTokens > 0 {
 		fmt.Fprintf(w, "min extra tok:  %d\n", report.MinExtraReducerTokens)
 	}
+	fmt.Fprintf(w, "product replay: reducer_tokens=%d bytes_saved=%d lost=%d upstream_errors=%d gate=%s\n",
+		report.ProductReplay.ReducerTokensSaved,
+		report.ProductReplay.BytesSaved,
+		report.ProductReplay.Lost,
+		report.ProductReplay.UpstreamErrorFrames,
+		passFail(report.ProductReplay.GatePassed))
 	fmt.Fprintf(w, "default replay: reducer_tokens=%d bytes_saved=%d lost=%d upstream_errors=%d gate=%s\n",
 		report.DefaultReplay.ReducerTokensSaved,
 		report.DefaultReplay.BytesSaved,
@@ -322,12 +385,13 @@ func writeSearchCapProofText(w io.Writer, report searchCapProofReport) {
 		report.DefaultReplay.UpstreamErrorFrames,
 		passFail(report.DefaultReplay.GatePassed))
 	if report.SelectedCandidate != nil {
-		fmt.Fprintf(w, "selected candidate: %s (%d/%d, min %.2f%%, extra reducer tokens %+d, %.2f%% retained)\n",
+		fmt.Fprintf(w, "selected candidate: %s (%d/%d, min %.2f%%, extra reducer tokens %+d, product extra %+d, %.2f%% retained)\n",
 			report.SelectedCandidate.Name,
 			report.SelectedCandidate.MaxFilesShown,
 			report.SelectedCandidate.MaxMatchesPerFile,
 			report.SelectedCandidate.MinRetainedPct,
 			report.SelectedCandidate.ExtraReducerTokens,
+			report.SelectedCandidate.ProductExtraReducerTokens,
 			report.SelectedCandidate.MatchRetentionPct)
 	}
 	fmt.Fprintf(w, "gate:           %s\n", passFail(report.GatePassed))
@@ -344,9 +408,10 @@ func writeSearchCapProofText(w io.Writer, report searchCapProofReport) {
 			candidate.MatchRetentionPct,
 			candidate.OmittedMatchesVsDefault)
 		if candidate.Replay != nil {
-			fmt.Fprintf(w, "  replay:             reducer_tokens=%d extra=%+d bytes_saved=%d lost=%d upstream_errors=%d gate=%s\n",
+			fmt.Fprintf(w, "  replay:             reducer_tokens=%d extra=%+d product_extra=%+d bytes_saved=%d lost=%d upstream_errors=%d gate=%s\n",
 				candidate.Replay.ReducerTokensSaved,
 				candidate.ExtraReducerTokens,
+				candidate.ProductExtraReducerTokens,
 				candidate.Replay.BytesSaved,
 				candidate.Replay.Lost,
 				candidate.Replay.UpstreamErrorFrames,

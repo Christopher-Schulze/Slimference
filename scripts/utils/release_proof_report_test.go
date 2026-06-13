@@ -209,6 +209,38 @@ func TestReleaseProofReportAcceptsFocusedSearchCapProofArtifact(t *testing.T) {
 	}
 }
 
+func TestReleaseProofReportAcceptsDefaultRetentionFloorSearchCapProof(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "release-search-cap-default-floor")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeCompleteReleaseProofRows(t, matrixPath, framesPath)
+	searchCapProofPath := filepath.Join(dir, "search-cap-proof-default-floor.json")
+	writeReleaseSearchCapProofReportWithExtras(t, searchCapProofPath, true, "default_retention_floor", "default_retention_floor", 6, 8)
+	codexBefore, codexAfter := writeReleaseCodexStatusProofPair(t, dir)
+
+	report, err := loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: searchCapProofPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.SearchCapProof == nil || !report.SearchCapProof.OK {
+		t.Fatalf("default retention-floor search-cap proof should pass: %+v", report)
+	}
+	if report.SearchCapProof.SelectedCandidate != "default_retention_floor" ||
+		report.SearchCapProof.MaxFilesShown != 30 ||
+		report.SearchCapProof.MaxMatchesPerFile != 20 ||
+		report.SearchCapProof.TotalExtraReducerTokens != 14 {
+		t.Fatalf("unexpected default floor summary: %+v", report.SearchCapProof)
+	}
+}
+
 func TestReleaseProofReportRejectsBadSearchCapProofArtifact(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -962,6 +994,10 @@ func writeReleaseSearchCapContradictoryProofReport(t *testing.T, path string) {
 func releaseSearchCapCapture(id, client, candidate string, extraTokens int, minRetention float64, minOutputs, minExtra int, retention float64) wssProofMatrixCapture {
 	files := 25
 	matches := 15
+	if candidate == "default_retention_floor" {
+		files = 30
+		matches = 20
+	}
 	if strings.Contains(candidate, "30x15") {
 		files = 30
 	}

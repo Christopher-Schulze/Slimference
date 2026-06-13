@@ -652,6 +652,9 @@ func releaseSearchCapSelectedReplay(proof *searchCapProofReport) *searchCapProof
 	if proof == nil || proof.SelectedCandidate == nil {
 		return nil
 	}
+	if strings.TrimSpace(proof.SelectedCandidate.Name) == "default_retention_floor" {
+		return &proof.DefaultReplay
+	}
 	for i := range proof.Candidates {
 		candidate := &proof.Candidates[i]
 		if strings.TrimSpace(candidate.Name) == strings.TrimSpace(proof.SelectedCandidate.Name) &&

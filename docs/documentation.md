@@ -1170,15 +1170,18 @@ choose a replay candidate without reading raw search output.
 `go run ./scripts/utils search-cap-proof` is the combined promotion gate for
 that downstream step. It requires explicit `--candidate files:matches` values,
 loads the same WSS frame profile, can require a minimum number of resolved
-search outputs with `--min-search-outputs`, runs default replay, then runs each
-profile-passing candidate through WSS A/B replay with `lost=0`, upstream-error,
-	and configurable extra reducer-token gates (`--min-extra-reducer-tokens`,
-	default 1). Search-cap proof replays enable the product search-cap latch, not
-	the lab delta bypass, and record reducer identity in JSON; the final runtime
-	latch rejects artifacts that do not carry
-	`required_reducer_hits.captured_output > 0`. Its JSON
-emits only content-free profile/replay counters plus the selected candidate.
-Candidates that fail breadth, retention, or replay stay rejected without changing
+search outputs with `--min-search-outputs`, runs a current-product replay, runs
+the proof-latched default/floor replay, then runs each profile-passing candidate
+through WSS A/B replay with `lost=0`, upstream-error, and configurable extra
+reducer-token gates (`--min-extra-reducer-tokens`, default 1). Search-cap proof
+replays enable the product search-cap latch, not the lab delta bypass, and
+record reducer identity in JSON; the final runtime latch rejects artifacts that
+do not carry `required_reducer_hits.captured_output > 0`. Its JSON emits only
+content-free profile/replay counters plus the selected candidate. Candidate caps
+must beat the proof-latched default replay; when no sharper cap beats default,
+`default_retention_floor` may be selected only if the proof-latched default
+replay itself beats the current product replay while satisfying the configured
+retention/output/error gates. Failed candidates stay rejected without changing
 product defaults.
 Focused `wss-proof-matrix` can now run that same promotion proof for
 `search_loop` rows when passed `--search-cap-candidate files:matches` values.
@@ -3094,12 +3097,12 @@ request turn and either replay-mutated that named search output or captured an
 already-mutated named search-output request, preventing repeat-read, generic
 tool-output, or unmutated search fixtures from standing in for search proof.
 When `--search-cap-candidate` is present, each in-scope `search_loop` row also
-runs the combined `search-cap-proof` gate and fails closed unless a candidate
-	passes profile retention, resolved-output breadth, replay `lost=0`,
-	upstream-error, product search-cap latch proof, and extra reducer-token
-checks. The focused matrix gate defaults to the release minima: 40% retained
-matches, at least two resolved search outputs, and at least +1 extra reducer
-token versus default replay. Rows outside
+runs the combined `search-cap-proof` gate and fails closed unless a candidate or
+`default_retention_floor` passes profile retention, resolved-output breadth,
+replay `lost=0`, upstream-error, product search-cap latch proof, and extra
+reducer-token checks. The focused matrix gate defaults to the release minima:
+40% retained matches, at least two resolved search outputs, and at least +1
+extra reducer token versus the current product replay. Rows outside
 `search_loop` do not satisfy that search-cap proof requirement. Matrix
 coverage, client mix, workload, reducer-hit, and positive-savings aggregates are
 counted only from rows whose own gate passed; failed rows remain visible in
