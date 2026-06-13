@@ -45,6 +45,8 @@ type codexCaptureRunFlags struct {
 	abVariant                     string
 	exitMarker                    string
 	exitMarkerCount               int
+	minFunctionCalls              int
+	minFunctionCallOutputs        int
 	quietCodexOutput              bool
 	restartAfterCompletion        int
 	restartAfterMutatedCompletion int
@@ -323,6 +325,11 @@ Flags:
                              The marker is also watched in captured function_call_output
                              frames, so quiet TUI output cannot hide it.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
+  --min-function-calls N     Fail the capture unless at least N server-side
+                             function_call items were observed
+  --min-function-call-outputs N
+                             Fail the capture unless at least N client-side
+                             function_call_output input items were observed
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
   --restart-after-completion N
                              Lab/proof only: restart the managed daemon after
@@ -500,6 +507,11 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		writeCodexCaptureRunSummary(stdout, result)
 		return 3
 	}
+	if failures := validateCodexCaptureLiveRequirements(flags, result.LiveDelta); len(failures) > 0 {
+		fmt.Fprintf(stderr, "validate live requirements: %s\n", strings.Join(failures, "; "))
+		writeCodexCaptureRunSummary(stdout, result)
+		return 3
+	}
 	writeCodexCaptureRunSummary(stdout, result)
 	if !replay.GatePassed {
 		return 3
@@ -513,6 +525,23 @@ func validateCodexCaptureExpectedReducers(expected []string, live *codexCaptureL
 		return nil
 	}
 	_, failures := validateExpectedReducers(expected, live)
+	return failures
+}
+
+func validateCodexCaptureLiveRequirements(flags codexCaptureRunFlags, live *codexCaptureLiveDelta) []string {
+	var failures []string
+	if flags.minFunctionCalls <= 0 && flags.minFunctionCallOutputs <= 0 {
+		return nil
+	}
+	if live == nil {
+		return []string{"live delta is missing"}
+	}
+	if flags.minFunctionCalls > 0 && live.WireServerFunctionCalls < int64(flags.minFunctionCalls) {
+		failures = append(failures, fmt.Sprintf("wire_server_function_call_items=%d below required minimum %d", live.WireServerFunctionCalls, flags.minFunctionCalls))
+	}
+	if flags.minFunctionCallOutputs > 0 && live.WireFunctionCallOutputs < int64(flags.minFunctionCallOutputs) {
+		failures = append(failures, fmt.Sprintf("wire_function_call_output_items=%d below required minimum %d", live.WireFunctionCallOutputs, flags.minFunctionCallOutputs))
+	}
 	return failures
 }
 
@@ -880,7 +909,8 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
 			arg == "--model", arg == "--ab-pair-id", arg == "--ab-variant",
-			arg == "--exit-marker", arg == "--resource-profile-proof":
+			arg == "--exit-marker", arg == "--resource-profile-proof",
+			arg == "--min-function-calls", arg == "--min-function-call-outputs":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", arg)
 			}
@@ -1066,6 +1096,24 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 		flags.abVariant = strings.ToLower(value)
 	case "--exit-marker":
 		flags.exitMarker = value
+	case "--min-function-calls":
+		n, err := parseNonNegativeIntFlag("--min-function-calls", value)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("--min-function-calls must be > 0")
+		}
+		flags.minFunctionCalls = n
+	case "--min-function-call-outputs":
+		n, err := parseNonNegativeIntFlag("--min-function-call-outputs", value)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("--min-function-call-outputs must be > 0")
+		}
+		flags.minFunctionCallOutputs = n
 	default:
 		return fmt.Errorf("unknown flag: %s", name)
 	}

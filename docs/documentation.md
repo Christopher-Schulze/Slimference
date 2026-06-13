@@ -1293,9 +1293,14 @@ defaults off because top-level `tools` are model-facing capability context in
 Codex WSS. The old offline replay matrix proved byte-shape and A/B context
 comparability only; the 2026-06-13 live scoped CLI command proof showed that
 tool-schema elision can suppress real `command_execution` tool calls even when
-the request succeeds. The lab/proof switch still stores only hash keys for the
-cache scope and canonical tool-schema surface, seeds on full forwarded tool
-schemas, and deletes repeated top-level `tools` only on later
+the request succeeds. A 2026-06-13 tool-only scoped proof reproduced the risk
+more narrowly: the prefix-elided run saved 3,212 live input tokens but observed
+only 2 server `function_call` items and 2 client `function_call_output` items
+for a 3-command workload, while the no-elision control observed 6 and 7
+respectively.
+The lab/proof switch still stores only hash keys for the cache scope and
+canonical tool-schema surface, seeds on full forwarded tool schemas, and deletes
+repeated top-level `tools` only on later
 `previous_response_id` requests in the same `prompt_cache_key` scope. Top-level
 `instructions` stay on the wire because Codex WSS rejects previous-response
 requests without them. The legacy env-only
@@ -3100,6 +3105,10 @@ promotion also needs the corresponding WSS frame capture for
 `SLIMFERENCE_WSS_AB_CAPTURE` for that Desktop session. This closes Desktop cases
 where `codex-capture-run` cannot own the app process but the proof still needs
 reducer-specific live counters before export into `tests/fixtures/live_corpus`.
+Tool-heavy focused proofs can also pass `--min-function-calls` and
+`--min-function-call-outputs`; the runner validates those live wire counters
+after appending the matrix row, so negative evidence such as suppressed tool
+calls remains auditable while the proof exits non-zero.
 Focused `wss-proof-matrix` runs with `--required-workload` evaluate only rows
 matching the requested workload classes. When `--expected-reducer` is also
 passed, those command-line reducer expectations are authoritative for the

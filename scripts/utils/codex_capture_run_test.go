@@ -43,6 +43,8 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--model", "gpt-5.5",
 		"--exit-marker", "DONE",
 		"--exit-marker-count=2",
+		"--min-function-calls=3",
+		"--min-function-call-outputs", "3",
 		"--restart-after-completion=2",
 		"--restart-after-mutated-completion=1",
 		"--quiet-codex-output",
@@ -80,6 +82,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 	if flags.exitMarkerCount != 2 {
 		t.Fatalf("exitMarkerCount = %d", flags.exitMarkerCount)
+	}
+	if flags.minFunctionCalls != 3 || flags.minFunctionCallOutputs != 3 {
+		t.Fatalf("min function call gates = %d / %d", flags.minFunctionCalls, flags.minFunctionCallOutputs)
 	}
 	if flags.restartAfterCompletion != 2 {
 		t.Fatalf("restartAfterCompletion = %d", flags.restartAfterCompletion)
@@ -181,6 +186,16 @@ func TestParseCodexCaptureRunFlagsRejectsBadRoute(t *testing.T) {
 			name: "zero port",
 			args: []string{"--port=0", "--", "prompt"},
 			want: "--port must be 1-65535",
+		},
+		{
+			name: "zero min function calls",
+			args: []string{"--min-function-calls=0", "--", "prompt"},
+			want: "--min-function-calls must be > 0",
+		},
+		{
+			name: "zero min function outputs",
+			args: []string{"--min-function-call-outputs", "0", "--", "prompt"},
+			want: "--min-function-call-outputs must be > 0",
 		},
 	}
 	for _, tt := range tests {
@@ -1109,6 +1124,37 @@ func TestValidateCodexCaptureExpectedReducers(t *testing.T) {
 	})
 	if len(failures) != 0 {
 		t.Fatalf("tool-output surface signals should pass, got %v", failures)
+	}
+}
+
+func TestValidateCodexCaptureLiveRequirements(t *testing.T) {
+	t.Parallel()
+	flags := codexCaptureRunFlags{
+		minFunctionCalls:       3,
+		minFunctionCallOutputs: 3,
+	}
+	failures := validateCodexCaptureLiveRequirements(flags, &codexCaptureLiveDelta{
+		WireServerFunctionCalls: 2,
+		WireFunctionCallOutputs: 3,
+	})
+	if len(failures) != 1 || !strings.Contains(failures[0], "wire_server_function_call_items=2 below required minimum 3") {
+		t.Fatalf("expected function-call minimum failure, got %v", failures)
+	}
+
+	failures = validateCodexCaptureLiveRequirements(flags, &codexCaptureLiveDelta{
+		WireServerFunctionCalls: 3,
+		WireFunctionCallOutputs: 2,
+	})
+	if len(failures) != 1 || !strings.Contains(failures[0], "wire_function_call_output_items=2 below required minimum 3") {
+		t.Fatalf("expected function-call-output minimum failure, got %v", failures)
+	}
+
+	failures = validateCodexCaptureLiveRequirements(flags, &codexCaptureLiveDelta{
+		WireServerFunctionCalls: 3,
+		WireFunctionCallOutputs: 3,
+	})
+	if len(failures) != 0 {
+		t.Fatalf("live requirements should pass, got %v", failures)
 	}
 }
 
