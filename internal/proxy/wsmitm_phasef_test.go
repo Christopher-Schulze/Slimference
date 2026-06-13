@@ -1520,6 +1520,91 @@ func TestWSPhaseFRecoveryChainsFullHistoryWhenPreviousChainMissing(t *testing.T)
 	}
 }
 
+func TestWSPhaseFToolPruneRecoveryRetriesFullSchemaAndMarksCooldown(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-recovery"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	var retryPayloads [][]byte
+	adapter.setRecoveryWriter(func(payload []byte) error {
+		retryPayloads = append(retryPayloads, append([]byte(nil), payload...))
+		return nil
+	})
+
+	req := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-recovery",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue with the available tools.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || !replace {
+		t.Fatalf("tool-prune request replace=%v err=%v", replace, err)
+	}
+	if body := string(req.Body); strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("request should prune only ColdTool before upstream: %s", body)
+	}
+
+	upstreamErr := parseWSJSON(t, map[string]any{
+		"type":   string(wsmitm.FrameKindError),
+		"status": 400,
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"message": "unknown tool ColdTool",
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &upstreamErr)
+	if !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
+		t.Fatalf("missing-tool invalid request should be consumed for full-schema retry, replace=%v err=%v", replace, err)
+	}
+	if len(retryPayloads) != 1 {
+		t.Fatalf("retry payloads=%d want 1", len(retryPayloads))
+	}
+	retryEnv, parseErr := wsmitm.Parse(retryPayloads[0])
+	if parseErr != nil {
+		t.Fatalf("parse retry payload: %v", parseErr)
+	}
+	retryBody, _, ok := wsRequestBody(&retryEnv)
+	if !ok {
+		t.Fatalf("retry payload has no request body: %s", retryPayloads[0])
+	}
+	if body := string(retryBody); !strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("tool-prune recovery must retry with full tool schema: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.MissTotal != 1 || snap.RetryTotal != 1 || snap.DisabledSessions != 1 {
+		t.Fatalf("tool-prune recovery must mark miss/retry/cooldown: %+v", snap)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].BypassReason != "wss_upstream_recovery_retry" {
+		t.Fatalf("missing tool-prune recovery summary: %+v", summaries)
+	}
+	if summaries[0].DebugFacts["wss.recovery.tool_prune_applied"] != "true" ||
+		summaries[0].DebugFacts["wss.recovery.tool_prune_missing_tool"] != "true" ||
+		summaries[0].DebugFacts["wss.recovery.tool_prune_pruned"] != "1" {
+		t.Fatalf("bad tool-prune recovery facts: %+v", summaries[0].DebugFacts)
+	}
+}
+
 func TestWSPhaseFRecoverySuccessDoesNotRequireCompletedResponseID(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)

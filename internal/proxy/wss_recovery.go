@@ -14,6 +14,7 @@ import (
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
 )
@@ -33,6 +34,9 @@ type wssRecoveryCandidate struct {
 	CurrentInputItems  int
 	OriginalBytes      int
 	RetryBytes         int
+	ToolPruneApplied   bool
+	ToolPrunePruned    int
+	ToolPruneSaved     int
 	Used               bool
 }
 
@@ -193,25 +197,14 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 
 	fullInput := cloneWSSRawItems(currentInput)
 	var candidate *wssRecoveryCandidate
+	if meta.ToolPrune.Applied {
+		candidate = wssRecoveryCandidateFromBody(env, body, meta, fullInput, meta.PreviousResponseID != "", 0, len(currentInput))
+	}
 	if meta.PreviousResponseID != "" {
 		prior := a.wssResponseChain(meta.PreviousResponseID)
 		if len(prior) > 0 {
 			fullInput = append(cloneWSSRawItems(prior), currentInput...)
-			if retryBody, bodyOK := wssBodyWithInput(body, fullInput, true); bodyOK {
-				if payload, payloadOK := wssRetryEnvelopePayload(env, retryBody); payloadOK {
-					candidate = &wssRecoveryCandidate{
-						SessionID:          meta.SessionID,
-						PreviousResponseID: meta.PreviousResponseID,
-						Model:              meta.Model,
-						RetryPayload:       payload,
-						RetryBody:          retryBody,
-						ChainItems:         len(prior),
-						CurrentInputItems:  len(currentInput),
-						OriginalBytes:      len(body),
-						RetryBytes:         len(retryBody),
-					}
-				}
-			}
+			candidate = wssRecoveryCandidateFromBody(env, body, meta, fullInput, true, len(prior), len(currentInput))
 		}
 	}
 
@@ -220,6 +213,34 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 	a.pendingOutput = nil
 	a.pendingRecovery = candidate
 	a.mu.Unlock()
+}
+
+func wssRecoveryCandidateFromBody(env *wsmitm.Envelope, body []byte, meta wssRequestMeta, input []json.RawMessage, dropPreviousResponse bool, chainItems, currentInputItems int) *wssRecoveryCandidate {
+	if len(body) == 0 || len(input) == 0 {
+		return nil
+	}
+	retryBody, bodyOK := wssBodyWithInput(body, input, dropPreviousResponse)
+	if !bodyOK {
+		return nil
+	}
+	payload, payloadOK := wssRetryEnvelopePayload(env, retryBody)
+	if !payloadOK {
+		return nil
+	}
+	return &wssRecoveryCandidate{
+		SessionID:          meta.SessionID,
+		PreviousResponseID: meta.PreviousResponseID,
+		Model:              meta.Model,
+		RetryPayload:       payload,
+		RetryBody:          retryBody,
+		ChainItems:         chainItems,
+		CurrentInputItems:  currentInputItems,
+		OriginalBytes:      len(body),
+		RetryBytes:         len(retryBody),
+		ToolPruneApplied:   meta.ToolPrune.Applied,
+		ToolPrunePruned:    meta.ToolPrune.PrunedTools,
+		ToolPruneSaved:     meta.ToolPrune.SavedTokens,
+	}
 }
 
 func (a *wsPhaseFAdapter) clearPendingWSSRecovery() {
@@ -292,6 +313,10 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	if candidate == nil || candidate.Used || len(candidate.RetryPayload) == 0 || writer == nil {
 		return false
 	}
+	missingToolRetry := candidate.ToolPruneApplied && wssLooksLikeMissingToolDefinitionError(status, message)
+	if candidate.PreviousResponseID == "" && candidate.ToolPruneApplied && !missingToolRetry {
+		return false
+	}
 	candidate.RecoveryID = newRequestIDFn()
 	if err := writer(candidate.RetryPayload); err != nil {
 		a.recordWSSRecoveryEvent("wss_upstream_recovery_failed", candidate, errSummary, map[string]string{
@@ -299,6 +324,10 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 			"wss.recovery.error": err.Error(),
 		})
 		return false
+	}
+	if missingToolRetry && a.p != nil && a.p.toolPrune != nil {
+		a.p.toolPrune.MarkMiss(candidate.SessionID)
+		a.p.toolPrune.MarkRetry()
 	}
 
 	a.mu.Lock()
@@ -309,7 +338,8 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	a.mu.Unlock()
 
 	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, map[string]string{
-		"wss.recovery.phase": "retry_sent",
+		"wss.recovery.phase":                   "retry_sent",
+		"wss.recovery.tool_prune_missing_tool": strconv.FormatBool(missingToolRetry),
 	})
 	slog.Info("codex wss upstream error recovered by full-context retry",
 		"recovery_id", candidate.RecoveryID,
@@ -319,6 +349,14 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 		"current_input_items", candidate.CurrentInputItems,
 		"retry_bytes", candidate.RetryBytes)
 	return true
+}
+
+func wssLooksLikeMissingToolDefinitionError(status, message string) bool {
+	statusCode, err := strconv.Atoi(strings.TrimSpace(status))
+	if err != nil {
+		return false
+	}
+	return toolprune.LooksLikeMissingToolError(statusCode, []byte(message))
 }
 
 func (a *wsPhaseFAdapter) observeWSSRecoveryResponse(env *wsmitm.Envelope) {
@@ -475,6 +513,9 @@ func wssRetryableInvalidRequest(status, errorType, message string) bool {
 			return false
 		}
 	}
+	if wssLooksLikeMissingToolDefinitionError(status, low) {
+		return true
+	}
 	return strings.Contains(low, "previous_response_id") ||
 		strings.Contains(low, "response not found") ||
 		strings.Contains(low, "conversation not found") ||
@@ -603,6 +644,9 @@ func (a *wsPhaseFAdapter) recordWSSRecoveryEvent(reason string, candidate *wssRe
 		"wss.recovery.current_input_items":  strconv.Itoa(candidate.CurrentInputItems),
 		"wss.recovery.original_bytes":       strconv.Itoa(candidate.OriginalBytes),
 		"wss.recovery.retry_bytes":          strconv.Itoa(candidate.RetryBytes),
+		"wss.recovery.tool_prune_applied":   strconv.FormatBool(candidate.ToolPruneApplied),
+		"wss.recovery.tool_prune_pruned":    strconv.Itoa(candidate.ToolPrunePruned),
+		"wss.recovery.tool_prune_saved":     strconv.Itoa(candidate.ToolPruneSaved),
 	}
 	for k, v := range extra {
 		facts[k] = v

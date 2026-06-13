@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/toolprune"
 )
 
 func TestWSSRecoveryHelperBranches(t *testing.T) {
@@ -28,6 +33,7 @@ func TestWSSRecoveryHelperBranches(t *testing.T) {
 	}{
 		{name: "bare invalid request", status: "400", errorType: "invalid_request_error", message: "Invalid request", want: true},
 		{name: "missing previous response", status: "400", errorType: "invalid_request_error", message: "previous_response_id not found", want: true},
+		{name: "missing tool after prune", status: "400", errorType: "invalid_request_error", message: "unknown tool ColdTool", want: true},
 		{name: "context window is not retryable", status: "400", errorType: "invalid_request_error", message: "context window exceeded", want: false},
 		{name: "rate limit is not retryable", status: "429", errorType: "invalid_request_error", message: "rate limit", want: false},
 	}
@@ -37,6 +43,120 @@ func TestWSSRecoveryHelperBranches(t *testing.T) {
 				t.Fatalf("retryable=%v want %v", got, tc.want)
 			}
 		})
+	}
+	if wssLooksLikeMissingToolDefinitionError("not-a-status", "unknown tool ColdTool") {
+		t.Fatal("missing-tool classifier must require a numeric status")
+	}
+}
+
+func TestWSSRecoveryCandidateFromBodyToolPruneMetadataAndFailures(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_old","input":[{"type":"message","role":"user","content":"current"}],"stream":true}`)
+	input := []json.RawMessage{
+		json.RawMessage(`{"type":"message","role":"user","content":"prior"}`),
+		json.RawMessage(`{"type":"message","role":"user","content":"current"}`),
+	}
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model": "gpt-5.5",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "current",
+			}},
+			"stream": true,
+		},
+	})
+	meta := wssRequestMeta{
+		SessionID:          "codex-wss:tool-prune-candidate",
+		PreviousResponseID: "resp_old",
+		Model:              "gpt-5.5",
+		ToolPrune: dbg.ToolPruneSummary{
+			Applied:     true,
+			PrunedTools: 2,
+			SavedTokens: 123,
+		},
+	}
+
+	candidate := wssRecoveryCandidateFromBody(&env, body, meta, input, true, 1, 1)
+	if candidate == nil {
+		t.Fatal("expected recovery candidate")
+	}
+	if candidate.SessionID != meta.SessionID || candidate.PreviousResponseID != meta.PreviousResponseID || candidate.Model != meta.Model {
+		t.Fatalf("candidate identity mismatch: %+v", candidate)
+	}
+	if !candidate.ToolPruneApplied || candidate.ToolPrunePruned != 2 || candidate.ToolPruneSaved != 123 {
+		t.Fatalf("tool-prune metadata missing: %+v", candidate)
+	}
+	if candidate.ChainItems != 1 || candidate.CurrentInputItems != 1 || candidate.OriginalBytes != len(body) || candidate.RetryBytes != len(candidate.RetryBody) {
+		t.Fatalf("candidate sizing mismatch: %+v", candidate)
+	}
+	if bytes.Contains(candidate.RetryBody, []byte("previous_response_id")) || !bytes.Contains(candidate.RetryBody, []byte("prior")) {
+		t.Fatalf("retry body did not expand full context correctly: %s", candidate.RetryBody)
+	}
+	if len(candidate.RetryPayload) == 0 {
+		t.Fatal("candidate retry payload must be materialized")
+	}
+
+	if got := wssRecoveryCandidateFromBody(&env, nil, meta, input, true, 0, 0); got != nil {
+		t.Fatalf("empty body must not produce a candidate: %+v", got)
+	}
+	if got := wssRecoveryCandidateFromBody(&env, body, meta, nil, true, 0, 0); got != nil {
+		t.Fatalf("empty input must not produce a candidate: %+v", got)
+	}
+	if got := wssRecoveryCandidateFromBody(&env, []byte(`{"input":`), meta, input, true, 0, 0); got != nil {
+		t.Fatalf("malformed body must not produce a candidate: %+v", got)
+	}
+	badEnv := wsmitm.Envelope{Kind: wsmitm.FrameKindRequest, Raw: json.RawMessage(`{"type":"request"}`), Fields: map[string]json.RawMessage{}}
+	if got := wssRecoveryCandidateFromBody(&badEnv, body, meta, input, true, 0, 0); got != nil {
+		t.Fatalf("envelope without replaceable body must not produce a candidate: %+v", got)
+	}
+}
+
+func TestWSSRecoveryRootToolPruneRetriesOnlyMissingTool(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	writes := 0
+	adapter.setRecoveryWriter(func(payload []byte) error {
+		writes++
+		if string(payload) != "retry-payload" {
+			t.Fatalf("unexpected retry payload: %q", payload)
+		}
+		return nil
+	})
+	setRootToolPruneCandidate := func() {
+		adapter.mu.Lock()
+		adapter.pendingRecovery = &wssRecoveryCandidate{
+			SessionID:        "codex-wss:root-tool-prune",
+			RetryPayload:     []byte("retry-payload"),
+			RetryBody:        []byte(`{"input":[]}`),
+			ToolPruneApplied: true,
+			ToolPrunePruned:  1,
+			ToolPruneSaved:   42,
+		}
+		adapter.mu.Unlock()
+	}
+
+	setRootToolPruneCandidate()
+	if adapter.tryWSSRecoveryRetry("400", "invalid_request_error", "Invalid request", "generic invalid request") {
+		t.Fatal("root tool-prune recovery must not retry generic invalid_request errors")
+	}
+	if writes != 0 {
+		t.Fatalf("generic invalid_request unexpectedly wrote retry payloads=%d", writes)
+	}
+
+	setRootToolPruneCandidate()
+	if !adapter.tryWSSRecoveryRetry("400", "invalid_request_error", "unknown tool ColdTool", "missing tool") {
+		t.Fatal("root tool-prune recovery must retry missing-tool invalid_request errors")
+	}
+	if writes != 1 {
+		t.Fatalf("missing-tool retry writes=%d want 1", writes)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.MissTotal != 1 || snap.RetryTotal != 1 || snap.DisabledSessions != 1 {
+		t.Fatalf("tool-prune miss/retry cooldown not marked: %+v", snap)
 	}
 }
 

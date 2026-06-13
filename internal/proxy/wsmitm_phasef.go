@@ -172,6 +172,7 @@ type wssRequestMeta struct {
 	ToolUseIndex           map[string]types.ContentBlock
 	RepdetIndex            *repdet.Index
 	ToolPrune              dbg.ToolPruneSummary
+	ToolPruneRecoveryBody  []byte
 	BypassReason           string
 	DebugFacts             map[string]string
 }
@@ -322,7 +323,9 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	a.counters.requestBodiesSeen.Add(1)
 	mutated, messages, changed, l0Stats, reReadCount, meta, outputReduceStats := a.applyInputPipelineDetailed(body)
 	recoveryBody := body
-	if changed {
+	if len(meta.ToolPruneRecoveryBody) > 0 {
+		recoveryBody = meta.ToolPruneRecoveryBody
+	} else if changed {
 		recoveryBody = mutated
 	}
 	a.prepareWSSRecoveryCandidate(env, recoveryBody, meta)
@@ -400,6 +403,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
 	requestContainsToolOutput := false
 	toolPruneAppliedInMessagePath := false
+	toolPruneRecoveryBody := []byte(nil)
 	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
@@ -674,22 +678,24 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			messageMutationPending = true
 		}
 		toolPruneAppliedInMessagePath = true
-		if pruned, changed, toolPrune := a.applyWSSToolPrune(out, stagedMessages, meta); toolPrune.GuardReason != "" {
-			meta.ToolPrune = toolPrune.Summary
-			if meta.DebugFacts == nil {
-				meta.DebugFacts = make(map[string]string)
-			}
-			meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
-		} else if changed {
-			meta.ToolPrune = toolPrune.Summary
-			out = pruned
-		} else {
-			meta.ToolPrune = toolPrune.Summary
-		}
 		if messageMutationPending {
 			if rebuilt, rebuildErr := reconstructBodyFn(types.CodexChatGPT, out, stagedMessages); rebuildErr == nil {
 				out = rebuilt
 				messages = stagedMessages
+				if pruned, changed, toolPrune := a.applyWSSToolPrune(out, messages, meta); toolPrune.GuardReason != "" {
+					meta.ToolPrune = toolPrune.Summary
+					if meta.DebugFacts == nil {
+						meta.DebugFacts = make(map[string]string)
+					}
+					meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
+				} else if changed {
+					meta.ToolPrune = toolPrune.Summary
+					toolPruneRecoveryBody = toolPrune.RetryBody
+					meta.ToolPruneRecoveryBody = toolPruneRecoveryBody
+					out = pruned
+				} else {
+					meta.ToolPrune = toolPrune.Summary
+				}
 				if a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled {
 					meta.RepdetIndex = buildRepdetIndex(stagedMessages)
 				}
@@ -710,7 +716,23 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				a.p.recordCodexLayer0Stats(stats)
 			}
 		} else {
+			if pruned, changed, toolPrune := a.applyWSSToolPrune(out, stagedMessages, meta); toolPrune.GuardReason != "" {
+				meta.ToolPrune = toolPrune.Summary
+				if meta.DebugFacts == nil {
+					meta.DebugFacts = make(map[string]string)
+				}
+				meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
+			} else if changed {
+				meta.ToolPrune = toolPrune.Summary
+				toolPruneRecoveryBody = toolPrune.RetryBody
+				out = pruned
+			} else {
+				meta.ToolPrune = toolPrune.Summary
+			}
 			a.p.recordCodexLayer0Stats(stats)
+			if len(toolPruneRecoveryBody) > 0 {
+				meta.ToolPruneRecoveryBody = toolPruneRecoveryBody
+			}
 		}
 		if structuredMutationGuardReason != "" {
 			if meta.DebugFacts == nil {
@@ -760,6 +782,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_prune_guard"] = toolPrune.GuardReason
 		} else if changed {
 			meta.ToolPrune = toolPrune.Summary
+			meta.ToolPruneRecoveryBody = toolPrune.RetryBody
 			out = pruned
 		} else {
 			meta.ToolPrune = toolPrune.Summary
@@ -826,6 +849,7 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUsageWithToolUses(sessionID string,
 type wssToolPruneResult struct {
 	Summary     dbg.ToolPruneSummary
 	GuardReason string
+	RetryBody   []byte
 }
 
 func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, wssToolPruneResult) {
@@ -888,6 +912,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	for _, name := range decision.Pruned {
 		toPrune[name] = true
 	}
+	retryBody := append([]byte(nil), out...)
 	prunedBody, removed, err := toolprune.PruneToolDefinitions(out, types.CodexChatGPT, toPrune)
 	if err != nil || len(removed) == 0 {
 		return out, !bytes.Equal(body, out), wssToolPruneResult{Summary: summary}
@@ -903,7 +928,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	summary.Applied = true
 	summary.PrunedTools = len(removed)
 	summary.SavedTokens = saved
-	return prunedBody, true, wssToolPruneResult{Summary: summary}
+	return prunedBody, true, wssToolPruneResult{Summary: summary, RetryBody: retryBody}
 }
 
 func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
