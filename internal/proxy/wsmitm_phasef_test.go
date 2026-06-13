@@ -6165,10 +6165,12 @@ func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 		t.Fatalf("default must not structurally mutate stateful WSS tool output: %s", env.Raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.DebugFacts["wss.structured_mutation_guard"] != "wss_stateful_structured_mutation_guard" ||
+	if summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "delta" ||
-		summary.DebugFacts["wss.delta_shape"] != "true" {
-		t.Fatalf("default must keep the structured guard: %+v", summary.DebugFacts)
+		summary.DebugFacts["wss.delta_shape"] != "true" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_stateful_delta_mutation_proof_gate" ||
+		summary.DebugFacts["wss.stateful_delta_mutation_blocked"] != "true" {
+		t.Fatalf("default must keep the delta proof gate without mutating safe output classes: %+v", summary.DebugFacts)
 	}
 }
 

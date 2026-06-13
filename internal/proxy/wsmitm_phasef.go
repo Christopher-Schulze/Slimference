@@ -1903,6 +1903,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 		return true
 	case wssSafeWcOutput(commandLine, payload):
 		return true
+	case wssSafeGoTestAllPassOutput(commandLine, payload):
+		return true
 	case wssSafeLsListingOutput(commandLine, payload):
 		return true
 	case wssSafeFormatPathListOutput(commandLine, payload):
@@ -2219,6 +2221,18 @@ func wssSafeWcOutput(commandLine, payload string) bool {
 	}
 	_, ok := filter.TryCompactWc(argv, []byte(payload))
 	return ok
+}
+
+func wssSafeGoTestAllPassOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	compacted, ok := filter.TryCompactGoTest(argv, []byte(payload))
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(string(compacted), "[go test] ok")
 }
 
 func wssSafeLsListingOutput(commandLine, payload string) bool {

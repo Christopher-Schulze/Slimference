@@ -37,6 +37,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	listingOutput := wssListingFixture(40)
 	rgLargeListingOutput := wssListingFixture(wssSafeListingOutputMaxEntries + 1)
 	treeOutput := wssTreeFixture(40)
+	goTestAllPass := wssGoTestVerboseAllPassFixture(80)
+	goTestFailure := "=== RUN   TestBroken\n--- FAIL: TestBroken (0.00s)\n    broken_test.go:12: expected alpha got beta\nFAIL\tslimtest/lib\t0.006s\n"
+	goTestRace := "=== RUN   TestRacy\nWARNING: DATA RACE\n--- PASS: TestRacy (0.00s)\nPASS\nok  \tslimtest/lib\t0.006s\n"
 
 	tests := []struct {
 		name      string
@@ -53,6 +56,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git log oneline bounded", command: "git log --oneline -n 3", output: "a1b2c3d Tighten guard\nb2c3d4e Recover savings\nc3d4e5f Add proof\n", wantSafe: true},
 		{name: "git ls-files path list", command: "git ls-files --cached", output: listingOutput, wantSafe: true},
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
+		{name: "go test verbose all-pass", command: "GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
 		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
@@ -72,6 +76,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git show patch payload", command: "git show --stat HEAD", output: wssGitShowPatchFixture(), wantGuard: "git show patch payload stays guarded"},
 		{name: "git diff name-status rename metadata", command: "git diff --name-status -M", output: "R100\told/path.go\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git diff rename name-status stays guarded"},
 		{name: "full git diff source", command: "git diff", output: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n", wantGuard: "full git diff must stay guarded"},
+		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantGuard: "go test failures stay guarded"},
+		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
 		{name: "find exec", command: "find internal -type f -exec cat {} ;", output: listingOutput, wantGuard: "find side-effect/rich predicates stay guarded"},
@@ -456,6 +462,39 @@ func TestWSSStatefulSafeWcCompactsFullHistoryTurn(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe wc output should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeGoTestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: go-test-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssGoTestVerboseAllPassFixture(120)
+
+	env := parseWSJSON(t, wssGoTestRequestBody("resp-go-test-all-pass", "call_go_test_all_pass", "GOCACHE=/tmp/slimference-cache go test ./... -v", envelope))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle go test all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history go test all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[go test] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "TestPassing119") ||
+		strings.Contains(body, "--- PASS: TestPassing000") {
+		t.Fatalf("go test all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe go test all-pass should save without structured guard: %+v", summary)
 	}
 }
 
@@ -935,6 +974,23 @@ func wssWcRequestBody(previousResponseID, callID, command, output string) map[st
 	}
 }
 
+func wssGoTestRequestBody(previousResponseID, callID, command, output string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-go-test-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "summarize the all-pass test run"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": command}},
+				{"type": "function_call_output", "call_id": callID, "output": output},
+			},
+			"stream": true,
+		},
+	}
+}
+
 func wssGitLogOnelineRequestBody(previousResponseID, callID, output string) map[string]any {
 	return map[string]any{
 		"type": string(wsmitm.FrameKindRequest),
@@ -950,6 +1006,15 @@ func wssGitLogOnelineRequestBody(previousResponseID, callID, output string) map[
 			"stream": true,
 		},
 	}
+}
+
+func wssGoTestVerboseAllPassFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	out.WriteString("PASS\nok  \tslimtest/lib\t0.006s\n")
+	return out.String()
 }
 
 func wssListingFixture(files int) string {
