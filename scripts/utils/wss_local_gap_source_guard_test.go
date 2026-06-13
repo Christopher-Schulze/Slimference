@@ -51,3 +51,45 @@ func TestWSSLocalGapClassifiesSourceToolOutputFullPassEvidence(t *testing.T) {
 		t.Fatalf("bad source-context actionable row: %+v", row)
 	}
 }
+
+func TestWSSLocalGapClassifiesEmptyToolOutputContext(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "empty-tool-output",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                       "delta",
+			"wss.output_reduce_reason":                "disabled",
+			"wss.output_reduce_disabled_predicate":    "tool_output_context",
+			"wss.messages":                            "1",
+			"wss.tool_results":                        "1",
+			"wss.tool_result_bytes":                   "102",
+			"wss.tool_result_output_bytes":            "0",
+			"wss.source_tool_bytes":                   "0",
+			"wss.tool_command_classes":                "git_status=1",
+			"wss.output_reduce_input_tokens":          "9000",
+			"wss.output_reduce_eligible_input_tokens": "0",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "empty_tool_output_context" ||
+		row.Source != "no_evidence:empty_tool_output" ||
+		row.Tokens != 9000 ||
+		row.Requests != 1 ||
+		row.ToolCommandClasses["git_status"] != 1 {
+		t.Fatalf("bad empty-tool-output row: %+v", row)
+	}
+}

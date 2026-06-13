@@ -447,6 +447,8 @@ func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary
 			"wss.output_reduce_disabled_predicate",
 			"wss.messages",
 			"wss.tool_results",
+			"wss.tool_result_bytes",
+			"wss.tool_result_output_bytes",
 			"wss.source_tool_bytes",
 		} {
 			if summary.DebugFacts == nil {
@@ -980,6 +982,8 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 	facts := summary.DebugFacts
 	outputReason := strings.TrimSpace(facts["wss.output_reduce_reason"])
 	toolResults := strings.TrimSpace(facts["wss.tool_results"])
+	toolResultOutputBytesFact := strings.TrimSpace(facts["wss.tool_result_output_bytes"])
+	toolResultOutputBytes := wssLocalGapFactInt(facts, "wss.tool_result_output_bytes")
 	sourceToolBytes := strings.TrimSpace(facts["wss.source_tool_bytes"])
 	switch {
 	case outputReason == "prompt_cache_prefix_full_pass":
@@ -1024,6 +1028,11 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no_evidence:no_tool_output",
 			"no tool-output bytes were present for Layer-0 reducers",
 			"look for prompt/root/context mechanisms, not tool-output guard loosening"
+	case toolResults != "" && toolResults != "0" && toolResultOutputBytesFact != "" && toolResultOutputBytes == 0:
+		return "empty_tool_output_context",
+			"no_evidence:empty_tool_output",
+			"tool result items were present but their command-output bytes were zero",
+			"ignore this as a tool-output savings candidate; attribute the remaining request mass to prefix or request context"
 	case strings.TrimSpace(summary.DebugFacts["wss.request_shape"]) == "" && strings.TrimSpace(shapeSource) == "unresolved":
 		return "needs_instrumentation",
 			"no_evidence:wss.request_shape_missing",

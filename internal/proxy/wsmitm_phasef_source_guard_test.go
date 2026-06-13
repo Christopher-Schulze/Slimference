@@ -3,11 +3,13 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
@@ -52,6 +54,7 @@ func TestWSPhaseFKnownSourceDeltaToolOutputEmitsFullPassEvidence(t *testing.T) {
 	}
 	if summary.DebugFacts["wss.request_shape"] != "delta" ||
 		summary.DebugFacts["wss.source_tool_results"] != "1" ||
+		summary.DebugFacts["wss.tool_result_bytes"] == "" ||
 		summary.DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_context" {
 		t.Fatalf("source delta guard facts missing: %+v", summary.DebugFacts)
 	}
@@ -88,5 +91,24 @@ func TestAppendWSSSourceDeltaToolOutputFullPassEvidenceFillsNoEvidenceGap(t *tes
 		decision.NetTokens != 0 ||
 		decision.Recovery != "fail-open to original source output" {
 		t.Fatalf("bad source-like fallback evidence: %+v", decision)
+	}
+}
+
+func TestWSSRequestDebugFactsExposeToolResultBytes(t *testing.T) {
+	envelope := "Process exited with code 0\nOutput:\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_empty",
+			Text:         envelope,
+		}},
+	}}
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", wssRequestMeta{}, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.tool_results"] != "1" ||
+		facts["wss.tool_result_bytes"] != strconv.Itoa(len(envelope)) ||
+		facts["wss.tool_result_output_bytes"] != "0" ||
+		facts["wss.source_tool_bytes"] != "0" {
+		t.Fatalf("bad empty tool-result facts: %+v", facts)
 	}
 }

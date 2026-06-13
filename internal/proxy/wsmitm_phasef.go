@@ -2621,6 +2621,40 @@ func wssToolResultPayloadStats(messages []types.Message) (blocks int, totalBytes
 	return blocks, totalBytes
 }
 
+func wssToolResultOutputStats(messages []types.Message) (blocks int, totalBytes int) {
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			blocks++
+			totalBytes += len(wssToolResultOutputPayload(block.Text))
+		}
+	}
+	return blocks, totalBytes
+}
+
+func wssToolResultOutputPayload(text string) string {
+	if payload, ok := wssCodexExecEnvelopePayloadForStats(text); ok {
+		return payload
+	}
+	return text
+}
+
+func wssCodexExecEnvelopePayloadForStats(text string) (string, bool) {
+	if !strings.Contains(text, "Process exited with code ") {
+		return "", false
+	}
+	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
+		idx := strings.Index(text, marker)
+		if idx < 0 {
+			continue
+		}
+		return text[idx+len(marker):], true
+	}
+	return "", false
+}
+
 func wssGuardedToolOutputFullPassEvidenceDecision(reason string, payloadBytes int, turnSeq int, remainingTurnsEstimate int, cachedPriceRatio float64) evidence.BlockDecision {
 	tokenEstimate := tokens.Estimate(payloadBytes)
 	if payloadBytes > 0 && tokenEstimate <= 0 {
@@ -2948,6 +2982,8 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
 	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
+	_, toolResultBytes := wssToolResultPayloadStats(messages)
+	_, toolResultOutputBytes := wssToolResultOutputStats(messages)
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
 	prefixMetrics := wssRootPrefixMetrics(body)
 	deltaShape := wssRequestIsDeltaShape(messages)
@@ -2995,6 +3031,8 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.raw_input_other_items":                          strconv.Itoa(meta.InputShape.OtherItems),
 		"wss.messages":                                       strconv.Itoa(len(messages)),
 		"wss.tool_results":                                   strconv.Itoa(toolResults),
+		"wss.tool_result_bytes":                              strconv.Itoa(toolResultBytes),
+		"wss.tool_result_output_bytes":                       strconv.Itoa(toolResultOutputBytes),
 		"wss.source_tool_results":                            strconv.Itoa(sourceToolResults),
 		"wss.source_tool_bytes":                              strconv.Itoa(sourceToolBytes),
 		"wss.source_tool_max_bytes":                          strconv.Itoa(sourceToolMaxBytes),
