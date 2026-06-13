@@ -1045,6 +1045,13 @@ func TestValidateCodexCaptureExpectedReducers(t *testing.T) {
 	if len(failures) != 1 || !strings.Contains(failures[0], "no function_call_output input items were observed") {
 		t.Fatalf("expected captured_output surface failure, got %v", failures)
 	}
+
+	failures = validateCodexCaptureExpectedReducers([]string{"function_call_output_surface", "tool_output_surface"}, &codexCaptureLiveDelta{
+		WireFunctionCallOutputs: 2,
+	})
+	if len(failures) != 0 {
+		t.Fatalf("tool-output surface signals should pass, got %v", failures)
+	}
 }
 
 func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {

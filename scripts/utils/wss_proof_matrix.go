@@ -175,7 +175,8 @@ Expected signal names include:
 	  obsolete_prune, beterse, wss_stateful_prefix_elision,
 	  wss_stateful_prefix_elision_tools, wss_stateful_prefix_elision_bytes,
 	  wss_stateful_prefix_elision_tokens, provider_cache_read,
-	  provider_cache_create, host_budget_ok.
+	  provider_cache_create, function_call_output_surface, tool_output_surface,
+	  host_budget_ok.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -858,6 +859,8 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ProviderCacheReadTokens, true
 	case "provider_cache_create":
 		return live.ProviderCacheCreateTokens, true
+	case "function_call_output_surface", "tool_output_surface":
+		return live.WireFunctionCallOutputs, true
 	case "host_budget_ok":
 		if live.HostBudgetStatus == "ok" && !live.HostBudgetExceeded && live.HostBudgetCompressionOK && live.HostBudgetDegradationOK {
 			return 1, true
