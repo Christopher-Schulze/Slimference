@@ -450,17 +450,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		deltaShape := wssRequestIsDeltaShape(messages)
 		// 2026-06-11 live A/B: archive-backed structured mutations on
 		// previous_response_id delta-shaped turns poison server state and
-		// surface as a follow-up 400. Later full-history history-reducer
-		// captures showed the same downstream-delta failure class. Capture L
-		// then proved reconnect full-history search mutation can poison the
-		// following turn too. Keep first-socket full-history structured
-		// mutations eligible for archive-backed savings. History-only reducers
-		// on full-history continuations are safe because a mutated chain enters
-		// stateless full-history continuation mode before the next tool output.
+		// surface as a follow-up 400. Keep delta-shaped turns guarded. Full-
+		// history mutations now enter stateless full-history continuation mode
+		// before the next previous_response_id delta, so downstream-state
+		// reducers can keep savings without relying on Codex server state.
 		requestShape := wssRequestShape(meta, messages)
 		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded(meta.PreviousResponseID)
 		a.rememberWSSHistoryRecoveryGuardRequest(historyMutationRecoveryGuarded)
-		fullHistoryDownstreamStateMutationBlocked := meta.SocketSeq > 0 && requestShape == "full_history"
 		fullHistoryHistoryMutationBlocked := false
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
@@ -560,8 +556,6 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		downstreamStateMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
 			downstreamStateMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
-		} else if fullHistoryDownstreamStateMutationBlocked {
-			downstreamStateMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		}
 		effectiveMutationGuardReason := structuredMutationGuardReason
 		if statefulDeltaMutationBlocked {

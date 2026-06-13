@@ -3172,7 +3172,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFFullHistoryChunkDedupFullPassOnLiveSocket(t *testing.T) {
+func TestWSPhaseFFullHistoryChunkDedupArmsStatelessFollowupOnLiveSocket(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	const promptCacheKey = "chunk-wss-full-history-guard"
@@ -3208,12 +3208,145 @@ func TestWSPhaseFFullHistoryChunkDedupFullPassOnLiveSocket(t *testing.T) {
 	if stats.ChunkDedupBlocks != 0 {
 		t.Fatalf("first full-history read should seed chunks only: %+v", stats)
 	}
-	second, _, _, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+"tail b\n"))
-	if stats.ChunkDedupBlocks != 0 || stats.TokensSaved != 0 || strings.Contains(string(second), "[context-chunk status=unchanged") {
-		t.Fatalf("live-socket full-history chunk dedup must full-pass: stats=%+v body=%s", stats, second)
+	second, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body("b.go", "read-b", shared+"tail b\n"))
+	if !changed || stats.ChunkDedupBlocks != 1 || stats.TokensSaved <= 0 ||
+		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("live-socket full-history chunk dedup should save: changed=%v stats=%+v body=%s", changed, stats, second)
 	}
-	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
-		t.Fatalf("guarded full-history chunk dedup must emit precise evidence: %+v", stats.EvidenceDecisions)
+	if meta.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		meta.DebugFacts["wss.downstream_state_mutation_guard"] != "" {
+		t.Fatalf("full-history chunk dedup should arm stateless follow-up without downstream guard: %+v", meta.DebugFacts)
+	}
+	if hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "wss_full_history_downstream_delta_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("full-history chunk dedup should no longer be guarded: %+v", stats.EvidenceDecisions)
+	}
+}
+
+func TestWSPhaseFFullHistoryChunkDedupMakesFollowingDeltaStateless(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const promptCacheKey = "chunk-wss-full-history-stateless"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+	shared := strings.Repeat("full-history stateless chunk region keeps exact context recoverable\n", 1000)
+	body := func(path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": promptCacheKey,
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-chunk-stateless","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	if _, _, _, stats, _ := adapter.applyInputPipeline(body("a.go", "read-a", shared+"tail a\n")); stats.ChunkDedupBlocks != 0 || stats.TokensSaved != 0 {
+		t.Fatalf("first full-history read should only seed chunks: %+v", stats)
+	}
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": promptCacheKey,
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-chunk-stateless","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "read-b", "name": "read_file", "arguments": map[string]any{"path": "b.go"}},
+				{"type": "function_call_output", "call_id": "read-b", "output": shared + "tail b\n"},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory); err != nil || !replace {
+		t.Fatalf("full-history chunk request should mutate replace=%v err=%v", replace, err)
+	}
+	fullHistoryBody, _, ok := wsRequestBody(&fullHistory)
+	if !ok {
+		t.Fatal("mutated full-history body missing")
+	}
+	if !bytes.Contains(fullHistoryBody, []byte("[context-chunk status=unchanged uri=local-archive://")) {
+		t.Fatalf("full-history chunk mutation missing: %s", fullHistoryBody)
+	}
+	firstSummary := p.DebugRecorder().Last(1, false)[0]
+	if firstSummary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		firstSummary.DebugFacts["wss.downstream_state_mutation_guard"] != "" ||
+		firstSummary.Tokens.Saved <= 0 {
+		t.Fatalf("chunk full-history mutation should arm stateless follow-up: %+v", firstSummary)
+	}
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_next",
+			"name":      "exec_command",
+			"arguments": `{"cmd":"git status --short"}`,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("output item replace=%v err=%v", replace, err)
+	}
+	completed := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-chunk-stateless-child", "output": []any{}},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &completed); err != nil || replace {
+		t.Fatalf("completion replace=%v err=%v", replace, err)
+	}
+
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-chunk-stateless-child",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-chunk-stateless","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "call_next",
+				"output":  " M internal/proxy/wsmitm_phasef.go\n",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("following delta should be rewritten as stateless full-history replace=%v err=%v", replace, err)
+	}
+	deltaBody, _, ok := wsRequestBody(&delta)
+	if !ok {
+		t.Fatal("rewritten delta body missing")
+	}
+	if bytes.Contains(deltaBody, []byte("previous_response_id")) {
+		t.Fatalf("stateless follow-up must drop previous_response_id: %s", deltaBody)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(deltaBody, &raw); err != nil {
+		t.Fatalf("delta body json: %v", err)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(raw["input"], &input); err != nil {
+		t.Fatalf("delta input json: %v", err)
+	}
+	if len(input) <= 1 {
+		t.Fatalf("stateless follow-up must include prior full history, got %d input items: %s", len(input), deltaBody)
 	}
 }
 
@@ -3896,8 +4029,9 @@ func TestWSPhaseFHistoryMutationLabOpensLiveFullHistoryReducers(t *testing.T) {
 	}
 	if meta.DebugFacts["wss.history_mutation_guard"] != "" ||
 		meta.DebugFacts["wss.effective_mutation_guard"] != "" ||
-		meta.DebugFacts["wss.downstream_state_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" {
-		t.Fatalf("history mutation lab should only keep the downstream-state proof gate: %+v", meta.DebugFacts)
+		meta.DebugFacts["wss.downstream_state_mutation_guard"] != "" ||
+		meta.DebugFacts["wss.full_history_stateless_followup"] != "true" {
+		t.Fatalf("history mutation lab should save through stateless full-history follow-up: %+v", meta.DebugFacts)
 	}
 	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
 		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
@@ -5788,7 +5922,8 @@ func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testin
 		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.history_mutation_guard"] != "" ||
-		summary.DebugFacts["wss.downstream_state_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.DebugFacts["wss.downstream_state_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
 		t.Fatalf("first-socket full-history search output should save without an effective structured guard: %+v", summary)
