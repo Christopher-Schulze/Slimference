@@ -38,6 +38,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git log oneline bounded", command: "git log --oneline -n 3", output: "a1b2c3d Tighten guard\nb2c3d4e Recover savings\nc3d4e5f Add proof\n", wantSafe: true},
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
+		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
+		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
 		{name: "find small listing", command: "find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
 		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
@@ -48,6 +50,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
 		{name: "find exec", command: "find internal -type f -exec cat {} ;", output: listingOutput, wantGuard: "find side-effect/rich predicates stay guarded"},
+		{name: "format output with timings", command: "prettier --write src", output: "src/file_001.ts 12ms\nsrc/file_002.ts 10ms\n", wantGuard: "formatter timing output stays guarded"},
+		{name: "format output with diagnostic", command: "prettier --write src", output: "src/file_001.ts\nerror: failed to parse src/file_002.ts\n", wantGuard: "formatter diagnostics stay guarded"},
 		{name: "tree unbounded", command: "tree internal/proxy", output: treeOutput, wantGuard: "unbounded tree output stays guarded"},
 		{name: "tree separator without depth", command: "tree -- internal/proxy", output: treeOutput, wantGuard: "unbounded tree with separator stays guarded"},
 		{name: "tree deep", command: "tree -L 99 internal/proxy", output: treeOutput, wantGuard: "deep tree output stays guarded"},
@@ -156,6 +160,36 @@ func TestWSSStatefulSafeTreeRepeatCompactsOnSecondFullHistoryTurn(t *testing.T) 
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe tree should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeFormatPathListCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssListingFixture(90)
+
+	env := parseWSJSON(t, wssFormatPathListRequestBody("resp-format-path-list", "call_format_paths", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle format path-list request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history format path-list output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[gofmt] 90 file(s) formatted") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "generated_listing_050.go") {
+		t.Fatalf("format path-list output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe format path-list should save without structured guard: %+v", summary)
 	}
 }
 
@@ -303,6 +337,23 @@ func wssTreeRequestBody(previousResponseID, callID, tree string) map[string]any 
 				{"type": "message", "role": "user", "content": "show the proxy tree"},
 				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "tree -L 2 internal/proxy"}},
 				{"type": "function_call_output", "call_id": callID, "output": tree},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssFormatPathListRequestBody(previousResponseID, callID, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-format-path-list-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the formatter path list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "gofmt -l ."}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
 			},
 			"stream": true,
 		},

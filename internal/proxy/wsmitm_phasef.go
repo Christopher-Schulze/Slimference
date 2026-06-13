@@ -1548,6 +1548,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 		return true
 	case wssSafeLsListingOutput(commandLine, payload):
 		return true
+	case wssSafeFormatPathListOutput(commandLine, payload):
+		return true
 	case wssSafeFindListingOutput(commandLine, payload):
 		return true
 	case wssSafeTreeListingOutput(commandLine, payload):
@@ -1781,6 +1783,59 @@ func wssSafeLsListingOutput(commandLine, payload string) bool {
 		return false
 	}
 	return wssSafeListingPayload(payload)
+}
+
+func wssSafeFormatPathListOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactFormatOutput(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafePlainPathListPayload(payload)
+}
+
+func wssSafePlainPathListPayload(payload string) bool {
+	if len(payload) == 0 || len(payload) > wssSafeListingOutputMaxBytes || strings.ContainsRune(payload, '\x00') {
+		return false
+	}
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || looksLikeSource(trimmed) || proxyToolResultLooksLikeSearchOutput(trimmed) {
+		return false
+	}
+	entries := 0
+	for _, raw := range strings.Split(trimmed, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		if !wssSafePlainPathListLine(line) {
+			return false
+		}
+		entries++
+		if entries > wssSafeListingOutputMaxEntries {
+			return false
+		}
+	}
+	return entries > 0
+}
+
+func wssSafePlainPathListLine(line string) bool {
+	if len(line) > wssSafeListingOutputMaxLineBytes || strings.ContainsAny(line, " \t") ||
+		strings.Contains(line, "://") || strings.HasPrefix(line, "-") {
+		return false
+	}
+	for _, r := range line {
+		switch r {
+		case ':', ';', '|', '<', '>', '"', '\'', '`', '$', '\\':
+			return false
+		}
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func wssSafeLsArgs(args []string) bool {
