@@ -750,11 +750,16 @@ can still save through the exact command/output path when the same output repeat
 Repeated search outputs (`rg` / `grep` / `git grep`) also get position-aware
 delta treatment, not just exact unchanged references, but only when the key is
 repo-scoped through an absolute workdir, `cd <abs> && ...`, absolute search path,
-or `git -C <abs> ...`. An implicit-cwd search can still use first-pass grouping,
-but it does not seed cross-turn search collapse or search delta state. This keeps
-repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
-build/test reports, partial file ranges, or custom deterministic tools without
-introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
+or `git -C <abs> ...`. Safe head-limited search pipelines (`search | head`,
+`search | head -N`, `search | head -n N`, `search | head --lines=N`) canonicalize
+the search argv while preserving a separate `|head-lines=N` identity suffix so
+they never collide with the full-search key. Non-head pipelines, byte-limited
+`head -c`, redirects, shell operators, shell expansions, and inferred search
+payloads still fail open. An implicit-cwd search can still use first-pass
+grouping, but it does not seed cross-turn search collapse or search delta state.
+This keeps repeat savings for commands such as repeated repo-scoped `rg`,
+`git status`, build/test reports, partial file ranges, or custom deterministic
+tools without introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
 search-output reducer paths currently fail open before first-pass grouping and
 repeated search delta, including grep-style search, broad path-list tools such
 as unbounded or rich/side-effect `find`, empty-result search tools, and

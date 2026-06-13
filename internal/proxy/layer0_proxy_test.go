@@ -1044,6 +1044,66 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDeltaSearch(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSSearchProofAllowsNamedHeadPipelineDeltaSearch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src | head -200`
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-head-delta", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-head-delta", Text: original}}},
+	}
+	proofed := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-head-delta-proof",
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	proofedText := proofed.Messages[1].Content[0].Text
+	if proofed.Stats.BlocksModified != 1 || proofed.Stats.TokensSaved <= 0 || proofed.Stats.CapturedOutputBlocks != 1 ||
+		proofedText == original ||
+		!strings.Contains(proofedText, "[rg]") ||
+		!strings.Contains(proofedText, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(proofedText, "src/file_079.go:80:needle") ||
+		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("proofed named delta head-limited search should compact through search-cap latch, stats=%+v text=%q", proofed.Stats, proofedText)
+	}
+	if proofed.Stats.WSSSearchRiskBlocks != 1 || proofed.Stats.WSSSearchProofAllowed != 1 ||
+		proofed.Stats.WSSSearchProofBlocked != 0 || len(proofed.Stats.WSSSearchProofReasons) != 0 {
+		t.Fatalf("proofed named delta head-limited search should record allowed search proof telemetry: %+v", proofed.Stats)
+	}
+	if key := proxyLayer0QualityToolKey(command); key != "search:rg\t-n\tneedle\t/repo/search/src\t|head-lines=200" {
+		t.Fatalf("head-limited search key must stay distinct from full search key: %q", key)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofRejectsUnsafePipelineDeltaSearch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src | sed -n '1,20p'`
+	original := proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-sed-delta", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-sed-delta", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-search-sed-delta-proof",
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("unsafe search pipeline must stay byte-equal behind risk gate, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+	if result.Stats.WSSSearchRiskBlocks != 1 || result.Stats.WSSSearchProofAllowed != 0 ||
+		result.Stats.WSSSearchProofBlocked != 1 || result.Stats.WSSSearchProofReasons["workload_not_search"] != 1 {
+		t.Fatalf("unsafe search pipeline should record workload-not-search proof telemetry: %+v", result.Stats)
+	}
+}
+
 func TestReduceCodexLayer0WSSSearchDeltaProofPrefersCapturedOutputSavings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

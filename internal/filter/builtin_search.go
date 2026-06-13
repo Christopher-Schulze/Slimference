@@ -473,17 +473,11 @@ func searchToolName(argv []string) string {
 // SearchOutputKeyFromCommandLine returns a stable key for grep-style search
 // commands whose output can be safely compared across turns.
 func SearchOutputKeyFromCommandLine(commandLine string) string {
-	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
-		argv := primaryArgvForCapturedOutput(normalized)
-		if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) {
-			return strings.Join(argv, "\t")
-		}
-	}
-	argv := primaryArgvForCapturedOutput(commandLine)
-	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) {
+	spec, ok := searchCommandSpecFromCommandLine(commandLine, "", false)
+	if !ok || !isGrepStyleTool(spec.argv) || !searchProducesMatchLineOutput(spec.argv) {
 		return ""
 	}
-	return strings.Join(argv, "\t")
+	return searchOutputKeyFromSpec(spec)
 }
 
 // SearchOutputReducerEligibleFromCommandLine reports whether commandLine can
@@ -491,6 +485,11 @@ func SearchOutputKeyFromCommandLine(commandLine string) string {
 // SearchOutputKeyFromCommandLine because some search reducers are useful for
 // one-shot output compaction but unsafe as cross-turn identity keys.
 func SearchOutputReducerEligibleFromCommandLine(commandLine, workDir string) bool {
+	if spec, ok := searchCommandSpecFromCommandLine(commandLine, workDir, false); ok {
+		if searchOutputReducerEligibleArgv(spec.argv) {
+			return true
+		}
+	}
 	for _, candidate := range []string{commandLine, NormalizeSearchCommandLine(commandLine, workDir)} {
 		if candidate == "" {
 			continue
@@ -536,40 +535,174 @@ func isSearchEmptyResultTool(argv []string) bool {
 // stricter than SearchOutputKeyFromCommandLine and is intended for cross-turn
 // cache/delta identity, where an implicit cwd would be unsafe to reuse.
 func RepoScopedSearchOutputKeyFromCommandLine(commandLine string) string {
-	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
-		argv := primaryArgvForCapturedOutput(normalized)
-		if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) && searchArgvHasRepoScope(argv) {
-			return strings.Join(argv, "\t")
-		}
-	}
-	argv := primaryArgvForCapturedOutput(commandLine)
-	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) || !searchArgvHasRepoScope(argv) {
+	spec, ok := searchCommandSpecFromCommandLine(commandLine, "", true)
+	if !ok || !isGrepStyleTool(spec.argv) || !searchProducesMatchLineOutput(spec.argv) || !searchArgvHasRepoScope(spec.argv) {
 		return ""
 	}
-	return strings.Join(argv, "\t")
+	return searchOutputKeyFromSpec(spec)
 }
 
 // NormalizeSearchCommandLine returns a canonical search command line that keeps
 // repository scope in the argv itself. It is used only for compaction/keying,
 // never to execute a user command.
 func NormalizeSearchCommandLine(commandLine, workdir string) string {
+	spec, ok := searchCommandSpecFromCommandLine(commandLine, workdir, true)
+	if !ok {
+		return ""
+	}
+	return joinSearchCommandSpec(spec)
+}
+
+type searchCommandSpec struct {
+	argv          []string
+	headLineLimit int
+}
+
+func searchCommandSpecFromCommandLine(commandLine, workdir string, requireScope bool) (searchCommandSpec, bool) {
 	commandLine = strings.TrimSpace(commandLine)
 	workdir = cleanSearchWorkdir(workdir)
 	if cdWorkdir, inner, ok := splitLeadingCDSearch(commandLine); ok {
 		workdir = cdWorkdir
 		commandLine = inner
 	}
+	headLineLimit := 0
+	if left, limit, ok := splitSafeSearchHeadPipeline(commandLine); ok {
+		commandLine = left
+		headLineLimit = limit
+	}
 	argv := primaryArgvForCapturedOutput(commandLine)
 	if !isGrepStyleTool(argv) {
-		return ""
+		return searchCommandSpec{}, false
 	}
-	if workdir == "" {
-		return ""
+	if workdir != "" {
+		if gitGrepIndex(argv) >= 0 {
+			argv = ensureGitCSearchArgv(argv, workdir)
+		} else {
+			argv = applySearchWorkdir(argv, workdir)
+		}
+	} else if requireScope && !searchArgvHasRepoScope(argv) {
+		return searchCommandSpec{}, false
 	}
-	if gitGrepIndex(argv) >= 0 {
-		return joinSearchArgs(ensureGitCSearchArgv(argv, workdir))
+	return searchCommandSpec{argv: argv, headLineLimit: headLineLimit}, true
+}
+
+func splitSafeSearchHeadPipeline(commandLine string) (string, int, bool) {
+	tokens := tokenize(commandLine)
+	if len(tokens) == 0 {
+		return "", 0, false
 	}
-	return joinSearchArgs(applySearchWorkdir(argv, workdir))
+	pipeIndex := -1
+	for i, tok := range tokens {
+		switch tok.Kind {
+		case TokenPipe:
+			if pipeIndex >= 0 {
+				return "", 0, false
+			}
+			pipeIndex = i
+		case TokenOperator, TokenRedirect, TokenShellism:
+			return "", 0, false
+		}
+	}
+	if pipeIndex <= 0 || pipeIndex >= len(tokens)-1 {
+		return "", 0, false
+	}
+	leftArgv := argvFromPlainSearchTokens(tokens[:pipeIndex])
+	if !isGrepStyleTool(leftArgv) || !searchProducesMatchLineOutput(leftArgv) {
+		return "", 0, false
+	}
+	rightArgv := argvFromPlainSearchTokens(tokens[pipeIndex+1:])
+	limit, ok := safeHeadLineLimit(rightArgv)
+	if !ok {
+		return "", 0, false
+	}
+	return joinSearchArgs(leftArgv), limit, true
+}
+
+func argvFromPlainSearchTokens(tokens []ParsedToken) []string {
+	if len(tokens) == 0 {
+		return nil
+	}
+	argv := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		if tok.Kind != TokenArg {
+			return nil
+		}
+		if len(argv) == 0 && isEnvAssignmentToken(tok.Value) {
+			continue
+		}
+		argv = append(argv, tok.Value)
+	}
+	if len(argv) == 0 {
+		return nil
+	}
+	return argv
+}
+
+func safeHeadLineLimit(argv []string) (int, bool) {
+	if len(argv) == 0 {
+		return 0, false
+	}
+	name := strings.ToLower(filepath.Base(argv[0]))
+	name = strings.TrimSuffix(name, ".exe")
+	if name != "head" {
+		return 0, false
+	}
+	switch len(argv) {
+	case 1:
+		return 10, true
+	case 2:
+		arg := argv[1]
+		if strings.HasPrefix(arg, "-") && len(arg) > 1 && allSearchDigits(arg[1:]) {
+			return parsePositiveSearchLineLimit(arg[1:])
+		}
+		if strings.HasPrefix(arg, "--lines=") {
+			return parsePositiveSearchLineLimit(strings.TrimPrefix(arg, "--lines="))
+		}
+	case 3:
+		if argv[1] == "-n" || argv[1] == "--lines" {
+			return parsePositiveSearchLineLimit(argv[2])
+		}
+	}
+	return 0, false
+}
+
+func parsePositiveSearchLineLimit(raw string) (int, bool) {
+	if !allSearchDigits(raw) {
+		return 0, false
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 {
+		return 0, false
+	}
+	return limit, true
+}
+
+func allSearchDigits(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func searchOutputKeyFromSpec(spec searchCommandSpec) string {
+	key := strings.Join(spec.argv, "\t")
+	if spec.headLineLimit > 0 {
+		key += "\t|head-lines=" + strconv.Itoa(spec.headLineLimit)
+	}
+	return key
+}
+
+func joinSearchCommandSpec(spec searchCommandSpec) string {
+	commandLine := joinSearchArgs(spec.argv)
+	if spec.headLineLimit > 0 {
+		commandLine += " | head -" + strconv.Itoa(spec.headLineLimit)
+	}
+	return commandLine
 }
 
 // TryCompactRipgrep summarizes empty stdout from ripgrep (F10 partial).

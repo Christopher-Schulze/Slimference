@@ -420,6 +420,12 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	if got := SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
 		t.Fatalf("cd-wrapped rg search key = %q", got)
 	}
+	if got := SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal | head -200`); got != "rg\t-n\tneedle\t/repo/a/internal\t|head-lines=200" {
+		t.Fatalf("cd-wrapped rg head-pipeline search key = %q", got)
+	}
+	if full, capped := SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`), SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal | head -20`); full == capped {
+		t.Fatalf("head-limited search key must not collide with full search key: %q", full)
+	}
 	if got := SearchOutputKeyFromCommandLine(`cd /repo/b && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/b/internal" {
 		t.Fatalf("cd-wrapped rg cross-repo key = %q", got)
 	}
@@ -436,6 +442,9 @@ func TestSearchOutputReducerEligibleFromCommandLine(t *testing.T) {
 	if !SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src`, "") {
 		t.Fatal("repo-scoped ripgrep must be search-output reducer eligible")
 	}
+	if !SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src | head -200`, "") {
+		t.Fatal("safe head-limited ripgrep pipeline must be search-output reducer eligible")
+	}
 	if !SearchOutputReducerEligibleFromCommandLine(`find .reconc -maxdepth 4 -type f`, "/repo") {
 		t.Fatal("find path lists must be search-output reducer eligible")
 	}
@@ -448,6 +457,12 @@ func TestSearchOutputReducerEligibleFromCommandLine(t *testing.T) {
 	if SearchOutputReducerEligibleFromCommandLine(`go test ./...`, "/repo") {
 		t.Fatal("non-search command must not be search-output reducer eligible")
 	}
+	if SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src | sed -n '1,20p'`, "") {
+		t.Fatal("non-head search pipeline must not be search-output reducer eligible")
+	}
+	if SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src | head -c 200`, "") {
+		t.Fatal("byte-limited head pipeline must not be search-output reducer eligible")
+	}
 }
 
 func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
@@ -457,6 +472,9 @@ func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
 	}
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
 		t.Fatalf("cd-wrapped rg repo key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal | head -200`); got != "rg\t-n\tneedle\t/repo/a/internal\t|head-lines=200" {
+		t.Fatalf("cd-wrapped rg head-pipeline repo key = %q", got)
 	}
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg --heading -n "needle" internal`); got != "" {
 		t.Fatalf("heading rg must not get a repo-scoped match-set key: %q", got)
@@ -500,6 +518,33 @@ func TestNormalizeSearchCommandLine(t *testing.T) {
 			name:    "leading cd resolves relative path",
 			command: `cd /repo/a && rg -n "needle" internal`,
 			want:    `rg -n needle /repo/a/internal`,
+		},
+		{
+			name:    "leading cd resolves safe head pipeline",
+			command: `cd /repo/a && rg -n "needle" internal | head -200`,
+			want:    `rg -n needle /repo/a/internal | head -200`,
+		},
+		{
+			name:    "workdir resolves safe head n pipeline",
+			command: `rg -n "needle" internal | head -n 50`,
+			workdir: "/repo/a",
+			want:    `rg -n needle /repo/a/internal | head -50`,
+		},
+		{
+			name:    "workdir resolves safe head lines equals pipeline",
+			command: `rg -n "needle" internal | head --lines=30`,
+			workdir: "/repo/a",
+			want:    `rg -n needle /repo/a/internal | head -30`,
+		},
+		{
+			name:    "sed pipeline rejected",
+			command: `cd /repo/a && rg -n "needle" internal | sed -n '1,20p'`,
+			want:    "",
+		},
+		{
+			name:    "head byte pipeline rejected",
+			command: `cd /repo/a && rg -n "needle" internal | head -c 200`,
+			want:    "",
 		},
 		{
 			name:    "grep recursive dot",
@@ -566,6 +611,86 @@ func TestNormalizeSearchCommandLine(t *testing.T) {
 	}
 }
 
+func TestSafeSearchHeadPipelineNormalizationBoundaries(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		command string
+		want    string
+		key     string
+	}{
+		{
+			name:    "plain head defaults to ten lines",
+			command: `cd /repo/a && rg -n "needle" internal | head`,
+			want:    `rg -n needle /repo/a/internal | head -10`,
+			key:     "rg\t-n\tneedle\t/repo/a/internal\t|head-lines=10",
+		},
+		{
+			name:    "long lines option with separate value",
+			command: `cd /repo/a && rg -n "needle" internal | head --lines 40`,
+			want:    `rg -n needle /repo/a/internal | head -40`,
+			key:     "rg\t-n\tneedle\t/repo/a/internal\t|head-lines=40",
+		},
+		{
+			name:    "git grep head pipeline",
+			command: `cd /repo/a && git grep -n "needle" -- internal | head -25`,
+			want:    `git -C /repo/a grep -n needle -- internal | head -25`,
+			key:     "git\t-C\t/repo/a\tgrep\t-n\tneedle\t--\tinternal\t|head-lines=25",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := NormalizeSearchCommandLine(tc.command, ""); got != tc.want {
+				t.Fatalf("NormalizeSearchCommandLine() = %q, want %q", got, tc.want)
+			}
+			if got := RepoScopedSearchOutputKeyFromCommandLine(tc.command); got != tc.key {
+				t.Fatalf("RepoScopedSearchOutputKeyFromCommandLine() = %q, want %q", got, tc.key)
+			}
+		})
+	}
+
+	if got := SearchOutputKeyFromCommandLine(`rg -n "needle" internal | head`); got != "rg\t-n\tneedle\tinternal\t|head-lines=10" {
+		t.Fatalf("implicit-cwd search head key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`rg -n "needle" internal | head`); got != "" {
+		t.Fatalf("implicit-cwd search head pipeline must not get repo-scoped key: %q", got)
+	}
+}
+
+func TestSafeSearchHeadPipelineRejectsUnsafeBoundaries(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		`cd /repo/a && rg -n "needle" internal | head -0`,
+		`cd /repo/a && rg -n "needle" internal | head --lines=0`,
+		`cd /repo/a && rg -n "needle" internal | head --lines +20`,
+		`cd /repo/a && rg -n "needle" internal | head -n -20`,
+		`cd /repo/a && rg -n "needle" internal | head -n nope`,
+		`cd /repo/a && rg -n "needle" internal | head -20 | cat`,
+		`cd /repo/a && rg -n "needle" internal | head -20 > out.txt`,
+		`cd /repo/a && rg -n "$needle" internal | head -20`,
+		`cd /repo/a && rg -l "needle" internal | head -20`,
+		`cd /repo/a && go test ./... | head -20`,
+	} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			if got := NormalizeSearchCommandLine(command, ""); got != "" {
+				t.Fatalf("unsafe head pipeline normalized to %q", got)
+			}
+			if got := SearchOutputKeyFromCommandLine(command); got != "" {
+				t.Fatalf("unsafe head pipeline produced search key %q", got)
+			}
+			if SearchOutputReducerEligibleFromCommandLine(command, "") {
+				t.Fatal("unsafe head pipeline must not be reducer eligible")
+			}
+		})
+	}
+}
+
 func TestCompactCapturedOutputWithContextCDWrappedSearch(t *testing.T) {
 	t.Parallel()
 
@@ -579,6 +704,19 @@ func TestCompactCapturedOutputWithContextCDWrappedSearch(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "[rg] 40 match(es)") || !strings.Contains(string(out), "internal/file_") {
 		t.Fatalf("unexpected compacted search output: %s", out)
+	}
+
+	out, changed = CompactCapturedOutputWithContext("", `cd /repo/a && rg -n TODO internal | head -200`, input.String(), 0, FileReadContext{Mode: "scan"})
+	if !changed {
+		t.Fatal("safe head-limited cd-wrapped search output should compact")
+	}
+	if !strings.Contains(string(out), "[rg] 40 match(es)") || !strings.Contains(string(out), "internal/file_") {
+		t.Fatalf("unexpected compacted head-pipeline search output: %s", out)
+	}
+
+	out, changed = CompactCapturedOutputWithContext("", `cd /repo/a && rg -n TODO internal | sed -n '1,20p'`, input.String(), 0, FileReadContext{Mode: "scan"})
+	if changed || strings.Contains(string(out), "[rg] 40 match(es)") {
+		t.Fatalf("unsafe non-head search pipeline must not compact as search output: changed=%v out=%s", changed, out)
 	}
 }
 
