@@ -963,6 +963,11 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 			"no_evidence:wss.request_shape_missing",
 			"request shape was not recorded, so savings loss cannot be assigned safely",
 			"add content-free shape/debug facts before changing guards"
+	case strings.TrimSpace(summary.BypassReason) == "wss_previous_response_tool_output_full_pass":
+		return "unsafe_without_fresh_live_proof",
+			"no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass",
+			"previous_response_id tool-output bypass protects Codex server state when the exact tool-use binding is unavailable",
+			"keep full-pass unless exact command binding plus downstream-delta live proof covers this shape"
 	case strings.TrimSpace(summary.BypassReason) != "":
 		return "needs_instrumentation",
 			"no_evidence:bypass_reason=" + strings.TrimSpace(summary.BypassReason),

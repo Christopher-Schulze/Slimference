@@ -444,6 +444,26 @@ func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapNoEvidenceActionClassifiesPreviousResponseBypassAsProofBlocked(t *testing.T) {
+	t.Parallel()
+
+	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(dbg.RequestSummary{
+		BypassReason: "wss_previous_response_tool_output_full_pass",
+		DebugFacts: map[string]string{
+			"wss.request_shape":                    "delta",
+			"wss.output_reduce_reason":             "disabled",
+			"wss.output_reduce_disabled_predicate": "tool_output_context",
+			"wss.tool_results":                     "1",
+		},
+	})
+	if category != "unsafe_without_fresh_live_proof" ||
+		source != "no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass" ||
+		!strings.Contains(policy, "protects Codex server state") ||
+		!strings.Contains(nextStep, "downstream-delta live proof") {
+		t.Fatalf("previous-response bypass action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
+	}
+}
+
 func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 	t.Parallel()
 
