@@ -757,15 +757,16 @@ build/test reports, partial file ranges, or custom deterministic tools without
 introducing semantic summaries or cross-repo false hits. Codex WSS Phase-F
 search-output reducer paths currently fail open before first-pass grouping and
 repeated search delta, including grep-style search, broad path-list tools such
-as `fd`, rich/side-effect `find`, empty-result search tools, and
-output-inferred search payloads. Exact `rg --files` output is separated from
+as unbounded or rich/side-effect `find`, empty-result search tools, and
+output-inferred search payloads. Exact `rg --files`, strict `fd`/`fdfind`, and
+conservative bounded `find` path-list output are separated from
 grep/search-match risk and can use archive-backed path-list compaction only
-when the command flags and output pass strict path-list parsers. Bounded
-names-only `ls`, conservative `find ... -print`, and bounded `tree -L`
-listings are a separate stateful-safe class: they may seed and later use exact
-archive-backed repeated-output savings, while source-like, search-like, rich
-`ls -l`, deep or unknown-flag `tree`, recursive, oversized, or side-effect
-listings still full-pass.
+when the command flags and output pass strict path-list parsers.
+Bounded names-only `ls`, conservative `find ... -print`, strict `fd` path
+lists, and bounded `tree -L` listings are separate stateful-safe classes: they
+may seed and later use exact archive-backed repeated-output savings, while
+source-like, search-like, rich `ls -l`, deep or unknown-flag `tree`, recursive,
+oversized, diagnostic, or side-effect listings still full-pass.
 Fresh live scoped WSS sessions on 2026-06-07 and later Desktop retests showed
 upstream `invalid_request_error` after broad WSS tool-output mutation even with
 model-facing output-reduce disabled. Narrower search-key and
@@ -773,11 +774,12 @@ model-facing output-reduce disabled. Narrower search-key and
 turn can still fail after the session state was already poisoned. HTTP, hook,
 and non-WSS routes keep the deterministic search reducers; WSS keeps exact or
 recoverable read-delta and state-safe status savings default-on when proof-fresh,
-while search/path-list and broader tool-output savings must be re-certified with
-live captures before returning to the default WSS product path. If the upstream
-still returns the generic `invalid_request_error` for a `previous_response_id`
-chain and Slimference has the exact local chain, it consumes the error frame,
-retries once with the full reconstructed input chain, and records
+while search-match, unsafe path-list, and broader tool-output savings must be
+re-certified with live captures before returning to the default WSS product
+path. If the upstream still returns the generic `invalid_request_error` for a
+`previous_response_id` chain and Slimference has the exact local chain, it
+consumes the error frame, retries once with the full reconstructed input chain,
+and records
 `wss_upstream_recovery_retry`, `wss_upstream_recovery_accepted`, and
 `wss_upstream_recovery_succeeded` with one shared recovery id. If the retry is
 rejected, Slimference records `wss_upstream_recovery_failed`; if no safe retry
@@ -1039,12 +1041,12 @@ search-output mutation, and later Desktop sessions showed the same class after
 broader WSS tool-output mutation. Those rows are kept as historical replay/proof
 evidence, not as broad default-WSS promotion claims. Current WSS allows only
 proof-fresh exact/recoverable read-delta and state-safe status compaction by
-default; grep-style search, source-like, inferred search, and broad `find`/`fd`
-path-list payloads still fail open until separately re-certified. Exact
-`rg --files` path lists and bounded names-only `ls`, conservative
-`find ... -print`, and bounded `tree -L` listings are allowed only as
-archive-backed path-list or stateful-safe exact-repeat evidence, not as
-semantic summaries.
+default; grep-style search, source-like, inferred search, broad `find`
+path-list payloads, and unsafe `fd` modes still fail open until separately
+re-certified. Exact `rg --files` path lists, strict `fd`/`fdfind` path lists,
+bounded names-only `ls`, conservative `find ... -print`, and bounded `tree -L`
+listings are allowed only as archive-backed path-list or stateful-safe
+exact-repeat evidence, not as semantic summaries.
 The strict
 matrix still proves reducer mechanics and route breadth; HTTP/non-WSS Codex
 routes keep the deterministic read, ranged-read, git, exec-envelope, no-savings,

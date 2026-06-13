@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -85,7 +86,7 @@ func NormalizePathListCommandLine(commandLine, workdir string) string {
 }
 
 func pathListOutputEligibleArgv(argv []string) bool {
-	return ripgrepFilesArgv(argv) || fdPathListArgv(argv)
+	return ripgrepFilesArgv(argv) || fdPathListArgv(argv) || findPathListArgv(argv)
 }
 
 func pathListOutputLabel(argv []string) string {
@@ -94,6 +95,9 @@ func pathListOutputLabel(argv []string) string {
 	}
 	if fdPathListArgv(argv) {
 		return "fd"
+	}
+	if findPathListArgv(argv) {
+		return "find"
 	}
 	return "paths"
 }
@@ -278,6 +282,68 @@ func fdPathListInlineValueFlag(arg string) bool {
 	default:
 		return false
 	}
+}
+
+func findPathListArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(argv[0])), ".exe"))
+	if base != "find" {
+		return false
+	}
+	sawMaxDepth := false
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		switch arg {
+		case "-exec", "-execdir", "-ok", "-okdir", "-delete", "-printf", "-fprintf",
+			"-ls", "-fls", "-print0", "-fprint", "-fprint0":
+			return false
+		case "-maxdepth", "-mindepth":
+			isMaxDepth := arg == "-maxdepth"
+			i++
+			if i >= len(argv) {
+				return false
+			}
+			if !findPathListBoundedDepthArg(argv[i]) {
+				return false
+			}
+			if isMaxDepth {
+				sawMaxDepth = true
+			}
+		case "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-type":
+			i++
+			if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+				return false
+			}
+		case "-print", "-empty", "-not", "!", "-a", "-and", "-o", "-or", "(", ")":
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return false
+			}
+		}
+	}
+	return sawMaxDepth
+}
+
+func findPathListBoundedDepthArg(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "0" {
+		return true
+	}
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	n, err := strconv.Atoi(raw)
+	return err == nil && n > 0 && n <= 6
 }
 
 func lsOnlyTotalLines(s string) bool {

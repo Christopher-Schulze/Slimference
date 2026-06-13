@@ -844,8 +844,11 @@ func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsTextRiskGate(t *testing.T) 
 	}
 }
 
-func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+func TestReduceCodexLayer0WSSFindPathListCompactsWithoutSearchProof(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	var output strings.Builder
 	for i := 0; i < 60; i++ {
@@ -861,8 +864,24 @@ func TestReduceCodexLayer0WSSFindPathListPassesThrough(t *testing.T) {
 		Messages:  messages,
 		SessionID: "sess-wss-find-reconc",
 	})
-	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[1].Content[0].Text != original {
-		t.Fatalf("WSS find path-list output must pass through, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	text := result.Messages[1].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 || result.Stats.CapturedOutputBlocks != 1 {
+		t.Fatalf("WSS find path-list output should compact, stats=%+v text=%q", result.Stats, text)
+	}
+	if result.Stats.WSSSearchRiskBlocks != 0 ||
+		result.Stats.WSSSearchProofAllowed != 0 ||
+		result.Stats.WSSSearchProofBlocked != 0 {
+		t.Fatalf("find path-list must not be accounted as WSS search risk: %+v", result.Stats)
+	}
+	if !strings.Contains(text, "[find paths]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(text, ".reconc/audit/") ||
+		!strings.Contains(text, "0059.jsonl") ||
+		strings.Contains(text, ".reconc/audit/0059.jsonl") {
+		t.Fatalf("find output was not archive-backed path-list compaction: %s", text)
+	}
+	if proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("find path-list must not trip search risk gate: %+v", result.Stats.EvidenceDecisions)
 	}
 }
 
@@ -1214,7 +1233,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNonDeltaFindPathList(t *testing.T)
 		StatefulDeltaMutationBlocked: true,
 	})
 	if delta.Stats.BlocksModified != 0 || delta.Stats.TokensSaved != 0 || delta.Messages[1].Content[0].Text != original ||
-		!proxyLayer0EvidenceHasReason(delta.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		!proxyLayer0EvidenceHasReason(delta.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
 		t.Fatalf("delta path-list output must remain guarded, stats=%+v text=%q", delta.Stats, delta.Messages[1].Content[0].Text)
 	}
 }

@@ -121,6 +121,39 @@ func TestTryCompactPathListOutputFdPathLists(t *testing.T) {
 	}
 }
 
+func TestTryCompactPathListOutputFindPathLists(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		sb.WriteString(".reconc/audit/")
+		if i < 10 {
+			sb.WriteByte('0')
+		}
+		sb.WriteString(string(rune('0' + i/10)))
+		sb.WriteString(string(rune('0' + i%10)))
+		sb.WriteString(".jsonl\n")
+	}
+	out, ok := TryCompactPathListOutput([]string{"find", ".reconc", "-maxdepth", "4", "-type", "f"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("bounded find path list should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[find paths]") ||
+		!strings.Contains(text, ".reconc/audit/") ||
+		!strings.Contains(text, "39.jsonl") {
+		t.Fatalf("unexpected find path-list compaction: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("find path-list compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`find .reconc -maxdepth 4 -type f`) {
+		t.Fatal("bounded find command should be path-list eligible")
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`cd /repo/app && find .reconc -maxdepth 4 -type f`) {
+		t.Fatal("cd-wrapped bounded find command should be path-list eligible")
+	}
+}
+
 func TestTryCompactPathListOutputRipgrepFilesRootEntries(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
@@ -219,6 +252,9 @@ func TestPathListOutputParserEdges(t *testing.T) {
 		{"fd", "-ego", "--max-depth=2", "src"},
 		{"fd", "--hidden", "--type=file", "--exclude", "vendor", "src"},
 		{"fd", "--", "-literal-pattern", "src"},
+		{"find", ".reconc", "-maxdepth", "4", "-type", "f"},
+		{"find", "internal", "-mindepth", "0", "-maxdepth", "2", "-name", "*.go", "-print"},
+		{"find", ".", "-maxdepth", "0"},
 	}
 	for _, argv := range eligible {
 		if !pathListOutputEligibleArgv(argv) {
@@ -235,6 +271,17 @@ func TestPathListOutputParserEdges(t *testing.T) {
 		{"fd", "--json", ".go"},
 		{"fd", "--extension"},
 		{"fd", ""},
+		{"find", ".reconc", "-type", "f"},
+		{"find", ".reconc", "-maxdepth", "7", "-type", "f"},
+		{"find", ".reconc", "-maxdepth"},
+		{"find", ""},
+		{"find", ".reconc", "-maxdepth", "x"},
+		{"find", ".reconc", "-maxdepth", "999999999999999999999999999999"},
+		{"find", ".reconc", "-maxdepth", "4", "-name"},
+		{"find", ".reconc", "-maxdepth", "4", "-unknown"},
+		{"find", ".reconc", "-maxdepth", "4", "-exec", "cat", "{}", ";"},
+		{"find", ".reconc", "-maxdepth", "4", "-print0"},
+		{"find", ".reconc", "-maxdepth", "4", "-printf", "%p\n"},
 		{"rg", "--"},
 		{"rg", "--files", "--glob="},
 		{"rg", "--files", "--max-depth"},
@@ -250,6 +297,12 @@ func TestPathListOutputParserEdges(t *testing.T) {
 
 	if got := pathListOutputLabel([]string{"fd", "."}); got != "fd" {
 		t.Fatalf("fd path-list label = %q", got)
+	}
+	if got := pathListOutputLabel([]string{"find", ".", "-maxdepth", "1"}); got != "find" {
+		t.Fatalf("find path-list label = %q", got)
+	}
+	if findPathListBoundedDepthArg("") {
+		t.Fatal("empty find depth must fail open")
 	}
 	if got := pathListOutputLabel([]string{"go", "test"}); got != "paths" {
 		t.Fatalf("fallback path-list label = %q", got)
@@ -300,6 +353,30 @@ func TestTryCompactWc(t *testing.T) {
 	want := "[wc prefix=src/]\nmain.rs: 30L 96W\nlib.rs: 50L 120W\ntotal: 80L 216W\n"
 	if string(multi) != want {
 		t.Fatalf("multi-file wc = %q, want %q", multi, want)
+	}
+
+	longFlags, ok := TryCompactWc([]string{"wc", "--lines", "--words", "--chars", "--bytes", "--max-line-length"}, []byte("      3      9     27     31     12 notes/report.txt\n"))
+	if !ok || string(longFlags) != "notes/report.txt: 3L 9W 27Ch 31B 12Max\n" {
+		t.Fatalf("wc long flags: ok=%v out=%q", ok, longFlags)
+	}
+
+	separator, ok := TryCompactWc([]string{"wc", "-l", "--", "-leading-name.txt"}, []byte("      7 -leading-name.txt\n"))
+	if !ok || string(separator) != "-leading-name.txt: 7L\n" {
+		t.Fatalf("wc separator path: ok=%v out=%q", ok, separator)
+	}
+
+	noPath, ok := TryCompactWc([]string{"wc", "-l"}, []byte("      42\n"))
+	if !ok || string(noPath) != "42L\n" {
+		t.Fatalf("wc no-path row: ok=%v out=%q", ok, noPath)
+	}
+
+	noCommonPrefix, ok := TryCompactWc([]string{"wc", "-l"}, []byte("      12 src/main.go\n      13 docs/spec.md\n      25 total\n"))
+	if !ok {
+		t.Fatal("multi-file wc without common prefix should compact")
+	}
+	wantNoPrefix := "src/main.go: 12L\ndocs/spec.md: 13L\ntotal: 25L\n"
+	if string(noCommonPrefix) != wantNoPrefix {
+		t.Fatalf("multi-file wc without prefix = %q, want %q", noCommonPrefix, wantNoPrefix)
 	}
 }
 

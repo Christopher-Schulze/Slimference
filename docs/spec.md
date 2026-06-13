@@ -60,7 +60,9 @@ Requirements:
   the same state-safety gate or explicit Codex WSS tool-output mutation opt-in;
 - Codex WSS search/path-list/tool-output reduction remains risk-gated and
   full-passes when first-pass evidence, source attribution, or upstream session
-  state could become ambiguous;
+  state could become ambiguous; exact parser-proven path-list classes such as
+  `rg --files`, `fd`/`fdfind`, and conservative bounded `find` may compact
+  only after both command shape and payload pass strict path-list parsers;
 - sharper Codex WSS search-output caps may become runtime-active only through a
   validated focused search-cap proof artifact whose `capture_reports` themselves
   pass their row gates and prove CLI plus Desktop, two positive search-loop
