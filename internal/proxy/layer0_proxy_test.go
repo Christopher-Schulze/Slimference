@@ -1664,6 +1664,62 @@ func TestReduceCodexLayer0StatefulDeltaSeedsRepeatedOutputObserveOnly(t *testing
 	}
 }
 
+func TestReduceCodexLayer0RepeatedOutputMissRecordsObserveOnlyEvidence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	body := strings.Repeat("deterministic report row with unchanged non-file data\n", 160)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-report", ToolName: "exec_command", ToolInput: `{"cmd":"python generate_report.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-report", Text: body}}},
+	}
+
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-observe-repeated-miss",
+		TurnSeq:   1,
+	})
+	if seed.Stats.TokensSaved != 0 || seed.Stats.BlocksModified != 0 ||
+		seed.Stats.RepeatedOutputBlocks != 0 || seed.Messages[1].Content[0].Text != body {
+		t.Fatalf("first repeated-output observation must keep wire bytes and savings accounting untouched: %+v", seed.Stats)
+	}
+	if len(seed.Stats.CacheEvents) != 1 ||
+		seed.Stats.CacheEvents[0].Mechanism != savingspolicy.CodexMechanismRepeatedOutput ||
+		seed.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
+		seed.Stats.CacheEvents[0].Reason != "first_observation_seeded" {
+		t.Fatalf("first repeated-output observation should seed cache: %+v", seed.Stats.CacheEvents)
+	}
+	var shadow evidence.BlockDecision
+	for _, decision := range seed.Stats.EvidenceDecisions {
+		if decision.Mechanism == string(proxyLayer0MechanismRepeatedOut) &&
+			decision.Action == evidence.ActionShadow &&
+			decision.Reason == "repeated_output_first_observation_seeded" {
+			shadow = decision
+			break
+		}
+	}
+	if shadow.Mechanism == "" {
+		t.Fatalf("observe-only repeated-output evidence missing: %+v", seed.Stats.EvidenceDecisions)
+	}
+	if shadow.CommandClass != "python" || shadow.ContentClass != evidence.ContentPlain ||
+		shadow.SafetyClass != evidence.SafetyExact || shadow.NetTokens != 0 ||
+		shadow.OriginalTokens != 0 || shadow.FinalTokens != 0 || shadow.SavedTokens != 0 ||
+		shadow.FootprintScore != 0 || !strings.Contains(shadow.Recovery, "wire unchanged") {
+		t.Fatalf("observe-only evidence must stay content-free and token-neutral: %+v", shadow)
+	}
+
+	hit := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-observe-repeated-miss",
+		TurnSeq:   2,
+	})
+	if hit.Stats.TokensSaved <= 0 || hit.Stats.RepeatedOutputBlocks != 1 ||
+		hit.Messages[1].Content[0].Text == body ||
+		!strings.Contains(hit.Messages[1].Content[0].Text, "kind=tool-output") {
+		t.Fatalf("observe-only seed should enable later repeated-output savings: %+v text=%q", hit.Stats, hit.Messages[1].Content[0].Text)
+	}
+}
+
 func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
 	stats := proxyLayer0Stats{
 		TokensSaved:              100,
@@ -2544,6 +2600,9 @@ func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
 		stats.CacheEvents[0].Reason != "first_observation_seeded" {
 		t.Fatalf("read-delta cache miss event mismatch: %+v", stats.CacheEvents)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismReadDelta, "read_delta_first_observation_seeded", evidence.ActionShadow) {
+		t.Fatalf("read-delta miss should emit observe-only shadow evidence: %+v", stats.EvidenceDecisions)
 	}
 }
 

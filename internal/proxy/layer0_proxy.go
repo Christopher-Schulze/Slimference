@@ -676,6 +676,22 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				before := countBeforeTokens()
 				return proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, mechanism, evidence.ActionFullPass, reason, before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			}
+			evidenceStart := len(stats.EvidenceDecisions)
+			observationMechanism := proxyLayer0Mechanism("")
+			observationReason := ""
+			noteObservation := func(mechanism proxyLayer0Mechanism, reason string) {
+				if observationMechanism != "" || mechanism == "" || proxyLayer0ObservationReason(mechanism, reason) == "" {
+					return
+				}
+				observationMechanism = mechanism
+				observationReason = reason
+			}
+			recordObserveOnlyEvidence := func() {
+				if observationMechanism == "" || len(stats.EvidenceDecisions) != evidenceStart {
+					return
+				}
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0ObservationEvidenceDecision(commandLine, observationMechanism, observationReason, workload))
+			}
 			recordChunkIntegrityBudgetFullPass := func() {
 				minBytes := chunkMinBytes
 				if minBytes <= 0 {
@@ -768,6 +784,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 				if readDeltaAttempted && !changed {
 					stats.ReadDeltaMisses++
+					noteObservation(proxyLayer0MechanismReadDelta, cacheReason)
 				}
 			}
 			if readCommand && !changed {
@@ -778,6 +795,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 				if !changed {
 					recordChunkIntegrityBudgetFullPass()
+					recordObserveOnlyEvidence()
 					continue
 				}
 			}
@@ -800,6 +818,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
+				} else {
+					noteObservation(proxyLayer0MechanismRepeatedOut, cacheReason)
 				}
 			}
 			if wssSearchOutputBlocked {
@@ -872,6 +892,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
+				} else {
+					noteObservation(proxyLayer0MechanismRepeatedOut, cacheReason)
 				}
 			}
 			if !changed && policy.ChunkDedup && chunkAllowed {
@@ -881,6 +903,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !changed {
 				recordChunkIntegrityBudgetFullPass()
+				recordObserveOnlyEvidence()
 				continue
 			}
 			if proxyLayer0CacheBustCandidateDemoted(req, commandLine, block.Text, mechanism) {
@@ -1071,6 +1094,68 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	decision.FootprintScore = proxyFootprintScoreWithEstimate(decision.OriginalTokens, decision.SavedTokens, turnSeq, remainingTurnsEstimate, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
+}
+
+func proxyLayer0ObservationEvidenceDecision(commandLine string, mechanism proxyLayer0Mechanism, reason string, workload savingspolicy.CodexWorkload) evidence.BlockDecision {
+	decision := evidence.DecisionFromObservation(
+		0,
+		string(mechanism),
+		proxyLayer0EvidenceSafety(mechanism),
+		evidence.ActionShadow,
+		proxyLayer0ObservationReason(mechanism, reason),
+		proxyLayer0ObservationAnalysis(workload),
+		proxyLayer0PreservedEvidence(mechanism, workload),
+		"wire unchanged; observe-only state update",
+		0,
+		0,
+	)
+	if class := wssToolCommandClass(commandLine); class != "" {
+		decision.CommandClass = class
+	}
+	return decision
+}
+
+func proxyLayer0ObservationAnalysis(workload savingspolicy.CodexWorkload) evidence.Analysis {
+	switch workload {
+	case savingspolicy.CodexWorkloadSearch:
+		return evidence.Analysis{ContentClass: evidence.ContentSearch, Signals: []evidence.Signal{evidence.SignalCount, evidence.SignalPath}}
+	case savingspolicy.CodexWorkloadRead:
+		return evidence.Analysis{ContentClass: evidence.ContentCode, Signals: []evidence.Signal{evidence.SignalPath, evidence.SignalRecency}}
+	default:
+		return evidence.Analysis{ContentClass: evidence.ContentPlain, Signals: []evidence.Signal{evidence.SignalDedupe}}
+	}
+}
+
+func proxyLayer0ObservationReason(mechanism proxyLayer0Mechanism, reason string) string {
+	reason = strings.TrimSpace(reason)
+	switch reason {
+	case "first_observation_seeded",
+		"archive_unavailable_full_pass",
+		"previous_content_unavailable_full_pass",
+		"changed_non_delta_output_full_pass",
+		"delta_not_shorter_full_pass",
+		"no_delta_full_pass",
+		"recently_edited_full_pass",
+		"recent_full_pass_window",
+		"missing_path_or_session",
+		"missing_key_session_or_short_output",
+		"missing_session",
+		"missing_key",
+		"not_read_command",
+		"readcache_error",
+		"home_error",
+		"full_pass":
+	default:
+		return ""
+	}
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta:
+		return "read_delta_" + reason
+	case proxyLayer0MechanismRepeatedOut:
+		return "repeated_output_" + reason
+	default:
+		return string(mechanism) + "_" + reason
+	}
 }
 
 func proxyFootprintScoreBucket(originalTokens int, savedTokens int, turnSeq int) string {
