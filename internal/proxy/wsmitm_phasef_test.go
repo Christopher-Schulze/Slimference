@@ -780,6 +780,59 @@ func TestWSSRawHasPromptCachePrefix(t *testing.T) {
 	}
 }
 
+func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
+	raw := map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "prefix-metrics",
+		"instructions":     "stable instructions",
+		"tools": []map[string]any{
+			{"type": "function", "name": "exec_command", "description": "run commands"},
+			{"type": "function", "name": "apply_patch", "description": "edit files"},
+		},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+	}
+	body := mustMarshal(raw)
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	meta := wssRequestMetaFromRaw(decoded)
+	messages := []types.Message{{
+		Role:    "user",
+		Content: []types.ContentBlock{{Type: "text", Text: "continue"}},
+	}}
+
+	facts := wssRequestDebugFacts(body, body, messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"})
+	if facts["wss.prompt_cache_prefix"] != "true" ||
+		facts["wss.has_tool_definitions"] != "true" ||
+		facts["wss.tool_definitions"] != "2" ||
+		facts["wss.tool_definition_default_keep"] != "2" ||
+		facts["wss.tool_definition_nondefault"] != "0" ||
+		facts["wss.tool_definition_unnamed"] != "0" ||
+		facts["wss.output_reduce_reason"] != "prompt_cache_prefix_full_pass" {
+		t.Fatalf("prefix facts missing: %+v", facts)
+	}
+	if n, err := strconv.Atoi(facts["wss.tool_definition_bytes"]); err != nil || n <= 0 {
+		t.Fatalf("tool_definition_bytes=%q err=%v", facts["wss.tool_definition_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.tool_definition_default_keep_bytes"]); err != nil || n <= 0 {
+		t.Fatalf("tool_definition_default_keep_bytes=%q err=%v", facts["wss.tool_definition_default_keep_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.tool_definition_nondefault_bytes"]); err != nil || n != 0 {
+		t.Fatalf("tool_definition_nondefault_bytes=%q err=%v", facts["wss.tool_definition_nondefault_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.tool_definition_unnamed_bytes"]); err != nil || n != 0 {
+		t.Fatalf("tool_definition_unnamed_bytes=%q err=%v", facts["wss.tool_definition_unnamed_bytes"], err)
+	}
+	if n, err := strconv.Atoi(facts["wss.instructions_bytes"]); err != nil || n <= 0 {
+		t.Fatalf("instructions_bytes=%q err=%v", facts["wss.instructions_bytes"], err)
+	}
+}
+
 func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	deltaMessages := []types.Message{{
 		Role:    "user",

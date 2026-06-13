@@ -252,6 +252,28 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 				"wss.source_tool_bytes":    "0",
 			},
 		},
+		dbg.RequestSummary{
+			RequestID: "prefix-tools-no-evidence",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 3000, Final: 3000, Saved: 0},
+			DebugFacts: map[string]string{
+				"wss.request_shape":                      "root",
+				"wss.output_reduce_reason":               "prompt_cache_prefix_full_pass",
+				"wss.messages":                           "1",
+				"wss.tool_results":                       "0",
+				"wss.source_tool_bytes":                  "0",
+				"wss.tool_definition_bytes":              "123",
+				"wss.tool_definitions":                   "17",
+				"wss.instructions_bytes":                 "45",
+				"wss.tool_definition_default_keep":       "12",
+				"wss.tool_definition_default_keep_bytes": "90",
+				"wss.tool_definition_nondefault":         "4",
+				"wss.tool_definition_nondefault_bytes":   "30",
+				"wss.tool_definition_unnamed":            "1",
+				"wss.tool_definition_unnamed_bytes":      "3",
+			},
+		},
 	)
 
 	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
@@ -288,19 +310,21 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		bypass.RequestShapes["delta"] != 1 {
 		t.Fatalf("bypass no-evidence guard row mismatch: %+v", bypass)
 	}
-	if noToolResults.Requests != 1 ||
-		noToolResults.OriginalTokens != 4000 ||
-		noToolResults.NoEvidenceOrigTokens != 4000 ||
-		noToolResults.RequestShapes["delta"] != 1 {
+	if noToolResults.Requests != 2 ||
+		noToolResults.OriginalTokens != 7000 ||
+		noToolResults.NoEvidenceOrigTokens != 7000 ||
+		noToolResults.RequestShapes["delta"] != 1 ||
+		noToolResults.RequestShapes["root"] != 1 {
 		t.Fatalf("no-tool-results no-evidence guard row mismatch: %+v", noToolResults)
 	}
-	if noOutputReduce.Requests != 1 ||
-		noOutputReduce.OriginalTokens != 4000 ||
-		noOutputReduce.NoEvidenceOrigTokens != 4000 ||
-		noOutputReduce.RequestShapes["delta"] != 1 {
+	if noOutputReduce.Requests != 2 ||
+		noOutputReduce.OriginalTokens != 7000 ||
+		noOutputReduce.NoEvidenceOrigTokens != 7000 ||
+		noOutputReduce.RequestShapes["delta"] != 1 ||
+		noOutputReduce.RequestShapes["root"] != 1 {
 		t.Fatalf("no-output-reduce no-evidence guard row mismatch: %+v", noOutputReduce)
 	}
-	if len(report.ActionablePotential) != 2 ||
+	if len(report.ActionablePotential) != 3 ||
 		report.ActionablePotential[0].Category != "needs_instrumentation" ||
 		report.ActionablePotential[0].Source != "no_evidence:wss.request_shape_missing" ||
 		report.ActionablePotential[0].TokenBasis != "request_original_tokens" ||
@@ -309,7 +333,21 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[1].Category != "prefix_safe_new_mechanism_required" ||
 		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
 		report.ActionablePotential[1].Tokens != 4000 ||
-		report.ActionablePotential[1].Requests != 1 {
+		report.ActionablePotential[1].Requests != 1 ||
+		report.ActionablePotential[2].Category != "prefix_safe_new_mechanism_required" ||
+		report.ActionablePotential[2].Source != "no_evidence:prompt_cache_prefix_tools_and_instructions" ||
+		report.ActionablePotential[2].Tokens != 3000 ||
+		report.ActionablePotential[2].Requests != 1 ||
+		report.ActionablePotential[2].PrefixToolDefinitionBytes != 123 ||
+		report.ActionablePotential[2].PrefixInstructionBytes != 45 ||
+		report.ActionablePotential[2].PrefixToolDefinitions != 17 ||
+		report.ActionablePotential[2].PrefixMaxToolDefinitions != 17 ||
+		report.ActionablePotential[2].PrefixDefaultKeepTools != 12 ||
+		report.ActionablePotential[2].PrefixDefaultKeepBytes != 90 ||
+		report.ActionablePotential[2].PrefixNonDefaultTools != 4 ||
+		report.ActionablePotential[2].PrefixNonDefaultBytes != 30 ||
+		report.ActionablePotential[2].PrefixUnnamedTools != 1 ||
+		report.ActionablePotential[2].PrefixUnnamedBytes != 3 {
 		t.Fatalf("bad no-evidence actionable rows: %+v", report.ActionablePotential)
 	}
 }

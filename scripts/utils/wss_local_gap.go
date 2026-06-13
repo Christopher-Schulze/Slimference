@@ -124,17 +124,27 @@ type wssLocalGapContentClassRow struct {
 }
 
 type wssLocalGapActionableRow struct {
-	Category         string         `json:"category"`
-	Source           string         `json:"source"`
-	TokenBasis       string         `json:"token_basis"`
-	Tokens           int            `json:"tokens"`
-	LocalSavedTokens int            `json:"local_saved_tokens,omitempty"`
-	Requests         int            `json:"requests,omitempty"`
-	Decisions        int            `json:"decisions,omitempty"`
-	Policy           string         `json:"policy"`
-	NextStep         string         `json:"next_step"`
-	RequestShapes    map[string]int `json:"request_shapes,omitempty"`
-	Mechanisms       map[string]int `json:"mechanisms,omitempty"`
+	Category                  string         `json:"category"`
+	Source                    string         `json:"source"`
+	TokenBasis                string         `json:"token_basis"`
+	Tokens                    int            `json:"tokens"`
+	LocalSavedTokens          int            `json:"local_saved_tokens,omitempty"`
+	Requests                  int            `json:"requests,omitempty"`
+	Decisions                 int            `json:"decisions,omitempty"`
+	PrefixToolDefinitionBytes int            `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixInstructionBytes    int            `json:"prefix_instruction_bytes,omitempty"`
+	PrefixToolDefinitions     int            `json:"prefix_tool_definitions,omitempty"`
+	PrefixMaxToolDefinitions  int            `json:"prefix_max_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools    int            `json:"prefix_default_keep_tools,omitempty"`
+	PrefixDefaultKeepBytes    int            `json:"prefix_default_keep_bytes,omitempty"`
+	PrefixNonDefaultTools     int            `json:"prefix_nondefault_tools,omitempty"`
+	PrefixNonDefaultBytes     int            `json:"prefix_nondefault_bytes,omitempty"`
+	PrefixUnnamedTools        int            `json:"prefix_unnamed_tools,omitempty"`
+	PrefixUnnamedBytes        int            `json:"prefix_unnamed_bytes,omitempty"`
+	Policy                    string         `json:"policy"`
+	NextStep                  string         `json:"next_step"`
+	RequestShapes             map[string]int `json:"request_shapes,omitempty"`
+	Mechanisms                map[string]int `json:"mechanisms,omitempty"`
 }
 
 type wssLocalGapAccumulator struct {
@@ -543,14 +553,24 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 	}
 	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary)
 	a.addActionable(wssLocalGapActionableRow{
-		Category:         category,
-		Source:           source,
-		TokenBasis:       "request_original_tokens",
-		Tokens:           original,
-		LocalSavedTokens: saved,
-		Requests:         1,
-		Policy:           policy,
-		NextStep:         nextStep,
+		Category:                  category,
+		Source:                    source,
+		TokenBasis:                "request_original_tokens",
+		Tokens:                    original,
+		LocalSavedTokens:          saved,
+		Requests:                  1,
+		PrefixToolDefinitionBytes: wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_bytes"),
+		PrefixInstructionBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.instructions_bytes"),
+		PrefixToolDefinitions:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
+		PrefixMaxToolDefinitions:  wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
+		PrefixDefaultKeepTools:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep"),
+		PrefixDefaultKeepBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_bytes"),
+		PrefixNonDefaultTools:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault"),
+		PrefixNonDefaultBytes:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_bytes"),
+		PrefixUnnamedTools:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed"),
+		PrefixUnnamedBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
+		Policy:                    policy,
+		NextStep:                  nextStep,
 	}, shape, "")
 }
 
@@ -569,6 +589,18 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		existing.LocalSavedTokens += row.LocalSavedTokens
 		existing.Requests += row.Requests
 		existing.Decisions += row.Decisions
+		existing.PrefixToolDefinitionBytes += row.PrefixToolDefinitionBytes
+		existing.PrefixInstructionBytes += row.PrefixInstructionBytes
+		existing.PrefixToolDefinitions += row.PrefixToolDefinitions
+		if row.PrefixMaxToolDefinitions > existing.PrefixMaxToolDefinitions {
+			existing.PrefixMaxToolDefinitions = row.PrefixMaxToolDefinitions
+		}
+		existing.PrefixDefaultKeepTools += row.PrefixDefaultKeepTools
+		existing.PrefixDefaultKeepBytes += row.PrefixDefaultKeepBytes
+		existing.PrefixNonDefaultTools += row.PrefixNonDefaultTools
+		existing.PrefixNonDefaultBytes += row.PrefixNonDefaultBytes
+		existing.PrefixUnnamedTools += row.PrefixUnnamedTools
+		existing.PrefixUnnamedBytes += row.PrefixUnnamedBytes
 	}
 	addWSSAuditCount(&existing.RequestShapes, shape)
 	if strings.TrimSpace(mechanism) != "" {
@@ -843,10 +875,25 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 	sourceToolBytes := strings.TrimSpace(facts["wss.source_tool_bytes"])
 	switch {
 	case outputReason == "prompt_cache_prefix_full_pass":
+		toolDefinitionBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
+		instructionBytes := wssLocalGapFactInt(facts, "wss.instructions_bytes")
+		source := "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass"
+		nextStep := "design a prefix-preserving deterministic reducer or keep full-pass"
+		switch {
+		case toolDefinitionBytes > 0 && instructionBytes > 0:
+			source = "no_evidence:prompt_cache_prefix_tools_and_instructions"
+			nextStep = "measure schema-vs-instruction mass, then prove prefix-safe tool-prune or keep full-pass"
+		case toolDefinitionBytes > 0:
+			source = "no_evidence:prompt_cache_prefix_tools"
+			nextStep = "measure tool-schema mass, then prove prefix-safe tool-prune before pruning"
+		case instructionBytes > 0:
+			source = "no_evidence:prompt_cache_prefix_instructions"
+			nextStep = "design an instruction-preserving mechanism; do not inject WSS directives into the prefix"
+		}
 		return "prefix_safe_new_mechanism_required",
-			"no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass",
+			source,
 			"prompt-cache-prefix frames must stay byte/semantic stable; no WSS directive injection",
-			"design a prefix-preserving deterministic reducer or keep full-pass"
+			nextStep
 	case toolResults == "0" && sourceToolBytes == "0":
 		return "not_tool_output_reducer_target",
 			"no_evidence:no_tool_output",
@@ -873,6 +920,17 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 			"no block-level evidence exists for this token mass",
 			"add content-free evidence decisions before treating it as a savings candidate"
 	}
+}
+
+func wssLocalGapFactInt(facts map[string]string, key string) int {
+	if facts == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(facts[key]))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
@@ -926,6 +984,22 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 				row.LocalSavedTokens,
 				formatWSSAuditCounts(row.RequestShapes),
 				formatWSSAuditCounts(row.Mechanisms))
+			if row.PrefixToolDefinitionBytes > 0 || row.PrefixInstructionBytes > 0 || row.PrefixToolDefinitions > 0 {
+				fmt.Fprintf(w, "    prefix: tool_definition_bytes=%d instruction_bytes=%d tool_definitions=%d max_tools_per_request=%d\n",
+					row.PrefixToolDefinitionBytes,
+					row.PrefixInstructionBytes,
+					row.PrefixToolDefinitions,
+					row.PrefixMaxToolDefinitions)
+				if row.PrefixDefaultKeepTools > 0 || row.PrefixNonDefaultTools > 0 || row.PrefixUnnamedTools > 0 {
+					fmt.Fprintf(w, "            default_keep=%d/%dB nondefault=%d/%dB unnamed=%d/%dB\n",
+						row.PrefixDefaultKeepTools,
+						row.PrefixDefaultKeepBytes,
+						row.PrefixNonDefaultTools,
+						row.PrefixNonDefaultBytes,
+						row.PrefixUnnamedTools,
+						row.PrefixUnnamedBytes)
+				}
+			}
 			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
 			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
 		}
