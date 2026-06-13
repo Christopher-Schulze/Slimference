@@ -410,6 +410,36 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 	}
 }
 
+func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
+	t.Parallel()
+
+	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(dbg.RequestSummary{
+		DebugFacts: map[string]string{
+			"wss.request_shape":                      "delta",
+			"wss.output_reduce_reason":               "prompt_cache_prefix_full_pass",
+			"wss.tool_definition_bytes":              "12000",
+			"wss.tool_definition_default_keep_bytes": "12000",
+			"wss.tool_definition_nondefault_bytes":   "0",
+			"wss.instructions_bytes":                 "9000",
+			"wss.tool_definition_default_keep_names": "exec_command,request_user_input,update_goal",
+			"wss.tool_definition_nondefault_names":   "",
+			"wss.tool_definition_default_keep":       "3",
+			"wss.tool_definition_nondefault":         "0",
+			"wss.tool_definition_unnamed":            "0",
+			"wss.tool_definition_unnamed_bytes":      "0",
+			"wss.output_reduce_disabled_predicate":   "prompt_cache_prefix",
+			"wss.tool_definition_description_bytes":  "6000",
+			"wss.tool_definition_parameters_bytes":   "5000",
+		},
+	})
+	if category != "prefix_stateful_elision_proof_required" ||
+		source != "no_evidence:prompt_cache_prefix_default_keep_tools_and_instructions" ||
+		!strings.Contains(policy, "no schema pruning") ||
+		!strings.Contains(nextStep, "stateful-prefix elision proof") {
+		t.Fatalf("default-keep prefix action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
+	}
+}
+
 func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 	t.Parallel()
 

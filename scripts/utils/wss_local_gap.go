@@ -913,22 +913,39 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 	case outputReason == "prompt_cache_prefix_full_pass":
 		toolDefinitionBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
 		instructionBytes := wssLocalGapFactInt(facts, "wss.instructions_bytes")
+		defaultKeepBytes := wssLocalGapFactInt(facts, "wss.tool_definition_default_keep_bytes")
+		nonDefaultBytes := wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes")
 		source := "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass"
+		policy := "prompt-cache-prefix frames must stay byte/semantic stable; no WSS directive injection"
 		nextStep := "design a prefix-preserving deterministic reducer or keep full-pass"
 		switch {
 		case toolDefinitionBytes > 0 && instructionBytes > 0:
 			source = "no_evidence:prompt_cache_prefix_tools_and_instructions"
 			nextStep = "measure schema-vs-instruction mass, then prove prefix-safe tool-prune or keep full-pass"
+			if defaultKeepBytes > 0 && nonDefaultBytes == 0 {
+				source = "no_evidence:prompt_cache_prefix_default_keep_tools_and_instructions"
+				policy = "default-keep/control tool and instruction prefixes must stay capability-stable; no schema pruning"
+				nextStep = "only a previous_response_id/stateful-prefix elision proof can recover this mass; do not prune control tools"
+			}
 		case toolDefinitionBytes > 0:
 			source = "no_evidence:prompt_cache_prefix_tools"
 			nextStep = "measure tool-schema mass, then prove prefix-safe tool-prune before pruning"
+			if defaultKeepBytes > 0 && nonDefaultBytes == 0 {
+				source = "no_evidence:prompt_cache_prefix_default_keep_tools"
+				policy = "default-keep/control tool prefixes must stay capability-stable; no schema pruning"
+				nextStep = "only a previous_response_id/stateful-prefix elision proof can recover this mass; do not prune control tools"
+			}
 		case instructionBytes > 0:
 			source = "no_evidence:prompt_cache_prefix_instructions"
 			nextStep = "design an instruction-preserving mechanism; do not inject WSS directives into the prefix"
 		}
-		return "prefix_safe_new_mechanism_required",
+		category := "prefix_safe_new_mechanism_required"
+		if strings.Contains(source, "prompt_cache_prefix_default_keep_tools") {
+			category = "prefix_stateful_elision_proof_required"
+		}
+		return category,
 			source,
-			"prompt-cache-prefix frames must stay byte/semantic stable; no WSS directive injection",
+			policy,
 			nextStep
 	case toolResults == "0" && sourceToolBytes == "0":
 		return "not_tool_output_reducer_target",
