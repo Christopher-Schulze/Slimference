@@ -258,22 +258,44 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 			RouteMode: "websocket_phasef",
 			Tokens:    dbg.TokenCounts{Original: 3000, Final: 3000, Saved: 0},
 			DebugFacts: map[string]string{
-				"wss.request_shape":                      "root",
-				"wss.output_reduce_reason":               "prompt_cache_prefix_full_pass",
-				"wss.messages":                           "1",
-				"wss.tool_results":                       "0",
-				"wss.source_tool_bytes":                  "0",
-				"wss.tool_definition_bytes":              "123",
-				"wss.tool_definitions":                   "17",
-				"wss.instructions_bytes":                 "45",
-				"wss.tool_definition_default_keep":       "12",
-				"wss.tool_definition_default_keep_bytes": "90",
-				"wss.tool_definition_default_keep_names": "exec_command,apply_patch",
-				"wss.tool_definition_nondefault":         "4",
-				"wss.tool_definition_nondefault_bytes":   "30",
-				"wss.tool_definition_nondefault_names":   "request_user_input,get_goal",
-				"wss.tool_definition_unnamed":            "1",
-				"wss.tool_definition_unnamed_bytes":      "3",
+				"wss.request_shape":                                  "root",
+				"wss.output_reduce_reason":                           "prompt_cache_prefix_full_pass",
+				"wss.messages":                                       "1",
+				"wss.tool_results":                                   "0",
+				"wss.source_tool_bytes":                              "0",
+				"wss.tool_definition_bytes":                          "123",
+				"wss.tool_definition_name_bytes":                     "14",
+				"wss.tool_definition_description_bytes":              "51",
+				"wss.tool_definition_parameters_bytes":               "41",
+				"wss.tool_definition_other_bytes":                    "17",
+				"wss.tool_definitions":                               "17",
+				"wss.instructions_bytes":                             "45",
+				"wss.tool_definition_default_keep":                   "12",
+				"wss.tool_definition_default_keep_bytes":             "90",
+				"wss.tool_definition_default_keep_description_bytes": "30",
+				"wss.tool_definition_default_keep_parameters_bytes":  "24",
+				"wss.tool_definition_default_keep_names":             "exec_command,apply_patch",
+				"wss.tool_definition_nondefault":                     "4",
+				"wss.tool_definition_nondefault_bytes":               "30",
+				"wss.tool_definition_nondefault_description_bytes":   "21",
+				"wss.tool_definition_nondefault_parameters_bytes":    "17",
+				"wss.tool_definition_nondefault_names":               "request_user_input,get_goal",
+				"wss.tool_definition_unnamed":                        "1",
+				"wss.tool_definition_unnamed_bytes":                  "3",
+			},
+		},
+		dbg.RequestSummary{
+			RequestID: "tool-output-disabled-predicate",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 5000, Final: 5000, Saved: 0},
+			DebugFacts: map[string]string{
+				"wss.request_shape":                    "delta",
+				"wss.output_reduce_reason":             "disabled",
+				"wss.output_reduce_disabled_predicate": "tool_output_context",
+				"wss.messages":                         "1",
+				"wss.tool_results":                     "1",
+				"wss.source_tool_bytes":                "900",
 			},
 		},
 	)
@@ -286,6 +308,7 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 	bypass := wssLocalGapRequestGuardRow{}
 	noToolResults := wssLocalGapRequestGuardRow{}
 	noOutputReduce := wssLocalGapRequestGuardRow{}
+	disabledPredicate := wssLocalGapRequestGuardRow{}
 	for _, row := range report.RequestGuards {
 		switch row.Guard {
 		case "wss.request_shape=(missing)":
@@ -296,6 +319,8 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 			noToolResults = row
 		case "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass":
 			noOutputReduce = row
+		case "no_evidence:wss.output_reduce_disabled_predicate=tool_output_context":
+			disabledPredicate = row
 		}
 	}
 	if missingShape.Requests != 1 ||
@@ -326,34 +351,52 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		noOutputReduce.RequestShapes["root"] != 1 {
 		t.Fatalf("no-output-reduce no-evidence guard row mismatch: %+v", noOutputReduce)
 	}
-	if len(report.ActionablePotential) != 3 ||
+	if disabledPredicate.Requests != 1 ||
+		disabledPredicate.OriginalTokens != 5000 ||
+		disabledPredicate.NoEvidenceOrigTokens != 5000 ||
+		disabledPredicate.RequestShapes["delta"] != 1 {
+		t.Fatalf("disabled-predicate no-evidence guard row mismatch: %+v", disabledPredicate)
+	}
+	if len(report.ActionablePotential) != 4 ||
 		report.ActionablePotential[0].Category != "needs_instrumentation" ||
 		report.ActionablePotential[0].Source != "no_evidence:wss.request_shape_missing" ||
 		report.ActionablePotential[0].TokenBasis != "request_original_tokens" ||
 		report.ActionablePotential[0].Tokens != 9000 ||
 		report.ActionablePotential[0].Requests != 1 ||
-		report.ActionablePotential[1].Category != "prefix_safe_new_mechanism_required" ||
-		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
-		report.ActionablePotential[1].Tokens != 4000 ||
+		report.ActionablePotential[1].Category != "not_output_reduce_target" ||
+		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_disabled_predicate=tool_output_context" ||
+		report.ActionablePotential[1].Tokens != 5000 ||
 		report.ActionablePotential[1].Requests != 1 ||
 		report.ActionablePotential[2].Category != "prefix_safe_new_mechanism_required" ||
-		report.ActionablePotential[2].Source != "no_evidence:prompt_cache_prefix_tools_and_instructions" ||
-		report.ActionablePotential[2].Tokens != 3000 ||
+		report.ActionablePotential[2].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
+		report.ActionablePotential[2].Tokens != 4000 ||
 		report.ActionablePotential[2].Requests != 1 ||
-		report.ActionablePotential[2].PrefixToolDefinitionBytes != 123 ||
-		report.ActionablePotential[2].PrefixInstructionBytes != 45 ||
-		report.ActionablePotential[2].PrefixToolDefinitions != 17 ||
-		report.ActionablePotential[2].PrefixMaxToolDefinitions != 17 ||
-		report.ActionablePotential[2].PrefixDefaultKeepTools != 12 ||
-		report.ActionablePotential[2].PrefixDefaultKeepBytes != 90 ||
-		report.ActionablePotential[2].PrefixDefaultKeepNames["exec_command"] != 1 ||
-		report.ActionablePotential[2].PrefixDefaultKeepNames["apply_patch"] != 1 ||
-		report.ActionablePotential[2].PrefixNonDefaultTools != 4 ||
-		report.ActionablePotential[2].PrefixNonDefaultBytes != 30 ||
-		report.ActionablePotential[2].PrefixNonDefaultNames["request_user_input"] != 1 ||
-		report.ActionablePotential[2].PrefixNonDefaultNames["get_goal"] != 1 ||
-		report.ActionablePotential[2].PrefixUnnamedTools != 1 ||
-		report.ActionablePotential[2].PrefixUnnamedBytes != 3 {
+		report.ActionablePotential[3].Category != "prefix_safe_new_mechanism_required" ||
+		report.ActionablePotential[3].Source != "no_evidence:prompt_cache_prefix_tools_and_instructions" ||
+		report.ActionablePotential[3].Tokens != 3000 ||
+		report.ActionablePotential[3].Requests != 1 ||
+		report.ActionablePotential[3].PrefixToolDefinitionBytes != 123 ||
+		report.ActionablePotential[3].PrefixInstructionBytes != 45 ||
+		report.ActionablePotential[3].PrefixToolNameBytes != 14 ||
+		report.ActionablePotential[3].PrefixToolDescriptionBytes != 51 ||
+		report.ActionablePotential[3].PrefixToolParametersBytes != 41 ||
+		report.ActionablePotential[3].PrefixToolOtherBytes != 17 ||
+		report.ActionablePotential[3].PrefixToolDefinitions != 17 ||
+		report.ActionablePotential[3].PrefixMaxToolDefinitions != 17 ||
+		report.ActionablePotential[3].PrefixDefaultKeepTools != 12 ||
+		report.ActionablePotential[3].PrefixDefaultKeepBytes != 90 ||
+		report.ActionablePotential[3].PrefixDefaultDescriptionBytes != 30 ||
+		report.ActionablePotential[3].PrefixDefaultParametersBytes != 24 ||
+		report.ActionablePotential[3].PrefixDefaultKeepNames["exec_command"] != 1 ||
+		report.ActionablePotential[3].PrefixDefaultKeepNames["apply_patch"] != 1 ||
+		report.ActionablePotential[3].PrefixNonDefaultTools != 4 ||
+		report.ActionablePotential[3].PrefixNonDefaultBytes != 30 ||
+		report.ActionablePotential[3].PrefixNonDefaultDescriptionBytes != 21 ||
+		report.ActionablePotential[3].PrefixNonDefaultParametersBytes != 17 ||
+		report.ActionablePotential[3].PrefixNonDefaultNames["request_user_input"] != 1 ||
+		report.ActionablePotential[3].PrefixNonDefaultNames["get_goal"] != 1 ||
+		report.ActionablePotential[3].PrefixUnnamedTools != 1 ||
+		report.ActionablePotential[3].PrefixUnnamedBytes != 3 {
 		t.Fatalf("bad no-evidence actionable rows: %+v", report.ActionablePotential)
 	}
 }

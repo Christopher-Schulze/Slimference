@@ -786,9 +786,9 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 		"prompt_cache_key": "prefix-metrics",
 		"instructions":     "stable instructions",
 		"tools": []map[string]any{
-			{"type": "function", "name": "exec_command", "description": "run commands"},
+			{"type": "function", "name": "exec_command", "description": "run commands", "parameters": map[string]any{"type": "object", "properties": map[string]any{"cmd": map[string]any{"type": "string"}}}},
 			{"type": "function", "name": "apply_patch", "description": "edit files"},
-			{"type": "function", "name": "request_user_input", "description": "plan-mode prompt"},
+			{"type": "function", "name": "request_user_input", "description": "plan-mode prompt", "parameters": map[string]any{"type": "object", "properties": map[string]any{"question": map[string]any{"type": "string"}}}},
 		},
 		"input": []map[string]any{{
 			"type":    "message",
@@ -822,6 +822,20 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	if n, err := strconv.Atoi(facts["wss.tool_definition_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_bytes=%q err=%v", facts["wss.tool_definition_bytes"], err)
 	}
+	for _, key := range []string{
+		"wss.tool_definition_name_bytes",
+		"wss.tool_definition_description_bytes",
+		"wss.tool_definition_parameters_bytes",
+		"wss.tool_definition_other_bytes",
+		"wss.tool_definition_default_keep_description_bytes",
+		"wss.tool_definition_default_keep_parameters_bytes",
+		"wss.tool_definition_nondefault_description_bytes",
+		"wss.tool_definition_nondefault_parameters_bytes",
+	} {
+		if n, err := strconv.Atoi(facts[key]); err != nil || n <= 0 {
+			t.Fatalf("%s=%q err=%v", key, facts[key], err)
+		}
+	}
 	if n, err := strconv.Atoi(facts["wss.tool_definition_default_keep_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_default_keep_bytes=%q err=%v", facts["wss.tool_definition_default_keep_bytes"], err)
 	}
@@ -833,6 +847,24 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	}
 	if n, err := strconv.Atoi(facts["wss.instructions_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("instructions_bytes=%q err=%v", facts["wss.instructions_bytes"], err)
+	}
+}
+
+func TestWSSToolDefinitionComponentBytesPrefersNestedFunctionName(t *testing.T) {
+	entry := json.RawMessage(`{"type":"function","function":{"name":"nested_exec","description":"nested desc","parameters":{"type":"object"}}}`)
+
+	parts := wssToolDefinitionComponentBytes(entry)
+	if parts.NameBytes != len(`"nested_exec"`) {
+		t.Fatalf("NameBytes=%d, want nested function name bytes", parts.NameBytes)
+	}
+	if parts.DescriptionBytes != len(`"nested desc"`) {
+		t.Fatalf("DescriptionBytes=%d, want nested function description bytes", parts.DescriptionBytes)
+	}
+	if parts.ParametersBytes != len(`{"type":"object"}`) {
+		t.Fatalf("ParametersBytes=%d, want nested function parameters bytes", parts.ParametersBytes)
+	}
+	if parts.OtherBytes <= 0 {
+		t.Fatalf("OtherBytes=%d, want remaining wrapper/type bytes", parts.OtherBytes)
 	}
 }
 
@@ -1287,6 +1319,9 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 		summaries[0].OutputReduce.Applied ||
 		summaries[0].OutputReduce.Reason != "disabled" {
 		t.Fatalf("previous-response tool-output summary must be savings-positive without output-reduce: %+v", summaries[0])
+	}
+	if summaries[0].DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_after_layer0_mutation" {
+		t.Fatalf("missing precise output-reduce disabled predicate: %+v", summaries[0].DebugFacts)
 	}
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
@@ -6304,6 +6339,9 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	}
 	if summary.OutputReduce.Applied || summary.OutputReduce.Reason != "disabled" {
 		t.Fatalf("WSS Layer-0 mutation must not be recorded as output-reduce applied: %+v", summary.OutputReduce)
+	}
+	if summary.DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_after_layer0_mutation" {
+		t.Fatalf("WSS Layer-0 mutation should expose precise output-reduce predicate: %+v", summary.DebugFacts)
 	}
 	if summary.Plan == nil {
 		t.Fatal("WSS body summary missing planner output")

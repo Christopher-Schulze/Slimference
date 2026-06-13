@@ -124,29 +124,37 @@ type wssLocalGapContentClassRow struct {
 }
 
 type wssLocalGapActionableRow struct {
-	Category                  string         `json:"category"`
-	Source                    string         `json:"source"`
-	TokenBasis                string         `json:"token_basis"`
-	Tokens                    int            `json:"tokens"`
-	LocalSavedTokens          int            `json:"local_saved_tokens,omitempty"`
-	Requests                  int            `json:"requests,omitempty"`
-	Decisions                 int            `json:"decisions,omitempty"`
-	PrefixToolDefinitionBytes int            `json:"prefix_tool_definition_bytes,omitempty"`
-	PrefixInstructionBytes    int            `json:"prefix_instruction_bytes,omitempty"`
-	PrefixToolDefinitions     int            `json:"prefix_tool_definitions,omitempty"`
-	PrefixMaxToolDefinitions  int            `json:"prefix_max_tool_definitions,omitempty"`
-	PrefixDefaultKeepTools    int            `json:"prefix_default_keep_tools,omitempty"`
-	PrefixDefaultKeepBytes    int            `json:"prefix_default_keep_bytes,omitempty"`
-	PrefixDefaultKeepNames    map[string]int `json:"prefix_default_keep_tool_names,omitempty"`
-	PrefixNonDefaultTools     int            `json:"prefix_nondefault_tools,omitempty"`
-	PrefixNonDefaultBytes     int            `json:"prefix_nondefault_bytes,omitempty"`
-	PrefixNonDefaultNames     map[string]int `json:"prefix_nondefault_tool_names,omitempty"`
-	PrefixUnnamedTools        int            `json:"prefix_unnamed_tools,omitempty"`
-	PrefixUnnamedBytes        int            `json:"prefix_unnamed_bytes,omitempty"`
-	Policy                    string         `json:"policy"`
-	NextStep                  string         `json:"next_step"`
-	RequestShapes             map[string]int `json:"request_shapes,omitempty"`
-	Mechanisms                map[string]int `json:"mechanisms,omitempty"`
+	Category                         string         `json:"category"`
+	Source                           string         `json:"source"`
+	TokenBasis                       string         `json:"token_basis"`
+	Tokens                           int            `json:"tokens"`
+	LocalSavedTokens                 int            `json:"local_saved_tokens,omitempty"`
+	Requests                         int            `json:"requests,omitempty"`
+	Decisions                        int            `json:"decisions,omitempty"`
+	PrefixToolDefinitionBytes        int            `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixInstructionBytes           int            `json:"prefix_instruction_bytes,omitempty"`
+	PrefixToolNameBytes              int            `json:"prefix_tool_name_bytes,omitempty"`
+	PrefixToolDescriptionBytes       int            `json:"prefix_tool_description_bytes,omitempty"`
+	PrefixToolParametersBytes        int            `json:"prefix_tool_parameters_bytes,omitempty"`
+	PrefixToolOtherBytes             int            `json:"prefix_tool_other_bytes,omitempty"`
+	PrefixToolDefinitions            int            `json:"prefix_tool_definitions,omitempty"`
+	PrefixMaxToolDefinitions         int            `json:"prefix_max_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools           int            `json:"prefix_default_keep_tools,omitempty"`
+	PrefixDefaultKeepBytes           int            `json:"prefix_default_keep_bytes,omitempty"`
+	PrefixDefaultDescriptionBytes    int            `json:"prefix_default_description_bytes,omitempty"`
+	PrefixDefaultParametersBytes     int            `json:"prefix_default_parameters_bytes,omitempty"`
+	PrefixDefaultKeepNames           map[string]int `json:"prefix_default_keep_tool_names,omitempty"`
+	PrefixNonDefaultTools            int            `json:"prefix_nondefault_tools,omitempty"`
+	PrefixNonDefaultBytes            int            `json:"prefix_nondefault_bytes,omitempty"`
+	PrefixNonDefaultDescriptionBytes int            `json:"prefix_nondefault_description_bytes,omitempty"`
+	PrefixNonDefaultParametersBytes  int            `json:"prefix_nondefault_parameters_bytes,omitempty"`
+	PrefixNonDefaultNames            map[string]int `json:"prefix_nondefault_tool_names,omitempty"`
+	PrefixUnnamedTools               int            `json:"prefix_unnamed_tools,omitempty"`
+	PrefixUnnamedBytes               int            `json:"prefix_unnamed_bytes,omitempty"`
+	Policy                           string         `json:"policy"`
+	NextStep                         string         `json:"next_step"`
+	RequestShapes                    map[string]int `json:"request_shapes,omitempty"`
+	Mechanisms                       map[string]int `json:"mechanisms,omitempty"`
 }
 
 type wssLocalGapAccumulator struct {
@@ -418,6 +426,7 @@ func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary
 	if noEvidence {
 		for _, key := range []string{
 			"wss.output_reduce_reason",
+			"wss.output_reduce_disabled_predicate",
 			"wss.messages",
 			"wss.tool_results",
 			"wss.source_tool_bytes",
@@ -555,26 +564,34 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 	}
 	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary)
 	a.addActionable(wssLocalGapActionableRow{
-		Category:                  category,
-		Source:                    source,
-		TokenBasis:                "request_original_tokens",
-		Tokens:                    original,
-		LocalSavedTokens:          saved,
-		Requests:                  1,
-		PrefixToolDefinitionBytes: wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_bytes"),
-		PrefixInstructionBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.instructions_bytes"),
-		PrefixToolDefinitions:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
-		PrefixMaxToolDefinitions:  wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
-		PrefixDefaultKeepTools:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep"),
-		PrefixDefaultKeepBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_bytes"),
-		PrefixDefaultKeepNames:    wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_default_keep_names"),
-		PrefixNonDefaultTools:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault"),
-		PrefixNonDefaultBytes:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_bytes"),
-		PrefixNonDefaultNames:     wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_nondefault_names"),
-		PrefixUnnamedTools:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed"),
-		PrefixUnnamedBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
-		Policy:                    policy,
-		NextStep:                  nextStep,
+		Category:                         category,
+		Source:                           source,
+		TokenBasis:                       "request_original_tokens",
+		Tokens:                           original,
+		LocalSavedTokens:                 saved,
+		Requests:                         1,
+		PrefixToolDefinitionBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_bytes"),
+		PrefixInstructionBytes:           wssLocalGapFactInt(summary.DebugFacts, "wss.instructions_bytes"),
+		PrefixToolNameBytes:              wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_name_bytes"),
+		PrefixToolDescriptionBytes:       wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_description_bytes"),
+		PrefixToolParametersBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_parameters_bytes"),
+		PrefixToolOtherBytes:             wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_other_bytes"),
+		PrefixToolDefinitions:            wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
+		PrefixMaxToolDefinitions:         wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
+		PrefixDefaultKeepTools:           wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep"),
+		PrefixDefaultKeepBytes:           wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_bytes"),
+		PrefixDefaultDescriptionBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_description_bytes"),
+		PrefixDefaultParametersBytes:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_parameters_bytes"),
+		PrefixDefaultKeepNames:           wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_default_keep_names"),
+		PrefixNonDefaultTools:            wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault"),
+		PrefixNonDefaultBytes:            wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_bytes"),
+		PrefixNonDefaultDescriptionBytes: wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_description_bytes"),
+		PrefixNonDefaultParametersBytes:  wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_parameters_bytes"),
+		PrefixNonDefaultNames:            wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_nondefault_names"),
+		PrefixUnnamedTools:               wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed"),
+		PrefixUnnamedBytes:               wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
+		Policy:                           policy,
+		NextStep:                         nextStep,
 	}, shape, "")
 }
 
@@ -595,15 +612,23 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		existing.Decisions += row.Decisions
 		existing.PrefixToolDefinitionBytes += row.PrefixToolDefinitionBytes
 		existing.PrefixInstructionBytes += row.PrefixInstructionBytes
+		existing.PrefixToolNameBytes += row.PrefixToolNameBytes
+		existing.PrefixToolDescriptionBytes += row.PrefixToolDescriptionBytes
+		existing.PrefixToolParametersBytes += row.PrefixToolParametersBytes
+		existing.PrefixToolOtherBytes += row.PrefixToolOtherBytes
 		existing.PrefixToolDefinitions += row.PrefixToolDefinitions
 		if row.PrefixMaxToolDefinitions > existing.PrefixMaxToolDefinitions {
 			existing.PrefixMaxToolDefinitions = row.PrefixMaxToolDefinitions
 		}
 		existing.PrefixDefaultKeepTools += row.PrefixDefaultKeepTools
 		existing.PrefixDefaultKeepBytes += row.PrefixDefaultKeepBytes
+		existing.PrefixDefaultDescriptionBytes += row.PrefixDefaultDescriptionBytes
+		existing.PrefixDefaultParametersBytes += row.PrefixDefaultParametersBytes
 		mergeWSSLocalGapCounts(&existing.PrefixDefaultKeepNames, row.PrefixDefaultKeepNames)
 		existing.PrefixNonDefaultTools += row.PrefixNonDefaultTools
 		existing.PrefixNonDefaultBytes += row.PrefixNonDefaultBytes
+		existing.PrefixNonDefaultDescriptionBytes += row.PrefixNonDefaultDescriptionBytes
+		existing.PrefixNonDefaultParametersBytes += row.PrefixNonDefaultParametersBytes
 		mergeWSSLocalGapCounts(&existing.PrefixNonDefaultNames, row.PrefixNonDefaultNames)
 		existing.PrefixUnnamedTools += row.PrefixUnnamedTools
 		existing.PrefixUnnamedBytes += row.PrefixUnnamedBytes
@@ -916,6 +941,34 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary) (string, string, st
 			"bypass fired without block-level evidence",
 			"wire the bypass to evidence decisions before changing behavior"
 	case outputReason == "disabled":
+		predicate := strings.TrimSpace(facts["wss.output_reduce_disabled_predicate"])
+		switch predicate {
+		case "tool_output_context", "tool_output_after_layer0_mutation":
+			return "not_output_reduce_target",
+				"no_evidence:wss.output_reduce_disabled_predicate=" + predicate,
+				"output-reduce directives stay off for tool-output turns; Layer-0 reducers own this surface",
+				"add or tighten Layer-0 evidence for this tool-output shape before changing output-reduce guards"
+		case "layer0_mutation_context":
+			return "not_output_reduce_target",
+				"no_evidence:wss.output_reduce_disabled_predicate=layer0_mutation_context",
+				"output-reduce stays off after Layer-0 mutation to avoid stacking behavioral directives on rewritten input",
+				"measure remaining post-Layer0 token mass before considering any follow-up reducer"
+		case "no_user_prompt":
+			return "not_output_reduce_target",
+				"no_evidence:wss.output_reduce_disabled_predicate=no_user_prompt",
+				"output-reduce is scoped to user-prompt turns and should not inject into tool-only or lifecycle frames",
+				"look for prefix or Layer-0 mechanisms, not output-reduce directive injection"
+		case "operator_or_layer_disabled":
+			return "disabled_by_configuration",
+				"no_evidence:wss.output_reduce_disabled_predicate=operator_or_layer_disabled",
+				"the output-reduce layer is disabled by configuration or layer selection",
+				"do not treat this as guard waste unless the product default unexpectedly disables Layer 3"
+		case "unknown_shape", "unclassified_disabled":
+			return "needs_instrumentation",
+				"no_evidence:wss.output_reduce_disabled_predicate=" + predicate,
+				"output reducer was disabled but the exact shape still needs stronger attribution",
+				"record the missing shape/facts before changing behavior"
+		}
 		return "needs_instrumentation",
 			"no_evidence:wss.output_reduce_reason=disabled",
 			"output reducer was disabled for this shape without block-level opportunity evidence",
@@ -1030,6 +1083,13 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 					row.PrefixInstructionBytes,
 					row.PrefixToolDefinitions,
 					row.PrefixMaxToolDefinitions)
+				if row.PrefixToolNameBytes > 0 || row.PrefixToolDescriptionBytes > 0 || row.PrefixToolParametersBytes > 0 || row.PrefixToolOtherBytes > 0 {
+					fmt.Fprintf(w, "            components: name=%dB description=%dB parameters=%dB other=%dB\n",
+						row.PrefixToolNameBytes,
+						row.PrefixToolDescriptionBytes,
+						row.PrefixToolParametersBytes,
+						row.PrefixToolOtherBytes)
+				}
 				if row.PrefixDefaultKeepTools > 0 || row.PrefixNonDefaultTools > 0 || row.PrefixUnnamedTools > 0 {
 					fmt.Fprintf(w, "            default_keep=%d/%dB nondefault=%d/%dB unnamed=%d/%dB\n",
 						row.PrefixDefaultKeepTools,
@@ -1038,6 +1098,13 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 						row.PrefixNonDefaultBytes,
 						row.PrefixUnnamedTools,
 						row.PrefixUnnamedBytes)
+					if row.PrefixDefaultDescriptionBytes > 0 || row.PrefixDefaultParametersBytes > 0 || row.PrefixNonDefaultDescriptionBytes > 0 || row.PrefixNonDefaultParametersBytes > 0 {
+						fmt.Fprintf(w, "            component_by_class: default_desc=%dB default_params=%dB nondefault_desc=%dB nondefault_params=%dB\n",
+							row.PrefixDefaultDescriptionBytes,
+							row.PrefixDefaultParametersBytes,
+							row.PrefixNonDefaultDescriptionBytes,
+							row.PrefixNonDefaultParametersBytes)
+					}
 					if len(row.PrefixDefaultKeepNames) > 0 || len(row.PrefixNonDefaultNames) > 0 {
 						fmt.Fprintf(w, "            default_keep_names=%s nondefault_names=%s\n",
 							formatWSSAuditCounts(row.PrefixDefaultKeepNames),

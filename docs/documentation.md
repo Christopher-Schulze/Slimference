@@ -1754,6 +1754,10 @@ byte-equal. WSS decision summaries record the same content-free
 saved-token estimate, reattach count, always-kept count, and cooldown/full-pass
 reason flow through `debug last`, flight summaries, mechanism accounting, and
 `gain --proxy`.
+Prompt-cache-prefix telemetry also records content-free tool-schema byte
+breakdown (`name`, `description`, `parameters`, `other`) plus default-keep and
+non-default description/parameter mass, so prefix savings work can target exact
+safe sub-surfaces without mutating WSS prefix frames by default.
 Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
 command-family hint in current user/system/developer instruction text reattaches

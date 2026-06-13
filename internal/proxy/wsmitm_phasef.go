@@ -884,6 +884,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			a.p.outputReduce.ObserveInjection(stats)
 		}
 	}
+	if outputReduceStats.Reason == "disabled" {
+		if predicate := a.wssOutputReduceDisabledPredicate(blockOutputReduce, requestContainsToolOutput, l0Stats, toolOutputPresenceKnown, meta); predicate != "" {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.output_reduce_disabled_predicate"] = predicate
+		}
+	}
 	if a.p.config.Compression.OutputReduce.StopSequencesEnabled {
 		if injected, res := outstop.MergeIntoBody(types.CodexChatGPT, out); res.OK && res.AddedCount > 0 {
 			out = injected
@@ -913,6 +921,34 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		a.rememberWSSQualityCohort(recordCohort)
 	}
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta, outputReduceStats
+}
+
+func (a *wsPhaseFAdapter) wssOutputReduceDisabledPredicate(blockedByToolOrLayer0 bool, requestContainsToolOutput bool, l0Stats proxyLayer0Stats, factsKnown bool, meta wssRequestMeta) string {
+	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
+		return "operator_or_layer_disabled"
+	}
+	if blockedByToolOrLayer0 {
+		switch {
+		case requestContainsToolOutput && l0Stats.BlocksModified > 0:
+			return "tool_output_after_layer0_mutation"
+		case requestContainsToolOutput:
+			return "tool_output_context"
+		case l0Stats.BlocksModified > 0:
+			return "layer0_mutation_context"
+		default:
+			return "tool_or_layer0_context"
+		}
+	}
+	if factsKnown && meta.HasPromptCachePrefix {
+		return "prompt_cache_prefix"
+	}
+	if factsKnown && !meta.HasUserPromptInput {
+		return "no_user_prompt"
+	}
+	if !factsKnown {
+		return "unknown_shape"
+	}
+	return "unclassified_disabled"
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
@@ -2516,45 +2552,53 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	prefixMetrics := wssRootPrefixMetrics(body)
 	deltaShape := wssRequestIsDeltaShape(messages)
 	facts := map[string]string{
-		"wss.original_bytes":                     strconv.Itoa(len(body)),
-		"wss.final_bytes":                        strconv.Itoa(len(mutated)),
-		"wss.changed":                            strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
-		"wss.previous_response_id":               strconv.FormatBool(meta.PreviousResponseID != ""),
-		"wss.prompt_cache_prefix":                strconv.FormatBool(meta.HasPromptCachePrefix),
-		"wss.prompt_cache_key_hash":              meta.PromptCacheKeyHash,
-		"wss.has_tool_definitions":               strconv.FormatBool(meta.HasToolDefinitions),
-		"wss.tool_definitions":                   strconv.Itoa(prefixMetrics.ToolDefinitions),
-		"wss.tool_definition_bytes":              strconv.Itoa(prefixMetrics.ToolDefinitionBytes),
-		"wss.instructions_bytes":                 strconv.Itoa(prefixMetrics.InstructionBytes),
-		"wss.tool_definition_default_keep":       strconv.Itoa(prefixMetrics.DefaultKeepTools),
-		"wss.tool_definition_default_keep_bytes": strconv.Itoa(prefixMetrics.DefaultKeepBytes),
-		"wss.tool_definition_default_keep_names": wssCompactToolNameList(prefixMetrics.DefaultKeepNames),
-		"wss.tool_definition_nondefault":         strconv.Itoa(prefixMetrics.NonDefaultTools),
-		"wss.tool_definition_nondefault_bytes":   strconv.Itoa(prefixMetrics.NonDefaultBytes),
-		"wss.tool_definition_nondefault_names":   wssCompactToolNameList(prefixMetrics.NonDefaultNames),
-		"wss.tool_definition_unnamed":            strconv.Itoa(prefixMetrics.UnnamedTools),
-		"wss.tool_definition_unnamed_bytes":      strconv.Itoa(prefixMetrics.UnnamedBytes),
-		"wss.turn_seq":                           strconv.Itoa(meta.TurnSeq),
-		"wss.remaining_turns_estimate":           strconv.Itoa(meta.RemainingTurnsEstimate),
-		"wss.request_shape":                      wssRequestShape(meta, messages),
-		"wss.delta_shape":                        strconv.FormatBool(deltaShape),
-		"wss.messages":                           strconv.Itoa(len(messages)),
-		"wss.tool_results":                       strconv.Itoa(toolResults),
-		"wss.source_tool_results":                strconv.Itoa(sourceToolResults),
-		"wss.source_tool_bytes":                  strconv.Itoa(sourceToolBytes),
-		"wss.source_tool_max_bytes":              strconv.Itoa(sourceToolMaxBytes),
-		"wss.tool_uses":                          strconv.Itoa(toolUses),
-		"wss.layer0_blocks_modified":             strconv.Itoa(l0Stats.BlocksModified),
-		"wss.layer0_tokens_saved":                strconv.Itoa(l0Stats.TokensSaved),
-		"wss.stale_read_blocks":                  strconv.Itoa(l0Stats.StaleReadBlocks),
-		"wss.stale_read_tokens":                  strconv.Itoa(l0Stats.StaleReadTokensSaved),
-		"wss.obsolete_prune_blocks":              strconv.Itoa(l0Stats.ObsoletePruneBlocks),
-		"wss.obsolete_prune_tokens":              strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
-		"wss.output_reduce_applied":              strconv.FormatBool(outputReduceStats.Applied),
-		"wss.output_reduce_added":                strconv.Itoa(outputReduceStats.AddedTokens),
-		"wss.output_reduce_reason":               outputReduceStats.Reason,
-		"wss.replace_applied":                    strconv.FormatBool(replaced),
-		"wss.session_id_present":                 strconv.FormatBool(meta.SessionID != ""),
+		"wss.original_bytes":                                 strconv.Itoa(len(body)),
+		"wss.final_bytes":                                    strconv.Itoa(len(mutated)),
+		"wss.changed":                                        strconv.FormatBool(replaced || !bytes.Equal(body, mutated)),
+		"wss.previous_response_id":                           strconv.FormatBool(meta.PreviousResponseID != ""),
+		"wss.prompt_cache_prefix":                            strconv.FormatBool(meta.HasPromptCachePrefix),
+		"wss.prompt_cache_key_hash":                          meta.PromptCacheKeyHash,
+		"wss.has_tool_definitions":                           strconv.FormatBool(meta.HasToolDefinitions),
+		"wss.tool_definitions":                               strconv.Itoa(prefixMetrics.ToolDefinitions),
+		"wss.tool_definition_bytes":                          strconv.Itoa(prefixMetrics.ToolDefinitionBytes),
+		"wss.tool_definition_name_bytes":                     strconv.Itoa(prefixMetrics.NameBytes),
+		"wss.tool_definition_description_bytes":              strconv.Itoa(prefixMetrics.DescriptionBytes),
+		"wss.tool_definition_parameters_bytes":               strconv.Itoa(prefixMetrics.ParametersBytes),
+		"wss.tool_definition_other_bytes":                    strconv.Itoa(prefixMetrics.OtherBytes),
+		"wss.instructions_bytes":                             strconv.Itoa(prefixMetrics.InstructionBytes),
+		"wss.tool_definition_default_keep":                   strconv.Itoa(prefixMetrics.DefaultKeepTools),
+		"wss.tool_definition_default_keep_bytes":             strconv.Itoa(prefixMetrics.DefaultKeepBytes),
+		"wss.tool_definition_default_keep_description_bytes": strconv.Itoa(prefixMetrics.DefaultKeepDescriptionBytes),
+		"wss.tool_definition_default_keep_parameters_bytes":  strconv.Itoa(prefixMetrics.DefaultKeepParametersBytes),
+		"wss.tool_definition_default_keep_names":             wssCompactToolNameList(prefixMetrics.DefaultKeepNames),
+		"wss.tool_definition_nondefault":                     strconv.Itoa(prefixMetrics.NonDefaultTools),
+		"wss.tool_definition_nondefault_bytes":               strconv.Itoa(prefixMetrics.NonDefaultBytes),
+		"wss.tool_definition_nondefault_description_bytes":   strconv.Itoa(prefixMetrics.NonDefaultDescriptionBytes),
+		"wss.tool_definition_nondefault_parameters_bytes":    strconv.Itoa(prefixMetrics.NonDefaultParametersBytes),
+		"wss.tool_definition_nondefault_names":               wssCompactToolNameList(prefixMetrics.NonDefaultNames),
+		"wss.tool_definition_unnamed":                        strconv.Itoa(prefixMetrics.UnnamedTools),
+		"wss.tool_definition_unnamed_bytes":                  strconv.Itoa(prefixMetrics.UnnamedBytes),
+		"wss.turn_seq":                                       strconv.Itoa(meta.TurnSeq),
+		"wss.remaining_turns_estimate":                       strconv.Itoa(meta.RemainingTurnsEstimate),
+		"wss.request_shape":                                  wssRequestShape(meta, messages),
+		"wss.delta_shape":                                    strconv.FormatBool(deltaShape),
+		"wss.messages":                                       strconv.Itoa(len(messages)),
+		"wss.tool_results":                                   strconv.Itoa(toolResults),
+		"wss.source_tool_results":                            strconv.Itoa(sourceToolResults),
+		"wss.source_tool_bytes":                              strconv.Itoa(sourceToolBytes),
+		"wss.source_tool_max_bytes":                          strconv.Itoa(sourceToolMaxBytes),
+		"wss.tool_uses":                                      strconv.Itoa(toolUses),
+		"wss.layer0_blocks_modified":                         strconv.Itoa(l0Stats.BlocksModified),
+		"wss.layer0_tokens_saved":                            strconv.Itoa(l0Stats.TokensSaved),
+		"wss.stale_read_blocks":                              strconv.Itoa(l0Stats.StaleReadBlocks),
+		"wss.stale_read_tokens":                              strconv.Itoa(l0Stats.StaleReadTokensSaved),
+		"wss.obsolete_prune_blocks":                          strconv.Itoa(l0Stats.ObsoletePruneBlocks),
+		"wss.obsolete_prune_tokens":                          strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
+		"wss.output_reduce_applied":                          strconv.FormatBool(outputReduceStats.Applied),
+		"wss.output_reduce_added":                            strconv.Itoa(outputReduceStats.AddedTokens),
+		"wss.output_reduce_reason":                           outputReduceStats.Reason,
+		"wss.replace_applied":                                strconv.FormatBool(replaced),
+		"wss.session_id_present":                             strconv.FormatBool(meta.SessionID != ""),
 	}
 	if bypassReason != "" {
 		facts["wss.bypass_reason"] = bypassReason
@@ -2569,17 +2613,25 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 }
 
 type wssRootPrefixMetricsResult struct {
-	ToolDefinitionBytes int
-	ToolDefinitions     int
-	InstructionBytes    int
-	DefaultKeepTools    int
-	DefaultKeepBytes    int
-	DefaultKeepNames    []string
-	NonDefaultTools     int
-	NonDefaultBytes     int
-	NonDefaultNames     []string
-	UnnamedTools        int
-	UnnamedBytes        int
+	ToolDefinitionBytes         int
+	ToolDefinitions             int
+	InstructionBytes            int
+	NameBytes                   int
+	DescriptionBytes            int
+	ParametersBytes             int
+	OtherBytes                  int
+	DefaultKeepTools            int
+	DefaultKeepBytes            int
+	DefaultKeepDescriptionBytes int
+	DefaultKeepParametersBytes  int
+	DefaultKeepNames            []string
+	NonDefaultTools             int
+	NonDefaultBytes             int
+	NonDefaultDescriptionBytes  int
+	NonDefaultParametersBytes   int
+	NonDefaultNames             []string
+	UnnamedTools                int
+	UnnamedBytes                int
 }
 
 func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
@@ -2598,6 +2650,11 @@ func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
 			names, schemaSafe := toolprune.ExtractToolNamesForPruning(body, types.CodexChatGPT)
 			for i, entry := range tools {
 				entryBytes := len(entry)
+				parts := wssToolDefinitionComponentBytes(entry)
+				result.NameBytes += parts.NameBytes
+				result.DescriptionBytes += parts.DescriptionBytes
+				result.ParametersBytes += parts.ParametersBytes
+				result.OtherBytes += parts.OtherBytes
 				if !schemaSafe || i >= len(names) || strings.TrimSpace(names[i]) == "" {
 					result.UnnamedTools++
 					result.UnnamedBytes += entryBytes
@@ -2606,14 +2663,68 @@ func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
 				if toolprune.IsDefaultAlwaysKeep(names[i]) {
 					result.DefaultKeepTools++
 					result.DefaultKeepBytes += entryBytes
+					result.DefaultKeepDescriptionBytes += parts.DescriptionBytes
+					result.DefaultKeepParametersBytes += parts.ParametersBytes
 					result.DefaultKeepNames = append(result.DefaultKeepNames, names[i])
 					continue
 				}
 				result.NonDefaultTools++
 				result.NonDefaultBytes += entryBytes
+				result.NonDefaultDescriptionBytes += parts.DescriptionBytes
+				result.NonDefaultParametersBytes += parts.ParametersBytes
 				result.NonDefaultNames = append(result.NonDefaultNames, names[i])
 			}
 		}
+	}
+	return result
+}
+
+type wssToolDefinitionComponents struct {
+	NameBytes        int
+	DescriptionBytes int
+	ParametersBytes  int
+	OtherBytes       int
+}
+
+func wssToolDefinitionComponentBytes(entry json.RawMessage) wssToolDefinitionComponents {
+	result := wssToolDefinitionComponents{}
+	if len(entry) == 0 {
+		return result
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(entry, &raw) != nil {
+		result.OtherBytes = len(entry)
+		return result
+	}
+	if rawName := raw["name"]; len(rawName) > 0 {
+		result.NameBytes += len(rawName)
+	}
+	if rawDescription := raw["description"]; len(rawDescription) > 0 {
+		result.DescriptionBytes += len(rawDescription)
+	}
+	if rawParameters := raw["parameters"]; len(rawParameters) > 0 {
+		result.ParametersBytes += len(rawParameters)
+	}
+	if rawFunction := raw["function"]; len(rawFunction) > 0 {
+		var fn map[string]json.RawMessage
+		if json.Unmarshal(rawFunction, &fn) == nil {
+			if result.NameBytes == 0 {
+				result.NameBytes += len(fn["name"])
+			}
+			if result.DescriptionBytes == 0 {
+				result.DescriptionBytes += len(fn["description"])
+			}
+			if result.ParametersBytes == 0 {
+				result.ParametersBytes += len(fn["parameters"])
+			}
+		}
+	}
+	if result.NameBytes == 0 {
+		result.NameBytes += len(raw["type"])
+	}
+	accounted := result.NameBytes + result.DescriptionBytes + result.ParametersBytes
+	if accounted < len(entry) {
+		result.OtherBytes = len(entry) - accounted
 	}
 	return result
 }
