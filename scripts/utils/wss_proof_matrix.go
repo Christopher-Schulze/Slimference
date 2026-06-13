@@ -70,6 +70,8 @@ type wssProofMatrixCapture struct {
 	EndedAt             string                 `json:"ended_at,omitempty"`
 	ExpectedReducers    []string               `json:"expected_reducers,omitempty"`
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings,omitempty"`
+	MinFunctionCalls    int                    `json:"min_function_calls,omitempty"`
+	MinFunctionOutputs  int                    `json:"min_function_call_outputs,omitempty"`
 	ExpectedReducerHits map[string]int64       `json:"expected_reducer_hits,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	Replay              wssABReplayReport      `json:"replay"`
@@ -114,6 +116,8 @@ type wssProofMatrixRecord struct {
 	EndedAt             string                 `json:"ended_at"`
 	ExpectedReducers    []string               `json:"expected_reducers"`
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings"`
+	MinFunctionCalls    int                    `json:"min_function_calls,omitempty"`
+	MinFunctionOutputs  int                    `json:"min_function_call_outputs,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	SearchCapProof      *searchCapProofReport  `json:"search_cap_proof,omitempty"`
 	GatePassed          bool                   `json:"gate_passed,omitempty"`
@@ -411,6 +415,8 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			EndedAt:             record.EndedAt,
 			ExpectedReducers:    append([]string(nil), record.ExpectedReducers...),
 			ExpectedZeroSavings: record.ExpectedZeroSavings,
+			MinFunctionCalls:    record.MinFunctionCalls,
+			MinFunctionOutputs:  record.MinFunctionOutputs,
 			LiveDelta:           record.LiveDelta,
 			GatePassed:          true,
 		}

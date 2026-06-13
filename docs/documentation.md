@@ -3107,8 +3107,9 @@ where `codex-capture-run` cannot own the app process but the proof still needs
 reducer-specific live counters before export into `tests/fixtures/live_corpus`.
 Tool-heavy focused proofs can also pass `--min-function-calls` and
 `--min-function-call-outputs`; the runner validates those live wire counters
-after appending the matrix row, so negative evidence such as suppressed tool
-calls remains auditable while the proof exits non-zero.
+after appending the matrix row, and the row stores the requested minima next to
+the observed counters. Negative evidence such as suppressed tool calls remains
+auditable while the proof exits non-zero.
 Focused `wss-proof-matrix` runs with `--required-workload` evaluate only rows
 matching the requested workload classes. When `--expected-reducer` is also
 passed, those command-line reducer expectations are authoritative for the

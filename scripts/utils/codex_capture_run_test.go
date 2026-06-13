@@ -896,6 +896,8 @@ func TestRunCodexCaptureRunWritesMatrixBeforeExpectedReducerFailure(t *testing.T
 		"--id", "host-resource-negative",
 		"--workload-class", "host_resource_long_workday",
 		"--expected-reducer", "host_budget_ok",
+		"--min-function-calls", "2",
+		"--min-function-call-outputs", "2",
 		"--", "Run host resource workload",
 	}, &stdout, &stderr, deps)
 	if code != 3 || !strings.Contains(stderr.String(), "expected reducer host_budget_ok did not fire") {
@@ -907,6 +909,9 @@ func TestRunCodexCaptureRunWritesMatrixBeforeExpectedReducerFailure(t *testing.T
 	}
 	if len(records) != 1 || records[0].ID != "host-resource-negative" {
 		t.Fatalf("matrix row missing after expected reducer failure: %+v", records)
+	}
+	if records[0].MinFunctionCalls != 2 || records[0].MinFunctionOutputs != 2 {
+		t.Fatalf("matrix row missing min function-call requirements: %+v", records[0])
 	}
 	if records[0].LiveDelta == nil || !records[0].LiveDelta.HostBudgetExceeded ||
 		records[0].LiveDelta.HostBudgetReasons[0] != "rss_budget_exceeded" {

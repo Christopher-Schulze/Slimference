@@ -2288,6 +2288,8 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		EndedAt:             result.EndedAt,
 		ExpectedReducers:    append([]string(nil), flags.expectedReducers...),
 		ExpectedZeroSavings: flags.expectedZeroSavings,
+		MinFunctionCalls:    flags.minFunctionCalls,
+		MinFunctionOutputs:  flags.minFunctionCallOutputs,
 		LiveDelta:           result.LiveDelta,
 	}
 	f, err := os.OpenFile(flags.matrixPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
