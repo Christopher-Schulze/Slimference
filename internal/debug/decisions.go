@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -425,6 +426,25 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			Reason:      s.OutputReduce.Reason,
 		})
 	}
+	if saved := positiveDebugFactInt(s.DebugFacts, "wss.stateful_prefix_elision_tokens_saved"); saved > 0 {
+		count := positiveDebugFactInt(s.DebugFacts, "wss.stateful_prefix_elision_requests")
+		if count == 0 {
+			count = positiveDebugFactInt(s.DebugFacts, "wss.stateful_prefix_elision_tool_requests")
+		}
+		if count == 0 {
+			count = 1
+		}
+		out = append(out, MechanismAccounting{
+			Name:         "wss_stateful_prefix_elision",
+			Source:       "wss_phasef_debug_fact",
+			Count:        count,
+			SavedTokens:  saved,
+			NetTokens:    saved,
+			Reason:       s.DebugFacts["wss.stateful_prefix_elision_reason"],
+			ContentClass: "tool_schema",
+			SafetyClass:  "stateful_exact_prefix",
+		})
+	}
 	if s.Tokens.Original > 0 || s.Tokens.Final > 0 {
 		out = append(out, MechanismAccounting{
 			Name:           "request_total",
@@ -439,6 +459,17 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 		})
 	}
 	return out
+}
+
+func positiveDebugFactInt(facts map[string]string, key string) int {
+	if facts == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(facts[key]))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func boolCount(v bool) int {

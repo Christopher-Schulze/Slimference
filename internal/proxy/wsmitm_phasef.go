@@ -1571,11 +1571,6 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		return
 	}
 	originalTokens, finalTokens := wssPlannerTokenCountsWithOriginal(body, mutated, meta.OriginalMessages, messages, l0Stats, replaced)
-	saved := originalTokens - finalTokens
-	ratio := 0.0
-	if originalTokens > 0 {
-		ratio = float64(finalTokens) / float64(originalTokens)
-	}
 	classes := wssPlannerContentClasses(messages, l0Stats)
 	layersApplied := []int(nil)
 	if replaced && l0Stats.TokensSaved > 0 {
@@ -1598,10 +1593,21 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	for k, v := range meta.DebugFacts {
 		debugFacts[k] = v
 	}
+	statefulPrefixElisionApplied := replaced && meta.DebugFacts["wss.stateful_prefix_elision_changed"] == "true"
+	if statefulPrefixElisionApplied && (len(meta.OriginalMessages) > 0 || len(messages) > 0) {
+		if prefixTokensSaved := wssStatefulPrefixElisionTokensSaved(meta.DebugFacts); prefixTokensSaved > 0 {
+			originalTokens += prefixTokensSaved
+			debugFacts["wss.stateful_prefix_elision_tokens_saved"] = strconv.Itoa(prefixTokensSaved)
+		}
+	}
+	saved := originalTokens - finalTokens
+	ratio := 0.0
+	if originalTokens > 0 {
+		ratio = float64(finalTokens) / float64(originalTokens)
+	}
 	requestID := newRequestIDFn()
 	mutatedMechanisms := proxyLayer0MechanismMaskFromStats(l0Stats)
 	requestShape := wssRequestShape(meta, messages)
-	statefulPrefixElisionApplied := meta.DebugFacts["wss.stateful_prefix_elision_changed"] == "true"
 	if mutatedMechanisms != 0 {
 		debugFacts["wss.layer0_mutated_mechanisms"] = mutatedMechanisms.String()
 	}
@@ -3083,6 +3089,17 @@ func wssPlannerTokenCountsWithOriginal(body []byte, mutated []byte, originalMess
 	// o200k encoder only to write "saved=0" telemetry.
 	estimated := tokens.Estimate(len(body))
 	return estimated, estimated
+}
+
+func wssStatefulPrefixElisionTokensSaved(facts map[string]string) int {
+	if facts == nil || facts["wss.stateful_prefix_elision_changed"] != "true" {
+		return 0
+	}
+	bytesSaved, ok := parsePositiveBoundedInt(facts["wss.stateful_prefix_elision_bytes_saved"], 64*1024*1024)
+	if !ok {
+		return 0
+	}
+	return tokens.Estimate(bytesSaved)
 }
 
 func wssOutputReduceInputTokens(body []byte) int {

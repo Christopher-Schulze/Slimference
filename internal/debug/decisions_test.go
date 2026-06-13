@@ -152,6 +152,12 @@ func TestBuildMechanismAccounting(t *testing.T) {
 		CacheReadTokens: 100,
 		ToolPrune:       ToolPruneSummary{Applied: true, Reason: "unused_tools", SavedTokens: 120, Reattached: 20},
 		OutputReduce:    OutputReduceSummary{Applied: true, Reason: "profile", AddedTokens: 12},
+		DebugFacts: map[string]string{
+			"wss.stateful_prefix_elision_reason":        "applied",
+			"wss.stateful_prefix_elision_requests":      "1",
+			"wss.stateful_prefix_elision_tool_requests": "2",
+			"wss.stateful_prefix_elision_tokens_saved":  "64",
+		},
 	}
 	got := BuildMechanismAccounting(s)
 	byName := map[string]MechanismAccounting{}
@@ -181,6 +187,11 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 	if byName["output_reduce_directive"].NetTokens != -12 || byName["request_total"].NetTokens != 288 {
 		t.Fatalf("overhead/total accounting missing: %+v", byName)
+	}
+	if byName["wss_stateful_prefix_elision"].NetTokens != 64 ||
+		byName["wss_stateful_prefix_elision"].Count != 1 ||
+		byName["wss_stateful_prefix_elision"].Source != "wss_phasef_debug_fact" {
+		t.Fatalf("prefix elision accounting missing: %+v", byName["wss_stateful_prefix_elision"])
 	}
 }
 

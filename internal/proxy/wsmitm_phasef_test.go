@@ -3991,6 +3991,71 @@ func TestWSPhaseFStatefulPrefixElisionProofElidesToolsOnlyAfterSeed(t *testing.T
 	}
 }
 
+func TestWSPhaseFStatefulPrefixElisionDecisionAccounting(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	tools := []map[string]any{{
+		"type":        "function",
+		"name":        "exec_command",
+		"description": strings.Repeat("cached tool schema block ", 30),
+	}}
+	body := func(previousResponseID string) map[string]any {
+		raw := map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "prefix-accounting-session",
+			"instructions":     strings.Repeat("cached system instruction block ", 20),
+			"tools":            tools,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "continue",
+			}},
+			"stream": true,
+		}
+		if previousResponseID != "" {
+			raw["previous_response_id"] = previousResponseID
+		}
+		return raw
+	}
+
+	seed := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": body(""),
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &seed); err != nil || replace {
+		t.Fatalf("seed handle replace=%v err=%v", replace, err)
+	}
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": body("resp_seeded"),
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("delta handle replace=%v err=%v", replace, err)
+	}
+
+	summaries := p.debugRecorder.Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("missing decision summary: %+v", summaries)
+	}
+	summary := summaries[0]
+	tokensSaved, err := strconv.Atoi(summary.DebugFacts["wss.stateful_prefix_elision_tokens_saved"])
+	if err != nil || tokensSaved <= 0 {
+		t.Fatalf("missing prefix token fact=%q err=%v summary=%+v", summary.DebugFacts["wss.stateful_prefix_elision_tokens_saved"], err, summary)
+	}
+	if summary.Tokens.Saved < tokensSaved || summary.NetSavedTokens < tokensSaved {
+		t.Fatalf("prefix savings not counted: tokens=%+v net=%d prefix=%d facts=%+v", summary.Tokens, summary.NetSavedTokens, tokensSaved, summary.DebugFacts)
+	}
+	mechanism := mechanismByNameForTest(summary.Mechanisms, "wss_stateful_prefix_elision")
+	if mechanism.NetTokens != tokensSaved || mechanism.Source != "wss_phasef_debug_fact" {
+		t.Fatalf("prefix mechanism mismatch: %+v prefix=%d mechanisms=%+v", mechanism, tokensSaved, summary.Mechanisms)
+	}
+}
+
 func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutScope(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
