@@ -65,6 +65,7 @@ const (
 type BlockDecision struct {
 	Layer                int          `json:"layer,omitempty"`
 	Mechanism            string       `json:"mechanism"`
+	CommandClass         string       `json:"command_class,omitempty"`
 	ContentClass         ContentClass `json:"content_class"`
 	SafetyClass          SafetyClass  `json:"safety_class"`
 	Action               Action       `json:"action"`

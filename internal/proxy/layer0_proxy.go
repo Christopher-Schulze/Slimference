@@ -1065,6 +1065,9 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	} else {
 		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, beforeTokens, afterTokens)
 	}
+	if class := wssToolCommandClass(commandLine); class != "" {
+		decision.CommandClass = class
+	}
 	decision.FootprintScore = proxyFootprintScoreWithEstimate(decision.OriginalTokens, decision.SavedTokens, turnSeq, remainingTurnsEstimate, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision

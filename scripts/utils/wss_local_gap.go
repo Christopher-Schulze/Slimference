@@ -563,7 +563,15 @@ func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, sh
 	guardRow.GuardedPotential += guarded
 	addWSSAuditCount(&guardRow.Mechanisms, mechanism)
 	addWSSAuditCount(&guardRow.RequestShapes, shape)
-	a.addDecisionActionable(reason, mechanism, shape, guarded, saved, toolCommandClasses)
+	a.addDecisionActionable(reason, mechanism, shape, guarded, saved, wssLocalGapDecisionCommandClasses(decision, toolCommandClasses))
+}
+
+func wssLocalGapDecisionCommandClasses(decision evidence.BlockDecision, requestClasses map[string]int) map[string]int {
+	class := strings.TrimSpace(decision.CommandClass)
+	if class == "" {
+		return requestClasses
+	}
+	return map[string]int{class: 1}
 }
 
 func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int, toolCommandClasses map[string]int) {

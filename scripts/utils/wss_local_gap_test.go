@@ -196,6 +196,46 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapActionableUsesBlockCommandClassWhenPresent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "mixed-request",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":        "full_history",
+			"wss.tool_command_classes": "git_status=2,go_test=2,read_like=4",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "codex_exec_envelope",
+			CommandClass:   "read_like",
+			ContentClass:   evidence.ContentCode,
+			Action:         evidence.ActionFullPass,
+			Reason:         "wss_stateful_structured_mutation_guard",
+			OriginalTokens: 3000,
+			FinalTokens:    3000,
+		}},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.ToolCommandClasses["read_like"] != 1 ||
+		row.ToolCommandClasses["git_status"] != 0 ||
+		row.ToolCommandClasses["go_test"] != 0 {
+		t.Fatalf("actionable row must use block command class, got %+v", row.ToolCommandClasses)
+	}
+}
+
 func TestWSSLocalGapSinceAndSavedGate(t *testing.T) {
 	t.Parallel()
 
