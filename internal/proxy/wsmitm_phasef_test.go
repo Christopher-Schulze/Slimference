@@ -18,6 +18,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/outputreduce"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
 	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 	"github.com/Christopher-Schulze/Slimference/internal/staleread"
 	"github.com/Christopher-Schulze/Slimference/internal/tokens"
@@ -5016,6 +5017,239 @@ func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.BypassReason != "wss_previous_response_tool_output_full_pass" || summary.Tokens.Saved != 0 {
 		t.Fatalf("unknown previous_response output should be no-savings full-pass: %+v", summary)
+	}
+}
+
+func TestWSPhaseFPreviousResponseMixedUnknownToolOutputObservesInferableDelta(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var testOutput strings.Builder
+	testOutput.WriteString("Chunk ID: mixed-observe\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&testOutput, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	testOutput.WriteString("=== RUN   TestSlimferenceFailure\n")
+	testOutput.WriteString("    fail_test.go:42: SLIMFERENCE_TEST_FAILURE_SENTINEL expected alpha got beta\n")
+	testOutput.WriteString("--- FAIL: TestSlimferenceFailure (0.00s)\n")
+	testOutput.WriteString("FAIL\texample.test/liveproof\t0.015s\n")
+
+	opaqueOutput := strings.Repeat("opaque worker line without deterministic command shape\n", 80)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-mixed-observe",
+		"prompt_cache_key":     "mixed-observe-session",
+		"input": []map[string]any{
+			{"type": "function_call_output", "call_id": "call_tests_evicted", "output": testOutput.String()},
+			{"type": "function_call_output", "call_id": "call_unknown", "output": opaqueOutput},
+		},
+		"stream": true,
+	})
+	original := append([]byte(nil), env.Raw...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("mixed previous_response handle: %v", err)
+	}
+	if replace || !bytes.Equal(env.Raw, original) {
+		t.Fatalf("mixed unknown previous_response delta must stay byte-equal, replace=%v raw=%s", replace, env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.BypassReason != "wss_previous_response_tool_output_full_pass" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 ||
+		summary.DebugFacts["wss.changed"] != "false" ||
+		summary.DebugFacts["wss.tool_results_inferred"] != "1" ||
+		summary.DebugFacts["wss.tool_results_total"] != "2" {
+		t.Fatalf("mixed bypass should stay no-savings but carry inference facts: %+v", summary)
+	}
+	if !hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismRepeatedOut, "wss_stateful_delta_mutation_proof_gate", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "wss_stateful_delta_mutation_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("inferable block should emit observe-only proof-gate evidence: %+v", summary.EvidenceDecisions)
+	}
+	if len(summary.EvidenceDecisions) == 0 || len(summary.Mechanisms) == 0 {
+		t.Fatalf("mixed bypass should no longer be invisible to local-gap accounting: %+v", summary)
+	}
+}
+
+func TestMergeWSSLayer0ObservationStatsPreservesObserveOnlyTelemetry(t *testing.T) {
+	base := proxyLayer0Stats{
+		ToolResultBlocks:        1,
+		ReadDeltaAttempts:       1,
+		ToolResultBytes:         10,
+		TokensSaved:             11,
+		BlocksModified:          1,
+		ReadDeltaBlocks:         1,
+		CapturedOutputBlocks:    1,
+		ChunkDedupBlocks:        1,
+		ChunkDedupReferences:    1,
+		ChunkDedupRefBytes:      12,
+		ChunkDedupInputBytes:    13,
+		StaleReadBlocks:         1,
+		StaleReadBytesSaved:     14,
+		StaleReadTokensSaved:    15,
+		ReadDeltaKeys:           []string{"base-key"},
+		PolicyDecisions:         []savingspolicy.CodexMechanismDecision{{Reason: "base-policy"}},
+		CacheEvents:             []proxyLayer0CacheEvent{{Action: proxyLayer0CacheHit, Reason: "base-cache"}},
+		EvidenceDecisions:       []evidence.BlockDecision{{Mechanism: string(proxyLayer0MechanismReadDelta), Reason: "base-evidence", Action: evidence.ActionApplied}},
+		TotalLatencyNs:          16,
+		ReadDeltaLatencyNs:      17,
+		FilterLatencyNs:         18,
+		RepeatedOutputLatencyNs: 19,
+		ChunkDedupLatencyNs:     20,
+	}
+	observed := proxyLayer0Stats{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		ToolResultBlocks:         2,
+		ToolUseUnresolvedBlocks:  3,
+		CommandResolvedBlocks:    4,
+		CommandUnresolvedBlocks:  5,
+		ReadDeltaAttempts:        6,
+		ReadDeltaMisses:          7,
+		ToolResultBytes:          8,
+		TokensSaved:              9,
+		BlocksModified:           10,
+		ReadDeltaBlocks:          11,
+		CapturedOutputBlocks:     12,
+		CodexExecEnvelopeBlocks:  13,
+		RepeatedOutputBlocks:     14,
+		ChunkDedupBlocks:         15,
+		ChunkDedupReferences:     16,
+		ChunkDedupRefBytes:       17,
+		ChunkDedupInputBytes:     18,
+		StaleReadBlocks:          19,
+		StaleReadBytesSaved:      20,
+		StaleReadTokensSaved:     21,
+		ObsoletePruneBlocks:      22,
+		ObsoletePruneBytesSaved:  23,
+		ObsoletePruneTokensSaved: 24,
+		ReadDeltaKeys:            []string{"observed-key"},
+		PolicyDecisions:          []savingspolicy.CodexMechanismDecision{{Reason: "observed-policy"}},
+		CacheEvents:              []proxyLayer0CacheEvent{{Action: proxyLayer0CacheMiss, Reason: "observed-cache"}},
+		EvidenceDecisions:        []evidence.BlockDecision{{Mechanism: string(proxyLayer0MechanismCapturedOut), Reason: "observed-evidence", Action: evidence.ActionFullPass}},
+		TotalLatencyNs:           25,
+		ReadDeltaLatencyNs:       26,
+		FilterLatencyNs:          27,
+		RepeatedOutputLatencyNs:  28,
+		ChunkDedupLatencyNs:      29,
+	}
+
+	got := mergeWSSLayer0ObservationStats(base, observed)
+	if got.Route != codexLayer0RouteWSSPhaseF ||
+		got.ToolResultBlocks != 3 ||
+		got.ToolUseUnresolvedBlocks != 3 ||
+		got.CommandResolvedBlocks != 4 ||
+		got.CommandUnresolvedBlocks != 5 ||
+		got.ReadDeltaAttempts != 7 ||
+		got.ReadDeltaMisses != 7 ||
+		got.ToolResultBytes != 18 ||
+		got.TokensSaved != 20 ||
+		got.BlocksModified != 11 ||
+		got.ReadDeltaBlocks != 12 ||
+		got.CapturedOutputBlocks != 13 ||
+		got.CodexExecEnvelopeBlocks != 13 ||
+		got.RepeatedOutputBlocks != 14 ||
+		got.ChunkDedupBlocks != 16 ||
+		got.ChunkDedupReferences != 17 ||
+		got.ChunkDedupRefBytes != 29 ||
+		got.ChunkDedupInputBytes != 31 ||
+		got.StaleReadBlocks != 20 ||
+		got.StaleReadBytesSaved != 34 ||
+		got.StaleReadTokensSaved != 36 ||
+		got.ObsoletePruneBlocks != 22 ||
+		got.ObsoletePruneBytesSaved != 23 ||
+		got.ObsoletePruneTokensSaved != 24 ||
+		got.TotalLatencyNs != 41 ||
+		got.ReadDeltaLatencyNs != 43 ||
+		got.FilterLatencyNs != 45 ||
+		got.RepeatedOutputLatencyNs != 47 ||
+		got.ChunkDedupLatencyNs != 49 {
+		t.Fatalf("observation merge lost counters: %+v", got)
+	}
+	if strings.Join(got.ReadDeltaKeys, ",") != "base-key,observed-key" {
+		t.Fatalf("read-delta keys not appended: %+v", got.ReadDeltaKeys)
+	}
+	if len(got.PolicyDecisions) != 2 || got.PolicyDecisions[1].Reason != "observed-policy" {
+		t.Fatalf("policy decisions not appended: %+v", got.PolicyDecisions)
+	}
+	if len(got.CacheEvents) != 2 || got.CacheEvents[1].Reason != "observed-cache" {
+		t.Fatalf("cache events not appended: %+v", got.CacheEvents)
+	}
+	if len(got.EvidenceDecisions) != 2 || got.EvidenceDecisions[1].Reason != "observed-evidence" {
+		t.Fatalf("evidence decisions not appended: %+v", got.EvidenceDecisions)
+	}
+	preserved := mergeWSSLayer0ObservationStats(proxyLayer0Stats{Route: codexLayer0RouteHTTP}, observed)
+	if preserved.Route != codexLayer0RouteHTTP {
+		t.Fatalf("observation merge must not overwrite an existing route: %q", preserved.Route)
+	}
+}
+
+func TestProxyLayer0StatsHasTelemetry(t *testing.T) {
+	tests := []struct {
+		name  string
+		stats proxyLayer0Stats
+		want  bool
+	}{
+		{name: "empty"},
+		{name: "tool result blocks", stats: proxyLayer0Stats{ToolResultBlocks: 1}, want: true},
+		{name: "tool result bytes", stats: proxyLayer0Stats{ToolResultBytes: 1}, want: true},
+		{name: "policy decisions", stats: proxyLayer0Stats{PolicyDecisions: []savingspolicy.CodexMechanismDecision{{Reason: "guarded"}}}, want: true},
+		{name: "cache events", stats: proxyLayer0Stats{CacheEvents: []proxyLayer0CacheEvent{{Reason: "guarded"}}}, want: true},
+		{name: "evidence decisions", stats: proxyLayer0Stats{EvidenceDecisions: []evidence.BlockDecision{{Reason: "guarded"}}}, want: true},
+		{name: "latency", stats: proxyLayer0Stats{TotalLatencyNs: 1}, want: true},
+	}
+	for _, tt := range tests {
+		if got := proxyLayer0StatsHasTelemetry(tt.stats); got != tt.want {
+			t.Fatalf("%s telemetry=%v, want %v for %+v", tt.name, got, tt.want, tt.stats)
+		}
+	}
+}
+
+func TestWSSGuardedHistoryReducerEvidenceRecordsFullPassDecisions(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := codexWSStaleObsoleteLayer0Body()
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		t.Fatalf("extract fixture messages: %v", err)
+	}
+
+	empty := adapter.wssGuardedHistoryReducerEvidence(body, messages, "", 4)
+	if empty.Route != "" || len(empty.EvidenceDecisions) != 0 {
+		t.Fatalf("empty guard reason must not create evidence: %+v", empty)
+	}
+
+	stats := adapter.wssGuardedHistoryReducerEvidence(body, messages, "unit_history_guard", 4)
+	if stats.Route != codexLayer0RouteWSSPhaseF ||
+		stats.TokensSaved != 0 ||
+		stats.BlocksModified != 0 ||
+		stats.StaleReadBlocks != 0 ||
+		stats.ObsoletePruneBlocks != 0 ||
+		len(stats.EvidenceDecisions) != 2 {
+		t.Fatalf("guarded history reducers should be evidence-only full-pass stats: %+v", stats)
+	}
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "unit_history_guard", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "unit_history_guard", evidence.ActionFullPass) {
+		t.Fatalf("guarded history reducers must record precise mechanisms: %+v", stats.EvidenceDecisions)
+	}
+	for _, decision := range stats.EvidenceDecisions {
+		if decision.OriginalTokens <= decision.FinalTokens ||
+			decision.SavedTokens <= 0 ||
+			decision.FootprintScore <= 0 ||
+			decision.FootprintScoreBucket == "" {
+			t.Fatalf("guarded history decision lost economics: %+v", decision)
+		}
 	}
 }
 

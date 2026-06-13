@@ -61,6 +61,7 @@ go run ./scripts/utils aggregate-savings --admin-state-file=admin-state.json --j
 go run ./scripts/utils workday-savings start                                         # baseline for real workday savings
 go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.db   # flush-aware window delta
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/observed+resolved-shape/shape-economics/full-history-cost/re-read/history-reducer/footprint-economics/shadow-mirror density audit
+go run ./scripts/utils wss-local-gap ~/.slimference/debug/decisions.jsonl --min-local-ratio=0.48 --json # strict AGENTS.md 3.2 S_local gap ledger; provider-cache is reported separately and never counted
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-history-evidence  # fresh T353 history reducer calibration gate

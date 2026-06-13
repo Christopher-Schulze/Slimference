@@ -478,6 +478,10 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			} else if fullHistoryHistoryMutationBlocked {
 				historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 			}
+			if deltaShape {
+				observedStats := a.observeWSSPreviousResponseDeltaLayer0(messages, mergedToolUses, sessionID, turnID, suppressedKeys, chunkSettings, meta, cacheBustDemoted)
+				l0Stats = mergeWSSLayer0ObservationStats(l0Stats, observedStats)
+			}
 			historyResult := a.applyWSSHistoryReducers(out, messages, historyMutationGuardReason, cacheBustDemoted, meta.TurnSeq)
 			l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyResult.Stats)
 			changed := false
@@ -505,6 +509,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					l0Stats = l0Stats.withoutSavings()
 					a.p.recordCodexLayer0Stats(l0Stats)
 				}
+			} else if proxyLayer0StatsHasTelemetry(l0Stats) {
+				a.p.recordCodexLayer0Stats(l0Stats)
 			}
 			meta.BypassReason = "wss_previous_response_tool_output_full_pass"
 			if changed {
@@ -2192,6 +2198,89 @@ func mergeWSSHistoryReducerStats(base proxyLayer0Stats, history proxyLayer0Stats
 		base.EvidenceDecisions = append(append([]evidence.BlockDecision(nil), history.EvidenceDecisions...), base.EvidenceDecisions...)
 	}
 	return base
+}
+
+func mergeWSSLayer0ObservationStats(base proxyLayer0Stats, observed proxyLayer0Stats) proxyLayer0Stats {
+	base.ToolResultBlocks += observed.ToolResultBlocks
+	base.ToolUseUnresolvedBlocks += observed.ToolUseUnresolvedBlocks
+	base.CommandResolvedBlocks += observed.CommandResolvedBlocks
+	base.CommandUnresolvedBlocks += observed.CommandUnresolvedBlocks
+	base.ReadDeltaAttempts += observed.ReadDeltaAttempts
+	base.ReadDeltaMisses += observed.ReadDeltaMisses
+	base.ToolResultBytes += observed.ToolResultBytes
+	base.TokensSaved += observed.TokensSaved
+	base.BlocksModified += observed.BlocksModified
+	base.ReadDeltaBlocks += observed.ReadDeltaBlocks
+	base.CapturedOutputBlocks += observed.CapturedOutputBlocks
+	base.CodexExecEnvelopeBlocks += observed.CodexExecEnvelopeBlocks
+	base.RepeatedOutputBlocks += observed.RepeatedOutputBlocks
+	base.ChunkDedupBlocks += observed.ChunkDedupBlocks
+	base.ChunkDedupReferences += observed.ChunkDedupReferences
+	base.ChunkDedupRefBytes += observed.ChunkDedupRefBytes
+	base.ChunkDedupInputBytes += observed.ChunkDedupInputBytes
+	base.StaleReadBlocks += observed.StaleReadBlocks
+	base.StaleReadBytesSaved += observed.StaleReadBytesSaved
+	base.StaleReadTokensSaved += observed.StaleReadTokensSaved
+	base.ObsoletePruneBlocks += observed.ObsoletePruneBlocks
+	base.ObsoletePruneBytesSaved += observed.ObsoletePruneBytesSaved
+	base.ObsoletePruneTokensSaved += observed.ObsoletePruneTokensSaved
+	base.ReadDeltaKeys = append(base.ReadDeltaKeys, observed.ReadDeltaKeys...)
+	base.PolicyDecisions = append(base.PolicyDecisions, observed.PolicyDecisions...)
+	base.CacheEvents = append(base.CacheEvents, observed.CacheEvents...)
+	base.EvidenceDecisions = append(base.EvidenceDecisions, observed.EvidenceDecisions...)
+	base.TotalLatencyNs += observed.TotalLatencyNs
+	base.ReadDeltaLatencyNs += observed.ReadDeltaLatencyNs
+	base.FilterLatencyNs += observed.FilterLatencyNs
+	base.RepeatedOutputLatencyNs += observed.RepeatedOutputLatencyNs
+	base.ChunkDedupLatencyNs += observed.ChunkDedupLatencyNs
+	if base.Route == "" {
+		base.Route = observed.Route
+	}
+	return base
+}
+
+func proxyLayer0StatsHasTelemetry(stats proxyLayer0Stats) bool {
+	return stats.ToolResultBlocks > 0 ||
+		stats.ToolResultBytes > 0 ||
+		len(stats.PolicyDecisions) > 0 ||
+		len(stats.CacheEvents) > 0 ||
+		len(stats.EvidenceDecisions) > 0 ||
+		stats.TotalLatencyNs > 0
+}
+
+func (a *wsPhaseFAdapter) observeWSSPreviousResponseDeltaLayer0(messages []types.Message, toolUses map[string]types.ContentBlock, sessionID, turnID string, suppressedKeys map[string]struct{}, chunkSettings codexChunkDedupSettings, meta wssRequestMeta, cacheBustDemoted proxyLayer0MechanismMask) proxyLayer0Stats {
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                   codexLayer0RouteWSSPhaseF,
+		Messages:                messages,
+		ToolUseIndex:            toolUses,
+		SessionID:               sessionID,
+		TurnID:                  turnID,
+		SuppressedToolKey:       suppressedKeys,
+		RecentFullPassTurns:     a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+		ChunkDedupEnabled:       chunkSettings.Enabled,
+		ExplicitChunkDedup:      chunkSettings.Explicit,
+		ChunkDedupProof:         chunkSettings.Proof,
+		ChunkDedupMinBytes:      chunkSettings.MinBytes,
+		ChunkDedupMaxRefPct:     chunkSettings.MaxRefPct,
+		ChunkStore:              chunkSettings.Store,
+		PolicyMode:              chunkSettings.PolicyMode,
+		ArchiveRecovery:         chunkSettings.ArchiveRecovery,
+		TurnSeq:                 meta.TurnSeq,
+		RemainingTurnsEstimate:  meta.RemainingTurnsEstimate,
+		CachedPriceRatio:        a.p.config.Savings.CachedPriceRatio,
+		UniformChunkDedupBudget: a.p.wssABReplayUniformChunkBudget,
+		SearchCompactOptions: filter.SearchCompactOptions{
+			MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
+			MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
+		},
+		HostBudgetExceeded:           a.p.codexHostBudgetExceeded(),
+		LatencyBudgetExceeded:        a.p.codexLayer0LatencyExceeded.Load(),
+		StructuredMutationBlocked:    true,
+		CacheBustDemotedMechanisms:   cacheBustDemoted,
+		HistoryMutationGuardReason:   "wss_stateful_delta_mutation_proof_gate",
+		StatefulDeltaMutationBlocked: true,
+	})
+	return result.Stats
 }
 
 func (a *wsPhaseFAdapter) wssGuardedHistoryReducerEvidence(out []byte, messages []types.Message, guardReason string, turnSeq int) proxyLayer0Stats {
