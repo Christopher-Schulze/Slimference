@@ -237,7 +237,7 @@ func loadSearchCapProfileReport(flags searchCapProfileFlags) (searchCapProfileRe
 		GatePassed:    true,
 	}
 	report.Profiles = buildSearchCapProfileRows(
-		buildSearchCapProfileRow("default", argv, data, filter.SearchCompactOptions{}),
+		buildSearchCapProfileRow("default", argv, data, searchCapProfileDefaultOptions(flags)),
 		searchCapProfileCandidates(flags),
 		func(candidate searchCapProfileCandidate) searchCapProfileRow {
 			return buildSearchCapProfileRow(candidate.Name, argv, data, candidate.Options)
@@ -266,7 +266,7 @@ func loadSearchCapProfileFramesReport(flags searchCapProfileFlags) (searchCapPro
 		GatePassed:    true,
 	}
 	report.Profiles = buildSearchCapProfileRows(
-		aggregateSearchCapProfileRows("default", outputs, filter.SearchCompactOptions{}),
+		aggregateSearchCapProfileRows("default", outputs, searchCapProfileDefaultOptions(flags)),
 		searchCapProfileCandidates(flags),
 		func(candidate searchCapProfileCandidate) searchCapProfileRow {
 			return aggregateSearchCapProfileRows(candidate.Name, outputs, candidate.Options)
@@ -488,6 +488,10 @@ func searchCapProfileCandidates(flags searchCapProfileFlags) []searchCapProfileC
 			MinRetainedPct:    minRetention,
 		},
 	}}
+}
+
+func searchCapProfileDefaultOptions(flags searchCapProfileFlags) filter.SearchCompactOptions {
+	return filter.SearchCompactOptions{MinRetainedPct: searchCapProfileMinimumRetention(flags)}
 }
 
 func buildSearchCapProfileRows(defaultRow searchCapProfileRow, candidates []searchCapProfileCandidate, build func(searchCapProfileCandidate) searchCapProfileRow) []searchCapProfileRow {

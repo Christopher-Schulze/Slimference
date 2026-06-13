@@ -49,20 +49,21 @@ type searchCapProofSelection struct {
 }
 
 type searchCapProofReplaySummary struct {
-	ReducerTokensSaved       int  `json:"reducer_tokens_saved"`
-	BytesSaved               int  `json:"bytes_saved"`
-	SearchRequestTurns       int  `json:"search_request_turns"`
-	SearchMutatedRequests    int  `json:"search_mutated_requests"`
-	SearchCapturedMutated    int  `json:"search_captured_mutated_requests,omitempty"`
-	SearchCapProofLatch      bool `json:"search_cap_proof_latch_enabled,omitempty"`
-	ToolOutputMutation       bool `json:"tool_output_mutation_enabled"`
-	DeltaToolOutputMutation  bool `json:"delta_tool_output_mutation_proof_enabled"`
-	UpstreamErrorFrames      int  `json:"upstream_error_frames"`
-	UpstreamInvalidRequests  int  `json:"upstream_invalid_request_errors"`
-	UpstreamHTTP400Errors    int  `json:"upstream_http_400_errors"`
-	UpstreamResponseFailures int  `json:"upstream_response_failed_frames"`
-	Lost                     int  `json:"lost"`
-	GatePassed               bool `json:"gate_passed"`
+	ReducerTokensSaved       int     `json:"reducer_tokens_saved"`
+	BytesSaved               int     `json:"bytes_saved"`
+	SearchRequestTurns       int     `json:"search_request_turns"`
+	SearchMutatedRequests    int     `json:"search_mutated_requests"`
+	SearchCapturedMutated    int     `json:"search_captured_mutated_requests,omitempty"`
+	SearchCapProofLatch      bool    `json:"search_cap_proof_latch_enabled,omitempty"`
+	SearchCapMinRetainedPct  float64 `json:"search_cap_min_retained_pct,omitempty"`
+	ToolOutputMutation       bool    `json:"tool_output_mutation_enabled"`
+	DeltaToolOutputMutation  bool    `json:"delta_tool_output_mutation_proof_enabled"`
+	UpstreamErrorFrames      int     `json:"upstream_error_frames"`
+	UpstreamInvalidRequests  int     `json:"upstream_invalid_request_errors"`
+	UpstreamHTTP400Errors    int     `json:"upstream_http_400_errors"`
+	UpstreamResponseFailures int     `json:"upstream_response_failed_frames"`
+	Lost                     int     `json:"lost"`
+	GatePassed               bool    `json:"gate_passed"`
 }
 
 type searchCapProofFlags struct {
@@ -154,10 +155,11 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		return searchCapProofReport{}, err
 	}
 	defaultReplay, err := loadWSSABReplayReport(wssABReplayFlags{
-		path:                flags.framesPath,
-		failOnLost:          true,
-		failOnUpstreamError: true,
-		searchCapProofLatch: true,
+		path:                    flags.framesPath,
+		failOnLost:              true,
+		failOnUpstreamError:     true,
+		searchCapProofLatch:     true,
+		searchCapMinRetainedPct: flags.minCandidateRetainedPct,
 	})
 	if err != nil {
 		return searchCapProofReport{}, err
@@ -264,6 +266,7 @@ func searchCapProofReplaySummaryFrom(report wssABReplayReport) searchCapProofRep
 		SearchMutatedRequests:    report.SearchMutatedRequests,
 		SearchCapturedMutated:    report.SearchCapturedMutated,
 		SearchCapProofLatch:      report.SearchCapProofLatch,
+		SearchCapMinRetainedPct:  report.SearchCapMinRetainedPct,
 		ToolOutputMutation:       report.ToolOutputMutation,
 		DeltaToolOutputMutation:  report.DeltaToolOutputMutationLab,
 		UpstreamErrorFrames:      report.UpstreamErrorFrames,

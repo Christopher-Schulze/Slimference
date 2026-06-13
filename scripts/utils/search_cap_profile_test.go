@@ -172,7 +172,7 @@ func TestRunSearchCapProfileCandidatesAndRetentionGate(t *testing.T) {
 		"--input", path,
 		"--candidate", "25:15",
 		"--require-aggressive-savings",
-		"--min-candidate-retained-pct", "80",
+		"--min-candidate-retained-pct", "100",
 		"--json",
 	}, &stdout, &stderr)
 	if code != 3 {

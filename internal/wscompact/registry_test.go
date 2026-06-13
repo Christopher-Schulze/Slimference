@@ -98,4 +98,153 @@ func TestContentFreeShapeHash_StableAndValueFree(t *testing.T) {
 	if ContentFreeShapeHash(first) == ContentFreeShapeHash(changed) {
 		t.Fatal("shape hash must change when content-free field types change")
 	}
+	if got := ContentFreeShapeHash(FrameSummary{}); got != "" {
+		t.Fatalf("empty shape hash = %q", got)
+	}
+}
+
+func TestShapeRegistry_EntriesSortedAndCloned(t *testing.T) {
+	t.Parallel()
+	registry := NewShapeRegistry()
+	for _, summary := range []FrameSummary{
+		{
+			ShapeHash:    "c",
+			Route:        "/backend-api/dev",
+			Direction:    DirectionClientToServer,
+			Opcode:       "text",
+			JSON:         true,
+			JSONTopLevel: "object",
+			JSONKeys:     []string{"c"},
+			JSONTypes:    []string{"c:string"},
+			MessageType:  "c",
+		},
+		{
+			ShapeHash:    "a",
+			Route:        "/backend-api/dev",
+			Direction:    DirectionClientToServer,
+			Opcode:       "text",
+			JSON:         true,
+			JSONTopLevel: "object",
+			JSONKeys:     []string{"a"},
+			JSONTypes:    []string{"a:string"},
+			MessageType:  "a",
+		},
+		{
+			ShapeHash:    "b",
+			Route:        "/backend-api/dev",
+			Direction:    DirectionClientToServer,
+			Opcode:       "text",
+			JSON:         true,
+			JSONTopLevel: "object",
+			JSONKeys:     []string{"b"},
+			JSONTypes:    []string{"b:string"},
+			MessageType:  "b",
+		},
+	} {
+		registry.Observe(summary)
+	}
+
+	entries := registry.Entries()
+	if len(entries) != 3 {
+		t.Fatalf("entries=%+v", entries)
+	}
+	if got := entries[0].Hash + entries[1].Hash + entries[2].Hash; got != "abc" {
+		t.Fatalf("entry order=%s", got)
+	}
+	entries[0].JSONKeys[0] = "mutated"
+	entries[0].JSONTypes[0] = "mutated:string"
+	again := registry.Entries()
+	if again[0].JSONKeys[0] != "a" || again[0].JSONTypes[0] != "a:string" {
+		t.Fatalf("entries must be defensive clones: %+v", again[0])
+	}
+}
+
+func TestShapeRegistry_CodexMutationEligibility(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		summary FrameSummary
+		want    string
+	}{
+		{
+			name: "client request route with query and trailing slash",
+			summary: FrameSummary{
+				Route:        "/backend-api/codex-bridge/responses/?v=1",
+				Direction:    DirectionClientToServer,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				JSONKeys:     []string{"request", "type"},
+				MessageType:  "request",
+			},
+			want: "phasef_request",
+		},
+		{
+			name: "client request without request key",
+			summary: FrameSummary{
+				Route:        "/backend-api/codex/responses",
+				Direction:    DirectionClientToServer,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				JSONKeys:     []string{"type"},
+				MessageType:  "request",
+			},
+			want: "inspect_only",
+		},
+		{
+			name: "server delta response",
+			summary: FrameSummary{
+				Route:        "/backend-api/codex/responses",
+				Direction:    DirectionServerToClient,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				MessageType:  "response.output_text.delta",
+			},
+			want: "phasef_observe_or_stream_delta",
+		},
+		{
+			name: "server failed response",
+			summary: FrameSummary{
+				Route:        "/backend-api/codex/responses",
+				Direction:    DirectionServerToClient,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				MessageType:  "response.failed",
+			},
+			want: "phasef_observe_or_stream_delta",
+		},
+		{
+			name: "server unknown response",
+			summary: FrameSummary{
+				Route:        "/backend-api/codex/responses",
+				Direction:    DirectionServerToClient,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				MessageType:  "response.unknown",
+			},
+			want: "inspect_only",
+		},
+		{
+			name: "non codex route",
+			summary: FrameSummary{
+				Route:        "/backend-api/dev",
+				Direction:    DirectionServerToClient,
+				Opcode:       "text",
+				JSONTopLevel: "object",
+				MessageType:  "response.failed",
+			},
+			want: "inspect_only",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mutationEligibility(tc.summary); got != tc.want {
+				t.Fatalf("mutationEligibility()=%q want %q", got, tc.want)
+			}
+			if got := fallbackBehavior(tc.summary); tc.want == "inspect_only" && got != "byte_equal_bridge" {
+				t.Fatalf("inspect-only fallback=%q", got)
+			} else if tc.want != "inspect_only" && got != "mutate_only_after_phasef_and_live_cert" {
+				t.Fatalf("mutation-capable fallback=%q", got)
+			}
+		})
+	}
 }

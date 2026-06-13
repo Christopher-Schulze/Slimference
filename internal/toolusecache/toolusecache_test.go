@@ -17,6 +17,17 @@ func TestLoad_Missing(t *testing.T) {
 	}
 }
 
+func TestDefaultDirs(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join("tmp", "home")
+	if got, want := DefaultDir(home), filepath.Join(home, ".slimference", "tooluse-cache"); got != want {
+		t.Fatalf("DefaultDir()=%q want %q", got, want)
+	}
+	if got, want := CollapsedKeysDir(home), filepath.Join(home, ".slimference", "collapsed-keys"); got != want {
+		t.Fatalf("CollapsedKeysDir()=%q want %q", got, want)
+	}
+}
+
 func TestMergeAndLoad_Roundtrip(t *testing.T) {
 	dir := t.TempDir()
 	add := map[string]Entry{
@@ -97,6 +108,12 @@ func TestMergeAsync_WriteBehindAndCachedLoad(t *testing.T) {
 	if got := writes.Load(); got != 1 {
 		t.Fatalf("FlushSession writes=%d, want 1", got)
 	}
+	if err := FlushSession(dir, "s1"); err != nil {
+		t.Fatalf("second FlushSession should be clean noop: %v", err)
+	}
+	if got := writes.Load(); got != 1 {
+		t.Fatalf("clean FlushSession writes=%d, want 1", got)
+	}
 	resetMemoryForTest(t)
 	hydrated, err := Load(dir, "s1")
 	if err != nil {
@@ -104,6 +121,67 @@ func TestMergeAsync_WriteBehindAndCachedLoad(t *testing.T) {
 	}
 	if hydrated["call_1"].ToolName != "exec_command" {
 		t.Fatalf("disk hydrate missed entry: %+v", hydrated)
+	}
+}
+
+func TestFlushSession_SaveErrorKeepsDirtyForRetry(t *testing.T) {
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	key := memoryKey(dir, "s1")
+	memory.mu.Lock()
+	memory.sessions[key] = &memoryEntry{
+		entries: map[string]Entry{
+			"call_1": {ToolUseID: "call_1", ToolName: "exec_command"},
+		},
+		dirty:          true,
+		flushScheduled: true,
+	}
+	memory.mu.Unlock()
+
+	saved := writeFile
+	writeFile = func(string, []byte, os.FileMode) error { return errors.New("write fail") }
+	if err := FlushSession(dir, "s1"); err == nil {
+		writeFile = saved
+		t.Fatal("FlushSession should surface write error")
+	}
+	writeFile = saved
+
+	memory.mu.Lock()
+	dirty := memory.sessions[key].dirty
+	scheduled := memory.sessions[key].flushScheduled
+	memory.mu.Unlock()
+	if !dirty || scheduled {
+		t.Fatalf("dirty=%t scheduled=%t after failed flush", dirty, scheduled)
+	}
+	if err := FlushSession(dir, "s1"); err != nil {
+		t.Fatalf("retry FlushSession: %v", err)
+	}
+	if _, err := os.Stat(sessionPath(dir, "s1")); err != nil {
+		t.Fatalf("retry should write session file: %v", err)
+	}
+}
+
+func TestFlushAllFlushesDirtySessions(t *testing.T) {
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	memory.mu.Lock()
+	memory.sessions[memoryKey(dir, "s1")] = &memoryEntry{
+		entries: map[string]Entry{"call_1": {ToolUseID: "call_1", ToolName: "exec_command"}},
+		dirty:   true,
+	}
+	memory.sessions[memoryKey(dir, "s2")] = &memoryEntry{
+		entries: map[string]Entry{"call_2": {ToolUseID: "call_2", ToolName: "exec_command"}},
+		dirty:   true,
+	}
+	memory.mu.Unlock()
+
+	if err := FlushAll(); err != nil {
+		t.Fatalf("FlushAll: %v", err)
+	}
+	for _, sessionID := range []string{"s1", "s2"} {
+		if _, err := os.Stat(sessionPath(dir, sessionID)); err != nil {
+			t.Fatalf("FlushAll missed %s: %v", sessionID, err)
+		}
 	}
 }
 
@@ -181,6 +259,14 @@ func TestMerge_WriteError(t *testing.T) {
 	writeFile = func(string, []byte, os.FileMode) error { return errors.New("write fail") }
 	if _, err := Merge(t.TempDir(), "s", map[string]Entry{"c": {ToolUseID: "c"}}); err == nil {
 		t.Fatal("write error should surface")
+	}
+}
+
+func TestSplitMemoryKeyWithoutSeparator(t *testing.T) {
+	t.Parallel()
+	dir, sessionID := splitMemoryKey("plain")
+	if dir != "plain" || sessionID != "" {
+		t.Fatalf("splitMemoryKey without separator = %q %q", dir, sessionID)
 	}
 }
 
