@@ -818,6 +818,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		l0Stats = stats
 		l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyStats)
 		l0Stats = appendWSSSourceDeltaToolOutputFullPassEvidence(l0Stats, meta, stagedMessages, a.p.config.Savings.CachedPriceRatio)
+		if l0Stats.TokensSaved > 0 && structuredMutationGuardReason != "" &&
+			!wssLayer0EvidenceHasFullPassReason(l0Stats.EvidenceDecisions, structuredMutationGuardReason) {
+			if effectiveMutationGuardReason == structuredMutationGuardReason {
+				effectiveMutationGuardReason = ""
+			}
+			structuredMutationGuardReason = ""
+		}
 		if stats.TokensSaved > 0 {
 			stagedMessages = l0Messages
 			messageMutationPending = true
@@ -2833,6 +2840,18 @@ func mergeWSSLayer0ObservationStats(base proxyLayer0Stats, observed proxyLayer0S
 		base.Route = observed.Route
 	}
 	return base
+}
+
+func wssLayer0EvidenceHasFullPassReason(decisions []evidence.BlockDecision, reason string) bool {
+	if reason == "" {
+		return false
+	}
+	for _, decision := range decisions {
+		if decision.Action == evidence.ActionFullPass && decision.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func proxyLayer0StatsHasTelemetry(stats proxyLayer0Stats) bool {
