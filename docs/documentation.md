@@ -926,10 +926,13 @@ Provider-cache-bust demotion is scoped by session, request shape (`root`,
 `delta`, `full_history`, or `unknown`), and mechanism, so a cache regression
 observed on a delta continuation does not suppress unrelated full-history or
 root-request savings. When the triggering mutation is classifiable, the demotion
-narrows further to content-free `mechanism:content_class` keys; unclassified or
-legacy demotions keep the broad mechanism guard. Aggregate demotion telemetry
-stays available for reports and legacy diagnostics. Negative-savings history is
-treated as an efficiency signal rather than a context-risk signal:
+narrows further to content-free `mechanism:content_class` keys; captured search
+outputs append a short hash of the stable search identity, so one cache-busting
+search does not suppress unrelated search-output reducers in the same prefix
+scope. Unclassified or legacy demotions keep the broad mechanism guard.
+Aggregate demotion telemetry stays available for reports and legacy diagnostics.
+Negative-savings history is treated as an efficiency signal rather than a
+context-risk signal:
 recoverable/heavier reducers full-pass, while lossless exact reducers remain
 eligible with `lossless_or_exact_reducer_negative_savings`.
 Per-output and cumulative session reference-density caps are enforced as byte

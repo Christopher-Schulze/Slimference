@@ -141,11 +141,28 @@ func proxyLayer0CacheBustClassKeyForMechanism(mechanism proxyLayer0Mechanism, cl
 
 func proxyLayer0CacheBustClassKey(mechanism proxyLayer0Mechanism, commandLine string, beforeText string) string {
 	analysis := evidence.Analyze(strings.Fields(commandLine), []byte(beforeText))
-	return proxyLayer0CacheBustClassKeyForMechanism(mechanism, analysis.ContentClass)
+	general := proxyLayer0CacheBustClassKeyForMechanism(mechanism, analysis.ContentClass)
+	if general == "" || mechanism != proxyLayer0MechanismCapturedOut || analysis.ContentClass != evidence.ContentSearch {
+		return general
+	}
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	searchKey := filter.SearchOutputKeyFromCommandLine(filterCommandLine)
+	if searchKey == "" {
+		return general
+	}
+	return general + ":key=" + proxyLayer0CacheBustStableKeyHash(searchKey)
+}
+
+func proxyLayer0CacheBustStableKeyHash(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:8])
 }
 
 func proxyLayer0CacheBustClassKeysFromStats(stats proxyLayer0Stats) map[string]struct{} {
-	out := make(map[string]struct{})
+	out := cloneProxyLayer0CacheBustClassKeys(stats.CacheBustClassKeys)
+	if out == nil {
+		out = make(map[string]struct{})
+	}
 	for _, decision := range stats.EvidenceDecisions {
 		if decision.Action != evidence.ActionApplied {
 			continue
@@ -154,12 +171,31 @@ func proxyLayer0CacheBustClassKeysFromStats(stats proxyLayer0Stats) map[string]s
 		if key == "" {
 			continue
 		}
+		if proxyLayer0CacheBustClassKeysCover(out, key) {
+			continue
+		}
 		out[key] = struct{}{}
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func proxyLayer0CacheBustClassKeysCover(keys map[string]struct{}, generalKey string) bool {
+	if len(keys) == 0 || strings.TrimSpace(generalKey) == "" {
+		return false
+	}
+	if _, ok := keys[generalKey]; ok {
+		return true
+	}
+	prefix := generalKey + ":"
+	for key := range keys {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneProxyLayer0CacheBustClassKeys(keys map[string]struct{}) map[string]struct{} {
@@ -207,7 +243,12 @@ func proxyLayer0CacheBustCandidateDemoted(req codexLayer0Request, commandLine st
 		return true
 	}
 	key := proxyLayer0CacheBustClassKey(mechanism, commandLine, beforeText)
-	_, demoted := req.CacheBustDemotedClassKeys[key]
+	if _, demoted := req.CacheBustDemotedClassKeys[key]; demoted {
+		return true
+	}
+	analysis := evidence.Analyze(strings.Fields(commandLine), []byte(beforeText))
+	general := proxyLayer0CacheBustClassKeyForMechanism(mechanism, analysis.ContentClass)
+	_, demoted := req.CacheBustDemotedClassKeys[general]
 	return demoted
 }
 
@@ -350,6 +391,7 @@ type proxyLayer0Stats struct {
 	PolicyDecisions          []savingspolicy.CodexMechanismDecision
 	CacheEvents              []proxyLayer0CacheEvent
 	EvidenceDecisions        []evidence.BlockDecision
+	CacheBustClassKeys       map[string]struct{}
 	TotalLatencyNs           int64
 	ReadDeltaLatencyNs       int64
 	FilterLatencyNs          int64
@@ -389,6 +431,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
 	s.EvidenceDecisions = nil
+	s.CacheBustClassKeys = nil
 	return s
 }
 
@@ -830,6 +873,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				cow.setText(msgIdx, blockIdx, afterText)
 				stats.TokensSaved += before - afterTokens
 				stats.BlocksModified++
+				if key := proxyLayer0CacheBustClassKey(mechanism, commandLine, block.Text); key != "" {
+					if stats.CacheBustClassKeys == nil {
+						stats.CacheBustClassKeys = make(map[string]struct{}, 1)
+					}
+					stats.CacheBustClassKeys[key] = struct{}{}
+				}
 				switch mechanism {
 				case proxyLayer0MechanismReadDelta:
 					stats.ReadDeltaBlocks++

@@ -82,12 +82,20 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	if got := proxyLayer0CacheBustClassKeyForString(string(proxyLayer0MechanismCapturedOut), ""); got != "captured_output:unknown" {
 		t.Fatalf("empty class key=%q, want unknown fallback", got)
 	}
+	searchKeyA := proxyLayer0CacheBustClassKey(proxyLayer0MechanismCapturedOut, `rg -n "needle" internal`, "internal/a.go:1:needle\ninternal/b.go:2:needle\n")
+	searchKeyB := proxyLayer0CacheBustClassKey(proxyLayer0MechanismCapturedOut, `rg -n "other" internal`, "internal/a.go:1:other\ninternal/b.go:2:other\n")
+	if !strings.HasPrefix(searchKeyA, "captured_output:search:key=") || strings.Contains(searchKeyA, "needle") {
+		t.Fatalf("search cache-bust key must be hashed and content-free, got %q", searchKeyA)
+	}
+	if searchKeyA == searchKeyB {
+		t.Fatalf("different search identities must not share cache-bust keys: %q", searchKeyA)
+	}
 	keys := cloneProxyLayer0CacheBustClassKeys(map[string]struct{}{
 		"repeated_tool_output:plain": {},
 		"":                           {},
-		"captured_output:search":     {},
+		searchKeyA:                   {},
 	})
-	if got := proxyLayer0CacheBustClassKeysString(keys); got != "captured_output:search,repeated_tool_output:plain" {
+	if got := proxyLayer0CacheBustClassKeysString(keys); got != searchKeyA+",repeated_tool_output:plain" {
 		t.Fatalf("sorted class keys=%q", got)
 	}
 	stats := proxyLayer0Stats{EvidenceDecisions: []evidence.BlockDecision{
@@ -97,6 +105,16 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	fromStats := proxyLayer0CacheBustClassKeysFromStats(stats)
 	if _, ok := fromStats["captured_output:search"]; !ok || len(fromStats) != 1 {
 		t.Fatalf("applied-only class keys mismatch: %+v", fromStats)
+	}
+	specificStats := proxyLayer0Stats{
+		CacheBustClassKeys: map[string]struct{}{searchKeyA: {}},
+		EvidenceDecisions: []evidence.BlockDecision{
+			{Mechanism: string(proxyLayer0MechanismCapturedOut), ContentClass: evidence.ContentSearch, Action: evidence.ActionApplied},
+		},
+	}
+	specificFromStats := proxyLayer0CacheBustClassKeysFromStats(specificStats)
+	if _, ok := specificFromStats[searchKeyA]; !ok || len(specificFromStats) != 1 {
+		t.Fatalf("specific stats should not add broad search fallback: %+v", specificFromStats)
 	}
 }
 
@@ -273,6 +291,62 @@ func TestReduceCodexLayer0CacheBustDemotionNarrowsToClassKeys(t *testing.T) {
 	}
 	if !hasEvidenceDecision(guarded.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "cache_bust_guard", evidence.ActionFullPass) {
 		t.Fatalf("matching class key must emit cache-bust evidence: %+v", guarded.Stats.EvidenceDecisions)
+	}
+}
+
+func TestReduceCodexLayer0CacheBustDemotionNarrowsToSearchIdentity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	messagesFor := func(id, command, output string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: output}}},
+		}
+	}
+	commandA := `cd /repo/a && rg -n needle internal`
+	commandB := `cd /repo/a && rg -n other internal`
+	outputA := proxyWSSSearchOutputFixture("needle", 80)
+	outputB := proxyWSSSearchOutputFixture("other", 80)
+	captured := proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut)
+	seedA := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messagesFor("call-search-a-seed", commandA, outputA),
+		SessionID:                "sess-cache-bust-search-identity-seed",
+		WSSSearchMutationAllowed: true,
+	})
+	if seedA.Stats.CapturedOutputBlocks != 1 || seedA.Stats.TokensSaved <= 0 || len(seedA.Stats.CacheBustClassKeys) != 1 {
+		t.Fatalf("seed search should compact and record one cache-bust key: stats=%+v", seedA.Stats)
+	}
+	demotedA := cloneProxyLayer0CacheBustClassKeys(seedA.Stats.CacheBustClassKeys)
+
+	unrelated := reduceCodexLayer0(codexLayer0Request{
+		Route:                      codexLayer0RouteWSSPhaseF,
+		Messages:                   messagesFor("call-search-b", commandB, outputB),
+		SessionID:                  "sess-cache-bust-search-identity",
+		WSSSearchMutationAllowed:   true,
+		CacheBustDemotedMechanisms: captured,
+		CacheBustDemotedClassKeys:  demotedA,
+	})
+	if unrelated.Stats.CapturedOutputBlocks != 1 || unrelated.Stats.TokensSaved <= 0 {
+		t.Fatalf("different search identity should still compact: stats=%+v text=%q", unrelated.Stats, unrelated.Messages[1].Content[0].Text)
+	}
+	if hasEvidenceDecision(unrelated.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("different search identity must not emit cache-bust evidence: %+v", unrelated.Stats.EvidenceDecisions)
+	}
+
+	matching := reduceCodexLayer0(codexLayer0Request{
+		Route:                      codexLayer0RouteWSSPhaseF,
+		Messages:                   messagesFor("call-search-a", commandA, outputA),
+		SessionID:                  "sess-cache-bust-search-identity",
+		WSSSearchMutationAllowed:   true,
+		CacheBustDemotedMechanisms: captured,
+		CacheBustDemotedClassKeys:  demotedA,
+	})
+	if matching.Stats.TokensSaved != 0 || matching.Stats.BlocksModified != 0 || matching.Messages[1].Content[0].Text != outputA {
+		t.Fatalf("matching search identity must full-pass: stats=%+v text=%q", matching.Stats, matching.Messages[1].Content[0].Text)
+	}
+	if !hasEvidenceDecision(matching.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("matching search identity must emit cache-bust evidence: %+v", matching.Stats.EvidenceDecisions)
 	}
 }
 
