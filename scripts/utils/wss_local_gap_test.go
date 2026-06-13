@@ -268,8 +268,10 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 				"wss.instructions_bytes":                 "45",
 				"wss.tool_definition_default_keep":       "12",
 				"wss.tool_definition_default_keep_bytes": "90",
+				"wss.tool_definition_default_keep_names": "exec_command,apply_patch",
 				"wss.tool_definition_nondefault":         "4",
 				"wss.tool_definition_nondefault_bytes":   "30",
+				"wss.tool_definition_nondefault_names":   "request_user_input,get_goal",
 				"wss.tool_definition_unnamed":            "1",
 				"wss.tool_definition_unnamed_bytes":      "3",
 			},
@@ -344,8 +346,12 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[2].PrefixMaxToolDefinitions != 17 ||
 		report.ActionablePotential[2].PrefixDefaultKeepTools != 12 ||
 		report.ActionablePotential[2].PrefixDefaultKeepBytes != 90 ||
+		report.ActionablePotential[2].PrefixDefaultKeepNames["exec_command"] != 1 ||
+		report.ActionablePotential[2].PrefixDefaultKeepNames["apply_patch"] != 1 ||
 		report.ActionablePotential[2].PrefixNonDefaultTools != 4 ||
 		report.ActionablePotential[2].PrefixNonDefaultBytes != 30 ||
+		report.ActionablePotential[2].PrefixNonDefaultNames["request_user_input"] != 1 ||
+		report.ActionablePotential[2].PrefixNonDefaultNames["get_goal"] != 1 ||
 		report.ActionablePotential[2].PrefixUnnamedTools != 1 ||
 		report.ActionablePotential[2].PrefixUnnamedBytes != 3 {
 		t.Fatalf("bad no-evidence actionable rows: %+v", report.ActionablePotential)

@@ -788,6 +788,7 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 		"tools": []map[string]any{
 			{"type": "function", "name": "exec_command", "description": "run commands"},
 			{"type": "function", "name": "apply_patch", "description": "edit files"},
+			{"type": "function", "name": "request_user_input", "description": "plan-mode prompt"},
 		},
 		"input": []map[string]any{{
 			"type":    "message",
@@ -809,9 +810,11 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	facts := wssRequestDebugFacts(body, body, messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "prompt_cache_prefix_full_pass"})
 	if facts["wss.prompt_cache_prefix"] != "true" ||
 		facts["wss.has_tool_definitions"] != "true" ||
-		facts["wss.tool_definitions"] != "2" ||
+		facts["wss.tool_definitions"] != "3" ||
 		facts["wss.tool_definition_default_keep"] != "2" ||
-		facts["wss.tool_definition_nondefault"] != "0" ||
+		facts["wss.tool_definition_default_keep_names"] != "apply_patch,exec_command" ||
+		facts["wss.tool_definition_nondefault"] != "1" ||
+		facts["wss.tool_definition_nondefault_names"] != "request_user_input" ||
 		facts["wss.tool_definition_unnamed"] != "0" ||
 		facts["wss.output_reduce_reason"] != "prompt_cache_prefix_full_pass" {
 		t.Fatalf("prefix facts missing: %+v", facts)
@@ -822,7 +825,7 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	if n, err := strconv.Atoi(facts["wss.tool_definition_default_keep_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_default_keep_bytes=%q err=%v", facts["wss.tool_definition_default_keep_bytes"], err)
 	}
-	if n, err := strconv.Atoi(facts["wss.tool_definition_nondefault_bytes"]); err != nil || n != 0 {
+	if n, err := strconv.Atoi(facts["wss.tool_definition_nondefault_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_nondefault_bytes=%q err=%v", facts["wss.tool_definition_nondefault_bytes"], err)
 	}
 	if n, err := strconv.Atoi(facts["wss.tool_definition_unnamed_bytes"]); err != nil || n != 0 {

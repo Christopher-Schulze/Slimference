@@ -137,8 +137,10 @@ type wssLocalGapActionableRow struct {
 	PrefixMaxToolDefinitions  int            `json:"prefix_max_tool_definitions,omitempty"`
 	PrefixDefaultKeepTools    int            `json:"prefix_default_keep_tools,omitempty"`
 	PrefixDefaultKeepBytes    int            `json:"prefix_default_keep_bytes,omitempty"`
+	PrefixDefaultKeepNames    map[string]int `json:"prefix_default_keep_tool_names,omitempty"`
 	PrefixNonDefaultTools     int            `json:"prefix_nondefault_tools,omitempty"`
 	PrefixNonDefaultBytes     int            `json:"prefix_nondefault_bytes,omitempty"`
+	PrefixNonDefaultNames     map[string]int `json:"prefix_nondefault_tool_names,omitempty"`
 	PrefixUnnamedTools        int            `json:"prefix_unnamed_tools,omitempty"`
 	PrefixUnnamedBytes        int            `json:"prefix_unnamed_bytes,omitempty"`
 	Policy                    string         `json:"policy"`
@@ -565,8 +567,10 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		PrefixMaxToolDefinitions:  wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definitions"),
 		PrefixDefaultKeepTools:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep"),
 		PrefixDefaultKeepBytes:    wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_default_keep_bytes"),
+		PrefixDefaultKeepNames:    wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_default_keep_names"),
 		PrefixNonDefaultTools:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault"),
 		PrefixNonDefaultBytes:     wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_nondefault_bytes"),
+		PrefixNonDefaultNames:     wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_nondefault_names"),
 		PrefixUnnamedTools:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed"),
 		PrefixUnnamedBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
 		Policy:                    policy,
@@ -597,8 +601,10 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		}
 		existing.PrefixDefaultKeepTools += row.PrefixDefaultKeepTools
 		existing.PrefixDefaultKeepBytes += row.PrefixDefaultKeepBytes
+		mergeWSSLocalGapCounts(&existing.PrefixDefaultKeepNames, row.PrefixDefaultKeepNames)
 		existing.PrefixNonDefaultTools += row.PrefixNonDefaultTools
 		existing.PrefixNonDefaultBytes += row.PrefixNonDefaultBytes
+		mergeWSSLocalGapCounts(&existing.PrefixNonDefaultNames, row.PrefixNonDefaultNames)
 		existing.PrefixUnnamedTools += row.PrefixUnnamedTools
 		existing.PrefixUnnamedBytes += row.PrefixUnnamedBytes
 	}
@@ -933,6 +939,40 @@ func wssLocalGapFactInt(facts map[string]string, key string) int {
 	return n
 }
 
+func wssLocalGapFactListCounts(facts map[string]string, key string) map[string]int {
+	if facts == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(facts[key])
+	if raw == "" {
+		return nil
+	}
+	var counts map[string]int
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		addWSSAuditCount(&counts, name)
+	}
+	return counts
+}
+
+func mergeWSSLocalGapCounts(dst *map[string]int, src map[string]int) {
+	if len(src) == 0 {
+		return
+	}
+	if *dst == nil {
+		*dst = make(map[string]int, len(src))
+	}
+	for key, count := range src {
+		if strings.TrimSpace(key) == "" || count <= 0 {
+			continue
+		}
+		(*dst)[key] += count
+	}
+}
+
 func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "=== WSS Local Gap: %s ===\n", filepath.Base(report.Path))
 	if report.Since != nil {
@@ -998,6 +1038,11 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 						row.PrefixNonDefaultBytes,
 						row.PrefixUnnamedTools,
 						row.PrefixUnnamedBytes)
+					if len(row.PrefixDefaultKeepNames) > 0 || len(row.PrefixNonDefaultNames) > 0 {
+						fmt.Fprintf(w, "            default_keep_names=%s nondefault_names=%s\n",
+							formatWSSAuditCounts(row.PrefixDefaultKeepNames),
+							formatWSSAuditCounts(row.PrefixNonDefaultNames))
+					}
 				}
 			}
 			fmt.Fprintf(w, "    policy: %s\n", row.Policy)

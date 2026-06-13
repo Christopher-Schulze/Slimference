@@ -2443,8 +2443,10 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.instructions_bytes":                 strconv.Itoa(prefixMetrics.InstructionBytes),
 		"wss.tool_definition_default_keep":       strconv.Itoa(prefixMetrics.DefaultKeepTools),
 		"wss.tool_definition_default_keep_bytes": strconv.Itoa(prefixMetrics.DefaultKeepBytes),
+		"wss.tool_definition_default_keep_names": wssCompactToolNameList(prefixMetrics.DefaultKeepNames),
 		"wss.tool_definition_nondefault":         strconv.Itoa(prefixMetrics.NonDefaultTools),
 		"wss.tool_definition_nondefault_bytes":   strconv.Itoa(prefixMetrics.NonDefaultBytes),
+		"wss.tool_definition_nondefault_names":   wssCompactToolNameList(prefixMetrics.NonDefaultNames),
 		"wss.tool_definition_unnamed":            strconv.Itoa(prefixMetrics.UnnamedTools),
 		"wss.tool_definition_unnamed_bytes":      strconv.Itoa(prefixMetrics.UnnamedBytes),
 		"wss.turn_seq":                           strconv.Itoa(meta.TurnSeq),
@@ -2487,8 +2489,10 @@ type wssRootPrefixMetricsResult struct {
 	InstructionBytes    int
 	DefaultKeepTools    int
 	DefaultKeepBytes    int
+	DefaultKeepNames    []string
 	NonDefaultTools     int
 	NonDefaultBytes     int
+	NonDefaultNames     []string
 	UnnamedTools        int
 	UnnamedBytes        int
 }
@@ -2517,14 +2521,37 @@ func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
 				if toolprune.IsDefaultAlwaysKeep(names[i]) {
 					result.DefaultKeepTools++
 					result.DefaultKeepBytes += entryBytes
+					result.DefaultKeepNames = append(result.DefaultKeepNames, names[i])
 					continue
 				}
 				result.NonDefaultTools++
 				result.NonDefaultBytes += entryBytes
+				result.NonDefaultNames = append(result.NonDefaultNames, names[i])
 			}
 		}
 	}
 	return result
+}
+
+func wssCompactToolNameList(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	seen := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
