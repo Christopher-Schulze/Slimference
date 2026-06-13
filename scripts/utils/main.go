@@ -17,6 +17,7 @@
 //	go run ./scripts/utils wss-proof-export-corpus <matrix.jsonl> <live-corpus-root>
 //	go run ./scripts/utils wss-proof-clean-matrix <dir-or-matrix.jsonl> <out.jsonl> [--json]
 //	go run ./scripts/utils wss-proof-live-row --matrix-row PATH --frames PATH --workload-class CLASS
+//	go run ./scripts/utils wss-savings-baseline <frames.jsonl-or-dir> [--json]
 //	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
 //	go run ./scripts/utils search-cap-profile (--command CMD --input stdout.txt | --frames frames.jsonl) [--candidate files:matches...] [--json]
 //	go run ./scripts/utils search-cap-proof --frames frames.jsonl --candidate files:matches... [--json]
@@ -43,7 +44,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-local-gap, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-local-gap, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
 		os.Exit(1)
 	}
 
@@ -130,6 +131,8 @@ func main() {
 		os.Exit(runWSSProofCleanMatrix(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-live-row":
 		os.Exit(runWSSProofLiveRow(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-savings-baseline":
+		os.Exit(runWSSSavingsBaseline(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-output-reduce-ab-report":
 		os.Exit(runOutputReduceABReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "search-cap-profile":

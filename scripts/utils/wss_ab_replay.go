@@ -297,6 +297,7 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 
 func wssABReplayConfig(flags wssABReplayFlags) *config.Config {
 	cfg := config.Defaults()
+	cfg.Transparent.ScopedDesktopProxy = false
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = toolOutputMutation

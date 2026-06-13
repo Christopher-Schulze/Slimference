@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 0.6.0
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 Comprehensive reference for the Slimference token-savings proxy. This
 document tracks the current v0.6.0 macOS-first product line; sections follow
@@ -905,13 +905,18 @@ that value, `auto` shadows chunk dedup instead of emitting archive-backed
 references; `max` still requires at least replay proof unless the explicit
 operator override is set.
 Runtime demotion inputs also cover quality spikes, archive recovery loops,
-missing-tool retries, degraded routes, host-budget pressure, chunk
-session-integrity budget pressure, and negative-savings history. Any supplied
-demotion signal full-passes the affected managed Codex tool-output reducer and
-records the exact content-free reason in mechanism telemetry. Negative-savings
-history is treated as an efficiency signal rather than a context-risk signal:
-recoverable/heavier reducers full-pass, while lossless exact reducers remain
-eligible with `lossless_or_exact_reducer_negative_savings`.
+missing-tool retries, degraded routes, provider-cache-bust drops, host-budget
+pressure, chunk session-integrity budget pressure, and negative-savings history.
+Any supplied demotion signal full-passes the affected managed Codex tool-output
+reducer and records the exact content-free reason in mechanism telemetry.
+Provider-cache-bust demotion is scoped by session, request shape (`root`,
+`delta`, `full_history`, or `unknown`), and mechanism, so a cache regression
+observed on a delta continuation does not suppress unrelated full-history or
+root-request savings. Aggregate demotion telemetry stays available for reports
+and legacy diagnostics. Negative-savings history is treated as an efficiency
+signal rather than a context-risk signal: recoverable/heavier reducers
+full-pass, while lossless exact reducers remain eligible with
+`lossless_or_exact_reducer_negative_savings`.
 Per-output and cumulative session reference-density caps are enforced as byte
 budgets during encoding, not as a crude all-or-nothing rejection. A candidate can
 replace repeated chunks only until the remaining budget is exhausted; repeated

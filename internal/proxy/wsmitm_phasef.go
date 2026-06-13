@@ -62,6 +62,7 @@ type wsPhaseFAdapter struct {
 	lastDecisionRequestID      string
 	lastUsageSessionID         string
 	lastUsageMutatedMechanisms proxyLayer0MechanismMask
+	lastUsageRequestShape      string
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
 	sessionTurnSeq             map[string]int
 	counters                   wsPhaseFCounters
@@ -79,26 +80,30 @@ const (
 type wssProviderCacheBustSample struct {
 	cachedShare       float64
 	mutatedMechanisms proxyLayer0MechanismMask
+	requestShape      string
 }
 
 type wssProviderCacheBustSession struct {
-	samples [wssProviderCacheBustRingSize]wssProviderCacheBustSample
-	next    int
-	count   int
-	seen    int
-	demoted proxyLayer0MechanismMask
+	samples        [wssProviderCacheBustRingSize]wssProviderCacheBustSample
+	next           int
+	count          int
+	seen           int
+	demoted        proxyLayer0MechanismMask
+	demotedByShape map[string]proxyLayer0MechanismMask
 }
 
 type wssProviderCacheBustEvent struct {
-	Fired           bool
-	Trigger         proxyLayer0MechanismMask
-	Demoted         proxyLayer0MechanismMask
-	PreviousShare   float64
-	CurrentShare    float64
-	ObservedSamples int
+	Fired               bool
+	Trigger             proxyLayer0MechanismMask
+	Demoted             proxyLayer0MechanismMask
+	TriggerRequestShape string
+	PreviousShare       float64
+	CurrentShare        float64
+	ObservedSamples     int
 }
 
-func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechanisms proxyLayer0MechanismMask) wssProviderCacheBustEvent {
+func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechanisms proxyLayer0MechanismMask, requestShape string) wssProviderCacheBustEvent {
+	requestShape = wssCacheBustRequestShape(requestShape)
 	event := wssProviderCacheBustEvent{
 		Demoted:         s.demoted,
 		CurrentShare:    cachedShare,
@@ -110,15 +115,22 @@ func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechan
 			previous.mutatedMechanisms != 0 &&
 			previous.cachedShare >= wssProviderCacheBustMinPrevShare &&
 			cachedShare < previous.cachedShare-wssProviderCacheBustDropThreshold {
+			previousShape := wssCacheBustRequestShape(previous.requestShape)
+			if s.demotedByShape == nil {
+				s.demotedByShape = make(map[string]proxyLayer0MechanismMask)
+			}
+			s.demotedByShape[previousShape] |= previous.mutatedMechanisms
 			s.demoted |= previous.mutatedMechanisms
 			event.Fired = true
 			event.Trigger = previous.mutatedMechanisms
 			event.Demoted = s.demoted
+			event.TriggerRequestShape = previousShape
 		}
 	}
 	s.samples[s.next] = wssProviderCacheBustSample{
 		cachedShare:       cachedShare,
 		mutatedMechanisms: mutatedMechanisms,
+		requestShape:      requestShape,
 	}
 	s.next = (s.next + 1) % wssProviderCacheBustRingSize
 	if s.count < wssProviderCacheBustRingSize {
@@ -126,6 +138,24 @@ func (s *wssProviderCacheBustSession) observe(cachedShare float64, mutatedMechan
 	}
 	s.seen++
 	return event
+}
+
+func (s *wssProviderCacheBustSession) demotedForShape(requestShape string) proxyLayer0MechanismMask {
+	if s == nil {
+		return 0
+	}
+	if len(s.demotedByShape) == 0 {
+		return s.demoted
+	}
+	return s.demotedByShape[wssCacheBustRequestShape(requestShape)]
+}
+
+func wssCacheBustRequestShape(requestShape string) string {
+	requestShape = strings.TrimSpace(requestShape)
+	if requestShape == "" {
+		return "unknown"
+	}
+	return requestShape
 }
 
 func (s *wssProviderCacheBustSession) last() (wssProviderCacheBustSample, bool) {
@@ -462,12 +492,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
-		cacheBustDemoted := a.wssCacheBustDemotedMechanisms(sessionID)
+		cacheBustDemoted := a.wssCacheBustDemotedMechanismsForShape(sessionID, requestShape)
 		if cacheBustDemoted != 0 {
 			if meta.DebugFacts == nil {
 				meta.DebugFacts = make(map[string]string)
 			}
 			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
+			meta.DebugFacts["wss.cache_bust_demoted_request_shape"] = requestShape
 		}
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
 			historyMutationGuardReason := ""
@@ -1405,6 +1436,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	}
 	requestID := newRequestIDFn()
 	mutatedMechanisms := proxyLayer0MechanismMaskFromStats(l0Stats)
+	requestShape := wssRequestShape(meta, messages)
 	if mutatedMechanisms != 0 {
 		debugFacts["wss.layer0_mutated_mechanisms"] = mutatedMechanisms.String()
 	}
@@ -1412,6 +1444,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.lastDecisionRequestID = requestID
 	a.lastUsageSessionID = meta.SessionID
 	a.lastUsageMutatedMechanisms = mutatedMechanisms
+	a.lastUsageRequestShape = requestShape
 	if a.socketDecisionRequestID == "" && meta.SocketSeq > 0 {
 		a.socketDecisionRequestID = requestID
 	}
@@ -2791,6 +2824,26 @@ func truncateWSSUpstreamErrorMessage(message string) string {
 }
 
 func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanisms(sessionID string) proxyLayer0MechanismMask {
+	return a.wssCacheBustDemotedMechanismsAggregate(sessionID)
+}
+
+func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsForShape(sessionID string, requestShape string) proxyLayer0MechanismMask {
+	if a == nil || sessionID == "" {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cacheBustSessions == nil {
+		return 0
+	}
+	session := a.cacheBustSessions[sessionID]
+	if session == nil {
+		return 0
+	}
+	return session.demotedForShape(requestShape)
+}
+
+func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsAggregate(sessionID string) proxyLayer0MechanismMask {
 	if a == nil || sessionID == "" {
 		return 0
 	}
@@ -2807,6 +2860,10 @@ func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanisms(sessionID string) proxyL
 }
 
 func (a *wsPhaseFAdapter) observeWSSProviderCacheBust(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask) wssProviderCacheBustEvent {
+	return a.observeWSSProviderCacheBustForShape(sessionID, inputTokens, cachedTokens, mutatedMechanisms, "unknown")
+}
+
+func (a *wsPhaseFAdapter) observeWSSProviderCacheBustForShape(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask, requestShape string) wssProviderCacheBustEvent {
 	if a == nil || sessionID == "" || inputTokens <= 0 || cachedTokens < 0 {
 		return wssProviderCacheBustEvent{}
 	}
@@ -2823,13 +2880,14 @@ func (a *wsPhaseFAdapter) observeWSSProviderCacheBust(sessionID string, inputTok
 		session = &wssProviderCacheBustSession{}
 		a.cacheBustSessions[sessionID] = session
 	}
-	event := session.observe(cachedShare, mutatedMechanisms)
+	event := session.observe(cachedShare, mutatedMechanisms, requestShape)
 	a.mu.Unlock()
 	if event.Fired {
 		slog.Warn("codex wss provider cache bust guard demoted layer0 mechanisms",
 			slog.String("session", sessionID),
 			slog.String("trigger_mechanisms", event.Trigger.String()),
 			slog.String("demoted_mechanisms", event.Demoted.String()),
+			slog.String("request_shape", event.TriggerRequestShape),
 			slog.Float64("previous_cached_share", event.PreviousShare),
 			slog.Float64("current_cached_share", event.CurrentShare),
 			slog.Int("observed_samples", event.ObservedSamples))
@@ -2855,13 +2913,14 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	requestID := a.lastDecisionRequestID
 	sessionID := a.lastUsageSessionID
 	mutatedMechanisms := a.lastUsageMutatedMechanisms
+	requestShape := a.lastUsageRequestShape
 	a.mu.Unlock()
 	if a.p.debugRecorder != nil {
 		if requestID != "" {
 			a.p.debugRecorder.AttachProviderUsage(requestID, usage.InputTokens, usage.ReadTokens, usage.CreateTokens, usage.OutputTokens)
 		}
 	}
-	a.observeWSSProviderCacheBust(sessionID, usage.InputTokens, usage.ReadTokens, mutatedMechanisms)
+	a.observeWSSProviderCacheBustForShape(sessionID, usage.InputTokens, usage.ReadTokens, mutatedMechanisms, requestShape)
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
