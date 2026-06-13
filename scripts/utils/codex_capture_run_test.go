@@ -343,7 +343,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 321") ||
 		!strings.Contains(stdout.String(), "replay_bytes_saved: 1234") ||
 		!strings.Contains(stdout.String(), "provider_cache_read/create:  1000 / 200") ||
-		!strings.Contains(stdout.String(), "layer0_live read/repeated/chunk/refs: 1 / 0 / 1 / 2") ||
+		!strings.Contains(stdout.String(), "layer0_live read/captured/envelope/repeated/chunk/refs: 1 / 0 / 0 / 0 / 1 / 2") ||
 		!strings.Contains(stdout.String(), "host_budget: ok exceeded=false") ||
 		!strings.Contains(stdout.String(), "gate:          PASS") {
 		t.Fatalf("summary missing replay fields:\n%s", stdout.String())
@@ -741,25 +741,67 @@ func TestRunCodexCaptureRunRejectsCombinedRestartModes(t *testing.T) {
 
 func TestRunCodexCaptureRunAllowsFinalAdminFailureForRestartProof(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	capturePath := filepath.Join(t.TempDir(), "capture.jsonl")
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
 	adminCalls := 0
+	starts := 0
+	restarted := make(chan struct{})
+	closeRestarted := sync.Once{}
 	deps := codexCaptureRunDeps{
 		now: func() time.Time { return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC) },
 		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error {
 			return nil
 		},
 		startDaemon: func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error) {
+			starts++
 			return &codexCaptureDaemon{done: make(chan error)}, nil
 		},
-		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error { return nil },
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error {
+			if starts == 2 {
+				closeRestarted.Do(func() { close(restarted) })
+			}
+			return nil
+		},
 		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
 			adminCalls++
-			if adminCalls == 1 {
+			switch adminCalls {
+			case 1:
 				return codexCaptureAdminSnapshot{BillableInputTokensSaved: 7}, nil
+			case 2:
+				return codexCaptureAdminSnapshot{
+					BillableInputTokensSaved: 321,
+					InputTokensSaved:         321,
+					ProxyLayer0Captured:      1,
+				}, nil
+			default:
+				return codexCaptureAdminSnapshot{}, errors.New("daemon reset after proof restart")
 			}
-			return codexCaptureAdminSnapshot{}, errors.New("daemon reset after proof restart")
 		},
 		runCodex: func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error {
+			writeJSONLFile(t, capturePath,
+				map[string]any{
+					"direction": "client_to_server",
+					"mutated":   true,
+					"payload": map[string]any{
+						"type": "response.create",
+						"input": []map[string]any{{
+							"type":    "function_call_output",
+							"call_id": "call_mutated",
+							"output":  "mutated output",
+						}},
+					},
+				},
+				map[string]any{
+					"direction": "server_to_client",
+					"payload":   map[string]any{"type": "response.completed"},
+				},
+			)
+			select {
+			case <-restarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("daemon was not restarted after mutated completion")
+			}
 			return nil
 		},
 		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
@@ -776,14 +818,29 @@ func TestRunCodexCaptureRunAllowsFinalAdminFailureForRestartProof(t *testing.T) 
 	var stdout, stderr bytes.Buffer
 	code := runCodexCaptureRunWithDeps([]string{
 		"--capture", capturePath,
+		"--matrix-row", matrixPath,
+		"--id", "restart-live-delta",
+		"--workload-class", "search_loop",
+		"--expected-reducer", "captured_output",
 		"--restart-after-mutated-completion", "1",
 		"--", "prompt",
 	}, &stdout, &stderr, deps)
-	if code != 0 || !strings.Contains(stderr.String(), "continuing with replay-only live delta") {
-		t.Fatalf("expected replay-only success for restart proof, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	if code != 0 || !strings.Contains(stderr.String(), "continuing with pre-restart live delta") {
+		t.Fatalf("expected pre-restart live-delta success for restart proof, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "gate:          PASS") {
+	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 314") ||
+		!strings.Contains(stdout.String(), "gate:          PASS") {
 		t.Fatalf("summary missing replay gate after final admin failure:\n%s", stdout.String())
+	}
+	records, err := readWSSProofMatrixRecords(matrixPath)
+	if err != nil {
+		t.Fatalf("read matrix row: %v", err)
+	}
+	if len(records) != 1 ||
+		records[0].LiveDelta == nil ||
+		records[0].LiveDelta.BillableInputTokensSaved != 314 ||
+		records[0].LiveDelta.ProxyLayer0Captured != 1 {
+		t.Fatalf("matrix row missing pre-restart live delta: %+v", records)
 	}
 }
 
