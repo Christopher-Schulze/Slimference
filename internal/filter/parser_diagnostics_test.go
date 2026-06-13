@@ -163,6 +163,20 @@ func TestParseDiagnosticRows_Success(t *testing.T) {
 	}
 }
 
+func TestParseDiagnosticRows_SuccessSummariesAreNotFailures(t *testing.T) {
+	t.Parallel()
+	inputs := []string{
+		"Success: no issues found in 188 source files\n" + strings.Repeat("progress\n", 20),
+		"Found 0 errors in 188 files\n" + strings.Repeat("progress\n", 20),
+		"No errors found.\n" + strings.Repeat("progress\n", 20),
+	}
+	for _, input := range inputs {
+		if got, hadFailures, ok := parseDiagnosticRows("python", input); ok || hadFailures {
+			t.Fatalf("success summary became diagnostic failure: got=%q hadFailures=%v ok=%v", got, hadFailures, ok)
+		}
+	}
+}
+
 func TestParseDiagnosticRows_NoMatchAndTooShort(t *testing.T) {
 	t.Parallel()
 	if got, _, ok := parseDiagnosticRows("typescript", "plain output\n"); ok {

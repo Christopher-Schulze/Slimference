@@ -65,7 +65,21 @@ func isDiagnosticSummary(line string) bool {
 	if len(line) > 220 {
 		return false
 	}
+	if isSuccessfulDiagnosticSummary(line) {
+		return false
+	}
 	return reSummaryLine.MatchString(line)
+}
+
+func isSuccessfulDiagnosticSummary(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "no issues") ||
+		strings.Contains(lower, "no errors") ||
+		strings.Contains(lower, "found 0 issues") ||
+		strings.Contains(lower, "found 0 errors")
 }
 
 func dedupeAdjacent(lines []string) []string {

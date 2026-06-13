@@ -772,10 +772,14 @@ label after a payload-only parser rejects search hits, source, diagnostics,
 prose, shell metacharacters, and oversized listings.
 Bounded names-only `ls`, conservative `find ... -print`, strict `fd` path
 lists, bounded `tree -L` listings, and strict parser-backed all-pass test
-transcripts are separate stateful-safe classes: they may seed and later use
-exact archive-backed repeated-output savings, while source-like, search-like,
-rich `ls -l`, deep or unknown-flag `tree`, recursive, oversized, diagnostic,
-failing, data-race, or side-effect outputs still full-pass.
+transcripts are separate stateful-safe classes. Success-only summaries from
+existing OK reducers, such as non-empty `mypy` success output or bannered
+`terraform validate` success output, are also stateful-safe only when the
+compacted form is strictly shorter and keeps the success verdict. These classes
+may seed and later use exact archive-backed repeated-output savings, while
+source-like, search-like, rich `ls -l`, deep or unknown-flag `tree`, recursive,
+oversized, diagnostic, failing, data-race, or side-effect outputs still
+full-pass.
 When Codex tool-use metadata is unavailable, WSS may still treat a tool output
 as stateful-safe only if the existing payload inference resolves a strict
 command class and the same command/output parser accepts the exact payload;
@@ -1068,9 +1072,11 @@ default; grep-style search, source-like, inferred search, broad `find`
 path-list payloads, and unsafe `fd` modes still fail open until separately
 re-certified. Exact `rg --files` path lists, strict `fd`/`fdfind` path lists,
 bounded names-only `ls`, conservative `find ... -print`, bounded `tree -L`
-listings, and strict parser-backed all-pass test roll-call elision are allowed
-only as archive-backed path-list or stateful-safe exact evidence, not as
-semantic summaries. Metadata-less plain path-list
+listings, strict parser-backed all-pass test roll-call elision, and success-only
+OK-reducer summaries such as non-empty `mypy` success and bannered
+`terraform validate` success are allowed only as archive-backed path-list or
+stateful-safe exact evidence, not as semantic summaries. Metadata-less plain
+path-list
 outputs are allowed only with a neutral label and payload-only strict parsing,
 never with a guessed `rg`, `find`, `fd`, `ls`, or `tree` command label.
 If tool-use metadata is missing, the same WSS stateful-safe classes can compact

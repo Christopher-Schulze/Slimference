@@ -733,6 +733,18 @@ Build succeeded with 0 errors.
 	}
 }
 
+func TestTryCompactBuildOutput_DoesNotEatMypySuccess(t *testing.T) {
+	t.Parallel()
+	input := "Using mypy cache metadata for 188 modules\nSuccess: no issues found in 188 source files\n"
+	if out, ok := TryCompactBuildOutput([]string{"mypy", "src"}, []byte(input)); ok {
+		t.Fatalf("build reducer must not preempt mypy success: %q", out)
+	}
+	out, ok := TryCompactLintOutput([]string{"mypy", "src"}, []byte(input))
+	if !ok || !strings.Contains(string(out), "[mypy] ok (Success: no issues found in 188 source files)") {
+		t.Fatalf("mypy lint reducer did not compact success precisely: ok=%v out=%q", ok, out)
+	}
+}
+
 func TestTryCompactBuildOutput_nonEmptyFailure(t *testing.T) {
 	t.Parallel()
 	// cargo build failure output

@@ -1902,6 +1902,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
+	if wssSafeReducerOKSummaryOutput(commandLine, payload) {
+		return true
+	}
 	if proxyInferredPlainPathListCommand(commandLine) {
 		return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
 	}
@@ -1940,6 +1943,67 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	default:
 		return false
 	}
+}
+
+func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	parsers := []func([]string, []byte) ([]byte, bool){
+		filter.TryCompactBuildOutput,
+		filter.TryCompactLintOutput,
+		filter.TryCompactPackageOutput,
+		filter.TryCompactTerraformValidate,
+	}
+	for _, parser := range parsers {
+		compacted, ok := parser(argv, stdout)
+		if !ok || len(compacted) >= len(stdout) {
+			continue
+		}
+		if wssCompactedOKSummary(compacted) || wssCompactedTerraformValidateSuccess(compacted) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssCompactedOKSummary(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[") {
+		return false
+	}
+	closeBracket := strings.IndexByte(text, ']')
+	if closeBracket <= 0 {
+		return false
+	}
+	status := strings.TrimSpace(text[closeBracket+1:])
+	return status == "ok" || strings.HasPrefix(status, "ok ")
+}
+
+func wssCompactedTerraformValidateSuccess(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "error:") || strings.Contains(lower, "warning:") {
+		return false
+	}
+	success := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Success!") || strings.HasPrefix(trimmed, "The configuration is valid") {
+			success = true
+			continue
+		}
+		return false
+	}
+	return success
 }
 
 func wssSafeGitStatusCommand(commandLine string) bool {
