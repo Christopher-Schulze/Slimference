@@ -319,6 +319,8 @@ func corpusWorkloadFromWSS(workload string) (string, bool) {
 		return "apply_patch_edit_read", true
 	case "large_tool_output":
 		return "large_tool_output", true
+	case "ok_summary_mypy_product", "ok_summary_tool_output":
+		return "ok_summary_tool_output", true
 	case "long_mixed_workday":
 		return "long_workday", true
 	case "chunk_dedup_similar_outputs":
@@ -441,6 +443,8 @@ func tuneCorpusMetadataForWorkload(meta *CategoryMetadataLite, records []wssProo
 	case "tool_heavy":
 		meta.ScenarioValidators = []string{"tool_heavy", "host_budget_ok", "low_error"}
 	case "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday":
+		meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
+	case "ok_summary_tool_output":
 		meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
 	default:
 		meta.ScenarioValidators = []string{"low_error"}

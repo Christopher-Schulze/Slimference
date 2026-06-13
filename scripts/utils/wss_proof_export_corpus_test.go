@@ -69,6 +69,22 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 			},
 		},
 		wssProofMatrixRecord{
+			ID:            "cli-ok-summary-mypy",
+			Client:        "cli",
+			WorkloadClass: "ok_summary_mypy_product",
+			FramesPath:    filepath.Join(dir, "frames-ok-summary.jsonl"),
+			Model:         "gpt-5.5",
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 765,
+				ProviderInputTokens:      101259,
+				ProviderOutputTokens:     602,
+				ProxyLayer0Envelope:      1,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+		wssProofMatrixRecord{
 			ID:            "desktop-tool-heavy",
 			Client:        "desktop",
 			WorkloadClass: "tool_heavy",
@@ -127,8 +143,8 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RowsRead != 7 || report.RowsExported != 5 || report.RowsSkipped != 2 ||
-		report.CategoriesWritten != 5 || report.SkippedReasons["safety_issue"] != 1 ||
+	if report.RowsRead != 8 || report.RowsExported != 6 || report.RowsSkipped != 2 ||
+		report.CategoriesWritten != 6 || report.SkippedReasons["safety_issue"] != 1 ||
 		report.SkippedReasons["no_economic_signal"] != 1 {
 		t.Fatalf("bad export report: %+v", report)
 	}
@@ -153,6 +169,13 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	if largeMeta.ClientFamily != "codex_cli" || largeMeta.WorkloadClass != "large_tool_output" ||
 		largeMeta.ExpectedSavedTokensMin != 2048 || largeMeta.ExpectedMaxErrors != 0 {
 		t.Fatalf("bad large-tool-output metadata: %+v", largeMeta)
+	}
+
+	okSummaryMeta := readExportMetadata(t, filepath.Join(root, "cli_ok_summary_tool_output", "metadata.json"))
+	if okSummaryMeta.ClientFamily != "codex_cli" || okSummaryMeta.WorkloadClass != "ok_summary_tool_output" ||
+		okSummaryMeta.ExpectedSavedTokensMin != 765 || okSummaryMeta.ExpectedMaxErrors != 0 ||
+		!containsString(okSummaryMeta.ScenarioValidators, "host_budget_ok") {
+		t.Fatalf("bad ok-summary metadata: %+v", okSummaryMeta)
 	}
 
 	toolMeta := readExportMetadata(t, filepath.Join(root, "desktop_tool_heavy", "metadata.json"))
@@ -181,6 +204,13 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 		searchRec.Tokens.Original != 3000 || searchRec.Tokens.Final != 2100 ||
 		searchRec.Tokens.Saved != 900 {
 		t.Fatalf("bad search summary denominator: %+v", searchRec)
+	}
+
+	okSummaryRec := readFirstExportSummary(t, filepath.Join(root, "cli_ok_summary_tool_output", "session_wss_proof_export_001.jsonl"))
+	if okSummaryRec.ProviderInputTokens != 101259 || okSummaryRec.ProviderOutputTokens != 602 ||
+		okSummaryRec.Tokens.Original != 102024 || okSummaryRec.Tokens.Final != 101259 ||
+		okSummaryRec.Tokens.Saved != 765 {
+		t.Fatalf("bad ok-summary denominator: %+v", okSummaryRec)
 	}
 
 	outputMeta := readExportMetadata(t, filepath.Join(root, "cli_output_reduce_aggressive", "metadata.json"))
