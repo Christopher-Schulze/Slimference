@@ -1746,6 +1746,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 	case wssSafeGitDiffStatCommand(commandLine):
 		_, ok := filter.TryCompactGitDiff(argv, []byte(payload))
 		return ok
+	case wssSafeGitShowStatOutput(commandLine, payload):
+		return true
 	case wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload):
 		return true
 	case wssSafeGitDiffNameStatusPathListOutput(commandLine, payload):
@@ -1835,6 +1837,59 @@ func wssSafeGitDiffStatCommand(commandLine string) bool {
 		i++
 	}
 	return hasStat
+}
+
+func wssSafeGitShowStatOutput(commandLine, payload string) bool {
+	argv, i, ok := wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), "show")
+	if !ok {
+		return false
+	}
+	if !wssSafeGitShowStatArgs(argv[i+1:]) || wssGitShowPayloadContainsPatch(payload) {
+		return false
+	}
+	compacted, ok := filter.TryCompactGitShow(argv, []byte(payload))
+	if !ok {
+		return false
+	}
+	return strings.Contains(string(compacted), "[git show --stat]")
+}
+
+func wssSafeGitShowStatArgs(args []string) bool {
+	hasStat := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.ToLower(strings.TrimSpace(args[i]))
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range args[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return hasStat
+		}
+		switch {
+		case arg == "--stat" || strings.HasPrefix(arg, "--stat="):
+			hasStat = true
+		case arg == "--no-renames" || arg == "--no-ext-diff" ||
+			strings.HasPrefix(arg, "--find-renames") || strings.HasPrefix(arg, "--find-copies") ||
+			strings.HasPrefix(arg, "--diff-filter=") || arg == "--relative" || strings.HasPrefix(arg, "--relative="):
+		case arg == "--diff-filter":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+		case strings.HasPrefix(arg, "-"):
+			return false
+		}
+	}
+	return hasStat
+}
+
+func wssGitShowPayloadContainsPatch(payload string) bool {
+	normalized := "\n" + strings.ReplaceAll(payload, "\r\n", "\n")
+	return strings.Contains(normalized, "\ndiff --git ") || strings.Contains(normalized, "\n@@ ")
 }
 
 func wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload string) bool {

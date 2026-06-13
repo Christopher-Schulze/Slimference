@@ -449,6 +449,7 @@ var reGitShowHash = regexp.MustCompile(`^commit ([0-9a-f]{7,40})`)
 // compactGitShow extracts the commit header + stat + calls compactGitDiff on the diff section.
 func compactGitShow(s string) string {
 	var hash, subject, statSummary string
+	var statLines []string
 	var diffStart int
 	lines := strings.Split(s, "\n")
 	var subjectFound bool
@@ -477,7 +478,14 @@ func compactGitShow(s string) string {
 		}
 		if reGitStatSummary.MatchString(trimmed) {
 			statSummary = parseGitStatSummary(trimmed)
+			statLines = append(statLines, trimmed)
 			continue
+		}
+		if subjectFound {
+			if _, _, ok := splitGitDiffStatLine(trimmed); ok {
+				statLines = append(statLines, trimmed)
+				continue
+			}
 		}
 		if strings.HasPrefix(line, "diff --git ") {
 			diffStart = i
@@ -498,6 +506,13 @@ func compactGitShow(s string) string {
 		sb.WriteString(fmt.Sprintf(" [%s]", statSummary))
 	}
 	sb.WriteByte('\n')
+
+	if len(statLines) > 0 {
+		if statCompact := compactGitDiffStat(strings.Join(statLines, "\n")); statCompact != "" {
+			statCompact = strings.Replace(statCompact, "[git diff --stat]", "[git show --stat]", 1)
+			sb.WriteString(statCompact)
+		}
+	}
 
 	// Compact the diff portion if present.
 	if diffStart > 0 && diffStart < len(lines) {

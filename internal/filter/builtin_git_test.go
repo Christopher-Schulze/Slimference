@@ -634,6 +634,10 @@ index 111..222 100644
 	if !strings.Contains(s, "Refactor handler") {
 		t.Errorf("want subject in output, got %q", s)
 	}
+	if !strings.Contains(s, "[git show --stat]") ||
+		!strings.Contains(s, "internal/proxy/handler.go | 10 +++++++---") {
+		t.Errorf("want compact stat path evidence in output, got %q", s)
+	}
 	if len(s) >= len(input) {
 		t.Errorf("expected shorter output: got %d vs input %d", len(s), len(input))
 	}

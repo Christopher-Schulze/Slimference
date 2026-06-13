@@ -15,6 +15,7 @@ import (
 func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T) {
 	meta := wssRequestMeta{SessionID: "codex-wss:stateful-safe", PreviousResponseID: "resp-stateful-safe"}
 	diffStat := wssDiffStatFixture(36)
+	gitShowStat := wssGitShowStatFixture(36)
 	var nameStatusOutput strings.Builder
 	for i := 0; i < 40; i++ {
 		status := "M"
@@ -45,6 +46,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		wantGuard string
 	}{
 		{name: "git diff stat", command: "git diff --stat", output: diffStat, wantSafe: true},
+		{name: "git show stat", command: "git show --stat HEAD -- internal/proxy", output: gitShowStat, wantSafe: true},
 		{name: "git diff name-only path list", command: "git diff --name-only --cached", output: listingOutput, wantSafe: true},
 		{name: "git diff name-status path list", command: "git diff --name-status --cached", output: nameStatusOutput.String(), wantSafe: true},
 		{name: "git status short pathspec", command: "git status --short .", output: " M internal/proxy/wsmitm_phasef.go\n", wantSafe: true},
@@ -63,6 +65,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "git ls-files staged metadata", command: "git ls-files --stage", output: "100644 abcdef1234567890abcdef1234567890abcdef12 0\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git ls-files metadata stays guarded"},
 		{name: "git log oneline unbounded", command: "git log --oneline", output: "a1b2c3d Tighten guard\n", wantGuard: "unbounded log output stays guarded"},
 		{name: "git log rich output", command: "git log --stat -n 3", output: "commit a1b2c3d4\n\n    Tighten guard\n\n file.go | 2 ++\n", wantGuard: "rich log output stays guarded"},
+		{name: "git show without stat", command: "git show HEAD", output: gitShowStat, wantGuard: "git show without --stat stays guarded"},
+		{name: "git show patch argv", command: "git show --stat --patch HEAD", output: wssGitShowPatchFixture(), wantGuard: "git show patch argv stays guarded"},
+		{name: "git show patch payload", command: "git show --stat HEAD", output: wssGitShowPatchFixture(), wantGuard: "git show patch payload stays guarded"},
 		{name: "git diff name-status rename metadata", command: "git diff --name-status -M", output: "R100\told/path.go\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git diff rename name-status stays guarded"},
 		{name: "full git diff source", command: "git diff", output: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-func old() {}\n+func new() {}\n", wantGuard: "full git diff must stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
@@ -522,6 +527,37 @@ func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFPreviousResponseFullHistoryGitShowStatCompacts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, wssGitShowStatRequestBody("resp-git-show-stat", "call_git_show_stat", wssGitShowStatFixture(80)))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle git show --stat request: %v", err)
+	}
+	if !replace {
+		t.Fatalf("previous_response full-history git show --stat should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git show] a1b2c3d Recover safe stat compaction") ||
+		!strings.Contains(body, "[git show --stat] 80 file(s)") ||
+		!strings.Contains(body, "[prefix=internal/proxy/generated/very/deep/path/]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "internal/proxy/generated/very/deep/path/file_xxxxxxxxxxxx_79.go") {
+		t.Fatalf("git show --stat compaction did not preserve compact evidence: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe git show --stat should save without structured guard: %+v", summary)
+	}
+}
+
 func TestReduceCodexLayer0StructuredMixedToolOutputsAllowsOnlySafeBlocks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -569,6 +605,45 @@ func wssDiffStatFixture(files int) string {
 	}
 	out.WriteString(fmt.Sprintf(" %d files changed, %d insertions(+), %d deletions(-)\n", files, files*12, files*6))
 	return out.String()
+}
+
+func wssGitShowStatFixture(files int) string {
+	var out strings.Builder
+	out.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	out.WriteString("Author: Alice <alice@example.com>\n")
+	out.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	out.WriteString("    Recover safe stat compaction\n\n")
+	out.WriteString(wssDiffStatFixture(files))
+	return out.String()
+}
+
+func wssGitShowPatchFixture() string {
+	return wssGitShowStatFixture(3) + `
+diff --git a/internal/proxy/wsmitm_phasef.go b/internal/proxy/wsmitm_phasef.go
+index 111..222 100644
+--- a/internal/proxy/wsmitm_phasef.go
++++ b/internal/proxy/wsmitm_phasef.go
+@@ -1,2 +1,2 @@
+-old line
++new line
+`
+}
+
+func wssGitShowStatRequestBody(previousResponseID, callID, output string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-git-show-stat-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "summarize the commit stat"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "git show --stat HEAD -- internal/proxy"}},
+				{"type": "function_call_output", "call_id": callID, "output": output},
+			},
+			"stream": true,
+		},
+	}
 }
 
 func wssListingRequestBody(previousResponseID, callID, listing string) map[string]any {
