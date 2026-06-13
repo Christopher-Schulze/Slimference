@@ -412,8 +412,15 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[3].PrefixNonDefaultNames["request_user_input"] != 1 ||
 		report.ActionablePotential[3].PrefixNonDefaultNames["get_goal"] != 1 ||
 		report.ActionablePotential[3].PrefixUnnamedTools != 1 ||
-		report.ActionablePotential[3].PrefixUnnamedBytes != 3 {
+		report.ActionablePotential[3].PrefixUnnamedBytes != 3 ||
+		report.ActionablePotential[3].PrefixControlContextBytes != 135 ||
+		report.ActionablePotential[3].PrefixNonDefaultCandidateBytes != 30 ||
+		report.ActionablePotential[3].PrefixUnclassifiedToolBytes != 3 {
 		t.Fatalf("bad no-evidence actionable rows: %+v", report.ActionablePotential)
+	}
+	if !wssLocalGapHasPrefixDecisionSurface(report.ActionablePotential) ||
+		!hasString(report.Notes, "Prefix decision-surface bytes split protected instructions/default tools from nondefault proof candidates; this is diagnostic and does not authorize prefix mutation.") {
+		t.Fatalf("prefix decision-surface note missing: %+v", report.Notes)
 	}
 }
 
@@ -522,4 +529,13 @@ func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 	if _, err := parseWSSLocalGapFlags([]string{"one.jsonl", "two.jsonl"}); err == nil {
 		t.Fatal("expected multiple log error")
 	}
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

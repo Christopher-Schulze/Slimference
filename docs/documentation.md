@@ -1234,6 +1234,10 @@ nondefault vs unnamed tool schemas, and the subset carried on
 candidates only; the report does not by itself prove that the backend accepts
 omitting them, and product runtime stays byte-equal until a separate live proof
 closes that gap.
+`wss-local-gap` also reports a stricter prefix decision surface:
+`control_context` bytes are instructions plus default-keep/control tool schemas,
+`nondefault_candidate` bytes are the only tool-schema slice worth proving next,
+and `unclassified_tool` bytes stay guarded until their schema identity is known.
 `--stateful-prefix-elision-proof` is an offline-only replay flag for that
 candidate. Offline replay can measure repeated top-level `tools` and
 `instructions` prefix mass only on `previous_response_id` requests, only inside

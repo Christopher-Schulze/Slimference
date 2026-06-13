@@ -158,6 +158,9 @@ type wssLocalGapActionableRow struct {
 	PrefixNonDefaultNames            map[string]int `json:"prefix_nondefault_tool_names,omitempty"`
 	PrefixUnnamedTools               int            `json:"prefix_unnamed_tools,omitempty"`
 	PrefixUnnamedBytes               int            `json:"prefix_unnamed_bytes,omitempty"`
+	PrefixControlContextBytes        int            `json:"prefix_control_context_bytes,omitempty"`
+	PrefixNonDefaultCandidateBytes   int            `json:"prefix_nondefault_candidate_bytes,omitempty"`
+	PrefixUnclassifiedToolBytes      int            `json:"prefix_unclassified_tool_bytes,omitempty"`
 	Policy                           string         `json:"policy"`
 	NextStep                         string         `json:"next_step"`
 	RequestShapes                    map[string]int `json:"request_shapes,omitempty"`
@@ -579,6 +582,7 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		return
 	}
 	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary, shapeSource)
+	prefixControlContextBytes, prefixNonDefaultCandidateBytes, prefixUnclassifiedToolBytes := wssLocalGapPrefixDecisionSurface(summary.DebugFacts)
 	a.addActionable(wssLocalGapActionableRow{
 		Category:                         category,
 		Source:                           source,
@@ -610,6 +614,9 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		PrefixNonDefaultNames:            wssLocalGapFactListCounts(summary.DebugFacts, "wss.tool_definition_nondefault_names"),
 		PrefixUnnamedTools:               wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed"),
 		PrefixUnnamedBytes:               wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
+		PrefixControlContextBytes:        prefixControlContextBytes,
+		PrefixNonDefaultCandidateBytes:   prefixNonDefaultCandidateBytes,
+		PrefixUnclassifiedToolBytes:      prefixUnclassifiedToolBytes,
 		Policy:                           policy,
 		NextStep:                         nextStep,
 		ToolCommandClasses:               toolCommandClasses,
@@ -657,6 +664,9 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		mergeWSSLocalGapCounts(&existing.PrefixNonDefaultNames, row.PrefixNonDefaultNames)
 		existing.PrefixUnnamedTools += row.PrefixUnnamedTools
 		existing.PrefixUnnamedBytes += row.PrefixUnnamedBytes
+		existing.PrefixControlContextBytes += row.PrefixControlContextBytes
+		existing.PrefixNonDefaultCandidateBytes += row.PrefixNonDefaultCandidateBytes
+		existing.PrefixUnclassifiedToolBytes += row.PrefixUnclassifiedToolBytes
 		mergeWSSLocalGapCounts(&existing.ToolCommandClasses, row.ToolCommandClasses)
 	}
 	addWSSAuditCount(&existing.RequestShapes, shape)
@@ -860,6 +870,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 	if wssLocalGapHasActionableCategory(report.ActionablePotential, "prefix_capability_context_guarded") {
 		notes = append(notes, "Capability-prefix rows quantify protected model-facing context, not a safe product-savings candidate.")
 	}
+	if wssLocalGapHasPrefixDecisionSurface(report.ActionablePotential) {
+		notes = append(notes, "Prefix decision-surface bytes split protected instructions/default tools from nondefault proof candidates; this is diagnostic and does not authorize prefix mutation.")
+	}
 	if len(report.Guards) == 0 && report.PhaseFRequests > 0 {
 		notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
 	}
@@ -887,6 +900,15 @@ func wssLocalGapGateFailures(report wssLocalGapReport, flags wssLocalGapFlags) [
 func wssLocalGapHasActionableCategory(rows []wssLocalGapActionableRow, category string) bool {
 	for _, row := range rows {
 		if row.Category == category {
+			return true
+		}
+	}
+	return false
+}
+
+func wssLocalGapHasPrefixDecisionSurface(rows []wssLocalGapActionableRow) bool {
+	for _, row := range rows {
+		if row.PrefixControlContextBytes > 0 || row.PrefixNonDefaultCandidateBytes > 0 || row.PrefixUnclassifiedToolBytes > 0 {
 			return true
 		}
 	}
@@ -1054,6 +1076,16 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 	}
 }
 
+func wssLocalGapPrefixDecisionSurface(facts map[string]string) (controlContextBytes, nonDefaultCandidateBytes, unclassifiedToolBytes int) {
+	if facts == nil {
+		return 0, 0, 0
+	}
+	controlContextBytes = wssLocalGapFactInt(facts, "wss.instructions_bytes") + wssLocalGapFactInt(facts, "wss.tool_definition_default_keep_bytes")
+	nonDefaultCandidateBytes = wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes")
+	unclassifiedToolBytes = wssLocalGapFactInt(facts, "wss.tool_definition_unnamed_bytes")
+	return controlContextBytes, nonDefaultCandidateBytes, unclassifiedToolBytes
+}
+
 func wssLocalGapFactInt(facts map[string]string, key string) int {
 	if facts == nil {
 		return 0
@@ -1215,6 +1247,12 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 						fmt.Fprintf(w, "            default_keep_names=%s nondefault_names=%s\n",
 							formatWSSAuditCounts(row.PrefixDefaultKeepNames),
 							formatWSSAuditCounts(row.PrefixNonDefaultNames))
+					}
+					if row.PrefixControlContextBytes > 0 || row.PrefixNonDefaultCandidateBytes > 0 || row.PrefixUnclassifiedToolBytes > 0 {
+						fmt.Fprintf(w, "            decision_surface: control_context=%dB nondefault_candidate=%dB unclassified_tool=%dB\n",
+							row.PrefixControlContextBytes,
+							row.PrefixNonDefaultCandidateBytes,
+							row.PrefixUnclassifiedToolBytes)
 					}
 				}
 			}
