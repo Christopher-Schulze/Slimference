@@ -116,19 +116,20 @@ func TestRunSearchCapProfileCandidatesAndRetentionGate(t *testing.T) {
 		"--min-candidate-retained-pct", "40",
 		"--json",
 	}, &stdout, &stderr)
-	if code != 3 {
-		t.Fatalf("candidate retention gate code=%d want 3 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	if code != 0 {
+		t.Fatalf("candidate retention floor code=%d want 0 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	var report searchCapProfileReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
-	if report.GatePassed || len(report.Profiles) != 3 {
-		t.Fatalf("bad candidate gate/report shape: %+v", report)
+	if !report.GatePassed || len(report.Profiles) != 3 {
+		t.Fatalf("bad candidate floor/report shape: %+v", report)
 	}
 	if report.SelectedCandidate == nil ||
-		report.SelectedCandidate.Name != "candidate_25x15" ||
-		report.SelectedCandidate.SavedBytesVsDefault != report.Profiles[1].SavedBytesVsDefault {
+		report.SelectedCandidate.Name != "candidate_20x10" ||
+		report.SelectedCandidate.SavedBytesVsDefault != report.Profiles[2].SavedBytesVsDefault ||
+		report.SelectedCandidate.MinRetainedPct != 40 {
 		t.Fatalf("bad selected candidate: %+v report=%+v", report.SelectedCandidate, report)
 	}
 	if report.Profiles[1].Name != "candidate_25x15" ||
@@ -138,13 +139,11 @@ func TestRunSearchCapProfileCandidatesAndRetentionGate(t *testing.T) {
 		t.Fatalf("bad first candidate row: %+v", report.Profiles[1])
 	}
 	if report.Profiles[2].Name != "candidate_20x10" ||
-		report.Profiles[2].ShownFiles != 20 ||
-		report.Profiles[2].ShownMatches != 200 ||
+		report.Profiles[2].ShownFiles != 25 ||
+		report.Profiles[2].ShownMatches != 350 ||
+		report.Profiles[2].MatchRetentionPct != 40 ||
 		report.Profiles[2].SavedBytesVsDefault <= report.Profiles[1].SavedBytesVsDefault {
 		t.Fatalf("bad second candidate row: %+v", report.Profiles[2])
-	}
-	if !strings.Contains(strings.Join(report.GateFailures, "\n"), "candidate_20x10 match retention") {
-		t.Fatalf("missing retention gate failure: %+v", report.GateFailures)
 	}
 	if strings.Contains(stdout.String(), "fatal timeout rejected") {
 		t.Fatalf("candidate profile report must stay content-free, got raw match text:\n%s", stdout.String())
@@ -165,6 +164,23 @@ func TestRunSearchCapProfileCandidatesAndRetentionGate(t *testing.T) {
 		strings.Contains(stdout.String(), "fatal timeout rejected") {
 		t.Fatalf("unexpected candidate text report:\n%s", stdout.String())
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runSearchCapProfile([]string{
+		"--command", "rg -n function",
+		"--input", path,
+		"--candidate", "25:15",
+		"--require-aggressive-savings",
+		"--min-candidate-retained-pct", "80",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("over-retained candidate code=%d want 3 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "expected candidate_25x15 profile to save more bytes than default") {
+		t.Fatalf("missing high-retention savings failure:\n%s", stdout.String())
+	}
 }
 
 func TestRunSearchCapProfileRejectsBadCandidates(t *testing.T) {
@@ -179,7 +195,9 @@ func TestRunSearchCapProfileRejectsBadCandidates(t *testing.T) {
 		{"--command", "rg -n function", "--input", path, "--aggressive-files", "0"},
 		{"--command", "rg -n function", "--input", path, "--aggressive-matches", "-1"},
 		{"--command", "rg -n function", "--input", path, "--min-aggressive-retained-pct", "-0.1"},
+		{"--command", "rg -n function", "--input", path, "--min-aggressive-retained-pct", "100.1"},
 		{"--command", "rg -n function", "--input", path, "--min-candidate-retained-pct=-1"},
+		{"--command", "rg -n function", "--input", path, "--min-candidate-retained-pct=101"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := runSearchCapProfile(args, &stdout, &stderr)

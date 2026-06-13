@@ -84,7 +84,8 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 		t.Fatalf("Codex search-cap proof path default = %q, want empty", cfg.Compression.OutputReduce.CodexSearchCapProofPath)
 	}
 	if cfg.Compression.OutputReduce.CodexSearchCapMaxFiles != 0 ||
-		cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile != 0 {
+		cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile != 0 ||
+		cfg.Compression.OutputReduce.CodexSearchCapMinRetainedPct != 0 {
 		t.Fatalf("proof-latched Codex search cap values must stay zero by default: %+v", cfg.Compression.OutputReduce)
 	}
 	if cfg.Compression.OutputReduce.CodexChunkDedupEnabled {
@@ -232,7 +233,8 @@ codex_search_cap_proof_path = %q
 	or := cfg.Compression.OutputReduce
 	if or.CodexSearchCapProofPath != proofPath ||
 		or.CodexSearchCapMaxFiles != 25 ||
-		or.CodexSearchCapMaxMatchesPerFile != 15 {
+		or.CodexSearchCapMaxMatchesPerFile != 15 ||
+		or.CodexSearchCapMinRetainedPct != 41.25 {
 		t.Fatalf("search-cap proof was not promoted into runtime caps: %+v", or)
 	}
 }
@@ -549,7 +551,8 @@ func TestApplyEnv_CodexSearchCapProofPath(t *testing.T) {
 	or := cfg.Compression.OutputReduce
 	if or.CodexSearchCapProofPath != proofPath ||
 		or.CodexSearchCapMaxFiles != 30 ||
-		or.CodexSearchCapMaxMatchesPerFile != 15 {
+		or.CodexSearchCapMaxMatchesPerFile != 15 ||
+		or.CodexSearchCapMinRetainedPct != 45 {
 		t.Fatalf("env search-cap proof was not applied: %+v", or)
 	}
 }

@@ -29,17 +29,17 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
-	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "candidate_8x6" {
-		t.Fatalf("expected 8x6 selected proof candidate: %+v", report)
+	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "candidate_4x4" {
+		t.Fatalf("expected 4x4 selected proof candidate: %+v", report)
 	}
 	if report.DefaultReplay.ReducerTokensSaved <= 0 || report.SelectedCandidate.ExtraReducerTokens <= 0 {
 		t.Fatalf("expected positive default and extra replay savings: %+v", report)
 	}
-	if len(report.Candidates) != 2 || !report.Candidates[0].GatePassed || report.Candidates[1].GatePassed {
+	if len(report.Candidates) != 2 || !report.Candidates[0].GatePassed || !report.Candidates[1].GatePassed {
 		t.Fatalf("unexpected candidate gates: %+v", report.Candidates)
 	}
-	if !strings.Contains(strings.Join(report.Candidates[1].GateFailures, "\n"), "match retention") {
-		t.Fatalf("expected second candidate retention failure: %+v", report.Candidates[1].GateFailures)
+	if report.Candidates[1].ExtraReducerTokens <= report.Candidates[0].ExtraReducerTokens {
+		t.Fatalf("retention-floor 4x4 candidate should beat 8x6: %+v", report.Candidates)
 	}
 	if strings.Contains(stdout.String(), "needle match") {
 		t.Fatalf("proof report must stay content-free, got raw match text:\n%s", stdout.String())
@@ -49,13 +49,13 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	stderr.Reset()
 	code = runSearchCapProof([]string{
 		"--frames=" + path,
-		"--candidate=8:6",
+		"--candidate=4:4",
 		"--min-candidate-retained-pct=40",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("runSearchCapProof text code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "selected candidate: candidate_8x6") ||
+	if !strings.Contains(stdout.String(), "selected candidate: candidate_4x4") ||
 		strings.Contains(stdout.String(), "needle match") {
 		t.Fatalf("unexpected text report:\n%s", stdout.String())
 	}
@@ -71,7 +71,7 @@ func TestRunSearchCapProofFailsWithoutPassingCandidate(t *testing.T) {
 	code := runSearchCapProof([]string{
 		"--frames", path,
 		"--candidate", "4:4",
-		"--min-candidate-retained-pct", "40",
+		"--min-candidate-retained-pct", "100",
 		"--json",
 	}, &stdout, &stderr)
 	if code != 3 {

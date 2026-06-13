@@ -978,6 +978,30 @@ func TestTryCompactSearchOutputWithOptionsAggressiveProfileSavesMoreButKeepsSign
 	}
 }
 
+func TestTryCompactSearchOutputWithOptionsRetentionFloorWidensCap(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for f := 0; f < 100; f++ {
+		fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%03d.go:12:needle search result with enough payload to keep grouping shorter\n", f)
+	}
+	input := []byte(sb.String())
+	stats, ok := SearchCompactProfile([]string{"rg", "-n", "needle"}, input, SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    50,
+	})
+	if !ok || !stats.Applied {
+		t.Fatalf("retention-floor search compaction should still apply: %+v ok=%v", stats, ok)
+	}
+	if stats.ShownMatches < 50 || stats.ShownFiles < 50 {
+		t.Fatalf("retention floor was not enforced: %+v", stats)
+	}
+	if stats.ShownMatches >= stats.OriginalMatches {
+		t.Fatalf("retention floor should not force full output when a shorter safe cap exists: %+v", stats)
+	}
+}
+
 func TestSearchCompactOptionsFlowThroughFileReadContext(t *testing.T) {
 	t.Parallel()
 

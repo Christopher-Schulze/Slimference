@@ -26,6 +26,7 @@ type searchCapProofCandidateRow struct {
 	Name                    string                       `json:"name"`
 	MaxFilesShown           int                          `json:"max_files_shown"`
 	MaxMatchesPerFile       int                          `json:"max_matches_per_file"`
+	MinRetainedPct          float64                      `json:"min_retained_pct,omitempty"`
 	Applied                 bool                         `json:"applied"`
 	SavedBytesVsDefault     int                          `json:"saved_bytes_vs_default"`
 	MatchRetentionPct       float64                      `json:"match_retention_pct"`
@@ -40,6 +41,7 @@ type searchCapProofSelection struct {
 	Name                    string  `json:"name"`
 	MaxFilesShown           int     `json:"max_files_shown"`
 	MaxMatchesPerFile       int     `json:"max_matches_per_file"`
+	MinRetainedPct          float64 `json:"min_retained_pct,omitempty"`
 	ExtraReducerTokens      int     `json:"extra_reducer_tokens"`
 	SavedBytesVsDefault     int     `json:"saved_bytes_vs_default"`
 	MatchRetentionPct       float64 `json:"match_retention_pct"`
@@ -93,6 +95,10 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--min-candidate-retained-pct must be >= 0")
 		return 2
 	}
+	if minCandidateRetainedPct > 100 {
+		fmt.Fprintln(stderr, "--min-candidate-retained-pct must be <= 100")
+		return 2
+	}
 	if minSearchOutputs < 0 {
 		fmt.Fprintln(stderr, "--min-search-outputs must be >= 0")
 		return 2
@@ -137,11 +143,12 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 
 func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, error) {
 	profile, err := loadSearchCapProfileReport(searchCapProfileFlags{
-		framesPath: flags.framesPath,
-		candidates: flags.candidates,
-		inputPath:  "",
-		command:    "",
-		workdir:    "",
+		framesPath:              flags.framesPath,
+		candidates:              flags.candidates,
+		inputPath:               "",
+		command:                 "",
+		workdir:                 "",
+		minCandidateRetainedPct: flags.minCandidateRetainedPct,
 	})
 	if err != nil {
 		return searchCapProofReport{}, err
@@ -180,6 +187,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 			Name:                    row.Name,
 			MaxFilesShown:           row.MaxFilesShown,
 			MaxMatchesPerFile:       row.MaxMatchesPerFile,
+			MinRetainedPct:          row.MinRetainedPct,
 			Applied:                 row.Applied,
 			SavedBytesVsDefault:     row.SavedBytesVsDefault,
 			MatchRetentionPct:       row.MatchRetentionPct,
@@ -189,12 +197,13 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		candidate.GateFailures = append(candidate.GateFailures, searchCapProofProfileFailures(row, flags)...)
 		if len(candidate.GateFailures) == 0 {
 			replay, err := loadWSSABReplayReport(wssABReplayFlags{
-				path:                flags.framesPath,
-				failOnLost:          true,
-				failOnUpstreamError: true,
-				searchCapProofLatch: true,
-				searchCapFiles:      row.MaxFilesShown,
-				searchCapMatches:    row.MaxMatchesPerFile,
+				path:                    flags.framesPath,
+				failOnLost:              true,
+				failOnUpstreamError:     true,
+				searchCapProofLatch:     true,
+				searchCapFiles:          row.MaxFilesShown,
+				searchCapMatches:        row.MaxMatchesPerFile,
+				searchCapMinRetainedPct: row.MinRetainedPct,
 			})
 			if err != nil {
 				return searchCapProofReport{}, err
@@ -216,6 +225,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 				Name:                    candidate.Name,
 				MaxFilesShown:           candidate.MaxFilesShown,
 				MaxMatchesPerFile:       candidate.MaxMatchesPerFile,
+				MinRetainedPct:          candidate.MinRetainedPct,
 				ExtraReducerTokens:      candidate.ExtraReducerTokens,
 				SavedBytesVsDefault:     candidate.SavedBytesVsDefault,
 				MatchRetentionPct:       candidate.MatchRetentionPct,
@@ -309,17 +319,22 @@ func writeSearchCapProofText(w io.Writer, report searchCapProofReport) {
 		report.DefaultReplay.UpstreamErrorFrames,
 		passFail(report.DefaultReplay.GatePassed))
 	if report.SelectedCandidate != nil {
-		fmt.Fprintf(w, "selected candidate: %s (%d/%d, extra reducer tokens %+d, %.2f%% retained)\n",
+		fmt.Fprintf(w, "selected candidate: %s (%d/%d, min %.2f%%, extra reducer tokens %+d, %.2f%% retained)\n",
 			report.SelectedCandidate.Name,
 			report.SelectedCandidate.MaxFilesShown,
 			report.SelectedCandidate.MaxMatchesPerFile,
+			report.SelectedCandidate.MinRetainedPct,
 			report.SelectedCandidate.ExtraReducerTokens,
 			report.SelectedCandidate.MatchRetentionPct)
 	}
 	fmt.Fprintf(w, "gate:           %s\n", passFail(report.GatePassed))
 	for _, candidate := range report.Candidates {
 		fmt.Fprintf(w, "\n%s candidate:\n", candidate.Name)
-		fmt.Fprintf(w, "  caps files/matches: %d / %d\n", candidate.MaxFilesShown, candidate.MaxMatchesPerFile)
+		if candidate.MinRetainedPct > 0 {
+			fmt.Fprintf(w, "  caps files/matches: %d / %d (min %.2f%% retained)\n", candidate.MaxFilesShown, candidate.MaxMatchesPerFile, candidate.MinRetainedPct)
+		} else {
+			fmt.Fprintf(w, "  caps files/matches: %d / %d\n", candidate.MaxFilesShown, candidate.MaxMatchesPerFile)
+		}
 		fmt.Fprintf(w, "  profile:            applied=%t saved_vs_default=%+d retained=%.2f%% omitted_matches_vs_default=%+d\n",
 			candidate.Applied,
 			candidate.SavedBytesVsDefault,

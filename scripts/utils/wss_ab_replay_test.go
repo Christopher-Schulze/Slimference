@@ -583,6 +583,73 @@ func TestWSSABReplaySearchCapProofLatchMutatesNamedFullHistorySearch(t *testing.
 	}
 }
 
+func TestWSSABReplaySearchCapProofLatchAppliesRetentionFloor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	callID := "proof-latch-retention-search-1"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-proof-latch-retention-search",
+			"prompt_cache_key":     "proof-latch-retention-search-session",
+			"input": []map[string]any{
+				{
+					"type":      "function_call",
+					"call_id":   callID,
+					"name":      "exec_command",
+					"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+				},
+				{
+					"type":    "function_call_output",
+					"call_id": callID,
+					"output":  "Chunk ID: proof-latch-retention\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + wssABReplayBroadSearchOutputFixture("needle", 100),
+				},
+			},
+			"stream": true,
+		}),
+	)
+
+	fixedCap, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                path,
+		searchCapProofLatch: true,
+		searchCapFiles:      25,
+		searchCapMatches:    15,
+		failOnLost:          true,
+		failOnUpstreamError: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retentionFloor, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                    path,
+		searchCapProofLatch:     true,
+		searchCapFiles:          25,
+		searchCapMatches:        15,
+		searchCapMinRetainedPct: 50,
+		failOnLost:              true,
+		failOnUpstreamError:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retentionFloor.GatePassed || retentionFloor.Lost != 0 ||
+		retentionFloor.SearchCapMinRetainedPct != 50 ||
+		retentionFloor.ReducerCapturedBlocks != 1 ||
+		retentionFloor.ReducerTokensSaved <= 0 {
+		t.Fatalf("retention-floor search-cap replay should stay positive and safe: %+v", retentionFloor)
+	}
+	if fixedCap.ReducerTokensSaved <= retentionFloor.ReducerTokensSaved {
+		t.Fatalf("retention floor must reduce over-aggressive fixed-cap savings on broad outputs: fixed=%+v floor=%+v", fixedCap, retentionFloor)
+	}
+
+	var out bytes.Buffer
+	writeWSSABReplayText(&out, retentionFloor)
+	if !strings.Contains(out.String(), "min_retained=50.00%") {
+		t.Fatalf("text output missing retention floor:\n%s", out.String())
+	}
+}
+
 func TestRunWSSABReplayAllowsExpectedRecoveryNoteExtra(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -812,6 +879,10 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 		{"frames.jsonl", "--search-cap-files", "-1"},
 		{"frames.jsonl", "--search-cap-matches"},
 		{"frames.jsonl", "--search-cap-matches", "bad"},
+		{"frames.jsonl", "--search-cap-min-retained-pct"},
+		{"frames.jsonl", "--search-cap-min-retained-pct", "bad"},
+		{"frames.jsonl", "--search-cap-min-retained-pct", "-1"},
+		{"frames.jsonl", "--search-cap-min-retained-pct", "101"},
 	} {
 		if _, err := parseWSSABReplayFlags(args); err == nil {
 			t.Fatalf("expected parse error for %v", args)
@@ -851,6 +922,13 @@ func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
 	}
 	if flags.searchCapFiles != 25 || flags.searchCapMatches != 15 {
 		t.Fatalf("search cap flags not parsed: %+v", flags)
+	}
+	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--search-cap-min-retained-pct=50.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.searchCapMinRetainedPct != 50.5 {
+		t.Fatalf("search cap retained pct flag not parsed: %+v", flags)
 	}
 	flags, err = parseWSSABReplayFlags([]string{"frames.jsonl", "--stateful-prefix-elision-proof"})
 	if err != nil {
@@ -928,6 +1006,14 @@ func wssABReplaySearchOutputFixture(needle string, count int) string {
 	var out strings.Builder
 	for i := 0; i < count; i++ {
 		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
+	}
+	return out.String()
+}
+
+func wssABReplayBroadSearchOutputFixture(needle string, count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s broad match with enough surrounding deterministic context for compaction\n", i, i+10, needle)
 	}
 	return out.String()
 }

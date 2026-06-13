@@ -803,6 +803,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			SearchCompactOptions: filter.SearchCompactOptions{
 				MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
 				MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
+				MinRetainedPct:    a.p.config.Compression.OutputReduce.CodexSearchCapMinRetainedPct,
 			},
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
@@ -2887,6 +2888,7 @@ func (a *wsPhaseFAdapter) observeWSSPreviousResponseDeltaLayer0(messages []types
 		SearchCompactOptions: filter.SearchCompactOptions{
 			MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
 			MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
+			MinRetainedPct:    a.p.config.Compression.OutputReduce.CodexSearchCapMinRetainedPct,
 		},
 		HostBudgetExceeded:           a.p.codexHostBudgetExceeded(),
 		LatencyBudgetExceeded:        a.p.codexLayer0LatencyExceeded.Load(),

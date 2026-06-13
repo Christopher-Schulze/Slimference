@@ -318,9 +318,12 @@ type OutputReduceConfig struct {
 	CodexSearchCapProofPath string `toml:"codex_search_cap_proof_path"`
 	// CodexSearchCapMaxFiles and CodexSearchCapMaxMatchesPerFile are resolved
 	// from the proof report above, or set directly by offline replay tools.
-	// They are intentionally not persisted as raw config knobs.
-	CodexSearchCapMaxFiles          int `toml:"-"`
-	CodexSearchCapMaxMatchesPerFile int `toml:"-"`
+	// CodexSearchCapMinRetainedPct comes from the same proof and prevents a
+	// fixed cap from dropping below the validated per-output evidence floor.
+	// These are intentionally not persisted as raw config knobs.
+	CodexSearchCapMaxFiles          int     `toml:"-"`
+	CodexSearchCapMaxMatchesPerFile int     `toml:"-"`
+	CodexSearchCapMinRetainedPct    float64 `toml:"-"`
 	// CodexSearchCapDeltaMutationEnabled is resolved only from the final
 	// proof latch. It enables the narrow named-search WSS delta mutation path
 	// while the broad lab switch remains default-off.
@@ -963,12 +966,13 @@ func applyCodexSearchCapProof(cfg *Config) error {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: proof_schema_version %d < required %d",
 			path, proof.ProofSchemaVersion, codexSearchCapRequiredProofSchemaVersion)
 	}
-	files, matches, issues := validateCodexSearchCapProof(proof)
+	files, matches, minRetainedPct, issues := validateCodexSearchCapProof(proof)
 	if len(issues) > 0 {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: %s", path, strings.Join(issues, "; "))
 	}
 	or.CodexSearchCapMaxFiles = files
 	or.CodexSearchCapMaxMatchesPerFile = matches
+	or.CodexSearchCapMinRetainedPct = minRetainedPct
 	or.CodexSearchCapDeltaMutationEnabled = true
 	return nil
 }
@@ -980,7 +984,7 @@ func codexSearchCapLooksLikeFinalReleaseProof(proof codexSearchCapReleaseProofRe
 		len(proof.ResourceProfileProofClients) > 0
 }
 
-func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, int, []string) {
+func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, int, float64, []string) {
 	var issues []string
 	if !proof.GatePassed {
 		issues = append(issues, "final release-proof-report gate did not pass: "+strings.Join(proof.GateFailures, "; "))
@@ -1032,11 +1036,11 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 	}
 	if proof.SearchCapProof == nil {
 		issues = append(issues, "missing final release search_cap_proof summary")
-		return 0, 0, issues
+		return 0, 0, 0, issues
 	}
 	if proof.CodexRouteHygiene == nil {
 		issues = append(issues, "missing final release Codex route hygiene proof")
-		return 0, 0, issues
+		return 0, 0, 0, issues
 	}
 	searchProof := proof.SearchCapProof
 	if !searchProof.OK {
@@ -1092,7 +1096,7 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 		issues = append(issues, fmt.Sprintf("selected search-cap candidate has invalid cap %d/%d",
 			searchProof.MaxFilesShown, searchProof.MaxMatchesPerFile))
 	}
-	return searchProof.MaxFilesShown, searchProof.MaxMatchesPerFile, issues
+	return searchProof.MaxFilesShown, searchProof.MaxMatchesPerFile, searchProof.MinMatchRetentionPct, issues
 }
 
 func codexSearchCapReleaseHasClient(clients []string, want string) bool {
@@ -1212,6 +1216,9 @@ func validate(cfg *Config) error {
 	}
 	if or.CodexSearchCapMaxMatchesPerFile < 0 {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_max_matches_per_file must be >= 0, got %d", or.CodexSearchCapMaxMatchesPerFile)
+	}
+	if or.CodexSearchCapMinRetainedPct < 0 || or.CodexSearchCapMinRetainedPct > 100 {
+		return fmt.Errorf("compression.output_reduce.codex_search_cap_min_retained_pct must be between 0 and 100, got %v", or.CodexSearchCapMinRetainedPct)
 	}
 	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
 		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)

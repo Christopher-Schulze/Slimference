@@ -31,6 +31,7 @@ type searchCapProfileRow struct {
 	Name                    string  `json:"name"`
 	MaxFilesShown           int     `json:"max_files_shown"`
 	MaxMatchesPerFile       int     `json:"max_matches_per_file"`
+	MinRetainedPct          float64 `json:"min_retained_pct,omitempty"`
 	Applied                 bool    `json:"applied"`
 	InputBytes              int     `json:"input_bytes"`
 	OutputBytes             int     `json:"output_bytes"`
@@ -51,6 +52,7 @@ type searchCapProfileSelection struct {
 	Name                    string  `json:"name"`
 	MaxFilesShown           int     `json:"max_files_shown"`
 	MaxMatchesPerFile       int     `json:"max_matches_per_file"`
+	MinRetainedPct          float64 `json:"min_retained_pct,omitempty"`
 	SavedBytesVsDefault     int     `json:"saved_bytes_vs_default"`
 	MatchRetentionPct       float64 `json:"match_retention_pct"`
 	OmittedMatchesVsDefault int     `json:"omitted_matches_vs_default"`
@@ -150,8 +152,16 @@ func runSearchCapProfile(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--min-aggressive-retained-pct must be >= 0")
 		return 2
 	}
+	if minAggressiveRetainedPct > 100 {
+		fmt.Fprintln(stderr, "--min-aggressive-retained-pct must be <= 100")
+		return 2
+	}
 	if minCandidateRetainedPct < 0 {
 		fmt.Fprintln(stderr, "--min-candidate-retained-pct must be >= 0")
+		return 2
+	}
+	if minCandidateRetainedPct > 100 {
+		fmt.Fprintln(stderr, "--min-candidate-retained-pct must be <= 100")
 		return 2
 	}
 	if fs.NArg() != 0 || ((strings.TrimSpace(inputPath) == "") == (strings.TrimSpace(framesPath) == "")) {
@@ -440,6 +450,7 @@ func aggregateSearchCapProfileRows(name string, outputs []searchCapProfileOutput
 		Name:              name,
 		MaxFilesShown:     options.MaxFilesShown,
 		MaxMatchesPerFile: options.MaxMatchesPerFile,
+		MinRetainedPct:    options.MinRetainedPct,
 	}
 	for _, output := range outputs {
 		item := buildSearchCapProfileRow(name, filter.ArgvForCapturedOutput(output.command), output.output, options)
@@ -460,9 +471,13 @@ func aggregateSearchCapProfileRows(name string, outputs []searchCapProfileOutput
 }
 
 func searchCapProfileCandidates(flags searchCapProfileFlags) []searchCapProfileCandidate {
+	minRetention := searchCapProfileMinimumRetention(flags)
 	if len(flags.candidates) > 0 {
 		out := make([]searchCapProfileCandidate, len(flags.candidates))
 		copy(out, flags.candidates)
+		for i := range out {
+			out[i].Options.MinRetainedPct = minRetention
+		}
 		return out
 	}
 	return []searchCapProfileCandidate{{
@@ -470,6 +485,7 @@ func searchCapProfileCandidates(flags searchCapProfileFlags) []searchCapProfileC
 		Options: filter.SearchCompactOptions{
 			MaxFilesShown:     flags.aggressiveFiles,
 			MaxMatchesPerFile: flags.aggressiveMatches,
+			MinRetainedPct:    minRetention,
 		},
 	}}
 }
@@ -497,6 +513,7 @@ func buildSearchCapProfileRow(name string, argv []string, data []byte, options f
 		Name:              name,
 		MaxFilesShown:     options.MaxFilesShown,
 		MaxMatchesPerFile: options.MaxMatchesPerFile,
+		MinRetainedPct:    options.MinRetainedPct,
 		Applied:           stats.Applied,
 		InputBytes:        stats.InputBytes,
 		OutputBytes:       stats.OutputBytes,
@@ -567,6 +584,7 @@ func selectSearchCapProfileCandidate(report searchCapProfileReport, flags search
 		Name:                    selected.Name,
 		MaxFilesShown:           selected.MaxFilesShown,
 		MaxMatchesPerFile:       selected.MaxMatchesPerFile,
+		MinRetainedPct:          selected.MinRetainedPct,
 		SavedBytesVsDefault:     selected.SavedBytesVsDefault,
 		MatchRetentionPct:       selected.MatchRetentionPct,
 		OmittedMatchesVsDefault: selected.OmittedMatchesVsDefault,
@@ -593,16 +611,21 @@ func writeSearchCapProfileText(w io.Writer, report searchCapProfileReport) {
 	fmt.Fprintf(w, "search outputs: %d\n", report.SearchOutputs)
 	fmt.Fprintf(w, "gate:    %s\n", passFail(report.GatePassed))
 	if report.SelectedCandidate != nil {
-		fmt.Fprintf(w, "selected candidate: %s (%d/%d, saved %+d bytes, %.2f%% retained)\n",
+		fmt.Fprintf(w, "selected candidate: %s (%d/%d, min %.2f%%, saved %+d bytes, %.2f%% retained)\n",
 			report.SelectedCandidate.Name,
 			report.SelectedCandidate.MaxFilesShown,
 			report.SelectedCandidate.MaxMatchesPerFile,
+			report.SelectedCandidate.MinRetainedPct,
 			report.SelectedCandidate.SavedBytesVsDefault,
 			report.SelectedCandidate.MatchRetentionPct)
 	}
 	for _, row := range report.Profiles {
 		fmt.Fprintf(w, "\n%s profile:\n", row.Name)
-		fmt.Fprintf(w, "  caps files/matches:     %d / %d\n", row.MaxFilesShown, row.MaxMatchesPerFile)
+		if row.MinRetainedPct > 0 {
+			fmt.Fprintf(w, "  caps files/matches:     %d / %d (min %.2f%% retained)\n", row.MaxFilesShown, row.MaxMatchesPerFile, row.MinRetainedPct)
+		} else {
+			fmt.Fprintf(w, "  caps files/matches:     %d / %d\n", row.MaxFilesShown, row.MaxMatchesPerFile)
+		}
 		fmt.Fprintf(w, "  applied:                %v\n", row.Applied)
 		fmt.Fprintf(w, "  bytes in/out/saved:     %d / %d / %d (%.2f%%)\n", row.InputBytes, row.OutputBytes, row.SavedBytes, row.SavingsPct)
 		fmt.Fprintf(w, "  files shown/total:      %d / %d (omitted %d)\n", row.ShownFiles, row.OriginalFiles, row.OmittedFiles)

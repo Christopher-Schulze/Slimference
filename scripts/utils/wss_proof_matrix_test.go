@@ -393,7 +393,7 @@ func TestWSSProofMatrixSearchCapProofGate(t *testing.T) {
 		t.Fatalf("search-cap proof should pass matrix gate: %+v", report)
 	}
 	proof := report.CaptureReports[0].SearchCapProof
-	if proof == nil || proof.SelectedCandidate == nil || proof.SelectedCandidate.Name != "candidate_8x6" {
+	if proof == nil || proof.SelectedCandidate == nil || proof.SelectedCandidate.Name != "candidate_4x4" {
 		t.Fatalf("search-cap proof not attached or wrong selection: %+v", report.CaptureReports[0])
 	}
 	if len(report.CaptureReports[0].Replay.Elisions) != 0 {
@@ -402,7 +402,7 @@ func TestWSSProofMatrixSearchCapProofGate(t *testing.T) {
 
 	var text bytes.Buffer
 	writeWSSProofMatrixText(&text, report)
-	if !strings.Contains(text.String(), "search_cap: candidate_8x6") {
+	if !strings.Contains(text.String(), "search_cap: candidate_4x4") {
 		t.Fatalf("matrix text missing search-cap selection:\n%s", text.String())
 	}
 }

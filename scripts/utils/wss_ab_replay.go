@@ -31,6 +31,7 @@ type wssABReplayFlags struct {
 	chunkDedupMaxSessionRefPct int
 	searchCapFiles             int
 	searchCapMatches           int
+	searchCapMinRetainedPct    float64
 	uniformChunkBudgetControl  bool
 	requireCompoundImprovement bool
 	help                       bool
@@ -94,6 +95,7 @@ type wssABReplayReport struct {
 	SearchResponseFailures        int                              `json:"search_response_failed_frames"`
 	SearchCapFiles                int                              `json:"search_cap_files,omitempty"`
 	SearchCapMatches              int                              `json:"search_cap_matches,omitempty"`
+	SearchCapMinRetainedPct       float64                          `json:"search_cap_min_retained_pct,omitempty"`
 	SearchCapProofLatch           bool                             `json:"search_cap_proof_latch_enabled,omitempty"`
 	ToolOutputMutation            bool                             `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutationLab    bool                             `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
@@ -183,6 +185,9 @@ Flags:
                            Set the proof replay cumulative session reference budget
   --search-cap-files N      Proof-only search-output file cap override
   --search-cap-matches N    Proof-only search-output per-file match cap
+  --search-cap-min-retained-pct N
+                           Proof-only search-output minimum retained match
+                           percentage used to widen caps per output
   --uniform-chunk-budget-control
                            Also replay with same-request chunk budget consumed
                            in uniform block order as the T359 control.
@@ -327,6 +332,22 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 				return flags, err
 			}
 			flags.searchCapMatches = n
+		case arg == "--search-cap-min-retained-pct":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--search-cap-min-retained-pct requires a value")
+			}
+			i++
+			n, err := parsePercentFloatFlag("--search-cap-min-retained-pct", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinRetainedPct = n
+		case strings.HasPrefix(arg, "--search-cap-min-retained-pct="):
+			n, err := parsePercentFloatFlag("--search-cap-min-retained-pct", strings.TrimPrefix(arg, "--search-cap-min-retained-pct="))
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinRetainedPct = n
 		case arg == "--uniform-chunk-budget-control":
 			flags.uniformChunkBudgetControl = true
 		case arg == "--require-compound-improvement":
@@ -363,6 +384,7 @@ func wssABReplayConfig(flags wssABReplayFlags) *config.Config {
 	}
 	cfg.Compression.OutputReduce.CodexSearchCapMaxFiles = flags.searchCapFiles
 	cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile = flags.searchCapMatches
+	cfg.Compression.OutputReduce.CodexSearchCapMinRetainedPct = flags.searchCapMinRetainedPct
 	return cfg
 }
 
@@ -425,6 +447,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		SearchResponseFailures:        result.SearchStats.ResponseFailedFrames,
 		SearchCapFiles:                flags.searchCapFiles,
 		SearchCapMatches:              flags.searchCapMatches,
+		SearchCapMinRetainedPct:       flags.searchCapMinRetainedPct,
 		SearchCapProofLatch:           flags.searchCapProofLatch,
 		ToolOutputMutation:            toolOutputMutation,
 		DeltaToolOutputMutationLab:    flags.deltaToolOutputMutationLab,
@@ -453,7 +476,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
 	}
-	if flags.searchCapFiles > 0 || flags.searchCapMatches > 0 {
+	if flags.searchCapFiles > 0 || flags.searchCapMatches > 0 || flags.searchCapMinRetainedPct > 0 {
 		report.Notes = append(report.Notes, "search output caps were overridden for this proof replay only; product defaults remain unchanged")
 	}
 	if flags.uniformChunkBudgetControl {
@@ -672,6 +695,20 @@ func parsePercentIntFlag(name, raw string) (int, error) {
 	n, err := parseNonNegativeIntFlag(name, raw)
 	if err != nil {
 		return 0, err
+	}
+	if n > 100 {
+		return 0, fmt.Errorf("%s must be <= 100", name)
+	}
+	return n, nil
+}
+
+func parsePercentFloatFlag(name, raw string) (float64, error) {
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", name)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", name)
 	}
 	if n > 100 {
 		return 0, fmt.Errorf("%s must be <= 100", name)
@@ -898,7 +935,13 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 		report.SearchHTTP400Errors,
 		report.SearchResponseFailures)
 	if report.SearchCapFiles > 0 || report.SearchCapMatches > 0 {
-		fmt.Fprintf(w, "  search_cap:       files=%d matches=%d\n", report.SearchCapFiles, report.SearchCapMatches)
+		if report.SearchCapMinRetainedPct > 0 {
+			fmt.Fprintf(w, "  search_cap:       files=%d matches=%d min_retained=%.2f%%\n", report.SearchCapFiles, report.SearchCapMatches, report.SearchCapMinRetainedPct)
+		} else {
+			fmt.Fprintf(w, "  search_cap:       files=%d matches=%d\n", report.SearchCapFiles, report.SearchCapMatches)
+		}
+	} else if report.SearchCapMinRetainedPct > 0 {
+		fmt.Fprintf(w, "  search_cap:       min_retained=%.2f%%\n", report.SearchCapMinRetainedPct)
 	}
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
 	if report.ExpectedExtras > 0 {

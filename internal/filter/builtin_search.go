@@ -2,6 +2,7 @@ package filter
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,6 +20,7 @@ const (
 type SearchCompactOptions struct {
 	MaxMatchesPerFile int
 	MaxFilesShown     int
+	MinRetainedPct    float64
 }
 
 type SearchCompactStats struct {
@@ -116,6 +118,7 @@ func groupSearchResultsWithOptions(stdout []byte, toolName string, options Searc
 	if totalMatches == 0 || skipped*2 > nonEmpty {
 		return stdout, stats, false
 	}
+	options = widenSearchCompactOptionsForRetention(fileOrder, fileMatches, options, totalMatches)
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
@@ -177,7 +180,113 @@ func normalizeSearchCompactOptions(options SearchCompactOptions) SearchCompactOp
 	if options.MaxFilesShown <= 0 {
 		options.MaxFilesShown = maxFilesShown
 	}
+	if options.MinRetainedPct < 0 {
+		options.MinRetainedPct = 0
+	}
+	if options.MinRetainedPct > 100 {
+		options.MinRetainedPct = 100
+	}
 	return options
+}
+
+func widenSearchCompactOptionsForRetention(fileOrder []string, fileMatches map[string][]searchMatchLine, options SearchCompactOptions, totalMatches int) SearchCompactOptions {
+	target := searchRetentionTarget(totalMatches, options.MinRetainedPct)
+	if target <= 0 {
+		return options
+	}
+	selected := selectSearchFileIndexes(fileOrder, fileMatches, options.MaxFilesShown)
+	if searchShownMatchesForSelection(fileOrder, fileMatches, selected, options.MaxMatchesPerFile) >= target {
+		return options
+	}
+	maxFiles := len(fileOrder)
+	maxMatches := maxSearchMatchesForAnyFile(fileMatches)
+	best := options
+	bestShown := 0
+	bestSet := false
+	minFiles := min(options.MaxFilesShown, maxFiles)
+	for files := minFiles; files <= maxFiles; files++ {
+		selected = selectSearchFileIndexes(fileOrder, fileMatches, files)
+		matches := minSearchMatchBudgetForRetention(fileOrder, fileMatches, selected, options.MaxMatchesPerFile, maxMatches, target)
+		if matches <= 0 {
+			continue
+		}
+		shown := searchShownMatchesForSelection(fileOrder, fileMatches, selected, matches)
+		if !bestSet ||
+			shown < bestShown ||
+			(shown == bestShown && searchCompactBudgetFootprint(files, matches) < searchCompactBudgetFootprint(best.MaxFilesShown, best.MaxMatchesPerFile)) {
+			best = options
+			best.MaxFilesShown = files
+			best.MaxMatchesPerFile = matches
+			bestShown = shown
+			bestSet = true
+		}
+	}
+	if bestSet {
+		return best
+	}
+	options.MaxFilesShown = maxFiles
+	options.MaxMatchesPerFile = maxMatches
+	return options
+}
+
+func searchRetentionTarget(total int, percent float64) int {
+	if total <= 0 || percent <= 0 {
+		return 0
+	}
+	if percent >= 100 {
+		return total
+	}
+	target := int(math.Ceil(float64(total) * percent / 100))
+	if target < 1 {
+		return 1
+	}
+	return target
+}
+
+func maxSearchMatchesForAnyFile(fileMatches map[string][]searchMatchLine) int {
+	maxMatches := 0
+	for _, matches := range fileMatches {
+		if len(matches) > maxMatches {
+			maxMatches = len(matches)
+		}
+	}
+	return maxMatches
+}
+
+func minSearchMatchBudgetForRetention(fileOrder []string, fileMatches map[string][]searchMatchLine, selectedFiles []int, minBudget int, maxBudget int, target int) int {
+	if target <= 0 {
+		return minBudget
+	}
+	if maxBudget < minBudget {
+		maxBudget = minBudget
+	}
+	low, high := minBudget, maxBudget
+	answer := 0
+	for low <= high {
+		mid := low + (high-low)/2
+		if searchShownMatchesForSelection(fileOrder, fileMatches, selectedFiles, mid) >= target {
+			answer = mid
+			high = mid - 1
+		} else {
+			low = mid + 1
+		}
+	}
+	return answer
+}
+
+func searchShownMatchesForSelection(fileOrder []string, fileMatches map[string][]searchMatchLine, selectedFiles []int, matchBudget int) int {
+	total := 0
+	for _, fileIdx := range selectedFiles {
+		if fileIdx < 0 || fileIdx >= len(fileOrder) {
+			continue
+		}
+		total += len(selectSearchMatchIndexes(fileMatches[fileOrder[fileIdx]], matchBudget))
+	}
+	return total
+}
+
+func searchCompactBudgetFootprint(files int, matches int) int {
+	return files*max(matches, 1) + files + matches
 }
 
 func parseSearchMatchLine(line string) (parsedSearchLine, bool) {
