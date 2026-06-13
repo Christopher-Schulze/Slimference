@@ -858,6 +858,15 @@ func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	if got := wssToolPruneMutationGuardReason(fullHistoryMessages, withTools, nil); got != "" {
 		t.Fatalf("full-history tool definitions guard=%q, want empty", got)
 	}
+	if !wssToolPruneRequestEligible(wssRequestMeta{HasUserPromptInput: true}) {
+		t.Fatal("user prompt turns must stay tool-prune eligible")
+	}
+	if !wssToolPruneRequestEligible(wssRequestMeta{HasToolDefinitions: true}) {
+		t.Fatal("root/full-resend tool schema turns without user prompt must be eligible")
+	}
+	if wssToolPruneRequestEligible(wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true}) {
+		t.Fatal("previous_response_id tool schema turns without user prompt must stay ineligible")
+	}
 }
 
 func TestWSPhaseFConciseChatInjectsOnlyChatHint(t *testing.T) {
@@ -2411,6 +2420,73 @@ func TestWSPhaseFToolPrunePrunesIdleCodexTools(t *testing.T) {
 	if toolPruneMechanism.SavedTokens != summary.ToolPrune.SavedTokens ||
 		toolPruneMechanism.NetTokens != summary.ToolPrune.SavedTokens {
 		t.Fatalf("WSS tool-prune mechanism accounting mismatch: %+v summary=%+v", toolPruneMechanism, summary.ToolPrune)
+	}
+}
+
+func TestWSPhaseFToolPruneRootPrefixWithoutUserPrompt(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	const sessionID = "codex-wss:wss-tool-prune-root-prefix"
+	newRootPrefixRequest := func() wsmitm.Envelope {
+		return parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindRequest),
+			"body": map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "wss-tool-prune-root-prefix",
+				"input":            []map[string]any{},
+				"tools": []map[string]any{
+					codexToolDefinition("Bash", "Run a shell command"),
+					codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+				},
+				"stream": true,
+			},
+		})
+	}
+
+	freshProxy := New(cfg)
+	freshProxy.toolPrune = toolprune.NewUsageTracker(1)
+	freshAdapter := (&PhaseFDispatcher{Proxy: freshProxy}).newWSPhaseFAdapter()
+	freshReq := newRootPrefixRequest()
+	if replace, err := freshAdapter.handle(context.Background(), wsmitm.DirClientToServer, &freshReq); err != nil || replace {
+		t.Fatalf("fresh unknown no-user prefix must full-pass, replace=%v err=%v body=%s", replace, err, freshReq.Body)
+	}
+	if body := string(freshReq.Body); !strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("fresh no-user prefix lost tool definitions: %s", body)
+	}
+
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	req := newRootPrefixRequest()
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected no-user root prefix tool-prune mutation after idle evidence")
+	}
+	body := string(req.Body)
+	if strings.Contains(body, "ColdTool") {
+		t.Fatalf("idle tool still present after no-user root prefix prune: %s", body)
+	}
+	if !strings.Contains(body, "Bash") {
+		t.Fatalf("always-keep tool was removed from no-user root prefix: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.ToolPrune.PrunedTools != 1 ||
+		summary.ToolPrune.SavedTokens <= 0 ||
+		summary.DebugFacts["wss.messages"] != "0" ||
+		summary.DebugFacts["wss.request_shape"] != "root" {
+		t.Fatalf("no-user root prefix tool-prune summary mismatch: %+v facts=%+v", summary.ToolPrune, summary.DebugFacts)
 	}
 }
 

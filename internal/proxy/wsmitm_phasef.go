@@ -857,7 +857,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 		return body, false, wssToolPruneResult{}
 	}
 	sessionID := meta.SessionID
-	if sessionID == "" || !meta.HasUserPromptInput {
+	if sessionID == "" || !wssToolPruneRequestEligible(meta) {
 		return body, false, wssToolPruneResult{}
 	}
 	summary := dbg.ToolPruneSummary{
@@ -942,6 +942,13 @@ func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMe
 		return ""
 	}
 	return "wss_tool_prune_delta_guard"
+}
+
+func wssToolPruneRequestEligible(meta wssRequestMeta) bool {
+	if meta.HasUserPromptInput {
+		return true
+	}
+	return meta.PreviousResponseID == "" && meta.HasToolDefinitions
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool, promptCachePrefixKnown bool, hasPromptCachePrefix bool) ([]byte, outputreduce.Stats) {
