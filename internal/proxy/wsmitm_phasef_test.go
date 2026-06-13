@@ -3925,6 +3925,181 @@ func TestWSPhaseFPromptCachePrefixBlocksStayByteEqual(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFStatefulPrefixElisionProofElidesToolsOnlyAfterSeed(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	tools := []map[string]any{{
+		"type":        "function",
+		"name":        "exec_command",
+		"description": strings.Repeat("cached tool schema block ", 20),
+	}}
+	body := func(previousResponseID string) []byte {
+		raw := map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "prefix-proof-session",
+			"instructions":     strings.Repeat("cached system instruction block ", 40),
+			"tools":            tools,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "continue",
+			}},
+			"stream": true,
+		}
+		if previousResponseID != "" {
+			raw["previous_response_id"] = previousResponseID
+		}
+		return mustMarshal(raw)
+	}
+
+	seed := body("")
+	mutated, _, changed, _, _, meta, _ := adapter.applyInputPipelineDetailed(seed)
+	if changed || !bytes.Equal(mutated, seed) {
+		t.Fatalf("root prefix proof should seed only, changed=%v body=%s", changed, mutated)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_reason"]; got != "seeded_root" {
+		t.Fatalf("seed reason=%q facts=%+v", got, meta.DebugFacts)
+	}
+
+	delta := body("resp_seeded")
+	mutated, _, changed, _, _, meta, _ = adapter.applyInputPipelineDetailed(delta)
+	if !changed {
+		t.Fatal("seeded previous_response_id tools should be elided")
+	}
+	if strings.Contains(string(mutated), `"tools"`) {
+		t.Fatalf("tool schema not elided: %s", mutated)
+	}
+	if !strings.Contains(string(mutated), `"instructions"`) {
+		t.Fatalf("instructions must stay on wire for Codex WSS: %s", mutated)
+	}
+	if !strings.Contains(string(mutated), `"previous_response_id"`) {
+		t.Fatalf("stateful identity must stay intact: %s", mutated)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_reason"]; got != "applied" {
+		t.Fatalf("apply reason=%q facts=%+v", got, meta.DebugFacts)
+	}
+	if meta.DebugFacts["wss.stateful_prefix_elision_changed"] != "true" ||
+		meta.DebugFacts["wss.stateful_prefix_elision_tool_requests"] != "1" ||
+		meta.DebugFacts["wss.stateful_prefix_elision_instruction_requests"] != "0" ||
+		meta.DebugFacts["wss.stateful_prefix_elision_bytes_saved"] == "0" {
+		t.Fatalf("missing prefix-elision facts: %+v", meta.DebugFacts)
+	}
+}
+
+func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutScope(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp_missing_scope",
+		"instructions":         "must stay",
+		"tools": []map[string]any{{
+			"type":        "function",
+			"name":        "exec_command",
+			"description": "must stay",
+		}},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+
+	mutated, _, changed, _, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("missing prompt_cache_key must fail closed, changed=%v body=%s", changed, mutated)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_reason"]; got != "missing_prompt_cache_key" {
+		t.Fatalf("guard reason=%q facts=%+v", got, meta.DebugFacts)
+	}
+}
+
+func TestWSPhaseFStatefulPrefixElisionProofFailsClosedWithoutSeed(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":                "gpt-5-codex",
+		"prompt_cache_key":     "unseeded-prefix-session",
+		"previous_response_id": "resp_unseeded",
+		"instructions":         "must seed before elision",
+		"tools": []map[string]any{{
+			"type":        "function",
+			"name":        "exec_command",
+			"description": "must seed before elision",
+		}},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+
+	mutated, _, changed, _, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("unseeded previous_response_id prefix must fail closed, changed=%v body=%s", changed, mutated)
+	}
+	if got := meta.DebugFacts["wss.stateful_prefix_elision_reason"]; got != "unseen_prefix" {
+		t.Fatalf("guard reason=%q facts=%+v", got, meta.DebugFacts)
+	}
+}
+
+func TestWSSStatefulPrefixElisionProofGuardReasons(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "guard-session",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+	if mutated, proof, changed := adapter.applyWSSStatefulPrefixElisionProof(body); changed || proof.Enabled || !bytes.Equal(mutated, body) {
+		t.Fatalf("disabled proof must be invisible: changed=%v proof=%+v body=%s", changed, proof, mutated)
+	}
+
+	cfg.Compression.OutputReduce.CodexWSSStatefulPrefixElisionProofEnabled = true
+	mutated, proof, changed := adapter.applyWSSStatefulPrefixElisionProof([]byte(`{"prompt_cache_key":`))
+	if changed || !proof.Enabled || proof.Reason != "malformed_json" || string(mutated) != `{"prompt_cache_key":` {
+		t.Fatalf("malformed guard mismatch: changed=%v proof=%+v body=%s", changed, proof, mutated)
+	}
+
+	mutated, proof, changed = adapter.applyWSSStatefulPrefixElisionProof(body)
+	if changed || !bytes.Equal(mutated, body) || proof.Reason != "no_prefix" {
+		t.Fatalf("no-prefix guard mismatch: changed=%v proof=%+v body=%s", changed, proof, mutated)
+	}
+
+	var meta wssRequestMeta
+	attachWSSStatefulPrefixElisionDebugFacts(&meta, proof, false)
+	if meta.DebugFacts["wss.stateful_prefix_elision_reason"] != "no_prefix" ||
+		meta.DebugFacts["wss.stateful_prefix_elision_changed"] != "false" {
+		t.Fatalf("debug facts mismatch: %+v", meta.DebugFacts)
+	}
+}
+
 func TestWSPhaseFHandleGuardBranches(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)

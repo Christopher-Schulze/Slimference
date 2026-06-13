@@ -1233,6 +1233,21 @@ mid-session or changes tool/instruction content fails closed by sending the
 prefix unchanged. This proves local model-context recoverability, not backend
 acceptance; a live scoped WSS proof is still required before any product
 runtime activation.
+For live proof only,
+`SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF=1` enables the same
+guarded runtime path on the scoped daemon process for top-level `tools` only.
+The runtime stores only hash keys for the cache scope and canonical tool-schema
+surface, seeds on full forwarded tool schemas, and deletes repeated top-level
+`tools` only on later `previous_response_id` requests in the same
+`prompt_cache_key` scope. Top-level `instructions` stay on the wire because
+Codex WSS rejects previous-response requests without them. The switch is
+env-only, default-off, and not a product activation latch; decision debug facts
+report `wss.stateful_prefix_elision_*` for live proof rows.
+The 2026-06-13 scoped CLI proof on a managed WSS daemon accepted tool-only
+prefix elision with `lost=0`, zero upstream errors, 14,708 request-side bytes
+reduced, and 3,677 estimated local input tokens saved. The earlier same-day
+instructions+tools proof failed with upstream 400 `Instructions are required`,
+so instructions elision is not a valid WSS product candidate.
 Known output-reduce directive suffixes are audited separately as expected
 instruction extras: the direct instructions must remain a prefix, the suffix
 must contain the output-reduce marker, and unknown instruction rewrites still

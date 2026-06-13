@@ -72,6 +72,30 @@ func TestOutputReduceCountersObsoleteReadPrune(t *testing.T) {
 	}
 }
 
+func TestOutputReduceCountersWSSStatefulPrefixElision(t *testing.T) {
+	c := &OutputReduceCounters{}
+	c.RecordWSSStatefulPrefixElision(1, 1, 400)
+	c.RecordWSSStatefulPrefixElision(2, 0, 8)
+	c.RecordWSSStatefulPrefixElision(0, 1, 100)
+	c.RecordWSSStatefulPrefixElision(1, 1, 0)
+	s := c.Snapshot()
+	if s.WSSStatefulPrefixElisionRequests != 3 {
+		t.Errorf("prefix requests=%d want 3", s.WSSStatefulPrefixElisionRequests)
+	}
+	if s.WSSStatefulPrefixElisionTools != 1 {
+		t.Errorf("prefix tool requests=%d want 1", s.WSSStatefulPrefixElisionTools)
+	}
+	if s.WSSStatefulPrefixElisionBytes != 408 {
+		t.Errorf("prefix bytes=%d want 408", s.WSSStatefulPrefixElisionBytes)
+	}
+	if s.WSSStatefulPrefixElisionTokens != 102 {
+		t.Errorf("prefix tokens=%d want 102", s.WSSStatefulPrefixElisionTokens)
+	}
+	if s.WSSStatefulPrefixInstructionsKept != 3 {
+		t.Errorf("instructions kept=%d want 3", s.WSSStatefulPrefixInstructionsKept)
+	}
+}
+
 func TestOutputReduceCountersBeTerseHint(t *testing.T) {
 	c := &OutputReduceCounters{}
 	c.RecordBeTerseInjection(80)

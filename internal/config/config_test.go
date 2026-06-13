@@ -150,6 +150,7 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_WSS_TOOL_OUTPUT_MUTATION", "true")
 	t.Setenv("SLIMFERENCE_CODEX_WSS_DELTA_TOOL_OUTPUT_MUTATION_LAB", "true")
 	t.Setenv("SLIMFERENCE_CODEX_WSS_HISTORY_MUTATION_LAB", "true")
+	t.Setenv("SLIMFERENCE_CODEX_WSS_STATEFUL_PREFIX_ELISION_PROOF", "true")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP", "true")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_PROOF_LEVEL", "replay")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MIN_BYTES", "4096")
@@ -181,7 +182,7 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 		or.CodexChunkDedupMaxReferencePercent != 78 ||
 		or.CodexChunkDedupMaxSessionReferencePercent != 67 ||
 		!or.CodexWSSToolOutputMutationEnabled || !or.CodexWSSDeltaToolOutputMutationLabEnabled ||
-		!or.CodexWSSHistoryMutationLabEnabled {
+		!or.CodexWSSHistoryMutationLabEnabled || !or.CodexWSSStatefulPrefixElisionProofEnabled {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 	if !cfg.Compression.Tuning.ToolPruneEnabled ||

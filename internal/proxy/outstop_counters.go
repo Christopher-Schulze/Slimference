@@ -8,6 +8,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/analytics"
 	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
 type proxyLayer0RouteCounters struct {
@@ -193,6 +194,12 @@ type OutputReduceCounters struct {
 
 	obsoleteReadBlocksPruned atomic.Uint64
 	obsoleteReadBytesPruned  atomic.Uint64
+
+	wssStatefulPrefixElisionRequests         atomic.Uint64
+	wssStatefulPrefixElisionToolRequests     atomic.Uint64
+	wssStatefulPrefixElisionBytesSaved       atomic.Uint64
+	wssStatefulPrefixElisionTokensSaved      atomic.Uint64
+	wssStatefulPrefixElisionInstructionsKept atomic.Uint64
 
 	beterseInjections atomic.Uint64
 	beterseHintBytes  atomic.Uint64
@@ -457,6 +464,24 @@ func (c *OutputReduceCounters) RecordObsoleteReadPrune(blocksPruned, bytesPruned
 	}
 }
 
+// RecordWSSStatefulPrefixElision increments the proof-only WSS prefix-elision
+// counters. It is intentionally separate from Layer-0 counters: this path
+// removes repeated top-level WSS tool schemas, not tool output blocks.
+func (c *OutputReduceCounters) RecordWSSStatefulPrefixElision(requests, toolRequests, bytesSaved int) {
+	if c == nil || requests <= 0 || bytesSaved <= 0 {
+		return
+	}
+	c.wssStatefulPrefixElisionRequests.Add(uint64(requests))
+	if toolRequests > 0 {
+		c.wssStatefulPrefixElisionToolRequests.Add(uint64(toolRequests))
+	}
+	c.wssStatefulPrefixElisionBytesSaved.Add(uint64(bytesSaved))
+	if estimated := tokens.Estimate(bytesSaved); estimated > 0 {
+		c.wssStatefulPrefixElisionTokensSaved.Add(uint64(estimated))
+	}
+	c.wssStatefulPrefixElisionInstructionsKept.Add(uint64(requests))
+}
+
 // RecordRepdetRewrite increments the repdet counters when one response
 // body was rewritten. savedBytes is the sum of replaced-span lengths
 // (input span size, before marker substitution).
@@ -472,40 +497,45 @@ func (c *OutputReduceCounters) RecordRepdetRewrite(matchCount int, savedBytes in
 // OutputReduceTelemetry is the JSON shape served on /admin/status under
 // the "output_reduce_counters" key.
 type OutputReduceTelemetry struct {
-	ProxyLayer0ToolResultBlocks      uint64                     `json:"proxy_layer0_tool_result_blocks"`
-	ProxyLayer0ToolUseUnresolved     uint64                     `json:"proxy_layer0_tool_use_unresolved_blocks"`
-	ProxyLayer0CommandResolvedBlocks uint64                     `json:"proxy_layer0_command_resolved_blocks"`
-	ProxyLayer0CommandUnresolved     uint64                     `json:"proxy_layer0_command_unresolved_blocks"`
-	ProxyLayer0ReadDeltaAttempts     uint64                     `json:"proxy_layer0_read_delta_attempts"`
-	ProxyLayer0ReadDeltaMisses       uint64                     `json:"proxy_layer0_read_delta_misses"`
-	ProxyLayer0RequestsModified      uint64                     `json:"proxy_layer0_requests_modified"`
-	ProxyLayer0TokensSaved           uint64                     `json:"proxy_layer0_tokens_saved"`
-	ProxyLayer0BlocksModified        uint64                     `json:"proxy_layer0_blocks_modified"`
-	ProxyLayer0ReadDeltaBlocks       uint64                     `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0CapturedBlocks        uint64                     `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0EnvelopeBlocks        uint64                     `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	ProxyLayer0RepeatedOutputBlocks  uint64                     `json:"proxy_layer0_repeated_output_blocks"`
-	ProxyLayer0ChunkDedupBlocks      uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ChunkDedupReferences  uint64                     `json:"proxy_layer0_chunk_dedup_references"`
-	ProxyLayer0ChunkDedupRefBytes    uint64                     `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
-	ProxyLayer0ChunkDedupInputBytes  uint64                     `json:"proxy_layer0_chunk_dedup_input_bytes"`
-	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
-	ProxyLayer0Policy                []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
-	ProxyLayer0Cache                 []ProxyLayer0CacheEntry    `json:"proxy_layer0_cache"`
-	ProxyLayer0Latency               []ProxyLayer0LatencyEntry  `json:"proxy_layer0_latency"`
-	StopSeqRequestsModified          uint64                     `json:"stop_seq_requests_modified"`
-	StopSeqPhrasesAdded              uint64                     `json:"stop_seq_phrases_added"`
-	StreamcutFired                   uint64                     `json:"streamcut_fired"`
-	StreamcutBytesObserved           uint64                     `json:"streamcut_bytes_observed"`
-	RepdetResponsesRewritten         uint64                     `json:"repdet_responses_rewritten"`
-	RepdetMatchesRewritten           uint64                     `json:"repdet_matches_rewritten"`
-	RepdetBytesSaved                 uint64                     `json:"repdet_bytes_saved"`
-	StaleReadBlocksReplaced          uint64                     `json:"stale_read_blocks_replaced"`
-	StaleReadBytesReplaced           uint64                     `json:"stale_read_bytes_replaced"`
-	ObsoleteReadBlocksPruned         uint64                     `json:"obsolete_read_blocks_pruned"`
-	ObsoleteReadBytesPruned          uint64                     `json:"obsolete_read_bytes_pruned"`
-	BeterseInjections                uint64                     `json:"beterse_injections"`
-	BeterseHintBytes                 uint64                     `json:"beterse_hint_bytes"`
+	ProxyLayer0ToolResultBlocks       uint64                     `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0ToolUseUnresolved      uint64                     `json:"proxy_layer0_tool_use_unresolved_blocks"`
+	ProxyLayer0CommandResolvedBlocks  uint64                     `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0CommandUnresolved      uint64                     `json:"proxy_layer0_command_unresolved_blocks"`
+	ProxyLayer0ReadDeltaAttempts      uint64                     `json:"proxy_layer0_read_delta_attempts"`
+	ProxyLayer0ReadDeltaMisses        uint64                     `json:"proxy_layer0_read_delta_misses"`
+	ProxyLayer0RequestsModified       uint64                     `json:"proxy_layer0_requests_modified"`
+	ProxyLayer0TokensSaved            uint64                     `json:"proxy_layer0_tokens_saved"`
+	ProxyLayer0BlocksModified         uint64                     `json:"proxy_layer0_blocks_modified"`
+	ProxyLayer0ReadDeltaBlocks        uint64                     `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0CapturedBlocks         uint64                     `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0EnvelopeBlocks         uint64                     `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0RepeatedOutputBlocks   uint64                     `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedupBlocks       uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkDedupReferences   uint64                     `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkDedupRefBytes     uint64                     `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkDedupInputBytes   uint64                     `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0Routes                 ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy                 []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
+	ProxyLayer0Cache                  []ProxyLayer0CacheEntry    `json:"proxy_layer0_cache"`
+	ProxyLayer0Latency                []ProxyLayer0LatencyEntry  `json:"proxy_layer0_latency"`
+	StopSeqRequestsModified           uint64                     `json:"stop_seq_requests_modified"`
+	StopSeqPhrasesAdded               uint64                     `json:"stop_seq_phrases_added"`
+	StreamcutFired                    uint64                     `json:"streamcut_fired"`
+	StreamcutBytesObserved            uint64                     `json:"streamcut_bytes_observed"`
+	RepdetResponsesRewritten          uint64                     `json:"repdet_responses_rewritten"`
+	RepdetMatchesRewritten            uint64                     `json:"repdet_matches_rewritten"`
+	RepdetBytesSaved                  uint64                     `json:"repdet_bytes_saved"`
+	StaleReadBlocksReplaced           uint64                     `json:"stale_read_blocks_replaced"`
+	StaleReadBytesReplaced            uint64                     `json:"stale_read_bytes_replaced"`
+	ObsoleteReadBlocksPruned          uint64                     `json:"obsolete_read_blocks_pruned"`
+	ObsoleteReadBytesPruned           uint64                     `json:"obsolete_read_bytes_pruned"`
+	WSSStatefulPrefixElisionRequests  uint64                     `json:"wss_stateful_prefix_elision_requests"`
+	WSSStatefulPrefixElisionTools     uint64                     `json:"wss_stateful_prefix_elision_tool_requests"`
+	WSSStatefulPrefixElisionBytes     uint64                     `json:"wss_stateful_prefix_elision_bytes_saved"`
+	WSSStatefulPrefixElisionTokens    uint64                     `json:"wss_stateful_prefix_elision_tokens_saved"`
+	WSSStatefulPrefixInstructionsKept uint64                     `json:"wss_stateful_prefix_elision_instructions_kept"`
+	BeterseInjections                 uint64                     `json:"beterse_injections"`
+	BeterseHintBytes                  uint64                     `json:"beterse_hint_bytes"`
 }
 
 type ProxyLayer0PolicyEntry struct {
@@ -587,22 +617,27 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),
 		},
-		ProxyLayer0Policy:        c.snapshotProxyLayer0Policy(),
-		ProxyLayer0Cache:         c.snapshotProxyLayer0Cache(),
-		ProxyLayer0Latency:       c.snapshotProxyLayer0Latency(),
-		StopSeqRequestsModified:  c.stopSeqRequestsModified.Load(),
-		StopSeqPhrasesAdded:      c.stopSeqPhrasesAdded.Load(),
-		StreamcutFired:           c.streamcutFired.Load(),
-		StreamcutBytesObserved:   c.streamcutBytesObserved.Load(),
-		RepdetResponsesRewritten: c.repdetResponsesRewritten.Load(),
-		RepdetMatchesRewritten:   c.repdetMatchesRewritten.Load(),
-		RepdetBytesSaved:         c.repdetBytesSaved.Load(),
-		StaleReadBlocksReplaced:  c.staleReadBlocksReplaced.Load(),
-		StaleReadBytesReplaced:   c.staleReadBytesReplaced.Load(),
-		ObsoleteReadBlocksPruned: c.obsoleteReadBlocksPruned.Load(),
-		ObsoleteReadBytesPruned:  c.obsoleteReadBytesPruned.Load(),
-		BeterseInjections:        c.beterseInjections.Load(),
-		BeterseHintBytes:         c.beterseHintBytes.Load(),
+		ProxyLayer0Policy:                 c.snapshotProxyLayer0Policy(),
+		ProxyLayer0Cache:                  c.snapshotProxyLayer0Cache(),
+		ProxyLayer0Latency:                c.snapshotProxyLayer0Latency(),
+		StopSeqRequestsModified:           c.stopSeqRequestsModified.Load(),
+		StopSeqPhrasesAdded:               c.stopSeqPhrasesAdded.Load(),
+		StreamcutFired:                    c.streamcutFired.Load(),
+		StreamcutBytesObserved:            c.streamcutBytesObserved.Load(),
+		RepdetResponsesRewritten:          c.repdetResponsesRewritten.Load(),
+		RepdetMatchesRewritten:            c.repdetMatchesRewritten.Load(),
+		RepdetBytesSaved:                  c.repdetBytesSaved.Load(),
+		StaleReadBlocksReplaced:           c.staleReadBlocksReplaced.Load(),
+		StaleReadBytesReplaced:            c.staleReadBytesReplaced.Load(),
+		ObsoleteReadBlocksPruned:          c.obsoleteReadBlocksPruned.Load(),
+		ObsoleteReadBytesPruned:           c.obsoleteReadBytesPruned.Load(),
+		WSSStatefulPrefixElisionRequests:  c.wssStatefulPrefixElisionRequests.Load(),
+		WSSStatefulPrefixElisionTools:     c.wssStatefulPrefixElisionToolRequests.Load(),
+		WSSStatefulPrefixElisionBytes:     c.wssStatefulPrefixElisionBytesSaved.Load(),
+		WSSStatefulPrefixElisionTokens:    c.wssStatefulPrefixElisionTokensSaved.Load(),
+		WSSStatefulPrefixInstructionsKept: c.wssStatefulPrefixElisionInstructionsKept.Load(),
+		BeterseInjections:                 c.beterseInjections.Load(),
+		BeterseHintBytes:                  c.beterseHintBytes.Load(),
 	}
 }
 

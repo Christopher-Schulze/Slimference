@@ -66,6 +66,7 @@ type wsPhaseFAdapter struct {
 	lastUsageRequestShape      string
 	lastUsageCacheBustScope    string
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
+	statefulPrefixElision      wssStatefulPrefixElisionState
 	sessionTurnSeq             map[string]int
 	counters                   wsPhaseFCounters
 	socketSeq                  atomic.Uint64
@@ -919,6 +920,15 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		}
 		a.rememberWSSQualityCohort(recordCohort)
+	}
+	if prefixOut, prefixProof, prefixChanged := a.applyWSSStatefulPrefixElisionProof(out); prefixProof.Enabled {
+		attachWSSStatefulPrefixElisionDebugFacts(&meta, prefixProof, prefixChanged)
+		if prefixChanged {
+			out = prefixOut
+			if a.p != nil {
+				a.p.outputReduceCounters.RecordWSSStatefulPrefixElision(prefixProof.Requests, prefixProof.ToolRequests, prefixProof.PrefixBytesSaved)
+			}
+		}
 	}
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta, outputReduceStats
 }

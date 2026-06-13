@@ -32,6 +32,7 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	p.outputReduceCounters.RecordRepdetRewrite(2, 1024)
 	p.outputReduceCounters.RecordStaleReadAging(3, 256)
 	p.outputReduceCounters.RecordObsoleteReadPrune(1, 128)
+	p.outputReduceCounters.RecordWSSStatefulPrefixElision(1, 1, 400)
 	p.outputReduceCounters.RecordStopSeqInjection(4)
 	p.outputReduceCounters.RecordBeTerseInjection(64)
 	p.outputReduceCounters.RecordProxyLayer0Stats(proxyLayer0Stats{
@@ -80,22 +81,22 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		t.Errorf("injection counts mismatch: %+v", got)
 	}
 	// Legacy output_tokens_saved remains the sum of bytes-style fields:
-	// 1024 + 2048 + 256 + 128 = 3456. New split fields keep billing-relevant
+	// 1024 + 2048 + 256 + 128 + 400 = 3856. New split fields keep billing-relevant
 	// input tokens separate from output-wire bytes.
-	if got.OutputTokensSaved != 3456 {
-		t.Errorf("OutputTokensSaved=%d want 3456", got.OutputTokensSaved)
+	if got.OutputTokensSaved != 3856 {
+		t.Errorf("OutputTokensSaved=%d want 3856", got.OutputTokensSaved)
 	}
-	if got.BillableInputTokensSaved != 2026 {
-		t.Errorf("BillableInputTokensSaved=%d want 2026", got.BillableInputTokensSaved)
+	if got.BillableInputTokensSaved != 2126 {
+		t.Errorf("BillableInputTokensSaved=%d want 2126", got.BillableInputTokensSaved)
 	}
 	if got.Product.Status != "attention" {
 		t.Errorf("Product.Status=%q want attention", got.Product.Status)
 	}
-	if got.Product.BillableInputTokensSaved != 2026 ||
+	if got.Product.BillableInputTokensSaved != 2126 ||
 		got.Product.ProviderCacheReadTokens != 700 ||
 		got.Product.ProviderCacheCreateTokens != 120 ||
 		got.Product.OutputWireBytesSaved != 3072 ||
-		got.Product.RequestSideBytesReduced != 384 {
+		got.Product.RequestSideBytesReduced != 784 {
 		t.Errorf("Product savings mismatch: %+v", got.Product)
 	}
 	if got.Product.ToolPruneTokensSaved != 26 ||
@@ -124,12 +125,12 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if got.OutputWireBytesSaved != 3072 {
 		t.Errorf("OutputWireBytesSaved=%d want 3072", got.OutputWireBytesSaved)
 	}
-	if got.RequestSideBytesReduced != 384 {
-		t.Errorf("RequestSideBytesReduced=%d want 384", got.RequestSideBytesReduced)
+	if got.RequestSideBytesReduced != 784 {
+		t.Errorf("RequestSideBytesReduced=%d want 784", got.RequestSideBytesReduced)
 	}
 	// CostUSD is based on billable input tokens, not output-wire bytes.
-	if got.InputTokensSaved != 2026 {
-		t.Errorf("InputTokensSaved=%d want 2026", got.InputTokensSaved)
+	if got.InputTokensSaved != 2126 {
+		t.Errorf("InputTokensSaved=%d want 2126", got.InputTokensSaved)
 	}
 	if got.ProxyLayer0Repeated != 1 {
 		t.Errorf("ProxyLayer0Repeated=%d want 1", got.ProxyLayer0Repeated)
@@ -148,8 +149,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if len(got.ProxyLayer0Latency) != 2 || got.ProxyLayer0Latency[0].Count != 1 {
 		t.Errorf("ProxyLayer0Latency mismatch: %+v", got.ProxyLayer0Latency)
 	}
-	// CostUSD = 2026 / 1_000_000 * 6.0 = 0.012156
-	if got.CostUSD < 0.0121 || got.CostUSD > 0.0122 {
+	// CostUSD = 2126 / 1_000_000 * 6.0 = 0.012756
+	if got.CostUSD < 0.0127 || got.CostUSD > 0.0128 {
 		t.Errorf("CostUSD=%v out of range", got.CostUSD)
 	}
 }
