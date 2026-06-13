@@ -121,8 +121,10 @@ func defaultsRaw() *Config {
 					GitModerateDiffLimit:      60,
 					TestMaxFailureLines:       40,
 				},
-				CoordinatorParallel:         true,
-				PlannerLiveCorpusConfidence: "unknown",
+				CoordinatorParallel:            true,
+				WSSFullHistoryToolPruneEnabled: true,
+				ToolPruneIdleThresholdTurns:    20,
+				PlannerLiveCorpusConfidence:    "unknown",
 			},
 		},
 		Cache: CacheConfig{
@@ -326,10 +328,13 @@ structure_preview = true
 # with the original message order preserved.
 coordinator_parallel = true
 
-# T103: Layer 3 tool-definition pruning. When on, tool definitions
-# idle for more than the threshold are removed from the request
-# body and archived for reattachment. Default off.
+# T103: broad Layer 3 tool-definition pruning. When on, tool definitions
+# idle for more than the threshold are removed from eligible request bodies
+# and archived for reattachment. Default off.
 tool_prune_enabled = false
+# Default-safe Codex WSS slice: apply tool-prune only to previous_response_id
+# full-history resends. Root and steady delta WSS tool prefixes stay byte-equal.
+wss_full_history_tool_prune_enabled = true
 tool_prune_idle_threshold_turns = 20
 # Extra exact tool names that must never be pruned. Shell/edit/read/safety,
 # browser, and MCP tool classes are always kept even when this list is empty.

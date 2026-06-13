@@ -902,6 +902,88 @@ func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	if wssToolPruneRequestEligible(wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true}) {
 		t.Fatal("previous_response_id tool schema turns without user prompt must stay ineligible")
 	}
+	if !wssToolPruneRequestEligibleForMessages(fullHistoryMessages, wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true}) {
+		t.Fatal("previous_response_id full-history tool schema turns are safe-slice eligible even without a user prompt")
+	}
+	if wssToolPruneRequestEligibleForMessages(deltaMessages, wssRequestMeta{PreviousResponseID: "resp_prev", HasToolDefinitions: true}) {
+		t.Fatal("previous_response_id delta tool schema turns without user prompt must stay ineligible")
+	}
+	if !wssToolPruneFullHistoryOnlyRequest(fullHistoryMessages, withTools) {
+		t.Fatal("previous_response_id full-history with tool definitions must be WSS safe-slice eligible")
+	}
+	if wssToolPruneFullHistoryOnlyRequest(deltaMessages, withTools) {
+		t.Fatal("previous_response_id delta must not be WSS safe-slice eligible")
+	}
+	if wssToolPruneFullHistoryOnlyRequest(fullHistoryMessages, wssRequestMeta{HasToolDefinitions: true}) {
+		t.Fatal("root tool schema must not be WSS safe-slice eligible")
+	}
+}
+
+func TestWSPhaseFToolPruneFeatureGatePredicates(t *testing.T) {
+	fullHistoryMessages := []types.Message{{
+		Role:    "assistant",
+		Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call_1"}},
+	}}
+	fullHistoryMeta := wssRequestMeta{
+		SessionID:            "codex-wss:tool-prune-gate",
+		PreviousResponseID:   "resp_prev",
+		Model:                "gpt-5-codex",
+		ClientFamily:         "codex_cli",
+		HasToolDefinitions:   true,
+		HasUserPromptInput:   true,
+		HasPromptCachePrefix: true,
+		PromptCacheKeyHash:   "cache-key",
+	}
+	deltaMessages := []types.Message{{
+		Role:    "user",
+		Content: []types.ContentBlock{{Type: "text", Text: "continue"}},
+	}}
+
+	var nilAdapter *wsPhaseFAdapter
+	if nilAdapter.wssToolPruneObservationEnabled() || nilAdapter.wssToolPruneEnabledForRequest(fullHistoryMessages, fullHistoryMeta) {
+		t.Fatal("nil adapter must fail closed for WSS tool-prune observation and mutation")
+	}
+	if adapter := (&wsPhaseFAdapter{}); adapter.wssToolPruneObservationEnabled() || adapter.wssToolPruneEnabledForRequest(fullHistoryMessages, fullHistoryMeta) {
+		t.Fatal("adapter without proxy must fail closed for WSS tool-prune observation and mutation")
+	}
+	if adapter := (&wsPhaseFAdapter{p: &Proxy{}}); adapter.wssToolPruneObservationEnabled() || adapter.wssToolPruneEnabledForRequest(fullHistoryMessages, fullHistoryMeta) {
+		t.Fatal("adapter without config must fail closed for WSS tool-prune observation and mutation")
+	}
+
+	cfg := config.Defaults()
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = false
+	disabled := (&PhaseFDispatcher{Proxy: New(cfg)}).newWSPhaseFAdapter()
+	if disabled.wssToolPruneObservationEnabled() || disabled.wssToolPruneEnabledForRequest(fullHistoryMessages, fullHistoryMeta) {
+		t.Fatal("all tool-prune flags off must disable WSS observation and mutation")
+	}
+
+	cfg = config.Defaults()
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	safeSlice := (&PhaseFDispatcher{Proxy: New(cfg)}).newWSPhaseFAdapter()
+	if !safeSlice.wssToolPruneObservationEnabled() {
+		t.Fatal("WSS full-history safe slice must observe usage for later full-history savings")
+	}
+	if !safeSlice.wssToolPruneEnabledForRequest(fullHistoryMessages, fullHistoryMeta) {
+		t.Fatal("WSS full-history safe slice must enable previous_response_id full-history pruning")
+	}
+	if safeSlice.wssToolPruneEnabledForRequest(deltaMessages, fullHistoryMeta) {
+		t.Fatal("WSS full-history safe slice must keep previous_response_id delta byte-equal")
+	}
+	rootMeta := fullHistoryMeta
+	rootMeta.PreviousResponseID = ""
+	if safeSlice.wssToolPruneEnabledForRequest(fullHistoryMessages, rootMeta) {
+		t.Fatal("WSS full-history safe slice must keep root tool prefixes byte-equal")
+	}
+
+	cfg = config.Defaults()
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = false
+	broad := (&PhaseFDispatcher{Proxy: New(cfg)}).newWSPhaseFAdapter()
+	if !broad.wssToolPruneObservationEnabled() || !broad.wssToolPruneEnabledForRequest(deltaMessages, rootMeta) {
+		t.Fatal("broad tool_prune_enabled must preserve the legacy operator-controlled WSS path")
+	}
 }
 
 func TestWSPhaseFRequestUserInputToolSchemaStaysByteEqualByDefault(t *testing.T) {
@@ -2926,6 +3008,183 @@ func TestWSPhaseFToolPruneAllowsPreviousResponseFullHistoryTurns(t *testing.T) {
 		summary.ToolPrune.PrunedTools != 1 ||
 		summary.ToolPrune.SavedTokens <= 0 {
 		t.Fatalf("full-history WSS tool-prune summary missing savings: %+v", summary.ToolPrune)
+	}
+}
+
+func TestWSPhaseFToolPruneDefaultSafeSlicePrunesOnlyFullHistory(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-default-safe-slice"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-default-safe-slice",
+			"prompt_cache_key":     "wss-tool-prune-default-safe-slice",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory)
+	if err != nil {
+		t.Fatalf("handle full-history: %v", err)
+	}
+	if !replace || strings.Contains(string(fullHistory.Body), "ColdTool") {
+		t.Fatalf("default WSS full-history safe slice should prune idle tool, replace=%v body=%s", replace, fullHistory.Body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.tool_prune_guard"] != "" {
+		t.Fatalf("default WSS full-history tool-prune summary mismatch: %+v", summary)
+	}
+
+	root := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-root-stays-byte-equal",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue with the available tools.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	rootOriginal := append([]byte(nil), root.Body...)
+	replace, err = adapter.handle(context.Background(), wsmitm.DirClientToServer, &root)
+	if err != nil {
+		t.Fatalf("handle root: %v", err)
+	}
+	if replace || !bytes.Equal(root.Body, rootOriginal) {
+		t.Fatalf("root tool prefix must stay byte-equal under WSS safe slice, replace=%v body=%s", replace, root.Body)
+	}
+}
+
+func TestWSPhaseFToolPruneDefaultSafeSlicePrunesNoUserPromptFullHistory(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-default-safe-no-user-full-history"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-default-safe-no-user-full-history",
+			"prompt_cache_key":     "wss-tool-prune-default-safe-no-user-full-history",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory)
+	if err != nil {
+		t.Fatalf("handle full-history without user prompt: %v", err)
+	}
+	if !replace || strings.Contains(string(fullHistory.Body), "ColdTool") {
+		t.Fatalf("default WSS no-user full-history safe slice should prune idle tool, replace=%v body=%s", replace, fullHistory.Body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.tool_prune_guard"] != "" ||
+		summary.DebugFacts["wss.previous_response_id"] != "true" {
+		t.Fatalf("default WSS no-user full-history tool-prune summary mismatch: %+v facts=%+v", summary.ToolPrune, summary.DebugFacts)
+	}
+}
+
+func TestWSPhaseFToolPruneWSSSafeSliceCanBeDisabled(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = false
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-safe-slice-off"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-safe-slice-off",
+			"prompt_cache_key":     "wss-tool-prune-safe-slice-off",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	original := append([]byte(nil), env.Body...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace || !bytes.Equal(env.Body, original) {
+		t.Fatalf("disabled WSS safe slice must preserve full-history body, replace=%v body=%s", replace, env.Body)
+	}
+	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 0 || snap.TokensSavedSum != 0 {
+		t.Fatalf("disabled WSS safe slice must not book tool-prune savings: %+v", snap)
 	}
 }
 

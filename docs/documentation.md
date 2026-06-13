@@ -1715,7 +1715,12 @@ beyond `tool_prune_idle_threshold_turns` (default 20) are removed from `tools[]`
 or top-level `tools[].name`). Telemetry at
 `/admin/status.tool_prune.{sessions,pruned_total,reattach_total,
 miss_total,retry_total,always_keep_total,disabled_sessions,
-tokens_saved_sum}`. Default off.
+tokens_saved_sum}`. Broad tool-prune stays default-off. The narrower
+Codex WSS full-history slice is default-on: when a `previous_response_id`
+request is classified as `full_history`, idle tools may be pruned with the
+same archive/reattach/retry recovery. Root requests and steady
+`previous_response_id` delta turns stay byte-equal unless the broader
+operator flag is explicitly enabled.
 
 T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, and MCP tool classes are always kept, and
@@ -1736,20 +1741,24 @@ Focused tool-heavy proof runs can enable the pruner without editing the config
 file via `SLIMFERENCE_TOOL_PRUNE_ENABLED=1`, shorten the proof-only idle window
 via `SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS=1`, and provide
 comma-separated project keeps via `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`.
+The WSS full-history default slice can be disabled for a hot rollback with
+`SLIMFERENCE_WSS_FULL_HISTORY_TOOL_PRUNE=0`.
 The Codex WSS Phase-F path uses the same strict pruner for prompt/user-turn and
 root/full-resend tool-schema request bodies. WSS tool-call frames feed tool-name
 usage into the session tracker, but actual `tools[]` mutation only happens on
 prompt/user turns or no-previous-response tool-schema root/full-resend frames
-with a known Codex tool schema. Unknown-session tools remain attached by the
-fail-open tracker, so no-user root frames prune only after prior session evidence
-proves a tool idle. Previous-response-id delta turns still full-pass general
+when broad tool-prune is enabled, or on previous-response-id `full_history`
+frames through the default-safe WSS slice, with a known Codex tool schema.
+Unknown-session tools remain attached by the fail-open tracker, so no-user root
+frames prune only after prior session evidence proves a tool idle and the broad
+operator flag is on. Previous-response-id delta turns still full-pass general
 tool-prune and reattach with `wss_tool_prune_delta_guard`, because mutating the
 steady delta prefix can poison later WSS state. Full-history resends with
-previous-response-id
-are eligible again when their message shape is actually classified as
-`full_history`, so reconnect/full-resend turns can recover tool schema savings
-without reopening the unsafe delta path. Unknown, empty, or mixed schemas stay
-byte-equal. WSS decision summaries record the same content-free
+previous-response-id are eligible when their message shape is actually
+classified as `full_history`, so reconnect/full-resend turns can recover tool
+schema savings without reopening the unsafe delta path. Unknown, empty, or
+mixed schemas stay byte-equal. WSS decision summaries record the same
+content-free
 `tool_prune` accounting as HTTP: guard reason, applied flag, pruned tool count,
 saved-token estimate, reattach count, always-kept count, and cooldown/full-pass
 reason flow through `debug last`, flight summaries, mechanism accounting, and

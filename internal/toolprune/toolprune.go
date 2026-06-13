@@ -1,9 +1,10 @@
 // Package toolprune tracks per-session tool usage so the proxy can
 // strip idle tool definitions from the request body before sending.
-// T103. Pruning is gated by `[compression.tuning] tool_prune_enabled`
-// so the default is no behavioural change; once a tool definition is
-// pruned, T76 WP3 (opportunistic re-injection) handles re-attachment
-// when the model references the local-archive URI.
+// T103. Broad pruning is gated by `[compression.tuning] tool_prune_enabled`;
+// Codex WSS additionally has a default-on full-history-only safe slice. Once a
+// tool definition is pruned, the recovery path reattaches the archived
+// definition when a later turn mentions the tool or a missing-tool retry proves
+// it was still needed.
 package toolprune
 
 import (

@@ -159,6 +159,7 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_REFERENCE_PERCENT", "78")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSION_REFERENCE_PERCENT", "67")
 	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ENABLED", "true")
+	t.Setenv("SLIMFERENCE_WSS_FULL_HISTORY_TOOL_PRUNE", "false")
 	t.Setenv("SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS", "3")
 	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP", "shell, read_file,  write_file ")
 
@@ -184,10 +185,26 @@ func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 	if !cfg.Compression.Tuning.ToolPruneEnabled ||
+		cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled ||
 		cfg.Compression.Tuning.ToolPruneIdleThresholdTurns != 3 ||
 		len(cfg.Compression.Tuning.ToolPruneAlwaysKeep) != 3 ||
 		cfg.Compression.Tuning.ToolPruneAlwaysKeep[1] != "read_file" {
 		t.Fatalf("tool-prune env not applied: %+v", cfg.Compression.Tuning)
+	}
+}
+
+func TestDefaults_WSSFullHistoryToolPruneSliceEnabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := Defaults()
+	if cfg.Compression.Tuning.ToolPruneEnabled {
+		t.Fatal("broad tool-prune must remain default-off")
+	}
+	if !cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled {
+		t.Fatal("WSS full-history tool-prune safe slice must be default-on")
+	}
+	if cfg.Compression.Tuning.ToolPruneIdleThresholdTurns != 20 {
+		t.Fatalf("ToolPruneIdleThresholdTurns=%d, want 20", cfg.Compression.Tuning.ToolPruneIdleThresholdTurns)
 	}
 }
 
@@ -1052,6 +1069,11 @@ func TestDefaultTOML(t *testing.T) {
 	}
 	if !strings.Contains(out, `codex_search_cap_proof_path = ""`) {
 		t.Error("DefaultTOML() should expose the disabled search-cap proof latch")
+	}
+	if !strings.Contains(out, "tool_prune_enabled = false") ||
+		!strings.Contains(out, "wss_full_history_tool_prune_enabled = true") ||
+		!strings.Contains(out, "tool_prune_idle_threshold_turns = 20") {
+		t.Error("DefaultTOML() should expose broad tool-prune off and WSS full-history slice on")
 	}
 	for _, rawCap := range []string{
 		"codex_search_cap_max_files",

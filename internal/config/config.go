@@ -394,6 +394,11 @@ type TuningConfig struct {
 	// ToolPruneIdleThresholdTurns are removed from the request body
 	// and archived for transparent reattachment. Default off.
 	ToolPruneEnabled bool `toml:"tool_prune_enabled"`
+	// WSSFullHistoryToolPruneEnabled enables the default-safe Codex WSS slice:
+	// tool-prune may run on previous_response_id full-history resends only.
+	// Root and steady delta WSS tool prefixes stay byte-equal unless the
+	// broader ToolPruneEnabled operator flag is explicitly on.
+	WSSFullHistoryToolPruneEnabled bool `toml:"wss_full_history_tool_prune_enabled"`
 	// ToolPruneIdleThresholdTurns is the number of observed session turns a
 	// tool can remain unused before it becomes prune-eligible. Default 20.
 	ToolPruneIdleThresholdTurns int `toml:"tool_prune_idle_threshold_turns"`
@@ -835,6 +840,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_TOOL_PRUNE_ENABLED")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.Tuning.ToolPruneEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_WSS_FULL_HISTORY_TOOL_PRUNE")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = b
 		}
 	}
 	if n, ok := envIntOK("SLIMFERENCE_TOOL_PRUNE_IDLE_THRESHOLD_TURNS"); ok && n > 0 {

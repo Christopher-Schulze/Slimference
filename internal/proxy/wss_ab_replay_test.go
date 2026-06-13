@@ -150,6 +150,56 @@ func TestRunWSSPhaseFABReplayClassifiesRequestShapes(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayDefaultToolPruneMutatesOnlyFullHistoryShape(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	cfg.Compression.Tuning.ToolPruneIdleThresholdTurns = 1
+
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("cold-call", "ColdTool", map[string]any{"arg": "seed"}),
+		wssReplayClientToolOutputFrame("cold-call", "tool-prune-replay", "resp-cold", "cold tool output"),
+		wssReplayServerToolCallFrame("bash-call", "Bash", map[string]any{"cmd": "echo ok"}),
+		wssReplayClientToolOutputFrame("bash-call", "tool-prune-replay", "resp-bash", "ok"),
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":                "gpt-5-codex",
+				"prompt_cache_key":     "tool-prune-replay",
+				"previous_response_id": "resp-full-history-tool-prune",
+				"input": []map[string]any{
+					{"type": "function_call", "call_id": "bash-call", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+					{"type": "function_call_output", "call_id": "bash-call", "output": "ok"},
+				},
+				"tools": []map[string]any{
+					codexToolDefinition("Bash", "Run a shell command"),
+					codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+				},
+				"stream": true,
+			}),
+		},
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestShapes.Delta != 2 || got.RequestShapes.FullHistory != 1 || got.RequestShapes.Root != 0 {
+		t.Fatalf("unexpected request shape counts: %+v", got.RequestShapes)
+	}
+	if got.MutatedShapes.FullHistory != 1 || got.MutatedShapes.Delta != 0 || got.MutatedShapes.Root != 0 {
+		t.Fatalf("default tool-prune safe slice must mutate only full-history, got %+v", got.MutatedShapes)
+	}
+	if got.MutatedRequests != 1 || got.Report.Lost() != 0 {
+		t.Fatalf("tool-prune replay should have exactly one no-loss mutation: %+v", got)
+	}
+}
+
 func TestRunWSSPhaseFABReplayCountsMutatedFullHistoryShape(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

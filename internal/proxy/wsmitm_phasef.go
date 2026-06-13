@@ -957,7 +957,7 @@ func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUsageWithToolUses(sessionID string, messages []types.Message, toolUses map[string]types.ContentBlock) {
-	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
+	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.wssToolPruneObservationEnabled() {
 		return
 	}
 	used := extractUsedToolNamesWithResolvedToolUses(messages, toolUses)
@@ -974,11 +974,11 @@ type wssToolPruneResult struct {
 }
 
 func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, meta wssRequestMeta) ([]byte, bool, wssToolPruneResult) {
-	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
+	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.wssToolPruneEnabledForRequest(messages, meta) {
 		return body, false, wssToolPruneResult{}
 	}
 	sessionID := meta.SessionID
-	if sessionID == "" || !wssToolPruneRequestEligible(meta) {
+	if sessionID == "" || !wssToolPruneRequestEligibleForMessages(messages, meta) {
 		return body, false, wssToolPruneResult{}
 	}
 	summary := dbg.ToolPruneSummary{
@@ -1052,6 +1052,32 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 	return prunedBody, true, wssToolPruneResult{Summary: summary, RetryBody: retryBody}
 }
 
+func (a *wsPhaseFAdapter) wssToolPruneObservationEnabled() bool {
+	if a == nil || a.p == nil || a.p.config == nil {
+		return false
+	}
+	tuning := a.p.config.Compression.Tuning
+	return tuning.ToolPruneEnabled || tuning.WSSFullHistoryToolPruneEnabled
+}
+
+func (a *wsPhaseFAdapter) wssToolPruneEnabledForRequest(messages []types.Message, meta wssRequestMeta) bool {
+	if a == nil || a.p == nil || a.p.config == nil {
+		return false
+	}
+	tuning := a.p.config.Compression.Tuning
+	if tuning.ToolPruneEnabled {
+		return true
+	}
+	return tuning.WSSFullHistoryToolPruneEnabled && wssToolPruneFullHistoryOnlyRequest(messages, meta)
+}
+
+func wssToolPruneFullHistoryOnlyRequest(messages []types.Message, meta wssRequestMeta) bool {
+	return meta.PreviousResponseID != "" &&
+		meta.HasToolDefinitions &&
+		len(messages) > 0 &&
+		!wssRequestIsDeltaShape(messages)
+}
+
 func wssToolPruneMutationGuardReason(messages []types.Message, meta wssRequestMeta, reattachMentions []string) string {
 	if meta.PreviousResponseID == "" {
 		return ""
@@ -1070,6 +1096,13 @@ func wssToolPruneRequestEligible(meta wssRequestMeta) bool {
 		return true
 	}
 	return meta.PreviousResponseID == "" && meta.HasToolDefinitions
+}
+
+func wssToolPruneRequestEligibleForMessages(messages []types.Message, meta wssRequestMeta) bool {
+	if wssToolPruneFullHistoryOnlyRequest(messages, meta) {
+		return true
+	}
+	return wssToolPruneRequestEligible(meta)
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput bool, toolOutputPresenceKnown bool, userPromptInputKnown bool, hasUserPromptInput bool, promptCachePrefixKnown bool, hasPromptCachePrefix bool) ([]byte, outputreduce.Stats) {
