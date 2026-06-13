@@ -780,6 +780,11 @@ retries once with the full reconstructed input chain, and records
 rejected, Slimference records `wss_upstream_recovery_failed`; if no safe retry
 candidate exists it records precise no-retry debug facts. Context-window, auth,
 rate-limit, and unknown-chain errors do not retry.
+After a safe retry is sent, the WSS adapter switches the session into stateless
+history continuation mode: the next `previous_response_id` continuation rewrites
+only when the locally stored chain exists, expands that chain plus the current
+input, and sends the request without `previous_response_id`. This avoids repeated
+400+retry loops on a lineage that has already proven fragile.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained

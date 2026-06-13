@@ -1373,6 +1373,10 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	if recoveryID == "" || summaries[0].DebugFacts["wss.recovery.phase"] != "retry_sent" {
 		t.Fatalf("retry summary should carry recovery id and phase: %+v", summaries[0].DebugFacts)
 	}
+	if summaries[0].DebugFacts["wss.recovery.stateless_history_continuation"] != "true" ||
+		!adapter.wssHistoryStatelessMode() {
+		t.Fatalf("retry must immediately switch following continuations to stateless history: %+v", summaries[0].DebugFacts)
+	}
 
 	secondCreated := parseWSJSON(t, map[string]any{
 		"type":     string(wsmitm.FrameKindResponseCreated),
@@ -1405,8 +1409,47 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	if summaries[0].DebugFacts["wss.recovery.id"] != recoveryID ||
 		summaries[0].DebugFacts["wss.recovery.phase"] != "completed" ||
 		summaries[0].DebugFacts["wss.recovery.accepted"] != "true" ||
-		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" {
+		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" ||
+		summaries[0].DebugFacts["wss.recovery.stateless_history_continuation"] != "true" {
 		t.Fatalf("bad recovery success facts: %+v", summaries[0].DebugFacts)
+	}
+	if !adapter.wssHistoryStatelessMode() {
+		t.Fatal("successful recovery must switch following continuations to stateless history")
+	}
+
+	third := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5.5",
+			"previous_response_id": "resp-recovery-2",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-recovery","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "third prompt",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &third); err != nil || !replace {
+		t.Fatalf("post-recovery continuation should be stateless full-history replace=%v err=%v", replace, err)
+	}
+	thirdBody, _, ok := wsRequestBody(&third)
+	if !ok {
+		t.Fatal("third request body missing")
+	}
+	if bytes.Contains(thirdBody, []byte("previous_response_id")) {
+		t.Fatalf("post-recovery continuation must drop previous_response_id: %s", thirdBody)
+	}
+	thirdInput, ok := wssInputItems(thirdBody)
+	if !ok || len(thirdInput) <= 1 {
+		t.Fatalf("post-recovery continuation must include recovered chain, len=%d ok=%v body=%s", len(thirdInput), ok, thirdBody)
+	}
+	summaries = p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].DebugFacts["wss.stateless_history_continuation"] != "true" {
+		t.Fatalf("missing post-recovery stateless continuation fact: %+v", summaries)
 	}
 }
 

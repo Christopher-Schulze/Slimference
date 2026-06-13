@@ -335,11 +335,13 @@ func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSum
 	a.recoveryAccepted = false
 	a.recoveryResponseID = ""
 	a.markWSSHistoryMutationRecoveryLineageLocked(candidate.PreviousResponseID)
+	a.historyStatelessMode = true
 	a.mu.Unlock()
 
 	a.recordWSSRecoveryEvent("wss_upstream_recovery_retry", candidate, errSummary, map[string]string{
-		"wss.recovery.phase":                   "retry_sent",
-		"wss.recovery.tool_prune_missing_tool": strconv.FormatBool(missingToolRetry),
+		"wss.recovery.phase":                          "retry_sent",
+		"wss.recovery.tool_prune_missing_tool":        strconv.FormatBool(missingToolRetry),
+		"wss.recovery.stateless_history_continuation": "true",
 	})
 	slog.Info("codex wss upstream error recovered by full-context retry",
 		"recovery_id", candidate.RecoveryID,
@@ -395,11 +397,13 @@ func (a *wsPhaseFAdapter) observeWSSRecoveryResponse(env *wsmitm.Envelope) {
 			if responseID != "" {
 				a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
 			}
+			a.historyStatelessMode = true
 			succeededFacts = map[string]string{
-				"wss.recovery.phase":          "completed",
-				"wss.recovery.terminal_frame": string(env.Kind),
-				"wss.recovery.accepted":       strconv.FormatBool(a.recoveryAccepted),
-				"wss.recovery.response_id":    a.recoveryResponseID,
+				"wss.recovery.phase":                          "completed",
+				"wss.recovery.terminal_frame":                 string(env.Kind),
+				"wss.recovery.accepted":                       strconv.FormatBool(a.recoveryAccepted),
+				"wss.recovery.response_id":                    a.recoveryResponseID,
+				"wss.recovery.stateless_history_continuation": "true",
 			}
 			a.activeRecovery = nil
 			a.recoveryAccepted = false
