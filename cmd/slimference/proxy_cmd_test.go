@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/tlsca"
 	"github.com/Christopher-Schulze/Slimference/internal/transparent"
@@ -681,6 +682,19 @@ func TestDefaultProxyHealthCheck(t *testing.T) {
 	host, port := splitTestHostPort(t, server.URL)
 	if err := defaultProxyHealthCheck(host, port); err != nil {
 		t.Fatalf("health check: %v", err)
+	}
+}
+
+func TestDefaultProxyHealthCheckAllowsIdleHealthWarmup(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(900 * time.Millisecond)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	host, port := splitTestHostPort(t, server.URL)
+	if err := defaultProxyHealthCheck(host, port); err != nil {
+		t.Fatalf("idle warmup health check should pass: %v", err)
 	}
 }
 

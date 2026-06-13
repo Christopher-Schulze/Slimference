@@ -51,6 +51,7 @@ type wsPhaseFAdapter struct {
 	pendingChain                      wssResponseChain
 	pendingOutput                     []json.RawMessage
 	pendingRecovery                   *wssRecoveryCandidate
+	pendingStatelessChainExport       bool
 	activeRecovery                    *wssRecoveryCandidate
 	recoveryAccepted                  bool
 	recoveryResponseID                string
@@ -527,6 +528,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
 		if statelessHistoryContinuation {
+			a.markWSSHistoryStatelessMode()
 			if meta.DebugFacts == nil {
 				meta.DebugFacts = make(map[string]string)
 			}
@@ -575,7 +577,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded(meta.PreviousResponseID)
 		a.rememberWSSHistoryRecoveryGuardRequest(historyMutationRecoveryGuarded)
 		fullHistoryHistoryMutationBlocked := false
-		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
+		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history" && meta.PreviousResponseID != ""
 		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true

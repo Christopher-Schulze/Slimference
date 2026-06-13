@@ -146,7 +146,7 @@ func (a *wsPhaseFAdapter) wssHistoryStatelessMode() bool {
 }
 
 func (a *wsPhaseFAdapter) wssStatelessHistoryContinuationBody(body []byte) ([]byte, bool) {
-	if a == nil || !a.wssHistoryStatelessMode() || len(body) == 0 {
+	if a == nil || len(body) == 0 {
 		return body, false
 	}
 	var raw map[string]json.RawMessage
@@ -161,7 +161,7 @@ func (a *wsPhaseFAdapter) wssStatelessHistoryContinuationBody(body []byte) ([]by
 	if !ok || len(currentInput) == 0 {
 		return body, false
 	}
-	prior := a.wssResponseChain(previousResponseID)
+	prior := a.wssStatelessContinuationChain(previousResponseID)
 	if len(prior) == 0 {
 		return body, false
 	}
@@ -196,10 +196,13 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 		}
 	}
 
+	exportStatelessChain := meta.DebugFacts["wss.full_history_stateless_followup"] == "true" ||
+		meta.DebugFacts["wss.stateless_history_continuation"] == "true"
 	a.mu.Lock()
 	a.pendingChain = cloneWSSRawItems(fullInput)
 	a.pendingOutput = nil
 	a.pendingRecovery = candidate
+	a.pendingStatelessChainExport = exportStatelessChain
 	a.mu.Unlock()
 }
 
@@ -239,6 +242,7 @@ func (a *wsPhaseFAdapter) clearPendingWSSRecovery() {
 	a.pendingChain = nil
 	a.pendingOutput = nil
 	a.pendingRecovery = nil
+	a.pendingStatelessChainExport = false
 	a.mu.Unlock()
 }
 
@@ -260,6 +264,8 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 		return
 	}
 	output := wssResponseOutputItems(env.Response)
+	var exportResponseID string
+	var exportChain wssResponseChain
 
 	a.mu.Lock()
 	if len(output) == 0 {
@@ -274,6 +280,10 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 		if a.pendingHistoryRecoveryGuarded {
 			a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
 		}
+		if a.pendingStatelessChainExport {
+			exportResponseID = responseID
+			exportChain = wssResponseChain(cloneWSSRawItems(chain))
+		}
 		if len(a.responseChains) > wssRecoveryMaxChains {
 			for id := range a.responseChains {
 				delete(a.responseChains, id)
@@ -282,8 +292,12 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 		}
 	}
 	a.pendingHistoryRecoveryGuarded = false
+	a.pendingStatelessChainExport = false
 	a.pendingOutput = nil
 	a.mu.Unlock()
+	if exportResponseID != "" && a.p != nil {
+		a.p.rememberWSSStatelessChain(exportResponseID, exportChain)
+	}
 }
 
 func (a *wsPhaseFAdapter) tryWSSRecoveryRetry(status, errorType, message, errSummary string) bool {
@@ -519,8 +533,28 @@ func (a *wsPhaseFAdapter) wssResponseChain(responseID string) wssResponseChain {
 		return nil
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return cloneWSSRawItems(a.responseChains[responseID])
+	chain := wssResponseChain(cloneWSSRawItems(a.responseChains[responseID]))
+	a.mu.Unlock()
+	if len(chain) > 0 {
+		return chain
+	}
+	if a.p == nil {
+		return nil
+	}
+	return a.p.wssStatelessChain(responseID)
+}
+
+func (a *wsPhaseFAdapter) wssStatelessContinuationChain(responseID string) wssResponseChain {
+	if a == nil || responseID == "" {
+		return nil
+	}
+	if a.wssHistoryStatelessMode() {
+		return a.wssResponseChain(responseID)
+	}
+	if a.p == nil {
+		return nil
+	}
+	return a.p.wssStatelessChain(responseID)
 }
 
 func wssInputItems(body []byte) ([]json.RawMessage, bool) {

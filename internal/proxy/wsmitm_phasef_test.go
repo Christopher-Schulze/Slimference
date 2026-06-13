@@ -6950,8 +6950,9 @@ func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *tes
 
 	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
 	env := parseWSJSON(t, map[string]any{
-		"model":            "gpt-5-codex",
-		"prompt_cache_key": "search-reconnect-full-history-session",
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-reconnect-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-session",
 		"input": []map[string]any{
 			{"type": "function_call", "call_id": "search-reconnect-full-history", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
 			{"type": "function_call_output", "call_id": "search-reconnect-full-history", "output": searchOutput},
@@ -6973,6 +6974,7 @@ func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *tes
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.previous_response_id"] != "true" ||
 		summary.DebugFacts["wss.structured_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
 		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
 		summary.Tokens.Saved != 0 ||

@@ -807,7 +807,11 @@ After a safe retry is sent, the WSS adapter switches the session into stateless
 history continuation mode: the next `previous_response_id` continuation rewrites
 only when the locally stored chain exists, expands that chain plus the current
 input, and sends the request without `previous_response_id`. This avoids repeated
-400+retry loops on a lineage that has already proven fragile.
+400+retry loops on a lineage that has already proven fragile. Stateless-armable
+full-history mutations also export their exact forwarded response chain into a
+bounded proxy-local store, so a later socket reconnect can continue the same
+lineage as stateless full-history without reopening arbitrary stateful delta
+mutation.
 
 Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
@@ -854,16 +858,18 @@ rows (`error`, `fatal`, `timeout`, `rejected`, `warning`, `security`, `secret`,
 plain middle rows.
 For Codex WSS Phase-F, search-output reducer paths stay risk-gated by request
 shape and recovery proof. Recoverable full-history tool output on the first
-live socket may compact with an archive marker; reconnect full-history
-downstream-state tool-output mutation and ambiguous stateful/delta tool output
-full-pass until fresh live proof shows the current WSS contract accepts that
-mutation without upstream 400s or model-facing context loss. History-only
-full-history stale/obsolete reducers are narrower: after T353 proof, a mutated
-full-history chain drops `previous_response_id`, stores the actual forwarded
-chain, and expands following continuations to stateless full-history before the
-next tool output. This keeps exact WSS history-token savings where the recovery
-path is deterministic without turning historical downstream-delta risk into a
-broad savings kill switch.
+live socket may compact with an archive marker. Reconnect full-history requests
+that still carry `previous_response_id` remain guarded; reconnect full-history
+requests without `previous_response_id` may compact only when the mutation arms
+stateless continuation and exports the exact forwarded chain for future sockets.
+Ambiguous stateful/delta tool output still full-passes until fresh live proof
+shows the current WSS contract accepts that mutation without upstream 400s or
+model-facing context loss. History-only full-history stale/obsolete reducers are
+narrower: after T353 proof, a mutated full-history chain drops
+`previous_response_id`, stores the actual forwarded chain, and expands following
+continuations to stateless full-history before the next tool output. This keeps
+exact WSS history-token savings where the recovery path is deterministic without
+turning historical downstream-delta risk into a broad savings kill switch.
 
 Unknown or unsafe stateful Codex WSS tool-output request bodies full-pass by
 default. The guard is route- and shape-scoped, not a global savings kill switch:

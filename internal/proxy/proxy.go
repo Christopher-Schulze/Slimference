@@ -218,6 +218,10 @@ type Proxy struct {
 	// codexChunkDedup holds T255 content-defined chunk identities for
 	// proof-gated Codex tool-output/file-read partial-overlap dedup.
 	codexChunkDedup *chunkdedup.Store
+	// wssStatelessChains carries only stateless-armable WSS response chains
+	// across socket reconnects. It never authorizes mutation by itself; callers
+	// still need the normal stateless continuation predicates.
+	wssStatelessChains *wssStatelessChainStore
 	// outputReduceCounters tracks T185 cumulative counters for the
 	// T165/T166/T167 mechanisms. Atomic, no lock, snapshot-on-read.
 	outputReduceCounters OutputReduceCounters
@@ -311,6 +315,7 @@ func New(cfg *config.Config) *Proxy {
 		outputReduceRepair:     make(map[string]pendingOutputReduceSignal),
 		archiveRecoveryNote:    make(map[string]struct{}),
 		codexFootprintByFamily: make(map[string]codexFootprintEstimate),
+		wssStatelessChains:     newWSSStatelessChainStore(wssRecoveryMaxChains),
 		qualityAB:              qualityab.New(qualityab.Options{}),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,

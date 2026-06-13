@@ -361,7 +361,7 @@ func isSlimferenceProxyTarget(host, port string) bool {
 
 func defaultProxyHealthCheck(host, port string) error {
 	client := &http.Client{
-		Timeout: 750 * time.Millisecond,
+		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
 			Proxy: nil,
 		},
