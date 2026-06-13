@@ -297,13 +297,15 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 			RouteMode: "websocket_phasef",
 			Tokens:    dbg.TokenCounts{Original: 5000, Final: 5000, Saved: 0},
 			DebugFacts: map[string]string{
-				"wss.request_shape":                    "delta",
-				"wss.output_reduce_reason":             "disabled",
-				"wss.output_reduce_disabled_predicate": "tool_output_context",
-				"wss.messages":                         "1",
-				"wss.tool_results":                     "1",
-				"wss.source_tool_bytes":                "900",
-				"wss.tool_command_classes":             "rg_search=2",
+				"wss.request_shape":                       "delta",
+				"wss.output_reduce_reason":                "disabled",
+				"wss.output_reduce_disabled_predicate":    "tool_output_context",
+				"wss.output_reduce_input_tokens":          "3210",
+				"wss.output_reduce_eligible_input_tokens": "0",
+				"wss.messages":                            "1",
+				"wss.tool_results":                        "1",
+				"wss.source_tool_bytes":                   "900",
+				"wss.tool_command_classes":                "rg_search=2",
 			},
 		},
 	)
@@ -375,6 +377,8 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_disabled_predicate=tool_output_context" ||
 		report.ActionablePotential[1].Tokens != 5000 ||
 		report.ActionablePotential[1].Requests != 1 ||
+		report.ActionablePotential[1].OutputReduceInputTokens != 3210 ||
+		report.ActionablePotential[1].OutputReduceEligibleInputTokens != 0 ||
 		report.ActionablePotential[1].ToolCommandClasses["rg_search"] != 2 ||
 		report.ActionablePotential[2].Category != "prefix_safe_new_mechanism_required" ||
 		report.ActionablePotential[2].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||

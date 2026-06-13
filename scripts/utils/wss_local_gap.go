@@ -131,6 +131,8 @@ type wssLocalGapActionableRow struct {
 	LocalSavedTokens                 int            `json:"local_saved_tokens,omitempty"`
 	Requests                         int            `json:"requests,omitempty"`
 	Decisions                        int            `json:"decisions,omitempty"`
+	OutputReduceInputTokens          int            `json:"output_reduce_input_tokens,omitempty"`
+	OutputReduceEligibleInputTokens  int            `json:"output_reduce_eligible_input_tokens,omitempty"`
 	PrefixToolDefinitionBytes        int            `json:"prefix_tool_definition_bytes,omitempty"`
 	PrefixInstructionBytes           int            `json:"prefix_instruction_bytes,omitempty"`
 	PrefixToolNameBytes              int            `json:"prefix_tool_name_bytes,omitempty"`
@@ -573,6 +575,8 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		Tokens:                           original,
 		LocalSavedTokens:                 saved,
 		Requests:                         1,
+		OutputReduceInputTokens:          wssLocalGapFactInt(summary.DebugFacts, "wss.output_reduce_input_tokens"),
+		OutputReduceEligibleInputTokens:  wssLocalGapFactInt(summary.DebugFacts, "wss.output_reduce_eligible_input_tokens"),
 		PrefixToolDefinitionBytes:        wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_bytes"),
 		PrefixInstructionBytes:           wssLocalGapFactInt(summary.DebugFacts, "wss.instructions_bytes"),
 		PrefixToolNameBytes:              wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_name_bytes"),
@@ -614,6 +618,8 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		existing.LocalSavedTokens += row.LocalSavedTokens
 		existing.Requests += row.Requests
 		existing.Decisions += row.Decisions
+		existing.OutputReduceInputTokens += row.OutputReduceInputTokens
+		existing.OutputReduceEligibleInputTokens += row.OutputReduceEligibleInputTokens
 		existing.PrefixToolDefinitionBytes += row.PrefixToolDefinitionBytes
 		existing.PrefixInstructionBytes += row.PrefixInstructionBytes
 		existing.PrefixToolNameBytes += row.PrefixToolNameBytes
@@ -1165,6 +1171,11 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 							formatWSSAuditCounts(row.PrefixNonDefaultNames))
 					}
 				}
+			}
+			if row.OutputReduceInputTokens > 0 || row.OutputReduceEligibleInputTokens > 0 {
+				fmt.Fprintf(w, "    output_reduce: input_tokens=%d eligible_input_tokens=%d\n",
+					row.OutputReduceInputTokens,
+					row.OutputReduceEligibleInputTokens)
 			}
 			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
 			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)

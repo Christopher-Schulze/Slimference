@@ -1410,6 +1410,11 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	if summaries[0].DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_after_layer0_mutation" {
 		t.Fatalf("missing precise output-reduce disabled predicate: %+v", summaries[0].DebugFacts)
 	}
+	if summaries[0].DebugFacts["wss.output_reduce_input_tokens"] == "" ||
+		summaries[0].DebugFacts["wss.output_reduce_eligible_input_tokens"] != "0" ||
+		summaries[0].DebugFacts["wss.output_reduce_blocked_by_tool_or_layer0"] != "true" {
+		t.Fatalf("missing output-reduce disabled token facts: %+v", summaries[0].DebugFacts)
+	}
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
 		t.Fatalf("Layer-0-compacted tool output should not be counted as an output-reduce candidate: %+v", snap)
@@ -6231,6 +6236,12 @@ func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T
 	if summary.BypassReason != "wss_previous_response_tool_output_full_pass" || summary.Tokens.Saved != 0 {
 		t.Fatalf("unknown previous_response output should be no-savings full-pass: %+v", summary)
 	}
+	if summary.DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_context" ||
+		summary.DebugFacts["wss.output_reduce_input_tokens"] == "" ||
+		summary.DebugFacts["wss.output_reduce_eligible_input_tokens"] != "0" ||
+		summary.DebugFacts["wss.output_reduce_request_contains_tool_output"] != "true" {
+		t.Fatalf("unknown previous_response bypass should expose output-reduce disabled facts: %+v", summary.DebugFacts)
+	}
 }
 
 func TestWSPhaseFPreviousResponseMixedUnknownToolOutputObservesInferableDelta(t *testing.T) {
@@ -6974,6 +6985,11 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	}
 	if summary.DebugFacts["wss.output_reduce_disabled_predicate"] != "tool_output_after_layer0_mutation" {
 		t.Fatalf("WSS Layer-0 mutation should expose precise output-reduce predicate: %+v", summary.DebugFacts)
+	}
+	if summary.DebugFacts["wss.output_reduce_input_tokens"] == "" ||
+		summary.DebugFacts["wss.output_reduce_eligible_input_tokens"] != "0" ||
+		summary.DebugFacts["wss.output_reduce_layer0_blocks_modified"] == "0" {
+		t.Fatalf("WSS Layer-0 mutation should expose output-reduce token facts: %+v", summary.DebugFacts)
 	}
 	if summary.Plan == nil {
 		t.Fatal("WSS body summary missing planner output")

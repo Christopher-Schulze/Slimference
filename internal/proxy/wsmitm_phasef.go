@@ -625,6 +625,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			if historyMutationRecoveryGuarded && requestShape == "full_history" {
 				meta.DebugFacts["wss.history_mutation_recovery_guard"] = "true"
 			}
+			a.attachWSSOutputReduceDisabledFacts(&meta, out, requestContainsToolOutput || l0Stats.BlocksModified > 0, requestContainsToolOutput, l0Stats, true)
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
@@ -915,12 +916,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 	}
 	if outputReduceStats.Reason == "disabled" {
-		if predicate := a.wssOutputReduceDisabledPredicate(blockOutputReduce, requestContainsToolOutput, l0Stats, toolOutputPresenceKnown, meta); predicate != "" {
-			if meta.DebugFacts == nil {
-				meta.DebugFacts = make(map[string]string)
-			}
-			meta.DebugFacts["wss.output_reduce_disabled_predicate"] = predicate
-		}
+		a.attachWSSOutputReduceDisabledFacts(&meta, out, blockOutputReduce, requestContainsToolOutput, l0Stats, toolOutputPresenceKnown)
 	}
 	if a.p.config.Compression.OutputReduce.StopSequencesEnabled {
 		if injected, res := outstop.MergeIntoBody(types.CodexChatGPT, out); res.OK && res.AddedCount > 0 {
@@ -993,6 +989,60 @@ func (a *wsPhaseFAdapter) wssOutputReduceDisabledPredicate(blockedByToolOrLayer0
 		return "unknown_shape"
 	}
 	return "unclassified_disabled"
+}
+
+func (a *wsPhaseFAdapter) attachWSSOutputReduceDisabledFacts(meta *wssRequestMeta, body []byte, blockedByToolOrLayer0 bool, requestContainsToolOutput bool, l0Stats proxyLayer0Stats, factsKnown bool) {
+	if meta == nil {
+		return
+	}
+	facts := a.wssOutputReduceDisabledFacts(body, blockedByToolOrLayer0, requestContainsToolOutput, l0Stats, factsKnown, *meta)
+	if len(facts) == 0 {
+		return
+	}
+	if meta.DebugFacts == nil {
+		meta.DebugFacts = make(map[string]string, len(facts))
+	}
+	for key, value := range facts {
+		meta.DebugFacts[key] = value
+	}
+}
+
+func (a *wsPhaseFAdapter) wssOutputReduceDisabledFacts(body []byte, blockedByToolOrLayer0 bool, requestContainsToolOutput bool, l0Stats proxyLayer0Stats, factsKnown bool, meta wssRequestMeta) map[string]string {
+	predicate := a.wssOutputReduceDisabledPredicate(blockedByToolOrLayer0, requestContainsToolOutput, l0Stats, factsKnown, meta)
+	if predicate == "" {
+		return nil
+	}
+	configEnabled := false
+	layerEnabled := false
+	minTokens := 0
+	if a != nil && a.p != nil && a.p.config != nil {
+		configEnabled = a.p.config.Compression.OutputReduce.Enabled
+		layerEnabled = a.p.isLayerEnabled(3)
+		minTokens = a.p.config.Compression.OutputReduce.MinInputTokens
+	}
+	inputTokens := wssOutputReduceInputTokens(body)
+	eligibleTokens := 0
+	if configEnabled &&
+		layerEnabled &&
+		!blockedByToolOrLayer0 &&
+		factsKnown &&
+		meta.HasUserPromptInput &&
+		!meta.HasPromptCachePrefix &&
+		inputTokens >= minTokens {
+		eligibleTokens = inputTokens
+	}
+	return map[string]string{
+		"wss.output_reduce_disabled_predicate":           predicate,
+		"wss.output_reduce_input_tokens":                 strconv.Itoa(inputTokens),
+		"wss.output_reduce_eligible_input_tokens":        strconv.Itoa(eligibleTokens),
+		"wss.output_reduce_min_input_tokens":             strconv.Itoa(minTokens),
+		"wss.output_reduce_config_enabled":               strconv.FormatBool(configEnabled),
+		"wss.output_reduce_layer3_enabled":               strconv.FormatBool(layerEnabled),
+		"wss.output_reduce_facts_known":                  strconv.FormatBool(factsKnown),
+		"wss.output_reduce_blocked_by_tool_or_layer0":    strconv.FormatBool(blockedByToolOrLayer0),
+		"wss.output_reduce_request_contains_tool_output": strconv.FormatBool(requestContainsToolOutput),
+		"wss.output_reduce_layer0_blocks_modified":       strconv.Itoa(l0Stats.BlocksModified),
+	}
 }
 
 func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
