@@ -984,8 +984,8 @@ func TestWSPhaseFToolPruneGuardUsesMetaToolDefinitions(t *testing.T) {
 	if wssToolPruneFullHistoryOnlyRequest(deltaMessages, withTools) {
 		t.Fatal("previous_response_id delta must not be WSS safe-slice eligible")
 	}
-	if wssToolPruneFullHistoryOnlyRequest(fullHistoryMessages, wssRequestMeta{HasToolDefinitions: true}) {
-		t.Fatal("root tool schema must not be WSS safe-slice eligible")
+	if !wssToolPruneFullHistoryOnlyRequest(fullHistoryMessages, wssRequestMeta{HasToolDefinitions: true}) {
+		t.Fatal("stateless full-history tool schema must be WSS safe-slice eligible")
 	}
 }
 
@@ -1043,8 +1043,11 @@ func TestWSPhaseFToolPruneFeatureGatePredicates(t *testing.T) {
 	}
 	rootMeta := fullHistoryMeta
 	rootMeta.PreviousResponseID = ""
-	if safeSlice.wssToolPruneEnabledForRequest(fullHistoryMessages, rootMeta) {
-		t.Fatal("WSS full-history safe slice must keep root tool prefixes byte-equal")
+	if !safeSlice.wssToolPruneEnabledForRequest(fullHistoryMessages, rootMeta) {
+		t.Fatal("WSS full-history safe slice must enable stateless full-history pruning")
+	}
+	if safeSlice.wssToolPruneEnabledForRequest(deltaMessages, rootMeta) {
+		t.Fatal("WSS full-history safe slice must keep root/delta tool prefixes byte-equal")
 	}
 
 	cfg = config.Defaults()
@@ -3161,6 +3164,61 @@ func TestWSPhaseFToolPruneDefaultSafeSlicePrunesOnlyFullHistory(t *testing.T) {
 	}
 	if replace || !bytes.Equal(root.Body, rootOriginal) {
 		t.Fatalf("root tool prefix must stay byte-equal under WSS safe slice, replace=%v body=%s", replace, root.Body)
+	}
+}
+
+func TestWSPhaseFToolPruneDefaultSafeSlicePrunesStatelessFullHistory(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-stateless-full-history"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-stateless-full-history",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &fullHistory)
+	if err != nil {
+		t.Fatalf("handle stateless full-history: %v", err)
+	}
+	if !replace || strings.Contains(string(fullHistory.Body), "ColdTool") {
+		t.Fatalf("default WSS stateless full-history safe slice should prune idle tool, replace=%v body=%s", replace, fullHistory.Body)
+	}
+	if !strings.Contains(string(fullHistory.Body), "Bash") {
+		t.Fatalf("active tool was removed from stateless full-history: %s", fullHistory.Body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !summary.ToolPrune.Applied ||
+		summary.ToolPrune.Reason != "idle_tools" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.previous_response_id"] != "false" ||
+		summary.DebugFacts["wss.tool_prune_guard"] != "" {
+		t.Fatalf("default WSS stateless full-history tool-prune summary mismatch: %+v facts=%+v", summary.ToolPrune, summary.DebugFacts)
 	}
 }
 

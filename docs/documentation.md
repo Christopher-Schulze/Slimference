@@ -1813,11 +1813,11 @@ or top-level `tools[].name`). Telemetry at
 `/admin/status.tool_prune.{sessions,pruned_total,reattach_total,
 miss_total,retry_total,always_keep_total,disabled_sessions,
 tokens_saved_sum}`. Broad tool-prune stays default-off. The narrower
-Codex WSS full-history slice is default-on: when a `previous_response_id`
-request is classified as `full_history`, idle tools may be pruned with the
-same archive/reattach/retry recovery. Root requests and steady
-`previous_response_id` delta turns stay byte-equal unless the broader
-operator flag is explicitly enabled.
+Codex WSS full-history slice is default-on: when a request is classified as
+`full_history`, including stateless full-history resends that have already
+dropped `previous_response_id`, idle tools may be pruned with the same
+archive/reattach/retry recovery. Root requests and steady delta turns stay
+byte-equal unless the broader operator flag is explicitly enabled.
 
 T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, MCP, Goal-loop, plugin-install, and

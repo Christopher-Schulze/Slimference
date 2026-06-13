@@ -1215,8 +1215,7 @@ func (a *wsPhaseFAdapter) wssToolPruneEnabledForRequest(messages []types.Message
 }
 
 func wssToolPruneFullHistoryOnlyRequest(messages []types.Message, meta wssRequestMeta) bool {
-	return meta.PreviousResponseID != "" &&
-		meta.HasToolDefinitions &&
+	return meta.HasToolDefinitions &&
 		len(messages) > 0 &&
 		!wssRequestIsDeltaShape(messages)
 }
