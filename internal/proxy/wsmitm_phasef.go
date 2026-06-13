@@ -3230,6 +3230,9 @@ func wssToolCommandClass(commandLine string) string {
 	if len(argv) == 0 {
 		return ""
 	}
+	if wssMypyCommandClassArgv(argv) {
+		return "mypy"
+	}
 	base := wssCommandBase(argv[0])
 	switch base {
 	case "git":
@@ -3273,6 +3276,62 @@ func wssToolCommandClass(commandLine string) string {
 	default:
 		return "other"
 	}
+}
+
+func wssMypyCommandClassArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	switch wssCommandBase(argv[0]) {
+	case "mypy":
+		return true
+	case "python", "python3":
+		for i := 1; i < len(argv)-1; i++ {
+			if argv[i] == "-m" && argv[i+1] == "mypy" {
+				return true
+			}
+		}
+	case "npx":
+		rest, ok := wssNPXCommandClassSuffix(argv)
+		return ok && wssMypyCommandClassArgv(rest)
+	case "pnpm":
+		if len(argv) >= 3 && argv[1] == "exec" {
+			return wssMypyCommandClassArgv(argv[2:])
+		}
+	case "yarn", "yarnpkg":
+		if len(argv) >= 2 {
+			return wssMypyCommandClassArgv(argv[1:])
+		}
+	}
+	return false
+}
+
+func wssNPXCommandClassSuffix(argv []string) ([]string, bool) {
+	if len(argv) == 0 || wssCommandBase(argv[0]) != "npx" {
+		return nil, false
+	}
+	for i := 1; i < len(argv); {
+		arg := argv[i]
+		if arg == "--" {
+			if i+1 < len(argv) {
+				return argv[i+1:], true
+			}
+			return nil, true
+		}
+		switch arg {
+		case "-y", "--yes":
+			i++
+		case "-p", "--package", "-c", "--call":
+			i += 2
+		default:
+			if strings.HasPrefix(arg, "-") {
+				i++
+				continue
+			}
+			return argv[i:], true
+		}
+	}
+	return nil, true
 }
 
 func wssGitCommandClass(argv []string) string {
