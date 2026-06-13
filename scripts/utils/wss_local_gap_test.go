@@ -233,7 +233,11 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 			BypassReason: "wss_tool_output_state_full_pass",
 			Tokens:       dbg.TokenCounts{Original: 4000, Final: 4000, Saved: 0},
 			DebugFacts: map[string]string{
-				"wss.request_shape": "delta",
+				"wss.request_shape":        "delta",
+				"wss.output_reduce_reason": "prompt_cache_prefix_full_pass",
+				"wss.messages":             "1",
+				"wss.tool_results":         "0",
+				"wss.source_tool_bytes":    "0",
 			},
 		},
 	)
@@ -244,12 +248,18 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 	}
 	missingShape := wssLocalGapRequestGuardRow{}
 	bypass := wssLocalGapRequestGuardRow{}
+	noToolResults := wssLocalGapRequestGuardRow{}
+	noOutputReduce := wssLocalGapRequestGuardRow{}
 	for _, row := range report.RequestGuards {
 		switch row.Guard {
 		case "wss.request_shape=(missing)":
 			missingShape = row
 		case "bypass_reason=wss_tool_output_state_full_pass":
 			bypass = row
+		case "no_evidence:wss.tool_results=0":
+			noToolResults = row
+		case "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass":
+			noOutputReduce = row
 		}
 	}
 	if missingShape.Requests != 1 ||
@@ -265,6 +275,18 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		bypass.NoEvidenceOrigTokens != 4000 ||
 		bypass.RequestShapes["delta"] != 1 {
 		t.Fatalf("bypass no-evidence guard row mismatch: %+v", bypass)
+	}
+	if noToolResults.Requests != 1 ||
+		noToolResults.OriginalTokens != 4000 ||
+		noToolResults.NoEvidenceOrigTokens != 4000 ||
+		noToolResults.RequestShapes["delta"] != 1 {
+		t.Fatalf("no-tool-results no-evidence guard row mismatch: %+v", noToolResults)
+	}
+	if noOutputReduce.Requests != 1 ||
+		noOutputReduce.OriginalTokens != 4000 ||
+		noOutputReduce.NoEvidenceOrigTokens != 4000 ||
+		noOutputReduce.RequestShapes["delta"] != 1 {
+		t.Fatalf("no-output-reduce no-evidence guard row mismatch: %+v", noOutputReduce)
 	}
 }
 

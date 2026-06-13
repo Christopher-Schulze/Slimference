@@ -381,6 +381,23 @@ func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary
 	if reason := strings.TrimSpace(summary.BypassReason); reason != "" {
 		a.addRequestGuard("bypass_reason="+reason, shape, original, saved, noEvidence)
 	}
+	if noEvidence {
+		for _, key := range []string{
+			"wss.output_reduce_reason",
+			"wss.messages",
+			"wss.tool_results",
+			"wss.source_tool_bytes",
+		} {
+			if summary.DebugFacts == nil {
+				continue
+			}
+			value := strings.TrimSpace(summary.DebugFacts[key])
+			if value == "" {
+				continue
+			}
+			a.addRequestGuard("no_evidence:"+key+"="+value, shape, original, saved, true)
+		}
+	}
 	for _, key := range []string{
 		"wss.structured_mutation_guard",
 		"wss.effective_mutation_guard",
