@@ -29,7 +29,8 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 			OutputTokens:         11,
 			Tokens:               dbg.TokenCounts{Original: 10000, Final: 9500, Saved: 500},
 			DebugFacts: map[string]string{
-				"wss.request_shape": "full_history",
+				"wss.request_shape":        "full_history",
+				"wss.tool_command_classes": "rg_search=1,git_show_stat=1",
 			},
 			EvidenceDecisions: []evidence.BlockDecision{
 				{
@@ -59,6 +60,9 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 			PreviousResponseIDUsed: true,
 			ProviderOutputTokens:   7,
 			Tokens:                 dbg.TokenCounts{Original: 5000, Final: 5000, Saved: 0},
+			DebugFacts: map[string]string{
+				"wss.tool_command_classes": "go_test=1",
+			},
 			EvidenceDecisions: []evidence.BlockDecision{{
 				Mechanism:      "repeated_tool_output",
 				ContentClass:   evidence.ContentPlain,
@@ -119,9 +123,12 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 		report.ActionablePotential[0].TokenBasis != "full_pass_block_original_tokens" ||
 		report.ActionablePotential[0].Decisions != 1 ||
 		report.ActionablePotential[0].Mechanisms["captured_output"] != 1 ||
+		report.ActionablePotential[0].ToolCommandClasses["rg_search"] != 1 ||
+		report.ActionablePotential[0].ToolCommandClasses["git_show_stat"] != 1 ||
 		report.ActionablePotential[1].Category != "unsafe_without_fresh_live_proof" ||
 		report.ActionablePotential[1].Source != "evidence:wss_stateful_delta_mutation_proof_gate" ||
-		report.ActionablePotential[1].Tokens != 3500 {
+		report.ActionablePotential[1].Tokens != 3500 ||
+		report.ActionablePotential[1].ToolCommandClasses["go_test"] != 1 {
 		t.Fatalf("bad actionable potential rows: %+v", report.ActionablePotential)
 	}
 	if len(report.RequestShapes) != 2 ||
@@ -296,6 +303,7 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 				"wss.messages":                         "1",
 				"wss.tool_results":                     "1",
 				"wss.source_tool_bytes":                "900",
+				"wss.tool_command_classes":             "rg_search=2",
 			},
 		},
 	)
@@ -367,6 +375,7 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[1].Source != "no_evidence:wss.output_reduce_disabled_predicate=tool_output_context" ||
 		report.ActionablePotential[1].Tokens != 5000 ||
 		report.ActionablePotential[1].Requests != 1 ||
+		report.ActionablePotential[1].ToolCommandClasses["rg_search"] != 2 ||
 		report.ActionablePotential[2].Category != "prefix_safe_new_mechanism_required" ||
 		report.ActionablePotential[2].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
 		report.ActionablePotential[2].Tokens != 4000 ||

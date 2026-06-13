@@ -155,6 +155,7 @@ type wssLocalGapActionableRow struct {
 	NextStep                         string         `json:"next_step"`
 	RequestShapes                    map[string]int `json:"request_shapes,omitempty"`
 	Mechanisms                       map[string]int `json:"mechanisms,omitempty"`
+	ToolCommandClasses               map[string]int `json:"tool_command_classes,omitempty"`
 }
 
 type wssLocalGapAccumulator struct {
@@ -404,12 +405,13 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 		shapeRow.ErrorRequests++
 	}
 	noEvidence := len(summary.EvidenceDecisions) == 0
+	toolCommandClasses := wssLocalGapFactCountPairs(summary.DebugFacts, "wss.tool_command_classes")
 	a.addRequestGuardFacts(summary, shape, original, saved, noEvidence)
 	if noEvidence {
-		a.addNoEvidenceActionable(summary, shape, original, saved)
+		a.addNoEvidenceActionable(summary, shape, original, saved, toolCommandClasses)
 	}
 	for _, decision := range summary.EvidenceDecisions {
-		a.addDecision(decision, shape)
+		a.addDecision(decision, shape, toolCommandClasses)
 	}
 }
 
@@ -479,7 +481,7 @@ func (a *wssLocalGapAccumulator) addRequestGuard(guard, shape string, original, 
 	addWSSAuditCount(&row.RequestShapes, shape)
 }
 
-func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, shape string) {
+func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, shape string, toolCommandClasses map[string]int) {
 	mechanism := strings.TrimSpace(decision.Mechanism)
 	if mechanism == "" || mechanism == "provider_prompt_cache" {
 		return
@@ -538,27 +540,28 @@ func (a *wssLocalGapAccumulator) addDecision(decision evidence.BlockDecision, sh
 	guardRow.GuardedPotential += guarded
 	addWSSAuditCount(&guardRow.Mechanisms, mechanism)
 	addWSSAuditCount(&guardRow.RequestShapes, shape)
-	a.addDecisionActionable(reason, mechanism, shape, guarded, saved)
+	a.addDecisionActionable(reason, mechanism, shape, guarded, saved, toolCommandClasses)
 }
 
-func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int) {
+func (a *wssLocalGapAccumulator) addDecisionActionable(reason, mechanism, shape string, tokens, saved int, toolCommandClasses map[string]int) {
 	if a == nil || tokens <= 0 {
 		return
 	}
 	category, policy, nextStep := wssLocalGapDecisionAction(reason)
 	a.addActionable(wssLocalGapActionableRow{
-		Category:         category,
-		Source:           "evidence:" + reason,
-		TokenBasis:       "full_pass_block_original_tokens",
-		Tokens:           tokens,
-		LocalSavedTokens: saved,
-		Decisions:        1,
-		Policy:           policy,
-		NextStep:         nextStep,
+		Category:           category,
+		Source:             "evidence:" + reason,
+		TokenBasis:         "full_pass_block_original_tokens",
+		Tokens:             tokens,
+		LocalSavedTokens:   saved,
+		Decisions:          1,
+		Policy:             policy,
+		NextStep:           nextStep,
+		ToolCommandClasses: toolCommandClasses,
 	}, shape, mechanism)
 }
 
-func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSummary, shape string, original, saved int) {
+func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSummary, shape string, original, saved int, toolCommandClasses map[string]int) {
 	if a == nil || original <= 0 {
 		return
 	}
@@ -592,6 +595,7 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		PrefixUnnamedBytes:               wssLocalGapFactInt(summary.DebugFacts, "wss.tool_definition_unnamed_bytes"),
 		Policy:                           policy,
 		NextStep:                         nextStep,
+		ToolCommandClasses:               toolCommandClasses,
 	}, shape, "")
 }
 
@@ -632,6 +636,7 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 		mergeWSSLocalGapCounts(&existing.PrefixNonDefaultNames, row.PrefixNonDefaultNames)
 		existing.PrefixUnnamedTools += row.PrefixUnnamedTools
 		existing.PrefixUnnamedBytes += row.PrefixUnnamedBytes
+		mergeWSSLocalGapCounts(&existing.ToolCommandClasses, row.ToolCommandClasses)
 	}
 	addWSSAuditCount(&existing.RequestShapes, shape)
 	if strings.TrimSpace(mechanism) != "" {
@@ -1011,6 +1016,37 @@ func wssLocalGapFactListCounts(facts map[string]string, key string) map[string]i
 	return counts
 }
 
+func wssLocalGapFactCountPairs(facts map[string]string, key string) map[string]int {
+	if facts == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(facts[key])
+	if raw == "" {
+		return nil
+	}
+	var counts map[string]int
+	for _, part := range strings.Split(raw, ",") {
+		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		count := 1
+		if ok {
+			parsed, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || parsed <= 0 {
+				continue
+			}
+			count = parsed
+		}
+		if counts == nil {
+			counts = make(map[string]int)
+		}
+		counts[name] += count
+	}
+	return counts
+}
+
 func mergeWSSLocalGapCounts(dst *map[string]int, src map[string]int) {
 	if len(src) == 0 {
 		return
@@ -1067,7 +1103,7 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	if len(report.ActionablePotential) > 0 {
 		fmt.Fprintln(w, "\nActionable potential:")
 		for _, row := range report.ActionablePotential {
-			fmt.Fprintf(w, "  %-40s source=%-58s tokens=%d basis=%s requests=%d decisions=%d saved=%d shapes=%s mechanisms=%s\n",
+			fmt.Fprintf(w, "  %-40s source=%-58s tokens=%d basis=%s requests=%d decisions=%d saved=%d shapes=%s mechanisms=%s classes=%s\n",
 				row.Category,
 				row.Source,
 				row.Tokens,
@@ -1076,7 +1112,8 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 				row.Decisions,
 				row.LocalSavedTokens,
 				formatWSSAuditCounts(row.RequestShapes),
-				formatWSSAuditCounts(row.Mechanisms))
+				formatWSSAuditCounts(row.Mechanisms),
+				formatWSSAuditCounts(row.ToolCommandClasses))
 			if row.PrefixToolDefinitionBytes > 0 || row.PrefixInstructionBytes > 0 || row.PrefixToolDefinitions > 0 {
 				fmt.Fprintf(w, "    prefix: tool_definition_bytes=%d instruction_bytes=%d tool_definitions=%d max_tools_per_request=%d\n",
 					row.PrefixToolDefinitionBytes,
