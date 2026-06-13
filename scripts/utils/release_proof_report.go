@@ -499,7 +499,7 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 	validatedCLIReports := 0
 	validatedDesktopReports := 0
 	validatedPositiveReports := 0
-	deltaToolOutputProofReports := 0
+	productLatchProofReports := 0
 	for _, capture := range proof.CaptureReports {
 		if strings.TrimSpace(capture.WorkloadClass) != "search_loop" {
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": focused proof contains non-search_loop capture")
@@ -555,8 +555,8 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 				releaseSearchCapMinExtraReducerTokens))
 			candidateValid = false
 		}
-		if !capture.SearchCapProof.DefaultReplay.ToolOutputMutation || !capture.SearchCapProof.DefaultReplay.DeltaToolOutputMutation {
-			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof default replay did not enable delta tool-output mutation proof")
+		if !searchCapReplayUsesProductLatch(capture.SearchCapProof.DefaultReplay) {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof default replay did not prove product search-cap latch mutation")
 			candidateValid = false
 		}
 		selected := capture.SearchCapProof.SelectedCandidate
@@ -585,8 +585,8 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 			candidateValid = false
 		}
 		if selectedReplay := releaseSearchCapSelectedReplay(capture.SearchCapProof); selectedReplay == nil ||
-			!selectedReplay.ToolOutputMutation || !selectedReplay.DeltaToolOutputMutation {
-			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": selected candidate replay did not enable delta tool-output mutation proof")
+			!searchCapReplayUsesProductLatch(*selectedReplay) {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": selected candidate replay did not prove product search-cap latch mutation")
 			candidateValid = false
 		}
 		if summary.SelectedCandidate == "" {
@@ -614,7 +614,7 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 				validatedDesktopReports++
 			}
 			validatedPositiveReports++
-			deltaToolOutputProofReports++
+			productLatchProofReports++
 		}
 	}
 	if validatedSearchLoopReports != proof.Captures {
@@ -629,8 +629,8 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 	if validatedPositiveReports < 2 {
 		issues = append(issues, fmt.Sprintf("expected at least 2 validated positive search-cap capture reports, got %d", validatedPositiveReports))
 	}
-	if deltaToolOutputProofReports != validatedPositiveReports || deltaToolOutputProofReports < 2 {
-		issues = append(issues, fmt.Sprintf("expected delta tool-output mutation proof for every positive search-cap capture, got %d/%d", deltaToolOutputProofReports, validatedPositiveReports))
+	if productLatchProofReports != validatedPositiveReports || productLatchProofReports < 2 {
+		issues = append(issues, fmt.Sprintf("expected product search-cap latch proof for every positive search-cap capture, got %d/%d", productLatchProofReports, validatedPositiveReports))
 	} else {
 		summary.DeltaToolOutputProof = true
 	}
@@ -658,6 +658,14 @@ func releaseSearchCapSelectedReplay(proof *searchCapProofReport) *searchCapProof
 		}
 	}
 	return nil
+}
+
+func searchCapReplayUsesProductLatch(replay searchCapProofReplaySummary) bool {
+	return replay.SearchCapProofLatch &&
+		!replay.ToolOutputMutation &&
+		!replay.DeltaToolOutputMutation &&
+		replay.SearchRequestTurns > 0 &&
+		replay.SearchMutatedRequests+replay.SearchCapturedMutated > 0
 }
 
 func releaseProofSearchCapCaptureID(capture wssProofMatrixCapture) string {

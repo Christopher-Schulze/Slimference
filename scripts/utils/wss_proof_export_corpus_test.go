@@ -535,13 +535,12 @@ func validCorpusSearchCapProof(extra int, retention float64) *searchCapProofRepo
 		OmittedMatchesVsDefault: 10,
 	}
 	replay := &searchCapProofReplaySummary{
-		ReducerTokensSaved:      1000 + extra,
-		BytesSaved:              extra * 8,
-		SearchRequestTurns:      2,
-		SearchMutatedRequests:   2,
-		ToolOutputMutation:      true,
-		DeltaToolOutputMutation: true,
-		GatePassed:              true,
+		ReducerTokensSaved:    1000 + extra,
+		BytesSaved:            extra * 8,
+		SearchRequestTurns:    2,
+		SearchMutatedRequests: 2,
+		SearchCapProofLatch:   true,
+		GatePassed:            true,
 	}
 	return &searchCapProofReport{
 		Path:                    "focused-search-cap.json",
@@ -550,12 +549,11 @@ func validCorpusSearchCapProof(extra int, retention float64) *searchCapProofRepo
 		MinSearchOutputs:        releaseSearchCapMinSearchOutputs,
 		MinExtraReducerTokens:   releaseSearchCapMinExtraReducerTokens,
 		DefaultReplay: searchCapProofReplaySummary{
-			ReducerTokensSaved:      1000,
-			SearchRequestTurns:      2,
-			SearchMutatedRequests:   2,
-			ToolOutputMutation:      true,
-			DeltaToolOutputMutation: true,
-			GatePassed:              true,
+			ReducerTokensSaved:    1000,
+			SearchRequestTurns:    2,
+			SearchMutatedRequests: 2,
+			SearchCapProofLatch:   true,
+			GatePassed:            true,
 		},
 		SelectedCandidate: selected,
 		Candidates: []searchCapProofCandidateRow{{

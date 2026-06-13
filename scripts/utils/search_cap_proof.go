@@ -51,6 +51,8 @@ type searchCapProofReplaySummary struct {
 	BytesSaved               int  `json:"bytes_saved"`
 	SearchRequestTurns       int  `json:"search_request_turns"`
 	SearchMutatedRequests    int  `json:"search_mutated_requests"`
+	SearchCapturedMutated    int  `json:"search_captured_mutated_requests,omitempty"`
+	SearchCapProofLatch      bool `json:"search_cap_proof_latch_enabled,omitempty"`
 	ToolOutputMutation       bool `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutation  bool `json:"delta_tool_output_mutation_proof_enabled"`
 	UpstreamErrorFrames      int  `json:"upstream_error_frames"`
@@ -145,11 +147,10 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		return searchCapProofReport{}, err
 	}
 	defaultReplay, err := loadWSSABReplayReport(wssABReplayFlags{
-		path:                       flags.framesPath,
-		failOnLost:                 true,
-		failOnUpstreamError:        true,
-		toolOutputMutation:         true,
-		deltaToolOutputMutationLab: true,
+		path:                flags.framesPath,
+		failOnLost:          true,
+		failOnUpstreamError: true,
+		searchCapProofLatch: true,
 	})
 	if err != nil {
 		return searchCapProofReport{}, err
@@ -188,13 +189,12 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		candidate.GateFailures = append(candidate.GateFailures, searchCapProofProfileFailures(row, flags)...)
 		if len(candidate.GateFailures) == 0 {
 			replay, err := loadWSSABReplayReport(wssABReplayFlags{
-				path:                       flags.framesPath,
-				failOnLost:                 true,
-				failOnUpstreamError:        true,
-				toolOutputMutation:         true,
-				deltaToolOutputMutationLab: true,
-				searchCapFiles:             row.MaxFilesShown,
-				searchCapMatches:           row.MaxMatchesPerFile,
+				path:                flags.framesPath,
+				failOnLost:          true,
+				failOnUpstreamError: true,
+				searchCapProofLatch: true,
+				searchCapFiles:      row.MaxFilesShown,
+				searchCapMatches:    row.MaxMatchesPerFile,
 			})
 			if err != nil {
 				return searchCapProofReport{}, err
@@ -252,6 +252,8 @@ func searchCapProofReplaySummaryFrom(report wssABReplayReport) searchCapProofRep
 		BytesSaved:               report.BytesSaved,
 		SearchRequestTurns:       report.SearchRequestTurns,
 		SearchMutatedRequests:    report.SearchMutatedRequests,
+		SearchCapturedMutated:    report.SearchCapturedMutated,
+		SearchCapProofLatch:      report.SearchCapProofLatch,
 		ToolOutputMutation:       report.ToolOutputMutation,
 		DeltaToolOutputMutation:  report.DeltaToolOutputMutationLab,
 		UpstreamErrorFrames:      report.UpstreamErrorFrames,

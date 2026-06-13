@@ -973,8 +973,9 @@ func releaseSearchCapCapture(id, client, candidate string, extraTokens int, minR
 			MinExtraReducerTokens:   minExtra,
 			GatePassed:              true,
 			DefaultReplay: searchCapProofReplaySummary{
-				ToolOutputMutation:      true,
-				DeltaToolOutputMutation: true,
+				SearchRequestTurns:    2,
+				SearchMutatedRequests: 2,
+				SearchCapProofLatch:   true,
 			},
 			SelectedCandidate: &searchCapProofSelection{
 				Name:               candidate,
@@ -990,8 +991,9 @@ func releaseSearchCapCapture(id, client, candidate string, extraTokens int, minR
 					MaxMatchesPerFile:  matches,
 					ExtraReducerTokens: extraTokens,
 					Replay: &searchCapProofReplaySummary{
-						ToolOutputMutation:      true,
-						DeltaToolOutputMutation: true,
+						SearchRequestTurns:    2,
+						SearchMutatedRequests: 2,
+						SearchCapProofLatch:   true,
 					},
 					GatePassed: true,
 				},

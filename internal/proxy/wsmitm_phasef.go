@@ -664,8 +664,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
 			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed: (structuredMutationAllowed || searchCapProofed) &&
-				!statefulDeltaMutationBlocked &&
+			WSSSearchMutationAllowed: ((structuredMutationAllowed && !statefulDeltaMutationBlocked) || searchCapProofed) &&
 				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapProofed),
 			CacheBustDemotedMechanisms:   cacheBustDemoted,
 			HistoryMutationGuardReason:   downstreamStateMutationGuardReason,

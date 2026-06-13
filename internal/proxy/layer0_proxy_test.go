@@ -840,7 +840,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDirectSearch(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofLatchDoesNotBypassDeltaGate(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofDoesNotBypassDeltaGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -870,11 +870,11 @@ func TestReduceCodexLayer0WSSSearchProofLatchDoesNotBypassDeltaGate(t *testing.T
 	if proofed.Stats.BlocksModified != 0 || proofed.Stats.TokensSaved != 0 || proofed.Stats.CapturedOutputBlocks != 0 ||
 		proofed.Messages[1].Content[0].Text != original ||
 		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search must still full-pass after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+		t.Fatalf("proofed stateful delta search must stay byte-equal after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofDeltaGuardSeedsRepeatedOutputObserveOnly(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchDeltaObserveOnlyStillBlocksProofedSavings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -905,11 +905,11 @@ func TestReduceCodexLayer0WSSSearchProofDeltaGuardSeedsRepeatedOutputObserveOnly
 		proofed.Messages[1].Content[0].Text != original ||
 		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") ||
 		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search must seed repeated-output observe-only and stay byte-equal, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+		t.Fatalf("proofed stateful delta search should observe only and stay byte-equal, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchProofCodexEnvelopeDoesNotBypassDeltaGate(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchProofKeepsCodexEnvelopeDeltaBlocked(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	command := `cd /repo/search && rg -n needle src`
@@ -940,10 +940,68 @@ func TestReduceCodexLayer0WSSSearchProofCodexEnvelopeDoesNotBypassDeltaGate(t *t
 		StatefulDeltaMutationBlocked: true,
 	})
 	if proofed.Stats.BlocksModified != 0 || proofed.Stats.TokensSaved != 0 ||
-		proofed.Stats.CodexExecEnvelopeBlocks != 0 || proofed.Stats.CapturedOutputBlocks != 0 ||
+		proofed.Stats.CapturedOutputBlocks != 0 || proofed.Stats.CodexExecEnvelopeBlocks != 0 ||
 		proofed.Messages[1].Content[0].Text != original ||
 		!proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("proofed stateful delta search envelope must still full-pass after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+		t.Fatalf("proofed stateful delta search envelope must stay blocked after live 400 proof, stats=%+v text=%q", proofed.Stats, proofed.Messages[1].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofTreatsNonDeltaCodexEnvelopeAsCaptured(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	command := `cd /repo/search && rg -n needle src`
+	original := "Chunk ID: safe-search-envelope\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" +
+		proxyWSSSearchOutputFixture("needle", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-rg-envelope-full", ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-rg-envelope-full", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                     codexLayer0RouteWSSPhaseF,
+		Messages:                  messages,
+		SessionID:                 "sess-wss-search-envelope-full-proof",
+		StructuredMutationBlocked: true,
+		WSSSearchMutationAllowed:  true,
+	})
+	text := result.Messages[1].Content[0].Text
+	if result.Stats.BlocksModified != 1 || result.Stats.TokensSaved <= 0 ||
+		result.Stats.CapturedOutputBlocks != 1 || result.Stats.CodexExecEnvelopeBlocks != 0 ||
+		text == original ||
+		strings.HasPrefix(text, "Chunk ID: safe-search-envelope") ||
+		!strings.Contains(text, "[rg]") ||
+		!strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(text, "src/file_079.go:80:needle") {
+		t.Fatalf("proofed non-delta search envelope should use captured-output path only, stats=%+v text=%q", result.Stats, text)
+	}
+}
+
+func TestReduceCodexLayer0WSSSearchProofKeepsNonSearchEnvelopeDeltaBlocked(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var payload strings.Builder
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
+	}
+	payload.WriteString("PASS\nok\texample.test/nonsearch\t0.015s\n")
+	original := "Chunk ID: non-search-envelope\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + payload.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-wss-go-test-envelope-delta", ToolName: "exec_command", ToolInput: `{"cmd":"go test ./..."}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-go-test-envelope-delta", Text: original}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:                        codexLayer0RouteWSSPhaseF,
+		Messages:                     messages,
+		SessionID:                    "sess-wss-non-search-envelope-delta-proof",
+		StructuredMutationBlocked:    true,
+		WSSSearchMutationAllowed:     true,
+		StatefulDeltaMutationBlocked: true,
+	})
+	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 ||
+		result.Stats.CodexExecEnvelopeBlocks != 0 || result.Stats.CapturedOutputBlocks != 0 ||
+		result.Messages[1].Content[0].Text != original ||
+		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_stateful_delta_mutation_proof_gate") {
+		t.Fatalf("proof latch must not open non-search codex envelope delta, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
 	}
 }
 

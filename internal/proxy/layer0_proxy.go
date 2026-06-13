@@ -170,9 +170,8 @@ type codexLayer0Request struct {
 	StructuredMutationBlocked bool
 	// WSSSearchMutationAllowed opens only named search output after either the
 	// old full-history/lab proof or the final search-cap proof latch. It must
-	// not bypass StatefulDeltaMutationBlocked; live long-run proof showed a
-	// proofed previous_response_id delta search mutation still poisons the next
-	// delta turn with 400 invalid_request.
+	// not bypass StatefulDeltaMutationBlocked; live previous_response_id delta
+	// search mutation still poisons a follow-up turn with 400 invalid_request.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// HistoryMutationGuardReason suppresses history/chunk reducers that can
@@ -617,6 +616,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if wssSearchOutputBlocked {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0EvidenceDecision(commandLine, block.Text, "", proxyLayer0MechanismCapturedOut, evidence.ActionFullPass, "wss_search_output_risk_gate", 0, 0, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio))
 			}
+			if !changed && !wssSearchOutputBlocked && !readCommand && wssSearchProofAllowed {
+				latencyStart := time.Now()
+				afterText, changed = compactProxyLayer0CapturedOutputFirst(commandLine, block.Text, readCtx)
+				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
+				if changed {
+					mechanism = proxyLayer0MechanismCapturedOut
+				}
+			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
@@ -625,6 +632,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			searchDeltaProofCandidate := workload == savingspolicy.CodexWorkloadSearch &&
 				wssSearchProofAllowed &&
 				proxyWSSSearchProofMechanism(mechanism)
+			if statefulDeltaBlockedForBlock && mechanism != proxyLayer0MechanismCapturedOut {
+				searchDeltaProofCandidate = false
+			}
 			if changed && structuredMutationBlockedForBlock && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
@@ -1451,6 +1461,21 @@ func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileRea
 		}
 	}
 	return "", false, ""
+}
+
+func compactProxyLayer0CapturedOutputFirst(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
+	filterWorkDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	compacted, changed := filter.CompactCapturedOutputWithContext(filterWorkDir, filterCommandLine, text, 0, ctx)
+	if changed {
+		return string(compacted), true
+	}
+	if _, payload, ok := splitCodexExecEnvelope(text); ok {
+		compacted, changed = filter.CompactCapturedOutputWithContext(filterWorkDir, filterCommandLine, payload, 0, ctx)
+		if changed {
+			return string(compacted), true
+		}
+	}
+	return "", false
 }
 
 func proxyLayer0FilterCommandForCompaction(commandLine string) (string, string) {

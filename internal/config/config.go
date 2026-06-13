@@ -1031,7 +1031,7 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 		issues = append(issues, fmt.Sprintf("total search-cap extra reducer tokens must be positive, got %+d", searchProof.TotalExtraReducerTokens))
 	}
 	if !searchProof.DeltaToolOutputProof {
-		issues = append(issues, "missing final release delta tool-output mutation proof for selected search cap")
+		issues = append(issues, "missing final release product search-cap latch proof for selected search cap")
 	}
 	if searchProof.RequiredReducerHits["captured_output"] <= 0 {
 		issues = append(issues, "missing final release captured_output reducer proof for selected search cap")

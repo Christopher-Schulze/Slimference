@@ -112,10 +112,10 @@ routine use, it stays out of the product path.
   codex-exec-envelope compaction) remains shape-gated: previous-response-id
   delta turns keep `wss_stateful_delta_mutation_proof_gate`, because live A/B
   found accepted delta mutations that poisoned later turns with upstream 400s.
-  The narrow exception is proof-latched named search output: a validated
-  `codex_search_cap_proof_path` opens only search workload compaction for
-  resolved tool-use commands, including current Codex CLI `codex_exec_envelope`
-  payloads whose original output is archived for recovery.
+  A validated `codex_search_cap_proof_path` opens only non-delta named search
+  workload compaction for resolved tool-use commands. Current Codex CLI search
+  envelopes are reduced through the captured-output path for that non-delta
+  surface; previous-response-id delta search output stays byte-equal.
   Full-history or non-delta lab/proof mutation can use
   `codex_wss_tool_output_mutation_enabled`;
   delta mutation needs env-only
@@ -1130,10 +1130,11 @@ that downstream step. It requires explicit `--candidate files:matches` values,
 loads the same WSS frame profile, can require a minimum number of resolved
 search outputs with `--min-search-outputs`, runs default replay, then runs each
 profile-passing candidate through WSS A/B replay with `lost=0`, upstream-error,
-and configurable extra reducer-token gates (`--min-extra-reducer-tokens`,
-default 1). Search-cap proof replays enable the delta tool-output mutation proof
-path and record reducer identity in JSON; the final runtime latch rejects
-artifacts that do not carry `required_reducer_hits.captured_output > 0`. Its JSON
+	and configurable extra reducer-token gates (`--min-extra-reducer-tokens`,
+	default 1). Search-cap proof replays enable the product search-cap latch, not
+	the lab delta bypass, and record reducer identity in JSON; the final runtime
+	latch rejects artifacts that do not carry
+	`required_reducer_hits.captured_output > 0`. Its JSON
 emits only content-free profile/replay counters plus the selected candidate.
 Candidates that fail breadth, retention, or replay stay rejected without changing
 product defaults.
@@ -1152,13 +1153,14 @@ route-hygiene proof passed, the route-hygiene summary carries both before/after
 `slimference codex status --json` snapshot paths, and the summary still
 satisfies the release minima (CLI plus Desktop, at least two positive rows, at
 least 40% retained matches, positive extra reducer tokens, and a named valid
-selected cap) plus the delta proof bit and
-`required_reducer_hits.captured_output > 0` before copying the selected
-files/matches cap into the WSS runtime path and opening the narrow named-search
-WSS delta mutation path. That runtime path covers both plain captured-output
-search blocks and Codex CLI exec-envelope search payloads under the same
-resolved tool-use/search-command proof gate; the envelope header is preserved
-and the original payload is written to the local context archive. A focused
+	selected cap) plus the product search-cap latch proof bit and
+	`required_reducer_hits.captured_output > 0` before copying the selected
+	files/matches cap into the WSS runtime path and opening the narrow named-search
+	WSS non-delta mutation path. That runtime path covers both plain captured-output
+	search blocks and Codex CLI search-envelope payloads under the same resolved
+	tool-use/search-command proof gate, but search envelopes are emitted as
+	captured-output summaries and previous-response-id delta search output remains
+	byte-equal. A focused
 `wss-proof-matrix --json` report alone is rejected by config loading because it
 does not prove route hygiene. Without the final proof path, or when the final
 proof is weak, the runtime cap fields stay zero and the default search compactor
@@ -1214,14 +1216,16 @@ tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
 reference and compares the reconstructed block to the exact direct model-facing
 source; a URI by itself is not enough to pass the no-loss gate.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]`
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--search-cap-proof-latch|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it mirrors the
 product WSS guard: safe read-delta savings may fire, while unknown or unsafe
 stateful tool-output request bodies stay byte-equal, and previous-response-id
 delta tool-output mutation remains blocked.
 `--tool-output-mutation` enables the broader lab/proof replay path outside that
-delta proof gate; `--delta-tool-output-mutation-lab` additionally bypasses the
-delta gate only for reproducing known T354 400 failures. `--codex-chunk-dedup`
+delta proof gate; `--search-cap-proof-latch` enables the product non-delta named
+search latch without broader tool-output mutation; `--delta-tool-output-mutation-lab`
+additionally bypasses the delta gate only for reproducing known T354 400 failures.
+`--codex-chunk-dedup`
 remains a force flag for threshold experiments and implies tool-output mutation,
 the recovery note, and separation of the expected once-per-session recovery-note
 extra block from true loss-gate failures. The report separates two concepts: `bytes_saved` is the
@@ -2993,8 +2997,8 @@ already-mutated named search-output request, preventing repeat-read, generic
 tool-output, or unmutated search fixtures from standing in for search proof.
 When `--search-cap-candidate` is present, each in-scope `search_loop` row also
 runs the combined `search-cap-proof` gate and fails closed unless a candidate
-passes profile retention, resolved-output breadth, replay `lost=0`,
-upstream-error, delta tool-output mutation proof, and extra reducer-token
+	passes profile retention, resolved-output breadth, replay `lost=0`,
+	upstream-error, product search-cap latch proof, and extra reducer-token
 checks. The focused matrix gate defaults to the release minima: 40% retained
 matches, at least two resolved search outputs, and at least +1 extra reducer
 token versus default replay. Rows outside

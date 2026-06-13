@@ -346,6 +346,106 @@ func TestWSSABReplayReportsResponseFailedFrame(t *testing.T) {
 	}
 }
 
+func TestWSSABReplaySearchCapProofLatchKeepsNamedDeltaSearchByteEqual(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	callID := "proof-latch-search-1"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": `{"cmd":"cd /repo/search && rg -n needle src"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(
+			callID,
+			"proof-latch-search-session",
+			"resp-proof-latch-search",
+			"Chunk ID: proof-latch\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n"+wssABReplaySearchOutputFixture("needle", 96),
+		)),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                path,
+		searchCapProofLatch: true,
+		searchCapFiles:      25,
+		searchCapMatches:    15,
+		failOnLost:          true,
+		failOnUpstreamError: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.ToolOutputMutation ||
+		!report.SearchCapProofLatch ||
+		report.MutatedRequests != 0 ||
+		report.SearchMutatedRequests != 0 ||
+		report.MutatedShapes.Delta != 0 ||
+		report.ReducerCapturedBlocks != 0 ||
+		report.ReducerEnvelopeBlocks != 0 ||
+		report.ReducerTokensSaved != 0 ||
+		report.Lost != 0 {
+		t.Fatalf("product search-cap proof latch must not mutate named delta search after live 400 proof: %+v", report)
+	}
+}
+
+func TestWSSABReplaySearchCapProofLatchMutatesNamedFullHistorySearch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	callID := "proof-latch-full-history-search-1"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-proof-latch-full-history-search",
+			"prompt_cache_key":     "proof-latch-full-history-search-session",
+			"input": []map[string]any{
+				{
+					"type":      "function_call",
+					"call_id":   callID,
+					"name":      "exec_command",
+					"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+				},
+				{
+					"type":    "function_call_output",
+					"call_id": callID,
+					"output":  "Chunk ID: proof-latch-full\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + wssABReplaySearchOutputFixture("needle", 96),
+				},
+			},
+			"stream": true,
+		}),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                path,
+		searchCapProofLatch: true,
+		searchCapFiles:      25,
+		searchCapMatches:    15,
+		failOnLost:          true,
+		failOnUpstreamError: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.ToolOutputMutation ||
+		!report.SearchCapProofLatch ||
+		report.MutatedRequests != 1 ||
+		report.SearchMutatedRequests != 1 ||
+		report.MutatedShapes.FullHistory != 1 ||
+		report.ReducerCapturedBlocks != 1 ||
+		report.ReducerEnvelopeBlocks != 0 ||
+		report.ReducerTokensSaved <= 0 ||
+		report.Lost != 0 {
+		t.Fatalf("product search-cap proof latch should mutate named full-history search without broad lab flags: %+v", report)
+	}
+}
+
 func TestRunWSSABReplayAllowsExpectedRecoveryNoteExtra(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

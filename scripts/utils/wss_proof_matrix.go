@@ -561,9 +561,10 @@ func searchCapProofShowsSearchMutation(proof searchCapProofReport) bool {
 	return proof.GatePassed &&
 		proof.SelectedCandidate != nil &&
 		proof.DefaultReplay.SearchRequestTurns > 0 &&
-		proof.DefaultReplay.SearchMutatedRequests > 0 &&
-		proof.DefaultReplay.ToolOutputMutation &&
-		proof.DefaultReplay.DeltaToolOutputMutation
+		proof.DefaultReplay.SearchMutatedRequests+proof.DefaultReplay.SearchCapturedMutated > 0 &&
+		proof.DefaultReplay.SearchCapProofLatch &&
+		!proof.DefaultReplay.ToolOutputMutation &&
+		!proof.DefaultReplay.DeltaToolOutputMutation
 }
 
 func sanitizeWSSProofReplayReport(report wssABReplayReport) wssABReplayReport {

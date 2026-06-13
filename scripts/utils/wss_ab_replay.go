@@ -24,6 +24,7 @@ type wssABReplayFlags struct {
 	allowRecoveryNoteExtra     bool
 	toolOutputMutation         bool
 	deltaToolOutputMutationLab bool
+	searchCapProofLatch        bool
 	codexChunkDedup            bool
 	chunkDedupMinBytes         int
 	chunkDedupMaxSessionRefPct int
@@ -85,6 +86,7 @@ type wssABReplayReport struct {
 	SearchResponseFailures        int                              `json:"search_response_failed_frames"`
 	SearchCapFiles                int                              `json:"search_cap_files,omitempty"`
 	SearchCapMatches              int                              `json:"search_cap_matches,omitempty"`
+	SearchCapProofLatch           bool                             `json:"search_cap_proof_latch_enabled,omitempty"`
 	ToolOutputMutation            bool                             `json:"tool_output_mutation_enabled"`
 	DeltaToolOutputMutationLab    bool                             `json:"delta_tool_output_mutation_lab_enabled,omitempty"`
 	Lost                          int                              `json:"lost"`
@@ -122,6 +124,8 @@ Flags:
   --delta-tool-output-mutation-lab
                            Also bypass the previous_response_id delta mutation
                            proof gate; only for reproducing known T354 400s
+  --search-cap-proof-latch Enable the product search-cap proof latch during
+                           replay without broader WSS tool-output mutation
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
                            --archive-recovery-note,
@@ -203,6 +207,8 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 		case arg == "--delta-tool-output-mutation-lab":
 			flags.deltaToolOutputMutationLab = true
 			flags.toolOutputMutation = true
+		case arg == "--search-cap-proof-latch":
+			flags.searchCapProofLatch = true
 		case arg == "--codex-chunk-dedup":
 			flags.codexChunkDedup = true
 			flags.archiveRecoveryNote = true
@@ -295,6 +301,7 @@ func wssABReplayConfig(flags wssABReplayFlags) *config.Config {
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = toolOutputMutation
 	cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = flags.deltaToolOutputMutationLab
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = flags.searchCapProofLatch
 	if flags.codexChunkDedup {
 		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 		if flags.chunkDedupMinBytes >= 0 {
@@ -359,6 +366,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		SearchResponseFailures:        result.SearchStats.ResponseFailedFrames,
 		SearchCapFiles:                flags.searchCapFiles,
 		SearchCapMatches:              flags.searchCapMatches,
+		SearchCapProofLatch:           flags.searchCapProofLatch,
 		ToolOutputMutation:            toolOutputMutation,
 		DeltaToolOutputMutationLab:    flags.deltaToolOutputMutationLab,
 		Lost:                          result.Report.Lost(),
@@ -376,6 +384,9 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	if flags.deltaToolOutputMutationLab {
 		report.Notes = append(report.Notes, "previous_response_id delta tool-output mutation lab override was enabled; this is only for reproducing known T354 follow-up 400 failures")
+	}
+	if flags.searchCapProofLatch {
+		report.Notes = append(report.Notes, "product search-cap proof latch was enabled for this replay; broader WSS tool-output mutation remains disabled unless separately requested")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")

@@ -654,14 +654,12 @@ func wssProofCorpusSearchCapExtraReducerTokens(row wssProofMatrixRecord) int64 {
 	}
 	selectedReplay := releaseSearchCapSelectedReplay(proof)
 	if selectedReplay == nil ||
-		!selectedReplay.ToolOutputMutation ||
-		!selectedReplay.DeltaToolOutputMutation ||
+		!searchCapReplayUsesProductLatch(*selectedReplay) ||
 		selectedReplay.UpstreamInvalidRequests > 0 ||
 		selectedReplay.UpstreamHTTP400Errors > 0 ||
 		selectedReplay.UpstreamResponseFailures > 0 ||
 		selectedReplay.Lost > 0 ||
-		!proof.DefaultReplay.ToolOutputMutation ||
-		!proof.DefaultReplay.DeltaToolOutputMutation {
+		!searchCapReplayUsesProductLatch(proof.DefaultReplay) {
 		return 0
 	}
 	extra := int64(selected.ExtraReducerTokens)

@@ -5944,6 +5944,133 @@ func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFSearchCapProofKeepsCapturedOutputDeltaByteEqual(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	toolCall := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "search-proofed-delta",
+			"name":      "exec_command",
+			"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &toolCall); err != nil || replace {
+		t.Fatalf("server search tool-call seed should not replace, replace=%v err=%v", replace, err)
+	}
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-proofed-delta",
+		"prompt_cache_key":     "search-proofed-delta-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "search-proofed-delta",
+			"output":  searchOutput,
+		}},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("proofed search delta handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if replace ||
+		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("proofed captured-output search delta must remain byte-equal after live 400 proof: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.previous_response_id"] != "true" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("proofed search delta should record no live savings: %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("proofed search delta must not record Layer 0 savings: %+v", snap)
+	}
+}
+
+func TestWSPhaseFSearchCapProofKeepsSearchEnvelopeDeltaByteEqual(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	toolCall := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "search-proofed-envelope-delta",
+			"name":      "exec_command",
+			"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &toolCall); err != nil || replace {
+		t.Fatalf("server search tool-call seed should not replace, replace=%v err=%v", replace, err)
+	}
+
+	searchOutput := "Chunk ID: search-envelope\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" +
+		proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-proofed-envelope-delta",
+		"prompt_cache_key":     "search-proofed-envelope-delta-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "search-proofed-envelope-delta",
+			"output":  searchOutput,
+		}},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("proofed search envelope delta handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if replace ||
+		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "Chunk ID: search-envelope") ||
+		!strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("proofed search envelope delta must remain byte-equal after live 400 proof: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("proofed search envelope delta should record no live savings: %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0EnvelopeBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("proofed search envelope delta must not record Layer 0 savings: %+v", snap)
+	}
+}
+
 func TestWSPhaseFDefaultFullHistorySearchOutputCompactsWithArchive(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir

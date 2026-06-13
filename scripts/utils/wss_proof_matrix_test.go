@@ -407,14 +407,14 @@ func TestWSSProofMatrixSearchCapProofGate(t *testing.T) {
 	}
 }
 
-func TestWSSProofMatrixSearchCapProofSatisfiesDeltaSearchMutationGate(t *testing.T) {
+func TestWSSProofMatrixSearchCapProofSatisfiesFullHistorySearchMutationGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	framesPath := filepath.Join(dir, "frames.jsonl")
-	writeProofSearchDeltaFrames(t, framesPath, "matrix-search-cap-delta")
+	writeSearchCapProofFullHistoryFrames(t, framesPath, "matrix-search-cap-full-history", 96)
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
 	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
-		ID:            "matrix-search-cap-delta",
+		ID:            "matrix-search-cap-full-history",
 		Client:        "cli",
 		WorkloadClass: "search_loop",
 		FramesPath:    framesPath,
@@ -439,11 +439,14 @@ func TestWSSProofMatrixSearchCapProofSatisfiesDeltaSearchMutationGate(t *testing
 		t.Fatal(err)
 	}
 	capture := report.CaptureReports[0]
-	if capture.Replay.SearchMutatedRequests != 0 {
-		t.Fatalf("fixture should exercise search-cap proof, not baseline search mutation: %+v", capture.Replay)
-	}
 	if !report.GatePassed || capture.SearchCapProof == nil || !capture.SearchCapProof.GatePassed {
-		t.Fatalf("search-cap proof should satisfy delta search mutation gate: %+v", report)
+		t.Fatalf("search-cap proof should satisfy full-history search mutation gate: %+v", report)
+	}
+	if !capture.SearchCapProof.DefaultReplay.SearchCapProofLatch ||
+		capture.SearchCapProof.DefaultReplay.SearchMutatedRequests == 0 ||
+		capture.SearchCapProof.DefaultReplay.ToolOutputMutation ||
+		capture.SearchCapProof.DefaultReplay.DeltaToolOutputMutation {
+		t.Fatalf("search-cap proof should use product latch, not lab mutation: %+v", capture.SearchCapProof.DefaultReplay)
 	}
 	if strings.Contains(strings.Join(capture.GateFailures, "\n"), "named search-output mutation") {
 		t.Fatalf("search-cap proof should suppress baseline mutation failure: %+v", capture.GateFailures)
