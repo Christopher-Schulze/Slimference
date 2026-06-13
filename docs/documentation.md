@@ -112,6 +112,10 @@ routine use, it stays out of the product path.
   codex-exec-envelope compaction) remains shape-gated: previous-response-id
   delta turns keep `wss_stateful_delta_mutation_proof_gate`, because live A/B
   found accepted delta mutations that poisoned later turns with upstream 400s.
+  The narrow exception is proof-latched named search output: a validated
+  `codex_search_cap_proof_path` opens only search workload compaction for
+  resolved tool-use commands, including current Codex CLI `codex_exec_envelope`
+  payloads whose original output is archived for recovery.
   Full-history or non-delta lab/proof mutation can use
   `codex_wss_tool_output_mutation_enabled`;
   delta mutation needs env-only
@@ -1146,7 +1150,10 @@ least 40% retained matches, positive extra reducer tokens, and a named valid
 selected cap) plus the delta proof bit and
 `required_reducer_hits.captured_output > 0` before copying the selected
 files/matches cap into the WSS runtime path and opening the narrow named-search
-WSS delta mutation path. A focused
+WSS delta mutation path. That runtime path covers both plain captured-output
+search blocks and Codex CLI exec-envelope search payloads under the same
+resolved tool-use/search-command proof gate; the envelope header is preserved
+and the original payload is written to the local context archive. A focused
 `wss-proof-matrix --json` report alone is rejected by config loading because it
 does not prove route hygiene. Without the final proof path, or when the final
 proof is weak, the runtime cap fields stay zero and the default search compactor

@@ -621,7 +621,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			searchDeltaProofCandidate := workload == savingspolicy.CodexWorkloadSearch &&
 				req.WSSSearchMutationAllowed &&
 				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload) &&
-				mechanism == proxyLayer0MechanismCapturedOut
+				proxyWSSSearchProofMechanism(mechanism)
 			if changed && structuredMutationBlockedForBlock && !searchDeltaProofCandidate &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "wss_stateful_structured_mutation_guard"))
@@ -1038,6 +1038,11 @@ func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock
 		return false
 	}
 	return filter.SearchOutputKeyFromCommandLine(commandLine) != ""
+}
+
+func proxyWSSSearchProofMechanism(mechanism proxyLayer0Mechanism) bool {
+	return mechanism == proxyLayer0MechanismCapturedOut ||
+		mechanism == proxyLayer0MechanismCodexEnvelope
 }
 
 func proxyCommandLineInvokesReconc(commandLine string) bool {
