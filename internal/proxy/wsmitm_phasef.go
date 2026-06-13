@@ -817,6 +817,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
 		l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyStats)
+		l0Stats = appendWSSSourceDeltaToolOutputFullPassEvidence(l0Stats, meta, stagedMessages, a.p.config.Savings.CachedPriceRatio)
 		if stats.TokensSaved > 0 {
 			stagedMessages = l0Messages
 			messageMutationPending = true
@@ -2640,6 +2641,29 @@ func wssGuardedToolOutputFullPassEvidenceDecision(reason string, payloadBytes in
 	decision.FootprintScore = proxyFootprintScoreWithEstimate(decision.OriginalTokens, decision.SavedTokens, turnSeq, remainingTurnsEstimate, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
+}
+
+func appendWSSSourceDeltaToolOutputFullPassEvidence(stats proxyLayer0Stats, meta wssRequestMeta, messages []types.Message, cachedPriceRatio float64) proxyLayer0Stats {
+	if len(stats.EvidenceDecisions) > 0 || stats.BlocksModified > 0 || stats.TokensSaved > 0 {
+		return stats
+	}
+	if !wssRequestIsDeltaShape(messages) || !wssRiskyPreviousResponseSourceToolOutput(meta, messages) {
+		return stats
+	}
+	blocks, payloadBytes := wssToolResultPayloadStats(messages)
+	if payloadBytes <= 0 {
+		return stats
+	}
+	if stats.ToolResultBlocks == 0 && stats.ToolResultBytes == 0 {
+		stats.ToolResultBlocks = blocks
+		stats.ToolResultBytes = payloadBytes
+	}
+	decision := wssGuardedToolOutputFullPassEvidenceDecision("wss_source_tool_output_full_pass", payloadBytes, meta.TurnSeq, meta.RemainingTurnsEstimate, cachedPriceRatio)
+	decision.ContentClass = evidence.ContentCode
+	decision.PreservedEvidence = []string{"source tool result boundary", "byte-identical original source output"}
+	decision.Recovery = "fail-open to original source output"
+	stats.EvidenceDecisions = append(stats.EvidenceDecisions, decision)
+	return stats
 }
 
 func wssMessageShapeCounts(messages []types.Message) (toolResults int, sourceToolResults int, toolUses int) {

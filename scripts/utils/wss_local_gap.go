@@ -937,6 +937,10 @@ func wssLocalGapDecisionAction(reason string) (string, string, string) {
 		return "unsafe_without_fresh_live_proof",
 			"previous_response_id delta mutation has known downstream 400 risk",
 			"keep full-pass unless a fresh downstream-delta-safe live proof covers this exact mechanism"
+	case "wss_source_tool_output_full_pass":
+		return "source_context_guard",
+			"source-like previous_response_id delta tool output is model-facing repository context",
+			"replace only with an exact archive/state mirror plus downstream-delta stability proof for this source lineage"
 	case "wss_full_history_downstream_delta_proof_gate":
 		return "unsafe_without_fresh_live_proof",
 			"full-history reconnect/downstream mutation can poison the following delta turn",
