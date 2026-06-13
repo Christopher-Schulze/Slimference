@@ -985,6 +985,7 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 	toolResultOutputBytesFact := strings.TrimSpace(facts["wss.tool_result_output_bytes"])
 	toolResultOutputBytes := wssLocalGapFactInt(facts, "wss.tool_result_output_bytes")
 	sourceToolBytes := strings.TrimSpace(facts["wss.source_tool_bytes"])
+	guardCategory, guardSource, guardPolicy, guardNextStep, guardOK := wssLocalGapNoEvidenceGuardAction(facts)
 	switch {
 	case outputReason == "prompt_cache_prefix_full_pass":
 		toolDefinitionBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
@@ -1048,6 +1049,8 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no_evidence:bypass_reason=" + strings.TrimSpace(summary.BypassReason),
 			"bypass fired without block-level evidence",
 			"wire the bypass to evidence decisions before changing behavior"
+	case guardOK:
+		return guardCategory, guardSource, guardPolicy, guardNextStep
 	case outputReason == "disabled":
 		predicate := strings.TrimSpace(facts["wss.output_reduce_disabled_predicate"])
 		switch predicate {
@@ -1087,6 +1090,24 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"no block-level evidence exists for this token mass",
 			"add content-free evidence decisions before treating it as a savings candidate"
 	}
+}
+
+func wssLocalGapNoEvidenceGuardAction(facts map[string]string) (string, string, string, string, bool) {
+	for _, key := range []string{
+		"wss.downstream_state_mutation_guard",
+		"wss.history_mutation_guard",
+		"wss.structured_mutation_guard",
+		"wss.effective_mutation_guard",
+		"wss.tool_prune_guard",
+	} {
+		reason := strings.TrimSpace(facts[key])
+		if reason == "" {
+			continue
+		}
+		category, policy, nextStep := wssLocalGapDecisionAction(reason)
+		return category, "no_evidence:" + key + "=" + reason, policy, nextStep, true
+	}
+	return "", "", "", "", false
 }
 
 func wssLocalGapPrefixDecisionSurface(facts map[string]string) (controlContextBytes, nonDefaultCandidateBytes, unclassifiedToolBytes int) {

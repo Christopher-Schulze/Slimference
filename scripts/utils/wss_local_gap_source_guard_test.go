@@ -93,3 +93,46 @@ func TestWSSLocalGapClassifiesEmptyToolOutputContext(t *testing.T) {
 		t.Fatalf("bad empty-tool-output row: %+v", row)
 	}
 }
+
+func TestWSSLocalGapClassifiesNoEvidenceDownstreamGuardBeforeOutputReduceDisabled(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "full-history-downstream-guard-no-evidence",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 12951, Final: 12951, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                    "full_history",
+			"wss.output_reduce_reason":             "disabled",
+			"wss.output_reduce_disabled_predicate": "tool_output_context",
+			"wss.structured_mutation_guard":        "wss_full_history_downstream_delta_proof_gate",
+			"wss.tool_results":                     "1",
+			"wss.tool_result_bytes":                "30662",
+			"wss.tool_result_output_bytes":         "30662",
+			"wss.source_tool_bytes":                "0",
+			"wss.tool_command_classes":             "git_status=2,rg_search=1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "unsafe_without_fresh_live_proof" ||
+		row.Source != "no_evidence:wss.structured_mutation_guard=wss_full_history_downstream_delta_proof_gate" ||
+		row.Tokens != 12951 ||
+		row.RequestShapes["full_history"] != 1 ||
+		row.ToolCommandClasses["git_status"] != 2 ||
+		row.ToolCommandClasses["rg_search"] != 1 ||
+		row.OutputReduceInputTokens != 0 ||
+		row.OutputReduceEligibleInputTokens != 0 {
+		t.Fatalf("bad downstream-guard row: %+v", row)
+	}
+}
