@@ -929,7 +929,10 @@ root-request savings. When the triggering mutation is classifiable, the demotion
 narrows further to content-free `mechanism:content_class` keys; captured search
 outputs append a short hash of the stable search identity, so one cache-busting
 search does not suppress unrelated search-output reducers in the same prefix
-scope. Unclassified or legacy demotions keep the broad mechanism guard.
+scope. Command-bound read/output reducers append a short hash of the normalized
+command identity, so one cache-busting command does not suppress unrelated
+commands with the same content class. Unclassified or legacy demotions keep the
+broad mechanism guard.
 Aggregate demotion telemetry stays available for reports and legacy diagnostics.
 Negative-savings history is treated as an efficiency signal rather than a
 context-risk signal:

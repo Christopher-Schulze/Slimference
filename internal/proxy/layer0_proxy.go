@@ -143,6 +143,9 @@ func proxyLayer0CacheBustClassKey(mechanism proxyLayer0Mechanism, commandLine st
 	analysis := evidence.Analyze(strings.Fields(commandLine), []byte(beforeText))
 	general := proxyLayer0CacheBustClassKeyForMechanism(mechanism, analysis.ContentClass)
 	if general == "" || mechanism != proxyLayer0MechanismCapturedOut || analysis.ContentClass != evidence.ContentSearch {
+		if commandKey := proxyLayer0CacheBustCommandIdentityKey(commandLine); commandKey != "" && proxyLayer0CacheBustMechanismUsesCommandIdentity(mechanism) {
+			return general + ":cmd=" + commandKey
+		}
 		return general
 	}
 	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
@@ -156,6 +159,32 @@ func proxyLayer0CacheBustClassKey(mechanism proxyLayer0Mechanism, commandLine st
 func proxyLayer0CacheBustStableKeyHash(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
+}
+
+func proxyLayer0CacheBustCommandIdentityKey(commandLine string) string {
+	workdir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	filterCommandLine = strings.TrimSpace(filterCommandLine)
+	if filterCommandLine == "" {
+		return ""
+	}
+	identity := "cmd=" + filterCommandLine
+	if workdir = strings.TrimSpace(workdir); workdir != "" {
+		identity = "cwd=" + filepath.Clean(workdir) + "\n" + identity
+	}
+	return proxyLayer0CacheBustStableKeyHash(identity)
+}
+
+func proxyLayer0CacheBustMechanismUsesCommandIdentity(mechanism proxyLayer0Mechanism) bool {
+	switch mechanism {
+	case proxyLayer0MechanismReadDelta,
+		proxyLayer0MechanismCapturedOut,
+		proxyLayer0MechanismCodexEnvelope,
+		proxyLayer0MechanismRepeatedOut,
+		proxyLayer0MechanismStaleRead:
+		return true
+	default:
+		return false
+	}
 }
 
 func proxyLayer0CacheBustClassKeysFromStats(stats proxyLayer0Stats) map[string]struct{} {

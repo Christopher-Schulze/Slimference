@@ -90,6 +90,23 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	if searchKeyA == searchKeyB {
 		t.Fatalf("different search identities must not share cache-bust keys: %q", searchKeyA)
 	}
+	commandKeyA := proxyLayer0CacheBustClassKey(proxyLayer0MechanismRepeatedOut, "wc -l internal/a.go", "10 internal/a.go\n")
+	commandKeyB := proxyLayer0CacheBustClassKey(proxyLayer0MechanismRepeatedOut, "wc -l internal/b.go", "10 internal/b.go\n")
+	if !strings.HasPrefix(commandKeyA, "repeated_tool_output:plain:cmd=") ||
+		strings.Contains(commandKeyA, "internal/a.go") ||
+		strings.Contains(commandKeyA, "wc") {
+		t.Fatalf("command cache-bust key must be hashed and content-free, got %q", commandKeyA)
+	}
+	if commandKeyA == commandKeyB {
+		t.Fatalf("different command identities must not share cache-bust keys: %q", commandKeyA)
+	}
+	if got := proxyLayer0CacheBustCommandIdentityKey(""); got != "" {
+		t.Fatalf("empty command identity key=%q, want empty", got)
+	}
+	cdCommandKey := proxyLayer0CacheBustCommandIdentityKey("cd /repo/a && wc -l internal/a.go")
+	if cdCommandKey == "" || strings.Contains(cdCommandKey, "/repo/a") || strings.Contains(cdCommandKey, "internal/a.go") {
+		t.Fatalf("cd command identity key must be hashed and content-free, got %q", cdCommandKey)
+	}
 	keys := cloneProxyLayer0CacheBustClassKeys(map[string]struct{}{
 		"repeated_tool_output:plain": {},
 		"":                           {},
@@ -115,6 +132,33 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	specificFromStats := proxyLayer0CacheBustClassKeysFromStats(specificStats)
 	if _, ok := specificFromStats[searchKeyA]; !ok || len(specificFromStats) != 1 {
 		t.Fatalf("specific stats should not add broad search fallback: %+v", specificFromStats)
+	}
+}
+
+func TestProxyLayer0CacheBustCommandIdentityDemotion(t *testing.T) {
+	t.Parallel()
+
+	commandA := "wc -l internal/a.go"
+	commandB := "wc -l internal/b.go"
+	outputA := "10 internal/a.go\n"
+	outputB := "10 internal/b.go\n"
+	commandKeyA := proxyLayer0CacheBustClassKey(proxyLayer0MechanismRepeatedOut, commandA, outputA)
+	generalKey := proxyLayer0CacheBustClassKeyForMechanism(proxyLayer0MechanismRepeatedOut, evidence.ContentPlain)
+	req := codexLayer0Request{
+		CacheBustDemotedMechanisms: proxyLayer0MechanismMaskFor(proxyLayer0MechanismRepeatedOut),
+		CacheBustDemotedClassKeys:  map[string]struct{}{commandKeyA: {}},
+	}
+	if !proxyLayer0CacheBustCandidateDemoted(req, commandA, outputA, proxyLayer0MechanismRepeatedOut) {
+		t.Fatal("matching command identity should be cache-bust demoted")
+	}
+	if proxyLayer0CacheBustCandidateDemoted(req, commandB, outputB, proxyLayer0MechanismRepeatedOut) {
+		t.Fatal("different command identity must not inherit a narrow cache-bust demotion")
+	}
+
+	req.CacheBustDemotedClassKeys = map[string]struct{}{generalKey: {}}
+	if !proxyLayer0CacheBustCandidateDemoted(req, commandA, outputA, proxyLayer0MechanismRepeatedOut) ||
+		!proxyLayer0CacheBustCandidateDemoted(req, commandB, outputB, proxyLayer0MechanismRepeatedOut) {
+		t.Fatal("legacy broad class key should still demote every matching content class")
 	}
 }
 
