@@ -208,6 +208,7 @@ func fdPathListArgv(argv []string) bool {
 				return false
 			}
 		case fdPathListInlineValueFlag(arg):
+		case fdPathListCombinedBoolShortFlag(arg):
 		case strings.HasPrefix(arg, "-"):
 			return false
 		}
@@ -221,7 +222,7 @@ func fdPathListBoolFlag(arg string) bool {
 		"--no-hidden",
 		"--follow", "-L",
 		"--unrestricted", "-u", "-uu", "-uuu",
-		"--no-ignore", "--no-ignore-vcs", "--no-ignore-parent",
+		"--no-ignore", "-I", "--no-ignore-vcs", "--no-ignore-parent",
 		"--absolute-path", "-a",
 		"--full-path", "-p",
 		"--case-sensitive", "-s",
@@ -247,6 +248,7 @@ func fdPathListValueFlag(arg string) bool {
 		"--base-directory",
 		"--search-path",
 		"--color",
+		"-c",
 		"-j", "--threads",
 		"--max-results",
 		"--size",
@@ -277,11 +279,26 @@ func fdPathListInlineValueFlag(arg string) bool {
 		strings.HasPrefix(arg, "-t"),
 		strings.HasPrefix(arg, "-E"),
 		strings.HasPrefix(arg, "-d"),
+		strings.HasPrefix(arg, "-c"),
 		strings.HasPrefix(arg, "-j"):
 		return len(arg) > 2 && strings.TrimSpace(arg[2:]) != ""
 	default:
 		return false
 	}
+}
+
+func fdPathListCombinedBoolShortFlag(arg string) bool {
+	if len(arg) <= 2 || !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false
+	}
+	for _, flag := range arg[1:] {
+		switch flag {
+		case 'H', 'L', 'u', 'I', 'a', 'p', 's', 'i', 'S', 'g', 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func findPathListArgv(argv []string) bool {
