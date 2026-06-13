@@ -71,6 +71,61 @@ func TestWSPhaseFProviderCacheBustDemotionScopesToPromptCacheKey(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFProviderCacheBustDemotionScopesToClassKeys(t *testing.T) {
+	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
+	captured := proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut)
+	scope := wssCacheBustScope("full_history", "prefix-class")
+	searchKey := proxyLayer0CacheBustClassKeyForMechanism(proxyLayer0MechanismCapturedOut, "search")
+
+	sessionID := "codex-wss:cache-bust-class"
+	if event := adapter.observeWSSProviderCacheBustForScopeWithPrefixElisionAndClasses(sessionID, 1000, 820, 0, false, "full_history", scope, nil); event.Fired {
+		t.Fatalf("first class sample must not fire: %+v", event)
+	}
+	if event := adapter.observeWSSProviderCacheBustForScopeWithPrefixElisionAndClasses(sessionID, 1000, 810, captured, false, "full_history", scope, map[string]struct{}{searchKey: {}}); event.Fired {
+		t.Fatalf("mutated class sample must wait for comparable usage: %+v", event)
+	}
+	event := adapter.observeWSSProviderCacheBustForScopeWithPrefixElisionAndClasses(sessionID, 1000, 470, 0, false, "full_history", scope, nil)
+	if !event.Fired || event.Trigger != captured || len(event.TriggerClassKeys) != 1 || event.TriggerClassKeys[0] != searchKey {
+		t.Fatalf("matching prompt-cache key should demote exact class keys: %+v", event)
+	}
+	keys := adapter.wssCacheBustDemotedClassKeysForScope(sessionID, "full_history", "prefix-class")
+	if _, ok := keys[searchKey]; !ok || len(keys) != 1 {
+		t.Fatalf("demoted class keys mismatch: %+v", keys)
+	}
+}
+
+func TestWSSCacheBustEventDebugFacts(t *testing.T) {
+	t.Parallel()
+
+	if facts := wssCacheBustEventDebugFacts(wssProviderCacheBustEvent{}); facts != nil {
+		t.Fatalf("non-fired event should not emit facts: %+v", facts)
+	}
+	event := wssProviderCacheBustEvent{
+		Fired:                        true,
+		Trigger:                      proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut),
+		Demoted:                      proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut),
+		StatefulPrefixElisionTrigger: true,
+		StatefulPrefixElisionDemoted: true,
+		TriggerRequestShape:          "full_history",
+		TriggerScope:                 wssCacheBustScope("full_history", "prefix-debug"),
+		TriggerClassKeys:             []string{"captured_output:search"},
+		PreviousShare:                0.81234,
+		CurrentShare:                 0.41234,
+		ObservedSamples:              4,
+	}
+	facts := wssCacheBustEventDebugFacts(event)
+	if facts["wss.cache_bust_guard_fired"] != "true" ||
+		facts["wss.cache_bust_guard_trigger_mechanisms"] != "captured_output" ||
+		facts["wss.cache_bust_guard_trigger_class_keys"] != "captured_output:search" ||
+		facts["wss.cache_bust_guard_previous_cached_share"] != "0.8123" ||
+		facts["wss.cache_bust_guard_current_cached_share"] != "0.4123" ||
+		facts["wss.cache_bust_guard_observed_samples"] != "4" ||
+		facts["wss.cache_bust_guard_prefix_elision_trigger"] != "true" ||
+		facts["wss.cache_bust_guard_prefix_elision_demoted"] != "true" {
+		t.Fatalf("bad cache-bust debug facts: %+v", facts)
+	}
+}
+
 func TestWSPhaseFProviderCacheBustDemotesStatefulPrefixElisionByScope(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
 	scopeA := wssCacheBustScope("delta", "prefix-a")

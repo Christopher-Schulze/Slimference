@@ -73,6 +73,33 @@ func TestProxyFootprintScoreUsesCachedPriceRatio(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
+	t.Parallel()
+
+	if got := proxyLayer0CacheBustClassKeyForString("", evidence.ContentSearch); got != "" {
+		t.Fatalf("empty mechanism key=%q, want empty", got)
+	}
+	if got := proxyLayer0CacheBustClassKeyForString(string(proxyLayer0MechanismCapturedOut), ""); got != "captured_output:unknown" {
+		t.Fatalf("empty class key=%q, want unknown fallback", got)
+	}
+	keys := cloneProxyLayer0CacheBustClassKeys(map[string]struct{}{
+		"repeated_tool_output:plain": {},
+		"":                           {},
+		"captured_output:search":     {},
+	})
+	if got := proxyLayer0CacheBustClassKeysString(keys); got != "captured_output:search,repeated_tool_output:plain" {
+		t.Fatalf("sorted class keys=%q", got)
+	}
+	stats := proxyLayer0Stats{EvidenceDecisions: []evidence.BlockDecision{
+		{Mechanism: string(proxyLayer0MechanismCapturedOut), ContentClass: evidence.ContentSearch, Action: evidence.ActionApplied},
+		{Mechanism: string(proxyLayer0MechanismRepeatedOut), ContentClass: evidence.ContentPlain, Action: evidence.ActionFullPass},
+	}}
+	fromStats := proxyLayer0CacheBustClassKeysFromStats(stats)
+	if _, ok := fromStats["captured_output:search"]; !ok || len(fromStats) != 1 {
+		t.Fatalf("applied-only class keys mismatch: %+v", fromStats)
+	}
+}
+
 func TestApplyProxyLayer0Branches(t *testing.T) {
 	t.Parallel()
 
@@ -200,6 +227,52 @@ func TestReduceCodexLayer0WSSCapturedOutputCarriesArchiveReference(t *testing.T)
 	}
 	if !strings.Contains(text, "[git status]") || !strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") {
 		t.Fatalf("WSS captured output must be compact and recoverable: %q", text)
+	}
+}
+
+func TestReduceCodexLayer0CacheBustDemotionNarrowsToClassKeys(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&status, "?? cache_bust_narrow_%02d.go\n", i)
+	}
+	commandLine := "git status --short"
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-status", ToolName: "shell", ToolInput: `{"command":"git status --short"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-status", Text: status.String()}}},
+	}
+	captured := proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut)
+	searchKey := proxyLayer0CacheBustClassKeyForMechanism(proxyLayer0MechanismCapturedOut, evidence.ContentSearch)
+	narrow := reduceCodexLayer0(codexLayer0Request{
+		Route:                      codexLayer0RouteWSSPhaseF,
+		Messages:                   messages,
+		SessionID:                  "sess-cache-bust-narrow",
+		CacheBustDemotedMechanisms: proxyLayer0MechanismMaskFor(proxyLayer0MechanismCapturedOut),
+		CacheBustDemotedClassKeys:  map[string]struct{}{searchKey: {}},
+	})
+	if narrow.Stats.TokensSaved <= 0 || narrow.Stats.CapturedOutputBlocks != 1 ||
+		!strings.Contains(narrow.Messages[1].Content[0].Text, "[git status]") {
+		t.Fatalf("class-narrow cache-bust demotion should not block unrelated captured output: stats=%+v text=%q", narrow.Stats, narrow.Messages[1].Content[0].Text)
+	}
+	if hasEvidenceDecision(narrow.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("unrelated class must not emit cache-bust full-pass evidence: %+v", narrow.Stats.EvidenceDecisions)
+	}
+
+	statusKey := proxyLayer0CacheBustClassKey(proxyLayer0MechanismCapturedOut, commandLine, status.String())
+	guarded := reduceCodexLayer0(codexLayer0Request{
+		Route:                      codexLayer0RouteWSSPhaseF,
+		Messages:                   messages,
+		SessionID:                  "sess-cache-bust-narrow",
+		CacheBustDemotedMechanisms: captured,
+		CacheBustDemotedClassKeys:  map[string]struct{}{statusKey: {}},
+	})
+	if guarded.Stats.TokensSaved != 0 || guarded.Stats.BlocksModified != 0 ||
+		guarded.Messages[1].Content[0].Text != status.String() {
+		t.Fatalf("matching class key must preserve original output: stats=%+v text=%q", guarded.Stats, guarded.Messages[1].Content[0].Text)
+	}
+	if !hasEvidenceDecision(guarded.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("matching class key must emit cache-bust evidence: %+v", guarded.Stats.EvidenceDecisions)
 	}
 }
 

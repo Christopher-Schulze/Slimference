@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -122,6 +123,94 @@ func (m proxyLayer0MechanismMask) String() string {
 	return strings.Join(names, ",")
 }
 
+func proxyLayer0CacheBustClassKeyForString(mechanism string, class evidence.ContentClass) string {
+	mechanism = strings.TrimSpace(mechanism)
+	if mechanism == "" {
+		return ""
+	}
+	classText := strings.TrimSpace(string(class))
+	if classText == "" {
+		classText = string(evidence.ContentUnknown)
+	}
+	return mechanism + ":" + classText
+}
+
+func proxyLayer0CacheBustClassKeyForMechanism(mechanism proxyLayer0Mechanism, class evidence.ContentClass) string {
+	return proxyLayer0CacheBustClassKeyForString(string(mechanism), class)
+}
+
+func proxyLayer0CacheBustClassKey(mechanism proxyLayer0Mechanism, commandLine string, beforeText string) string {
+	analysis := evidence.Analyze(strings.Fields(commandLine), []byte(beforeText))
+	return proxyLayer0CacheBustClassKeyForMechanism(mechanism, analysis.ContentClass)
+}
+
+func proxyLayer0CacheBustClassKeysFromStats(stats proxyLayer0Stats) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, decision := range stats.EvidenceDecisions {
+		if decision.Action != evidence.ActionApplied {
+			continue
+		}
+		key := proxyLayer0CacheBustClassKeyForString(decision.Mechanism, decision.ContentClass)
+		if key == "" {
+			continue
+		}
+		out[key] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneProxyLayer0CacheBustClassKeys(keys map[string]struct{}) map[string]struct{} {
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(keys))
+	for key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func proxyLayer0CacheBustClassKeysString(keys map[string]struct{}) string {
+	return strings.Join(proxyLayer0CacheBustClassKeysSlice(keys), ",")
+}
+
+func proxyLayer0CacheBustClassKeysSlice(keys map[string]struct{}) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(keys))
+	for key := range keys {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			parts = append(parts, key)
+		}
+	}
+	sort.Strings(parts)
+	return parts
+}
+
+func proxyLayer0CacheBustCandidateDemoted(req codexLayer0Request, commandLine string, beforeText string, mechanism proxyLayer0Mechanism) bool {
+	if !req.CacheBustDemotedMechanisms.Has(mechanism) {
+		return false
+	}
+	if len(req.CacheBustDemotedClassKeys) == 0 {
+		return true
+	}
+	key := proxyLayer0CacheBustClassKey(mechanism, commandLine, beforeText)
+	_, demoted := req.CacheBustDemotedClassKeys[key]
+	return demoted
+}
+
 type proxyLayer0CacheAction string
 
 const (
@@ -176,6 +265,10 @@ type codexLayer0Request struct {
 	// mutation: non-search, inferred search, and unknown output stay guarded.
 	WSSSearchMutationAllowed   bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
+	// CacheBustDemotedClassKeys narrows a provider-cache-bust demotion to
+	// content-free mechanism:content_class keys when the triggering request
+	// was classifiable. Empty preserves the legacy broad mechanism guard.
+	CacheBustDemotedClassKeys map[string]struct{}
 	// HistoryMutationGuardReason suppresses history/chunk reducers that can
 	// perturb Codex server state and break the following previous_response_id
 	// delta turn. It is intentionally narrower than the structured/output
@@ -669,7 +762,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				changed = false
 				afterText = ""
 			}
-			if changed && req.CacheBustDemotedMechanisms.Has(mechanism) {
+			if changed && proxyLayer0CacheBustCandidateDemoted(req, commandLine, block.Text, mechanism) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "cache_bust_guard"))
 				changed = false
 				afterText = ""
@@ -719,7 +812,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 				continue
 			}
-			if req.CacheBustDemotedMechanisms.Has(mechanism) {
+			if proxyLayer0CacheBustCandidateDemoted(req, commandLine, block.Text, mechanism) {
 				stats.EvidenceDecisions = append(stats.EvidenceDecisions, candidateEvidenceDecision(mechanism, evidence.ActionFullPass, "cache_bust_guard"))
 				continue
 			}
