@@ -85,12 +85,15 @@ func NormalizePathListCommandLine(commandLine, workdir string) string {
 }
 
 func pathListOutputEligibleArgv(argv []string) bool {
-	return ripgrepFilesArgv(argv)
+	return ripgrepFilesArgv(argv) || fdPathListArgv(argv)
 }
 
 func pathListOutputLabel(argv []string) string {
 	if ripgrepFilesArgv(argv) {
 		return "rg --files"
+	}
+	if fdPathListArgv(argv) {
+		return "fd"
 	}
 	return "paths"
 }
@@ -166,6 +169,111 @@ func ripgrepFilesInlineValueFlag(arg string) bool {
 		_, value, _ := strings.Cut(arg, "=")
 		return strings.TrimSpace(value) != ""
 	case strings.HasPrefix(arg, "-g"), strings.HasPrefix(arg, "-t"), strings.HasPrefix(arg, "-T"):
+		return len(arg) > 2 && strings.TrimSpace(arg[2:]) != ""
+	default:
+		return false
+	}
+}
+
+func fdPathListArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(argv[0])), ".exe"))
+	if base != "fd" && base != "fdfind" {
+		return false
+	}
+	optionParsing := true
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if optionParsing && arg == "--" {
+			optionParsing = false
+			continue
+		}
+		if !optionParsing || !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		switch {
+		case fdPathListBoolFlag(arg):
+		case fdPathListValueFlag(arg):
+			i++
+			if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+				return false
+			}
+		case fdPathListInlineValueFlag(arg):
+		case strings.HasPrefix(arg, "-"):
+			return false
+		}
+	}
+	return true
+}
+
+func fdPathListBoolFlag(arg string) bool {
+	switch arg {
+	case "--hidden", "-H",
+		"--no-hidden",
+		"--follow", "-L",
+		"--unrestricted", "-u", "-uu", "-uuu",
+		"--no-ignore", "--no-ignore-vcs", "--no-ignore-parent",
+		"--absolute-path", "-a",
+		"--full-path", "-p",
+		"--case-sensitive", "-s",
+		"--ignore-case", "-i",
+		"--smart-case",
+		"--glob", "-g",
+		"--fixed-strings", "-F",
+		"--one-file-system",
+		"--prune":
+		return true
+	default:
+		return false
+	}
+}
+
+func fdPathListValueFlag(arg string) bool {
+	switch arg {
+	case "-e", "--extension",
+		"-t", "--type",
+		"-E", "--exclude",
+		"-d", "--max-depth",
+		"--min-depth",
+		"--base-directory",
+		"--search-path",
+		"--color",
+		"-j", "--threads",
+		"--max-results",
+		"--size",
+		"--owner":
+		return true
+	default:
+		return false
+	}
+}
+
+func fdPathListInlineValueFlag(arg string) bool {
+	switch {
+	case strings.HasPrefix(arg, "--extension="),
+		strings.HasPrefix(arg, "--type="),
+		strings.HasPrefix(arg, "--exclude="),
+		strings.HasPrefix(arg, "--max-depth="),
+		strings.HasPrefix(arg, "--min-depth="),
+		strings.HasPrefix(arg, "--base-directory="),
+		strings.HasPrefix(arg, "--search-path="),
+		strings.HasPrefix(arg, "--color="),
+		strings.HasPrefix(arg, "--threads="),
+		strings.HasPrefix(arg, "--max-results="),
+		strings.HasPrefix(arg, "--size="),
+		strings.HasPrefix(arg, "--owner="):
+		_, value, _ := strings.Cut(arg, "=")
+		return strings.TrimSpace(value) != ""
+	case strings.HasPrefix(arg, "-e"),
+		strings.HasPrefix(arg, "-t"),
+		strings.HasPrefix(arg, "-E"),
+		strings.HasPrefix(arg, "-d"),
+		strings.HasPrefix(arg, "-j"):
 		return len(arg) > 2 && strings.TrimSpace(arg[2:]) != ""
 	default:
 		return false

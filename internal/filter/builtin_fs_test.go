@@ -88,6 +88,39 @@ func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	}
 }
 
+func TestTryCompactPathListOutputFdPathLists(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		sb.WriteString("src/generated/deep/package/file_")
+		if i < 10 {
+			sb.WriteByte('0')
+		}
+		sb.WriteString(string(rune('0' + i/10)))
+		sb.WriteString(string(rune('0' + i%10)))
+		sb.WriteString(".go\n")
+	}
+	out, ok := TryCompactPathListOutput([]string{"fd", ".go", "src"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("fd path list should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[fd paths]") ||
+		!strings.Contains(text, "src/generated/deep/package/") ||
+		!strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected fd path-list compaction: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("fd path-list compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`fd .go src`) {
+		t.Fatal("direct fd command should be path-list eligible")
+	}
+	if !PathListOutputReducerEligibleFromCommandLine(`cd /repo/app && fd --extension go src`) {
+		t.Fatal("cd-wrapped fd command should be path-list eligible")
+	}
+}
+
 func TestTryCompactPathListOutputRipgrepFilesRootEntries(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
@@ -181,6 +214,11 @@ func TestPathListOutputParserEdges(t *testing.T) {
 		{"rg", "--files", "--type", "go", "--max-depth", "2", "--sort=path"},
 		{"rg", "--files", "-Tvendor", "--sortr", "path"},
 		{"rg", "--files", "--"},
+		{"fd", ".go", "src"},
+		{"fdfind", "--extension", "go", "src"},
+		{"fd", "-ego", "--max-depth=2", "src"},
+		{"fd", "--hidden", "--type=file", "--exclude", "vendor", "src"},
+		{"fd", "--", "-literal-pattern", "src"},
 	}
 	for _, argv := range eligible {
 		if !pathListOutputEligibleArgv(argv) {
@@ -190,7 +228,13 @@ func TestPathListOutputParserEdges(t *testing.T) {
 
 	ineligible := [][]string{
 		nil,
-		{"fd", "--files"},
+		{"fd", "--exec", "cat", "{}"},
+		{"fd", "-x", "cat", "{}"},
+		{"fd", "--print0", ".go"},
+		{"fd", "--list-details", ".go"},
+		{"fd", "--json", ".go"},
+		{"fd", "--extension"},
+		{"fd", ""},
 		{"rg", "--"},
 		{"rg", "--files", "--glob="},
 		{"rg", "--files", "--max-depth"},
@@ -204,7 +248,10 @@ func TestPathListOutputParserEdges(t *testing.T) {
 		}
 	}
 
-	if got := pathListOutputLabel([]string{"fd", "."}); got != "paths" {
+	if got := pathListOutputLabel([]string{"fd", "."}); got != "fd" {
+		t.Fatalf("fd path-list label = %q", got)
+	}
+	if got := pathListOutputLabel([]string{"go", "test"}); got != "paths" {
 		t.Fatalf("fallback path-list label = %q", got)
 	}
 	if PathListOutputReducerEligibleFromCommandLine("go test ./...") {

@@ -1875,6 +1875,8 @@ func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) 
 		return true
 	case wssSafeRgFilesPathListOutput(commandLine, payload):
 		return true
+	case wssSafeFdPathListOutput(commandLine, payload):
+		return true
 	case wssSafeFindListingOutput(commandLine, payload):
 		return true
 	case wssSafeTreeListingOutput(commandLine, payload):
@@ -2208,6 +2210,18 @@ func wssSafeFormatPathListOutput(commandLine, payload string) bool {
 }
 
 func wssSafeRgFilesPathListOutput(commandLine, payload string) bool {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	argv := filter.ArgvForCapturedOutput(filterCommandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := filter.TryCompactPathListOutput(argv, []byte(payload)); !ok {
+		return false
+	}
+	return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
+}
+
+func wssSafeFdPathListOutput(commandLine, payload string) bool {
 	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
 	argv := filter.ArgvForCapturedOutput(filterCommandLine)
 	if len(argv) == 0 {
@@ -2979,6 +2993,8 @@ func wssToolCommandClass(commandLine string) string {
 			return "rg_files"
 		}
 		return "rg_search"
+	case "fd", "fdfind":
+		return "fd"
 	case "grep", "ag", "ack":
 		return "search"
 	case "go":

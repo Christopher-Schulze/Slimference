@@ -58,6 +58,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
 		{name: "rg files path list", command: "rg --files -g '*.go' internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "rg files large path list", command: "rg --files", output: rgLargeListingOutput, wantSafe: true},
+		{name: "fd path list", command: "fd .go internal/proxy", output: listingOutput, wantSafe: true},
+		{name: "fdfind path list", command: "fdfind --extension go internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "find small listing", command: "find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
 		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
@@ -78,6 +80,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "rg files unsupported output mode", command: "rg --files --json", output: listingOutput, wantGuard: "rg --files rich output modes stay guarded"},
 		{name: "rg files search list", command: "rg -l needle internal/proxy", output: listingOutput, wantGuard: "rg match file list stays search-guarded"},
 		{name: "rg files too large", command: "rg --files", output: wssListingFixture(wssSafeRgFilesOutputMaxEntries + 1), wantGuard: "oversized rg --files output stays guarded"},
+		{name: "fd exec output mode", command: "fd .go internal/proxy --exec cat {}", output: listingOutput, wantGuard: "fd exec output stays guarded"},
+		{name: "fd details output mode", command: "fd .go internal/proxy --list-details", output: listingOutput, wantGuard: "fd rich listing output stays guarded"},
+		{name: "fd diagnostic output", command: "fd .go internal/proxy", output: "error: invalid regex\n" + listingOutput, wantGuard: "fd diagnostics stay guarded"},
+		{name: "fd too large", command: "fd .go internal/proxy", output: wssListingFixture(wssSafeRgFilesOutputMaxEntries + 1), wantGuard: "oversized fd output stays guarded"},
 		{name: "tree unbounded", command: "tree internal/proxy", output: treeOutput, wantGuard: "unbounded tree output stays guarded"},
 		{name: "tree separator without depth", command: "tree -- internal/proxy", output: treeOutput, wantGuard: "unbounded tree with separator stays guarded"},
 		{name: "tree deep", command: "tree -L 99 internal/proxy", output: treeOutput, wantGuard: "deep tree output stays guarded"},
@@ -281,6 +287,38 @@ func TestWSSStatefulSafeRgFilesRootPathListCompactsFullHistoryTurn(t *testing.T)
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe rg --files root path-list should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeFdPathListCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	listing := wssListingFixture(90)
+
+	env := parseWSJSON(t, wssFdPathListRequestBody("resp-fd-path-list", "call_fd_path_list", "fd .go internal/proxy", listing))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle fd path-list request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history fd path-list output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[fd paths]") ||
+		!strings.Contains(body, "internal/proxy/") ||
+		!strings.Contains(body, "generated_listing_050.go") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "internal/proxy/generated_listing_050.go") {
+		t.Fatalf("fd path-list output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe fd path-list should save without structured guard: %+v", summary)
 	}
 }
 
@@ -536,6 +574,7 @@ func TestWSSToolCommandClassStableClasses(t *testing.T) {
 		{command: "git rev-parse HEAD", want: "git"},
 		{command: "rg --files internal/proxy", want: "rg_files"},
 		{command: "rg -n needle internal/proxy", want: "rg_search"},
+		{command: "fd .go internal/proxy", want: "fd"},
 		{command: "grep -R needle internal/proxy", want: "search"},
 		{command: "go test ./internal/proxy", want: "go_test"},
 		{command: "go env GOPATH", want: "go"},
@@ -854,6 +893,23 @@ func wssRgFilesRequestBody(previousResponseID, callID, command, listing string) 
 			"prompt_cache_key":     "stateful-rg-files-safe-session",
 			"input": []map[string]any{
 				{"type": "message", "role": "user", "content": "show the ripgrep file list"},
+				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": command}},
+				{"type": "function_call_output", "call_id": callID, "output": listing},
+			},
+			"stream": true,
+		},
+	}
+}
+
+func wssFdPathListRequestBody(previousResponseID, callID, command, listing string) map[string]any {
+	return map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": previousResponseID,
+			"prompt_cache_key":     "stateful-fd-path-list-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "show the fd file list"},
 				{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": command}},
 				{"type": "function_call_output", "call_id": callID, "output": listing},
 			},
