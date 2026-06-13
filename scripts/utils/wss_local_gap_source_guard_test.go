@@ -52,6 +52,47 @@ func TestWSSLocalGapClassifiesSourceToolOutputFullPassEvidence(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapClassifiesNoEvidenceLargeSourceBytesAsSourceGuard(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "source-delta-no-evidence",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10859, Final: 10859, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                    "delta",
+			"wss.previous_response_id":             "true",
+			"wss.output_reduce_reason":             "disabled",
+			"wss.output_reduce_disabled_predicate": "tool_output_context",
+			"wss.tool_results":                     "1",
+			"wss.source_tool_bytes":                "5321",
+			"wss.source_tool_max_bytes":            "5321",
+			"wss.tool_command_classes":             "read_like=1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "source_context_guard" ||
+		row.Source != "no_evidence:wss.source_tool_bytes>=4096" ||
+		row.Tokens != 10859 ||
+		row.Requests != 1 ||
+		row.ToolCommandClasses["read_like"] != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad no-evidence source-context row: %+v", row)
+	}
+}
+
 func TestWSSLocalGapClassifiesEmptyToolOutputContext(t *testing.T) {
 	t.Parallel()
 

@@ -199,6 +199,8 @@ safely recoverable. Actionable potential separates known guard work from
 no-evidence instrumentation gaps and safety guards; rows are diagnostic and not
 additive unless they share the same token_basis.`
 
+const wssLocalGapSourceContextMinBytes = 4096
+
 func runWSSLocalGap(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSLocalGapFlags(args)
 	if err != nil {
@@ -985,6 +987,7 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 	toolResultOutputBytesFact := strings.TrimSpace(facts["wss.tool_result_output_bytes"])
 	toolResultOutputBytes := wssLocalGapFactInt(facts, "wss.tool_result_output_bytes")
 	sourceToolBytes := strings.TrimSpace(facts["wss.source_tool_bytes"])
+	sourceToolByteCount := wssLocalGapFactInt(facts, "wss.source_tool_bytes")
 	guardCategory, guardSource, guardPolicy, guardNextStep, guardOK := wssLocalGapNoEvidenceGuardAction(facts)
 	switch {
 	case outputReason == "prompt_cache_prefix_full_pass":
@@ -1022,6 +1025,12 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 		}
 		return category,
 			source,
+			policy,
+			nextStep
+	case sourceToolByteCount >= wssLocalGapSourceContextMinBytes:
+		category, policy, nextStep := wssLocalGapDecisionAction("wss_source_tool_output_full_pass")
+		return category,
+			"no_evidence:wss.source_tool_bytes>=4096",
 			policy,
 			nextStep
 	case toolResults == "0" && sourceToolBytes == "0":
