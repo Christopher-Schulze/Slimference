@@ -521,7 +521,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		a.rememberWSSHistoryRecoveryGuardRequest(historyMutationRecoveryGuarded)
 		fullHistoryHistoryMutationBlocked := false
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history"
-		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape)
+		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
+		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		cacheBustDemoted := a.wssCacheBustDemotedMechanismsForMeta(sessionID, meta, requestShape)
@@ -608,7 +609,17 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		deltaMutationLabEnabled := a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled
 		statefulDeltaMutationBlocked := meta.PreviousResponseID != "" &&
 			deltaShape &&
-			!deltaMutationLabEnabled
+			!deltaMutationLabEnabled &&
+			!deltaStatelessRecoveryReady
+		if deltaStatelessRecoveryReady {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.delta_stateless_recovery_ready"] = "true"
+			if !deltaMutationLabEnabled {
+				meta.DebugFacts["wss.delta_stateless_recovery_gate"] = "open"
+			}
+		}
 		historyMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
 			historyMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
@@ -1136,6 +1147,13 @@ func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOut
 
 func wssStructuredMutationRecoverable(containsToolOutput bool, toolOutputKnown bool, deltaShape bool) bool {
 	return containsToolOutput && toolOutputKnown && !deltaShape
+}
+
+func (a *wsPhaseFAdapter) wssDeltaStatelessRecoveryReady(previousResponseID string, messages []types.Message, toolOutputKnown bool) bool {
+	if a == nil || !toolOutputKnown || strings.TrimSpace(previousResponseID) == "" || !wssRequestIsDeltaShape(messages) || !messagesContainToolResult(messages) {
+		return false
+	}
+	return len(a.wssResponseChain(previousResponseID)) > 0
 }
 
 func wssBodyHasPromptCachePrefix(body []byte) bool {
