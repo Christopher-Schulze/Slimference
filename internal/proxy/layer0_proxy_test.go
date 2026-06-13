@@ -483,6 +483,28 @@ func TestReduceCodexLayer0InfersCodexEnvelopeCommandForResolvedWrapper(t *testin
 func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 	t.Parallel()
 
+	var diffStat strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&diffStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
+	}
+	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+
+	var showStat strings.Builder
+	showStat.WriteString("commit a1b2c3d4\nAuthor: A <a@example.com>\nDate:   Mon Apr 7 10:30:00 2025 +0000\n\n    change summary\n\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&showStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
+	}
+	showStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+
+	var nameStatus strings.Builder
+	for i := 0; i < 40; i++ {
+		status := "M"
+		if i%3 == 0 {
+			status = "A"
+		}
+		fmt.Fprintf(&nameStatus, "%s\tinternal/proxy/generated/very/deep/path/file_%02d.go\n", status, i)
+	}
+
 	tests := []struct {
 		name string
 		text string
@@ -502,6 +524,36 @@ func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 			name: "git_status",
 			text: "Process exited with code 0\nOutput:\n M a.go\n?? b.go\nA  c.go\n",
 			want: "git status --short",
+		},
+		{
+			name: "git_diff_stat",
+			text: "Process exited with code 0\nOutput:\n" + diffStat.String(),
+			want: "git diff --stat",
+		},
+		{
+			name: "git_show_stat",
+			text: "Process exited with code 0\nOutput:\n" + showStat.String(),
+			want: "git show --stat",
+		},
+		{
+			name: "git_diff_name_status",
+			text: "Process exited with code 0\nOutput:\n" + nameStatus.String(),
+			want: "git diff --name-status",
+		},
+		{
+			name: "git_log_oneline",
+			text: "Process exited with code 0\nOutput:\na1b2c3d first change\nb2c3d4e second change\nc3d4e5f third change\n",
+			want: "git log --oneline -n 200",
+		},
+		{
+			name: "wc",
+			text: "Process exited with code 0\nOutput:\n  123 internal/proxy/layer0_proxy.go\n   45 internal/proxy/wsmitm_phasef.go\n  168 total\n",
+			want: "wc -l",
+		},
+		{
+			name: "git_diff_stat_without_summary",
+			text: "Process exited with code 0\nOutput:\n internal/proxy/a.go | 10 +++++-----\n",
+			want: "",
 		},
 		{
 			name: "ambiguous",

@@ -1543,6 +1543,21 @@ func proxyInferCommandLineFromToolResult(text string) string {
 	if proxyLooksLikeGitStatusOutput(payload) {
 		return "git status --short"
 	}
+	if proxyLooksLikeGitDiffStatOutput(payload) {
+		return "git diff --stat"
+	}
+	if proxyLooksLikeGitShowStatOutput(payload) {
+		return "git show --stat"
+	}
+	if proxyLooksLikeGitDiffNameStatusOutput(payload) {
+		return "git diff --name-status"
+	}
+	if proxyLooksLikeGitLogOnelineOutput(payload) {
+		return "git log --oneline -n 200"
+	}
+	if proxyLooksLikeWcOutput(payload) {
+		return "wc -l"
+	}
 	return ""
 }
 
@@ -1627,6 +1642,27 @@ func proxyLooksLikeGitStatusCode(code string) bool {
 	}
 	valid := " MADRCU?!"
 	return strings.ContainsRune(valid, rune(code[0])) && strings.ContainsRune(valid, rune(code[1]))
+}
+
+func proxyLooksLikeGitDiffStatOutput(payload string) bool {
+	_, ok := filter.TryCompactGitDiff([]string{"git", "diff", "--stat"}, []byte(payload))
+	return ok
+}
+
+func proxyLooksLikeGitShowStatOutput(payload string) bool {
+	return wssSafeGitShowStatOutput("git show --stat", payload)
+}
+
+func proxyLooksLikeGitDiffNameStatusOutput(payload string) bool {
+	return wssSafeGitDiffNameStatusPathListOutput("git diff --name-status", payload)
+}
+
+func proxyLooksLikeGitLogOnelineOutput(payload string) bool {
+	return wssGitLogOnelinePayloadSafe(payload, wssSafeGitLogOnelineMaxCommits)
+}
+
+func proxyLooksLikeWcOutput(payload string) bool {
+	return wssSafeWcOutput("wc -l", payload)
 }
 
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {

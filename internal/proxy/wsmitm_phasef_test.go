@@ -6292,6 +6292,59 @@ func TestWSPhaseFPreviousResponseMixedUnknownToolOutputObservesInferableDelta(t 
 	}
 }
 
+func TestWSPhaseFPreviousResponseDeltaObservesInferredGitDiffStat(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var diffStat strings.Builder
+	diffStat.WriteString("Chunk ID: diffstat-observe\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&diffStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
+	}
+	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-diffstat-observe",
+		"prompt_cache_key":     "diffstat-observe-session",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "call_diffstat_evicted",
+			"output":  diffStat.String(),
+		}},
+		"stream": true,
+	})
+	original := append([]byte(nil), env.Raw...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("diffstat previous_response handle: %v", err)
+	}
+	if replace || !bytes.Equal(env.Raw, original) {
+		t.Fatalf("inferred diffstat delta must stay byte-equal, replace=%v raw=%s", replace, env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.BypassReason == "wss_previous_response_tool_output_full_pass" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 ||
+		summary.DebugFacts["wss.changed"] != "false" ||
+		summary.DebugFacts["wss.tool_results_inferred"] != "1" ||
+		summary.DebugFacts["wss.tool_command_classes"] != "git_diff_stat=1" {
+		t.Fatalf("inferred diffstat should be visible observe-only evidence: %+v", summary)
+	}
+	if !hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismRepeatedOut, "wss_stateful_delta_mutation_proof_gate", evidence.ActionFullPass) ||
+		!hasEvidenceDecision(summary.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "wss_stateful_delta_mutation_proof_gate", evidence.ActionFullPass) {
+		t.Fatalf("inferred diffstat should emit guarded observe-only evidence: %+v", summary.EvidenceDecisions)
+	}
+}
+
 func TestMergeWSSLayer0ObservationStatsPreservesObserveOnlyTelemetry(t *testing.T) {
 	base := proxyLayer0Stats{
 		ToolResultBlocks:        1,
