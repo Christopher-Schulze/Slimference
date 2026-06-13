@@ -484,6 +484,86 @@ func TestWSSGitStatusPathspecBoundary(t *testing.T) {
 	}
 }
 
+func TestWSSToolCommandClassFactsAreContentFree(t *testing.T) {
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{
+			{Type: "tool_result", ToolResultID: "call_search", Text: "internal/proxy/wsmitm_phasef.go:1:needle\n"},
+			{Type: "tool_result", ToolResultID: "call_show", Text: wssGitShowStatFixture(12)},
+			{Type: "tool_result", ToolResultID: "call_unknown", Text: "opaque output\n"},
+		},
+	}}
+	toolUses := map[string]types.ContentBlock{
+		"call_search": {
+			Type:      "tool_use",
+			ToolUseID: "call_search",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"rg -n needle internal/proxy"}`,
+		},
+		"call_show": {
+			Type:      "tool_use",
+			ToolUseID: "call_show",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git show --stat HEAD -- internal/proxy"}`,
+		},
+	}
+	classes, classed, unclassed := wssToolCommandClassFacts(messages, toolUses)
+	if classes != "git_show_stat=1,rg_search=1" || classed != 2 || unclassed != 1 {
+		t.Fatalf("class facts = %q classed=%d unclassed=%d", classes, classed, unclassed)
+	}
+	for _, forbidden := range []string{"needle", "internal/proxy", "HEAD", "wsmitm_phasef.go"} {
+		if strings.Contains(classes, forbidden) {
+			t.Fatalf("class facts leaked command detail %q in %q", forbidden, classes)
+		}
+	}
+}
+
+func TestWSSToolCommandClassStableClasses(t *testing.T) {
+	tests := []struct {
+		command string
+		want    string
+	}{
+		{command: "git status --short .", want: "git_status"},
+		{command: "git diff --stat", want: "git_diff_stat"},
+		{command: "git diff --name-only --cached", want: "git_diff_name_only"},
+		{command: "git diff --name-status --cached", want: "git_diff_name_status"},
+		{command: "git diff", want: "git_diff"},
+		{command: "git show --stat HEAD -- internal/proxy", want: "git_show_stat"},
+		{command: "git show HEAD", want: "git_show"},
+		{command: "git log --oneline -n 20", want: "git_log_oneline"},
+		{command: "git log --stat -n 3", want: "git_log"},
+		{command: "git ls-files --cached", want: "git_ls_files"},
+		{command: "git rev-parse HEAD", want: "git"},
+		{command: "rg --files internal/proxy", want: "rg_files"},
+		{command: "rg -n needle internal/proxy", want: "rg_search"},
+		{command: "grep -R needle internal/proxy", want: "search"},
+		{command: "go test ./internal/proxy", want: "go_test"},
+		{command: "go env GOPATH", want: "go"},
+		{command: "cargo test", want: "cargo_test"},
+		{command: "cargo clippy", want: "cargo_build"},
+		{command: "cargo metadata", want: "cargo"},
+		{command: "pnpm test", want: "js_tool"},
+		{command: "pytest tests", want: "pytest"},
+		{command: "python3 -m unittest", want: "python"},
+		{command: "wc -l internal/proxy/wsmitm_phasef.go", want: "wc"},
+		{command: "ls internal/proxy", want: "ls"},
+		{command: "find internal/proxy -maxdepth 2 -type f", want: "find"},
+		{command: "tree -L 2 internal/proxy", want: "tree"},
+		{command: "cat internal/proxy/wsmitm_phasef.go", want: "read_like"},
+		{command: "gofmt -l .", want: "format"},
+		{command: "custom-tool --flag", want: "other"},
+		{command: "cd /repo/project && git diff --stat", want: "git_diff_stat"},
+		{command: "rg needle | head", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			if got := wssToolCommandClass(tt.command); got != tt.want {
+				t.Fatalf("wssToolCommandClass(%q)=%q want %q", tt.command, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

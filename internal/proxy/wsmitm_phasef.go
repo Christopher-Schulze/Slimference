@@ -2717,7 +2717,150 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	if meta.SocketSeq > 0 {
 		facts["wss.socket_seq"] = strconv.FormatUint(meta.SocketSeq, 10)
 	}
+	if classes, classed, unclassed := wssToolCommandClassFacts(messages, meta.ToolUseIndex); classed+unclassed > 0 {
+		if classes != "" {
+			facts["wss.tool_command_classes"] = classes
+		}
+		facts["wss.tool_command_classed"] = strconv.Itoa(classed)
+		facts["wss.tool_command_unclassed"] = strconv.Itoa(unclassed)
+	}
 	return facts
+}
+
+func wssToolCommandClassFacts(messages []types.Message, toolUses map[string]types.ContentBlock) (string, int, int) {
+	if len(messages) == 0 {
+		return "", 0, 0
+	}
+	counts := make(map[string]int)
+	classed := 0
+	unclassed := 0
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			toolUse, resolved := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := ""
+			if resolved {
+				commandLine = proxyLayer0CommandLine(toolUse)
+			}
+			if commandLine == "" {
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+			}
+			class := wssToolCommandClass(commandLine)
+			if class == "" {
+				unclassed++
+				continue
+			}
+			counts[class]++
+			classed++
+		}
+	}
+	if len(counts) == 0 {
+		return "", classed, unclassed
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Itoa(counts[key]))
+	}
+	return strings.Join(parts, ","), classed, unclassed
+}
+
+func wssToolCommandClass(commandLine string) string {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	argv := filter.ArgvForCapturedOutput(filterCommandLine)
+	if len(argv) == 0 {
+		return ""
+	}
+	base := wssCommandBase(argv[0])
+	switch base {
+	case "git":
+		return wssGitCommandClass(argv)
+	case "rg", "ripgrep":
+		if wssArgvContains(argv[1:], "--files") {
+			return "rg_files"
+		}
+		return "rg_search"
+	case "grep", "ag", "ack":
+		return "search"
+	case "go":
+		if len(argv) > 1 && argv[1] == "test" {
+			return "go_test"
+		}
+		return "go"
+	case "cargo":
+		if len(argv) > 1 {
+			switch argv[1] {
+			case "test", "nextest":
+				return "cargo_test"
+			case "build", "check", "clippy":
+				return "cargo_build"
+			}
+		}
+		return "cargo"
+	case "npm", "pnpm", "yarn", "bun":
+		return "js_tool"
+	case "pytest":
+		return "pytest"
+	case "python", "python3":
+		return "python"
+	case "wc", "ls", "find", "tree":
+		return base
+	case "cat", "sed", "nl", "head", "tail":
+		return "read_like"
+	case "gofmt", "prettier", "eslint":
+		return "format"
+	default:
+		return "other"
+	}
+}
+
+func wssGitCommandClass(argv []string) string {
+	for _, subcommand := range []string{"status", "diff", "show", "log", "ls-files"} {
+		if _, _, ok := wssGitSubcommandFromArgv(argv, subcommand); ok {
+			switch subcommand {
+			case "diff":
+				switch {
+				case wssArgvContains(argv, "--stat"):
+					return "git_diff_stat"
+				case wssArgvContains(argv, "--name-only"):
+					return "git_diff_name_only"
+				case wssArgvContains(argv, "--name-status"):
+					return "git_diff_name_status"
+				default:
+					return "git_diff"
+				}
+			case "show":
+				if wssArgvContains(argv, "--stat") {
+					return "git_show_stat"
+				}
+				return "git_show"
+			case "log":
+				if wssArgvContains(argv, "--oneline") {
+					return "git_log_oneline"
+				}
+				return "git_log"
+			default:
+				return "git_" + strings.ReplaceAll(subcommand, "-", "_")
+			}
+		}
+	}
+	return "git"
+}
+
+func wssArgvContains(argv []string, flag string) bool {
+	for _, arg := range argv {
+		arg = strings.TrimSpace(arg)
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 type wssRootPrefixMetricsResult struct {
