@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1319,8 +1320,6 @@ func TestRunCodexCaptureRunValidationAndReplayFailure(t *testing.T) {
 		t.Fatalf("expected workload-class validation, code=%d stderr=%s", code, stderr.String())
 	}
 
-	stdout.Reset()
-	stderr.Reset()
 	code = runCodexCaptureRunWithDeps([]string{"--capture", filepath.Join(t.TempDir(), "c.jsonl"), "--", "prompt"}, &stdout, &stderr, deps)
 	if code != 1 || !strings.Contains(stderr.String(), "replay capture: bad replay") {
 		t.Fatalf("expected replay failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
@@ -1473,4 +1472,17 @@ func TestWatchCodexCaptureFunctionOutputMarkerIgnoresPrompt(t *testing.T) {
 		t.Fatal("marker did not fire from function_call_output")
 	}
 	close(stop)
+}
+
+func TestCountCodexCaptureServerMarkerIgnoresClientPrompt(t *testing.T) {
+	encodedServerPayload := strconv.Quote(`{"type":"response.output_text.done","text":"CAPTURE_DONE again"}`)
+	data := []byte(strings.Join([]string{
+		`{"direction":"client_to_server","payload":{"type":"response.create","input":[{"type":"message","content":"CAPTURE_DONE in prompt"}]}}`,
+		`{"direction":"server_to_client","payload":{"type":"response.output_text.done","text":"CAPTURE_DONE final"}}`,
+		`{"direction":"s2c","payload":` + encodedServerPayload + `}`,
+		"",
+	}, "\n"))
+	if got := countCodexCaptureServerMarker(data, "CAPTURE_DONE"); got != 2 {
+		t.Fatalf("server marker count = %d, want 2", got)
+	}
 }

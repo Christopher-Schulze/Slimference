@@ -1887,7 +1887,7 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 	cmd := exec.CommandContext(ctx, flags.binary, codexCaptureCLIArgs(flags)...)
 	cmd.Stdin = os.Stdin
 	if flags.exitMarker != "" {
-		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags.capturePath, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
+		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags, stdout, stderr)
 	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -1903,7 +1903,7 @@ func codexCaptureCLIArgs(flags codexCaptureRunFlags) []string {
 	return args
 }
 
-func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, capturePath, marker string, markerCount int, stdout, stderr io.Writer) error {
+func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("--exit-marker requires macOS script(1) PTY support; rerun without --exit-marker and interrupt Codex manually after the marker")
 	}
@@ -1933,8 +1933,9 @@ func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, capturePa
 		})
 	}
 	stopWatch := make(chan struct{})
-	go watchCodexCaptureMarkerFunc(logPath, marker, markerCount, signalMarker, stopWatch)
-	go watchCodexCaptureFunctionOutputMarker(capturePath, marker, markerCount, signalMarker, stopWatch)
+	go watchCodexCaptureMarkerFunc(logPath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
+	go watchCodexCaptureServerMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
+	go watchCodexCaptureFunctionOutputMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
 	waitErr := make(chan error, 1)
 	go func() {
 		waitErr <- scriptCmd.Wait()
@@ -2039,6 +2040,60 @@ func watchCodexCaptureFunctionOutputMarker(path, marker string, markerCount int,
 			}
 		}
 	}
+}
+
+func watchCodexCaptureServerMarker(path, marker string, markerCount int, signal func(), stop <-chan struct{}) {
+	if marker == "" {
+		return
+	}
+	if markerCount <= 0 {
+		markerCount = 1
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	signaled := false
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if !signaled && countCodexCaptureServerMarker(data, marker) >= markerCount {
+				signaled = true
+				signal()
+			}
+		}
+	}
+}
+
+func countCodexCaptureServerMarker(data []byte, marker string) int {
+	needle := normalizeCodexCaptureMarkerText(marker)
+	if needle == "" {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var frame struct {
+			Direction string          `json:"direction"`
+			Payload   json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(line), &frame); err != nil {
+			continue
+		}
+		if !codexCaptureFrameFromServer(frame.Direction) {
+			continue
+		}
+		payload := codexCaptureDecodedPayload(frame.Payload)
+		count += strings.Count(normalizeCodexCaptureMarkerText(string(payload)), needle)
+	}
+	return count
 }
 
 func countCodexCaptureFunctionOutputMarker(data []byte, marker string) int {
