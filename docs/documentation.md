@@ -513,7 +513,7 @@ Current product status:
 | Reasoning-trace compaction | Closed | T253 closed | Rejected for default-auto: do not mutate reasoning/cognition surface for savings |
 | Server-state mirror | Shadow/policy infra only | T254 closed as exact-block shadow; T355 adds normalized shadow density | Tracks exact and normalized forwarded-state opportunities; no known backend-honored client-side block reference, no model-facing mutation |
 | Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; unsafe candidates blocked or telemetry-only |
-| HTTP archive recovery/promotion | Conservative lock active | T259 closed | HTTP fallback keeps safe Layer-0 reducers but cannot emit archive refs even in `max` |
+| HTTP archive recovery/promotion | On for Codex HTTP chunk refs through the route-local recovery-note gate | HTTP Codex route tests cover note injection, shortened upstream body, and route scoping; generic future HTTP archive recovery remains blocked | Codex HTTP fails open to full context when the session/note injection path is unavailable; non-Codex HTTP routes cannot emit archive refs |
 
 Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
@@ -898,12 +898,12 @@ verified plan and emits the novel bytes plus neutral
 `[context-chunk status=unchanged uri=local-archive://...]` references to archived
 chunks. The product default is
 `codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
-dedup is limited to recoverable WSS paths with archive support, cross-send
-seeding, density budgets, local decode verification, and patch/diff/edit-output
-guards. Same-batch edit uncertainty also demotes only chunk dedup: if the current
-Layer-0 batch carries an edit/apply-patch/write signal, fresh command/search/log
-outputs stay full context while lossless read-delta and exact repeated-output
-reducers may still run. Cross-send seeding means repeated chunks first
+dedup is limited to recoverable Codex WSS/HTTP paths with archive support,
+cross-send seeding, density budgets, local decode verification, and
+patch/diff/edit-output guards. Same-batch edit uncertainty also demotes only
+chunk dedup: if the current Layer-0 batch carries an edit/apply-patch/write
+signal, fresh command/search/log outputs stay full context while lossless
+read-delta and exact repeated-output reducers may still run. Cross-send seeding means repeated chunks first
 encountered inside the same model-facing output stay verbatim and only seed
 future overlap; references are emitted only for chunks that were known before the
 current output started.
@@ -981,13 +981,14 @@ The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so
 auto mode catches Codex's observed ~8 KiB truncated exec-output envelope. It
 fails open if archive recovery is unavailable or the token guard is not positive.
-WSS Phase-F and HTTP share the same reducer primitives, but only WSS can
-currently emit chunk/archive references because it can inject the recovery note
-automatically when a reference is actually emitted. For Codex Responses bodies the
-note is written to the top-level `instructions` string, never as a `system` item
-inside `input`, because Codex's backend rejects `input` system messages. HTTP stays
-conservative and does not emit chunk/archive references until that route has its
-own proven recovery-note wiring. `/admin/state` reports chunk-dedup hits globally plus
+WSS Phase-F and Codex HTTP share the same reducer primitives. Both emit
+chunk/archive references only when the route can attach the neutral recovery note
+as part of the same forwarded request. For Codex Responses bodies the note is
+written to the top-level `instructions` string, never as a `system` item inside
+`input`, because Codex's backend rejects `input` system messages. HTTP fails
+open to the original full context if no session is available for the
+once-per-session note or if note injection cannot be applied. `/admin/state`
+reports chunk-dedup hits globally plus
 under `proxy_layer0_routes.wss_phasef` / `.http`.
 The 2026-05-30 T255 live proof used scoped Codex WSS frames with
 `--codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost`: replay saved
@@ -1021,10 +1022,12 @@ preserve the `local-archive://<id>` pattern without naming Slimference inside
 tool output. This keeps the mechanical recovery handle while reducing prompt
 contamination from product-specific marker text. Archive expansion remains
 opportunistic: the proxy can expand a later incoming request that quotes a
-stored URI. A neutral once-per-session WSS archive-recovery note exists behind
-`archive_recovery_note_enabled`; it is default-off and injects no product name.
-When enabled, it tells the model that `local-archive://<id>` may be requested if
-full elided content is needed. `read_delta_recent_full_pass_turns` is also
+stored URI. A neutral once-per-session Codex WSS/HTTP archive-recovery note
+exists behind `archive_recovery_note_enabled`; it is default-off as an operator
+hint, but auto policy may still inject the same neutral note when a recoverable
+chunk reference is actually emitted. It tells the model that
+`local-archive://<id>` may be requested if full elided content is needed.
+`read_delta_recent_full_pass_turns` is also
 default-off (`0`): operators can raise it after A/B proof to keep immediate
 cross-turn re-reads full when recency matters more than dedup savings.
 The auto policy adds a stronger runtime guard: after a collapsed key is

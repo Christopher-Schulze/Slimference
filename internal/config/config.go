@@ -268,9 +268,9 @@ type OutputReduceConfig struct {
 	// to beterse.DefaultHint.
 	BeTerseHintText string `toml:"be_terse_hint_text"`
 	// ArchiveRecoveryNoteEnabled injects a neutral once-per-session
-	// Codex WSS note explaining that local-archive:// ids can be
-	// requested for full elided content. Default off until the A/B
-	// harness certifies no comprehension drawdown.
+	// Codex WSS/HTTP note explaining that local-archive:// ids can be
+	// requested for full elided content. Default off as an operator hint;
+	// auto policy can still inject it when a recoverable chunk ref is emitted.
 	ArchiveRecoveryNoteEnabled bool `toml:"archive_recovery_note_enabled"`
 	// ArchiveRecoveryNoteText overrides the neutral recovery note.
 	// Empty falls back to the built-in wording.

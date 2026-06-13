@@ -261,9 +261,10 @@ concise_chat_enabled = true
 # output savings. Set 0 only for explicit operator experiments.
 concise_chat_min_input_tokens = 400
 concise_chat_text = ""
-# T249 recovery contract. Default off until comprehension A/B certifies it:
-# when enabled, Codex WSS gets one neutral session note explaining how to
-# request full archived content by local-archive id.
+# T249 recovery contract. Default off as an operator hint. Codex WSS/HTTP can
+# still inject one neutral session note automatically when a recoverable chunk
+# reference is emitted, explaining how to request full archived content by
+# local-archive id.
 archive_recovery_note_enabled = false
 archive_recovery_note_text = ""
 # Default 0 keeps maximum-savings behavior. Raise only after A/B proof if
