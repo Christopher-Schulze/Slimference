@@ -522,7 +522,7 @@ func isSearchEmptyResultTool(argv []string) bool {
 	b := strings.ToLower(filepath.Base(argv[0]))
 	b = strings.TrimSuffix(b, ".exe")
 	switch b {
-	case "rg", "grep", "ggrep", "fd", "find", "ag", "ack", "ack.pl", "ug", "ugrep", "sift", "plocate", "locate", "sk":
+	case "rg", "grep", "ggrep", "fd", "fdfind", "find", "ag", "ack", "ack.pl", "ug", "ugrep", "sift", "plocate", "locate", "sk":
 		return true
 	case "git":
 		return gitGrepIndex(argv) >= 0
@@ -601,13 +601,14 @@ func TryCompactGrep(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte("[grep] no matches\n"), true
 }
 
-// TryCompactFd summarizes empty stdout from fd (F10 partial).
+// TryCompactFd summarizes empty stdout from fd/fdfind (F10 partial).
 func TryCompactFd(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	if b != "fd" && b != "fd.exe" {
+	b = strings.TrimSuffix(b, ".exe")
+	if b != "fd" && b != "fdfind" {
 		return stdout, false
 	}
 	if strings.TrimSpace(string(stdout)) != "" {
@@ -798,7 +799,7 @@ func isPathListTool(argv []string) bool {
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	b = strings.TrimSuffix(b, ".exe")
-	return b == "fd" || b == "find"
+	return b == "fd" || b == "fdfind" || b == "find"
 }
 
 func groupPathListResults(stdout []byte, toolName string) ([]byte, bool) {
