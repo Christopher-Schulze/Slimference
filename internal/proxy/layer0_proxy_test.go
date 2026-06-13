@@ -947,6 +947,10 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDeltaSearch(t *testing.T) {
 		!proxyLayer0EvidenceHasReason(blocked.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
 		t.Fatalf("unproofed delta search must stay byte-equal, stats=%+v text=%q", blocked.Stats, blocked.Messages[1].Content[0].Text)
 	}
+	if blocked.Stats.WSSSearchRiskBlocks != 1 || blocked.Stats.WSSSearchProofAllowed != 0 ||
+		blocked.Stats.WSSSearchProofBlocked != 1 || blocked.Stats.WSSSearchProofReasons["latch_disabled"] != 1 {
+		t.Fatalf("unproofed delta search should record precise latch-disabled proof telemetry: %+v", blocked.Stats)
+	}
 
 	proofed := reduceCodexLayer0(codexLayer0Request{
 		Route:                        codexLayer0RouteWSSPhaseF,
@@ -963,6 +967,10 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNamedDeltaSearch(t *testing.T) {
 		strings.Contains(proofedText, "src/file_079.go:80:needle") ||
 		proxyLayer0EvidenceHasReason(proofed.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
 		t.Fatalf("proofed named delta search should compact through search-cap latch, stats=%+v text=%q", proofed.Stats, proofedText)
+	}
+	if proofed.Stats.WSSSearchRiskBlocks != 1 || proofed.Stats.WSSSearchProofAllowed != 1 ||
+		proofed.Stats.WSSSearchProofBlocked != 0 || len(proofed.Stats.WSSSearchProofReasons) != 0 {
+		t.Fatalf("proofed named delta search should record allowed search proof telemetry: %+v", proofed.Stats)
 	}
 }
 
@@ -1122,6 +1130,10 @@ func TestReduceCodexLayer0WSSSearchProofRejectsInferredSearch(t *testing.T) {
 	if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 || result.Messages[0].Content[0].Text != original ||
 		!proxyLayer0EvidenceHasReason(result.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
 		t.Fatalf("inferred WSS search must stay blocked, stats=%+v text=%q", result.Stats, result.Messages[0].Content[0].Text)
+	}
+	if result.Stats.WSSSearchRiskBlocks != 1 || result.Stats.WSSSearchProofAllowed != 0 ||
+		result.Stats.WSSSearchProofBlocked != 1 || result.Stats.WSSSearchProofReasons["tool_use_unbound"] != 1 {
+		t.Fatalf("inferred WSS search should record tool-use-unbound proof telemetry: %+v", result.Stats)
 	}
 }
 
@@ -1316,6 +1328,10 @@ func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
 		ObsoletePruneBlocks:      1,
 		ObsoletePruneBytesSaved:  300,
 		ObsoletePruneTokensSaved: 40,
+		WSSSearchRiskBlocks:      2,
+		WSSSearchProofAllowed:    1,
+		WSSSearchProofBlocked:    1,
+		WSSSearchProofReasons:    map[string]int{"latch_disabled": 1},
 		ReadDeltaKeys:            []string{"read:a.go"},
 		PolicyDecisions:          []savingspolicy.CodexMechanismDecision{{Mechanism: savingspolicy.CodexMechanismReadDelta}},
 		CacheEvents:              []proxyLayer0CacheEvent{{Mechanism: savingspolicy.CodexMechanismReadDelta, Action: proxyLayer0CacheHit}},
@@ -1335,6 +1351,8 @@ func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
 		got.StaleReadBytesSaved != 0 || got.StaleReadTokensSaved != 0 ||
 		got.ObsoletePruneBlocks != 0 || got.ObsoletePruneBytesSaved != 0 ||
 		got.ObsoletePruneTokensSaved != 0 || got.ReadDeltaKeys != nil ||
+		got.WSSSearchRiskBlocks != 0 || got.WSSSearchProofAllowed != 0 ||
+		got.WSSSearchProofBlocked != 0 || got.WSSSearchProofReasons != nil ||
 		got.PolicyDecisions != nil || got.CacheEvents != nil || got.EvidenceDecisions != nil {
 		t.Fatalf("withoutSavings left applied accounting: %+v", got)
 	}

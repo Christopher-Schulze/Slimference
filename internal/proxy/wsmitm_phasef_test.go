@@ -6599,6 +6599,13 @@ func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
 		t.Fatalf("WSS search output must not record Layer 0 search savings: %+v", snap)
 	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.search_risk_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "latch_disabled=1" {
+		t.Fatalf("unproofed WSS search output should expose precise search proof telemetry: %+v", summary.DebugFacts)
+	}
 }
 
 func TestWSPhaseFSearchCapProofCompactsCapturedOutputDelta(t *testing.T) {
@@ -6655,6 +6662,10 @@ func TestWSPhaseFSearchCapProofCompactsCapturedOutputDelta(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "delta" ||
 		summary.DebugFacts["wss.previous_response_id"] != "true" ||
+		summary.DebugFacts["wss.search_risk_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
 		t.Fatalf("proofed search delta should record live search-cap savings: %+v", summary)

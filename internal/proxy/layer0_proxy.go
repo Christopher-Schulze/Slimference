@@ -247,6 +247,10 @@ type proxyLayer0Stats struct {
 	ObsoletePruneBlocks      int
 	ObsoletePruneBytesSaved  int
 	ObsoletePruneTokensSaved int
+	WSSSearchRiskBlocks      int
+	WSSSearchProofAllowed    int
+	WSSSearchProofBlocked    int
+	WSSSearchProofReasons    map[string]int
 	ReadDeltaKeys            []string
 	PolicyDecisions          []savingspolicy.CodexMechanismDecision
 	CacheEvents              []proxyLayer0CacheEvent
@@ -282,6 +286,10 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.ObsoletePruneBlocks = 0
 	s.ObsoletePruneBytesSaved = 0
 	s.ObsoletePruneTokensSaved = 0
+	s.WSSSearchRiskBlocks = 0
+	s.WSSSearchProofAllowed = 0
+	s.WSSSearchProofBlocked = 0
+	s.WSSSearchProofReasons = nil
 	s.ReadDeltaKeys = nil
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
@@ -426,14 +434,23 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
-			wssSearchProofAllowed := req.WSSSearchMutationAllowed &&
-				proxyWSSSearchOutputProofAllowed(commandLine, use, commandFromToolUse, workload)
-			if req.StatefulDeltaMutationBlocked && !proxyWSSSearchOutputDeltaProofAllowed(commandLine) {
-				wssSearchProofAllowed = false
-			}
-			wssSearchOutputBlocked := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			wssSearchProofAllowed, wssSearchProofReason := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, req.WSSSearchMutationAllowed, req.StatefulDeltaMutationBlocked)
+			wssSearchRisk := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			wssSearchOutputBlocked := wssSearchRisk
 			if wssSearchOutputBlocked && wssSearchProofAllowed {
 				wssSearchOutputBlocked = false
+			}
+			if wssSearchRisk {
+				stats.WSSSearchRiskBlocks++
+				if wssSearchProofAllowed {
+					stats.WSSSearchProofAllowed++
+				} else {
+					stats.WSSSearchProofBlocked++
+					if stats.WSSSearchProofReasons == nil {
+						stats.WSSSearchProofReasons = make(map[string]int, 1)
+					}
+					stats.WSSSearchProofReasons[wssSearchProofReason]++
+				}
 			}
 			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
 			if !req.LatencyBudgetExceeded && !chunkIntegrityBudgetHit && req.ChunkStore != nil {
@@ -1063,13 +1080,30 @@ func proxyWSSSearchOutputReducerEligible(commandLine string) bool {
 }
 
 func proxyWSSSearchOutputProofAllowed(commandLine string, use types.ContentBlock, commandFromToolUse bool, workload savingspolicy.CodexWorkload) bool {
+	allowed, _ := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, true, false)
+	return allowed
+}
+
+func proxyWSSSearchOutputProofDecision(commandLine string, use types.ContentBlock, commandFromToolUse bool, workload savingspolicy.CodexWorkload, latchEnabled bool, statefulDeltaBlocked bool) (bool, string) {
+	if !latchEnabled {
+		return false, "latch_disabled"
+	}
 	if !commandFromToolUse || workload != savingspolicy.CodexWorkloadSearch {
-		return false
+		if !commandFromToolUse {
+			return false, "tool_use_unbound"
+		}
+		return false, "workload_not_search"
 	}
 	if strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
-		return false
+		return false, "tool_use_empty"
 	}
-	return proxyWSSSearchOutputReducerEligible(commandLine)
+	if !proxyWSSSearchOutputReducerEligible(commandLine) {
+		return false, "reducer_ineligible"
+	}
+	if statefulDeltaBlocked && !proxyWSSSearchOutputDeltaProofAllowed(commandLine) {
+		return false, "delta_key_missing"
+	}
+	return true, "allowed"
 }
 
 func proxyWSSSearchOutputDeltaProofAllowed(commandLine string) bool {

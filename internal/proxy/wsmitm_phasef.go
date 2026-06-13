@@ -2754,6 +2754,10 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.stale_read_tokens":                              strconv.Itoa(l0Stats.StaleReadTokensSaved),
 		"wss.obsolete_prune_blocks":                          strconv.Itoa(l0Stats.ObsoletePruneBlocks),
 		"wss.obsolete_prune_tokens":                          strconv.Itoa(l0Stats.ObsoletePruneTokensSaved),
+		"wss.search_risk_blocks":                             strconv.Itoa(l0Stats.WSSSearchRiskBlocks),
+		"wss.search_proof_allowed_blocks":                    strconv.Itoa(l0Stats.WSSSearchProofAllowed),
+		"wss.search_proof_blocked_blocks":                    strconv.Itoa(l0Stats.WSSSearchProofBlocked),
+		"wss.search_proof_block_reasons":                     wssCompactCountMap(l0Stats.WSSSearchProofReasons),
 		"wss.output_reduce_applied":                          strconv.FormatBool(outputReduceStats.Applied),
 		"wss.output_reduce_added":                            strconv.Itoa(outputReduceStats.AddedTokens),
 		"wss.output_reduce_reason":                           outputReduceStats.Reason,
@@ -2777,6 +2781,25 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		facts["wss.tool_command_unclassed"] = strconv.Itoa(unclassed)
 	}
 	return facts
+}
+
+func wssCompactCountMap(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(counts))
+	for key, count := range counts {
+		if strings.TrimSpace(key) == "" || count <= 0 {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Itoa(counts[key]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func wssToolCommandClassFacts(messages []types.Message, toolUses map[string]types.ContentBlock) (string, int, int) {
