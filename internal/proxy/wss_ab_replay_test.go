@@ -552,8 +552,15 @@ func TestRunWSSPhaseFABReplayUniformChunkBudgetControlShowsCompoundLift(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if priority.Report.Lost() != 1 || uniform.Report.Lost() != 1 {
-		t.Fatalf("control proof should only contain the expected recovery-note extra: priority=%+v uniform=%+v", priority.Report, uniform.Report)
+	if priority.Report.Lost() != 0 || uniform.Report.Lost() != 0 {
+		t.Fatalf("chunk budget proof should have no lost comprehension: priority=%+v uniform=%+v", priority.Report, uniform.Report)
+	}
+	for _, report := range []abharness.Report{priority.Report, uniform.Report} {
+		for _, elision := range report.Elisions {
+			if elision.Severity != abharness.SeverityReferenced {
+				t.Fatalf("chunk budget proof should only contain archive-referenced elisions: priority=%+v uniform=%+v", priority.Report, uniform.Report)
+			}
+		}
 	}
 	if priority.ReducerStats.HighFootprintAppliedDecisions <= uniform.ReducerStats.HighFootprintAppliedDecisions {
 		t.Fatalf("footprint priority should improve high-footprint selection: priority=%+v uniform=%+v", priority.ReducerStats, uniform.ReducerStats)
@@ -868,6 +875,53 @@ func TestWSSReplayExpectedInstructionExtraOnlyAllowsOutputReduceSuffix(t *testin
 	}
 	if wssReplayExpectedInstructionExtra(base, changedPrefix) {
 		t.Fatal("changed instruction prefixes must not be expected extras")
+	}
+}
+
+func TestWSSReplayMessagesWithoutExpectedArchiveRecoveryNoteOnlyForArchiveStats(t *testing.T) {
+	note := archiveRecoveryNoteText("")
+	user := types.Message{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "continue"}}}
+	system := types.Message{Index: -2, Role: "system", Content: []types.ContentBlock{{Type: "text", Text: note}}}
+	baseAndNote := types.Message{Index: -2, Role: "system", Content: []types.ContentBlock{{Type: "text", Text: "base instructions\n\n" + note}}}
+
+	noArchiveStats := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, proxyLayer0Stats{}, note)
+	if len(noArchiveStats) != 2 || noArchiveStats[0].Content[0].Text != note {
+		t.Fatalf("manual recovery note must remain model-facing without archive stats: %+v", noArchiveStats)
+	}
+
+	archiveStats := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, ReadDeltaBlocks: 1}
+	strippedNewSystem := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, archiveStats, note)
+	if len(strippedNewSystem) != 1 || strippedNewSystem[0].Role != "user" {
+		t.Fatalf("auto recovery note-only system block should be removed: %+v", strippedNewSystem)
+	}
+
+	strippedSuffix := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{baseAndNote, user}, archiveStats, note)
+	if len(strippedSuffix) != 2 || strippedSuffix[0].Content[0].Text != "base instructions" {
+		t.Fatalf("auto recovery note suffix should be removed from existing instructions: %+v", strippedSuffix)
+	}
+}
+
+func TestWSSReplayStripInstructionNote(t *testing.T) {
+	note := archiveRecoveryNoteText("")
+	cases := []struct {
+		name string
+		text string
+		want string
+		ok   bool
+	}{
+		{name: "exact", text: note, want: "", ok: true},
+		{name: "suffix", text: "base\n\n" + note, want: "base", ok: true},
+		{name: "prefix", text: note + "\n\nbase", want: "base", ok: true},
+		{name: "middle", text: "base\n\n" + note + "\n\nmore", want: "base\n\nmore", ok: true},
+		{name: "absent", text: "base", want: "base", ok: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := wssReplayStripInstructionNote(tc.text, note)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("wssReplayStripInstructionNote()=(%q,%v) want (%q,%v)", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 

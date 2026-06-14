@@ -1772,6 +1772,32 @@ func TestProxyLayer0StatsWithoutSavingsClearsAppliedAccounting(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0StatsNeedsArchiveRecoveryNote(t *testing.T) {
+	cases := []struct {
+		name  string
+		stats proxyLayer0Stats
+		want  bool
+	}{
+		{name: "none", stats: proxyLayer0Stats{}, want: false},
+		{name: "http read delta", stats: proxyLayer0Stats{Route: codexLayer0RouteHTTP, ReadDeltaBlocks: 1}, want: true},
+		{name: "http repeated output", stats: proxyLayer0Stats{Route: codexLayer0RouteHTTP, RepeatedOutputBlocks: 1}, want: true},
+		{name: "http chunk dedup", stats: proxyLayer0Stats{Route: codexLayer0RouteHTTP, ChunkDedupBlocks: 1}, want: true},
+		{name: "http captured output", stats: proxyLayer0Stats{Route: codexLayer0RouteHTTP, CapturedOutputBlocks: 1}, want: false},
+		{name: "http codex envelope", stats: proxyLayer0Stats{Route: codexLayer0RouteHTTP, CodexExecEnvelopeBlocks: 1}, want: false},
+		{name: "wss captured output", stats: proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, CapturedOutputBlocks: 1}, want: true},
+		{name: "wss codex envelope", stats: proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, CodexExecEnvelopeBlocks: 1}, want: true},
+		{name: "stale read", stats: proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, StaleReadBlocks: 1}, want: false},
+		{name: "obsolete read", stats: proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, ObsoletePruneBlocks: 1}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := proxyLayer0StatsNeedsArchiveRecoveryNote(tc.stats); got != tc.want {
+				t.Fatalf("proxyLayer0StatsNeedsArchiveRecoveryNote(%+v)=%v want %v", tc.stats, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReduceCodexLayer0ReconcCommandsPassThrough(t *testing.T) {
 	commands := []string{
 		"reconc check .",

@@ -830,6 +830,24 @@ func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
 
 func TestServeHTTP_CodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T) {
 	t.Parallel()
+	runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t, func(cfg *config.Config) {
+		cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	})
+}
+
+func TestServeHTTP_CodexResponsesHTTPChunkDedupAutoPolicyInjectsRecoveryNote(t *testing.T) {
+	t.Parallel()
+	runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t, func(cfg *config.Config) {
+		cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
+		cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "auto"
+		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = false
+		cfg.Compression.OutputReduce.CodexChunkDedupProofLevel = "live"
+	})
+}
+
+func runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T, configure func(*config.Config)) {
+	t.Helper()
+	sessionID := "sess-http-chunk-" + filepath.Base(filepath.Dir(t.TempDir()))
 	shared := uniqueProxyReadPayload("shared http chunk")
 	firstTail := uniqueProxyReadPayload("first http tail")
 	secondTail := uniqueProxyReadPayload("second http tail")
@@ -881,28 +899,30 @@ func TestServeHTTP_CodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T)
 	cfg.Compression.Layer1Enabled = false
 	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
-	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	if configure != nil {
+		configure(cfg)
+	}
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
-	firstBody := bodyFor("call_a", "cat a.txt", shared+firstTail)
+	firstBody := bodyFor("call_a", "python report.py --case a", shared+firstTail)
 	firstReq := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(firstBody))
 	firstReq.Header.Set("Content-Type", "application/json")
 	firstReq.Header.Set("User-Agent", "codex/0.130.0")
-	firstReq.Header.Set("x-codex-session-id", "sess-http-chunk")
+	firstReq.Header.Set("x-codex-session-id", sessionID)
 	firstRec := httptest.NewRecorder()
 	p.ServeHTTP(firstRec, firstReq)
 	if firstRec.Code != http.StatusOK {
 		t.Fatalf("first status %d: %s", firstRec.Code, firstRec.Body.String())
 	}
 
-	secondBody := bodyFor("call_b", "cat b.txt", shared+secondTail)
+	secondBody := bodyFor("call_b", "python report.py --case b", shared+secondTail)
 	secondReq := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(secondBody))
 	secondReq.Header.Set("Content-Type", "application/json")
 	secondReq.Header.Set("User-Agent", "codex/0.130.0")
-	secondReq.Header.Set("x-codex-session-id", "sess-http-chunk")
+	secondReq.Header.Set("x-codex-session-id", sessionID)
 	secondRec := httptest.NewRecorder()
 	p.ServeHTTP(secondRec, secondReq)
 	if secondRec.Code != http.StatusOK {
@@ -913,8 +933,10 @@ func TestServeHTTP_CodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T)
 	}
 
 	secondWire := string(capturedBodies[1])
-	if !strings.Contains(secondWire, "[context-chunk status=unchanged uri=local-archive://") {
-		t.Fatalf("second upstream body missing chunk ref: %s", secondWire)
+	if !strings.Contains(secondWire, "local-archive://") ||
+		(!strings.Contains(secondWire, "[context-chunk status=unchanged uri=local-archive://") &&
+			!strings.Contains(secondWire, "[context-elided kind=tool-output status=unchanged")) {
+		t.Fatalf("second upstream body missing recoverable archive ref: %s", secondWire)
 	}
 	if !strings.Contains(secondWire, `"instructions"`) || !strings.Contains(secondWire, "request that exact URI") {
 		t.Fatalf("second upstream body missing archive recovery instructions: %s", secondWire)

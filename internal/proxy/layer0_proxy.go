@@ -464,6 +464,17 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	return s
 }
 
+func proxyLayer0StatsNeedsArchiveRecoveryNote(stats proxyLayer0Stats) bool {
+	if stats.ReadDeltaBlocks > 0 || stats.RepeatedOutputBlocks > 0 || stats.ChunkDedupBlocks > 0 {
+		return true
+	}
+	if stats.Route == codexLayer0RouteWSSPhaseF &&
+		(stats.CapturedOutputBlocks > 0 || stats.CodexExecEnvelopeBlocks > 0) {
+		return true
+	}
+	return false
+}
+
 func applyProxyLayer0(messages []types.Message) ([]types.Message, int) {
 	return applyProxyLayer0WithSession(messages, "")
 }

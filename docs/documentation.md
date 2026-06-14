@@ -506,14 +506,14 @@ Current product status:
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 strict release matrix covered CLI + Desktop search loops plus a mixed Desktop workday; 2026-06-02 Desktop search-delta proof passed live counters and replay `lost=0` | Low to medium: grouped first search keeps representative matches, changed repeated searches emit added/removed match evidence plus archive recovery, and ambiguous cwd full-passes for reusable keys |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
 | Content-defined chunk dedup | HTTP/non-WSS eligible through deterministic guards; WSS requires the state-safety gate or explicit lab/proof opt-in | T255/T266 live CLI+Desktop proof, T256 policy wiring, T258 route/risk/proof gate | Medium but guarded: archive recovery and `live` proof required, recent/re-read risk loosens |
-| Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
+| Archive recovery note | Operator hint default-off; auto-injected only when a recoverable archive ref is emitted | Mechanism and replay support exist | No broad prompt tax; the note appears only when the request already contains a `local-archive://` recovery handle |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
 | Predictive post-edit file state | Closed | T253 closed | Rejected for default-auto: first post-edit read full-passes to preserve recency/context; later repeats dedup normally |
 | apply_patch context dedup | Closed | T253 closed | Rejected as standalone work: patch context is model working memory; exact repeated outputs remain covered |
 | Reasoning-trace compaction | Closed | T253 closed | Rejected for default-auto: do not mutate reasoning/cognition surface for savings |
 | Server-state mirror | Shadow/policy infra only | T254 closed as exact-block shadow; T355 adds normalized shadow density | Tracks exact and normalized forwarded-state opportunities; no known backend-honored client-side block reference, no model-facing mutation |
 | Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; unsafe candidates blocked or telemetry-only |
-| HTTP archive recovery/promotion | On for Codex HTTP chunk refs through the route-local recovery-note gate | HTTP Codex route tests cover note injection, shortened upstream body, and route scoping; generic future HTTP archive recovery remains blocked | Codex HTTP fails open to full context when the session/note injection path is unavailable; non-Codex HTTP routes cannot emit archive refs |
+| HTTP archive recovery/promotion | On for Codex HTTP archive-backed refs through the route-local recovery-note gate | HTTP Codex route tests cover note injection, shortened upstream body, route scoping, chunk refs, and exact repeated-output refs; generic future HTTP archive recovery remains blocked | Codex HTTP fails open to full context when the session/note injection path is unavailable; non-Codex HTTP routes cannot emit archive refs |
 
 Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
@@ -548,9 +548,10 @@ client-side "the server already has this old block" reference for arbitrary
 prior WSS input blocks, so server-state mirror promotion remains no-go for the
 product path unless a separate lab probe proves a backend-honored reference
 shape.
-Generic HTTP archive recovery remains blocked, but Codex HTTP chunk references
-are allowed through the route-local recovery-note gate. WSS remains the primary
-product route for automatic recoverable archive/chunk mechanisms.
+Generic HTTP archive recovery remains blocked, but Codex HTTP archive-backed
+read-delta, exact repeated-output, and chunk references are allowed through the
+route-local recovery-note gate. WSS remains the primary product route for
+automatic recoverable archive/chunk mechanisms.
 
 The deterministic evidence selector is the block-level decision manifest used
 by those reducers and reports. It classifies content as `test`, `log`,
@@ -1032,7 +1033,7 @@ opportunistic: the proxy can expand a later incoming request that quotes a
 stored URI. A neutral once-per-session Codex WSS/HTTP archive-recovery note
 exists behind `archive_recovery_note_enabled`; it is default-off as an operator
 hint, but auto policy may still inject the same neutral note when a recoverable
-chunk reference is actually emitted. It tells the model that
+archive reference is actually emitted. It tells the model that
 `local-archive://<id>` may be requested if full elided content is needed.
 `read_delta_recent_full_pass_turns` is also
 default-off (`0`): operators can raise it after A/B proof to keep immediate
@@ -1881,9 +1882,12 @@ tool-prune and reattach with `wss_tool_prune_delta_guard`, because mutating the
 steady delta prefix can poison later WSS state. Full-history resends with
 previous-response-id are eligible when their message shape is actually
 classified as `full_history`, so reconnect/full-resend turns can recover tool
-schema savings without reopening the unsafe delta path. Unknown, empty, or
-mixed schemas stay byte-equal. WSS decision summaries record the same
-content-free
+schema savings without reopening the unsafe delta path. A successful WSS
+full-history tool-prune mutation also arms stateless full-history continuation
+for the following previous-response delta, so later tool-schema pruning or
+reattach can keep operating without relying on mutated Codex server state.
+Unknown, empty, or mixed schemas stay byte-equal. WSS decision summaries record
+the same content-free
 `tool_prune` accounting as HTTP: guard reason, applied flag, pruned tool count,
 saved-token estimate, reattach count, always-kept count, and cooldown/full-pass
 reason flow through `debug last`, flight summaries, mechanism accounting, and

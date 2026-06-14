@@ -492,11 +492,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
 		return
 	}
-	if l0Stats.ChunkDedupBlocks > 0 {
+	if proxyLayer0StatsNeedsArchiveRecoveryNote(l0Stats) {
 		note := archiveRecoveryNoteText(p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
 		noteReserved := p.reserveArchiveRecoveryNote(sessionID, true)
 		if !noteReserved && strings.TrimSpace(sessionID) == "" {
-			log.Warn("http archive recovery note missing session; reverting recoverable chunk refs")
+			log.Warn("http archive recovery note missing session; reverting archive-backed refs")
 			compressedMessages = messages
 			compressedTokens = origTokens
 			layer0Savings = 0
@@ -513,7 +513,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			injectedBody, res := beterse.Inject(provider, newBody, note)
 			if !res.Applied {
 				p.forgetArchiveRecoveryNote(sessionID)
-				log.Warn("http archive recovery note injection failed; reverting recoverable chunk refs")
+				log.Warn("http archive recovery note injection failed; reverting archive-backed refs")
 				compressedMessages = messages
 				compressedTokens = origTokens
 				layer0Savings = 0

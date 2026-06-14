@@ -3274,6 +3274,112 @@ func TestWSPhaseFToolPruneDefaultSafeSlicePrunesNoUserPromptFullHistory(t *testi
 	}
 }
 
+func TestWSPhaseFToolPruneFullHistoryMakesFollowingDeltaStateless(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = false
+	cfg.Compression.Tuning.WSSFullHistoryToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	ctx := context.Background()
+	const promptCacheKey = "wss-tool-prune-stateless-followup"
+	const sessionID = "codex-wss:thread-tool-prune-stateless"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	fullHistory := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-stateless-parent",
+			"prompt_cache_key":     promptCacheKey,
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-tool-prune-stateless","source":"desktop"}`,
+			},
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "call_bash", "name": "Bash", "arguments": map[string]any{"cmd": "echo ok"}},
+				{"type": "function_call_output", "call_id": "call_bash", "output": "ok"},
+				{"type": "message", "role": "user", "content": "Continue with the available tools."},
+			},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &fullHistory); err != nil || !replace {
+		t.Fatalf("full-history tool-prune should mutate and arm stateless follow-up, replace=%v err=%v body=%s", replace, err, fullHistory.Body)
+	}
+	if strings.Contains(string(fullHistory.Body), "ColdTool") {
+		t.Fatalf("full-history tool-prune did not remove idle tool: %s", fullHistory.Body)
+	}
+	firstSummary := p.DebugRecorder().Last(1, false)[0]
+	if !firstSummary.ToolPrune.Applied ||
+		firstSummary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		firstSummary.DebugFacts["wss.tool_prune_stateless_followup"] != "true" {
+		t.Fatalf("tool-prune full-history must arm stateless follow-up: %+v facts=%+v", firstSummary.ToolPrune, firstSummary.DebugFacts)
+	}
+
+	completeWSSDeltaStatelessResponse(t, ctx, adapter, "resp-tool-prune-stateless-child")
+	delta := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-tool-prune-stateless-child",
+			"prompt_cache_key":     promptCacheKey,
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-tool-prune-stateless","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue after tool pruning.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("following delta should rewrite to stateless full-history and prune safely, replace=%v err=%v body=%s", replace, err, delta.Body)
+	}
+	deltaBody, _, ok := wsRequestBody(&delta)
+	if !ok {
+		t.Fatal("rewritten delta body missing")
+	}
+	if bytes.Contains(deltaBody, []byte("previous_response_id")) {
+		t.Fatalf("stateless tool-prune follow-up must drop previous_response_id: %s", deltaBody)
+	}
+	if strings.Contains(string(deltaBody), "ColdTool") {
+		t.Fatalf("stateless full-history follow-up should safely prune idle tool: %s", deltaBody)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(deltaBody, &raw); err != nil {
+		t.Fatalf("delta body json: %v", err)
+	}
+	var input []json.RawMessage
+	if err := json.Unmarshal(raw["input"], &input); err != nil {
+		t.Fatalf("delta input json: %v", err)
+	}
+	if len(input) <= 1 {
+		t.Fatalf("stateless tool-prune follow-up must include prior chain, got %d input items: %s", len(input), deltaBody)
+	}
+	followupSummary := p.DebugRecorder().Last(1, false)[0]
+	if followupSummary.DebugFacts["wss.stateless_history_continuation"] != "true" ||
+		followupSummary.DebugFacts["wss.tool_prune_guard"] != "" ||
+		!followupSummary.ToolPrune.Applied {
+		t.Fatalf("follow-up should be stateless full-history with tool-prune savings: %+v facts=%+v", followupSummary.ToolPrune, followupSummary.DebugFacts)
+	}
+}
+
 func TestWSPhaseFToolPruneWSSSafeSliceCanBeDisabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false

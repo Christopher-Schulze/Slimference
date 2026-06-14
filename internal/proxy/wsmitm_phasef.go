@@ -856,6 +856,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					toolPruneRecoveryBody = toolPrune.RetryBody
 					meta.ToolPruneRecoveryBody = toolPruneRecoveryBody
 					out = pruned
+					a.markWSSToolPruneStatelessFollowup(&meta, requestShape)
 				} else {
 					meta.ToolPrune = toolPrune.Summary
 				}
@@ -899,6 +900,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				meta.ToolPrune = toolPrune.Summary
 				toolPruneRecoveryBody = toolPrune.RetryBody
 				out = pruned
+				a.markWSSToolPruneStatelessFollowup(&meta, requestShape)
 			} else {
 				meta.ToolPrune = toolPrune.Summary
 			}
@@ -957,6 +959,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.ToolPrune = toolPrune.Summary
 			meta.ToolPruneRecoveryBody = toolPrune.RetryBody
 			out = pruned
+			a.markWSSToolPruneStatelessFollowup(&meta, wssRequestShape(meta, messages))
 		} else {
 			meta.ToolPrune = toolPrune.Summary
 		}
@@ -981,7 +984,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			a.p.outputReduceCounters.RecordStopSeqInjection(res.AddedCount)
 		}
 	}
-	archiveNoteEnabled := a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled || l0Stats.ChunkDedupBlocks > 0
+	archiveNoteEnabled := a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled || proxyLayer0StatsNeedsArchiveRecoveryNote(l0Stats)
 	if a.p.reserveArchiveRecoveryNote(meta.SessionID, archiveNoteEnabled) {
 		note := archiveRecoveryNoteText(a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
 		if injected, res := beterse.Inject(types.CodexChatGPT, out, note); res.Applied {
@@ -1209,6 +1212,18 @@ func (a *wsPhaseFAdapter) wssToolPruneObservationEnabled() bool {
 	}
 	tuning := a.p.config.Compression.Tuning
 	return tuning.ToolPruneEnabled || tuning.WSSFullHistoryToolPruneEnabled
+}
+
+func (a *wsPhaseFAdapter) markWSSToolPruneStatelessFollowup(meta *wssRequestMeta, requestShape string) {
+	if a == nil || meta == nil || requestShape != "full_history" {
+		return
+	}
+	a.markWSSHistoryStatelessMode()
+	if meta.DebugFacts == nil {
+		meta.DebugFacts = make(map[string]string)
+	}
+	meta.DebugFacts["wss.full_history_stateless_followup"] = "true"
+	meta.DebugFacts["wss.tool_prune_stateless_followup"] = "true"
 }
 
 func (a *wsPhaseFAdapter) wssToolPruneEnabledForRequest(messages []types.Message, meta wssRequestMeta) bool {

@@ -251,6 +251,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
 			}
+			after = wssReplayMessagesWithoutExpectedArchiveRecoveryNote(after, stats, archiveRecoveryNoteText(p.config.Compression.OutputReduce.ArchiveRecoveryNoteText))
 			if len(before) > 0 || len(after) > 0 {
 				turns = append(turns, abharness.Turn{Before: before, After: after})
 				out.RequestTurns++
@@ -556,6 +557,60 @@ func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {
 		return messages, nil
 	}
 	return append(prefix, messages...), nil
+}
+
+func wssReplayMessagesWithoutExpectedArchiveRecoveryNote(messages []types.Message, stats proxyLayer0Stats, note string) []types.Message {
+	if !proxyLayer0StatsNeedsArchiveRecoveryNote(stats) {
+		return messages
+	}
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return messages
+	}
+	out := make([]types.Message, 0, len(messages))
+	changed := false
+	for _, msg := range messages {
+		if msg.Index != -2 || len(msg.Content) == 0 {
+			out = append(out, msg)
+			continue
+		}
+		block := msg.Content[0]
+		stripped, ok := wssReplayStripInstructionNote(block.Text, note)
+		if !ok {
+			out = append(out, msg)
+			continue
+		}
+		changed = true
+		if strings.TrimSpace(stripped) == "" {
+			continue
+		}
+		next := msg
+		next.Content = append([]types.ContentBlock(nil), msg.Content...)
+		next.Content[0].Text = stripped
+		out = append(out, next)
+	}
+	if !changed {
+		return messages
+	}
+	return out
+}
+
+func wssReplayStripInstructionNote(text string, note string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if text == note {
+		return "", true
+	}
+	paragraph := "\n\n" + note
+	if strings.HasSuffix(text, paragraph) {
+		return strings.TrimSpace(strings.TrimSuffix(text, paragraph)), true
+	}
+	if strings.HasPrefix(text, note+"\n\n") {
+		return strings.TrimSpace(strings.TrimPrefix(text, note+"\n\n")), true
+	}
+	if strings.Contains(text, paragraph+"\n\n") {
+		return strings.TrimSpace(strings.Replace(text, paragraph, "", 1)), true
+	}
+	return text, false
 }
 
 func codexReplayInstructions(body []byte) (string, bool) {
