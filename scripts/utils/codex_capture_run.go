@@ -27,6 +27,7 @@ import (
 type codexCaptureRunFlags struct {
 	binary                        string
 	capturePath                   string
+	decisionsPath                 string
 	host                          string
 	port                          string
 	transport                     string
@@ -299,6 +300,7 @@ Usage:
 Flags:
   --binary PATH              Slimference binary to run (default: slimference)
   --capture PATH             WSS frame capture path (default: ~/.slimference/captures/codex-capture-<timestamp>.jsonl)
+  --decisions-log PATH       Optional content-free daemon decisions log path
   --host HOST                Daemon host (default: 127.0.0.1)
   --port PORT                Daemon port (default: 8990)
   --transport VALUE          Scoped Codex transport: auto, http, wss, wss-bridge, or direct (default: auto)
@@ -399,6 +401,12 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
+	if flags.decisionsPath != "" {
+		if err := ensureCodexCaptureDir(flags.decisionsPath); err != nil {
+			fmt.Fprintln(stderr, err.Error())
+			return 1
+		}
+	}
 
 	ctx := context.Background()
 	if err := deps.ensureNoDaemon(ctx, flags); err != nil {
@@ -445,7 +453,7 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		runStderr = io.Discard
 	}
 	runCtx, cancelRun := context.WithTimeout(ctx, flags.codexTimeout)
-	execution, err := runCodexCaptureWithOptionalRestart(runCtx, flags, daemon, deps, runStdout, runStderr, stderr)
+	execution, err := runCodexCaptureWithOptionalRestart(runCtx, ctx, flags, daemon, deps, runStdout, runStderr, stderr)
 	cancelRun()
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -460,10 +468,11 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		}
 		if execution.preRestartSnapshot != nil {
 			fmt.Fprintf(stderr, "read final admin state after restart proof failed; continuing with pre-restart live delta: %v\n", err)
+			after = *execution.preRestartSnapshot
 		} else {
 			fmt.Fprintf(stderr, "read final admin state after restart proof failed; continuing with replay-only live delta: %v\n", err)
+			after = before
 		}
-		after = before
 	}
 	if resourceProof != nil {
 		if err := deps.resourceAfter(ctx, flags, daemon, resourceProof); err != nil {
@@ -484,9 +493,6 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		return 1
 	}
 	liveDelta := deltaCodexCaptureAdminSnapshot(before, after)
-	if execution.preRestartSnapshot != nil {
-		liveDelta = deltaCodexCaptureAdminSnapshot(before, *execution.preRestartSnapshot)
-	}
 	result := codexCaptureRunResult{
 		CapturePath: flags.capturePath,
 		MatrixPath:  flags.matrixPath,
@@ -904,7 +910,7 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			flags.expectedZeroSavings = true
 		case arg == "--quiet-codex-output":
 			flags.quietCodexOutput = true
-		case arg == "--binary", arg == "--capture", arg == "--host", arg == "--port", arg == "--transport",
+		case arg == "--binary", arg == "--capture", arg == "--decisions-log", arg == "--host", arg == "--port", arg == "--transport",
 			arg == "--health-timeout", arg == "--codex-timeout", arg == "--matrix-row", arg == "--id",
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
@@ -1015,6 +1021,10 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	if err != nil {
 		return flags, err
 	}
+	flags.decisionsPath, err = expandCodexCapturePath(flags.decisionsPath)
+	if err != nil {
+		return flags, err
+	}
 	flags.matrixPath, err = expandCodexCapturePath(flags.matrixPath)
 	if err != nil {
 		return flags, err
@@ -1050,6 +1060,8 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 	case "--capture":
 		flags.captureExplicit = true
 		flags.capturePath = value
+	case "--decisions-log":
+		flags.decisionsPath = value
 	case "--host":
 		flags.host = value
 	case "--port":
@@ -1393,7 +1405,7 @@ func codexCaptureDaemonTempRoot() string {
 }
 
 func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir string) []string {
-	env := make([]string, 0, len(base)+4)
+	env := make([]string, 0, len(base)+5)
 	for _, entry := range base {
 		key, _, ok := strings.Cut(entry, "=")
 		if !ok {
@@ -1401,7 +1413,7 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 			continue
 		}
 		switch key {
-		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR":
+		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_DEBUG_DECISIONS_LOG", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR":
 			continue
 		default:
 			env = append(env, entry)
@@ -1413,6 +1425,9 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 		"SLIMFERENCE_LISTEN_PORT="+flags.port,
 		"SLIMFERENCE_DAEMON_STATE_DIR="+stateDir,
 	)
+	if flags.decisionsPath != "" {
+		env = append(env, "SLIMFERENCE_DEBUG_DECISIONS_LOG="+flags.decisionsPath)
+	}
 	return env
 }
 
@@ -1716,7 +1731,7 @@ func codexCaptureCacheEntryKey(entry control.ProxyLayer0CacheEntry) string {
 	return entry.Route + "\x00" + entry.Mechanism + "\x00" + entry.Action + "\x00" + entry.Reason
 }
 
-func runCodexCaptureWithOptionalRestart(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, stdout, stderr, log io.Writer) (codexCaptureRunExecution, error) {
+func runCodexCaptureWithOptionalRestart(ctx context.Context, daemonCtx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, stdout, stderr, log io.Writer) (codexCaptureRunExecution, error) {
 	if flags.restartAfterCompletion <= 0 && flags.restartAfterMutatedCompletion <= 0 {
 		err := deps.runCodex(ctx, flags, stdout, stderr)
 		return codexCaptureRunExecution{daemon: daemon}, err
@@ -1733,7 +1748,7 @@ func runCodexCaptureWithOptionalRestart(ctx context.Context, flags codexCaptureR
 
 	restartDone := make(chan codexCaptureRestartResult, 1)
 	go func() {
-		restartDone <- restartCodexCaptureDaemonAfterConfiguredCompletion(runCtx, flags, daemon, deps, log)
+		restartDone <- restartCodexCaptureDaemonAfterConfiguredCompletion(runCtx, daemonCtx, flags, daemon, deps, log)
 	}()
 
 	current := daemon
@@ -1769,29 +1784,29 @@ type codexCaptureRestartResult struct {
 	err                error
 }
 
-func restartCodexCaptureDaemonAfterConfiguredCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
+func restartCodexCaptureDaemonAfterConfiguredCompletion(waitCtx context.Context, daemonCtx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
 	if flags.restartAfterCompletion > 0 {
-		return restartCodexCaptureDaemonAfterCompletion(ctx, flags, daemon, deps, log)
+		return restartCodexCaptureDaemonAfterCompletion(waitCtx, daemonCtx, flags, daemon, deps, log)
 	}
-	return restartCodexCaptureDaemonAfterMutatedCompletion(ctx, flags, daemon, deps, log)
+	return restartCodexCaptureDaemonAfterMutatedCompletion(waitCtx, daemonCtx, flags, daemon, deps, log)
 }
 
-func restartCodexCaptureDaemonAfterCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
-	if err := waitCodexCaptureCompletion(ctx, flags.capturePath, flags.restartAfterCompletion); err != nil {
+func restartCodexCaptureDaemonAfterCompletion(waitCtx context.Context, daemonCtx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
+	if err := waitCodexCaptureCompletion(waitCtx, flags.capturePath, flags.restartAfterCompletion); err != nil {
 		return codexCaptureRestartResult{daemon: daemon, err: err}
 	}
-	preRestart, err := deps.adminSnapshot(ctx, flags)
+	preRestart, err := deps.adminSnapshot(daemonCtx, flags)
 	if err != nil {
 		return codexCaptureRestartResult{daemon: daemon, err: fmt.Errorf("restart capture daemon after completion: read pre-restart admin state: %w", err)}
 	}
-	if err := deps.stopDaemon(ctx, daemon); err != nil {
+	if err := deps.stopDaemon(daemonCtx, daemon); err != nil {
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after completion: stop old daemon: %w", err)}
 	}
-	next, err := deps.startDaemon(ctx, flags, log)
+	next, err := deps.startDaemon(daemonCtx, flags, log)
 	if err != nil {
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after completion: start new daemon: %w", err)}
 	}
-	if err := deps.waitHealth(ctx, flags, next.done); err != nil {
+	if err := deps.waitHealth(daemonCtx, flags, next.done); err != nil {
 		_ = deps.stopDaemon(context.Background(), next)
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after completion: wait health: %w", err)}
 	}
@@ -1801,22 +1816,22 @@ func restartCodexCaptureDaemonAfterCompletion(ctx context.Context, flags codexCa
 	return codexCaptureRestartResult{daemon: next, preRestartSnapshot: &preRestart}
 }
 
-func restartCodexCaptureDaemonAfterMutatedCompletion(ctx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
-	if err := waitCodexCaptureMutatedCompletion(ctx, flags.capturePath, flags.restartAfterMutatedCompletion); err != nil {
+func restartCodexCaptureDaemonAfterMutatedCompletion(waitCtx context.Context, daemonCtx context.Context, flags codexCaptureRunFlags, daemon *codexCaptureDaemon, deps codexCaptureRunDeps, log io.Writer) codexCaptureRestartResult {
+	if err := waitCodexCaptureMutatedCompletion(waitCtx, flags.capturePath, flags.restartAfterMutatedCompletion); err != nil {
 		return codexCaptureRestartResult{daemon: daemon, err: err}
 	}
-	preRestart, err := deps.adminSnapshot(ctx, flags)
+	preRestart, err := deps.adminSnapshot(daemonCtx, flags)
 	if err != nil {
 		return codexCaptureRestartResult{daemon: daemon, err: fmt.Errorf("restart capture daemon after mutated completion: read pre-restart admin state: %w", err)}
 	}
-	if err := deps.stopDaemon(ctx, daemon); err != nil {
+	if err := deps.stopDaemon(daemonCtx, daemon); err != nil {
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after mutated completion: stop old daemon: %w", err)}
 	}
-	next, err := deps.startDaemon(ctx, flags, log)
+	next, err := deps.startDaemon(daemonCtx, flags, log)
 	if err != nil {
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after mutated completion: start new daemon: %w", err)}
 	}
-	if err := deps.waitHealth(ctx, flags, next.done); err != nil {
+	if err := deps.waitHealth(daemonCtx, flags, next.done); err != nil {
 		_ = deps.stopDaemon(context.Background(), next)
 		return codexCaptureRestartResult{daemon: daemon, preRestartSnapshot: &preRestart, err: fmt.Errorf("restart capture daemon after mutated completion: wait health: %w", err)}
 	}
@@ -2278,6 +2293,7 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		Client:              flags.client,
 		WorkloadClass:       flags.workloadClass,
 		FramesPath:          result.CapturePath,
+		DecisionsPath:       flags.decisionsPath,
 		CodexVersion:        flags.codexVersion,
 		SlimferenceCommit:   flags.slimferenceCommit,
 		Repo:                flags.repo,

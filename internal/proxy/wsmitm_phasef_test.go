@@ -4853,6 +4853,53 @@ func TestWSPhaseFFullHistoryHistoryReducersApplyOnLiveSocket(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFFullHistoryCustomToolCallGuardsHistoryReducers(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "read then patch"},
+			{"type": "function_call", "call_id": "call_read_old", "name": "exec_command", "arguments": map[string]any{
+				"cmd":     "cat src/x.go",
+				"workdir": "/repo",
+			}},
+			{"type": "function_call_output", "call_id": "call_read_old", "output": strings.Repeat("obsolete custom-tool-call content ", 80)},
+			{"type": "custom_tool_call", "call_id": "call_patch", "name": "apply_patch", "input": "*** Begin Patch\n*** Update File: /repo/src/x.go\n@@\n-old\n+new\n*** End Patch\n"},
+			{"type": "custom_tool_call_output", "call_id": "call_patch", "output": "Success. Updated the following files:\nM /repo/src/x.go\n"},
+			{"type": "function_call", "call_id": "call_read_fresh", "name": "exec_command", "arguments": map[string]any{
+				"cmd":     "cat src/x.go",
+				"workdir": "/repo",
+			}},
+			{"type": "function_call_output", "call_id": "call_read_fresh", "output": "new content"},
+		},
+		"stream": true,
+	})
+
+	mutated, _, changed, stats, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("custom-tool full-history guard must keep wire byte-equal, changed=%v body=%s", changed, mutated)
+	}
+	if stats.ObsoletePruneBlocks != 0 || stats.StaleReadBlocks != 0 || stats.BlocksModified != 0 || stats.TokensSaved != 0 {
+		t.Fatalf("custom-tool guard must not book applied savings: %+v", stats)
+	}
+	const guardReason = "wss_custom_tool_call_history_mutation_guard"
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, guardReason, evidence.ActionFullPass) {
+		t.Fatalf("custom-tool guard must retain obsolete-prune evidence: %+v", stats.EvidenceDecisions)
+	}
+	if meta.DebugFacts["wss.history_mutation_guard"] != guardReason ||
+		meta.DebugFacts["wss.structured_mutation_guard"] != guardReason ||
+		meta.DebugFacts["wss.effective_mutation_guard"] != guardReason {
+		t.Fatalf("custom-tool guard facts missing: %+v", meta.DebugFacts)
+	}
+}
+
 func TestWSPhaseFHistoryMutationLabOpensLiveFullHistoryReducers(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

@@ -577,6 +577,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		historyMutationRecoveryGuarded := a.wssHistoryMutationRecoveryGuarded(meta.PreviousResponseID)
 		a.rememberWSSHistoryRecoveryGuardRequest(historyMutationRecoveryGuarded)
 		fullHistoryHistoryMutationBlocked := false
+		customToolCallHistoryMutationBlocked := requestShape == "full_history" && wssMessagesContainCodexCustomToolCall(messages)
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history" && meta.PreviousResponseID != ""
 		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
@@ -603,6 +604,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				historyMutationGuardReason = "wss_recovery_history_mutation_guard"
 			} else if fullHistoryHistoryMutationBlocked {
 				historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
+			} else if customToolCallHistoryMutationBlocked {
+				historyMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
 			}
 			if deltaShape {
 				observedStats := a.observeWSSPreviousResponseDeltaLayer0(messages, mergedToolUses, sessionID, turnID, suppressedKeys, chunkSettings, meta, cacheBustDemoted, cacheBustDemotedClassKeys)
@@ -669,6 +672,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 			return out, messages, changed, l0Stats, reReadCount, meta, outputReduceStats
+		} else if customToolCallHistoryMutationBlocked {
+			structuredMutationAllowed = false
+			structuredMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
 		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
@@ -697,6 +703,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			historyMutationGuardReason = "wss_recovery_history_mutation_guard"
 		} else if fullHistoryHistoryMutationBlocked {
 			historyMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
+		} else if customToolCallHistoryMutationBlocked {
+			historyMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
 		}
 		downstreamStateMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
@@ -2869,6 +2877,28 @@ func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
 		return "delta"
 	}
 	return "full_history"
+}
+
+func wssMessagesContainCodexCustomToolCall(messages []types.Message) bool {
+	for _, message := range messages {
+		for _, block := range message.Content {
+			raw, ok := block.RawBlock.(codexInputItemRaw)
+			if !ok {
+				continue
+			}
+			itemType := rawJSONString(raw.Fields["type"])
+			if itemType == "response_item" {
+				var nested map[string]json.RawMessage
+				if err := json.Unmarshal(raw.Fields["payload"], &nested); err == nil {
+					itemType = rawJSONString(nested["type"])
+				}
+			}
+			if itemType == "custom_tool_call" || itemType == "custom_tool_call_output" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func wssRequestShapeSource(meta wssRequestMeta, messages []types.Message) string {

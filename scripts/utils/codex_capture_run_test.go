@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -30,6 +31,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--health-timeout=2s",
 		"--codex-timeout=3s",
 		"--matrix-row", "~/matrix.jsonl",
+		"--decisions-log", "~/decisions.jsonl",
 		"--resource-profile-proof", "~/resource-proof",
 		"--id", "cli-git",
 		"--client", "cli",
@@ -61,6 +63,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 	if !strings.HasSuffix(flags.matrixPath, "matrix.jsonl") {
 		t.Fatalf("matrixPath = %q", flags.matrixPath)
+	}
+	if !strings.HasSuffix(flags.decisionsPath, "decisions.jsonl") {
+		t.Fatalf("decisionsPath = %q", flags.decisionsPath)
 	}
 	if !strings.HasSuffix(flags.resourceProfileProof, "resource-proof") {
 		t.Fatalf("resourceProfileProof = %q", flags.resourceProfileProof)
@@ -130,20 +135,23 @@ func TestCodexCaptureDaemonEnvSetsCaptureAndListenRoute(t *testing.T) {
 	env := codexCaptureDaemonEnv([]string{
 		"PATH=/usr/bin",
 		"SLIMFERENCE_WSS_AB_CAPTURE=/old.jsonl",
+		"SLIMFERENCE_DEBUG_DECISIONS_LOG=/old-decisions.jsonl",
 		"SLIMFERENCE_LISTEN_ADDRESS=0.0.0.0",
 		"SLIMFERENCE_LISTEN_PORT=8990",
 		"SLIMFERENCE_DAEMON_STATE_DIR=/old-state",
 		"OTHER=value",
 	}, codexCaptureRunFlags{
-		capturePath: "/tmp/capture.jsonl",
-		host:        "127.0.0.2",
-		port:        "8991",
+		capturePath:   "/tmp/capture.jsonl",
+		decisionsPath: "/tmp/decisions.jsonl",
+		host:          "127.0.0.2",
+		port:          "8991",
 	}, stateDir)
 	joined := "\n" + strings.Join(env, "\n") + "\n"
 	for _, want := range []string{
 		"\nPATH=/usr/bin\n",
 		"\nOTHER=value\n",
 		"\nSLIMFERENCE_WSS_AB_CAPTURE=/tmp/capture.jsonl\n",
+		"\nSLIMFERENCE_DEBUG_DECISIONS_LOG=/tmp/decisions.jsonl\n",
 		"\nSLIMFERENCE_LISTEN_ADDRESS=127.0.0.2\n",
 		"\nSLIMFERENCE_LISTEN_PORT=8991\n",
 		"\nSLIMFERENCE_DAEMON_STATE_DIR=" + stateDir + "\n",
@@ -154,6 +162,7 @@ func TestCodexCaptureDaemonEnvSetsCaptureAndListenRoute(t *testing.T) {
 	}
 	for _, stale := range []string{
 		"SLIMFERENCE_WSS_AB_CAPTURE=/old.jsonl",
+		"SLIMFERENCE_DEBUG_DECISIONS_LOG=/old-decisions.jsonl",
 		"SLIMFERENCE_LISTEN_ADDRESS=0.0.0.0",
 		"SLIMFERENCE_LISTEN_PORT=8990",
 		"SLIMFERENCE_DAEMON_STATE_DIR=/old-state",
@@ -856,6 +865,118 @@ func TestRunCodexCaptureRunAllowsFinalAdminFailureForRestartProof(t *testing.T) 
 		records[0].LiveDelta.BillableInputTokensSaved != 314 ||
 		records[0].LiveDelta.ProxyLayer0Captured != 1 {
 		t.Fatalf("matrix row missing pre-restart live delta: %+v", records)
+	}
+}
+
+func TestRunCodexCaptureRunUsesFinalAdminDeltaAfterRestartProof(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	decisionsPath := filepath.Join(dir, "decisions.jsonl")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	adminCalls := 0
+	starts := 0
+	restarted := make(chan struct{})
+	closeRestarted := sync.Once{}
+	var restartedDaemonCtx context.Context
+	deps := codexCaptureRunDeps{
+		now: func() time.Time { return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC) },
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error {
+			return nil
+		},
+		startDaemon: func(ctx context.Context, flags codexCaptureRunFlags, log io.Writer) (*codexCaptureDaemon, error) {
+			starts++
+			if starts == 2 {
+				restartedDaemonCtx = ctx
+			}
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error {
+			if starts == 2 {
+				closeRestarted.Do(func() { close(restarted) })
+			}
+			return nil
+		},
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			adminCalls++
+			switch adminCalls {
+			case 1:
+				return codexCaptureAdminSnapshot{BillableInputTokensSaved: 7}, nil
+			case 2:
+				return codexCaptureAdminSnapshot{
+					BillableInputTokensSaved: 321,
+					InputTokensSaved:         321,
+					ProxyLayer0Captured:      1,
+				}, nil
+			default:
+				if restartedDaemonCtx == nil {
+					return codexCaptureAdminSnapshot{}, errors.New("restarted daemon context was not captured")
+				}
+				if err := restartedDaemonCtx.Err(); err != nil {
+					return codexCaptureAdminSnapshot{}, fmt.Errorf("restarted daemon context was canceled before final admin state: %w", err)
+				}
+				return codexCaptureAdminSnapshot{
+					BillableInputTokensSaved: 1000,
+					InputTokensSaved:         1000,
+					ProxyLayer0Captured:      3,
+				}, nil
+			}
+		},
+		runCodex: func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error {
+			writeJSONLFile(t, capturePath,
+				map[string]any{
+					"direction": "server_to_client",
+					"payload":   map[string]any{"type": "response.completed"},
+				},
+			)
+			select {
+			case <-restarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("daemon was not restarted after completion")
+			}
+			return nil
+		},
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
+		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
+			return wssABReplayReport{
+				Path:         flags.path,
+				Frames:       1,
+				RequestTurns: 1,
+				GatePassed:   true,
+			}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--decisions-log", decisionsPath,
+		"--matrix-row", matrixPath,
+		"--id", "restart-final-live-delta",
+		"--workload-class", "search_loop",
+		"--expected-reducer", "captured_output",
+		"--restart-after-completion", "1",
+		"--", "prompt",
+	}, &stdout, &stderr, deps)
+	if code != 0 {
+		t.Fatalf("expected final live-delta success for restart proof, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "continuing with pre-restart live delta") {
+		t.Fatalf("unexpected pre-restart fallback after final admin success: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 993") ||
+		strings.Contains(stdout.String(), "billable_input_tokens_saved: 314") {
+		t.Fatalf("summary did not use final admin live delta:\n%s", stdout.String())
+	}
+	records, err := readWSSProofMatrixRecords(matrixPath)
+	if err != nil {
+		t.Fatalf("read matrix row: %v", err)
+	}
+	if len(records) != 1 ||
+		records[0].LiveDelta == nil ||
+		records[0].DecisionsPath != decisionsPath ||
+		records[0].LiveDelta.BillableInputTokensSaved != 993 ||
+		records[0].LiveDelta.ProxyLayer0Captured != 3 {
+		t.Fatalf("matrix row missing final live delta: %+v", records)
 	}
 }
 

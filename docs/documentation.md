@@ -1151,6 +1151,10 @@ and `obsolete_prune`, including applied/full-pass/skipped/failed-open counts,
 reason buckets, saved/net tokens, footprint score, and cache-impact buckets.
 `--require-history-evidence` turns that into a fresh-capture gate before any
 stale/obsolete calibration work claims enough evidence to loosen a guard.
+`codex-capture-run --decisions-log <path>` arms the managed proof daemon with a
+content-free decisions log and writes that path into the proof matrix, so the
+same scoped run can be validated by replay, live token delta, and `wss-audit`
+without relying on a separate persistent debug configuration.
 For T359 calibration, the same audit emits `footprint_economics` grouped by
 footprint bucket, turn band, and resolved request shape, with action counts,
 saved/net tokens, footprint score, mechanism buckets, and cache-impact buckets.
@@ -2774,6 +2778,12 @@ adapter:
   tool output
 - unsafe tool-output request bodies in stateful Codex WSS sessions full-pass
   before request mutation; edit/re-read observation still runs first
+- full-history requests carrying Codex `custom_tool_call` or
+  `custom_tool_call_output` items full-pass history and structured mutations
+  with `wss_custom_tool_call_history_mutation_guard`; this preserves byte-equal
+  apply-patch/custom-tool history after live proof showed re-encoding that shape
+  can produce upstream `400 invalid_request`, while still recording content-free
+  stale/obsolete evidence for future narrower recovery work
 - server-to-client `error`, `response.failed`, and `response.incomplete` frames
   are forwarded byte-equal and recorded as content-free upstream-error
   summaries for diagnostics; after such an error the current adapter full-passes
