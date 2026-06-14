@@ -1718,6 +1718,40 @@ func TestWatchCodexCaptureMarkerFindsANSISeparatedMarker(t *testing.T) {
 	close(stop)
 }
 
+func TestWatchCodexCaptureExitMarkerIgnoresClientPromptEcho(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.jsonl")
+	promptOnly := `{"direction":"client_to_server","payload":{"type":"response.create","input":[{"type":"message","content":"Final answer exactly CAPTURE_DONE"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(promptOnly), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hit := make(chan struct{})
+	stop := make(chan struct{})
+	var once sync.Once
+	watchCodexCaptureExitMarker(codexCaptureRunFlags{
+		capturePath:      path,
+		exitMarker:       "CAPTURE_DONE",
+		exitMarkerCount:  1,
+		quietCodexOutput: true,
+	}, func() {
+		once.Do(func() { close(hit) })
+	}, stop)
+	select {
+	case <-hit:
+		t.Fatal("exit marker fired from client prompt echo")
+	case <-time.After(150 * time.Millisecond):
+	}
+	withServer := promptOnly + `{"direction":"server_to_client","payload":{"type":"response.output_text.done","text":"CAPTURE_DONE"}}` + "\n"
+	if err := os.WriteFile(path, []byte(withServer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-hit:
+	case <-time.After(time.Second):
+		t.Fatal("exit marker did not fire from server output")
+	}
+	close(stop)
+}
+
 func TestWatchCodexCaptureFunctionOutputMarkerIgnoresPrompt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capture.jsonl")
 	promptOnly := `{"payload":{"type":"response.create","input":[{"type":"message","content":"CAPTURE_DONE in prompt"}]}}` + "\n"

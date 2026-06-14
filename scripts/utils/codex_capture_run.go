@@ -322,10 +322,11 @@ Flags:
   --model VALUE              Matrix row model label
   --ab-pair-id VALUE         Optional A/B pair id for output-reduce proofs
   --ab-variant VALUE         Optional A/B variant: baseline or directive
-  --exit-marker TEXT         Interrupt Codex automatically once TEXT appears in output.
+  --exit-marker TEXT         Interrupt Codex automatically once TEXT appears in captured server output
+                             or function_call_output frames.
                              On macOS this uses script(1) so Codex still sees a TTY.
-                             The marker is also watched in captured function_call_output
-                             frames, so quiet TUI output cannot hide it.
+                             Raw PTY prompt echo is ignored, so marker text in the prompt cannot
+                             end a proof run before tool outputs are sent.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
   --min-function-calls N     Fail the capture unless at least N server-side
                              function_call items were observed
@@ -2026,9 +2027,7 @@ func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, flags cod
 		})
 	}
 	stopWatch := make(chan struct{})
-	go watchCodexCaptureMarkerFunc(logPath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
-	go watchCodexCaptureServerMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
-	go watchCodexCaptureFunctionOutputMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signalMarker, stopWatch)
+	watchCodexCaptureExitMarker(flags, signalMarker, stopWatch)
 	waitErr := make(chan error, 1)
 	go func() {
 		waitErr <- scriptCmd.Wait()
@@ -2079,6 +2078,11 @@ func stopCodexCapturePTY(scriptCmd *exec.Cmd, waitErr <-chan error, timeout time
 
 func watchCodexCaptureMarker(path, marker string, markerCount int, hit chan<- struct{}, stop <-chan struct{}) {
 	watchCodexCaptureMarkerFunc(path, marker, markerCount, func() { close(hit) }, stop)
+}
+
+func watchCodexCaptureExitMarker(flags codexCaptureRunFlags, signal func(), stop <-chan struct{}) {
+	go watchCodexCaptureServerMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signal, stop)
+	go watchCodexCaptureFunctionOutputMarker(flags.capturePath, flags.exitMarker, flags.exitMarkerCount, signal, stop)
 }
 
 func watchCodexCaptureMarkerFunc(path, marker string, markerCount int, signal func(), stop <-chan struct{}) {

@@ -452,6 +452,13 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		disabledPredicate.RequestShapes["delta"] != 1 {
 		t.Fatalf("disabled-predicate no-evidence guard row mismatch: %+v", disabledPredicate)
 	}
+	if report.NoEvidenceOrigTokens != 21000 ||
+		report.NoEvidenceNeedsInstr != 13000 ||
+		report.NoEvidenceProtected != 0 ||
+		report.NoEvidenceKnownNonTarget != 5000 ||
+		report.NoEvidenceProofBlocked != 3000 {
+		t.Fatalf("bad no-evidence classification totals: %+v", report)
+	}
 	if len(report.ActionablePotential) != 4 ||
 		report.ActionablePotential[0].Category != "needs_instrumentation" ||
 		report.ActionablePotential[0].Source != "no_evidence:wss.request_shape_missing" ||
@@ -504,6 +511,9 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		!hasString(report.Notes, "Prefix decision-surface bytes split protected instructions/default tools from nondefault proof candidates; this is diagnostic and does not authorize prefix mutation.") {
 		t.Fatalf("prefix decision-surface note missing: %+v", report.Notes)
 	}
+	if !hasString(report.Notes, "Some WSS Phase-F no-evidence mass still needs instrumentation (13000 original tokens); instrument it before changing guards.") {
+		t.Fatalf("needs-instrumentation note missing: %+v", report.Notes)
+	}
 }
 
 func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
@@ -534,6 +544,50 @@ func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
 		!strings.Contains(policy, "suppress command_execution") ||
 		!strings.Contains(nextStep, "keep this mass in the product path") {
 		t.Fatalf("default-keep prefix action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
+	}
+}
+
+func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "default-keep-prefix",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 6000, Final: 6000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                      "delta",
+			"wss.output_reduce_reason":               "prompt_cache_prefix_full_pass",
+			"wss.tool_definition_bytes":              "12000",
+			"wss.tool_definition_default_keep_bytes": "12000",
+			"wss.tool_definition_nondefault_bytes":   "0",
+			"wss.instructions_bytes":                 "9000",
+			"wss.tool_definition_default_keep_names": "exec_command,request_user_input,update_goal",
+			"wss.tool_definition_default_keep":       "3",
+			"wss.tool_definition_nondefault":         "0",
+			"wss.tool_definition_unnamed":            "0",
+			"wss.tool_definition_unnamed_bytes":      "0",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.NoEvidenceOrigTokens != 6000 ||
+		report.NoEvidenceProtected != 6000 ||
+		report.NoEvidenceNeedsInstr != 0 ||
+		report.NoEvidenceKnownNonTarget != 0 ||
+		report.NoEvidenceProofBlocked != 0 {
+		t.Fatalf("default-keep prefix should classify as protected no-evidence mass: %+v", report)
+	}
+	if !hasString(report.Notes, "WSS Phase-F no-evidence mass is classified by content-free facts: protected=6000 known_non_target=0 proof_blocked_or_candidate=0; do not treat it as a generic instrumentation gap.") {
+		t.Fatalf("protected no-evidence note missing: %+v", report.Notes)
+	}
+	if !hasString(report.Notes, "No full-pass evidence decisions found; remaining gap is classified no-evidence mass outside the currently safe Layer-0 reducer surface.") {
+		t.Fatalf("classified no-evidence surface note missing: %+v", report.Notes)
 	}
 }
 

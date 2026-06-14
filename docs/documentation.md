@@ -3110,7 +3110,9 @@ proxy. Any proof-critical analytics loss fails the release proof gate; low-value
 analytics drops remain visible but are not product-proof blockers. The runner supports
 `--codex-timeout` for bounded proof runs, `--exit-marker` /
 `--exit-marker-count` for unattended shutdown, and `--quiet-codex-output` for
-machine-readable runs without Codex TUI noise. Passing
+machine-readable runs without Codex TUI noise. Marker shutdown watches captured
+server output and `function_call_output` frames only, so prompt text cannot end
+a proof before tool outputs are observed. Passing
 `--resource-profile-proof <bundle-dir>` turns the same managed run into the
 automated CLI host-resource proof: the runner defaults `--capture` to
 `<bundle-dir>/frames.jsonl` and `--matrix-row` to

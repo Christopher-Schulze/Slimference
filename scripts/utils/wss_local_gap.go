@@ -25,42 +25,46 @@ type wssLocalGapFlags struct {
 }
 
 type wssLocalGapReport struct {
-	Path                    string                       `json:"path"`
-	Since                   *time.Time                   `json:"since,omitempty"`
-	Requests                int                          `json:"requests"`
-	WSSRequests             int                          `json:"wss_requests"`
-	PhaseFRequests          int                          `json:"phasef_requests"`
-	OriginalTokens          int                          `json:"original_tokens"`
-	FinalTokens             int                          `json:"final_tokens"`
-	LocalSavedTokens        int                          `json:"local_saved_tokens"`
-	LocalSavingsRatio       float64                      `json:"local_savings_ratio"`
-	ProviderCacheReadTokens int                          `json:"provider_cache_read_tokens"`
-	ProviderCacheTokens     int                          `json:"provider_cache_tokens"`
-	ProviderCacheCreate     int                          `json:"provider_cache_create_tokens"`
-	OutputTokens            int                          `json:"output_tokens"`
-	TargetRatio             float64                      `json:"target_ratio"`
-	TargetSavedTokens       int                          `json:"target_saved_tokens"`
-	TargetDeficitTokens     int                          `json:"target_deficit_tokens"`
-	PositiveSavingsRequests int                          `json:"positive_savings_requests"`
-	PositiveSavingsOrig     int                          `json:"positive_savings_original_tokens"`
-	PositiveSavingsRatio    float64                      `json:"positive_savings_local_ratio"`
-	ZeroSavingsRequests     int                          `json:"zero_savings_requests"`
-	ZeroSavingsOrigTokens   int                          `json:"zero_savings_original_tokens"`
-	NoEvidenceRequests      int                          `json:"no_evidence_requests"`
-	NoEvidenceOrigTokens    int                          `json:"no_evidence_original_tokens"`
-	ErrorRequests           int                          `json:"error_requests"`
-	UpstreamErrorRequests   int                          `json:"upstream_error_requests"`
-	HTTP400ErrorRequests    int                          `json:"http_400_error_requests"`
-	RequestShapeSources     map[string]int               `json:"request_shape_sources,omitempty"`
-	RequestShapes           []wssLocalGapShapeRow        `json:"request_shapes,omitempty"`
-	RequestGuards           []wssLocalGapRequestGuardRow `json:"request_guards,omitempty"`
-	Mechanisms              []wssLocalGapMechanismRow    `json:"mechanisms,omitempty"`
-	Guards                  []wssLocalGapGuardRow        `json:"guards,omitempty"`
-	ContentClasses          []wssLocalGapContentClassRow `json:"content_classes,omitempty"`
-	ActionablePotential     []wssLocalGapActionableRow   `json:"actionable_potential,omitempty"`
-	GatePassed              bool                         `json:"gate_passed"`
-	GateFailures            []string                     `json:"gate_failures,omitempty"`
-	Notes                   []string                     `json:"notes,omitempty"`
+	Path                     string                       `json:"path"`
+	Since                    *time.Time                   `json:"since,omitempty"`
+	Requests                 int                          `json:"requests"`
+	WSSRequests              int                          `json:"wss_requests"`
+	PhaseFRequests           int                          `json:"phasef_requests"`
+	OriginalTokens           int                          `json:"original_tokens"`
+	FinalTokens              int                          `json:"final_tokens"`
+	LocalSavedTokens         int                          `json:"local_saved_tokens"`
+	LocalSavingsRatio        float64                      `json:"local_savings_ratio"`
+	ProviderCacheReadTokens  int                          `json:"provider_cache_read_tokens"`
+	ProviderCacheTokens      int                          `json:"provider_cache_tokens"`
+	ProviderCacheCreate      int                          `json:"provider_cache_create_tokens"`
+	OutputTokens             int                          `json:"output_tokens"`
+	TargetRatio              float64                      `json:"target_ratio"`
+	TargetSavedTokens        int                          `json:"target_saved_tokens"`
+	TargetDeficitTokens      int                          `json:"target_deficit_tokens"`
+	PositiveSavingsRequests  int                          `json:"positive_savings_requests"`
+	PositiveSavingsOrig      int                          `json:"positive_savings_original_tokens"`
+	PositiveSavingsRatio     float64                      `json:"positive_savings_local_ratio"`
+	ZeroSavingsRequests      int                          `json:"zero_savings_requests"`
+	ZeroSavingsOrigTokens    int                          `json:"zero_savings_original_tokens"`
+	NoEvidenceRequests       int                          `json:"no_evidence_requests"`
+	NoEvidenceOrigTokens     int                          `json:"no_evidence_original_tokens"`
+	NoEvidenceNeedsInstr     int                          `json:"no_evidence_needs_instrumentation_original_tokens,omitempty"`
+	NoEvidenceProtected      int                          `json:"no_evidence_protected_original_tokens,omitempty"`
+	NoEvidenceKnownNonTarget int                          `json:"no_evidence_known_non_target_original_tokens,omitempty"`
+	NoEvidenceProofBlocked   int                          `json:"no_evidence_proof_blocked_or_candidate_original_tokens,omitempty"`
+	ErrorRequests            int                          `json:"error_requests"`
+	UpstreamErrorRequests    int                          `json:"upstream_error_requests"`
+	HTTP400ErrorRequests     int                          `json:"http_400_error_requests"`
+	RequestShapeSources      map[string]int               `json:"request_shape_sources,omitempty"`
+	RequestShapes            []wssLocalGapShapeRow        `json:"request_shapes,omitempty"`
+	RequestGuards            []wssLocalGapRequestGuardRow `json:"request_guards,omitempty"`
+	Mechanisms               []wssLocalGapMechanismRow    `json:"mechanisms,omitempty"`
+	Guards                   []wssLocalGapGuardRow        `json:"guards,omitempty"`
+	ContentClasses           []wssLocalGapContentClassRow `json:"content_classes,omitempty"`
+	ActionablePotential      []wssLocalGapActionableRow   `json:"actionable_potential,omitempty"`
+	GatePassed               bool                         `json:"gate_passed"`
+	GateFailures             []string                     `json:"gate_failures,omitempty"`
+	Notes                    []string                     `json:"notes,omitempty"`
 }
 
 type wssLocalGapShapeRow struct {
@@ -597,6 +601,7 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		return
 	}
 	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(summary, shapeSource)
+	a.addNoEvidenceClassification(category, original)
 	prefixControlContextBytes, prefixNonDefaultCandidateBytes, prefixUnclassifiedToolBytes := wssLocalGapPrefixDecisionSurface(summary.DebugFacts)
 	a.addActionable(wssLocalGapActionableRow{
 		Category:                         category,
@@ -636,6 +641,35 @@ func (a *wssLocalGapAccumulator) addNoEvidenceActionable(summary dbg.RequestSumm
 		NextStep:                         nextStep,
 		ToolCommandClasses:               toolCommandClasses,
 	}, shape, "")
+}
+
+func (a *wssLocalGapAccumulator) addNoEvidenceClassification(category string, original int) {
+	if a == nil || original <= 0 {
+		return
+	}
+	switch wssLocalGapNoEvidenceClassification(category) {
+	case "needs_instrumentation":
+		a.report.NoEvidenceNeedsInstr += original
+	case "protected":
+		a.report.NoEvidenceProtected += original
+	case "known_non_target":
+		a.report.NoEvidenceKnownNonTarget += original
+	default:
+		a.report.NoEvidenceProofBlocked += original
+	}
+}
+
+func wssLocalGapNoEvidenceClassification(category string) string {
+	switch strings.TrimSpace(category) {
+	case "needs_instrumentation":
+		return "needs_instrumentation"
+	case "prefix_capability_context_guarded", "source_context_guard", "context_fidelity_guard":
+		return "protected"
+	case "not_tool_output_reducer_target", "small_tool_output_context", "empty_tool_output_context", "not_output_reduce_target", "prefix_bound_tool_output_context", "disabled_by_configuration":
+		return "known_non_target"
+	default:
+		return "proof_blocked_or_candidate"
+	}
 }
 
 func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, shape, mechanism string) {
@@ -876,8 +910,10 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 			notes = append(notes, "S_local is below the owner target, but no full-pass evidence potential is present; inspect actionable/no-evidence rows and active positive-savings ratio before changing guards.")
 		}
 	}
-	if report.NoEvidenceOrigTokens > 0 {
-		notes = append(notes, "Some WSS Phase-F token mass has no evidence decisions; add instrumentation before treating the remaining gap as a known guard problem.")
+	if report.NoEvidenceNeedsInstr > 0 {
+		notes = append(notes, fmt.Sprintf("Some WSS Phase-F no-evidence mass still needs instrumentation (%d original tokens); instrument it before changing guards.", report.NoEvidenceNeedsInstr))
+	} else if report.NoEvidenceOrigTokens > 0 {
+		notes = append(notes, fmt.Sprintf("WSS Phase-F no-evidence mass is classified by content-free facts: protected=%d known_non_target=%d proof_blocked_or_candidate=%d; do not treat it as a generic instrumentation gap.", report.NoEvidenceProtected, report.NoEvidenceKnownNonTarget, report.NoEvidenceProofBlocked))
 	}
 	if len(report.ActionablePotential) > 0 {
 		notes = append(notes, "Actionable-potential rows classify the next proof/engineering move; they are diagnostic and not a promise that guarded tokens are safely recoverable.")
@@ -889,7 +925,11 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 		notes = append(notes, "Prefix decision-surface bytes split protected instructions/default tools from nondefault proof candidates; this is diagnostic and does not authorize prefix mutation.")
 	}
 	if len(report.Guards) == 0 && report.PhaseFRequests > 0 {
-		notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
+		if report.NoEvidenceNeedsInstr > 0 || report.NoEvidenceOrigTokens == 0 {
+			notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
+		} else {
+			notes = append(notes, "No full-pass evidence decisions found; remaining gap is classified no-evidence mass outside the currently safe Layer-0 reducer surface.")
+		}
 	}
 	if report.HTTP400ErrorRequests > 0 {
 		notes = append(notes, "HTTP 400 rows are present; treat overlapping guard rows as real safety boundaries until fresh proof says otherwise.")
@@ -1371,6 +1411,13 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 		report.ProviderCacheCreate)
 	fmt.Fprintf(w, "Positive/zero savings reqs:%d / %d\n", report.PositiveSavingsRequests, report.ZeroSavingsRequests)
 	fmt.Fprintf(w, "Zero/no-evidence orig:     %d / %d\n", report.ZeroSavingsOrigTokens, report.NoEvidenceOrigTokens)
+	if report.NoEvidenceOrigTokens > 0 {
+		fmt.Fprintf(w, "No-evidence classified:    protected=%d known_non_target=%d proof_blocked_or_candidate=%d needs_instrumentation=%d\n",
+			report.NoEvidenceProtected,
+			report.NoEvidenceKnownNonTarget,
+			report.NoEvidenceProofBlocked,
+			report.NoEvidenceNeedsInstr)
+	}
 	fmt.Fprintf(w, "Errors/upstream/400:       %d / %d / %d\n",
 		report.ErrorRequests,
 		report.UpstreamErrorRequests,
