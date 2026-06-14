@@ -738,6 +738,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 						})
 						if !readChanged {
 							stats.ReadDeltaMisses++
+							stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0ObservationEvidenceDecision(commandLine, proxyLayer0MechanismReadDelta, cacheReason, workload))
 						}
 					}
 					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismReadDelta, downstreamStateGuardReason))
@@ -765,6 +766,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 						Action:    action,
 						Reason:    cacheReason,
 					})
+					if !repeated {
+						stats.EvidenceDecisions = append(stats.EvidenceDecisions, proxyLayer0ObservationEvidenceDecision(commandLine, proxyLayer0MechanismRepeatedOut, cacheReason, workload))
+					}
 					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismRepeatedOut, "wss_stateful_delta_mutation_proof_gate"))
 				}
 				reason := "wss_stateful_delta_mutation_proof_gate"

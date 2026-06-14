@@ -1610,6 +1610,9 @@ func TestReduceCodexLayer0GuardedCandidateEvidenceCarriesFootprint(t *testing.T)
 		guarded.Stats.CacheEvents[0].Reason != "first_observation_seeded" {
 		t.Fatalf("guarded candidate must be byte-equal footprint evidence with observe-only seeding: decision=%+v stats=%+v", got, guarded.Stats)
 	}
+	if !hasTokenNeutralEvidenceDecision(guarded.Stats.EvidenceDecisions, proxyLayer0MechanismReadDelta, "read_delta_first_observation_seeded", evidence.ActionShadow) {
+		t.Fatalf("guarded read-delta observe-only seed must emit token-neutral shadow evidence: %+v", guarded.Stats.EvidenceDecisions)
+	}
 
 	unguarded := reduceCodexLayer0(codexLayer0Request{
 		Messages:  messages,
@@ -1650,6 +1653,9 @@ func TestReduceCodexLayer0StatefulDeltaSeedsRepeatedOutputObserveOnly(t *testing
 		guarded.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
 		guarded.Stats.CacheEvents[0].Reason != "first_observation_seeded" {
 		t.Fatalf("stateful delta guard should observe-only seed repeated output: %+v", guarded.Stats.CacheEvents)
+	}
+	if !hasTokenNeutralEvidenceDecision(guarded.Stats.EvidenceDecisions, proxyLayer0MechanismRepeatedOut, "repeated_output_first_observation_seeded", evidence.ActionShadow) {
+		t.Fatalf("guarded repeated-output observe-only seed must emit token-neutral shadow evidence: %+v", guarded.Stats.EvidenceDecisions)
 	}
 
 	unguarded := reduceCodexLayer0(codexLayer0Request{
@@ -3059,4 +3065,18 @@ func actionForMechanism(decisions []savingspolicy.CodexMechanismDecision, mechan
 		}
 	}
 	return ""
+}
+
+func hasTokenNeutralEvidenceDecision(decisions []evidence.BlockDecision, mechanism proxyLayer0Mechanism, reason string, action evidence.Action) bool {
+	for _, decision := range decisions {
+		if decision.Mechanism != string(mechanism) || decision.Reason != reason || decision.Action != action {
+			continue
+		}
+		return decision.OriginalTokens == 0 &&
+			decision.FinalTokens == 0 &&
+			decision.SavedTokens == 0 &&
+			decision.NetTokens == 0 &&
+			decision.FootprintScore == 0
+	}
+	return false
 }
