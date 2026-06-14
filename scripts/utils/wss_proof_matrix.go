@@ -489,6 +489,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d proof_events_dropped=%d",
 						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors, capture.LiveDelta.AnalyticsProofEventsDropped))
 			}
+			capture.GateFailures = append(capture.GateFailures, validateWSSProofFunctionCallMinima(capture)...)
 			if capture.LiveDelta.HostBudgetStatus != "" {
 				if capture.LiveDelta.HostBudgetStatus != "ok" || capture.LiveDelta.HostBudgetExceeded || !capture.LiveDelta.HostBudgetCompressionOK || !capture.LiveDelta.HostBudgetDegradationOK {
 					capture.GateFailures = append(capture.GateFailures,
@@ -505,6 +506,8 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			capture.GateFailures = append(capture.GateFailures, failures...)
 		} else if options.requireLiveTokenDelta {
 			capture.GateFailures = append(capture.GateFailures, "live_delta is required in --require-live-token-delta mode")
+		} else if capture.MinFunctionCalls > 0 || capture.MinFunctionOutputs > 0 {
+			capture.GateFailures = append(capture.GateFailures, "live_delta is required for function-call minima")
 		} else if capture.Replay.Path != "" {
 			if !capture.ExpectedZeroSavings && capture.Replay.BytesSaved <= 0 {
 				capture.GateFailures = append(capture.GateFailures, "expected positive savings, no live token delta and replay bytes_saved<=0")
@@ -767,6 +770,23 @@ func validateWSSProofMetadata(capture wssProofMatrixCapture) []string {
 	}
 	if capture.FramesPath == "" {
 		failures = append(failures, "frames_path is required")
+	}
+	return failures
+}
+
+func validateWSSProofFunctionCallMinima(capture wssProofMatrixCapture) []string {
+	if capture.MinFunctionCalls <= 0 && capture.MinFunctionOutputs <= 0 {
+		return nil
+	}
+	if capture.LiveDelta == nil {
+		return []string{"live_delta is required for function-call minima"}
+	}
+	var failures []string
+	if capture.MinFunctionCalls > 0 && capture.LiveDelta.WireServerFunctionCalls < int64(capture.MinFunctionCalls) {
+		failures = append(failures, fmt.Sprintf("wire_server_function_call_items=%d below required minimum %d", capture.LiveDelta.WireServerFunctionCalls, capture.MinFunctionCalls))
+	}
+	if capture.MinFunctionOutputs > 0 && capture.LiveDelta.WireFunctionCallOutputs < int64(capture.MinFunctionOutputs) {
+		failures = append(failures, fmt.Sprintf("wire_function_call_output_items=%d below required minimum %d", capture.LiveDelta.WireFunctionCallOutputs, capture.MinFunctionOutputs))
 	}
 	return failures
 }

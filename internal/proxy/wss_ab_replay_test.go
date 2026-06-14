@@ -314,7 +314,8 @@ func TestRunWSSPhaseFABReplayStatefulPrefixElisionProof(t *testing.T) {
 		t.Fatalf("stateful prefix proof should mutate only the second delta request: %+v", got)
 	}
 	if got.PrefixElisionStats.Requests != 1 || got.PrefixElisionStats.ToolRequests != 1 ||
-		got.PrefixElisionStats.InstructionRequests != 1 || got.PrefixElisionStats.PrefixBytesSaved == 0 {
+		got.PrefixElisionStats.InstructionRequests != 0 || got.PrefixElisionStats.InstructionBytesSaved != 0 ||
+		got.PrefixElisionStats.PrefixBytesSaved == 0 {
 		t.Fatalf("stateful prefix proof stats mismatch: %+v", got.PrefixElisionStats)
 	}
 	if got.Report.Lost() != 0 || got.Report.Saved() <= 0 {

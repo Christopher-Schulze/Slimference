@@ -170,11 +170,13 @@ Flags:
   --search-cap-proof-latch Enable the product search-cap proof latch during
                            replay without broader WSS tool-output mutation
   --stateful-prefix-elision-proof
-                           Proof-only replay: omit repeated top-level tools and
-                           instructions on previous_response_id requests only
+                           Proof-only replay: omit repeated top-level tool
+                           schemas on previous_response_id requests only
                            after the same canonical prefix was seen earlier in
-                           the same prompt_cache_key scope. Product runtime is
-                           unchanged; this is an offline candidate proof.
+                           the same prompt_cache_key scope. Instructions stay
+                           on the wire because Codex WSS requires them.
+                           Product runtime is unchanged; this is an offline
+                           candidate proof.
   --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
                            useful for threshold experiments and implies
                            --archive-recovery-note,
@@ -471,7 +473,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.Notes = append(report.Notes, "product search-cap proof latch was enabled for this replay; broader WSS tool-output mutation remains disabled unless separately requested")
 	}
 	if flags.statefulPrefixElisionProof {
-		report.Notes = append(report.Notes, "stateful prefix elision proof was enabled offline only; product runtime keeps top-level tools and instructions byte-equal until a separate live backend proof passes")
+		report.Notes = append(report.Notes, "stateful tool-prefix elision proof was enabled offline only; instructions stay byte-equal because Codex WSS requires them, and product runtime keeps tool schemas byte-equal until a separate live backend proof passes")
 	}
 	if flags.codexChunkDedup {
 		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")

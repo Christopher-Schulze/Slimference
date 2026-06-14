@@ -120,6 +120,44 @@ func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixFunctionCallMinimaGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "function-minima")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:                 "prefix-oracle-fail",
+		Client:             "cli",
+		WorkloadClass:      "repeat_full_read",
+		FramesPath:         framesPath,
+		MinFunctionCalls:   3,
+		MinFunctionOutputs: 3,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"repeat_full_read"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("function-call minima failure should fail capture: %+v", report)
+	}
+	failures := strings.Join(report.CaptureReports[0].GateFailures, "\n")
+	if !strings.Contains(failures, "wire_server_function_call_items=0 below required minimum 3") ||
+		!strings.Contains(failures, "wire_function_call_output_items=0 below required minimum 3") {
+		t.Fatalf("missing function-call minima failures:\n%s", failures)
+	}
+}
+
 func TestWSSProofMatrixFailsOnReplayUpstreamError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

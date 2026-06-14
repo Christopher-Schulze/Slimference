@@ -112,8 +112,10 @@ type WSSABReplayPrefixSurface struct {
 	StatefulCandidatePrefixBytes int    `json:"stateful_candidate_prefix_bytes"`
 }
 
-// WSSABReplayPrefixElisionStats reports proof-only stateful prefix elision in
-// the offline replay harness. The product runtime never reads these counters.
+// WSSABReplayPrefixElisionStats reports proof-only stateful tool-prefix
+// elision in the offline replay harness. Instruction fields are kept for
+// report compatibility and must stay zero because Codex WSS requires
+// top-level instructions on previous_response_id requests.
 type WSSABReplayPrefixElisionStats struct {
 	Requests              int `json:"requests"`
 	ToolRequests          int `json:"tool_requests"`
@@ -452,8 +454,7 @@ func (s *WSSABReplayPrefixElisionStats) add(other WSSABReplayPrefixElisionStats)
 }
 
 type wssReplayPrefixElisionState struct {
-	seenInstructions map[string]struct{}
-	seenTools        map[string]struct{}
+	seenTools map[string]struct{}
 }
 
 func (s *wssReplayPrefixElisionState) apply(body []byte) ([]byte, WSSABReplayPrefixElisionStats, bool) {
@@ -469,17 +470,6 @@ func (s *wssReplayPrefixElisionState) apply(body []byte) ([]byte, WSSABReplayPre
 	stats := WSSABReplayPrefixElisionStats{}
 	changed := false
 
-	if instructions, ok := codexReplayInstructions(body); ok {
-		key := scope + "\x00" + instructions
-		if previousResponse && s.hasSeenInstruction(key) {
-			stats.InstructionRequests = 1
-			stats.InstructionBytesSaved = len(raw["instructions"])
-			delete(raw, "instructions")
-			changed = true
-		} else {
-			s.markSeenInstruction(key)
-		}
-	}
 	if tools, ok := codexReplayToolSchemaSurface(body); ok {
 		key := scope + "\x00" + tools
 		if previousResponse && s.hasSeenTools(key) {
@@ -501,24 +491,6 @@ func (s *wssReplayPrefixElisionState) apply(body []byte) ([]byte, WSSABReplayPre
 		return body, WSSABReplayPrefixElisionStats{}, false
 	}
 	return out, stats, true
-}
-
-func (s *wssReplayPrefixElisionState) hasSeenInstruction(key string) bool {
-	if s == nil || s.seenInstructions == nil {
-		return false
-	}
-	_, ok := s.seenInstructions[key]
-	return ok
-}
-
-func (s *wssReplayPrefixElisionState) markSeenInstruction(key string) {
-	if s == nil || key == "" {
-		return
-	}
-	if s.seenInstructions == nil {
-		s.seenInstructions = make(map[string]struct{})
-	}
-	s.seenInstructions[key] = struct{}{}
 }
 
 func (s *wssReplayPrefixElisionState) hasSeenTools(key string) bool {

@@ -1285,11 +1285,13 @@ closes that gap.
 `control_context` bytes are instructions plus default-keep/control tool schemas,
 `nondefault_candidate` bytes are the only tool-schema slice worth proving next,
 and `unclassified_tool` bytes stay guarded until their schema identity is known.
-`--stateful-prefix-elision-proof` is an offline-only replay flag for that
-candidate. Offline replay can measure repeated top-level `tools` and
-`instructions` prefix mass only on `previous_response_id` requests, only inside
-the same `prompt_cache_key` scope, and only after the same canonical prefix was
-already seen earlier in the replay. The A/B comparison must still pass with
+`--stateful-prefix-elision-proof` is an offline-only replay flag for the
+tool-schema candidate. Offline replay can measure repeated top-level `tools`
+prefix mass only on `previous_response_id` requests, only inside the same
+`prompt_cache_key` scope, and only after the same canonical tool prefix was
+already seen earlier in the replay. Top-level `instructions` stay byte-equal
+because Codex WSS rejects previous-response requests without them. The A/B
+comparison must still pass with
 `lost=0`; a capture that starts mid-session or changes tool/instruction content
 fails closed by sending the prefix unchanged. Runtime product activation is
 narrower than the replay probe: `codex_wss_stateful_tool_prefix_elision_enabled`
@@ -1302,6 +1304,13 @@ more narrowly: the prefix-elided run saved 3,212 live input tokens but observed
 only 2 server `function_call` items and 2 client `function_call_output` items
 for a 3-command workload, while the no-elision control observed 6 and 7
 respectively.
+A 2026-06-14 tool-only replay correction kept top-level `instructions`
+byte-equal and still failed the live tool-use oracle: the control run observed
+6 server `function_call` items and 3 client `function_call_output` items, while
+the proof-only tool-prefix-elided run saved 3,677 live input tokens but observed
+0 and 0. `wss-proof-matrix` now validates recorded `min_function_calls` and
+`min_function_call_outputs` against those wire counters, so this class of proof
+cannot be promoted by token savings alone.
 The lab/proof switch still stores only hash keys for the cache scope and
 canonical tool-schema surface, seeds on full forwarded tool schemas, and deletes
 repeated top-level `tools` only on later
@@ -1317,7 +1326,7 @@ request-shape + `prompt_cache_key` scope. Decision debug facts report
 `wss.stateful_prefix_elision_*`.
 The earlier same-day instructions+tools proof failed with upstream 400
 `Instructions are required`, so instructions elision is not a valid WSS product
-candidate.
+candidate and is excluded from the replay proof path.
 Known output-reduce directive suffixes are audited separately as expected
 instruction extras: the direct instructions must remain a prefix, the suffix
 must contain the output-reduce marker, and unknown instruction rewrites still

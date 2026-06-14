@@ -350,6 +350,7 @@ func TestWSSABReplayStatefulPrefixElisionProofFlag(t *testing.T) {
 	}
 	if !report.GatePassed || !report.PrefixElisionProof || report.PrefixElision == nil ||
 		report.PrefixElision.Requests != 1 || report.PrefixElision.PrefixBytesSaved == 0 ||
+		report.PrefixElision.InstructionRequests != 0 || report.PrefixElision.InstructionBytesSaved != 0 ||
 		report.Lost != 0 || report.MutatedShapes.Delta != 1 {
 		t.Fatalf("stateful prefix elision proof report mismatch: %+v", report)
 	}
