@@ -183,6 +183,7 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 	if !strings.Contains(stdout.String(), "S_local saved/ratio:") ||
 		!strings.Contains(stdout.String(), "Positive-savings ratio:") ||
 		!strings.Contains(stdout.String(), "Policy ceiling/deficit:") ||
+		!strings.Contains(stdout.String(), "Policy blocked protected/known:") ||
 		!strings.Contains(stdout.String(), "60.00%") ||
 		!strings.Contains(stdout.String(), "read_delta") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
@@ -472,7 +473,9 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 	}
 	if report.PolicySavingsCeiling != 16000 ||
 		report.PolicySavingsCeilingRate != 16000.0/21000.0 ||
-		report.PolicyCeilingDeficit != 0 {
+		report.PolicyCeilingDeficit != 0 ||
+		report.PolicyProtectedTokens != 0 ||
+		report.PolicyKnownNonTarget != 5000 {
 		t.Fatalf("bad mixed no-evidence policy ceiling: %+v", report)
 	}
 	if len(report.ActionablePotential) != 4 ||
@@ -601,7 +604,9 @@ func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing
 	}
 	if report.PolicySavingsCeiling != 0 ||
 		report.PolicySavingsCeilingRate != 0 ||
-		report.PolicyCeilingDeficit != 2880 {
+		report.PolicyCeilingDeficit != 2880 ||
+		report.PolicyProtectedTokens != 6000 ||
+		report.PolicyKnownNonTarget != 0 {
 		t.Fatalf("protected default-keep prefix should prove a zero policy ceiling: %+v", report)
 	}
 	if !hasString(report.Notes, "Policy savings ceiling is 0.00% under current protected/known-non-target classification; even perfect non-protected reducers still miss the 48.00% target by 2880 tokens.") {
@@ -612,6 +617,98 @@ func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing
 	}
 	if !hasString(report.Notes, "No full-pass evidence decisions found; remaining gap is classified no-evidence mass outside the currently safe Layer-0 reducer surface.") {
 		t.Fatalf("classified no-evidence surface note missing: %+v", report.Notes)
+	}
+}
+
+func TestWSSLocalGapPolicyCeilingSubtractsProtectedPrefixFromEvidenceRows(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "full-history-with-prefix-and-evidence",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 9900, Saved: 100},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                      "full_history",
+			"wss.prefix_estimated_tokens":            "4000",
+			"wss.prefix_total_bytes":                 "16000",
+			"wss.instructions_bytes":                 "4000",
+			"wss.tool_definition_default_keep_bytes": "4000",
+			"wss.tool_definition_nondefault_bytes":   "8000",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "read_delta",
+			ContentClass:   evidence.ContentPlain,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 1000,
+			FinalTokens:    900,
+			SavedTokens:    100,
+			NetTokens:      100,
+		}},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{
+		path:          path,
+		minLocalRatio: 0.9,
+	})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.NoEvidenceProtected != 0 ||
+		report.PolicyProtectedTokens != 2000 ||
+		report.PolicySavingsCeiling != 8000 ||
+		report.PolicySavingsCeilingRate != 0.8 ||
+		report.PolicyCeilingDeficit != 1000 {
+		t.Fatalf("evidence-bearing protected prefix should reduce policy ceiling without treating nondefault schema as protected: %+v", report)
+	}
+	if !hasString(report.Notes, "Policy savings ceiling is 80.00% under current protected/known-non-target classification; even perfect non-protected reducers still miss the 90.00% target by 1000 tokens.") {
+		t.Fatalf("policy ceiling deficit note missing: %+v", report.Notes)
+	}
+	if !hasString(report.Notes, "Policy ceiling subtracts 2000 protected prefix tokens from evidence-bearing WSS frames; these are capability context, not reducer candidates.") {
+		t.Fatalf("evidence-prefix blocker note missing: %+v", report.Notes)
+	}
+}
+
+func TestWSSLocalGapPolicyCeilingNeverFallsBelowObservedSavings(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "high-estimated-prefix-with-real-savings",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 3000, Saved: 7000},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                      "full_history",
+			"wss.prefix_estimated_tokens":            "9000",
+			"wss.prefix_total_bytes":                 "9000",
+			"wss.instructions_bytes":                 "4500",
+			"wss.tool_definition_default_keep_bytes": "4500",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "captured_output",
+			ContentClass:   evidence.ContentSearch,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 7000,
+			FinalTokens:    0,
+			SavedTokens:    7000,
+			NetTokens:      7000,
+		}},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.PolicyProtectedTokens != 3000 ||
+		report.PolicySavingsCeiling != 7000 ||
+		report.PolicySavingsCeiling < report.LocalSavedTokens {
+		t.Fatalf("policy ceiling must cap protected estimates at retained tokens: %+v", report)
 	}
 }
 
