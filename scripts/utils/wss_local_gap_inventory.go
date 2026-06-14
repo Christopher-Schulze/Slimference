@@ -32,6 +32,8 @@ type wssLocalGapInventoryReport struct {
 	TargetDeficit     int                       `json:"target_deficit_tokens"`
 	CeilingDeficit    int                       `json:"policy_savings_ceiling_deficit_tokens,omitempty"`
 	RecoverableGap    int                       `json:"policy_recoverable_gap_tokens,omitempty"`
+	GuardedPotential  int                       `json:"guarded_potential_tokens,omitempty"`
+	UnattributedGap   int                       `json:"policy_unattributed_gap_tokens,omitempty"`
 	Rows              []wssLocalGapInventoryRow `json:"rows"`
 }
 
@@ -50,6 +52,7 @@ type wssLocalGapInventoryRow struct {
 	CeilingDeficit         int     `json:"policy_savings_ceiling_deficit_tokens,omitempty"`
 	RecoverableGap         int     `json:"policy_recoverable_gap_tokens,omitempty"`
 	GuardedPotential       int     `json:"guarded_potential_tokens,omitempty"`
+	UnattributedGap        int     `json:"policy_unattributed_gap_tokens,omitempty"`
 	NoEvidenceProtected    int     `json:"no_evidence_protected_original_tokens,omitempty"`
 	NoEvidenceNeedsInstr   int     `json:"no_evidence_needs_instrumentation_original_tokens,omitempty"`
 	NoEvidenceProofBlocked int     `json:"no_evidence_proof_blocked_or_candidate_original_tokens,omitempty"`
@@ -76,8 +79,8 @@ Flags:
 Directory mode scans recursively for decisions.jsonl and *.decisions.jsonl.
 The report is content-free and uses the same single-log policy-ceiling logic as
 wss-local-gap. Recoverable gap is policy_savings_ceiling_tokens minus observed
-local_saved_tokens; it is an upper bound, not a proof that all remaining tokens
-are safely recoverable.`
+local_saved_tokens; guarded_potential is concrete full-pass evidence inside that
+gap. Unattributed gap is ceiling mass without concrete guarded-token evidence.`
 
 func runWSSLocalGapInventory(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSLocalGapInventoryFlags(args)
@@ -190,6 +193,8 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 		if err != nil {
 			return wssLocalGapInventoryReport{}, err
 		}
+		guardedPotential := wssLocalGapTotalGuardedPotential(gap)
+		recoverableGap := maxInt(0, gap.PolicySavingsCeiling-gap.LocalSavedTokens)
 		row := wssLocalGapInventoryRow{
 			Name:                   wssLocalGapInventoryName(path),
 			Path:                   path,
@@ -203,8 +208,9 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 			PolicyKnownNonTarget:   gap.PolicyKnownNonTarget,
 			TargetDeficit:          gap.TargetDeficitTokens,
 			CeilingDeficit:         gap.PolicyCeilingDeficit,
-			RecoverableGap:         maxInt(0, gap.PolicySavingsCeiling-gap.LocalSavedTokens),
-			GuardedPotential:       wssLocalGapTotalGuardedPotential(gap),
+			RecoverableGap:         recoverableGap,
+			GuardedPotential:       guardedPotential,
+			UnattributedGap:        maxInt(0, recoverableGap-guardedPotential),
 			NoEvidenceProtected:    gap.NoEvidenceProtected,
 			NoEvidenceNeedsInstr:   gap.NoEvidenceNeedsInstr,
 			NoEvidenceProofBlocked: gap.NoEvidenceProofBlocked,
@@ -228,6 +234,8 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 		report.LocalSavedTokens += row.LocalSavedTokens
 		report.PolicyCeiling += row.PolicyCeiling
 		report.RecoverableGap += row.RecoverableGap
+		report.GuardedPotential += row.GuardedPotential
+		report.UnattributedGap += row.UnattributedGap
 	}
 	report.LocalSavingsRate = wssLocalGapRatio(report.LocalSavedTokens, report.OriginalTokens)
 	report.PolicyCeilingRate = wssLocalGapRatio(report.PolicyCeiling, report.OriginalTokens)
@@ -298,12 +306,13 @@ func writeWSSLocalGapInventoryText(w io.Writer, report wssLocalGapInventoryRepor
 	fmt.Fprintf(w, "S_local saved/ratio:       %d/%d / %.2f%%\n", report.LocalSavedTokens, report.OriginalTokens, report.LocalSavingsRate*100)
 	fmt.Fprintf(w, "Policy ceiling/ratio:      %d/%d / %.2f%%\n", report.PolicyCeiling, report.OriginalTokens, report.PolicyCeilingRate*100)
 	fmt.Fprintf(w, "Target/Ceiling/Recoverable deficits: %d / %d / %d\n", report.TargetDeficit, report.CeilingDeficit, report.RecoverableGap)
+	fmt.Fprintf(w, "Guarded/Unattributed recoverable gap: %d / %d\n", report.GuardedPotential, report.UnattributedGap)
 	if len(report.Rows) == 0 {
 		return
 	}
 	fmt.Fprintln(w, "\nRows:")
 	for _, row := range report.Rows {
-		fmt.Fprintf(w, "  %-48s phasef=%d local=%d/%d %.2f%% ceiling=%d %.2f%% recoverable=%d target_gap=%d ceiling_gap=%d protected=%d top=%s:%d next=%s:%d\n",
+		fmt.Fprintf(w, "  %-48s phasef=%d local=%d/%d %.2f%% ceiling=%d %.2f%% recoverable=%d guarded=%d unattributed=%d target_gap=%d ceiling_gap=%d protected=%d top=%s:%d next=%s:%d\n",
 			row.Name,
 			row.PhaseFRequests,
 			row.LocalSavedTokens,
@@ -312,6 +321,8 @@ func writeWSSLocalGapInventoryText(w io.Writer, report wssLocalGapInventoryRepor
 			row.PolicyCeiling,
 			row.PolicyCeilingRate*100,
 			row.RecoverableGap,
+			row.GuardedPotential,
+			row.UnattributedGap,
 			row.TargetDeficit,
 			row.CeilingDeficit,
 			row.PolicyProtectedTokens,

@@ -56,6 +56,13 @@ func TestWSSLocalGapInventoryScansDirectoryAndSortsRecoverableGap(t *testing.T) 
 			FinalTokens:    5000,
 			SavedTokens:    5000,
 			NetTokens:      5000,
+		}, {
+			Mechanism:      "chunk_dedup",
+			ContentClass:   evidence.ContentSearch,
+			Action:         evidence.ActionFullPass,
+			Reason:         "session_integrity_budget",
+			OriginalTokens: 2000,
+			FinalTokens:    2000,
 		}},
 	})
 
@@ -70,12 +77,16 @@ func TestWSSLocalGapInventoryScansDirectoryAndSortsRecoverableGap(t *testing.T) 
 		report.PolicyCeiling != 10000 ||
 		report.TargetDeficit != 2680 ||
 		report.CeilingDeficit != 0 ||
-		report.RecoverableGap != 5000 {
+		report.RecoverableGap != 5000 ||
+		report.GuardedPotential != 2000 ||
+		report.UnattributedGap != 3000 {
 		t.Fatalf("bad inventory totals: %+v", report)
 	}
 	if len(report.Rows) != 2 ||
 		report.Rows[0].Name != "cap-applied" ||
 		report.Rows[0].RecoverableGap != 5000 ||
+		report.Rows[0].GuardedPotential != 2000 ||
+		report.Rows[0].UnattributedGap != 3000 ||
 		report.Rows[1].Name != "cap-protected" ||
 		report.Rows[1].PolicyProtectedTokens != 6000 {
 		t.Fatalf("bad inventory rows: %+v", report.Rows)
@@ -113,7 +124,10 @@ func TestRunWSSLocalGapInventoryJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "WSS Local Gap Inventory") ||
 		!strings.Contains(stdout.String(), "Policy ceiling/ratio") ||
-		!strings.Contains(stdout.String(), "recoverable=600") {
+		!strings.Contains(stdout.String(), "Guarded/Unattributed recoverable gap") ||
+		!strings.Contains(stdout.String(), "recoverable=600") ||
+		!strings.Contains(stdout.String(), "guarded=0") ||
+		!strings.Contains(stdout.String(), "unattributed=600") {
 		t.Fatalf("text inventory missing expected fields:\n%s", stdout.String())
 	}
 
@@ -129,7 +143,9 @@ func TestRunWSSLocalGapInventoryJSONAndText(t *testing.T) {
 	if report.Logs != 1 ||
 		report.LocalSavedTokens != 400 ||
 		report.PolicyCeiling != 1000 ||
-		report.RecoverableGap != 600 {
+		report.RecoverableGap != 600 ||
+		report.GuardedPotential != 0 ||
+		report.UnattributedGap != 600 {
 		t.Fatalf("bad json inventory: %+v", report)
 	}
 }
