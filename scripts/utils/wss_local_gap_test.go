@@ -105,6 +105,11 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 		!strings.Contains(report.GateFailures[0], "local_savings_ratio") {
 		t.Fatalf("expected local savings gate failure: %+v", report.GateFailures)
 	}
+	if report.PolicySavingsCeiling != 15000 ||
+		report.PolicySavingsCeilingRate != 1.0 ||
+		report.PolicyCeilingDeficit != 0 {
+		t.Fatalf("bad policy savings ceiling: %+v", report)
+	}
 	if len(report.Guards) != 2 ||
 		report.Guards[0].Reason != "wss_search_output_risk_gate" ||
 		report.Guards[0].GuardedPotential != 6000 ||
@@ -177,6 +182,7 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "S_local saved/ratio:") ||
 		!strings.Contains(stdout.String(), "Positive-savings ratio:") ||
+		!strings.Contains(stdout.String(), "Policy ceiling/deficit:") ||
 		!strings.Contains(stdout.String(), "60.00%") ||
 		!strings.Contains(stdout.String(), "read_delta") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
@@ -191,7 +197,12 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("parse json output: %v\n%s", err, stdout.String())
 	}
-	if !report.GatePassed || report.LocalSavingsRatio != 0.6 || report.PositiveSavingsRatio != 0.6 {
+	if !report.GatePassed ||
+		report.LocalSavingsRatio != 0.6 ||
+		report.PositiveSavingsRatio != 0.6 ||
+		report.PolicySavingsCeiling != 1000 ||
+		report.PolicySavingsCeilingRate != 1.0 ||
+		report.PolicyCeilingDeficit != 0 {
 		t.Fatalf("bad json report: %+v", report)
 	}
 }
@@ -459,6 +470,11 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.NoEvidenceProofBlocked != 3000 {
 		t.Fatalf("bad no-evidence classification totals: %+v", report)
 	}
+	if report.PolicySavingsCeiling != 16000 ||
+		report.PolicySavingsCeilingRate != 16000.0/21000.0 ||
+		report.PolicyCeilingDeficit != 0 {
+		t.Fatalf("bad mixed no-evidence policy ceiling: %+v", report)
+	}
 	if len(report.ActionablePotential) != 4 ||
 		report.ActionablePotential[0].Category != "needs_instrumentation" ||
 		report.ActionablePotential[0].Source != "no_evidence:wss.request_shape_missing" ||
@@ -582,6 +598,14 @@ func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing
 		report.NoEvidenceKnownNonTarget != 0 ||
 		report.NoEvidenceProofBlocked != 0 {
 		t.Fatalf("default-keep prefix should classify as protected no-evidence mass: %+v", report)
+	}
+	if report.PolicySavingsCeiling != 0 ||
+		report.PolicySavingsCeilingRate != 0 ||
+		report.PolicyCeilingDeficit != 2880 {
+		t.Fatalf("protected default-keep prefix should prove a zero policy ceiling: %+v", report)
+	}
+	if !hasString(report.Notes, "Policy savings ceiling is 0.00% under current protected/known-non-target classification; even perfect non-protected reducers still miss the 48.00% target by 2880 tokens.") {
+		t.Fatalf("policy ceiling note missing: %+v", report.Notes)
 	}
 	if !hasString(report.Notes, "WSS Phase-F no-evidence mass is classified by content-free facts: protected=6000 known_non_target=0 proof_blocked_or_candidate=0; do not treat it as a generic instrumentation gap.") {
 		t.Fatalf("protected no-evidence note missing: %+v", report.Notes)

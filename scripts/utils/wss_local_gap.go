@@ -41,6 +41,9 @@ type wssLocalGapReport struct {
 	TargetRatio              float64                      `json:"target_ratio"`
 	TargetSavedTokens        int                          `json:"target_saved_tokens"`
 	TargetDeficitTokens      int                          `json:"target_deficit_tokens"`
+	PolicySavingsCeiling     int                          `json:"policy_savings_ceiling_tokens"`
+	PolicySavingsCeilingRate float64                      `json:"policy_savings_ceiling_ratio"`
+	PolicyCeilingDeficit     int                          `json:"policy_savings_ceiling_deficit_tokens,omitempty"`
 	PositiveSavingsRequests  int                          `json:"positive_savings_requests"`
 	PositiveSavingsOrig      int                          `json:"positive_savings_original_tokens"`
 	PositiveSavingsRatio     float64                      `json:"positive_savings_local_ratio"`
@@ -197,11 +200,14 @@ Reads content-free RequestSummary JSONL records. S_local is tokens.saved /
 tokens.original over WSS Phase-F rows only. Provider-cache read/create/cached
 tokens are reported separately and never counted toward local savings. Target
 deficit is the local-token reduction still needed to reach the requested floor.
-Guarded potential is the original-token mass carried by evidence decisions whose
-action is full_pass; it is an opportunity ledger, not a claim that all tokens are
-safely recoverable. Actionable potential separates known guard work from
-no-evidence instrumentation gaps and safety guards; rows are diagnostic and not
-additive unless they share the same token_basis.`
+Policy savings ceiling subtracts protected capability-context and known
+non-target no-evidence mass from original tokens; it is an upper bound, not a
+claim that the remaining mass is actually recoverable. Guarded potential is the
+original-token mass carried by evidence decisions whose action is full_pass; it
+is an opportunity ledger, not a claim that all tokens are safely recoverable.
+Actionable potential separates known guard work from no-evidence instrumentation
+gaps and safety guards; rows are diagnostic and not additive unless they share
+the same token_basis.`
 
 const (
 	wssLocalGapSourceContextMinBytes  = 4096
@@ -774,6 +780,9 @@ func (a *wssLocalGapAccumulator) finalize(flags wssLocalGapFlags) {
 	a.report.TargetDeficitTokens = maxInt(0, a.report.TargetSavedTokens-a.report.LocalSavedTokens)
 	a.report.LocalSavingsRatio = wssLocalGapRatio(a.report.LocalSavedTokens, a.report.OriginalTokens)
 	a.report.PositiveSavingsRatio = wssLocalGapRatio(a.report.LocalSavedTokens, a.report.PositiveSavingsOrig)
+	a.report.PolicySavingsCeiling = wssLocalGapPolicySavingsCeiling(a.report)
+	a.report.PolicySavingsCeilingRate = wssLocalGapRatio(a.report.PolicySavingsCeiling, a.report.OriginalTokens)
+	a.report.PolicyCeilingDeficit = maxInt(0, a.report.TargetSavedTokens-a.report.PolicySavingsCeiling)
 	a.report.RequestShapes = finalizeWSSLocalGapShapes(a.shapeRows, targetRatio)
 	a.report.RequestGuards = finalizeWSSLocalGapRequestGuards(a.requestGuards)
 	a.report.Mechanisms = finalizeWSSLocalGapMechanisms(a.mechanismRows)
@@ -881,6 +890,11 @@ func finalizeWSSLocalGapActionable(rows map[string]*wssLocalGapActionableRow) []
 	return out
 }
 
+func wssLocalGapPolicySavingsCeiling(report wssLocalGapReport) int {
+	blocked := maxInt(0, report.NoEvidenceProtected) + maxInt(0, report.NoEvidenceKnownNonTarget)
+	return maxInt(0, report.OriginalTokens-blocked)
+}
+
 func wssLocalGapRatio(saved, original int) float64 {
 	if original <= 0 || saved <= 0 {
 		return 0
@@ -909,6 +923,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 		} else {
 			notes = append(notes, "S_local is below the owner target, but no full-pass evidence potential is present; inspect actionable/no-evidence rows and active positive-savings ratio before changing guards.")
 		}
+	}
+	if report.PolicyCeilingDeficit > 0 && report.OriginalTokens > 0 {
+		notes = append(notes, fmt.Sprintf("Policy savings ceiling is %.2f%% under current protected/known-non-target classification; even perfect non-protected reducers still miss the %.2f%% target by %d tokens.", report.PolicySavingsCeilingRate*100, report.TargetRatio*100, report.PolicyCeilingDeficit))
 	}
 	if report.NoEvidenceNeedsInstr > 0 {
 		notes = append(notes, fmt.Sprintf("Some WSS Phase-F no-evidence mass still needs instrumentation (%d original tokens); instrument it before changing guards.", report.NoEvidenceNeedsInstr))
@@ -1405,6 +1422,7 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "S_local saved/ratio:       %d / %.2f%%\n", report.LocalSavedTokens, report.LocalSavingsRatio*100)
 	fmt.Fprintf(w, "Positive-savings ratio:    %d/%d / %.2f%%\n", report.LocalSavedTokens, report.PositiveSavingsOrig, report.PositiveSavingsRatio*100)
 	fmt.Fprintf(w, "Target saved/deficit:      %d / %d at %.2f%%\n", report.TargetSavedTokens, report.TargetDeficitTokens, report.TargetRatio*100)
+	fmt.Fprintf(w, "Policy ceiling/deficit:    %d / %.2f%% / %d\n", report.PolicySavingsCeiling, report.PolicySavingsCeilingRate*100, report.PolicyCeilingDeficit)
 	fmt.Fprintf(w, "Provider cache read/cached/create: %d / %d / %d\n",
 		report.ProviderCacheReadTokens,
 		report.ProviderCacheTokens,
