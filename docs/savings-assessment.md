@@ -1,6 +1,6 @@
 # Slimference - Savings Assessment
 
-Date: 2026-06-09
+Date: 2026-06-14
 Scope: v0.6.0 product architecture after Layer 2 removal
 Method: repository evidence, checked-in fixtures, current local release proof,
 and product safety policy
@@ -78,13 +78,14 @@ What is proven by the repository:
 - The 2026-06-09 v0.6.0 refresh passed the checked-in live-corpus normal,
   promotion, and maxx gates: 55 requests, 51 real sessions, `codex_cli=34`,
   `codex_desktop=17`.
-- The 2026-06-06 strict content-free release proof passed over 70
+- The 2026-06-14 strict content-free release proof passed over 189
   clean release matrix rows with CLI and Desktop resource bundles:
   `gate_passed=true`, `resource_profile_proof_ok=true`,
-  `local_billable_input_tokens_saved=330518`,
-  `provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
-  `host_budget_issue_rows=0`, `proof_event_loss_rows=0`,
-  `safety_issue_rows=0`, and all maxx workload classes complete.
+  `local_billable_input_tokens_saved=1048433`,
+  `provider_cache_read_tokens=3695872`, `tool_prune_tokens_saved=52`,
+  `output_reduce_injected_turns=4`, `host_budget_issue_rows=0`,
+  `proof_event_loss_rows=0`, `safety_issue_rows=0`, and all maxx
+  workload classes complete.
 
 What still requires live/product proof:
 
@@ -144,7 +145,7 @@ Current honest position:
 - savings potential: high on real coding workflows, low on non-repetitive chat
 - current release proof: passed locally on the checked-in live corpus plus
   clean CLI/Desktop resource bundles
-- remaining caution: do not generalize the 330,518-token release-matrix result
+- remaining caution: do not generalize the 1,048,433-token release-matrix result
   into a universal percentage
 
 Future work should only broaden measured corpus coverage, hardware/resource

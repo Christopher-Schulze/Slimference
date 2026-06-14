@@ -181,6 +181,9 @@ Expected signal names include:
 	  wss_stateful_prefix_elision_tokens, provider_cache_read,
 	  provider_cache_create, function_call_output_surface, tool_output_surface,
 	  host_budget_ok.
+Stateful prefix-elision proof rows must also declare min_function_calls and
+min_function_call_outputs, so tool-schema savings cannot pass on token evidence
+while suppressing the live tool-use surface.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -426,6 +429,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		if capture.ID == "" {
 			capture.ID = fmt.Sprintf("capture-%02d", len(report.CaptureReports)+1)
 		}
+		expectedReducers := proofCaptureExpectedReducers(capture.ExpectedReducers, options)
 		capture.GateFailures = validateWSSProofMetadata(capture)
 
 		replay, err := loadWSSABReplayReport(wssABReplayFlags{
@@ -463,6 +467,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 				}
 			}
 		}
+		capture.GateFailures = append(capture.GateFailures, validateWSSProofPrefixElisionOracle(capture, expectedReducers)...)
 		var requiredReducerHits map[string]int64
 		if capture.LiveDelta != nil {
 			for _, reducer := range options.expectedReducers {
@@ -501,7 +506,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 							strings.Join(capture.LiveDelta.HostBudgetReasons, ",")))
 				}
 			}
-			hits, failures := validateExpectedReducers(proofCaptureExpectedReducers(capture.ExpectedReducers, options), capture.LiveDelta)
+			hits, failures := validateExpectedReducers(expectedReducers, capture.LiveDelta)
 			capture.ExpectedReducerHits = hits
 			capture.GateFailures = append(capture.GateFailures, failures...)
 		} else if options.requireLiveTokenDelta {
@@ -789,6 +794,47 @@ func validateWSSProofFunctionCallMinima(capture wssProofMatrixCapture) []string 
 		failures = append(failures, fmt.Sprintf("wire_function_call_output_items=%d below required minimum %d", capture.LiveDelta.WireFunctionCallOutputs, capture.MinFunctionOutputs))
 	}
 	return failures
+}
+
+func validateWSSProofPrefixElisionOracle(capture wssProofMatrixCapture, expected []string) []string {
+	if !wssProofPrefixElisionProofSurface(capture, expected) {
+		return nil
+	}
+	var failures []string
+	if capture.LiveDelta == nil {
+		failures = append(failures, "wss_stateful_prefix_elision proof requires live_delta tool-use oracle")
+	}
+	if capture.MinFunctionCalls <= 0 || capture.MinFunctionOutputs <= 0 {
+		failures = append(failures, "wss_stateful_prefix_elision proof requires min_function_calls and min_function_call_outputs")
+	}
+	return failures
+}
+
+func wssProofPrefixElisionProofSurface(capture wssProofMatrixCapture, expected []string) bool {
+	for _, raw := range expected {
+		if wssProofPrefixElisionSignal(strings.TrimSpace(raw)) {
+			return true
+		}
+	}
+	if capture.LiveDelta == nil {
+		return false
+	}
+	return capture.LiveDelta.WSSStatefulPrefixElisionRequests > 0 ||
+		capture.LiveDelta.WSSStatefulPrefixElisionTools > 0 ||
+		capture.LiveDelta.WSSStatefulPrefixElisionBytes > 0 ||
+		capture.LiveDelta.WSSStatefulPrefixElisionTokens > 0
+}
+
+func wssProofPrefixElisionSignal(name string) bool {
+	switch name {
+	case "wss_stateful_prefix_elision",
+		"wss_stateful_prefix_elision_tools",
+		"wss_stateful_prefix_elision_bytes",
+		"wss_stateful_prefix_elision_tokens":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateExpectedReducers(expected []string, live *codexCaptureLiveDelta) (map[string]int64, []string) {

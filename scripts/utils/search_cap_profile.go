@@ -283,8 +283,13 @@ type searchCapProfileOutput struct {
 	output  []byte
 }
 
+type searchCapProfileToolUse struct {
+	command string
+	workdir string
+}
+
 func searchCapProfileOutputsFromFrames(frames []proxy.WSSABReplayFrame) ([]searchCapProfileOutput, error) {
-	toolUses := make(map[string]string)
+	toolUses := make(map[string]searchCapProfileToolUse)
 	var outputs []searchCapProfileOutput
 	for i, frame := range frames {
 		if frame.Mutated {
@@ -307,7 +312,7 @@ func searchCapProfileOutputsFromFrames(frames []proxy.WSSABReplayFrame) ([]searc
 	return outputs, nil
 }
 
-func rememberSearchCapProfileToolUses(toolUses map[string]string, body []byte) {
+func rememberSearchCapProfileToolUses(toolUses map[string]searchCapProfileToolUse, body []byte) {
 	for _, item := range searchCapProfileInputItems(body) {
 		callID := strings.TrimSpace(rawStringField(item, "call_id"))
 		if callID == "" {
@@ -316,15 +321,15 @@ func rememberSearchCapProfileToolUses(toolUses map[string]string, body []byte) {
 		if callID == "" || strings.TrimSpace(rawStringField(item, "type")) != "function_call" {
 			continue
 		}
-		command := searchCapProfileCommandFromFunctionCall(item)
-		if command == "" {
+		toolUse := searchCapProfileToolUseFromFunctionCall(item)
+		if toolUse.command == "" {
 			continue
 		}
-		toolUses[callID] = command
+		toolUses[callID] = toolUse
 	}
 }
 
-func searchCapProfileOutputsFromRequest(toolUses map[string]string, body []byte) ([]searchCapProfileOutput, error) {
+func searchCapProfileOutputsFromRequest(toolUses map[string]searchCapProfileToolUse, body []byte) ([]searchCapProfileOutput, error) {
 	var outputs []searchCapProfileOutput
 	for _, item := range searchCapProfileInputItems(body) {
 		if strings.TrimSpace(rawStringField(item, "type")) != "function_call_output" {
@@ -334,18 +339,19 @@ func searchCapProfileOutputsFromRequest(toolUses map[string]string, body []byte)
 		if callID == "" {
 			callID = strings.TrimSpace(rawStringField(item, "id"))
 		}
-		command := strings.TrimSpace(toolUses[callID])
-		if command == "" {
+		toolUse := toolUses[callID]
+		if strings.TrimSpace(toolUse.command) == "" {
 			continue
 		}
-		normalized := normalizedSearchCapCommand(command, "")
+		normalized := normalizedSearchCapCommand(toolUse.command, toolUse.workdir)
 		argv := filter.ArgvForCapturedOutput(normalized)
-		if _, ok := filter.SearchCompactProfile(argv, []byte(rawStringField(item, "output")), filter.SearchCompactOptions{}); !ok {
+		output := searchCapProfileToolOutputPayload(rawStringField(item, "output"))
+		if _, ok := filter.SearchCompactProfile(argv, []byte(output), filter.SearchCompactOptions{}); !ok {
 			continue
 		}
 		outputs = append(outputs, searchCapProfileOutput{
 			command: normalized,
-			output:  []byte(rawStringField(item, "output")),
+			output:  []byte(output),
 		})
 	}
 	return outputs, nil
@@ -389,39 +395,42 @@ func searchCapProfileInputItems(body []byte) []map[string]json.RawMessage {
 	return nil
 }
 
-func searchCapProfileCommandFromFunctionCall(item map[string]json.RawMessage) string {
+func searchCapProfileToolUseFromFunctionCall(item map[string]json.RawMessage) searchCapProfileToolUse {
 	argsRaw, ok := item["arguments"]
 	if !ok {
-		return ""
+		return searchCapProfileToolUse{}
 	}
 	var argsString string
 	if err := json.Unmarshal(argsRaw, &argsString); err == nil {
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(argsString), &obj); err == nil {
-			return searchCapProfileCommandFromArgs(obj)
+			return searchCapProfileToolUseFromArgs(obj)
 		}
-		return ""
+		return searchCapProfileToolUse{}
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(argsRaw, &obj); err != nil {
-		return ""
+		return searchCapProfileToolUse{}
 	}
-	return searchCapProfileCommandFromArgs(obj)
+	return searchCapProfileToolUseFromArgs(obj)
 }
 
-func searchCapProfileCommandFromArgs(args map[string]json.RawMessage) string {
+func searchCapProfileToolUseFromArgs(args map[string]json.RawMessage) searchCapProfileToolUse {
+	toolUse := searchCapProfileToolUse{workdir: strings.TrimSpace(rawStringField(args, "workdir"))}
 	for _, key := range []string{"cmd", "command", "command_line"} {
 		if command := strings.TrimSpace(rawStringField(args, key)); command != "" {
-			return command
+			toolUse.command = command
+			return toolUse
 		}
 	}
 	if argvRaw, ok := args["argv"]; ok {
 		var argv []string
 		if err := json.Unmarshal(argvRaw, &argv); err == nil && len(argv) > 0 {
-			return strings.Join(argv, " ")
+			toolUse.command = strings.Join(argv, " ")
+			return toolUse
 		}
 	}
-	return ""
+	return toolUse
 }
 
 func rawStringField(fields map[string]json.RawMessage, key string) string {
@@ -434,6 +443,23 @@ func rawStringField(fields map[string]json.RawMessage, key string) string {
 		return s
 	}
 	return ""
+}
+
+func searchCapProfileToolOutputPayload(output string) string {
+	if !strings.Contains(output, "Process exited with code ") {
+		return output
+	}
+	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
+		idx := strings.Index(output, marker)
+		if idx < 0 {
+			continue
+		}
+		payload := output[idx+len(marker):]
+		if payload != "" {
+			return payload
+		}
+	}
+	return output
 }
 
 func normalizedSearchCapCommand(command, workdir string) string {

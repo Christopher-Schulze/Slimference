@@ -158,6 +158,76 @@ func TestWSSProofMatrixFunctionCallMinimaGate(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixPrefixElisionRequiresToolUseOracle(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "prefix-oracle-required")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:               "prefix-token-only",
+		Client:           "cli",
+		WorkloadClass:    "prefix_elision_tool_oracle",
+		FramesPath:       framesPath,
+		ExpectedReducers: []string{"wss_stateful_prefix_elision"},
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved:         100,
+			WSSStatefulPrefixElisionRequests: 1,
+			WSSStatefulPrefixElisionTools:    1,
+			WSSStatefulPrefixElisionTokens:   42,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"prefix_elision_tool_oracle"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("token-only prefix-elision proof should fail: %+v", report)
+	}
+	if got := strings.Join(report.CaptureReports[0].GateFailures, "\n"); !strings.Contains(got, "wss_stateful_prefix_elision proof requires min_function_calls and min_function_call_outputs") {
+		t.Fatalf("missing prefix oracle failure:\n%s", got)
+	}
+
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:                 "prefix-with-tool-oracle",
+		Client:             "cli",
+		WorkloadClass:      "prefix_elision_tool_oracle",
+		FramesPath:         framesPath,
+		ExpectedReducers:   []string{"wss_stateful_prefix_elision"},
+		MinFunctionCalls:   3,
+		MinFunctionOutputs: 3,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved:         100,
+			WSSStatefulPrefixElisionRequests: 1,
+			WSSStatefulPrefixElisionTools:    1,
+			WSSStatefulPrefixElisionTokens:   42,
+			WireServerFunctionCalls:          3,
+			WireFunctionCallOutputs:          3,
+		},
+	})
+
+	report, err = loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"prefix_elision_tool_oracle"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.CapturesWithIssues != 0 {
+		t.Fatalf("prefix-elision proof with tool-use oracle should pass: %+v", report)
+	}
+}
+
 func TestWSSProofMatrixFailsOnReplayUpstreamError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

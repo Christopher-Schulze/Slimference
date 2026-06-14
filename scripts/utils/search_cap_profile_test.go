@@ -102,6 +102,40 @@ func TestRunSearchCapProfileFrames(t *testing.T) {
 	}
 }
 
+func TestRunSearchCapProfileFramesStripsCodexExecEnvelope(t *testing.T) {
+	t.Parallel()
+
+	outputPath := writeSearchCapProfileFixture(t)
+	output, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enveloped := "Chunk ID: search-proof\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 9000\nOutput:\n" + string(output)
+	framesPath := writeSearchCapProfileFramesFixture(t, enveloped)
+
+	var stdout, stderr bytes.Buffer
+	code := runSearchCapProfile([]string{
+		"--frames", framesPath,
+		"--json",
+		"--require-applicable",
+		"--require-aggressive-savings",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runSearchCapProfile enveloped frames code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report searchCapProfileReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if report.SearchOutputs != 1 || !report.Profiles[0].Applied ||
+		report.Profiles[0].InputBytes != len(output) {
+		t.Fatalf("enveloped search output was not profiled as payload-only search stdout: %+v", report)
+	}
+	if strings.Contains(stdout.String(), "fatal timeout rejected") {
+		t.Fatalf("enveloped frame profile report must stay content-free, got raw match text:\n%s", stdout.String())
+	}
+}
+
 func TestRunSearchCapProfileCandidatesAndRetentionGate(t *testing.T) {
 	t.Parallel()
 
@@ -265,6 +299,23 @@ func TestRunSearchCapProfileFramesRequireResolvedSearchOutput(t *testing.T) {
 	if !strings.Contains(stdout.String(), "expected compactable search output") ||
 		!strings.Contains(stdout.String(), "search outputs: 0") {
 		t.Fatalf("missing unresolved-output gate failure:\n%s", stdout.String())
+	}
+}
+
+func TestSearchCapProfileToolUseFromFunctionCallIncludesWorkdir(t *testing.T) {
+	t.Parallel()
+
+	item := map[string]json.RawMessage{
+		"type":      json.RawMessage(`"function_call"`),
+		"call_id":   json.RawMessage(`"search-1"`),
+		"arguments": json.RawMessage(`"{\"cmd\":\"rg -n function src\",\"workdir\":\"/repo\"}"`),
+	}
+	toolUse := searchCapProfileToolUseFromFunctionCall(item)
+	if toolUse.command != "rg -n function src" || toolUse.workdir != "/repo" {
+		t.Fatalf("bad tool use extraction: %+v", toolUse)
+	}
+	if normalized := normalizedSearchCapCommand(toolUse.command, toolUse.workdir); normalized != "rg -n function /repo/src" {
+		t.Fatalf("workdir was not applied to normalized search command: %q", normalized)
 	}
 }
 

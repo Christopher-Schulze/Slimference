@@ -93,6 +93,48 @@ func TestWSSLocalGapClassifiesNoEvidenceLargeSourceBytesAsSourceGuard(t *testing
 	}
 }
 
+func TestWSSLocalGapClassifiesLegacySourceBypassAsSourceGuard(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID:    "legacy-source-bypass",
+		Path:         "/backend-api/codex/responses",
+		RouteMode:    "websocket_phasef",
+		BypassReason: "wss_previous_response_source_tool_output_full_pass",
+		Tokens:       dbg.TokenCounts{Original: 12000, Final: 12000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":        "delta",
+			"wss.previous_response_id": "true",
+			"wss.source_tool_bytes":    "6000",
+			"wss.tool_command_classes": "read_like=1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.NoEvidenceRequests != 1 {
+		t.Fatalf("expected one no-evidence request, got %+v", report)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "source_context_guard" ||
+		row.Source != "no_evidence:bypass_reason=wss_previous_response_source_tool_output_full_pass" ||
+		row.Tokens != 12000 ||
+		row.Requests != 1 ||
+		row.RequestShapes["delta"] != 1 ||
+		row.ToolCommandClasses["read_like"] != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad legacy-source-bypass row: %+v", row)
+	}
+}
+
 func TestWSSLocalGapClassifiesEmptyToolOutputContext(t *testing.T) {
 	t.Parallel()
 
@@ -222,6 +264,169 @@ func TestWSSLocalGapClassifiesTinyPayloadBytesAsSmallToolOutput(t *testing.T) {
 		row.Policy == "" ||
 		row.NextStep == "" {
 		t.Fatalf("bad small-tool-output row: %+v", row)
+	}
+}
+
+func TestWSSLocalGapStatefulStructuredGuardWithoutCommandFactsNeedsInstrumentation(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "stateful-guard-missing-command-facts",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 11000, Final: 11000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":             "delta",
+			"wss.output_reduce_reason":      "disabled",
+			"wss.structured_mutation_guard": "wss_stateful_structured_mutation_guard",
+			"wss.tool_results":              "1",
+			"wss.source_tool_bytes":         "0",
+			"wss.tool_results_resolved":     "1",
+			"wss.tool_results_total":        "1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "needs_instrumentation" ||
+		row.Source != "no_evidence:wss.structured_mutation_guard=wss_stateful_structured_mutation_guard:tool_command_class_missing" ||
+		row.Tokens != 11000 ||
+		row.Requests != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad missing-command-facts row: %+v", row)
+	}
+}
+
+func TestWSSLocalGapStatefulStructuredGuardUnclassedCommandNeedsBinding(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "stateful-guard-unclassed-command",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 12000, Final: 12000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":             "delta",
+			"wss.output_reduce_reason":      "disabled",
+			"wss.structured_mutation_guard": "wss_stateful_structured_mutation_guard",
+			"wss.tool_results":              "1",
+			"wss.source_tool_bytes":         "0",
+			"wss.tool_command_classed":      "0",
+			"wss.tool_command_unclassed":    "1",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "stateful_command_binding_required" ||
+		row.Source != "no_evidence:wss.structured_mutation_guard=wss_stateful_structured_mutation_guard:tool_command_unclassed" ||
+		row.Tokens != 12000 ||
+		row.Requests != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad unclassed-command row: %+v", row)
+	}
+}
+
+func TestWSSLocalGapPreviousResponseBypassWithoutToolFactsNeedsInstrumentation(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID:    "previous-response-bypass-legacy",
+		Path:         "/backend-api/codex/responses",
+		RouteMode:    "websocket_phasef",
+		BypassReason: "wss_previous_response_tool_output_full_pass",
+		Tokens:       dbg.TokenCounts{Original: 13000, Final: 13000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":        "delta",
+			"wss.output_reduce_reason": "disabled",
+			"wss.tool_results":         "1",
+			"wss.source_tool_bytes":    "0",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "needs_instrumentation" ||
+		row.Source != "no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass:tool_payload_or_command_missing" ||
+		row.Tokens != 13000 ||
+		row.Requests != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad legacy bypass row: %+v", row)
+	}
+}
+
+func TestWSSLocalGapPreviousResponseBypassWithToolFactsStaysProofBlocked(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID:    "previous-response-bypass-instrumented",
+		Path:         "/backend-api/codex/responses",
+		RouteMode:    "websocket_phasef",
+		BypassReason: "wss_previous_response_tool_output_full_pass",
+		Tokens:       dbg.TokenCounts{Original: 14000, Final: 14000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":             "delta",
+			"wss.output_reduce_reason":      "disabled",
+			"wss.tool_results":              "1",
+			"wss.tool_result_bytes":         "9000",
+			"wss.tool_result_output_bytes":  "9000",
+			"wss.source_tool_bytes":         "0",
+			"wss.tool_command_classes":      "other=1",
+			"wss.tool_results_resolved":     "1",
+			"wss.tool_results_inferred":     "0",
+			"wss.tool_results_total":        "1",
+			"wss.tool_command_classed":      "1",
+			"wss.tool_command_unclassed":    "0",
+			"wss.previous_response_id":      "true",
+			"wss.structured_mutation_guard": "",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "unsafe_without_fresh_live_proof" ||
+		row.Source != "no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass" ||
+		row.Tokens != 14000 ||
+		row.Requests != 1 ||
+		row.ToolCommandClasses["other"] != 1 ||
+		row.Policy == "" ||
+		row.NextStep == "" {
+		t.Fatalf("bad instrumented bypass row: %+v", row)
 	}
 }
 

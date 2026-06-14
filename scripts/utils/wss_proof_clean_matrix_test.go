@@ -99,6 +99,38 @@ func TestWSSProofCleanMatrixFiltersOnlyReleaseCleanRows(t *testing.T) {
 			},
 		},
 		wssProofMatrixRecord{
+			ID:               "bad-prefix-token-only",
+			Client:           "cli",
+			WorkloadClass:    "prefix_elision_tool_oracle",
+			FramesPath:       framesPath,
+			ExpectedReducers: []string{"wss_stateful_prefix_elision"},
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved:         10,
+				WSSStatefulPrefixElisionRequests: 1,
+				WSSStatefulPrefixElisionTokens:   10,
+				HostBudgetStatus:                 "ok",
+				HostBudgetCompressionOK:          true,
+				HostBudgetDegradationOK:          true,
+			},
+		},
+		wssProofMatrixRecord{
+			ID:                 "bad-prefix-tool-suppressed",
+			Client:             "cli",
+			WorkloadClass:      "prefix_elision_tool_oracle",
+			FramesPath:         framesPath,
+			ExpectedReducers:   []string{"wss_stateful_prefix_elision"},
+			MinFunctionCalls:   3,
+			MinFunctionOutputs: 3,
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved:         10,
+				WSSStatefulPrefixElisionRequests: 1,
+				WSSStatefulPrefixElisionTokens:   10,
+				HostBudgetStatus:                 "ok",
+				HostBudgetCompressionOK:          true,
+				HostBudgetDegradationOK:          true,
+			},
+		},
+		wssProofMatrixRecord{
 			ID:            "bad-missing-live",
 			Client:        "cli",
 			WorkloadClass: "repeat_full_read",
@@ -110,10 +142,10 @@ func TestWSSProofCleanMatrixFiltersOnlyReleaseCleanRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RowsRead != 7 || report.RowsWritten != 3 || report.RowsSkipped != 4 || report.RowsNormalized != 1 {
+	if report.RowsRead != 9 || report.RowsWritten != 3 || report.RowsSkipped != 6 || report.RowsNormalized != 1 {
 		t.Fatalf("unexpected report: %+v", report)
 	}
-	for _, reason := range []string{"expected_zero_local_savings", "host_budget", "expected_reducer_miss", "missing_live_delta"} {
+	for _, reason := range []string{"expected_zero_local_savings", "host_budget", "expected_reducer_miss", "prefix_elision_tool_oracle", "function_call_minima", "missing_live_delta"} {
 		if report.SkippedReasons[reason] != 1 {
 			t.Fatalf("missing skip reason %s in %+v", reason, report.SkippedReasons)
 		}

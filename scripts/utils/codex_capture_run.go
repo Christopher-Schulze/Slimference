@@ -535,12 +535,17 @@ func validateCodexCaptureExpectedReducers(expected []string, live *codexCaptureL
 }
 
 func validateCodexCaptureLiveRequirements(flags codexCaptureRunFlags, live *codexCaptureLiveDelta) []string {
-	var failures []string
+	failures := validateWSSProofPrefixElisionOracle(wssProofMatrixCapture{
+		ExpectedReducers:   flags.expectedReducers,
+		MinFunctionCalls:   flags.minFunctionCalls,
+		MinFunctionOutputs: flags.minFunctionCallOutputs,
+		LiveDelta:          live,
+	}, normalizeExpectedReducers(flags.expectedReducers))
 	if flags.minFunctionCalls <= 0 && flags.minFunctionCallOutputs <= 0 {
-		return nil
+		return failures
 	}
 	if live == nil {
-		return []string{"live delta is missing"}
+		return append(failures, "live delta is missing")
 	}
 	if flags.minFunctionCalls > 0 && live.WireServerFunctionCalls < int64(flags.minFunctionCalls) {
 		failures = append(failures, fmt.Sprintf("wire_server_function_call_items=%d below required minimum %d", live.WireServerFunctionCalls, flags.minFunctionCalls))

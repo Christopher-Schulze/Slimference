@@ -465,8 +465,8 @@ func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing
 		report.ActionablePotential[1].OutputReduceInputTokens != 3210 ||
 		report.ActionablePotential[1].OutputReduceEligibleInputTokens != 0 ||
 		report.ActionablePotential[1].ToolCommandClasses["rg_search"] != 2 ||
-		report.ActionablePotential[2].Category != "prefix_safe_new_mechanism_required" ||
-		report.ActionablePotential[2].Source != "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass" ||
+		report.ActionablePotential[2].Category != "needs_instrumentation" ||
+		report.ActionablePotential[2].Source != "no_evidence:prompt_cache_prefix_metrics_missing" ||
 		report.ActionablePotential[2].Tokens != 4000 ||
 		report.ActionablePotential[2].Requests != 1 ||
 		report.ActionablePotential[3].Category != "prefix_safe_new_mechanism_required" ||
@@ -547,6 +547,9 @@ func TestWSSLocalGapNoEvidenceActionClassifiesPreviousResponseBypassAsProofBlock
 			"wss.output_reduce_reason":             "disabled",
 			"wss.output_reduce_disabled_predicate": "tool_output_context",
 			"wss.tool_results":                     "1",
+			"wss.tool_result_bytes":                "9000",
+			"wss.tool_result_output_bytes":         "9000",
+			"wss.tool_command_classes":             "other=1",
 		},
 	}, "fact")
 	if category != "unsafe_without_fresh_live_proof" ||

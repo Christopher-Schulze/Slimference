@@ -1,6 +1,6 @@
 # Benchmarks
 
-Date: 2026-06-09
+Date: 2026-06-14
 Release target: v0.6.0
 
 This document records benchmark evidence that should remain reproducible from
@@ -129,10 +129,11 @@ go run ./scripts/utils release-proof-report /tmp/slimference-release-proof-t296-
   --json
 ```
 
-The 2026-06-06 refresh wrote 70 clean release rows from 89 local proof rows and
-the final report returned `gate_passed=true`, `resource_profile_proof_ok=true`,
-`local_billable_input_tokens_saved=330518`, `provider_cache_read_tokens=430720`,
-`tool_prune_tokens_saved=26`, `host_budget_issue_rows=0`,
+The 2026-06-14 refresh evaluated 189 clean release rows and the final report
+returned `gate_passed=true`, `resource_profile_proof_ok=true`,
+`local_billable_input_tokens_saved=1048433`,
+`provider_cache_read_tokens=3695872`, `tool_prune_tokens_saved=52`,
+`output_reduce_injected_turns=4`, `host_budget_issue_rows=0`,
 `proof_event_loss_rows=0`, and `safety_issue_rows=0`.
 
 ## Scope and Limits

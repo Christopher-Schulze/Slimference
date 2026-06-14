@@ -1152,7 +1152,7 @@ func searchProducesMatchLineOutput(argv []string) bool {
 		case arg == "-l" || arg == "-L" || arg == "-c" || arg == "-o":
 			return false
 		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
-			if shortSearchOutputFlagDisablesGrouping(arg) {
+			if shortSearchOutputFlagDisablesGrouping(argv, arg) {
 				return false
 			}
 			if kind := searchOptionKind(arg); kind.consumesValue && i+1 < len(args) {
@@ -1211,13 +1211,16 @@ func searchOutputFlagDisablesGrouping(arg string) bool {
 	}
 }
 
-func shortSearchOutputFlagDisablesGrouping(arg string) bool {
+func shortSearchOutputFlagDisablesGrouping(argv []string, arg string) bool {
 	if len(arg) < 2 || !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
 		return false
 	}
 	if strings.HasPrefix(arg, "-A") || strings.HasPrefix(arg, "-B") || strings.HasPrefix(arg, "-C") ||
 		strings.HasPrefix(arg, "-U") || strings.HasPrefix(arg, "-p") {
 		return true
+	}
+	if searchShortFlagHasAttachedSafeValue(argv, arg) {
+		return false
 	}
 	for _, r := range arg[1:] {
 		switch r {
@@ -1226,6 +1229,28 @@ func shortSearchOutputFlagDisablesGrouping(arg string) bool {
 		}
 	}
 	return false
+}
+
+func searchShortFlagHasAttachedSafeValue(argv []string, arg string) bool {
+	if len(arg) <= 2 || len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(argv[0]))
+	base = strings.TrimSuffix(base, ".exe")
+	if base == "rg" {
+		switch arg[1] {
+		case 'e', 'f', 'g', 'm', 't', 'T':
+			return true
+		}
+	}
+	switch arg[1] {
+	case 'e', 'f':
+		return true
+	case 'm':
+		return base == "grep" || base == "ggrep" || base == "ag" || base == "ack" || base == "ack.pl"
+	default:
+		return false
+	}
 }
 
 func gitGrepIndex(argv []string) int {

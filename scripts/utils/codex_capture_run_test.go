@@ -1282,6 +1282,47 @@ func TestValidateCodexCaptureLiveRequirements(t *testing.T) {
 	if len(failures) != 0 {
 		t.Fatalf("live requirements should pass, got %v", failures)
 	}
+
+	prefixFlags := codexCaptureRunFlags{
+		expectedReducers: []string{"wss_stateful_prefix_elision"},
+	}
+	failures = validateCodexCaptureLiveRequirements(prefixFlags, &codexCaptureLiveDelta{
+		WSSStatefulPrefixElisionRequests: 1,
+		WSSStatefulPrefixElisionTokens:   100,
+	})
+	if len(failures) != 1 || !strings.Contains(failures[0], "wss_stateful_prefix_elision proof requires min_function_calls and min_function_call_outputs") {
+		t.Fatalf("prefix proof without minima should fail, got %v", failures)
+	}
+
+	prefixFlags.minFunctionCalls = 3
+	prefixFlags.minFunctionCallOutputs = 3
+	failures = validateCodexCaptureLiveRequirements(prefixFlags, &codexCaptureLiveDelta{
+		WSSStatefulPrefixElisionRequests: 1,
+		WSSStatefulPrefixElisionTokens:   100,
+	})
+	if len(failures) != 2 ||
+		!strings.Contains(strings.Join(failures, "\n"), "wire_server_function_call_items=0 below required minimum 3") ||
+		!strings.Contains(strings.Join(failures, "\n"), "wire_function_call_output_items=0 below required minimum 3") {
+		t.Fatalf("prefix proof with suppressed tool surface should fail, got %v", failures)
+	}
+
+	failures = validateCodexCaptureLiveRequirements(codexCaptureRunFlags{}, &codexCaptureLiveDelta{
+		WSSStatefulPrefixElisionRequests: 1,
+		WSSStatefulPrefixElisionTokens:   100,
+	})
+	if len(failures) != 1 || !strings.Contains(failures[0], "wss_stateful_prefix_elision proof requires min_function_calls and min_function_call_outputs") {
+		t.Fatalf("observed prefix elision without expected reducer should still require oracle, got %v", failures)
+	}
+
+	failures = validateCodexCaptureLiveRequirements(prefixFlags, &codexCaptureLiveDelta{
+		WSSStatefulPrefixElisionRequests: 1,
+		WSSStatefulPrefixElisionTokens:   100,
+		WireServerFunctionCalls:          3,
+		WireFunctionCallOutputs:          3,
+	})
+	if len(failures) != 0 {
+		t.Fatalf("prefix proof with live tool oracle should pass, got %v", failures)
+	}
 }
 
 func TestAugmentCodexCaptureLiveDeltaFromWireOutputReduce(t *testing.T) {

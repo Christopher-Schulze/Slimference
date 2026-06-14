@@ -38,6 +38,9 @@ It writes rows that are clean enough for release-proof-report: live delta
 present, zero parse/degrade/compression errors, host budget OK, row-local
 expected reducers satisfied, positive economic signal unless the row is an
 expected-zero control, and no expected-zero local-savings violation.
+Stateful prefix-elision rows additionally need the same live tool-use minima as
+wss-proof-matrix, so cleaner output cannot promote token-only tool-schema
+elision evidence.
 
 The output file must not already exist. This prevents accidental replacement of
 release evidence.`
@@ -234,6 +237,19 @@ func cleanWSSProofMatrixRowIssues(row wssProofMatrixRecord) []string {
 	}
 	if _, failures := validateExpectedReducers(row.ExpectedReducers, live); len(failures) > 0 {
 		issues = append(issues, "expected_reducer_miss")
+	}
+	capture := wssProofMatrixCapture{
+		ExpectedReducers:    row.ExpectedReducers,
+		MinFunctionCalls:    row.MinFunctionCalls,
+		MinFunctionOutputs:  row.MinFunctionOutputs,
+		LiveDelta:           row.LiveDelta,
+		ExpectedZeroSavings: row.ExpectedZeroSavings,
+	}
+	if failures := validateWSSProofPrefixElisionOracle(capture, row.ExpectedReducers); len(failures) > 0 {
+		issues = append(issues, "prefix_elision_tool_oracle")
+	}
+	if failures := validateWSSProofFunctionCallMinima(capture); len(failures) > 0 {
+		issues = append(issues, "function_call_minima")
 	}
 	return issues
 }

@@ -1067,6 +1067,13 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 	case outputReason == "prompt_cache_prefix_full_pass":
 		toolDefinitionBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
 		instructionBytes := wssLocalGapFactInt(facts, "wss.instructions_bytes")
+		prefixTotalBytes := wssLocalGapFactInt(facts, "wss.prefix_total_bytes")
+		if toolDefinitionBytes == 0 && instructionBytes == 0 && prefixTotalBytes == 0 {
+			return "needs_instrumentation",
+				"no_evidence:prompt_cache_prefix_metrics_missing",
+				"prompt-cache-prefix full-pass fired, but no content-free prefix byte split was recorded",
+				"capture fresh prefix metrics before treating this as a prefix-savings mechanism candidate"
+		}
 		defaultKeepBytes := wssLocalGapFactInt(facts, "wss.tool_definition_default_keep_bytes")
 		nonDefaultBytes := wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes")
 		source := "no_evidence:wss.output_reduce_reason=prompt_cache_prefix_full_pass"
@@ -1101,6 +1108,12 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			source,
 			policy,
 			nextStep
+	case strings.TrimSpace(summary.BypassReason) == "wss_previous_response_source_tool_output_full_pass":
+		category, policy, nextStep := wssLocalGapDecisionAction("wss_source_tool_output_full_pass")
+		return category,
+			"no_evidence:bypass_reason=wss_previous_response_source_tool_output_full_pass",
+			policy,
+			nextStep
 	case sourceToolByteCount >= wssLocalGapSourceContextMinBytes:
 		category, policy, nextStep := wssLocalGapDecisionAction("wss_source_tool_output_full_pass")
 		return category,
@@ -1133,6 +1146,12 @@ func wssLocalGapNoEvidenceAction(summary dbg.RequestSummary, shapeSource string)
 			"request shape was not recorded, so savings loss cannot be assigned safely",
 			"add content-free shape/debug facts before changing guards"
 	case strings.TrimSpace(summary.BypassReason) == "wss_previous_response_tool_output_full_pass":
+		if !wssLocalGapPreviousResponseBypassHasToolFacts(facts) {
+			return "needs_instrumentation",
+				"no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass:tool_payload_or_command_missing",
+				"previous_response_id tool-output bypass fired, but the row lacks content-free payload or command-class facts",
+				"capture fresh rows with tool-result byte facts and command classes before treating this as a proof-only recovery candidate"
+		}
 		return "unsafe_without_fresh_live_proof",
 			"no_evidence:bypass_reason=wss_previous_response_tool_output_full_pass",
 			"previous_response_id tool-output bypass protects Codex server state when the exact tool-use binding is unavailable",
@@ -1206,8 +1225,45 @@ func wssLocalGapNoEvidenceGuardAction(facts map[string]string) (string, string, 
 		if reason == "" {
 			continue
 		}
+		if reason == "wss_stateful_structured_mutation_guard" {
+			if category, source, policy, nextStep, ok := wssLocalGapStatefulStructuredGuardAction(key, reason, facts); ok {
+				return category, source, policy, nextStep, true
+			}
+		}
 		category, policy, nextStep := wssLocalGapDecisionAction(reason)
 		return category, "no_evidence:" + key + "=" + reason, policy, nextStep, true
+	}
+	return "", "", "", "", false
+}
+
+func wssLocalGapPreviousResponseBypassHasToolFacts(facts map[string]string) bool {
+	return wssLocalGapFactInt(facts, "wss.tool_result_bytes") > 0 ||
+		wssLocalGapFactInt(facts, "wss.tool_result_output_bytes") > 0 ||
+		strings.TrimSpace(facts["wss.tool_command_classes"]) != "" ||
+		strings.TrimSpace(facts["wss.tool_command_classed"]) != "" ||
+		strings.TrimSpace(facts["wss.tool_command_unclassed"]) != ""
+}
+
+func wssLocalGapStatefulStructuredGuardAction(key, reason string, facts map[string]string) (string, string, string, string, bool) {
+	source := "no_evidence:" + key + "=" + reason
+	if strings.TrimSpace(facts["wss.tool_command_classes"]) != "" {
+		return "", "", "", "", false
+	}
+	classedRaw := strings.TrimSpace(facts["wss.tool_command_classed"])
+	unclassedRaw := strings.TrimSpace(facts["wss.tool_command_unclassed"])
+	if classedRaw == "" && unclassedRaw == "" {
+		return "needs_instrumentation",
+			source + ":tool_command_class_missing",
+			"stateful structured mutation was guarded but no content-free command-class fact was recorded",
+			"capture fresh rows with wss.tool_command_classes and tool-result byte facts before adding parser classes",
+			true
+	}
+	if wssLocalGapFactInt(facts, "wss.tool_command_classed") == 0 && wssLocalGapFactInt(facts, "wss.tool_command_unclassed") > 0 {
+		return "stateful_command_binding_required",
+			source + ":tool_command_unclassed",
+			"stateful tool-output mutation needs a bound or deterministically inferred command class",
+			"fix tool-use binding or command inference for this shape before adding parser classes",
+			true
 	}
 	return "", "", "", "", false
 }

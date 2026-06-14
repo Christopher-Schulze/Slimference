@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 0.6.0
-Last updated: 2026-06-13
+Last updated: 2026-06-14
 
 Comprehensive reference for the Slimference token-savings proxy. This
 document tracks the current v0.6.0 macOS-first product line; sections follow
@@ -548,8 +548,9 @@ client-side "the server already has this old block" reference for arbitrary
 prior WSS input blocks, so server-state mirror promotion remains no-go for the
 product path unless a separate lab probe proves a backend-honored reference
 shape.
-HTTP is explicitly blocked from archive-backed chunk references; WSS is the
-product route for recoverable archive/chunk mechanisms.
+Generic HTTP archive recovery remains blocked, but Codex HTTP chunk references
+are allowed through the route-local recovery-note gate. WSS remains the primary
+product route for automatic recoverable archive/chunk mechanisms.
 
 The deterministic evidence selector is the block-level decision manifest used
 by those reducers and reports. It classifies content as `test`, `log`,
@@ -1285,6 +1286,12 @@ closes that gap.
 `control_context` bytes are instructions plus default-keep/control tool schemas,
 `nondefault_candidate` bytes are the only tool-schema slice worth proving next,
 and `unclassified_tool` bytes stay guarded until their schema identity is known.
+Rows with `prompt_cache_prefix_full_pass` but no content-free prefix byte split
+are classified as `prompt_cache_prefix_metrics_missing`, not as a prefix savings
+candidate. Likewise, legacy `previous_response_id` tool-output bypass rows and
+stateful structured-mutation guard rows must carry tool-result byte facts or
+command-class facts before `wss-local-gap` treats them as proof or parser work;
+otherwise they stay in `needs_instrumentation`.
 `--stateful-prefix-elision-proof` is an offline-only replay flag for the
 tool-schema candidate. Offline replay can measure repeated top-level `tools`
 prefix mass only on `previous_response_id` requests, only inside the same
@@ -1308,9 +1315,11 @@ A 2026-06-14 tool-only replay correction kept top-level `instructions`
 byte-equal and still failed the live tool-use oracle: the control run observed
 6 server `function_call` items and 3 client `function_call_output` items, while
 the proof-only tool-prefix-elided run saved 3,677 live input tokens but observed
-0 and 0. `wss-proof-matrix` now validates recorded `min_function_calls` and
-`min_function_call_outputs` against those wire counters, so this class of proof
-cannot be promoted by token savings alone.
+0 and 0. `codex-capture-run`, `wss-proof-matrix`, and
+`wss-proof-clean-matrix` now require stateful-prefix-elision proof rows to carry
+`min_function_calls` and `min_function_call_outputs`, then validate those minima
+against the live wire counters. This class of proof therefore cannot be captured,
+matrix-gated, or cleaned into release evidence by token savings alone.
 The lab/proof switch still stores only hash keys for the cache scope and
 canonical tool-schema surface, seeds on full forwarded tool schemas, and deletes
 repeated top-level `tools` only on later
@@ -3225,16 +3234,15 @@ The 2026-06-06 release-proof refresh passed this strict path without enabling
 the advanced shared Codex route. `benchmark-corpus --check`,
 `benchmark-corpus --promotion-check`, and `benchmark-corpus --maxx-check` all
 passed on `tests/fixtures/live_corpus`; the promotion/maxx gates saw 54 real
-sessions split across `codex_cli=37` and `codex_desktop=17`. The local proof
-inventory found 89 rows, 24 matrix files, all maxx workload classes complete,
-and `safety_issue_rows=0`. The clean matrix step wrote 70 release rows from 89
-local proof rows. The final release report against
+sessions split across `codex_cli=37` and `codex_desktop=17`. The current local
+release proof evaluated 189 clean rows, all maxx workload classes complete, and
+`safety_issue_rows=0`. The final release report against
 `host-resource-codex_cli-auto-20260604T212018Z` and
 `host-resource-codex_desktop-20260604T212111Z` returned
 `gate_passed=true`, `resource_profile_proof_ok=true`,
-`local_billable_input_tokens_saved=330518`,
-`provider_cache_read_tokens=430720`, `tool_prune_tokens_saved=26`,
-`output_reduce_injected_turns=2`, `host_budget_issue_rows=0`,
+`local_billable_input_tokens_saved=1048433`,
+`provider_cache_read_tokens=3695872`, `tool_prune_tokens_saved=52`,
+`output_reduce_injected_turns=4`, `host_budget_issue_rows=0`,
 `proof_event_loss_rows=0`, and `safety_issue_rows=0`. These numbers are a
 current release-corpus proof for the still-enabled mechanisms, not a universal
 average savings percentage. The WSS output-reduce directive rows in that older

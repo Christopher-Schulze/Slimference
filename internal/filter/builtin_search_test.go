@@ -442,6 +442,9 @@ func TestSearchOutputReducerEligibleFromCommandLine(t *testing.T) {
 	if !SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src`, "") {
 		t.Fatal("repo-scoped ripgrep must be search-output reducer eligible")
 	}
+	if !SearchOutputReducerEligibleFromCommandLine(`rg -n "needle" internal -g'*.go' -g'*.md'`, "/repo") {
+		t.Fatal("ripgrep with attached glob values must be search-output reducer eligible")
+	}
 	if !SearchOutputReducerEligibleFromCommandLine(`cd /repo && rg -n "needle" src | head -200`, "") {
 		t.Fatal("safe head-limited ripgrep pipeline must be search-output reducer eligible")
 	}
@@ -762,6 +765,36 @@ func TestSearchOutputGroupingSkipsNonMatchLineModes(t *testing.T) {
 	pathSeparatorOutput := strings.Repeat("src::a.go:12:needle with path separator override\n", 8)
 	if _, ok := TryCompactSearchOutput([]string{"rg", "--path-separator", "::", "-n", "needle"}, []byte(pathSeparatorOutput)); ok {
 		t.Fatal("rg --path-separator must not be grouped by the default colon parser")
+	}
+}
+
+func TestSearchOutputAttachedGlobValueDoesNotTripOnlyMatchingGuard(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	for f := 0; f < 35; f++ {
+		for m := 1; m <= 4; m++ {
+			fmt.Fprintf(&sb, "internal/module/file_%02d.go:%d:needle search result with enough payload to group\n", f, m)
+		}
+	}
+	input := []byte(sb.String())
+	argv := []string{"rg", "-n", "needle", "internal", "-g*.go", "-g*.md"}
+	out, ok := TryCompactSearchOutput(argv, input)
+	if !ok {
+		t.Fatal("attached ripgrep glob values should still allow match-line grouping")
+	}
+	if !strings.Contains(string(out), "[rg] 140 match(es) in 35 file(s)") {
+		t.Fatalf("unexpected attached-glob compact output: %q", string(out)[:min(len(string(out)), 240)])
+	}
+	stats, ok := SearchCompactProfile(argv, input, SearchCompactOptions{})
+	if !ok || !stats.Applied || stats.OriginalFiles != 35 || stats.OriginalMatches != 140 {
+		t.Fatalf("attached-glob profile should apply with real stats: %+v ok=%v", stats, ok)
+	}
+	if _, ok := TryCompactSearchOutput([]string{"rg", "-on", "needle", "internal", "-g*.go"}, input); ok {
+		t.Fatal("only-matching short flag must still disable grouping")
+	}
+	if _, ok := TryCompactSearchOutput([]string{"rg", "-n", "needle", "internal", "-g*.go", "--json"}, input); ok {
+		t.Fatal("json output flag must still disable grouping with attached glob values")
 	}
 }
 
