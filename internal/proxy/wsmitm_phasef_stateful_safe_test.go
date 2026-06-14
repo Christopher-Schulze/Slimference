@@ -79,6 +79,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "mypy success summary", command: "mypy src", output: mypySuccess, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
+		{name: "cd wrapped ls small listing", command: "cd /repo/project && ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
 		{name: "wrapped prettier path list", command: "pnpm exec prettier --write src", output: listingOutput, wantSafe: true},
 		{name: "rg files path list", command: "rg --files -g '*.go' internal/proxy", output: listingOutput, wantSafe: true},
@@ -86,9 +87,16 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "fd path list", command: "fd .go internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "fdfind path list", command: "fdfind --extension go internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "find small listing", command: "find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
+		{name: "cd wrapped find small listing", command: "cd /repo/project && find internal/proxy -maxdepth 2 -type f -name '*.go' -print", output: listingOutput, wantSafe: true},
 		{name: "tree bounded listing", command: "tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
+		{name: "cd wrapped tree bounded listing", command: "cd /repo/project && tree -L 2 internal/proxy", output: treeOutput, wantSafe: true},
 		{name: "tree bounded option separator", command: "tree -L 2 -- internal/proxy", output: treeOutput, wantSafe: true},
+		{name: "cd wrapped git diff stat", command: "cd /repo/project && git diff --stat", output: diffStat, wantSafe: true},
+		{name: "cd wrapped git log oneline bounded", command: "cd /repo/project && git log --oneline -n 3", output: "a1b2c3d Tighten guard\nb2c3d4e Recover savings\nc3d4e5f Add proof\n", wantSafe: true},
+		{name: "cd wrapped wc line counts", command: "cd /repo/project && wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
+		{name: "cd wrapped go test verbose all-pass", command: "cd /repo/project && GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
 		{name: "git status rich output", command: "git status", output: "On branch main\nChanges not staged for commit:\n\tmodified: internal/proxy/wsmitm_phasef.go\n", wantGuard: "rich git status output stays guarded"},
+		{name: "relative cd wrapper", command: "cd repo && git diff --stat", output: diffStat, wantGuard: "relative cd wrappers stay guarded"},
 		{name: "git ls-files staged metadata", command: "git ls-files --stage", output: "100644 abcdef1234567890abcdef1234567890abcdef12 0\tinternal/proxy/wsmitm_phasef.go\n", wantGuard: "git ls-files metadata stays guarded"},
 		{name: "git log oneline unbounded", command: "git log --oneline", output: "a1b2c3d Tighten guard\n", wantGuard: "unbounded log output stays guarded"},
 		{name: "git log rich output", command: "git log --stat -n 3", output: "commit a1b2c3d4\n\n    Tighten guard\n\n file.go | 2 ++\n", wantGuard: "rich log output stays guarded"},
@@ -887,6 +895,49 @@ func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
 		t.Fatalf("stateful-safe diffstat should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSPhaseFCDWrappedPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-cd-diffstat-safe",
+			"prompt_cache_key":     "stateful-cd-diffstat-safe-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "summarize the diff stat"},
+				{"type": "function_call", "call_id": "call_cd_diffstat", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/project && git diff --stat"}},
+				{"type": "function_call_output", "call_id": "call_cd_diffstat", "output": wssDiffStatFixture(80)},
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle cd-wrapped diffstat request: %v", err)
+	}
+	if !replace {
+		t.Fatalf("cd-wrapped previous_response full-history diffstat should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[git diff --stat] 80 file(s)") ||
+		!strings.Contains(body, "[prefix=internal/proxy/generated/very/deep/path/]") ||
+		strings.Contains(body, "internal/proxy/generated/very/deep/path/file_xxxxxxxxxxxx_79.go") {
+		t.Fatalf("cd-wrapped diffstat compaction did not preserve compact evidence: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("cd-wrapped stateful-safe diffstat should save without structured guard: %+v", summary)
 	}
 }
 

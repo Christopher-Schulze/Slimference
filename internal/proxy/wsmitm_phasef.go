@@ -1920,7 +1920,7 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if proxyInferredPlainPathListCommand(commandLine) {
 		return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
 	}
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	switch {
 	case wssSafeGitStatusCommand(commandLine):
 		_, ok := filter.TryCompactGitStatus(argv, []byte(payload))
@@ -1957,8 +1957,13 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	}
 }
 
+func wssSafeStatefulCommandArgv(commandLine string) []string {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	return filter.ArgvForCapturedOutput(filterCommandLine)
+}
+
 func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2085,7 +2090,7 @@ func wssSafeGitDiffStatCommand(commandLine string) bool {
 }
 
 func wssSafeGitShowStatOutput(commandLine, payload string) bool {
-	argv, i, ok := wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), "show")
+	argv, i, ok := wssGitSubcommandFromArgv(wssSafeStatefulCommandArgv(commandLine), "show")
 	if !ok {
 		return false
 	}
@@ -2138,7 +2143,7 @@ func wssGitShowPayloadContainsPatch(payload string) bool {
 }
 
 func wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2149,7 +2154,7 @@ func wssSafeGitDiffNameOnlyPathListOutput(commandLine, payload string) bool {
 }
 
 func wssSafeGitDiffNameStatusPathListOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2160,7 +2165,7 @@ func wssSafeGitDiffNameStatusPathListOutput(commandLine, payload string) bool {
 }
 
 func wssGitSubcommand(commandLine, subcommand string) ([]string, int, bool) {
-	return wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), subcommand)
+	return wssGitSubcommandFromArgv(wssSafeStatefulCommandArgv(commandLine), subcommand)
 }
 
 func wssGitSubcommandFromArgv(argv []string, subcommand string) ([]string, int, bool) {
@@ -2194,7 +2199,7 @@ func wssGitSubcommandFromArgv(argv []string, subcommand string) ([]string, int, 
 }
 
 func wssSafeGitLogOnelineOutput(commandLine, payload string) bool {
-	argv, i, ok := wssGitSubcommandFromArgv(filter.ArgvForCapturedOutput(commandLine), "log")
+	argv, i, ok := wssGitSubcommandFromArgv(wssSafeStatefulCommandArgv(commandLine), "log")
 	if !ok {
 		return false
 	}
@@ -2264,7 +2269,7 @@ func wssGitLogOnelinePayloadSafe(payload string, maxCount int) bool {
 }
 
 func wssSafeGitLsFilesPathListOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2311,7 +2316,7 @@ func allASCIIHex(s string) bool {
 }
 
 func wssSafeWcOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2341,7 +2346,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 }
 
 func wssSafeTestAllPassOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2358,7 +2363,7 @@ func wssSafeTestAllPassOutput(commandLine, payload string) bool {
 }
 
 func wssSafeGoTestFailureDiagnosticOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 || !wssPlainGoTestFailurePayload(payload) {
 		return false
 	}
@@ -2399,7 +2404,7 @@ func wssCompactedTestOutputOK(compacted []byte) bool {
 }
 
 func wssSafeLsListingOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 || wssCommandBase(argv[0]) != "ls" {
 		return false
 	}
@@ -2410,7 +2415,7 @@ func wssSafeLsListingOutput(commandLine, payload string) bool {
 }
 
 func wssSafeFormatPathListOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
 		return false
 	}
@@ -2553,7 +2558,7 @@ func wssSafeLsArgs(args []string) bool {
 }
 
 func wssSafeFindListingOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 || wssCommandBase(argv[0]) != "find" {
 		return false
 	}
@@ -2603,7 +2608,7 @@ func wssSafeFindArgs(args []string) bool {
 }
 
 func wssSafeTreeListingOutput(commandLine, payload string) bool {
-	argv := filter.ArgvForCapturedOutput(commandLine)
+	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 || wssCommandBase(argv[0]) != "tree" {
 		return false
 	}
