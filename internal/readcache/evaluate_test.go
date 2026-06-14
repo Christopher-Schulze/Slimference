@@ -445,8 +445,14 @@ func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
 	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := OutputRequest{SessionID: "s1", Key: "command:tool", CommandLine: "tool"}
-	if decision, err := EvaluateObservedOutput(dir, req, "short output", archiveDir); err != nil || decision.Type != DecisionAllow {
+	if decision, err := EvaluateObservedOutput(dir, req, "short output", archiveDir); err != nil || decision.Type != DecisionAllow || decision.Reason != "short_output" {
 		t.Fatalf("short output should allow, decision=%+v err=%v", decision, err)
+	}
+	if decision, err := EvaluateObservedOutput(dir, OutputRequest{Key: "command:tool", CommandLine: "tool"}, strings.Repeat("old output line\n", 40), archiveDir); err != nil || decision.Type != DecisionAllow || decision.Reason != "missing_session" {
+		t.Fatalf("missing session should allow with exact reason, decision=%+v err=%v", decision, err)
+	}
+	if decision, err := EvaluateObservedOutput(dir, OutputRequest{SessionID: "s1", CommandLine: "tool"}, strings.Repeat("old output line\n", 40), archiveDir); err != nil || decision.Type != DecisionAllow || decision.Reason != "missing_key" {
+		t.Fatalf("missing key should allow with exact reason, decision=%+v err=%v", decision, err)
 	}
 	body := strings.Repeat("old output line\n", 40)
 	if decision, err := EvaluateObservedOutput(dir, req, body, ""); err != nil || decision.Type != DecisionAllow {

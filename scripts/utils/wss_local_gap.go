@@ -67,6 +67,8 @@ type wssLocalGapReport struct {
 	Guards                   []wssLocalGapGuardRow        `json:"guards,omitempty"`
 	ContentClasses           []wssLocalGapContentClassRow `json:"content_classes,omitempty"`
 	ActionablePotential      []wssLocalGapActionableRow   `json:"actionable_potential,omitempty"`
+	UnattributedGapTokens    int                          `json:"policy_unattributed_gap_tokens,omitempty"`
+	UnattributedGap          []wssLocalGapUnattributedRow `json:"unattributed_gap,omitempty"`
 	GatePassed               bool                         `json:"gate_passed"`
 	GateFailures             []string                     `json:"gate_failures,omitempty"`
 	Notes                    []string                     `json:"notes,omitempty"`
@@ -177,14 +179,32 @@ type wssLocalGapActionableRow struct {
 	ToolCommandClasses               map[string]int `json:"tool_command_classes,omitempty"`
 }
 
+type wssLocalGapUnattributedRow struct {
+	Category              string         `json:"category"`
+	Source                string         `json:"source"`
+	TokenBasis            string         `json:"token_basis"`
+	Tokens                int            `json:"tokens"`
+	Requests              int            `json:"requests"`
+	PolicyCeilingTokens   int            `json:"policy_ceiling_tokens"`
+	PolicyProtectedTokens int            `json:"policy_protected_tokens,omitempty"`
+	LocalSavedTokens      int            `json:"local_saved_tokens,omitempty"`
+	GuardedPotential      int            `json:"guarded_potential_tokens,omitempty"`
+	Policy                string         `json:"policy"`
+	NextStep              string         `json:"next_step"`
+	RequestShapes         map[string]int `json:"request_shapes,omitempty"`
+	Mechanisms            map[string]int `json:"mechanisms,omitempty"`
+	Reasons               map[string]int `json:"reasons,omitempty"`
+}
+
 type wssLocalGapAccumulator struct {
-	report        wssLocalGapReport
-	shapeRows     map[string]*wssLocalGapShapeRow
-	requestGuards map[string]*wssLocalGapRequestGuardRow
-	mechanismRows map[string]*wssLocalGapMechanismRow
-	guardRows     map[string]*wssLocalGapGuardRow
-	contentRows   map[string]*wssLocalGapContentClassRow
-	actionRows    map[string]*wssLocalGapActionableRow
+	report           wssLocalGapReport
+	shapeRows        map[string]*wssLocalGapShapeRow
+	requestGuards    map[string]*wssLocalGapRequestGuardRow
+	mechanismRows    map[string]*wssLocalGapMechanismRow
+	guardRows        map[string]*wssLocalGapGuardRow
+	contentRows      map[string]*wssLocalGapContentClassRow
+	actionRows       map[string]*wssLocalGapActionableRow
+	unattributedRows map[string]*wssLocalGapUnattributedRow
 }
 
 const wssLocalGapHelpText = `wss-local-gap: rank the remaining WSS local-savings gap without provider-cache credit
@@ -351,12 +371,13 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 			RequestShapeSources: make(map[string]int),
 			GatePassed:          true,
 		},
-		shapeRows:     make(map[string]*wssLocalGapShapeRow),
-		requestGuards: make(map[string]*wssLocalGapRequestGuardRow),
-		mechanismRows: make(map[string]*wssLocalGapMechanismRow),
-		guardRows:     make(map[string]*wssLocalGapGuardRow),
-		contentRows:   make(map[string]*wssLocalGapContentClassRow),
-		actionRows:    make(map[string]*wssLocalGapActionableRow),
+		shapeRows:        make(map[string]*wssLocalGapShapeRow),
+		requestGuards:    make(map[string]*wssLocalGapRequestGuardRow),
+		mechanismRows:    make(map[string]*wssLocalGapMechanismRow),
+		guardRows:        make(map[string]*wssLocalGapGuardRow),
+		contentRows:      make(map[string]*wssLocalGapContentClassRow),
+		actionRows:       make(map[string]*wssLocalGapActionableRow),
+		unattributedRows: make(map[string]*wssLocalGapUnattributedRow),
 	}
 	if !flags.since.IsZero() {
 		since := flags.since
@@ -449,6 +470,7 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	for _, decision := range summary.EvidenceDecisions {
 		a.addDecision(decision, shape, toolCommandClasses, summary.DebugFacts)
 	}
+	a.addUnattributedGap(summary, shape, noEvidenceCategory, original, saved, protected, knownNonTarget)
 }
 
 func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape, shapeSource string, original, saved int, noEvidence bool) {
@@ -738,6 +760,93 @@ func (a *wssLocalGapAccumulator) addActionable(row wssLocalGapActionableRow, sha
 	}
 }
 
+func (a *wssLocalGapAccumulator) addUnattributedGap(summary dbg.RequestSummary, shape, noEvidenceCategory string, original, saved, protected, knownNonTarget int) {
+	if a == nil || original <= 0 {
+		return
+	}
+	ceiling := maxInt(0, original-maxInt(0, protected)-maxInt(0, knownNonTarget))
+	guarded := wssLocalGapSummaryGuardedPotential(summary.EvidenceDecisions)
+	tokens := maxInt(0, ceiling-maxInt(0, saved)-guarded)
+	if tokens <= 0 {
+		return
+	}
+	category, source, policy, nextStep := wssLocalGapUnattributedAction(summary, noEvidenceCategory, protected)
+	row := wssLocalGapUnattributedRow{
+		Category:              category,
+		Source:                source,
+		TokenBasis:            "policy_ceiling_minus_saved_and_full_pass",
+		Tokens:                tokens,
+		Requests:              1,
+		PolicyCeilingTokens:   ceiling,
+		PolicyProtectedTokens: maxInt(0, protected),
+		LocalSavedTokens:      maxInt(0, saved),
+		GuardedPotential:      guarded,
+		Policy:                policy,
+		NextStep:              nextStep,
+	}
+	for _, decision := range summary.EvidenceDecisions {
+		mechanism := strings.TrimSpace(decision.Mechanism)
+		if mechanism != "" && mechanism != "provider_prompt_cache" {
+			addWSSAuditCount(&row.Mechanisms, mechanism)
+		}
+		reason := strings.TrimSpace(decision.Reason)
+		if reason != "" {
+			addWSSAuditCount(&row.Reasons, reason)
+		}
+	}
+	a.addUnattributed(row, shape)
+}
+
+func wssLocalGapSummaryGuardedPotential(decisions []evidence.BlockDecision) int {
+	total := 0
+	for _, decision := range decisions {
+		if decision.Action != evidence.ActionFullPass || strings.TrimSpace(decision.Mechanism) == "provider_prompt_cache" {
+			continue
+		}
+		total += maxInt(0, decision.OriginalTokens)
+	}
+	return total
+}
+
+func wssLocalGapUnattributedAction(summary dbg.RequestSummary, noEvidenceCategory string, protected int) (string, string, string, string) {
+	if len(summary.EvidenceDecisions) == 0 {
+		category := strings.TrimSpace(noEvidenceCategory)
+		if category == "" {
+			category = "unclassified_no_evidence"
+		}
+		return "no_evidence_request_residual",
+			"request:no_evidence_residual:" + category,
+			"request ceiling remains after policy blockers but no block-level evidence owns it",
+			"add content-free block evidence before treating this residual as a savings mechanism"
+	}
+	if protected > 0 {
+		return "evidence_request_residual_after_prefix_and_block_evidence",
+			"request:evidence_residual_after_protected_prefix",
+			"non-protected request ceiling remains after observed savings, full-pass guards, and protected prefix subtraction",
+			"instrument block ownership for this residual; do not widen guards unless the new evidence identifies an exact safe mechanism"
+	}
+	return "evidence_request_residual_without_block_ownership",
+		"request:evidence_residual_without_block_ownership",
+		"request ceiling remains outside observed savings and full-pass evidence",
+		"add or tighten reducer evidence for the exact request shape before changing product behavior"
+}
+
+func (a *wssLocalGapAccumulator) addUnattributed(row wssLocalGapUnattributedRow, shape string) {
+	if a == nil || row.Tokens <= 0 {
+		return
+	}
+	key := row.Category + "\x00" + row.Source + "\x00" + row.TokenBasis
+	existing := a.unattributedRows[key]
+	if existing == nil {
+		copy := row
+		a.unattributedRows[key] = &copy
+		existing = &copy
+	} else {
+		mergeWSSLocalGapUnattributedRow(existing, row)
+	}
+	addWSSAuditCount(&existing.RequestShapes, shape)
+}
+
 func (a *wssLocalGapAccumulator) shapeRow(shape string) *wssLocalGapShapeRow {
 	shape = strings.TrimSpace(shape)
 	if shape == "" {
@@ -797,6 +906,10 @@ func (a *wssLocalGapAccumulator) finalize(flags wssLocalGapFlags) {
 	a.report.Guards = finalizeWSSLocalGapGuards(a.guardRows)
 	a.report.ContentClasses = finalizeWSSLocalGapContentClasses(a.contentRows)
 	a.report.ActionablePotential = finalizeWSSLocalGapActionable(a.actionRows)
+	a.report.UnattributedGap = finalizeWSSLocalGapUnattributed(a.unattributedRows)
+	for _, row := range a.report.UnattributedGap {
+		a.report.UnattributedGapTokens += row.Tokens
+	}
 	a.report.Notes = wssLocalGapNotes(a.report)
 	a.report.GateFailures = wssLocalGapGateFailures(a.report, flags)
 	a.report.GatePassed = len(a.report.GateFailures) == 0
@@ -898,6 +1011,23 @@ func finalizeWSSLocalGapActionable(rows map[string]*wssLocalGapActionableRow) []
 	return out
 }
 
+func finalizeWSSLocalGapUnattributed(rows map[string]*wssLocalGapUnattributedRow) []wssLocalGapUnattributedRow {
+	out := make([]wssLocalGapUnattributedRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tokens != out[j].Tokens {
+			return out[i].Tokens > out[j].Tokens
+		}
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
 func wssLocalGapPolicySavingsCeiling(report wssLocalGapReport) int {
 	blocked := maxInt(0, report.PolicyProtectedTokens) + maxInt(0, report.PolicyKnownNonTarget)
 	return maxInt(0, report.OriginalTokens-blocked)
@@ -976,6 +1106,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 	}
 	if len(report.ActionablePotential) > 0 {
 		notes = append(notes, "Actionable-potential rows classify the next proof/engineering move; they are diagnostic and not a promise that guarded tokens are safely recoverable.")
+	}
+	if report.UnattributedGapTokens > 0 {
+		notes = append(notes, fmt.Sprintf("Unattributed gap is %d policy-ceiling tokens not owned by observed savings or concrete full-pass guard evidence; classify this before touching guards.", report.UnattributedGapTokens))
 	}
 	if wssLocalGapHasActionableCategory(report.ActionablePotential, "prefix_capability_context_guarded") {
 		notes = append(notes, "Capability-prefix rows quantify protected model-facing context, not a safe product-savings candidate.")
@@ -1461,6 +1594,21 @@ func mergeWSSLocalGapCounts(dst *map[string]int, src map[string]int) {
 	}
 }
 
+func mergeWSSLocalGapUnattributedRow(dst *wssLocalGapUnattributedRow, src wssLocalGapUnattributedRow) {
+	if dst == nil {
+		return
+	}
+	dst.Tokens += src.Tokens
+	dst.Requests += src.Requests
+	dst.PolicyCeilingTokens += src.PolicyCeilingTokens
+	dst.PolicyProtectedTokens += src.PolicyProtectedTokens
+	dst.LocalSavedTokens += src.LocalSavedTokens
+	dst.GuardedPotential += src.GuardedPotential
+	mergeWSSLocalGapCounts(&dst.RequestShapes, src.RequestShapes)
+	mergeWSSLocalGapCounts(&dst.Mechanisms, src.Mechanisms)
+	mergeWSSLocalGapCounts(&dst.Reasons, src.Reasons)
+}
+
 func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "=== WSS Local Gap: %s ===\n", filepath.Base(report.Path))
 	if report.Since != nil {
@@ -1474,6 +1622,7 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "Target saved/deficit:      %d / %d at %.2f%%\n", report.TargetSavedTokens, report.TargetDeficitTokens, report.TargetRatio*100)
 	fmt.Fprintf(w, "Policy ceiling/deficit:    %d / %.2f%% / %d\n", report.PolicySavingsCeiling, report.PolicySavingsCeilingRate*100, report.PolicyCeilingDeficit)
 	fmt.Fprintf(w, "Policy blocked protected/known: %d / %d\n", report.PolicyProtectedTokens, report.PolicyKnownNonTarget)
+	fmt.Fprintf(w, "Unattributed gap:          %d\n", report.UnattributedGapTokens)
 	fmt.Fprintf(w, "Provider cache read/cached/create: %d / %d / %d\n",
 		report.ProviderCacheReadTokens,
 		report.ProviderCacheTokens,
@@ -1584,6 +1733,26 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 				row.ZeroSavingsOrigTokens,
 				row.NoEvidenceOrigTokens,
 				formatWSSAuditCounts(row.RequestShapes))
+		}
+	}
+	if len(report.UnattributedGap) > 0 {
+		fmt.Fprintln(w, "\nUnattributed gap:")
+		for _, row := range report.UnattributedGap {
+			fmt.Fprintf(w, "  %-56s source=%-48s tokens=%d basis=%s requests=%d ceiling=%d protected=%d saved=%d guarded=%d shapes=%s mechanisms=%s reasons=%s\n",
+				row.Category,
+				row.Source,
+				row.Tokens,
+				row.TokenBasis,
+				row.Requests,
+				row.PolicyCeilingTokens,
+				row.PolicyProtectedTokens,
+				row.LocalSavedTokens,
+				row.GuardedPotential,
+				formatWSSAuditCounts(row.RequestShapes),
+				formatWSSAuditCounts(row.Mechanisms),
+				formatWSSAuditCounts(row.Reasons))
+			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
+			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
 		}
 	}
 	if len(report.Guards) > 0 {

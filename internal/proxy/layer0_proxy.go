@@ -1156,6 +1156,7 @@ func proxyLayer0ObservationReason(mechanism proxyLayer0Mechanism, reason string)
 		"missing_key_session_or_short_output",
 		"missing_session",
 		"missing_key",
+		"short_output",
 		"not_read_command",
 		"readcache_error",
 		"home_error",

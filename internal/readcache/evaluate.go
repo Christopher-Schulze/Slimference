@@ -148,8 +148,16 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	}
 	observeTurn(state, req.TurnID)
 	key := strings.TrimSpace(req.Key)
-	if key == "" || strings.TrimSpace(req.SessionID) == "" || len(content) < minObservedOutputBytes {
-		decision := Decision{Type: DecisionAllow, Reason: "missing_key_session_or_short_output"}
+	sessionID := strings.TrimSpace(req.SessionID)
+	switch {
+	case sessionID == "":
+		decision := Decision{Type: DecisionAllow, Reason: "missing_session"}
+		return decision, RecordDecision(dir, decision)
+	case key == "":
+		decision := Decision{Type: DecisionAllow, Reason: "missing_key"}
+		return decision, RecordDecision(dir, decision)
+	case len(content) < minObservedOutputBytes:
+		decision := Decision{Type: DecisionAllow, Reason: "short_output"}
 		return decision, RecordDecision(dir, decision)
 	}
 	if state.Outputs == nil {

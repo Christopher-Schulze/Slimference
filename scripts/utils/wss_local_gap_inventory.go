@@ -20,21 +20,22 @@ type wssLocalGapInventoryFlags struct {
 }
 
 type wssLocalGapInventoryReport struct {
-	Path              string                    `json:"path"`
-	TargetRatio       float64                   `json:"target_ratio"`
-	Logs              int                       `json:"logs"`
-	PhaseFRequests    int                       `json:"phasef_requests"`
-	OriginalTokens    int                       `json:"original_tokens"`
-	LocalSavedTokens  int                       `json:"local_saved_tokens"`
-	LocalSavingsRate  float64                   `json:"local_savings_ratio"`
-	PolicyCeiling     int                       `json:"policy_savings_ceiling_tokens"`
-	PolicyCeilingRate float64                   `json:"policy_savings_ceiling_ratio"`
-	TargetDeficit     int                       `json:"target_deficit_tokens"`
-	CeilingDeficit    int                       `json:"policy_savings_ceiling_deficit_tokens,omitempty"`
-	RecoverableGap    int                       `json:"policy_recoverable_gap_tokens,omitempty"`
-	GuardedPotential  int                       `json:"guarded_potential_tokens,omitempty"`
-	UnattributedGap   int                       `json:"policy_unattributed_gap_tokens,omitempty"`
-	Rows              []wssLocalGapInventoryRow `json:"rows"`
+	Path              string                       `json:"path"`
+	TargetRatio       float64                      `json:"target_ratio"`
+	Logs              int                          `json:"logs"`
+	PhaseFRequests    int                          `json:"phasef_requests"`
+	OriginalTokens    int                          `json:"original_tokens"`
+	LocalSavedTokens  int                          `json:"local_saved_tokens"`
+	LocalSavingsRate  float64                      `json:"local_savings_ratio"`
+	PolicyCeiling     int                          `json:"policy_savings_ceiling_tokens"`
+	PolicyCeilingRate float64                      `json:"policy_savings_ceiling_ratio"`
+	TargetDeficit     int                          `json:"target_deficit_tokens"`
+	CeilingDeficit    int                          `json:"policy_savings_ceiling_deficit_tokens,omitempty"`
+	RecoverableGap    int                          `json:"policy_recoverable_gap_tokens,omitempty"`
+	GuardedPotential  int                          `json:"guarded_potential_tokens,omitempty"`
+	UnattributedGap   int                          `json:"policy_unattributed_gap_tokens,omitempty"`
+	Rows              []wssLocalGapInventoryRow    `json:"rows"`
+	UnattributedRows  []wssLocalGapUnattributedRow `json:"unattributed_gap,omitempty"`
 }
 
 type wssLocalGapInventoryRow struct {
@@ -184,6 +185,7 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 		TargetRatio: targetRatio,
 		Rows:        make([]wssLocalGapInventoryRow, 0, len(paths)),
 	}
+	unattributedRows := make(map[string]*wssLocalGapUnattributedRow)
 	for _, path := range paths {
 		gap, err := loadWSSLocalGapReport(wssLocalGapFlags{
 			path:          path,
@@ -210,7 +212,7 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 			CeilingDeficit:         gap.PolicyCeilingDeficit,
 			RecoverableGap:         recoverableGap,
 			GuardedPotential:       guardedPotential,
-			UnattributedGap:        maxInt(0, recoverableGap-guardedPotential),
+			UnattributedGap:        gap.UnattributedGapTokens,
 			NoEvidenceProtected:    gap.NoEvidenceProtected,
 			NoEvidenceNeedsInstr:   gap.NoEvidenceNeedsInstr,
 			NoEvidenceProofBlocked: gap.NoEvidenceProofBlocked,
@@ -236,7 +238,9 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 		report.RecoverableGap += row.RecoverableGap
 		report.GuardedPotential += row.GuardedPotential
 		report.UnattributedGap += row.UnattributedGap
+		mergeWSSLocalGapUnattributedRows(unattributedRows, gap.UnattributedGap)
 	}
+	report.UnattributedRows = finalizeWSSLocalGapUnattributed(unattributedRows)
 	report.LocalSavingsRate = wssLocalGapRatio(report.LocalSavedTokens, report.OriginalTokens)
 	report.PolicyCeilingRate = wssLocalGapRatio(report.PolicyCeiling, report.OriginalTokens)
 	targetSaved := targetSavedTokens(report.OriginalTokens, targetRatio)
@@ -300,6 +304,22 @@ func wssLocalGapInventoryName(path string) string {
 	return filepath.Base(path)
 }
 
+func mergeWSSLocalGapUnattributedRows(dst map[string]*wssLocalGapUnattributedRow, rows []wssLocalGapUnattributedRow) {
+	for _, row := range rows {
+		if row.Tokens <= 0 {
+			continue
+		}
+		key := row.Category + "\x00" + row.Source + "\x00" + row.TokenBasis
+		existing := dst[key]
+		if existing == nil {
+			copy := row
+			dst[key] = &copy
+			continue
+		}
+		mergeWSSLocalGapUnattributedRow(existing, row)
+	}
+}
+
 func writeWSSLocalGapInventoryText(w io.Writer, report wssLocalGapInventoryReport) {
 	fmt.Fprintf(w, "=== WSS Local Gap Inventory: %s ===\n", report.Path)
 	fmt.Fprintf(w, "Logs / Phase-F requests:   %d / %d\n", report.Logs, report.PhaseFRequests)
@@ -330,6 +350,24 @@ func writeWSSLocalGapInventoryText(w io.Writer, report wssLocalGapInventoryRepor
 			row.TopActionTokens,
 			emptyDash(row.TopNonPrefixCategory),
 			row.TopNonPrefixTokens)
+	}
+	if len(report.UnattributedRows) > 0 {
+		fmt.Fprintln(w, "\nUnattributed gap:")
+		for _, row := range report.UnattributedRows {
+			fmt.Fprintf(w, "  %-56s source=%-48s tokens=%d requests=%d ceiling=%d protected=%d saved=%d guarded=%d shapes=%s mechanisms=%s reasons=%s\n",
+				row.Category,
+				row.Source,
+				row.Tokens,
+				row.Requests,
+				row.PolicyCeilingTokens,
+				row.PolicyProtectedTokens,
+				row.LocalSavedTokens,
+				row.GuardedPotential,
+				formatWSSAuditCounts(row.RequestShapes),
+				formatWSSAuditCounts(row.Mechanisms),
+				formatWSSAuditCounts(row.Reasons))
+			fmt.Fprintf(w, "    next: %s\n", row.NextStep)
+		}
 	}
 }
 

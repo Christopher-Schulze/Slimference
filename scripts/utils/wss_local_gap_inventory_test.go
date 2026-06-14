@@ -82,6 +82,17 @@ func TestWSSLocalGapInventoryScansDirectoryAndSortsRecoverableGap(t *testing.T) 
 		report.UnattributedGap != 3000 {
 		t.Fatalf("bad inventory totals: %+v", report)
 	}
+	if len(report.UnattributedRows) != 1 ||
+		report.UnattributedRows[0].Category != "evidence_request_residual_without_block_ownership" ||
+		report.UnattributedRows[0].Tokens != 3000 ||
+		report.UnattributedRows[0].PolicyCeilingTokens != 10000 ||
+		report.UnattributedRows[0].LocalSavedTokens != 5000 ||
+		report.UnattributedRows[0].GuardedPotential != 2000 ||
+		report.UnattributedRows[0].RequestShapes["full_history"] != 1 ||
+		report.UnattributedRows[0].Mechanisms["read_delta"] != 1 ||
+		report.UnattributedRows[0].Mechanisms["chunk_dedup"] != 1 {
+		t.Fatalf("bad inventory unattributed rows: %+v", report.UnattributedRows)
+	}
 	if len(report.Rows) != 2 ||
 		report.Rows[0].Name != "cap-applied" ||
 		report.Rows[0].RecoverableGap != 5000 ||
@@ -127,7 +138,8 @@ func TestRunWSSLocalGapInventoryJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Guarded/Unattributed recoverable gap") ||
 		!strings.Contains(stdout.String(), "recoverable=600") ||
 		!strings.Contains(stdout.String(), "guarded=0") ||
-		!strings.Contains(stdout.String(), "unattributed=600") {
+		!strings.Contains(stdout.String(), "unattributed=600") ||
+		!strings.Contains(stdout.String(), "evidence_request_residual_without_block_ownership") {
 		t.Fatalf("text inventory missing expected fields:\n%s", stdout.String())
 	}
 
@@ -145,7 +157,9 @@ func TestRunWSSLocalGapInventoryJSONAndText(t *testing.T) {
 		report.PolicyCeiling != 1000 ||
 		report.RecoverableGap != 600 ||
 		report.GuardedPotential != 0 ||
-		report.UnattributedGap != 600 {
+		report.UnattributedGap != 600 ||
+		len(report.UnattributedRows) != 1 ||
+		report.UnattributedRows[0].Tokens != 600 {
 		t.Fatalf("bad json inventory: %+v", report)
 	}
 }

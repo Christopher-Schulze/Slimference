@@ -110,6 +110,20 @@ func TestWSSLocalGapReportSeparatesLocalAndProviderCache(t *testing.T) {
 		report.PolicyCeilingDeficit != 0 {
 		t.Fatalf("bad policy savings ceiling: %+v", report)
 	}
+	if report.UnattributedGapTokens != 5000 ||
+		len(report.UnattributedGap) != 1 ||
+		report.UnattributedGap[0].Category != "evidence_request_residual_without_block_ownership" ||
+		report.UnattributedGap[0].Tokens != 5000 ||
+		report.UnattributedGap[0].PolicyCeilingTokens != 15000 ||
+		report.UnattributedGap[0].LocalSavedTokens != 500 ||
+		report.UnattributedGap[0].GuardedPotential != 9500 ||
+		report.UnattributedGap[0].RequestShapes["full_history"] != 1 ||
+		report.UnattributedGap[0].RequestShapes["delta"] != 1 ||
+		report.UnattributedGap[0].Mechanisms["captured_output"] != 1 ||
+		report.UnattributedGap[0].Mechanisms["read_delta"] != 1 ||
+		report.UnattributedGap[0].Mechanisms["repeated_tool_output"] != 1 {
+		t.Fatalf("bad unattributed gap rows: tokens=%d rows=%+v", report.UnattributedGapTokens, report.UnattributedGap)
+	}
 	if len(report.Guards) != 2 ||
 		report.Guards[0].Reason != "wss_search_output_risk_gate" ||
 		report.Guards[0].GuardedPotential != 6000 ||
@@ -184,6 +198,7 @@ func TestRunWSSLocalGapJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Positive-savings ratio:") ||
 		!strings.Contains(stdout.String(), "Policy ceiling/deficit:") ||
 		!strings.Contains(stdout.String(), "Policy blocked protected/known:") ||
+		!strings.Contains(stdout.String(), "Unattributed gap:") ||
 		!strings.Contains(stdout.String(), "60.00%") ||
 		!strings.Contains(stdout.String(), "read_delta") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
@@ -602,6 +617,9 @@ func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing
 		report.NoEvidenceProofBlocked != 0 {
 		t.Fatalf("default-keep prefix should classify as protected no-evidence mass: %+v", report)
 	}
+	if report.UnattributedGapTokens != 0 || len(report.UnattributedGap) != 0 {
+		t.Fatalf("fully protected prefix should not leave unattributed gap: tokens=%d rows=%+v", report.UnattributedGapTokens, report.UnattributedGap)
+	}
 	if report.PolicySavingsCeiling != 0 ||
 		report.PolicySavingsCeilingRate != 0 ||
 		report.PolicyCeilingDeficit != 2880 ||
@@ -663,6 +681,16 @@ func TestWSSLocalGapPolicyCeilingSubtractsProtectedPrefixFromEvidenceRows(t *tes
 		report.PolicySavingsCeilingRate != 0.8 ||
 		report.PolicyCeilingDeficit != 1000 {
 		t.Fatalf("evidence-bearing protected prefix should reduce policy ceiling without treating nondefault schema as protected: %+v", report)
+	}
+	if report.UnattributedGapTokens != 7900 ||
+		len(report.UnattributedGap) != 1 ||
+		report.UnattributedGap[0].Category != "evidence_request_residual_after_prefix_and_block_evidence" ||
+		report.UnattributedGap[0].Source != "request:evidence_residual_after_protected_prefix" ||
+		report.UnattributedGap[0].Tokens != 7900 ||
+		report.UnattributedGap[0].PolicyCeilingTokens != 8000 ||
+		report.UnattributedGap[0].PolicyProtectedTokens != 2000 ||
+		report.UnattributedGap[0].LocalSavedTokens != 100 {
+		t.Fatalf("bad protected-prefix residual attribution: tokens=%d rows=%+v", report.UnattributedGapTokens, report.UnattributedGap)
 	}
 	if !hasString(report.Notes, "Policy savings ceiling is 80.00% under current protected/known-non-target classification; even perfect non-protected reducers still miss the 90.00% target by 1000 tokens.") {
 		t.Fatalf("policy ceiling deficit note missing: %+v", report.Notes)
