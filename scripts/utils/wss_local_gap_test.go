@@ -735,6 +735,22 @@ func TestWSSLocalGapNoEvidenceActionClassifiesPreviousResponseBypassAsProofBlock
 	}
 }
 
+func TestWSSLocalGapDecisionActionClassifiesKnownWSSHistoryGuards(t *testing.T) {
+	t.Parallel()
+
+	for _, reason := range []string{
+		"wss_custom_tool_call_history_mutation_guard",
+		"wss_previous_response_tool_output_full_pass",
+	} {
+		category, policy, nextStep := wssLocalGapDecisionAction(reason)
+		if category != "unsafe_without_fresh_live_proof" ||
+			!strings.Contains(policy, "risk") && !strings.Contains(policy, "protects Codex server state") ||
+			!strings.Contains(nextStep, "proof") {
+			t.Fatalf("reason %s should be classified as proof-guarded unsafe path, got category=%q policy=%q next=%q", reason, category, policy, nextStep)
+		}
+	}
+}
+
 func TestWSSLocalGapResolvedLegacyShapeDoesNotBecomeShapeInstrumentationBlocker(t *testing.T) {
 	t.Parallel()
 

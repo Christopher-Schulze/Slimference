@@ -1059,10 +1059,18 @@ func wssLocalGapDecisionAction(reason string) (string, string, string) {
 		return "unsafe_without_fresh_live_proof",
 			"full-history reconnect/downstream mutation can poison the following delta turn",
 			"keep guarded unless lineage/stateless continuation proof covers this exact path"
+	case "wss_custom_tool_call_history_mutation_guard":
+		return "unsafe_without_fresh_live_proof",
+			"custom_tool_call history mutation has known upstream 400 invalid_request risk",
+			"keep guarded unless fresh custom-tool history replay/live proof covers this exact shape"
 	case "wss_recovery_history_mutation_guard":
 		return "unsafe_without_fresh_live_proof",
 			"recovery lineage was already damaged once; further history mutation needs recovery-specific proof",
 			"keep lineage guard unless fresh recovery replay/live proof proves clean continuation"
+	case "wss_previous_response_tool_output_full_pass":
+		return "unsafe_without_fresh_live_proof",
+			"previous_response_id tool-output bypass protects Codex server state when exact tool-use binding is unavailable",
+			"keep full-pass unless exact command binding plus downstream-delta live proof covers this shape"
 	case "wss_tool_prune_delta_guard":
 		return "unsafe_without_fresh_live_proof",
 			"delta tool-schema pruning needs reattach and downstream safety proof",
