@@ -262,6 +262,24 @@ func TestWindowComplexityHelpers(t *testing.T) {
 	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `{"cmd":"rg \"path\":\"config/app.yaml\" internal"}`}); path != "" {
 		t.Fatalf("structured parser must ignore path-looking strings inside command values: %q", path)
 	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "exec_command",
+		ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`,
+	}); path != "/repo/project/docs/todo.md" {
+		t.Fatalf("structured read command path = %q", path)
+	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "exec_command",
+		ToolInput: `{"cmd":"nl -ba internal/proxy/window.go | sed -n '10,20p'","workdir":"/repo/project"}`,
+	}); path != "/repo/project/internal/proxy/window.go" {
+		t.Fatalf("structured nl/sed read command path = %q", path)
+	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "Read",
+		ToolInput: `{"path":"docs/spec.md","cwd":"/repo/project"}`,
+	}); path != "/repo/project/docs/spec.md" {
+		t.Fatalf("structured read-tool path = %q", path)
+	}
 	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `legacy "path": "config/app.toml"`}); path != "config/app.toml" {
 		t.Fatalf("legacy scanner fallback path = %q", path)
 	}

@@ -158,21 +158,25 @@ func windowBlockFilePath(block types.ContentBlock) string {
 	if input == "" {
 		return ""
 	}
-	if path, parsed := structuredWindowBlockFilePath(input); parsed {
+	if path, parsed := structuredWindowBlockFilePath(block); parsed {
 		return path
 	}
 	return scanWindowBlockFilePath(input)
 }
 
-func structuredWindowBlockFilePath(input string) (string, bool) {
+func structuredWindowBlockFilePath(block types.ContentBlock) (string, bool) {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(input), &fields); err != nil {
+	if err := json.Unmarshal([]byte(block.ToolInput), &fields); err != nil {
 		return "", false
 	}
+	workdir := proxyToolWorkdir(fields)
 	for _, key := range []string{"path", "file_path", "filename", "filepath", "file"} {
 		if path := strings.TrimSpace(rawJSONString(fields[key])); path != "" {
-			return path, true
+			return proxyPathWithWorkdir(path, workdir), true
 		}
+	}
+	if req := readRequestFromCommandLine(proxyLayer0CommandLine(block)); req.FilePath != "" {
+		return req.FilePath, true
 	}
 	return "", true
 }
