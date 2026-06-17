@@ -791,7 +791,16 @@ func TestWSSABReplayReportUniformControlGate(t *testing.T) {
 	}
 }
 
-func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
+// TestWSSABReplayAutoPolicyChunkDedupArchiveRecoverable proves the auto-policy
+// WSS replay applies chunk-dedup on a shared chunk across two reads with
+// archive-recoverable references and no lost comprehension. Commit 9858569
+// ("Recover archive-note coverage and WSS tool-prune stateless follow-up")
+// strips the expected archive-recovery note from the replay comparison, so
+// chunk-dedup savings now surface as archive-referenced elisions with Lost==0
+// and ExpectedExtras==0 instead of a separate recovery-note extra. The parallel
+// internal proxy replay test was updated then (Lost() 1 -> 0 plus
+// SeverityReferenced); this is the matching scripts-level update.
+func TestWSSABReplayAutoPolicyChunkDedupArchiveRecoverable(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
@@ -829,9 +838,9 @@ func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.GatePassed || !report.ToolOutputMutation || report.ExpectedExtras != 1 || report.BytesSaved <= 0 ||
+	if !report.GatePassed || !report.ToolOutputMutation || report.Lost != 0 || report.ExpectedExtras != 0 || report.BytesSaved <= 0 ||
 		report.ReducerTokensSaved <= 0 || report.ReducerChunkBlocks != 1 {
-		t.Fatalf("auto policy replay should pass while separating the recovery note: %+v", report)
+		t.Fatalf("auto policy chunk-dedup replay should pass with archive-recoverable savings and no lost comprehension: %+v", report)
 	}
 }
 
