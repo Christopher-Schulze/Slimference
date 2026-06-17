@@ -12,6 +12,7 @@
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
 //	go run ./scripts/utils wss-local-gap <decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>] [--min-local-saved=<tokens>]
 //	go run ./scripts/utils wss-local-gap-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>]
+//	go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 //	go run ./scripts/utils wss-proof-inventory <dir-or-matrix.jsonl> [--json]
@@ -45,7 +46,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-local-gap, wss-local-gap-inventory, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
 		os.Exit(1)
 	}
 
@@ -122,6 +123,8 @@ func main() {
 		os.Exit(runWSSLocalGap(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-local-gap-inventory":
 		os.Exit(runWSSLocalGapInventory(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-class-distribution":
+		os.Exit(runWSSClassDistribution(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-ab-replay":
 		os.Exit(runWSSABReplay(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-matrix":
