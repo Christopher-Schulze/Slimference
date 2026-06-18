@@ -2352,6 +2352,9 @@ func wssSafeWcOutput(commandLine, payload string) bool {
 
 var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactGoTestJSON,
+	filter.TryCompactVitestJSON,
+	filter.TryCompactPytestJSON,
+	filter.TryCompactCargoTestJSON,
 	filter.TryCompactGoTest,
 	filter.TryCompactCargoTest,
 	filter.TryCompactCargoNextest,
@@ -2453,7 +2456,16 @@ func wssCompactedTestOutputOK(compacted []byte) bool {
 	if !strings.HasPrefix(text, "[") || closeBracket < 0 {
 		return false
 	}
-	return strings.HasPrefix(strings.TrimSpace(text[closeBracket+1:]), "ok")
+	status := strings.TrimSpace(text[closeBracket+1:])
+	if strings.HasPrefix(status, "ok") {
+		return true
+	}
+	lower := strings.ToLower(status)
+	if strings.Contains(lower, "failed") || strings.Contains(lower, "error") ||
+		strings.Contains(lower, "warning") || strings.Contains(lower, "skipped") {
+		return false
+	}
+	return strings.Contains(lower, " tests passed") || strings.Contains(lower, " test passed")
 }
 
 func wssSafeLsListingOutput(commandLine, payload string) bool {

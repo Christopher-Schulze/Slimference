@@ -43,15 +43,19 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
 	ginkgoAllPass := wssGinkgoAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
+	pytestJSONAllPass := wssPytestJSONAllPassFixture(80)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
+	vitestJSONAllPass := wssVitestJSONAllPassFixture(70)
 	mochaAllPass := wssMochaAllPassFixture(70)
 	avaAllPass := wssAvaAllPassFixture(70)
 	tapAllPass := wssTapAllPassFixture(70)
 	playwrightAllPass := wssPlaywrightAllPassFixture(70)
 	bunAllPass := wssBunTestAllPassFixture(70)
+	cargoJSONAllPass := wssCargoTestJSONAllPassFixture(70)
 	rspecAllPass := wssRspecAllPassFixture(70)
 	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
 	ginkgoFailure := "Will run 2 of 2 specs\n•F\nRan 2 of 2 Specs in 0.123 seconds\nFAIL! -- 1 Passed | 1 Failed | 0 Pending | 0 Skipped\n"
+	vitestJSONFailure := `{"numTotalTestSuites":1,"numPassedTestSuites":0,"numFailedTestSuites":1,"numTotalTests":1,"numPassedTests":0,"numFailedTests":1,"testResults":[{"name":"src/widget.test.ts","status":"failed","assertionResults":[{"status":"failed","fullName":"widget fails","failureMessages":["expected true to be false"]}]}]}`
 	mochaFailure := "  widget suite\n    1) renders failure details\n\n  0 passing (10ms)\n  1 failing\n"
 	avaFailure := "  ✖ renders failure details\n\n  1 test failed\n"
 	tapFailure := "TAP version 13\nnot ok 1 - renders failure details\n1..1\n# tests 1\n# pass 0\n# fail 1\n"
@@ -92,12 +96,15 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
 		{name: "ginkgo all-pass", command: "ginkgo", output: ginkgoAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
+		{name: "pytest json all-pass", command: "pytest --json-report --json-report-file=-", output: pytestJSONAllPass, wantSafe: true},
 		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
+		{name: "vitest json all-pass", command: "vitest run --reporter=json", output: vitestJSONAllPass, wantSafe: true},
 		{name: "mocha verbose all-pass", command: "mocha", output: mochaAllPass, wantSafe: true},
 		{name: "ava verbose all-pass", command: "ava", output: avaAllPass, wantSafe: true},
 		{name: "tap verbose all-pass", command: "tap", output: tapAllPass, wantSafe: true},
 		{name: "playwright verbose all-pass", command: "playwright test", output: playwrightAllPass, wantSafe: true},
 		{name: "bun verbose all-pass", command: "bun test", output: bunAllPass, wantSafe: true},
+		{name: "cargo test json all-pass", command: "cargo test -- --format json", output: cargoJSONAllPass, wantSafe: true},
 		{name: "rspec all-pass", command: "bundle exec rspec", output: rspecAllPass, wantSafe: true},
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
@@ -134,6 +141,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
 		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
+		{name: "vitest json failure", command: "vitest run --reporter=json", output: vitestJSONFailure, wantGuard: "vitest JSON failures stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
 		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
 		{name: "mocha failure", command: "mocha", output: mochaFailure, wantGuard: "mocha failures stay guarded"},
@@ -222,6 +230,38 @@ func TestWSSStatefulSafeGenericTestAllPassCompactsFullHistoryTurn(t *testing.T) 
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe pytest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeTier1JSONAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: vitest-json-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssVitestJSONAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-vitest-json-all-pass", "call_vitest_json_all_pass", "vitest run --reporter=json", envelope, "stateful-vitest-json-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle vitest JSON all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history vitest JSON all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[vitest --reporter=json] 120 tests passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "renders op 119") {
+		t.Fatalf("vitest JSON all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe vitest JSON all-pass should save without structured guard: %+v", summary)
 	}
 }
 
@@ -1469,6 +1509,17 @@ func wssCargoTestVerboseAllPassFixture(count int) string {
 	return out.String()
 }
 
+func wssCargoTestJSONAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString(`{"type":"suite","event":"started"}`)
+	out.WriteByte('\n')
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, `{"type":"test","event":"ok","name":"alpha::op_%03d"}`+"\n", i)
+	}
+	fmt.Fprintf(&out, `{"type":"suite","event":"ok","passed":%d,"failed":0}`+"\n", count)
+	return out.String()
+}
+
 func wssGinkgoAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("Running Suite: Slimference Suite - internal/proxy\n")
@@ -1493,6 +1544,10 @@ func wssPytestVerboseAllPassFixture(count int) string {
 	return out.String()
 }
 
+func wssPytestJSONAllPassFixture(count int) string {
+	return fmt.Sprintf(`{"summary":{"passed":%d,"failed":0,"error":0,"skipped":0,"total":%d,"duration":0.42},"tests":[]}`+"\n", count, count)
+}
+
 func wssJestVerboseAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("PASS src/alpha.test.ts\n")
@@ -1500,6 +1555,19 @@ func wssJestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "  \u2713 renders op %03d (2 ms)\n", i)
 	}
 	fmt.Fprintf(&out, "\nTests: %d passed, %d total\nTime: 1.2 s\n", count, count)
+	return out.String()
+}
+
+func wssVitestJSONAllPassFixture(count int) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, `{"numTotalTestSuites":1,"numPassedTestSuites":1,"numFailedTestSuites":0,"numTotalTests":%d,"numPassedTests":%d,"numFailedTests":0,"testResults":[{"name":"src/widget.test.ts","status":"passed","assertionResults":[`, count, count)
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteByte(',')
+		}
+		fmt.Fprintf(&out, `{"status":"passed","fullName":"widget suite > renders op %03d","title":"renders op %03d"}`, i, i)
+	}
+	out.WriteString("]}]}\n")
 	return out.String()
 }
 

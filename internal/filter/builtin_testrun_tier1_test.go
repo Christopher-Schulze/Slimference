@@ -16,6 +16,45 @@ func TestTryCompactVitestJSON_AllPass(t *testing.T) {
 	}
 }
 
+func TestTryCompactTestOutputIncludesTier1JSON(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		in   string
+		want string
+	}{
+		{
+			name: "vitest json",
+			argv: []string{"vitest", "run", "--reporter=json"},
+			in:   `{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numTotalTests":7,"numPassedTests":7,"numFailedTests":0,"testResults":[]}`,
+			want: "[vitest --reporter=json] 7 tests passed",
+		},
+		{
+			name: "pytest json",
+			argv: []string{"pytest", "--json-report", "--json-report-file=-"},
+			in:   `{"summary":{"passed":5,"failed":0,"error":0,"total":5,"duration":0.25},"tests":[]}`,
+			want: "[pytest --json-report] 5 tests passed",
+		},
+		{
+			name: "cargo json",
+			argv: []string{"cargo", "test", "--", "--format", "json"},
+			in: strings.Join([]string{
+				`{"type":"test","event":"ok","name":"a"}`,
+				`{"type":"suite","event":"ok","passed":1,"failed":0}`,
+			}, "\n"),
+			want: "[cargo test --format json] ok 1 passed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, ok := TryCompactTestOutput(tt.argv, []byte(tt.in))
+			if !ok || !strings.Contains(string(out), tt.want) {
+				t.Fatalf("TryCompactTestOutput() ok=%v out=%q want %q", ok, out, tt.want)
+			}
+		})
+	}
+}
+
 func TestTryCompactVitestJSON_FailureExtractsTopFailures(t *testing.T) {
 	in := `{
 		"numTotalTestSuites":1,"numFailedTestSuites":1,"numPassedTestSuites":0,

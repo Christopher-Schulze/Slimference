@@ -2079,6 +2079,15 @@ func TryCompactTestOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactGoTestJSON(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := TryCompactVitestJSON(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactPytestJSON(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactCargoTestJSON(argv, stdout); ok {
+		return out, true
+	}
 	if out, ok := TryCompactGoTest(argv, stdout); ok {
 		return out, true
 	}
