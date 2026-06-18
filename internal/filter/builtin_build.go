@@ -1051,6 +1051,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactJust(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := compactPackageManagerBuildScriptOutput(argv, stdout); ok {
+		return out, true
+	}
 	// Structured parsers: tool-specific failure extraction before fallback.
 	if compact, ok := ParseFailures(argv, string(stdout)); ok {
 		return []byte(compact), true

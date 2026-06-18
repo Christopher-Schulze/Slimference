@@ -559,6 +559,9 @@ func TryCompactFormatOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactZigFmt(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := compactPackageManagerFormatScriptOutput(argv, stdout); ok {
+		return out, true
+	}
 	// Non-empty fallback: compact long file lists.
 	if label := formatToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))

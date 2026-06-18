@@ -1638,6 +1638,9 @@ func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactStylelint(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := compactPackageManagerLintScriptOutput(argv, stdout); ok {
+		return out, true
+	}
 	if compact, ok := ParseFailures(argv, string(stdout)); ok {
 		return []byte(compact), true
 	}
