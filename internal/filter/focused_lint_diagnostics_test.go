@@ -66,6 +66,13 @@ func TestParseFailuresFocusedLintDiagnosticShapes(t *testing.T) {
 			prefix: "running golangci-lint run ./...\n",
 		},
 		{
+			name:   "staticcheck colon",
+			argv:   []string{"staticcheck", "./..."},
+			line:   "internal/app/app.go:22:7: this value of err is never used (SA4006)",
+			want:   "[staticcheck] FAILED (35 diagnostics)",
+			prefix: "checking staticcheck ./...\n",
+		},
+		{
 			name:   "ineffassign colon",
 			argv:   []string{"ineffassign", "./..."},
 			line:   "internal/app/app.go:10:2: ineffectual assignment to err",
@@ -173,6 +180,11 @@ func TestParseFailuresFocusedLintDiagnosticsFailOpen(t *testing.T) {
 			argv:   []string{"golangci-lint", "run", "./..."},
 			stdout: "level=info msg=\"golangci-lint has version 2.1.0\"\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n",
 		},
+		{
+			name:   "staticcheck unknown warning line",
+			argv:   []string{"staticcheck", "./..."},
+			stdout: "warning: matched no packages\ninternal/app/app.go:22:7: this value of err is never used (SA4006)\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,6 +212,13 @@ func TestTryCompactFocusedLintDiagnosticParsers(t *testing.T) {
 			line: "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)",
 			try:  TryCompactGolangciLint,
 			want: "[golangci-lint] FAILED (40 diagnostics)",
+		},
+		{
+			name: "staticcheck",
+			argv: []string{"staticcheck", "./..."},
+			line: "internal/app/app.go:22:7: this value of err is never used (SA4006)",
+			try:  TryCompactStaticcheck,
+			want: "[staticcheck] FAILED (40 diagnostics)",
 		},
 		{
 			name: "errcheck",
@@ -295,6 +314,12 @@ func TestTryCompactFocusedLintDiagnosticParsersFailOpen(t *testing.T) {
 			argv:   []string{"golangci-lint", "run", "./..."},
 			stdout: "level=info msg=\"golangci-lint has version 2.1.0\"\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n",
 			try:    TryCompactGolangciLint,
+		},
+		{
+			name:   "staticcheck unknown warning line",
+			argv:   []string{"staticcheck", "./..."},
+			stdout: "warning: matched no packages\ninternal/app/app.go:22:7: this value of err is never used (SA4006)\n",
+			try:    TryCompactStaticcheck,
 		},
 		{
 			name: "source context",

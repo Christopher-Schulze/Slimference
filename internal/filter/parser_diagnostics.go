@@ -297,7 +297,7 @@ func isFocusedLintDiagnosticArgv(argv []string) bool {
 
 func focusedLintDiagnosticLabel(argv []string) (string, bool) {
 	if !commandMatchesAny(argv,
-		"golangci-lint",
+		"golangci-lint", "staticcheck",
 		"errcheck", "ineffassign", "nilaway", "unparam",
 		"misspell", "gocyclo", "forbidigo", "prealloc",
 	) {

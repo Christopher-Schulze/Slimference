@@ -2783,7 +2783,7 @@ func wssCompactedFocusedLintDiagnostic(compacted []byte) bool {
 	}
 	label := text[1:closeBracket]
 	switch label {
-	case "golangci-lint", "errcheck", "ineffassign", "nilaway", "unparam", "misspell", "gocyclo", "forbidigo", "prealloc":
+	case "golangci-lint", "staticcheck", "errcheck", "ineffassign", "nilaway", "unparam", "misspell", "gocyclo", "forbidigo", "prealloc":
 	default:
 		return false
 	}

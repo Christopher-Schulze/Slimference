@@ -1476,7 +1476,7 @@ func TestTryCompactLintOutput_truncatesLargeOutput(t *testing.T) {
 		sb.WriteString("src/handler.go:123:45: error: unused variable 'x' (deadcode)\n")
 	}
 	input := sb.String()
-	out, ok := TryCompactLintOutput([]string{"staticcheck", "./..."}, []byte(input))
+	out, ok := TryCompactLintOutput([]string{"gocritic", "check", "./..."}, []byte(input))
 	if !ok {
 		t.Fatalf("expected truncation, got pass-through (input %d bytes)", len(input))
 	}
@@ -1493,7 +1493,7 @@ func TestTryCompactLintOutput_shortPassthrough(t *testing.T) {
 	t.Parallel()
 	// Short lint output (< 60 lines) should pass through unchanged
 	input := "src/main.go:10:1: error: unused import\nsrc/main.go:20:1: error: missing return\n"
-	_, ok := TryCompactLintOutput([]string{"staticcheck", "./..."}, []byte(input))
+	_, ok := TryCompactLintOutput([]string{"gocritic", "check", "./..."}, []byte(input))
 	if ok {
 		t.Fatal("short lint output should not be truncated")
 	}

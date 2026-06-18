@@ -261,6 +261,26 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 			t.Fatalf("compact package-script golangci-lint failure missing %q in %q", want, out)
 		}
 	}
+
+	stdout.Reset()
+	stdout.WriteString("> api@1.0.0 lint /repo\n")
+	stdout.WriteString("> staticcheck ./...\n")
+	for i := 0; i < 80; i++ {
+		stdout.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
+	}
+	out, ok = TryCompactLintOutput([]string{"pnpm", "run", "lint"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script staticcheck diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[staticcheck] FAILED (80 diagnostics)",
+		"(repeated 80 times)",
+		"internal/app/app.go:22:7: this value of err is never used",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script staticcheck failure missing %q in %q", want, out)
+		}
+	}
 }
 
 func TestCompactPackageManagerLintScriptFailureOutputFailsOpen(t *testing.T) {
