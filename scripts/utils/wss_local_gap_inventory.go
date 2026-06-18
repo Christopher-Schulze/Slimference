@@ -212,6 +212,9 @@ func loadWSSLocalGapInventory(flags wssLocalGapInventoryFlags) (wssLocalGapInven
 		if err != nil {
 			return wssLocalGapInventoryReport{}, err
 		}
+		if gap.PhaseFRequests == 0 {
+			continue
+		}
 		guardedPotential := wssLocalGapTotalGuardedPotential(gap)
 		recoverableGap := maxInt(0, gap.PolicySavingsCeiling-gap.LocalSavedTokens)
 		row := wssLocalGapInventoryRow{

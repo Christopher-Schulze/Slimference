@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
@@ -161,6 +162,54 @@ func TestRunWSSLocalGapInventoryJSONAndText(t *testing.T) {
 		len(report.UnattributedRows) != 1 ||
 		report.UnattributedRows[0].Tokens != 600 {
 		t.Fatalf("bad json inventory: %+v", report)
+	}
+}
+
+func TestWSSLocalGapInventorySkipsLogsOutsideSinceWindow(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	oldDir := filepath.Join(dir, "cap-old")
+	newDir := filepath.Join(dir, "cap-new")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONLFile(t, filepath.Join(oldDir, "decisions.jsonl"), dbg.RequestSummary{
+		RequestID: "old",
+		Timestamp: time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC),
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape": "delta",
+		},
+	})
+	writeJSONLFile(t, filepath.Join(newDir, "decisions.jsonl"), dbg.RequestSummary{
+		RequestID: "new",
+		Timestamp: time.Date(2026, 6, 18, 10, 0, 0, 0, time.UTC),
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 1000, Final: 800, Saved: 200},
+		DebugFacts: map[string]string{
+			"wss.request_shape": "full_history",
+		},
+	})
+
+	report, err := loadWSSLocalGapInventory(wssLocalGapInventoryFlags{
+		path:  dir,
+		since: time.Date(2026, 6, 18, 9, 30, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapInventory() error = %v", err)
+	}
+	if report.Logs != 1 || report.PhaseFRequests != 1 || report.OriginalTokens != 1000 || report.LocalSavedTokens != 200 {
+		t.Fatalf("outside-window log affected inventory totals: %+v", report)
+	}
+	if len(report.Rows) != 1 || report.Rows[0].Name != "cap-new" {
+		t.Fatalf("outside-window log should be skipped, rows=%+v", report.Rows)
 	}
 }
 
