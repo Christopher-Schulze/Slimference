@@ -54,6 +54,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	bunAllPass := wssBunTestAllPassFixture(70)
 	cargoJSONAllPass := wssCargoTestJSONAllPassFixture(70)
 	sarifZeroResults := wssSARIFZeroResultsFixture(70)
+	railsAllPass := wssRailsTestAllPassFixture(70)
 	rspecAllPass := wssRspecAllPassFixture(70)
 	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
 	ginkgoFailure := "Will run 2 of 2 specs\n•F\nRan 2 of 2 Specs in 0.123 seconds\nFAIL! -- 1 Passed | 1 Failed | 0 Pending | 0 Skipped\n"
@@ -115,6 +116,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "playwright verbose all-pass", command: "playwright test", output: playwrightAllPass, wantSafe: true},
 		{name: "bun verbose all-pass", command: "bun test", output: bunAllPass, wantSafe: true},
 		{name: "cargo test json all-pass", command: "cargo test -- --format json", output: cargoJSONAllPass, wantSafe: true},
+		{name: "rails all-pass", command: "bundle exec rails test", output: railsAllPass, wantSafe: true},
 		{name: "rspec all-pass", command: "bundle exec rspec", output: rspecAllPass, wantSafe: true},
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
@@ -372,6 +374,38 @@ func TestWSSStatefulSafeRspecAllPassCompactsFullHistoryTurn(t *testing.T) {
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe rspec all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeRailsTestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: rails-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssRailsTestAllPassFixture(5000)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-rails-all-pass", "call_rails_all_pass", "bundle exec rails test", envelope, "stateful-rails-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle rails all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history rails all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[rails test] ok - 5000 runs, 10000 assertions") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, strings.Repeat(".", 40)) {
+		t.Fatalf("rails all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe rails all-pass should save without structured guard: %+v", summary)
 	}
 }
 
@@ -1722,6 +1756,15 @@ func wssBunTestAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "(pass) widget suite > renders op %03d [0.%02dms]\n", i, i%100)
 	}
 	fmt.Fprintf(&out, "\n %d pass\n 0 fail\n 140 expect() calls\nRan %d tests across 2 files. [3.01s]\n", count, count)
+	return out.String()
+}
+
+func wssRailsTestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("Run options: --seed 12345\n\n# Running:\n\n")
+	out.WriteString(strings.Repeat(".", count))
+	out.WriteString("\n\nFinished in 1.234567s, 97.2000 runs/s, 194.4000 assertions/s.\n")
+	fmt.Fprintf(&out, "%d runs, %d assertions, 0 failures, 0 errors, 0 skips\n", count, count*2)
 	return out.String()
 }
 

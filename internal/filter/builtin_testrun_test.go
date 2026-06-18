@@ -323,6 +323,24 @@ func TestTryCompactTestOutput_goCargo(t *testing.T) {
 	if !ok || string(rtYarnBundle) != "[rails test] ok\n" {
 		t.Fatalf("yarn bundle exec rails test: %q", rtYarnBundle)
 	}
+	var railsVerbose strings.Builder
+	railsVerbose.WriteString("Run options: --seed 12345\n\n# Running:\n\n")
+	railsVerbose.WriteString(strings.Repeat(".", 70))
+	railsVerbose.WriteString("\n\nFinished in 1.234567s, 56.7000 runs/s, 113.4000 assertions/s.\n")
+	railsVerbose.WriteString("70 runs, 140 assertions, 0 failures, 0 errors, 0 skips\n")
+	rtVerbose, ok := TryCompactRailsTest([]string{"bundle", "exec", "rails", "test"}, []byte(railsVerbose.String()))
+	if !ok || !strings.Contains(string(rtVerbose), "[rails test] ok - 70 runs, 140 assertions") {
+		t.Fatalf("rails verbose all-pass should compact: ok=%v out=%q", ok, rtVerbose)
+	}
+	if strings.Contains(string(rtVerbose), strings.Repeat(".", 20)) {
+		t.Fatalf("rails verbose all-pass leaked progress dots: %q", rtVerbose)
+	}
+	if _, ok := TryCompactRailsTest([]string{"rails", "test"}, []byte(strings.Replace(railsVerbose.String(), "0 failures, 0 errors", "1 failures, 0 errors", 1))); ok {
+		t.Fatal("rails failure summary must stay unmodified")
+	}
+	if _, ok := TryCompactRailsTest([]string{"rails", "test"}, []byte(strings.Replace(railsVerbose.String(), strings.Repeat(".", 70), strings.Repeat(".", 69), 1))); ok {
+		t.Fatal("rails mismatched progress count must stay unmodified")
+	}
 	gt, ok := TryCompactGradleTest([]string{"gradlew", "test"}, []byte(""))
 	if !ok || string(gt) != "[gradle test] ok\n" {
 		t.Fatalf("gradle test: %q", gt)

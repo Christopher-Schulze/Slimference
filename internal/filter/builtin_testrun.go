@@ -1533,15 +1533,100 @@ func isRailsTestArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactRailsTest summarizes empty stdout from `rails test` / `bundle exec rails test` / `npx|pnpm exec|yarn … rails test|bundle exec rails test` (F08 partial).
+// TryCompactRailsTest summarizes empty stdout and all-pass dot-progress output from
+// `rails test` / `bundle exec rails test` / `npx|pnpm exec|yarn … rails test|bundle exec rails test` (F08 partial).
 func TryCompactRailsTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if !isRailsTestArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[rails test] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[rails test] ok\n"), true
+	}
+	return compactRailsTestAllPass(stdout)
+}
+
+func compactRailsTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	progressDots := 0
+	summaryLine := ""
+	runs, assertions := 0, 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		if railsProgressDotLine(trimmed) {
+			progressDots += len(trimmed)
+			continue
+		}
+		if r, a, failures, errors, skips, ok := railsSummaryCounts(trimmed); ok {
+			if r <= 0 || failures != 0 || errors != 0 || skips != 0 {
+				return stdout, false
+			}
+			runs = r
+			assertions = a
+			summaryLine = trimmed
+			kept = append(kept, line)
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		for _, marker := range []string{"failure:", "error:", "failed", "exception", "traceback", "warning", "deprecated"} {
+			if strings.Contains(lower, marker) {
+				return stdout, false
+			}
+		}
+		kept = append(kept, line)
+	}
+	if runs <= 0 || progressDots != runs || summaryLine == "" {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[rails test] ok - %d runs, %d assertions, progress dots elided\n", runs, assertions) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func railsProgressDotLine(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		if r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func railsSummaryCounts(line string) (runs, assertions, failures, errors, skips int, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 10 ||
+		!railsCountWord(fields[1], "run") ||
+		!railsCountWord(fields[3], "assertion") ||
+		!railsCountWord(fields[5], "failure") ||
+		!railsCountWord(fields[7], "error") ||
+		!railsCountWord(fields[9], "skip") {
+		return 0, 0, 0, 0, 0, false
+	}
+	values := make([]int, 5)
+	for i, field := range []string{fields[0], fields[2], fields[4], fields[6], fields[8]} {
+		value, parsed := parseNonNegativeASCIIInt(strings.TrimSuffix(field, ","))
+		if !parsed {
+			return 0, 0, 0, 0, 0, false
+		}
+		values[i] = value
+	}
+	return values[0], values[1], values[2], values[3], values[4], true
+}
+
+func railsCountWord(field, singular string) bool {
+	field = strings.TrimSuffix(field, ",")
+	return field == singular || field == singular+"s"
 }
 
 func isDartTestArgv(argv []string) bool {
