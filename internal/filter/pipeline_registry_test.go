@@ -57,7 +57,7 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 		"test_output",
 		"search_output",
 		"log_output",
-		"api_json_exact",
+		"vcs_host_json_exact",
 		"json_minify",
 	} {
 		if !seen[id] {
@@ -95,8 +95,8 @@ func TestLayer0ReducerRegistryOrder(t *testing.T) {
 	if position["test_output"] > position["log_output"] {
 		t.Fatal("dedicated test reducer must run before generic log reducer")
 	}
-	if position["api_json_exact"] > position["json_minify"] {
-		t.Fatal("API exact JSON reducer must run before generic JSON reducer")
+	if position["vcs_host_json_exact"] > position["json_minify"] {
+		t.Fatal("VCS host exact JSON reducer must run before generic JSON reducer")
 	}
 }
 

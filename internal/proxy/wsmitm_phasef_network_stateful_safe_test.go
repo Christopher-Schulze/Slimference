@@ -21,6 +21,9 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if !wssSafeStatefulStatusCommandOutput("gh api /repos/acme/project", prettyJSON) {
 		t.Fatal("exact gh api JSON whitespace minify should be stateful-safe")
 	}
+	if !wssSafeStatefulStatusCommandOutput("gh pr list --json number,title", "[\n  {\"number\": 1, \"title\": \"first\"}\n]\n") {
+		t.Fatal("exact gh --json whitespace minify should be stateful-safe")
+	}
 	if wssSafeStatefulStatusCommandOutput("curl https://api.example.com/logs", "INFO boot\nINFO ready\n") {
 		t.Fatal("curl non-JSON logs must not become stateful-safe")
 	}
@@ -30,8 +33,11 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if wssSafeStatefulStatusCommandOutput("gh api /repos/acme/project", "plain response\nplain response\n") {
 		t.Fatal("gh api non-JSON logs must not become stateful-safe")
 	}
+	if wssSafeStatefulStatusCommandOutput("gh pr list --json number,title", "plain response\nplain response\n") {
+		t.Fatal("gh --json non-JSON output must not become stateful-safe")
+	}
 	if wssSafeStatefulStatusCommandOutput("gh pr list", prettyJSON) {
-		t.Fatal("non-api gh JSON must not enter the API exact-minify gate")
+		t.Fatal("gh JSON without API or JSON flag must not enter the VCS exact-minify gate")
 	}
 }
 
@@ -68,7 +74,7 @@ func TestWSSStatefulSafeNetworkJSONExactMinifyCompactsFullHistoryTurn(t *testing
 	}
 }
 
-func TestWSSStatefulSafeAPIJSONExactMinifyCompactsFullHistoryTurn(t *testing.T) {
+func TestWSSStatefulSafeVCSHostJSONExactMinifyCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -98,6 +104,27 @@ func TestWSSStatefulSafeAPIJSONExactMinifyCompactsFullHistoryTurn(t *testing.T) 
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe API JSON should save without structured guard: %+v", summary)
+	}
+
+	flagEnv := parseWSJSON(t, wssCommandOutputRequestBody("resp-vcs-json", "call_vcs_json", "gh pr list --json number,title", envelope, "stateful-vcs-json-session"))
+	replace, err = adapter.handle(context.Background(), wsmitm.DirClientToServer, &flagEnv)
+	if err != nil {
+		t.Fatalf("handle VCS host JSON request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history exact VCS host JSON output should compact")
+	}
+	flagBody := string(flagEnv.Body)
+	if !strings.Contains(flagBody, `\"final\":\"kept\"`) ||
+		!strings.Contains(flagBody, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(flagBody, "{object,") ||
+		strings.Contains(flagBody, `\"items\": [`) {
+		t.Fatalf("VCS host JSON output was not exact-minified and archive-backed: %s", flagBody)
+	}
+	flagSummary := p.DebugRecorder().Last(1, false)[0]
+	if flagSummary.Tokens.Saved <= 0 || flagSummary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		flagSummary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe VCS host JSON should save without structured guard: %+v", flagSummary)
 	}
 }
 

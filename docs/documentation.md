@@ -284,9 +284,9 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    network output is guarded before generic reducers: valid JSON may be
    whitespace-compacted exactly, while non-JSON and already-compact JSON
    full-pass so API bodies cannot be log-windowed, schema-summarized, or
-   truncated by default. `gh api` and `glab api` follow the same exact-only
-   path before generic JSON minify so large API payloads cannot be schema-
-   summarized by default. Long `terraform state list` and plain human-readable
+   truncated by default. `gh`/`glab` API calls and explicit JSON output flags
+   follow the same exact-only path before generic JSON minify so large VCS host
+   payloads cannot be schema-summarized by default. Long `terraform state list` and plain human-readable
    `terraform output` full-pass in the default package because resource
    addresses, output names, and output values are requested facts unless a
    future route-specific reducer owns exact archive recovery.

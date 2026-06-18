@@ -18,12 +18,30 @@ func isNetworkResponseArgv(argv []string) bool {
 		b == "https" || b == "https.exe"
 }
 
-func isAPIJSONExactArgv(argv []string) bool {
+func isVCSHostJSONExactArgv(argv []string) bool {
 	if len(argv) < 2 {
 		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	return (b == "gh" || b == "gh.exe" || b == "glab" || b == "glab.exe") && strings.EqualFold(argv[1], "api")
+	if b != "gh" && b != "gh.exe" && b != "glab" && b != "glab.exe" {
+		return false
+	}
+	return strings.EqualFold(argv[1], "api") || argvHasExplicitJSONOutput(argv[1:])
+}
+
+func argvHasExplicitJSONOutput(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := strings.ToLower(strings.TrimSpace(args[i]))
+		switch {
+		case arg == "--json" || strings.HasPrefix(arg, "--json="):
+			return true
+		case arg == "--format=json" || arg == "--output=json" || arg == "-o=json":
+			return true
+		case arg == "--format" || arg == "--output" || arg == "-o":
+			return i+1 < len(args) && strings.EqualFold(strings.TrimSpace(args[i+1]), "json")
+		}
+	}
+	return false
 }
 
 // TryCompactNetworkResponse only performs exact network-response reductions.
@@ -49,10 +67,10 @@ func TryCompactNetworkResponse(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, true
 }
 
-// TryCompactAPIJSONExact exact-minifies API CLI JSON output and otherwise
-// full-passes it so generic reducers cannot schema-summarize API bodies.
-func TryCompactAPIJSONExact(argv []string, stdout []byte) ([]byte, bool) {
-	if !isAPIJSONExactArgv(argv) {
+// TryCompactVCSHostJSONExact exact-minifies GitHub/GitLab CLI JSON output and
+// otherwise full-passes it so generic reducers cannot schema-summarize API bodies.
+func TryCompactVCSHostJSONExact(argv []string, stdout []byte) ([]byte, bool) {
+	if !isVCSHostJSONExactArgv(argv) {
 		return stdout, false
 	}
 	trimmed := bytes.TrimSpace(stdout)
