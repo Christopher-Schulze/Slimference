@@ -80,3 +80,36 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 		}
 	}
 }
+
+func TestCodexDesktopStatusStalePromptLaunchDoesNotEmitHandoff(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:              "desktop_ready_for_prompt",
+		Transport:         codexDesktopTransportAppServer,
+		LaunchPID:         6161,
+		LaunchReady:       true,
+		ManualPromptStill: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return nil, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" {
+		t.Fatalf("stale prompt handoff should fall back to a fresh probe: %+v", got)
+	}
+	if got.OwnerPrompt != "" || got.FinishCommand != "" || got.ClassDistributionCommand != "" || len(got.NextSteps) != 0 {
+		t.Fatalf("stale prompt handoff must not emit owner proof commands: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.Notes, "\n"), "prompt handoff is stale") {
+		t.Fatalf("stale handoff note missing: %+v", got.Notes)
+	}
+}

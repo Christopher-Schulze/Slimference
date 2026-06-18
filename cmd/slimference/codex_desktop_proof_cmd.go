@@ -377,7 +377,10 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.Notes = append(out.Notes, "Codex.app is already running (PID "+joinDesktopPIDs(runningPIDs)+"); quit it first so scoped Slimference env can be injected, or pass --replace-existing only when interrupting that session is intentional")
 		return out
 	}
-	if out.LastProof != nil {
+	if out.LastProof != nil && out.LastProof.Mode == "desktop_ready_for_prompt" &&
+		!codexDesktopLastProofOwnsRunningApp(out.LastProof, runningPIDs) {
+		out.Notes = append(out.Notes, "last Desktop prompt handoff is stale because the scoped Codex.app launch PID is no longer running; start a new manual Desktop proof before pasting the owner prompt")
+	} else if out.LastProof != nil {
 		applyCodexDesktopLastProof(&out, out.LastProof)
 		if out.Mode != "not_ready" {
 			return out
