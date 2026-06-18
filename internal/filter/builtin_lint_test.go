@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -1308,6 +1309,61 @@ func TestTryCompactMypy_success(t *testing.T) {
 	if !strings.Contains(s, "[mypy] ok") {
 		t.Errorf("want [mypy] ok prefix, got: %q", s)
 	}
+}
+
+func TestTryCompactCargoClippyCleanOutput(t *testing.T) {
+	t.Parallel()
+
+	input := cargoClippyCleanFixture(40)
+	out, ok := TryCompactCargoClippy([]string{"cargo", "clippy", "--all-targets", "--all-features"}, []byte(input))
+	if !ok || string(out) != "[cargo clippy] ok\n" {
+		t.Fatalf("cargo clippy clean: ok=%v out=%q", ok, out)
+	}
+	chainOut, ok := TryCompactLintOutput([]string{"pnpm", "exec", "cargo", "clippy", "--workspace"}, []byte(input))
+	if !ok || string(chainOut) != "[cargo clippy] ok\n" {
+		t.Fatalf("cargo clippy lint chain: ok=%v out=%q", ok, chainOut)
+	}
+	if len(out) >= len(input) {
+		t.Fatalf("cargo clippy clean summary should be shorter: %d >= %d", len(out), len(input))
+	}
+}
+
+func TestTryCompactCargoClippyCleanOutputGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "warning", input: cargoClippyCleanFixture(4) + "warning: generated binding is deprecated\n"},
+		{name: "error", input: "    Checking slimtest v0.1.0 (/repo/slimtest)\nerror: unnecessary clone\n"},
+		{name: "note", input: cargoClippyCleanFixture(4) + "note: run with `RUST_BACKTRACE=1`\n"},
+		{name: "help", input: cargoClippyCleanFixture(4) + "help: remove this binding\n"},
+		{name: "unknown progress", input: "    Updating crates.io index\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
+		{name: "missing finished", input: "    Checking slimtest v0.1.0 (/repo/slimtest)\n"},
+		{name: "finished only", input: "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := TryCompactCargoClippy([]string{"cargo", "clippy"}, []byte(tt.input)); ok {
+				t.Fatalf("unsafe cargo clippy output compacted: %q", tt.input)
+			}
+		})
+	}
+	if _, ok := TryCompactCargoClippy([]string{"cargo", "check"}, []byte(cargoClippyCleanFixture(4))); ok {
+		t.Fatal("cargo check must not use cargo clippy parser")
+	}
+}
+
+func cargoClippyCleanFixture(packages int) string {
+	var out strings.Builder
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "    Checking slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", i, i)
+	}
+	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	return out.String()
 }
 
 func TestTryCompactPyrightCleanOutput(t *testing.T) {

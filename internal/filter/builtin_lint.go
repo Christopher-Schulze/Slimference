@@ -33,15 +33,95 @@ func isCargoClippyArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactCargoClippy summarizes empty stdout from `cargo clippy` / `npx|pnpm exec|yarn … cargo clippy` (F09 partial).
+// TryCompactCargoClippy summarizes empty and parser-proven clean stdout from
+// `cargo clippy` / `npx|pnpm exec|yarn ... cargo clippy`.
 func TryCompactCargoClippy(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if !isCargoClippyArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[cargo clippy] ok\n"), true
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[cargo clippy] ok\n"), true
+	}
+	if compacted, ok := compactCargoClippyCleanOutput(s, len(stdout)); ok {
+		return compacted, true
+	}
+	return stdout, false
+}
+
+func compactCargoClippyCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	lines := strings.Split(stdout, "\n")
+	sawFinished := false
+	sawProgress := false
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if cargoClippyLineHasUnsafeMarker(line) {
+			return nil, false
+		}
+		switch {
+		case cargoClippyProgressLine(line):
+			sawProgress = true
+		case cargoClippyFinishedLine(line):
+			sawFinished = true
+		default:
+			return nil, false
+		}
+	}
+	if !sawFinished || !sawProgress {
+		return nil, false
+	}
+	out := []byte("[cargo clippy] ok\n")
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
+}
+
+func cargoClippyProgressLine(line string) bool {
+	for _, prefix := range []string{"Checking ", "Compiling "} {
+		if strings.HasPrefix(line, prefix) && strings.TrimSpace(strings.TrimPrefix(line, prefix)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func cargoClippyFinishedLine(line string) bool {
+	if !strings.HasPrefix(line, "Finished ") {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "Finished "))
+	return strings.Contains(rest, "profile") && strings.Contains(rest, "target(s) in")
+}
+
+func cargoClippyLineHasUnsafeMarker(line string) bool {
+	lower := strings.ToLower(line)
+	if strings.HasPrefix(lower, "warning") ||
+		strings.HasPrefix(lower, "error") ||
+		strings.HasPrefix(lower, "note:") ||
+		strings.HasPrefix(lower, "help:") ||
+		strings.HasPrefix(lower, "-->") {
+		return true
+	}
+	for _, marker := range []string{
+		" failed",
+		"failure",
+		"panicked",
+		"aborting",
+		"aborted",
+		"could not",
+		"cannot ",
+		"unresolved",
+		" denied",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isCargoAuditArgv(argv []string) bool {
