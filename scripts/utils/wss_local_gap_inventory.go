@@ -74,6 +74,7 @@ Usage:
 
 Flags:
   --since=<rfc3339>                 Ignore records before this timestamp
+  --since-file=<path>               Read RFC3339 --since value from file
   --min-local-ratio=<ratio>          Target S_local ratio, default 0.48
   --json                            Output JSON
 
@@ -138,6 +139,22 @@ func parseWSSLocalGapInventoryFlags(args []string) (wssLocalGapInventoryFlags, e
 			since, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--since="))
 			if err != nil {
 				return flags, fmt.Errorf("--since must be RFC3339: %w", err)
+			}
+			flags.since = since
+		case arg == "--since-file":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			since, err := parseWSSSinceFile(value)
+			if err != nil {
+				return flags, err
+			}
+			flags.since = since
+		case strings.HasPrefix(arg, "--since-file="):
+			since, err := parseWSSSinceFile(strings.TrimPrefix(arg, "--since-file="))
+			if err != nil {
+				return flags, err
 			}
 			flags.since = since
 		case arg == "--min-local-ratio":
