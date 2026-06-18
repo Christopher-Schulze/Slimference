@@ -97,6 +97,11 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	if report.Verdict != "headroom_present" {
 		t.Fatalf("expected headroom_present (reducible ceiling 51.7%% >= 48%%), got %q: %s", report.Verdict, report.VerdictDetail)
 	}
+	if !report.HeadroomPresent || !report.GapInventoryRecommended ||
+		!strings.Contains(report.NextAction, "wss-local-gap-inventory") {
+		t.Fatalf("bad headroom next action: headroom=%v gap=%v next=%q",
+			report.HeadroomPresent, report.GapInventoryRecommended, report.NextAction)
+	}
 
 	delta := wssClassDistributionFindClass(report.Classes, "delta")
 	fullHist := wssClassDistributionFindClass(report.Classes, "full_history")
@@ -140,6 +145,11 @@ func TestWSSClassDistributionCorpusCeilingVerdict(t *testing.T) {
 	}
 	if report.ReducibleCeilingRatio >= report.TargetRatio {
 		t.Fatalf("reducible ceiling %.4f should be below target %.4f", report.ReducibleCeilingRatio, report.TargetRatio)
+	}
+	if report.HeadroomPresent || report.GapInventoryRecommended ||
+		!strings.Contains(report.NextAction, "do not widen guards") {
+		t.Fatalf("bad corpus-ceiling next action: headroom=%v gap=%v next=%q",
+			report.HeadroomPresent, report.GapInventoryRecommended, report.NextAction)
 	}
 	// target saved = ceil(10000*0.48) = 4800; reducible = 1500; deficit = 3300.
 	if report.ReducibleCeilingDeficit != 3300 {
@@ -203,6 +213,8 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 	if !strings.Contains(stdout.String(), "WSS Class Distribution") ||
 		!strings.Contains(stdout.String(), "Reducible ceiling ratio") ||
 		!strings.Contains(stdout.String(), "Non-prefix upper bound") ||
+		!strings.Contains(stdout.String(), "Headroom present:") ||
+		!strings.Contains(stdout.String(), "Next action:") ||
 		!strings.Contains(stdout.String(), "Verdict:") ||
 		!strings.Contains(stdout.String(), "Per request class:") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
@@ -220,7 +232,10 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 	if report.PhaseFRequests != 1 ||
 		report.ReducibleToolOutputTokens != 14000 ||
 		report.PrefixProtectedTokens != 2000 ||
-		report.Verdict != "headroom_present" {
+		report.Verdict != "headroom_present" ||
+		!report.HeadroomPresent ||
+		!report.GapInventoryRecommended ||
+		!strings.Contains(report.NextAction, "wss-local-gap-inventory") {
 		t.Fatalf("bad json report: %+v", report)
 	}
 

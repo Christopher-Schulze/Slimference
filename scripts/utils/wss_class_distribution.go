@@ -63,6 +63,9 @@ type wssClassDistributionReport struct {
 	ReasoningItems            int                            `json:"reasoning_items"`
 	Verdict                   string                         `json:"verdict"`
 	VerdictDetail             string                         `json:"verdict_detail"`
+	HeadroomPresent           bool                           `json:"headroom_present"`
+	GapInventoryRecommended   bool                           `json:"gap_inventory_recommended"`
+	NextAction                string                         `json:"next_action"`
 	Classes                   []wssClassDistributionClassRow `json:"classes"`
 	PerLog                    []wssClassDistributionLogRow   `json:"per_log,omitempty"`
 	Notes                     []string                       `json:"notes,omitempty"`
@@ -430,6 +433,9 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 	})
 
 	a.report.Verdict, a.report.VerdictDetail = wssClassDistributionVerdict(a.report, targetRatio)
+	a.report.HeadroomPresent = wssClassDistributionHeadroomPresent(a.report, targetRatio)
+	a.report.GapInventoryRecommended = a.report.HeadroomPresent
+	a.report.NextAction = wssClassDistributionNextAction(a.report)
 	a.report.Notes = wssClassDistributionNotes(a.report, targetRatio)
 }
 
@@ -459,6 +465,23 @@ func wssClassDistributionVerdict(report wssClassDistributionReport, targetRatio 
 		report.LocalSavingsRatio*100,
 		report.ReducibleHeadroomTokens,
 	)
+}
+
+func wssClassDistributionHeadroomPresent(report wssClassDistributionReport, targetRatio float64) bool {
+	return report.OriginalTokens > 0 && report.ReducibleCeilingRatio+wssClassDistributionEpsilon >= targetRatio
+}
+
+func wssClassDistributionNextAction(report wssClassDistributionReport) string {
+	switch report.Verdict {
+	case "headroom_present":
+		return "run wss-local-gap-inventory on the same capture and patch only the largest exact zero-drawdown blocker"
+	case "corpus_ceiling_evidence":
+		return "do not widen guards; capture an owner Desktop Class-B/full-history session, prove T354 downstream-delta/server-state safety, or record this session class as capped"
+	case "no_data":
+		return "capture WSS Phase-F traffic before evaluating savings eligibility"
+	default:
+		return "inspect verdict_detail before changing any guard"
+	}
 }
 
 func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio float64) []string {
@@ -521,6 +544,9 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	fmt.Fprintf(w, "Provider cache read/cached: %d / %d  [separate, not S_local]\n", report.ProviderCacheReadTokens, report.ProviderCachedTokens)
 	fmt.Fprintf(w, "Reasoning items (Class D):  %d\n", report.ReasoningItems)
 	fmt.Fprintf(w, "\nVerdict: %s\n  %s\n", report.Verdict, report.VerdictDetail)
+	fmt.Fprintf(w, "Headroom present:          %t\n", report.HeadroomPresent)
+	fmt.Fprintf(w, "Gap inventory recommended: %t\n", report.GapInventoryRecommended)
+	fmt.Fprintf(w, "Next action:               %s\n", report.NextAction)
 
 	if len(report.Classes) > 0 {
 		fmt.Fprintln(w, "\nPer request class:")
