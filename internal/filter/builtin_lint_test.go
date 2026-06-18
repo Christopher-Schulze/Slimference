@@ -1310,6 +1310,68 @@ func TestTryCompactMypy_success(t *testing.T) {
 	}
 }
 
+func TestTryCompactPyrightCleanOutput(t *testing.T) {
+	t.Parallel()
+
+	jsonInput := `{
+  "version": "1.1.400",
+  "time": "2026-06-18T12:00:00.000Z",
+  "generalDiagnostics": [],
+  "summary": {
+    "filesAnalyzed": 188,
+    "errorCount": 0,
+    "warningCount": 0,
+    "informationCount": 0,
+    "timeInSec": 1.23
+  }
+}
+`
+	out, ok := TryCompactPyright([]string{"pyright", "--outputjson", "src"}, []byte(jsonInput))
+	if !ok || string(out) != "[pyright --outputjson] ok (188 files analyzed)\n" {
+		t.Fatalf("pyright json clean: ok=%v out=%q", ok, out)
+	}
+	chainOut, ok := TryCompactLintOutput([]string{"basedpyright", "--outputjson", "."}, []byte(jsonInput))
+	if !ok || string(chainOut) != "[pyright --outputjson] ok (188 files analyzed)\n" {
+		t.Fatalf("pyright lint chain json clean: ok=%v out=%q", ok, chainOut)
+	}
+
+	textInput := "Found 188 source files\n0 errors, 0 warnings, 0 informations\n"
+	textOut, ok := TryCompactPyright([]string{"basedpyright", "."}, []byte(textInput))
+	if !ok || string(textOut) != "[pyright] ok (188 files analyzed)\n" {
+		t.Fatalf("pyright text clean: ok=%v out=%q", ok, textOut)
+	}
+
+	notesOut, ok := TryCompactPyright([]string{"pyright", "."}, []byte("0 errors, 0 warnings, 0 notes\n"))
+	if !ok || string(notesOut) != "[pyright] ok\n" {
+		t.Fatalf("basedpyright notes clean: ok=%v out=%q", ok, notesOut)
+	}
+}
+
+func TestTryCompactPyrightCleanOutputGuards(t *testing.T) {
+	t.Parallel()
+
+	withDiagnostic := `{"version":"1.1.400","time":"t","generalDiagnostics":[{"message":"bad"}],"summary":{"filesAnalyzed":1,"errorCount":0,"warningCount":0,"informationCount":0,"timeInSec":0.1}}`
+	if _, ok := TryCompactPyright([]string{"pyright", "--outputjson"}, []byte(withDiagnostic)); ok {
+		t.Fatal("pyright JSON diagnostics must fail open")
+	}
+	withWarning := `{"version":"1.1.400","time":"t","generalDiagnostics":[],"summary":{"filesAnalyzed":1,"errorCount":0,"warningCount":1,"informationCount":0,"timeInSec":0.1}}`
+	if _, ok := TryCompactPyright([]string{"pyright", "--outputjson"}, []byte(withWarning)); ok {
+		t.Fatal("pyright JSON warnings must fail open")
+	}
+	withUnknownField := `{"version":"1.1.400","time":"t","generalDiagnostics":[],"extra":"keep me","summary":{"filesAnalyzed":1,"errorCount":0,"warningCount":0,"informationCount":0,"timeInSec":0.1}}`
+	if _, ok := TryCompactPyright([]string{"pyright", "--outputjson"}, []byte(withUnknownField)); ok {
+		t.Fatal("pyright JSON unknown fields must fail open")
+	}
+	withInfo := "0 errors, 0 warnings, 1 information\n"
+	if _, ok := TryCompactPyright([]string{"pyright", "."}, []byte(withInfo)); ok {
+		t.Fatal("pyright text information diagnostics must fail open")
+	}
+	withConfigNoise := "No configuration file found.\n0 errors, 0 warnings, 0 informations\n"
+	if _, ok := TryCompactPyright([]string{"pyright", "."}, []byte(withConfigNoise)); ok {
+		t.Fatal("pyright text config noise must fail open")
+	}
+}
+
 func TestTryCompactLintOutput_truncatesLargeOutput(t *testing.T) {
 	t.Parallel()
 	// Build a large golangci-lint output (>60 non-empty lines)

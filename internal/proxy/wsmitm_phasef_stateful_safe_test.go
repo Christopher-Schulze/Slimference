@@ -81,6 +81,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	dotnetWarning := "Passed!  - Failed: 0, Passed: 60, Skipped: 0, Total: 60, Duration: 1 s - Tests.dll (net8.0)\nWarning: diagnostics were emitted\n"
 	mypySuccess := wssMypySuccessFixture(12)
 	mypyFailure := "src/app.py:11: error: Incompatible return value type\nsrc/app.py:11: note: expected str\nFound 1 error in 1 file (checked 48 source files)\n"
+	pyrightJSONSuccess := wssPyrightJSONSuccessFixture(24)
+	pyrightJSONWarning := strings.Replace(pyrightJSONSuccess, `"warningCount": 0`, `"warningCount": 1`, 1)
 	logDuplicateRuns := wssLogDuplicateRunsFixture(24)
 	logUnique := "2026-06-18T10:00:00Z INFO service started\n2026-06-18T10:00:01Z WARN connection refused\n"
 	logSourceLike := "app.go:10: failed to bind\napp.go:10: failed to bind\n"
@@ -144,6 +146,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
 		{name: "mypy success summary", command: "mypy src", output: mypySuccess, wantSafe: true},
+		{name: "pyright JSON clean", command: "pyright --outputjson src", output: pyrightJSONSuccess, wantSafe: true},
 		{name: "docker logs duplicate runs", command: "docker logs app", output: logDuplicateRuns, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "npm install clean success", command: "npm install", output: npmInstallClean, wantSafe: true},
@@ -200,6 +203,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
 		{name: "mypy failure", command: "mypy src", output: mypyFailure, wantGuard: "mypy diagnostics stay guarded"},
+		{name: "pyright JSON warning", command: "pyright --outputjson src", output: pyrightJSONWarning, wantGuard: "pyright JSON findings stay guarded"},
 		{name: "docker logs unique", command: "docker logs app", output: logUnique, wantGuard: "unique logs stay guarded"},
 		{name: "docker logs source-looking duplicate", command: "docker logs app", output: logSourceLike, wantGuard: "source-looking logs stay guarded"},
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
@@ -736,6 +740,38 @@ func TestWSSStatefulSafeMypySuccessCompactsFullHistoryTurn(t *testing.T) {
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe mypy success should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafePyrightJSONSuccessCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: pyright-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssPyrightJSONSuccessFixture(80)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-pyright-json-success", "call_pyright_json_success", "pyright --outputjson src", envelope, "stateful-pyright-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle pyright JSON success request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history pyright JSON success output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[pyright --outputjson] ok (188 files analyzed)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "generalDiagnostics") {
+		t.Fatalf("pyright JSON success output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe pyright JSON success should save without structured guard: %+v", summary)
 	}
 }
 
@@ -1745,6 +1781,27 @@ func wssMypySuccessFixture(noiseLines int) string {
 		fmt.Fprintf(&out, "Using Python executable for module %03d: /tmp/slimference-venv/bin/python\n", i)
 	}
 	out.WriteString("Success: no issues found in 188 source files\n")
+	return out.String()
+}
+
+func wssPyrightJSONSuccessFixture(paddingLines int) string {
+	var out strings.Builder
+	out.WriteString("{\n")
+	for i := 0; i < paddingLines; i++ {
+		out.WriteString("  \n")
+	}
+	out.WriteString(`  "version": "1.1.400",
+  "time": "2026-06-18T12:00:00.000Z",
+  "generalDiagnostics": [],
+  "summary": {
+    "filesAnalyzed": 188,
+    "errorCount": 0,
+    "warningCount": 0,
+    "informationCount": 0,
+    "timeInSec": 1.23
+  }
+}
+`)
 	return out.String()
 }
 

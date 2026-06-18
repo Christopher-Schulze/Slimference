@@ -1,8 +1,11 @@
 package filter
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -288,37 +291,174 @@ func TryCompactKubeLinter(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
-// TryCompactPyright summarizes empty stdout from `pyright` / `basedpyright` / `npx|pnpm exec|yarn … pyright|basedpyright` (F09 partial).
+// TryCompactPyright summarizes empty and parser-proven clean output from
+// `pyright` / `basedpyright` / wrapped pyright commands.
 func TryCompactPyright(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isPyrightArgv(argv) {
 		return stdout, false
 	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[pyright] ok\n"), true
+	}
+	if compacted, ok := compactPyrightJSONSuccess([]byte(s)); ok {
+		return compacted, true
+	}
+	if compacted, ok := compactPyrightTextSuccess(s); ok {
+		return compacted, true
+	}
+	return stdout, false
+}
+
+func isPyrightArgv(argv []string) bool {
 	if len(argv) < 1 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if b == "pyright" || b == "pyright.exe" || b == "basedpyright" || b == "basedpyright.exe" {
-		return []byte("[pyright] ok\n"), true
+		return true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 {
 		switch strings.ToLower(filepath.Base(rest[0])) {
 		case "pyright", "basedpyright":
-			return []byte("[pyright] ok\n"), true
+			return true
 		}
 	}
 	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" {
 		switch strings.ToLower(filepath.Base(argv[2])) {
 		case "pyright", "basedpyright":
-			return []byte("[pyright] ok\n"), true
+			return true
 		}
 	}
 	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") {
 		switch strings.ToLower(filepath.Base(argv[1])) {
 		case "pyright", "basedpyright":
-			return []byte("[pyright] ok\n"), true
+			return true
 		}
 	}
-	return stdout, false
+	return false
+}
+
+type pyrightJSONReport struct {
+	Version            string                   `json:"version"`
+	Time               string                   `json:"time"`
+	GeneralDiagnostics []json.RawMessage        `json:"generalDiagnostics"`
+	Summary            pyrightJSONReportSummary `json:"summary"`
+}
+
+type pyrightJSONReportSummary struct {
+	FilesAnalyzed    int     `json:"filesAnalyzed"`
+	ErrorCount       int     `json:"errorCount"`
+	WarningCount     int     `json:"warningCount"`
+	InformationCount int     `json:"informationCount"`
+	TimeInSec        float64 `json:"timeInSec"`
+}
+
+func compactPyrightJSONSuccess(stdout []byte) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(stdout)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	var report pyrightJSONReport
+	if err := dec.Decode(&report); err != nil {
+		return nil, false
+	}
+	if report.Summary.FilesAnalyzed <= 0 ||
+		report.Summary.ErrorCount != 0 ||
+		report.Summary.WarningCount != 0 ||
+		report.Summary.InformationCount != 0 ||
+		len(report.GeneralDiagnostics) != 0 {
+		return nil, false
+	}
+	out := []byte(fmt.Sprintf("[pyright --outputjson] ok (%d files analyzed)\n", report.Summary.FilesAnalyzed))
+	if len(out) >= len(stdout) {
+		return nil, false
+	}
+	return out, true
+}
+
+func compactPyrightTextSuccess(stdout string) ([]byte, bool) {
+	lines := strings.Split(stdout, "\n")
+	filesAnalyzed := -1
+	sawSummary := false
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if n, ok := parsePyrightSourceCountLine(line); ok {
+			filesAnalyzed = n
+			continue
+		}
+		if strings.HasPrefix(line, "Found ") {
+			return nil, false
+		}
+		if errors, warnings, infos, ok := parsePyrightTextSummaryLine(line); ok {
+			if errors == 0 && warnings == 0 && infos == 0 {
+				sawSummary = true
+				continue
+			}
+			return nil, false
+		}
+		return nil, false
+	}
+	if !sawSummary {
+		return nil, false
+	}
+	out := []byte("[pyright] ok\n")
+	if filesAnalyzed >= 0 {
+		out = []byte(fmt.Sprintf("[pyright] ok (%d files analyzed)\n", filesAnalyzed))
+	}
+	if len(out) >= len(stdout) {
+		return nil, false
+	}
+	return out, true
+}
+
+func parsePyrightSourceCountLine(line string) (int, bool) {
+	const prefix = "Found "
+	if !strings.HasPrefix(line, prefix) {
+		return 0, false
+	}
+	for _, suffix := range []string{" source files", " source file"} {
+		if !strings.HasSuffix(line, suffix) {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix)))
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+func parsePyrightTextSummaryLine(line string) (int, int, int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 6 {
+		return 0, 0, 0, false
+	}
+	if fields[1] != "errors," || fields[3] != "warnings," {
+		return 0, 0, 0, false
+	}
+	if fields[5] != "informations" && fields[5] != "notes" {
+		return 0, 0, 0, false
+	}
+	errors, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	warnings, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	infos, err := strconv.Atoi(fields[4])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return errors, warnings, infos, true
 }
 
 // TryCompactAnsibleLint summarizes empty stdout from `ansible-lint` / `npx|pnpm exec|yarn … ansible-lint` (F09 partial).
