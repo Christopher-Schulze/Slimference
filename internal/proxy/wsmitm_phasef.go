@@ -1943,6 +1943,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeReducerOKSummaryOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeStructuredNoFindingsOutput(commandLine, payload) {
+		return true
+	}
 	if proxyInferredPlainPathListCommand(commandLine) {
 		return wssSafeBoundedPlainPathListPayload(payload, wssSafeRgFilesOutputMaxBytes, wssSafeRgFilesOutputMaxEntries)
 	}
@@ -2047,6 +2050,50 @@ func wssCompactedTerraformValidateSuccess(compacted []byte) bool {
 		return false
 	}
 	return success
+}
+
+func wssSafeStructuredNoFindingsOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	if compacted, ok := filter.TryCompactEslintJSON(argv, stdout); ok &&
+		len(compacted) < len(stdout) &&
+		wssCompactedEslintCleanSummary(compacted) {
+		return true
+	}
+	if !wssSafeSARIFArgv(argv) {
+		return false
+	}
+	compacted, ok := filter.TryCompactSARIF(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssCompactedSARIFZeroResults(compacted)
+}
+
+func wssCompactedEslintCleanSummary(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	return strings.HasPrefix(text, "[eslint] clean (") && strings.HasSuffix(text, " file(s))")
+}
+
+func wssCompactedSARIFZeroResults(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[sarif: ") {
+		return false
+	}
+	closeBracket := strings.IndexByte(text, ']')
+	if closeBracket <= 0 {
+		return false
+	}
+	return strings.TrimSpace(text[closeBracket+1:]) == "0 results"
+}
+
+func wssSafeSARIFArgv(argv []string) bool {
+	joined := strings.ToLower(strings.Join(argv, " "))
+	return strings.Contains(joined, "--format sarif") ||
+		strings.Contains(joined, "--format=sarif") ||
+		strings.Contains(joined, "--output-format sarif") ||
+		strings.Contains(joined, "--output-format=sarif") ||
+		strings.Contains(joined, "-f sarif")
 }
 
 func wssSafeGitStatusCommand(commandLine string) bool {
