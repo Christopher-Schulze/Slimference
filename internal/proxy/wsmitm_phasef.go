@@ -2650,7 +2650,7 @@ func wssSafeTypeScriptDiagnosticOutput(commandLine, payload string) bool {
 		return false
 	}
 	stdout := []byte(payload)
-	compacted, ok := filter.TryCompactTscDiagnostics(argv, stdout)
+	compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
 	if !ok || len(compacted) >= len(stdout) {
 		return false
 	}

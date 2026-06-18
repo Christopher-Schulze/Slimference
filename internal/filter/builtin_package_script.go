@@ -13,7 +13,10 @@ type packageManagerScriptCandidate struct {
 }
 
 func compactPackageManagerBuildScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
-	return compactPackageManagerScriptOutput(argv, stdout, packageManagerBuildScriptParsers())
+	if out, ok := compactPackageManagerScriptOutput(argv, stdout, packageManagerBuildScriptParsers()); ok {
+		return out, true
+	}
+	return compactPackageManagerTypeScriptFailureScriptOutput(argv, stdout)
 }
 
 func compactPackageManagerLintScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
@@ -55,6 +58,20 @@ func compactPackageManagerScriptFailureOutput(argv []string, stdout []byte) ([]b
 	return stdout, false
 }
 
+func compactPackageManagerTypeScriptFailureScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if !isSafePackageManagerScriptArgv(argv) || strings.TrimSpace(string(stdout)) == "" {
+		return stdout, false
+	}
+	for _, candidate := range packageManagerScriptTranscriptCandidates(stdout) {
+		compact, ok := TryCompactTscDiagnostics(candidate.argv, candidate.payload)
+		if !ok || !packageManagerTypeScriptFailureSummary(compact) || len(compact) >= len(stdout) {
+			continue
+		}
+		return compact, true
+	}
+	return stdout, false
+}
+
 func packageManagerScriptFailureSummary(out []byte) bool {
 	text := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(text, "[") {
@@ -65,6 +82,10 @@ func packageManagerScriptFailureSummary(out []byte) bool {
 		return false
 	}
 	return strings.HasPrefix(strings.TrimSpace(text[closeBracket+1:]), "FAILED")
+}
+
+func packageManagerTypeScriptFailureSummary(out []byte) bool {
+	return strings.HasPrefix(strings.TrimSpace(string(out)), "[typescript] FAILED")
 }
 
 func packageManagerBuildScriptParsers() []packageManagerScriptParser {

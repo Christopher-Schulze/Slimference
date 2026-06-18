@@ -23,6 +23,37 @@ func TestCompactPackageManagerBuildScriptOutput(t *testing.T) {
 	}
 }
 
+func TestCompactPackageManagerBuildScriptTypeScriptFailureOutput(t *testing.T) {
+	t.Parallel()
+
+	var stdout strings.Builder
+	stdout.WriteString("> web@1.0.0 typecheck /repo\n")
+	stdout.WriteString("> tsc --noEmit\n")
+	for i := 0; i < 80; i++ {
+		stdout.WriteString("tsc progress line\n")
+	}
+	stdout.WriteString("src/app.ts(7,3): error TS2322: Type 'string' is not assignable to type 'number'.\n")
+	stdout.WriteString("src/routes/+page.ts:3:11 - error TS2304: Cannot find name 'loadData'.\n")
+	stdout.WriteString("Found 2 errors in 2 files.\n")
+
+	out, ok := TryCompactBuildOutput([]string{"pnpm", "run", "typecheck"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script TypeScript failure diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[typescript] FAILED",
+		"TS2322",
+		"TS2304",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script TypeScript failure missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(string(out), "tsc progress line") {
+		t.Fatalf("neutral TypeScript progress should be compacted out: %q", out)
+	}
+}
+
 func TestCompactPackageManagerLintScriptOutput(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +128,25 @@ func TestCompactPackageManagerScriptOutputFailsOpen(t *testing.T) {
 			name:   "nested run script",
 			argv:   []string{"npm", "run", "build"},
 			stdout: "> app@1.0.0 build\n> npm run build\n",
+			try:    TryCompactBuildOutput,
+		},
+		{
+			name: "typecheck source context",
+			argv: []string{"pnpm", "run", "typecheck"},
+			stdout: strings.Join([]string{
+				"> app@1.0.0 typecheck",
+				"> tsc --noEmit",
+				"src/App.tsx(12,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+				"import { missingName } from './missing';",
+				"Found 1 error in 1 file.",
+				"",
+			}, "\n"),
+			try: TryCompactBuildOutput,
+		},
+		{
+			name:   "typecheck shell pipeline",
+			argv:   []string{"pnpm", "run", "typecheck"},
+			stdout: "> app@1.0.0 typecheck\n> tsc --noEmit | tee tsc.log\nsrc/app.ts(7,3): error TS2322: bad\n",
 			try:    TryCompactBuildOutput,
 		},
 		{

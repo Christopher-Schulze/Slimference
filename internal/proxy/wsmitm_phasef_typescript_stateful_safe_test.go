@@ -43,18 +43,60 @@ func TestWSSStatefulSafeTypeScriptDiagnosticsCompactsFullHistoryTurn(t *testing.
 	}
 }
 
+func TestWSSStatefulSafePackageManagerTypeScriptDiagnosticsCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: package-tsc-diagnostics-safe\nWall time: 0.0010 seconds\nProcess exited with code 2\nOriginal token count: 10000\nOutput:\n" +
+		"> web@1.0.0 typecheck /repo\n> tsc --noEmit\n" + wssTypeScriptDiagnosticPayload(false, true)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-tsc-diagnostics", "call_package_tsc_diagnostics", "pnpm run typecheck", envelope, "stateful-package-tsc-diagnostics-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle package TypeScript diagnostics request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history package TypeScript diagnostics should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[typescript] FAILED") ||
+		!strings.Contains(body, "TS2322") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "tsc progress 119") {
+		t.Fatalf("package TypeScript diagnostics were not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe package TypeScript diagnostics should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulUnsafeTypeScriptDiagnosticsStayGuarded(t *testing.T) {
 	tests := []struct {
-		name   string
-		output string
+		name    string
+		command string
+		output  string
 	}{
 		{
-			name:   "summary only",
-			output: wssTypeScriptSummaryOnlyEnvelope(),
+			name:    "summary only",
+			command: "tsc --noEmit",
+			output:  wssTypeScriptSummaryOnlyEnvelope(),
 		},
 		{
-			name:   "source context",
-			output: wssTypeScriptDiagnosticEnvelope(true, true),
+			name:    "source context",
+			command: "tsc --noEmit",
+			output:  wssTypeScriptDiagnosticEnvelope(true, true),
+		},
+		{
+			name:    "package script source context",
+			command: "pnpm run typecheck",
+			output: "Chunk ID: package-tsc-unsafe\nWall time: 0.0010 seconds\nProcess exited with code 2\nOriginal token count: 10000\nOutput:\n" +
+				"> web@1.0.0 typecheck /repo\n> tsc --noEmit\n" + wssTypeScriptDiagnosticPayload(true, true),
 		},
 	}
 	for _, tt := range tests {
@@ -67,7 +109,7 @@ func TestWSSStatefulUnsafeTypeScriptDiagnosticsStayGuarded(t *testing.T) {
 			p := New(cfg)
 			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
-			env := parseWSJSON(t, wssCommandOutputRequestBody("resp-tsc-unsafe", "call_tsc_unsafe", "tsc --noEmit", tt.output, "stateful-tsc-unsafe-session"))
+			env := parseWSJSON(t, wssCommandOutputRequestBody("resp-tsc-unsafe", "call_tsc_unsafe", tt.command, tt.output, "stateful-tsc-unsafe-session"))
 			replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 			if err != nil {
 				t.Fatalf("handle unsafe TypeScript diagnostics request: %v", err)
@@ -136,6 +178,12 @@ func wssTypeScriptDiagnosticEnvelope(includeSource bool, longPrelude bool) strin
 	output.WriteString("Process exited with code 2\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
+	output.WriteString(wssTypeScriptDiagnosticPayload(includeSource, longPrelude))
+	return output.String()
+}
+
+func wssTypeScriptDiagnosticPayload(includeSource bool, longPrelude bool) string {
+	var output strings.Builder
 	limit := 8
 	if longPrelude {
 		limit = 120
