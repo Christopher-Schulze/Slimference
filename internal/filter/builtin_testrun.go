@@ -701,28 +701,88 @@ func compactJSTestVerbosePass(stdout []byte, label string) ([]byte, bool) {
 	return []byte(out), true
 }
 
-// TryCompactKarma summarizes empty stdout from `karma start` / `npx|pnpm exec|yarn … karma start` (F08 partial).
+// TryCompactKarma summarizes successful `karma start` / `npx|pnpm exec|yarn … karma start` output (F08 partial).
 func TryCompactKarma(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isKarmaArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[karma] ok\n"), true
+	}
+	return compactKarmaAllPass(stdout)
+}
+
+func isKarmaArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if (b == "karma" || b == "karma.cmd") && argv[1] == "start" {
-		return []byte("[karma] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "karma", "start") {
-		return []byte("[karma] ok\n"), true
+		return true
 	}
 	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "karma" && argv[3] == "start" {
-		return []byte("[karma] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "karma" && argv[2] == "start" {
-		return []byte("[karma] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
+}
+
+func compactKarmaAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	totalLine := ""
+	totalCount := 0
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if karmaLineHasUnsafeMarker(trimmed, lower) {
+			return stdout, false
+		}
+		if strings.HasPrefix(trimmed, "TOTAL:") {
+			count, ok := karmaTotalSuccessCount(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			totalLine = trimmed
+			totalCount = count
+		}
+	}
+	if totalCount <= 0 || totalLine == "" {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[karma] ok (%s)\n", totalLine)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func karmaLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.Contains(lower, "log:") {
+		return true
+	}
+	return strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "failure") ||
+		strings.Contains(lower, "error") ||
+		strings.Contains(lower, "warn") ||
+		strings.Contains(lower, "disconnected") ||
+		strings.Contains(lower, "incomplete") ||
+		strings.Contains(lower, "skipped") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "cancelled")
+}
+
+func karmaTotalSuccessCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 3 || fields[0] != "TOTAL:" || !strings.EqualFold(fields[2], "SUCCESS") {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[1])
 }
 
 // TryCompactJest summarizes empty stdout from `jest` / `npx|pnpm exec|yarn … jest` (F08 partial).

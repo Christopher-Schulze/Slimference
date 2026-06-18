@@ -2426,6 +2426,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactRubyOutput,
 	filter.TryCompactGradleTest,
 	filter.TryCompactVitest,
+	filter.TryCompactKarma,
 	filter.TryCompactJest,
 	filter.TryCompactMocha,
 	filter.TryCompactAva,

@@ -1120,6 +1120,31 @@ func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
 	if !ok || string(out) != "[deno test] ok (ok | 40 passed | 0 failed (123ms))\n" {
 		t.Fatalf("deno all-pass compaction failed: ok=%v out=%q", ok, out)
 	}
+
+	karma := strings.Join([]string{
+		"18 06 2026 12:00:00.000:INFO [karma-server]: Karma v6.4.0 server started at http://localhost:9876/",
+		"18 06 2026 12:00:00.010:INFO [launcher]: Launching browsers ChromeHeadless with concurrency unlimited",
+		"18 06 2026 12:00:00.020:INFO [launcher]: Starting browser ChromeHeadless",
+		strings.Repeat("Chrome Headless 126.0.0.0 (Mac OS 10.15.7): Executed 80 of 80 SUCCESS (0.120 secs / 0.080 secs)\n", 12),
+		"TOTAL: 80 SUCCESS",
+	}, "\n")
+	out, ok = TryCompactTestOutput([]string{"karma", "start", "--single-run"}, []byte(karma))
+	if !ok || string(out) != "[karma] ok (TOTAL: 80 SUCCESS)\n" {
+		t.Fatalf("karma all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+	for _, argv := range [][]string{
+		{"npx", "karma", "start"},
+		{"pnpm", "exec", "karma", "start"},
+		{"yarn", "karma", "start"},
+	} {
+		out, ok = TryCompactKarma(argv, []byte(karma))
+		if !ok || string(out) != "[karma] ok (TOTAL: 80 SUCCESS)\n" {
+			t.Fatalf("karma all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
+	if out, ok = TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: 1 SUCCESS\n")); ok || string(out) != "TOTAL: 1 SUCCESS\n" {
+		t.Fatalf("karma short all-pass must fail open when summary would not shrink: ok=%v out=%q", ok, out)
+	}
 }
 
 func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
@@ -1141,6 +1166,33 @@ func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
 	}
 	if _, ok := TryCompactDenoTest([]string{"deno", "test"}, []byte("ok | 9 passed | 0 failed (10ms)\nWarning experimental API\n")); ok {
 		t.Fatal("deno warning output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("Chrome Headless: Executed 9 of 10 FAILED (0.1 secs)\nTOTAL: 9 FAILED, 1 SUCCESS\n")); ok {
+		t.Fatal("karma failure output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("Chrome Headless LOG: useful console evidence\nTOTAL: 10 SUCCESS\n")); ok {
+		t.Fatal("karma console log output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("Chrome Headless log: lower-case console evidence\nTOTAL: 10 SUCCESS\n")); ok {
+		t.Fatal("karma lower-case console log output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("WARN [launcher]: browser disconnected once\nTOTAL: 10 SUCCESS\n")); ok {
+		t.Fatal("karma warning output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: 0 SUCCESS\n")); ok {
+		t.Fatal("karma zero-test output must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: all SUCCESS\n")); ok {
+		t.Fatal("karma malformed summary must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: 10\n")); ok {
+		t.Fatal("karma incomplete summary must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: 10 PASS\n")); ok {
+		t.Fatal("karma non-success summary must fail open")
+	}
+	if _, ok := TryCompactKarma([]string{"npm", "test"}, []byte("TOTAL: 10 SUCCESS\n")); ok {
+		t.Fatal("non-karma command must fail open")
 	}
 }
 
