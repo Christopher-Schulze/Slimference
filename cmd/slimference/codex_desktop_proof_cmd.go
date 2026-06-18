@@ -47,6 +47,7 @@ type codexDesktopStatusOutput struct {
 	LiveProofRequired           bool                     `json:"live_proof_required"`
 	ConversationObserved        bool                     `json:"conversation_observed"`
 	LaunchCommand               string                   `json:"launch_command"`
+	ProofStartedAt              string                   `json:"proof_started_at,omitempty"`
 	OwnerPrompt                 string                   `json:"owner_prompt,omitempty"`
 	FinishCommand               string                   `json:"finish_command,omitempty"`
 	ClassDistributionCommand    string                   `json:"class_distribution_command,omitempty"`
@@ -56,22 +57,24 @@ type codexDesktopStatusOutput struct {
 }
 
 type codexDesktopProofOutput struct {
-	Mode              string              `json:"mode"`
-	FailureClass      string              `json:"failure_class,omitempty"`
-	Transport         string              `json:"transport,omitempty"`
-	Duration          string              `json:"duration"`
-	LaunchPID         int                 `json:"launch_pid,omitempty"`
-	LaunchOutput      string              `json:"launch_output,omitempty"`
-	DeltaWSS          control.WSSState    `json:"delta_wss"`
-	CATrust           codexDesktopCAState `json:"ca_trust"`
-	SessionPath       string              `json:"session_path,omitempty"`
-	CleanupAttempted  bool                `json:"cleanup_attempted"`
-	CleanupError      string              `json:"cleanup_error,omitempty"`
-	LaunchReady       bool                `json:"launch_ready"`
-	DesktopProven     bool                `json:"desktop_proven"`
-	DesktopSavings    bool                `json:"desktop_savings"`
-	ManualPromptStill bool                `json:"manual_prompt_still_required"`
-	Notes             []string            `json:"notes,omitempty"`
+	Mode                     string              `json:"mode"`
+	FailureClass             string              `json:"failure_class,omitempty"`
+	Transport                string              `json:"transport,omitempty"`
+	Duration                 string              `json:"duration"`
+	StartedAt                string              `json:"started_at,omitempty"`
+	LaunchPID                int                 `json:"launch_pid,omitempty"`
+	LaunchOutput             string              `json:"launch_output,omitempty"`
+	DeltaWSS                 control.WSSState    `json:"delta_wss"`
+	CATrust                  codexDesktopCAState `json:"ca_trust"`
+	SessionPath              string              `json:"session_path,omitempty"`
+	ClassDistributionCommand string              `json:"class_distribution_command,omitempty"`
+	CleanupAttempted         bool                `json:"cleanup_attempted"`
+	CleanupError             string              `json:"cleanup_error,omitempty"`
+	LaunchReady              bool                `json:"launch_ready"`
+	DesktopProven            bool                `json:"desktop_proven"`
+	DesktopSavings           bool                `json:"desktop_savings"`
+	ManualPromptStill        bool                `json:"manual_prompt_still_required"`
+	Notes                    []string            `json:"notes,omitempty"`
 }
 
 type codexDesktopProofSession struct {
@@ -91,7 +94,72 @@ const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run
 
 const codexDesktopFinishProofCommand = "slimference codex desktop prove --finish --json"
 
-const codexDesktopClassDistributionCommand = "go run ./scripts/utils wss-class-distribution ~/.slimference/debug/decisions.jsonl --since-file=/tmp/slimference-desktop-proof-since.txt --min-local-ratio=0.48 --json"
+const codexDesktopProofSinceFilePath = "/tmp/slimference-desktop-proof-since.txt"
+
+const codexDesktopClassDistributionCommand = "go run ./scripts/utils wss-class-distribution ~/.slimference/debug/decisions.jsonl --since-file=" + codexDesktopProofSinceFilePath + " --min-local-ratio=0.48 --json"
+
+const codexDesktopClassDistributionCommandPrefix = "go run ./scripts/utils wss-class-distribution ~/.slimference/debug/decisions.jsonl"
+
+var codexDesktopProofSinceFilePathFn = func() string { return codexDesktopProofSinceFilePath }
+
+func formatCodexDesktopProofStartedAt(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func codexDesktopClassDistributionCommandForSince(startedAt string) string {
+	startedAt = normalizeCodexDesktopProofStartedAt(startedAt)
+	if startedAt == "" {
+		return codexDesktopClassDistributionCommand
+	}
+	return codexDesktopClassDistributionCommandPrefix + " --since=" + startedAt + " --min-local-ratio=0.48 --json"
+}
+
+func normalizeCodexDesktopProofStartedAt(startedAt string) string {
+	startedAt = strings.TrimSpace(startedAt)
+	if startedAt == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, startedAt)
+	if err != nil {
+		return ""
+	}
+	return formatCodexDesktopProofStartedAt(t)
+}
+
+func readCodexDesktopLegacyProofSinceFileStartedAt() string {
+	path := strings.TrimSpace(codexDesktopProofSinceFilePathFn())
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return normalizeCodexDesktopProofStartedAt(string(data))
+}
+
+func chooseCodexDesktopProofStartedAt(primary string, legacy string) string {
+	primary = normalizeCodexDesktopProofStartedAt(primary)
+	legacy = normalizeCodexDesktopProofStartedAt(legacy)
+	if primary == "" {
+		return legacy
+	}
+	if legacy == "" {
+		return primary
+	}
+	primaryTime, primaryErr := time.Parse(time.RFC3339, primary)
+	legacyTime, legacyErr := time.Parse(time.RFC3339, legacy)
+	if primaryErr != nil || legacyErr != nil {
+		return primary
+	}
+	if legacyTime.Before(primaryTime) && primaryTime.Sub(legacyTime) <= 10*time.Minute {
+		return legacy
+	}
+	return primary
+}
 
 func runCodexDesktopCmd(args []string, p installPrinter) int {
 	if len(args) == 0 {
@@ -148,12 +216,15 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		return runCodexDesktopFinishProof(flags, p)
 	}
 
+	startedAt := codexNowFn().UTC()
+	startedAtText := formatCodexDesktopProofStartedAt(startedAt)
 	before, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
 	if err != nil {
 		out := codexDesktopProofOutput{
 			Mode:         "daemon_unreachable",
 			FailureClass: "daemon_unreachable",
 			Duration:     flags.duration.String(),
+			StartedAt:    startedAtText,
 			Notes:        []string{"start the Slimference daemon before running the Desktop proof"},
 		}
 		emitCodexDesktopProof(p, flags.json, out)
@@ -168,6 +239,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	rc := runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
+		StartedAt:         startedAtText,
 		Transport:         codexDesktopTransportAppServer,
 		LaunchOutput:      strings.TrimSpace(launchOut.String()),
 		ManualPromptStill: true,
@@ -208,7 +280,8 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	out.DeltaWSS = codexSetupDelta(before, after).WSS
 	classifyCodexDesktopProof(&out, flags.manual)
 	if flags.manual && (out.LaunchReady || out.DesktopSavings) {
-		if err := writeCodexDesktopProofSession(flags, before.WSS, &out); err != nil {
+		out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(out.StartedAt)
+		if err := writeCodexDesktopProofSession(flags, before.WSS, startedAt, &out); err != nil {
 			out.Mode = "session_write_failed"
 			out.FailureClass = "session_write_failed"
 			out.LaunchReady = false
@@ -244,26 +317,32 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 	}
 	after, err := codexSetupStateFn(session.Host, session.Port, codexDesktopProofStateTimeout)
 	if err != nil {
+		startedAtText := formatCodexDesktopProofStartedAt(session.StartedAt)
 		out := codexDesktopProofOutput{
-			Mode:         "daemon_unreachable",
-			FailureClass: "daemon_unreachable",
-			Duration:     time.Since(session.StartedAt).Round(time.Second).String(),
-			LaunchPID:    session.LaunchPID,
-			SessionPath:  sessionPath,
-			Notes:        []string{err.Error()},
+			Mode:                     "daemon_unreachable",
+			FailureClass:             "daemon_unreachable",
+			Duration:                 time.Since(session.StartedAt).Round(time.Second).String(),
+			StartedAt:                startedAtText,
+			LaunchPID:                session.LaunchPID,
+			SessionPath:              sessionPath,
+			ClassDistributionCommand: codexDesktopClassDistributionCommandForSince(startedAtText),
+			Notes:                    []string{err.Error()},
 		}
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
 	before := control.SetupState{WSS: session.BaselineWSS}
+	startedAtText := formatCodexDesktopProofStartedAt(session.StartedAt)
 	out := codexDesktopProofOutput{
-		Duration:     time.Since(session.StartedAt).Round(time.Second).String(),
-		Transport:    firstNonEmpty(session.Transport, codexDesktopTransportAppServer),
-		LaunchPID:    session.LaunchPID,
-		LaunchOutput: session.LaunchOutput,
-		SessionPath:  sessionPath,
-		DeltaWSS:     codexSetupDelta(before, after).WSS,
-		Notes:        []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
+		Duration:                 time.Since(session.StartedAt).Round(time.Second).String(),
+		StartedAt:                startedAtText,
+		Transport:                firstNonEmpty(session.Transport, codexDesktopTransportAppServer),
+		LaunchPID:                session.LaunchPID,
+		LaunchOutput:             session.LaunchOutput,
+		SessionPath:              sessionPath,
+		ClassDistributionCommand: codexDesktopClassDistributionCommandForSince(startedAtText),
+		DeltaWSS:                 codexSetupDelta(before, after).WSS,
+		Notes:                    []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
 	}
 	classifyCodexDesktopProof(&out, false)
 	writeCodexDesktopProofResult(&out)
@@ -465,15 +544,36 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 }
 
 func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
+	startedAt := codexDesktopPromptProofStartedAt(out.LastProof)
+	out.ProofStartedAt = startedAt
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
-	out.ClassDistributionCommand = codexDesktopClassDistributionCommand
+	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAt)
 	out.NextSteps = append(out.NextSteps,
 		"Paste owner_prompt into the scoped Codex.app window that was launched by the manual Desktop proof.",
 		"Run finish_command after the prompt completes.",
 		"Run class_distribution_command and continue guard work only when headroom_present=true.",
 	)
 	out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `"+codexDesktopFinishProofCommand+"`")
+}
+
+func codexDesktopPromptProofStartedAt(last *codexDesktopProofOutput) string {
+	if last != nil {
+		if startedAt := normalizeCodexDesktopProofStartedAt(last.StartedAt); startedAt != "" {
+			return startedAt
+		}
+	}
+	session, err := readCodexDesktopProofSession(codexDesktopSessionFn())
+	if err != nil {
+		return readCodexDesktopLegacyProofSinceFileStartedAt()
+	}
+	if last != nil && last.LaunchPID > 0 && session.LaunchPID != last.LaunchPID {
+		return ""
+	}
+	return chooseCodexDesktopProofStartedAt(
+		formatCodexDesktopProofStartedAt(session.StartedAt),
+		readCodexDesktopLegacyProofSinceFileStartedAt(),
+	)
 }
 
 func classifyCodexDesktopProof(out *codexDesktopProofOutput, manual bool) {
@@ -637,15 +737,19 @@ func readCodexDesktopProofResult(path string) (*codexDesktopProofOutput, error) 
 	return &out, nil
 }
 
-func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline control.WSSState, out *codexDesktopProofOutput) error {
+func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline control.WSSState, startedAt time.Time, out *codexDesktopProofOutput) error {
 	path := codexDesktopSessionFn()
+	if startedAt.IsZero() {
+		startedAt = codexNowFn().UTC()
+	}
+	startedAtText := formatCodexDesktopProofStartedAt(startedAt)
 	session := codexDesktopProofSession{
 		SchemaVersion: 1,
 		Host:          flags.host,
 		Port:          flags.port,
 		Transport:     out.Transport,
 		LaunchPID:     out.LaunchPID,
-		StartedAt:     codexNowFn().UTC(),
+		StartedAt:     startedAt.UTC(),
 		BaselineWSS:   baseline,
 		LaunchOutput:  out.LaunchOutput,
 	}
@@ -660,6 +764,8 @@ func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline contro
 		return fmt.Errorf("write Desktop proof session: %w", err)
 	}
 	out.SessionPath = path
+	out.StartedAt = startedAtText
+	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAtText)
 	return nil
 }
 
@@ -699,6 +805,9 @@ func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
 		fmt.Fprintf(w, "  Gate      %s\n", out.FailureClass)
 	}
 	fmt.Fprintf(w, "  Duration  %s\n", out.Duration)
+	if out.StartedAt != "" {
+		fmt.Fprintf(w, "  Started   %s\n", out.StartedAt)
+	}
 	if out.LaunchPID > 0 {
 		fmt.Fprintf(w, "  PID       %d\n", out.LaunchPID)
 	}
@@ -707,6 +816,9 @@ func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
 	}
 	if out.SessionPath != "" {
 		fmt.Fprintf(w, "  Session   %s\n", out.SessionPath)
+	}
+	if out.ClassDistributionCommand != "" {
+		fmt.Fprintf(w, "  Measure   %s\n", out.ClassDistributionCommand)
 	}
 	fmt.Fprintf(w, "  Delta WSS mitm=%d bytes_c2s=%d bytes_s2c=%d frames_reencoded=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
 		out.DeltaWSS.MITMBridged, out.DeltaWSS.BytesC2S, out.DeltaWSS.BytesS2C,
@@ -751,6 +863,9 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 		fmt.Fprintf(w, "            %s\n", out.AppServerAutoReason)
 	}
 	fmt.Fprintf(w, "  Proof     live_required=%v conversation_observed=%v\n", out.LiveProofRequired, out.ConversationObserved)
+	if out.ProofStartedAt != "" {
+		fmt.Fprintf(w, "  Since     %s\n", out.ProofStartedAt)
+	}
 	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
 	for _, step := range out.NextSteps {
 		fmt.Fprintf(w, "  Next      %s\n", step)

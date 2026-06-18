@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Christopher-Schulze/Slimference/internal/control"
 )
 
 func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) {
@@ -11,6 +15,7 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 	writeCodexDesktopProofResult(&codexDesktopProofOutput{
 		Mode:              "desktop_ready_for_prompt",
 		Transport:         codexDesktopTransportAppServer,
+		StartedAt:         "2026-05-18T12:00:00Z",
 		LaunchPID:         4242,
 		LaunchReady:       true,
 		ManualPromptStill: true,
@@ -40,12 +45,131 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 	if got.FinishCommand != codexDesktopFinishProofCommand {
 		t.Fatalf("finish command=%q", got.FinishCommand)
 	}
-	if got.ClassDistributionCommand != codexDesktopClassDistributionCommand ||
-		!strings.Contains(got.ClassDistributionCommand, "--since-file=/tmp/slimference-desktop-proof-since.txt") {
+	if got.ProofStartedAt != "2026-05-18T12:00:00Z" {
+		t.Fatalf("proof started at=%q", got.ProofStartedAt)
+	}
+	if !strings.Contains(got.ClassDistributionCommand, "--since=2026-05-18T12:00:00Z") ||
+		strings.Contains(got.ClassDistributionCommand, "--since-file=") {
 		t.Fatalf("class distribution command=%q", got.ClassDistributionCommand)
 	}
 	if !strings.Contains(strings.Join(got.NextSteps, "\n"), "headroom_present=true") {
 		t.Fatalf("next steps missing headroom gate: %+v", got.NextSteps)
+	}
+}
+
+func TestCodexDesktopStatusPromptRequiredJSONRecoversProofSinceFromSession(t *testing.T) {
+	withCodexCmdStubs(t)
+	proof := &codexDesktopProofOutput{
+		Mode:              "desktop_ready_for_prompt",
+		Transport:         codexDesktopTransportAppServer,
+		LaunchPID:         4343,
+		LaunchReady:       true,
+		ManualPromptStill: true,
+	}
+	writeCodexDesktopProofResult(proof)
+	startedAt := time.Date(2026, 5, 18, 11, 59, 30, 0, time.UTC)
+	if err := writeCodexDesktopProofSession(
+		codexDesktopProveFlags{host: "127.0.0.1", port: "8990"},
+		control.WSSState{},
+		startedAt,
+		proof,
+	); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{4343}, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.ProofStartedAt != "2026-05-18T11:59:30Z" {
+		t.Fatalf("proof started at=%q", got.ProofStartedAt)
+	}
+	if !strings.Contains(got.ClassDistributionCommand, "--since=2026-05-18T11:59:30Z") ||
+		strings.Contains(got.ClassDistributionCommand, "--since-file=") {
+		t.Fatalf("class distribution command=%q", got.ClassDistributionCommand)
+	}
+}
+
+func TestCodexDesktopStatusPromptRequiredJSONUsesNearbyLegacySinceFile(t *testing.T) {
+	withCodexCmdStubs(t)
+	proof := &codexDesktopProofOutput{
+		Mode:              "desktop_ready_for_prompt",
+		Transport:         codexDesktopTransportAppServer,
+		LaunchPID:         4344,
+		LaunchReady:       true,
+		ManualPromptStill: true,
+	}
+	writeCodexDesktopProofResult(proof)
+	sessionStartedAt := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	if err := writeCodexDesktopProofSession(
+		codexDesktopProveFlags{host: "127.0.0.1", port: "8990"},
+		control.WSSState{},
+		sessionStartedAt,
+		proof,
+	); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if err := os.WriteFile(codexDesktopProofSinceFilePathFn(), []byte("2026-05-18T11:59:30Z\n"), 0o600); err != nil {
+		t.Fatalf("write since file: %v", err)
+	}
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{4344}, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.ProofStartedAt != "2026-05-18T11:59:30Z" {
+		t.Fatalf("proof started at=%q", got.ProofStartedAt)
+	}
+	if !strings.Contains(got.ClassDistributionCommand, "--since=2026-05-18T11:59:30Z") {
+		t.Fatalf("class distribution command=%q", got.ClassDistributionCommand)
+	}
+}
+
+func TestCodexDesktopStatusPromptRequiredJSONFallsBackForInvalidProofSince(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:              "desktop_ready_for_prompt",
+		Transport:         codexDesktopTransportAppServer,
+		StartedAt:         "not-rfc3339",
+		LaunchPID:         4444,
+		LaunchReady:       true,
+		ManualPromptStill: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{4444}, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.ProofStartedAt != "" {
+		t.Fatalf("invalid proof started at must not propagate: %q", got.ProofStartedAt)
+	}
+	if got.ClassDistributionCommand != codexDesktopClassDistributionCommand ||
+		!strings.Contains(got.ClassDistributionCommand, "--since-file=/tmp/slimference-desktop-proof-since.txt") {
+		t.Fatalf("class distribution command=%q", got.ClassDistributionCommand)
 	}
 }
 
@@ -54,6 +178,7 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 	writeCodexDesktopProofResult(&codexDesktopProofOutput{
 		Mode:              "desktop_ready_for_prompt",
 		Transport:         codexDesktopTransportAppServer,
+		StartedAt:         "2026-05-18T12:00:00Z",
 		LaunchPID:         5151,
 		LaunchReady:       true,
 		ManualPromptStill: true,
@@ -69,8 +194,10 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 	text := out.String()
 	for _, want := range []string{
 		"desktop_proof_prompt_required",
+		"Since     2026-05-18T12:00:00Z",
 		"Finish    slimference codex desktop prove --finish --json",
 		"Measure   go run ./scripts/utils wss-class-distribution",
+		"--since=2026-05-18T12:00:00Z",
 		"Prompt    In the current Slimference repository",
 		"PROOF_DONE",
 		"headroom_present=true",

@@ -55,6 +55,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopUpstream := codexDesktopUpstreamCodexFn
 	oldDesktopSession := codexDesktopSessionFn
 	oldDesktopResult := codexDesktopResultFn
+	oldDesktopSinceFile := codexDesktopProofSinceFilePathFn
 	oldDesktopDirect := tuiCodexDesktopDirectFn
 	oldTerminalTitle := terminalTitleWriteFn
 	codexVersionFn = func() string { return "codex-test" }
@@ -107,6 +108,8 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopSessionFn = func() string { return sessionPath }
 	resultPath := filepath.Join(t.TempDir(), "desktop-proof-result.json")
 	codexDesktopResultFn = func() string { return resultPath }
+	sincePath := filepath.Join(t.TempDir(), "desktop-proof-since.txt")
+	codexDesktopProofSinceFilePathFn = func() string { return sincePath }
 	tuiCodexDesktopDirectFn = func(string) error { return nil }
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
@@ -142,6 +145,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopUpstreamCodexFn = oldDesktopUpstream
 		codexDesktopSessionFn = oldDesktopSession
 		codexDesktopResultFn = oldDesktopResult
+		codexDesktopProofSinceFilePathFn = oldDesktopSinceFile
 		tuiCodexDesktopDirectFn = oldDesktopDirect
 		terminalTitleWriteFn = oldTerminalTitle
 	})
