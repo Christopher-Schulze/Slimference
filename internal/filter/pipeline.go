@@ -301,6 +301,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("terraform_init", "terraform", []string{"backend status", "provider status", "warning", "error"}, TryCompactTerraformInit),
 		evidenceReducer("terraform_validate", "terraform", []string{"valid marker", "diagnostic severity", "message", "range"}, TryCompactTerraformValidate),
 		evidenceReducer("terraform_show", "terraform", []string{"resource address", "attribute", "value summary", "sensitive marker"}, TryCompactTerraformShow),
+		argvReducer("jq_json_exact", "json", Layer0ReducerSafetyExact, []string{"all jq output bytes", "valid JSON fields", "valid JSON scalar values", "array order"}, TryCompactJQJSONExact),
 		stdoutReducer("json_minify", "json", Layer0ReducerSafetyExact, []string{"all JSON fields", "all scalar values", "array order"}, TryCompactJSONMinify),
 	}
 }

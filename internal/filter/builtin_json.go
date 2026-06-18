@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -38,6 +39,32 @@ func TryCompactJSONMinify(stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return compact, true
+}
+
+func isJQArgv(argv []string) bool {
+	return len(argv) > 0 && strings.EqualFold(filepath.Base(argv[0]), "jq")
+}
+
+// TryCompactJQJSONExact exact-minifies jq JSON output and otherwise full-passes
+// it so the jq TOML fallback cannot truncate inspected JSON payloads.
+func TryCompactJQJSONExact(argv []string, stdout []byte) ([]byte, bool) {
+	if !isJQArgv(argv) {
+		return stdout, false
+	}
+	trimmed := bytes.TrimSpace(stdout)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return stdout, true
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(trimmed))
+	if err := json.Compact(&buf, trimmed); err != nil {
+		return stdout, true
+	}
+	compact := buf.Bytes()
+	if len(compact) < len(stdout) {
+		return compact, true
+	}
+	return stdout, true
 }
 
 func jsonHasDiagnosticKeys(data []byte) bool {

@@ -1943,6 +1943,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeExactVCSHostJSONOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeExactJQJSONOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2093,6 +2096,16 @@ func wssSafeExactVCSHostJSONOutput(commandLine, payload string) bool {
 	}
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactVCSHostJSONExact(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssSafeExactJQJSONOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactJQJSONExact(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
 }
 

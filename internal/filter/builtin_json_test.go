@@ -25,6 +25,60 @@ func TestTryCompactJSONMinify(t *testing.T) {
 	}
 }
 
+func TestTryCompactJQJSONExact(t *testing.T) {
+	t.Parallel()
+
+	pretty := []byte("{\n  \"a\": 1,\n  \"b\": \"x\"\n}\n")
+	out, ok := TryCompactJQJSONExact([]string{"jq", ".", "package.json"}, pretty)
+	if !ok {
+		t.Fatal("jq JSON should be handled to block later lossy reducers")
+	}
+	if string(out) != `{"a":1,"b":"x"}` {
+		t.Fatalf("unexpected compact jq JSON: %q", out)
+	}
+
+	oneLine := []byte(`{"x":true}`)
+	out, ok = TryCompactJQJSONExact([]string{"jq", "-c", "."}, oneLine)
+	if !ok {
+		t.Fatal("already compact jq JSON should still be handled")
+	}
+	if string(out) != string(oneLine) {
+		t.Fatalf("already compact jq JSON must full-pass, got %q", out)
+	}
+
+	text := []byte("plain\nplain\n")
+	out, ok = TryCompactJQJSONExact([]string{"jq", "-r", ".name"}, text)
+	if !ok {
+		t.Fatal("jq non-JSON output should be handled to block TOML truncation")
+	}
+	if string(out) != string(text) {
+		t.Fatalf("jq non-JSON output must full-pass, got %q", out)
+	}
+
+	if _, ok := TryCompactJQJSONExact([]string{"cat", "package.json"}, pretty); ok {
+		t.Fatal("non-jq command must not enter jq exact gate")
+	}
+}
+
+func TestTryCompactJQJSONExact_LargeJSONNeverSchemaSummarized(t *testing.T) {
+	t.Parallel()
+
+	body := "{\n  \"items\": [\n    " +
+		strings.Repeat("{\"id\":1,\"name\":\"same\",\"value\":\"abcdef\"},\n    ", 80) +
+		"{\"id\":2,\"name\":\"last\",\"value\":\"uvwxyz\"}\n  ]\n}\n"
+	out, ok := TryCompactJQJSONExact([]string{"jq", "."}, []byte(body))
+	if !ok {
+		t.Fatal("large jq JSON should be handled to block generic schema extraction")
+	}
+	got := string(out)
+	if strings.Contains(got, "{object,") || strings.Contains(got, "[array,") {
+		t.Fatalf("jq JSON must not be schema-summarized: %q", got[:min(len(got), 120)])
+	}
+	if !strings.Contains(got, `"last"`) || !strings.Contains(got, `"uvwxyz"`) {
+		t.Fatalf("jq JSON lost scalar evidence: %q", got[:min(len(got), 120)])
+	}
+}
+
 func TestTryCompactJSONMinify_emptyInput(t *testing.T) {
 	t.Parallel()
 	if _, ok := TryCompactJSONMinify([]byte{}); ok {
