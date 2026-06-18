@@ -30,11 +30,12 @@ import (
 // the next move is a guard/shape investigation, not a structural claim.
 
 type wssClassDistributionFlags struct {
-	path          string
-	outputFormat  string
-	since         time.Time
-	minLocalRatio float64
-	help          bool
+	path            string
+	outputFormat    string
+	since           time.Time
+	minLocalRatio   float64
+	requireHeadroom bool
+	help            bool
 }
 
 type wssClassDistributionReport struct {
@@ -119,9 +120,10 @@ Usage:
   go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [flags]
 
 Flags:
-  --since=<rfc3339>          Ignore records before this timestamp
-  --min-local-ratio=<ratio>  Owner S_local target for the verdict, default 0.48
-  --json                     Output JSON
+	--since=<rfc3339>          Ignore records before this timestamp
+	--min-local-ratio=<ratio>  Owner S_local target for the verdict, default 0.48
+	--require-headroom         Exit 1 unless verdict=headroom_present
+	--json                     Output JSON
 
 Directory mode scans recursively for decisions.jsonl and *.decisions.jsonl, the
 same content-free RequestSummary records as wss-local-gap. Every WSS Phase-F
@@ -160,9 +162,13 @@ func runWSSClassDistribution(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, string(data))
-		return 0
+	} else {
+		writeWSSClassDistributionText(stdout, report)
 	}
-	writeWSSClassDistributionText(stdout, report)
+	if flags.requireHeadroom && !report.HeadroomPresent {
+		fmt.Fprintf(stderr, "wss-class-distribution: headroom not present (%s)\n", report.Verdict)
+		return 1
+	}
 	return 0
 }
 
@@ -175,6 +181,8 @@ func parseWSSClassDistributionFlags(args []string) (wssClassDistributionFlags, e
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--require-headroom":
+			flags.requireHeadroom = true
 		case arg == "--since":
 			value, err := aggregateFlagValue(args, &i, arg)
 			if err != nil {

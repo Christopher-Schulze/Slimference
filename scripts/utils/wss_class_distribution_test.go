@@ -238,6 +238,11 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 		!strings.Contains(report.NextAction, "wss-local-gap-inventory") {
 		t.Fatalf("bad json report: %+v", report)
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSClassDistribution([]string{path, "--json", "--require-headroom"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("require-headroom should pass on headroom corpus: code=%d stderr=%s", code, stderr.String())
+	}
 
 	// Help and missing-path paths.
 	stdout.Reset()
@@ -252,5 +257,30 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 	stderr.Reset()
 	if code := runWSSClassDistribution(nil, &stdout, &stderr); code != 2 {
 		t.Fatalf("missing-path code=%d (want 2)", code)
+	}
+}
+
+func TestRunWSSClassDistributionRequireHeadroomFailsOnCeiling(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		wssClassDistributionTestSummary("d1", "delta", 10000, 500, 8000, 4000, 7000, 2))
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSClassDistribution([]string{path, "--json", "--require-headroom"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("require-headroom ceiling code=%d want 1 stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "headroom not present") {
+		t.Fatalf("missing headroom gate stderr: %s", stderr.String())
+	}
+	var report wssClassDistributionReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output should still be emitted on gate failure: %v\n%s", err, stdout.String())
+	}
+	if report.Verdict != "corpus_ceiling_evidence" || report.HeadroomPresent {
+		t.Fatalf("bad ceiling report: %+v", report)
 	}
 }
