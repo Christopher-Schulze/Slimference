@@ -399,7 +399,20 @@ func TestLeafAuditGate_Pass(t *testing.T) {
 
 func TestLeafAuditGate_FailUnderTightThreshold(t *testing.T) {
 	t.Parallel()
-	root := findRepoRoot(t)
+	root := t.TempDir()
+	filterDir := filepath.Join(root, "internal", "filter")
+	if err := os.MkdirAll(filterDir, 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	src := []byte(`package filter
+
+func TryCompactFixture(argv []string, stdout []byte) ([]byte, bool) {
+	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "fixture", "[fixture] ok\n")
+}
+`)
+	if err := os.WriteFile(filepath.Join(filterDir, "builtin_fixture.go"), src, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	var stdout, stderr bytes.Buffer
 	rc := LeafAuditGate(root, 0, &stdout, &stderr)
 	if rc == 0 {

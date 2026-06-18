@@ -435,52 +435,104 @@ func TryCompactTsc(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
-// TryCompactNextBuild replaces empty stdout from `next build` / `npx|pnpm exec|yarn … next build` (F07 partial).
+// TryCompactNextBuild replaces empty or strictly clean stdout from `next build` / `npx|pnpm exec|yarn ... next build`.
 func TryCompactNextBuild(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "next", "build") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "next" && argv[1] == "build" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[next build] ok\n"), true
 	}
-	if npxMatches(argv, "next", "build") {
-		return []byte("[next build] ok\n"), true
-	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "next" && argv[3] == "build" {
-		return []byte("[next build] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "next" && argv[2] == "build" {
-		return []byte("[next build] ok\n"), true
-	}
-	return stdout, false
+	return compactNextBuildCleanOutput(s, len(stdout))
 }
 
-// TryCompactViteBuild replaces empty stdout from `vite build` / `npx|pnpm exec|yarn … vite build` (F07 partial).
+func compactNextBuildCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[next build] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "compiled successfully") {
+		return nil, false
+	}
+	for _, marker := range []string{
+		"creating an optimized production build",
+		"next.js",
+		"route (app)",
+		"route (pages)",
+		"collecting build traces",
+		"finalizing page optimization",
+	} {
+		if strings.Contains(lower, marker) {
+			return out, true
+		}
+	}
+	return nil, false
+}
+
+// TryCompactViteBuild replaces empty or strictly clean stdout from `vite build` / `npx|pnpm exec|yarn ... vite build`.
 func TryCompactViteBuild(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "vite", "build") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "vite" || b == "vite.cmd") && argv[1] == "build" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[vite build] ok\n"), true
 	}
-	if npxMatches(argv, "vite", "build") {
-		return []byte("[vite build] ok\n"), true
+	return compactViteBuildCleanOutput(s, len(stdout))
+}
+
+func compactViteBuildCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[vite build] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
 	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "vite" && argv[3] == "build" {
-		return []byte("[vite build] ok\n"), true
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "vite v") ||
+		!strings.Contains(lower, "building for production") ||
+		!strings.Contains(lower, "modules transformed") ||
+		!strings.Contains(lower, "built in") {
+		return nil, false
 	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "vite" && argv[2] == "build" {
-		return []byte("[vite build] ok\n"), true
+	return out, true
+}
+
+func webBuildCleanOutputHasUnsafeSignal(stdout string) bool {
+	if outputHasUnsafeSuccessSignal(stdout) {
+		return true
 	}
-	return stdout, false
+	for _, line := range strings.Split(stdout, "\n") {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" {
+			continue
+		}
+		if strings.HasPrefix(lower, "(!)") ||
+			strings.HasPrefix(lower, "warn") ||
+			strings.Contains(lower, " warn ") ||
+			strings.Contains(lower, "warn:") ||
+			strings.Contains(lower, "failed") ||
+			strings.Contains(lower, "failure") ||
+			strings.Contains(lower, "fatal") ||
+			strings.Contains(lower, "panic") ||
+			strings.Contains(lower, "exception") ||
+			strings.Contains(lower, "traceback") ||
+			webBuildLineHasErrorSignal(lower) {
+			return true
+		}
+	}
+	return false
+}
+
+func webBuildLineHasErrorSignal(lower string) bool {
+	if strings.Contains(lower, "0 error") {
+		return false
+	}
+	return strings.HasPrefix(lower, "error") ||
+		strings.Contains(lower, " error ") ||
+		strings.Contains(lower, ": error") ||
+		strings.Contains(lower, "errors:") ||
+		strings.Contains(lower, " errors")
 }
 
 // TryCompactWebpack replaces empty stdout from `webpack` / `webpack-cli` / `npx|pnpm exec|yarn … webpack` (F07 partial).

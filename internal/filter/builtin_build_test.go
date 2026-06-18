@@ -363,6 +363,141 @@ func TestTryCompactBuildOutput_jsToolchain(t *testing.T) {
 	}
 }
 
+func TestTryCompactNextViteBuildCleanOutput(t *testing.T) {
+	t.Parallel()
+
+	nextOut, ok := TryCompactNextBuild([]string{"next", "build"}, []byte(nextBuildCleanFixture()))
+	if !ok || string(nextOut) != "[next build] ok\n" {
+		t.Fatalf("next clean build: ok=%v out=%q", ok, nextOut)
+	}
+
+	nextNpx, ok := TryCompactBuildOutput([]string{"npx", "-y", "next", "build"}, []byte(nextBuildCleanFixture()))
+	if !ok || string(nextNpx) != "[next build] ok\n" {
+		t.Fatalf("npx next clean build: ok=%v out=%q", ok, nextNpx)
+	}
+
+	viteOut, ok := TryCompactViteBuild([]string{"vite", "build", "--emptyOutDir"}, []byte(viteBuildCleanFixture()))
+	if !ok || string(viteOut) != "[vite build] ok\n" {
+		t.Fatalf("vite clean build: ok=%v out=%q", ok, viteOut)
+	}
+
+	vitePnpm, ok := TryCompactBuildOutput([]string{"pnpm", "exec", "vite", "build"}, []byte(viteBuildCleanFixture()))
+	if !ok || string(vitePnpm) != "[vite build] ok\n" {
+		t.Fatalf("pnpm vite clean build: ok=%v out=%q", ok, vitePnpm)
+	}
+}
+
+func TestTryCompactNextViteBuildCleanOutputFailOpen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+		try    func([]string, []byte) ([]byte, bool)
+	}{
+		{
+			name:   "next warning",
+			argv:   []string{"next", "build"},
+			stdout: nextBuildCleanFixture() + "warning: viewport metadata is deprecated\n",
+			try:    TryCompactNextBuild,
+		},
+		{
+			name:   "next failed",
+			argv:   []string{"next", "build"},
+			stdout: "Next.js 15.3.0\nCreating an optimized production build ...\nFailed to compile.\napp/page.tsx:1:1 error Missing export\n",
+			try:    TryCompactNextBuild,
+		},
+		{
+			name:   "next weak generic success",
+			argv:   []string{"next", "build"},
+			stdout: "Compiled successfully\n",
+			try:    TryCompactNextBuild,
+		},
+		{
+			name:   "vite chunk warning",
+			argv:   []string{"vite", "build"},
+			stdout: viteBuildCleanFixture() + "(!) Some chunks are larger than 500 kB after minification.\n",
+			try:    TryCompactViteBuild,
+		},
+		{
+			name:   "vite error",
+			argv:   []string{"vite", "build"},
+			stdout: "vite v6.3.5 building for production...\n1 modules transformed.\nerror during build: Could not resolve ./missing\n",
+			try:    TryCompactViteBuild,
+		},
+		{
+			name:   "vite weak generic success",
+			argv:   []string{"vite", "build"},
+			stdout: "built in 10ms\n",
+			try:    TryCompactViteBuild,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if out, ok := tt.try(tt.argv, []byte(tt.stdout)); ok {
+				t.Fatalf("unsafe or weak web build output compacted: %q", out)
+			}
+		})
+	}
+}
+
+func TestTryCompactBuildOutputPackageScriptWebBuildCleanOutput(t *testing.T) {
+	t.Parallel()
+
+	var vite strings.Builder
+	vite.WriteString("> web@1.0.0 build /repo\n")
+	vite.WriteString("> vite build\n")
+	vite.WriteString(viteBuildCleanFixture())
+	out, ok := TryCompactBuildOutput([]string{"pnpm", "run", "build"}, []byte(vite.String()))
+	if !ok || string(out) != "[vite build] ok\n" {
+		t.Fatalf("pnpm run build vite clean output: ok=%v out=%q", ok, out)
+	}
+
+	var next strings.Builder
+	next.WriteString("> app@1.0.0 build /repo\n")
+	next.WriteString("> next build\n")
+	next.WriteString(nextBuildCleanFixture())
+	out, ok = TryCompactBuildOutput([]string{"npm", "run", "build"}, []byte(next.String()))
+	if !ok || string(out) != "[next build] ok\n" {
+		t.Fatalf("npm run build next clean output: ok=%v out=%q", ok, out)
+	}
+}
+
+func nextBuildCleanFixture() string {
+	var b strings.Builder
+	b.WriteString("Next.js 15.3.0\n")
+	b.WriteString("Creating an optimized production build ...\n")
+	b.WriteString("Compiled successfully in 2.8s\n")
+	b.WriteString("Linting and checking validity of types ...\n")
+	b.WriteString("Collecting page data ...\n")
+	b.WriteString("Generating static pages (0/8) ...\n")
+	b.WriteString("Generating static pages (4/8) ...\n")
+	b.WriteString("Generating static pages (8/8) ...\n")
+	b.WriteString("Finalizing page optimization ...\n")
+	b.WriteString("Collecting build traces ...\n")
+	b.WriteString("Route (app)                              Size     First Load JS\n")
+	for i := 0; i < 24; i++ {
+		fmt.Fprintf(&b, "/dashboard/section-%02d                  2.%02d kB        110 kB\n", i, i)
+	}
+	return b.String()
+}
+
+func viteBuildCleanFixture() string {
+	var b strings.Builder
+	b.WriteString("vite v6.3.5 building for production...\n")
+	b.WriteString("transforming...\n")
+	b.WriteString("240 modules transformed.\n")
+	b.WriteString("rendering chunks...\n")
+	b.WriteString("computing gzip size...\n")
+	for i := 0; i < 24; i++ {
+		fmt.Fprintf(&b, "dist/assets/chunk-%02d.js                 %0.2f kB | gzip: %0.2f kB\n", i, float64(i)+12.4, float64(i)+3.1)
+	}
+	b.WriteString("built in 2.31s\n")
+	return b.String()
+}
+
 // Exercises pnpm exec / yarn … branches that are distinct from direct-binary and npx paths.
 func TestTryCompactBuildOutput_pnpmYarnExecVariants(t *testing.T) {
 	t.Parallel()
