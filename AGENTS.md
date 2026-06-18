@@ -128,6 +128,103 @@ When changing any savings-related path:
   `real_current_local_saved_tokens`). Updating that floor requires fresh
   evidence and must not count provider-cache discount as local savings.
 
+### 3.3 Aggressive Savings Mitigation Doctrine (Binding)
+
+Agents must not reject a high-savings idea merely because its first naive form
+has drawdown risk. First identify the exact drawdown vector, then evaluate
+whether additional engineering can eliminate or tightly control it while
+preserving the product drawdown definition above. Valid mitigation patterns
+include byte-equal fail-open paths, stateless detach, metadata-consistent
+mutation, archive/replay recovery, shadow A/B proof, route-scoped demotion,
+cache-bust accounting, bounded proof latches, and content-free live capture
+gates.
+
+Agents must actively search for aggressive, innovative, and composite savings
+designs. A raw candidate that violates the drawdown policy is not the final
+analysis state; it is the starting point for engineering. Reframe it into
+narrower predicates, route-specific or request-shape-specific variants,
+state-mirrored variants, capability-mirrored variants, stateless continuation
+variants, recovery-backed variants, proof-latched variants, or other adapted
+forms that can still produce savings while becoming policy-conformant. Small
+policy-safe savings count: many narrow wins are valid product progress.
+
+Complex mitigation work is allowed when it is the path to policy-conformant
+savings. Larger mechanisms, helper systems, proof tooling, state mirrors,
+metadata repair, replay/re-run recovery, capability recovery, telemetry, or
+guard refinement are engineering cost, not product drawdown. The acceptance bar
+does not change: the complete engineered design must still be default-on-safe,
+measured, recoverable/fail-open, and exact to the route/request class where it
+runs.
+
+Agents must estimate potential savings before proof so work can be prioritized
+intelligently. Lack of proof means "not production-ready", not "zero savings"
+and not "finished". Estimates may be rough when evidence is incomplete, but
+they must still be attempted and labeled with confidence, assumptions, affected
+routes/workloads, expected `S_local` impact, provider-cache impact, output
+impact, and remaining proof gaps. Product activation still requires evidence
+that the complete mitigated design has zero, near-zero, or controlled-near-zero
+product drawdown on the exact route/request class where it will run.
+
+Feature status must stay explicit:
+`estimated_candidate` for a plausible unproven mechanism,
+`engineered_unproven` for implemented or partially implemented work that still
+lacks the required proof, and `production_ready` only after the required
+tests, live proof, recovery/fail-open checks, and non-regression measurements
+pass. Agents must not present an estimated or engineered-unproven feature as
+done, but they also must not ignore its estimated value when planning.
+
+A mechanism is forbidden only after the mitigated complete design still has
+unacceptable product drawdown, or after live evidence proves the route/protocol
+cannot support it. Until then, agents should keep searching for narrower
+predicates, better recovery, state mirroring, metadata repair, replay/detach
+strategies, or other engineering that turns an aggressive candidate into a
+default-on-safe product mechanism.
+
+### 3.4 Savings Non-Regression Measurement Loop (Binding)
+
+No accepted product change may silently regress local savings, provider-cache
+stability, output savings, tool-surface savings, routing safety, or the product
+drawdown policy. Every savings-related change must be measured against the
+current clean baseline with the relevant focused tests, live-corpus gate, and
+route-specific proof tooling before it is called done.
+
+If a change intentionally narrows or disables a savings path, the agent must
+record the exact reason, drawdown vector, affected mechanism, affected route,
+affected workload/request shape, expected `S_local` impact, provider-cache
+impact, and the smallest recovery path. If the narrowing does not fix the
+failure it targeted, it must be reverted or narrowed further before any other
+savings loss is accepted.
+
+When a guard blocks savings, the agent must verify whether byte-equal
+observation, cache seeding, telemetry, candidate scoring, shadow evidence, or
+future-proof state capture can remain active without changing model-visible
+bytes, upstream-visible bytes, routing, cache-prefix bytes, or normal product
+latency. Disabling those safe side effects is itself a local-savings regression.
+
+Guards are not static handbrakes. Agents must continuously engineer guards
+toward the loosest safe predicate that still prevents the proven drawdown or
+error vector. That means splitting broad guards by route, request shape,
+response lineage, command class, content class, cache-prefix scope, socket
+state, proof state, and recovery availability whenever doing so preserves
+safety and recovers savings. The target is maximum practical savings with
+point-accurate protection: no upstream 400s, no invalid requests, no cache-bust
+regression, no model-quality regression, and no tool/workflow degradation.
+
+Guards exist to eliminate proven errors and drawdowns with the minimum possible
+savings loss. No percentage point of local savings may be wasted by applying a
+guard more broadly than the evidence requires. Do not preemptively suppress a
+route, mechanism, workload, command class, content class, or request shape
+merely because an unproven error might happen there. Use measured failure
+evidence, counterfactual replay, guarded-potential accounting, and exact
+request-class arithmetic to decide the smallest safe guard. If the same safety
+can be achieved with a narrower predicate, observe-only path, recovery path,
+proof latch, or scoped demotion, the broader guard is a savings regression.
+
+If a guard remains broad, the agent must be able to explain why narrower
+engineering is not yet proven safe, what evidence is missing, and what proof or
+mitigation would allow the next safe loosening. Broad guards without that live
+failure evidence and next-proof path are considered unfinished savings work.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
