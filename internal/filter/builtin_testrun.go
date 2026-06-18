@@ -819,28 +819,116 @@ func asciiDecimal(s string) bool {
 	return true
 }
 
-// TryCompactTap summarizes empty stdout from `tap` / `npx|pnpm exec|yarn … tap` (Node-TAP) (F08 partial).
+// TryCompactTap summarizes successful `tap` / `npx|pnpm exec|yarn … tap` (Node-TAP) output (F08 partial).
 func TryCompactTap(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if len(argv) < 1 {
 		return stdout, false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
+	matches := false
 	if b == "tap" || b == "tap.cmd" {
+		matches = true
+	} else if npxMatches(argv, "tap") {
+		matches = true
+	} else if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "tap" {
+		matches = true
+	} else if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "tap" {
+		matches = true
+	}
+	if !matches {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[tap] ok\n"), true
 	}
-	if npxMatches(argv, "tap") {
-		return []byte("[tap] ok\n"), true
+	return compactTapAllPass(stdout)
+}
+
+func compactTapAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"not ok", "failed", "failing", "failure", "error", "exception", "uncaught", "timeout", "timed out", "skipped", "todo", "warning", "deprecated"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
 	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "tap" {
-		return []byte("[tap] ok\n"), true
+	lines := strings.Split(s, "\n")
+	planCount := 0
+	testsCount := 0
+	passCount := 0
+	failCountSeen := false
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "ok "):
+			n, ok := tapOKLineNumber(trimmed)
+			if !ok || n != passed+1 {
+				return stdout, false
+			}
+			passed++
+			continue
+		case strings.HasPrefix(trimmed, "1.."):
+			n, ok := parsePositiveASCIIInt(strings.TrimPrefix(trimmed, "1.."))
+			if !ok {
+				return stdout, false
+			}
+			planCount = n
+		case strings.HasPrefix(trimmed, "# tests "):
+			n, ok := parsePositiveASCIIInt(strings.TrimSpace(strings.TrimPrefix(trimmed, "# tests ")))
+			if !ok {
+				return stdout, false
+			}
+			testsCount = n
+		case strings.HasPrefix(trimmed, "# pass "):
+			n, ok := parsePositiveASCIIInt(strings.TrimSpace(strings.TrimPrefix(trimmed, "# pass ")))
+			if !ok {
+				return stdout, false
+			}
+			passCount = n
+		case strings.HasPrefix(trimmed, "# fail "):
+			n, ok := parseNonNegativeASCIIInt(strings.TrimSpace(strings.TrimPrefix(trimmed, "# fail ")))
+			if !ok || n != 0 {
+				return stdout, false
+			}
+			failCountSeen = true
+		}
+		kept = append(kept, line)
 	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "tap" {
-		return []byte("[tap] ok\n"), true
+	if passed <= 0 || planCount != passed || testsCount != passed || passCount != passed || !failCountSeen {
+		return stdout, false
 	}
-	return stdout, false
+	out := fmt.Sprintf("[tap] ok - %d passed, per-test ok lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func tapOKLineNumber(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[1])
+}
+
+func parsePositiveASCIIInt(s string) (int, bool) {
+	n, ok := parseNonNegativeASCIIInt(s)
+	return n, ok && n > 0
+}
+
+func parseNonNegativeASCIIInt(s string) (int, bool) {
+	if !asciiDecimal(s) {
+		return 0, false
+	}
+	n := 0
+	for _, r := range s {
+		n = n*10 + int(r-'0')
+	}
+	return n, true
 }
 
 // TryCompactPlaywrightTest summarizes empty stdout from `playwright test` / `npx|pnpm exec|yarn … playwright test` (F08 partial).

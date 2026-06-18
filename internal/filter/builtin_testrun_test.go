@@ -1377,6 +1377,47 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		t.Fatal("ava failure must fail open")
 	}
 
+	var tap strings.Builder
+	tap.WriteString("TAP version 13\n")
+	for i := 1; i <= 48; i++ {
+		fmt.Fprintf(&tap, "ok %d - renders op %03d\n", i, i)
+	}
+	tap.WriteString("1..48\n# tests 48\n# pass 48\n# fail 0\n")
+	out, ok = TryCompactTap([]string{"tap"}, []byte(tap.String()))
+	if !ok || !strings.Contains(string(out), "[tap] ok - 48 passed") ||
+		!strings.Contains(string(out), "# tests 48") ||
+		strings.Contains(string(out), "renders op 001") {
+		t.Fatalf("tap verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactTap([]string{"tap"}, []byte("TAP version 13\nnot ok 1 - breaks\n1..1\n# tests 1\n# pass 0\n# fail 1\n")); ok {
+		t.Fatal("tap failure must fail open")
+	}
+	tapAllPass := tap.String()
+	for _, argv := range [][]string{
+		{"npx", "tap"},
+		{"pnpm", "exec", "tap"},
+		{"yarn", "tap"},
+	} {
+		out, ok = TryCompactTap(argv, []byte(tapAllPass))
+		if !ok || !strings.Contains(string(out), "[tap] ok - 48 passed") {
+			t.Fatalf("tap wrapper %v verbose all-pass: ok=%v %q", argv, ok, out)
+		}
+	}
+	tapMalformed := []string{
+		"TAP version 13\nok 2 - wrong sequence\n1..1\n# tests 1\n# pass 1\n# fail 0\n",
+		"TAP version 13\nok 1 - invalid plan\n1..x\n# tests 1\n# pass 1\n# fail 0\n",
+		"TAP version 13\nok 1 - invalid tests\n1..1\n# tests x\n# pass 1\n# fail 0\n",
+		"TAP version 13\nok 1 - invalid pass\n1..1\n# tests 1\n# pass x\n# fail 0\n",
+		"TAP version 13\nok 1 - nonzero fail\n1..1\n# tests 1\n# pass 1\n# fail 1\n",
+		"TAP version 13\nok 1 - missing fail\n1..1\n# tests 1\n# pass 1\n",
+		"TAP version 13\nok 1 - zero plan\n1..0\n# tests 1\n# pass 1\n# fail 0\n",
+	}
+	for _, input := range tapMalformed {
+		if got, ok := TryCompactTap([]string{"tap"}, []byte(input)); ok {
+			t.Fatalf("malformed tap output must fail open, got %q", got)
+		}
+	}
+
 	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
 	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
 	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {

@@ -2369,6 +2369,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactJest,
 	filter.TryCompactMocha,
 	filter.TryCompactAva,
+	filter.TryCompactTap,
 	filter.TryCompactDartTest,
 	filter.TryCompactFlutterTest,
 	filter.TryCompactDenoTest,
