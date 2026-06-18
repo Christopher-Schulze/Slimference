@@ -2020,7 +2020,9 @@ func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
 		if !ok || len(compacted) >= len(stdout) {
 			continue
 		}
-		if wssCompactedOKSummary(compacted) || wssCompactedTerraformValidateSuccess(compacted) {
+		if wssCompactedOKSummary(compacted) ||
+			wssCompactedPackageSuccessSummary(stdout, compacted) ||
+			wssCompactedTerraformValidateSuccess(compacted) {
 			return true
 		}
 	}
@@ -2038,6 +2040,84 @@ func wssCompactedOKSummary(compacted []byte) bool {
 	}
 	status := strings.TrimSpace(text[closeBracket+1:])
 	return status == "ok" || strings.HasPrefix(status, "ok ")
+}
+
+func wssCompactedPackageSuccessSummary(original, compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[") {
+		return false
+	}
+	closeBracket := strings.IndexByte(text, ']')
+	if closeBracket <= 0 {
+		return false
+	}
+	label := strings.ToLower(strings.TrimSpace(text[1:closeBracket]))
+	if !wssPackageSummaryLabel(label) {
+		return false
+	}
+	status := strings.TrimSpace(text[closeBracket+1:])
+	return wssPackageSuccessStatus(status) && !wssPackageOriginalHasUnsafeMarker(string(original))
+}
+
+func wssPackageSummaryLabel(label string) bool {
+	switch label {
+	case "npm install", "npm ci", "npm update",
+		"pnpm install", "pnpm ci", "pnpm update",
+		"yarn install", "yarn upgrade",
+		"pip install", "uv pip install", "uv sync",
+		"bun install":
+		return true
+	default:
+		return false
+	}
+}
+
+func wssPackageSuccessStatus(status string) bool {
+	lower := strings.ToLower(strings.TrimSpace(status))
+	if lower == "" || wssPackageStatusHasUnsafeMarker(lower) {
+		return false
+	}
+	if strings.HasPrefix(lower, "successfully installed") || strings.HasPrefix(lower, "done in ") {
+		return true
+	}
+	return strings.Contains(lower, "package") &&
+		(strings.Contains(lower, "added ") ||
+			strings.Contains(lower, "removed ") ||
+			strings.Contains(lower, "changed ") ||
+			strings.Contains(lower, "audited "))
+}
+
+func wssPackageOriginalHasUnsafeMarker(original string) bool {
+	for _, line := range strings.Split(strings.ToLower(original), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "vulnerab") && !strings.Contains(trimmed, "0 vulnerabilities") {
+			return true
+		}
+		if wssPackageStatusHasUnsafeMarker(trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssPackageStatusHasUnsafeMarker(lower string) bool {
+	return strings.Contains(lower, "deprecated") ||
+		strings.Contains(lower, "warning") ||
+		strings.Contains(lower, "warn ") ||
+		strings.Contains(lower, "warn:") ||
+		strings.Contains(lower, " err!") ||
+		strings.Contains(lower, "eresolve") ||
+		strings.Contains(lower, "err_pnpm_") ||
+		strings.Contains(lower, "resolutionimpossible") ||
+		strings.Contains(lower, "could not find a version") ||
+		strings.Contains(lower, "no matching version") ||
+		strings.Contains(lower, "no solution found") ||
+		strings.Contains(lower, "failed with errors") ||
+		strings.HasPrefix(lower, "error:") ||
+		strings.HasPrefix(lower, "error ")
 }
 
 func wssCompactedTerraformValidateSuccess(compacted []byte) bool {
@@ -2514,10 +2594,15 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactAva,
 	filter.TryCompactTap,
 	filter.TryCompactPlaywrightTest,
+	filter.TryCompactWdioRun,
+	filter.TryCompactCypressRun,
+	filter.TryCompactNxTest,
+	filter.TryCompactTurboTest,
 	filter.TryCompactDartTest,
 	filter.TryCompactFlutterTest,
 	filter.TryCompactDenoTest,
 	filter.TryCompactBunTest,
+	filter.TryCompactPackageManagerTestScript,
 }
 
 func wssSafeTestAllPassOutput(commandLine, payload string) bool {

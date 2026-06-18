@@ -45,12 +45,17 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	pytestJSONAllPass := wssPytestJSONAllPassFixture(80)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
+	jestFailure := "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n"
 	vitestJSONAllPass := wssVitestJSONAllPassFixture(70)
 	eslintJSONClean := wssEslintJSONCleanFixture(70)
 	mochaAllPass := wssMochaAllPassFixture(70)
 	avaAllPass := wssAvaAllPassFixture(70)
 	tapAllPass := wssTapAllPassFixture(70)
 	playwrightAllPass := wssPlaywrightAllPassFixture(70)
+	wdioAllPass := wssWdioRunAllPassFixture(70, 2)
+	cypressAllPass := wssCypressRunAllPassFixture(70)
+	nxTestAllPass := wssNxTestAllPassFixture(70)
+	turboTestAllPass := wssTurboTestAllPassFixture(70, 2)
 	bunAllPass := wssBunTestAllPassFixture(70)
 	cargoJSONAllPass := wssCargoTestJSONAllPassFixture(70)
 	sarifZeroResults := wssSARIFZeroResultsFixture(70)
@@ -65,6 +70,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	avaFailure := "  ✖ renders failure details\n\n  1 test failed\n"
 	tapFailure := "TAP version 13\nnot ok 1 - renders failure details\n1..1\n# tests 1\n# pass 0\n# fail 1\n"
 	playwrightFailure := "Running 1 test\n  ✘  1 [chromium] › spec.ts:1:1 › renders failure details\n\n  1 failed\n"
+	wdioFailure := strings.Replace(wssWdioRunAllPassFixture(4, 2), "Spec Files:      2 passed, 2 total", "Spec Files:      1 passed, 1 failed, 2 total", 1)
+	cypressFailure := strings.Replace(wssCypressRunAllPassFixture(3), "All specs passed!", "1 spec failed!", 1)
+	nxTestFailure := strings.Replace(wssNxTestAllPassFixture(3), "Tests: 3 passed, 3 total", "Tests: 2 passed, 1 failed, 3 total", 1)
+	turboTestFailure := strings.Replace(wssTurboTestAllPassFixture(4, 2), "Tasks:    2 successful, 2 total", "Tasks:    1 successful, 2 total", 1)
 	bunFailure := "bun test v1.3.14\n\nwidget.test.ts:\n(fail) renders failure details [1.00ms]\n\n 0 pass\n 1 fail\nRan 1 tests across 1 files. [1.00ms]\n"
 	dotnetAllPass := wssDotnetTestAllPassFixture(60)
 	dotnetBuildSuccess := wssDotnetBuildSuccessFixture(24, 0)
@@ -81,6 +90,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	terraformValidateFailure := "╷\n│ Error: Missing required argument\n│\n│   on main.tf line 12, in resource \"aws_s3_bucket\" \"bad\":\n│   12: resource \"aws_s3_bucket\" \"bad\" {}\n╵\n"
 	emptyBuildEnvelope := "Chunk ID: build-empty\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10\nOutput:\n"
 	goBuildWarning := "# github.com/slim/example\n# Compiled successfully\nwarning: generated binding is deprecated\nBuild succeeded with 0 errors and 1 warning.\n"
+	npmInstallClean := wssNpmInstallCleanFixture(70)
+	npmInstallWarning := "npm warn deprecated left-pad@1.3.0: use String.prototype.padStart()\n" + npmInstallClean
+	npmInstallVulnerability := strings.Replace(npmInstallClean, "found 0 vulnerabilities", "3 vulnerabilities (1 moderate, 2 high)", 1)
+	pipInstallClean := wssPipInstallCleanFixture(70)
 
 	tests := []struct {
 		name      string
@@ -114,6 +127,13 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ava verbose all-pass", command: "ava", output: avaAllPass, wantSafe: true},
 		{name: "tap verbose all-pass", command: "tap", output: tapAllPass, wantSafe: true},
 		{name: "playwright verbose all-pass", command: "playwright test", output: playwrightAllPass, wantSafe: true},
+		{name: "npm test jest all-pass", command: "npm test", output: jestAllPass, wantSafe: true},
+		{name: "pnpm run test playwright all-pass", command: "pnpm run test", output: playwrightAllPass, wantSafe: true},
+		{name: "yarn test mocha all-pass", command: "yarn test", output: mochaAllPass, wantSafe: true},
+		{name: "wdio run all-pass", command: "wdio run wdio.conf.ts", output: wdioAllPass, wantSafe: true},
+		{name: "cypress run all-pass", command: "cypress run --headless", output: cypressAllPass, wantSafe: true},
+		{name: "nx test all-pass", command: "nx test web", output: nxTestAllPass, wantSafe: true},
+		{name: "turbo test all-pass", command: "turbo run test", output: turboTestAllPass, wantSafe: true},
 		{name: "bun verbose all-pass", command: "bun test", output: bunAllPass, wantSafe: true},
 		{name: "cargo test json all-pass", command: "cargo test -- --format json", output: cargoJSONAllPass, wantSafe: true},
 		{name: "rails all-pass", command: "bundle exec rails test", output: railsAllPass, wantSafe: true},
@@ -122,6 +142,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
 		{name: "mypy success summary", command: "mypy src", output: mypySuccess, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
+		{name: "npm install clean success", command: "npm install", output: npmInstallClean, wantSafe: true},
+		{name: "pip install clean success", command: "pip install -r requirements.txt", output: pipInstallClean, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "cd wrapped ls small listing", command: "cd /repo/project && ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
@@ -159,17 +181,24 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "sarif cat zero results", command: "cat report.sarif", output: sarifZeroResults, wantGuard: "SARIF zero-results cat output stays guarded"},
 		{name: "sarif pattern file flag", command: "grep -f sarif.patterns report.sarif", output: sarifZeroResults, wantGuard: "SARIF-looking pattern-file args stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
-		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
+		{name: "jest failure", command: "jest", output: jestFailure, wantGuard: "jest failures stay guarded"},
 		{name: "mocha failure", command: "mocha", output: mochaFailure, wantGuard: "mocha failures stay guarded"},
 		{name: "ava failure", command: "ava", output: avaFailure, wantGuard: "ava failures stay guarded"},
 		{name: "tap failure", command: "tap", output: tapFailure, wantGuard: "tap failures stay guarded"},
 		{name: "playwright failure", command: "playwright test", output: playwrightFailure, wantGuard: "playwright failures stay guarded"},
+		{name: "npm test failure", command: "npm test", output: jestFailure, wantGuard: "package-manager test failures stay guarded"},
+		{name: "wdio failure", command: "wdio run wdio.conf.ts", output: wdioFailure, wantGuard: "wdio failures stay guarded"},
+		{name: "cypress failure", command: "cypress run", output: cypressFailure, wantGuard: "cypress failures stay guarded"},
+		{name: "nx test failure", command: "nx test web", output: nxTestFailure, wantGuard: "nx test failures stay guarded"},
+		{name: "turbo test failure", command: "turbo run test", output: turboTestFailure, wantGuard: "turbo test failures stay guarded"},
 		{name: "bun failure", command: "bun test", output: bunFailure, wantGuard: "bun failures stay guarded"},
 		{name: "rspec failure", command: "bundle exec rspec", output: rspecFailure, wantGuard: "rspec failures stay guarded"},
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
 		{name: "mypy failure", command: "mypy src", output: mypyFailure, wantGuard: "mypy diagnostics stay guarded"},
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
+		{name: "npm install warning", command: "npm install", output: npmInstallWarning, wantGuard: "package install warnings stay guarded"},
+		{name: "npm install vulnerability", command: "npm install", output: npmInstallVulnerability, wantGuard: "package install vulnerability findings stay guarded"},
 		{name: "empty build envelope", command: "go build ./...", output: emptyBuildEnvelope, wantGuard: "empty success envelopes stay guarded because they do not save bytes"},
 		{name: "build success with warning", command: "go build ./...", output: goBuildWarning, wantGuard: "build warnings stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
@@ -246,6 +275,237 @@ func TestWSSStatefulSafeGenericTestAllPassCompactsFullHistoryTurn(t *testing.T) 
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe pytest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeCypressRunAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: cypress-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssCypressRunAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-cypress-all-pass", "call_cypress_all_pass", "cypress run --headless", envelope, "stateful-cypress-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle cypress all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history cypress all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[cypress run] ok - 120 tests passed across 120 specs") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "generated_119.cy.ts") {
+		t.Fatalf("cypress all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe cypress all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeWdioRunAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: wdio-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssWdioRunAllPassFixture(120, 3)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-wdio-all-pass", "call_wdio_all_pass", "wdio run wdio.conf.ts", envelope, "stateful-wdio-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle wdio all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history wdio all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[wdio run] ok - 120 test(s) passed across 3 spec file(s)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "be able to render op 119") {
+		t.Fatalf("wdio all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe wdio all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeNxTestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: nx-test-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssNxTestAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-nx-test-all-pass", "call_nx_test_all_pass", "nx test web", envelope, "stateful-nx-test-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle nx test all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history nx test all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[nx test] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "renders op 119") {
+		t.Fatalf("nx test all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe nx test all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeTurboTestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: turbo-test-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssTurboTestAllPassFixture(120, 3)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-turbo-test-all-pass", "call_turbo_test_all_pass", "turbo run test", envelope, "stateful-turbo-test-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle turbo test all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history turbo test all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[turbo test] ok - 120 passed across 3 successful task(s)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "renders op 119") {
+		t.Fatalf("turbo test all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe turbo test all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafePackageManagerTestScriptAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: package-manager-test-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssJestVerboseAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-manager-test-all-pass", "call_package_manager_test_all_pass", "npm test", envelope, "stateful-package-manager-test-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle package-manager test all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history package-manager test all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[jest] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "renders op 119") {
+		t.Fatalf("package-manager test all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe package-manager test should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafePackageInstallCleanSuccessCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: package-install-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssNpmInstallCleanFixture(160)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-install-clean", "call_package_install_clean", "npm install", envelope, "stateful-package-install-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle package install clean success request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history package install clean success output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[npm install] added 160 packages") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "package_159") {
+		t.Fatalf("package install clean success output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe package install clean success should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSCompactedPackageSuccessSummaryContract(t *testing.T) {
+	t.Parallel()
+	cleanOriginal := []byte("fetch package metadata\nadded 3 packages, and audited 4 packages in 1s\nfound 0 vulnerabilities\n")
+	cleanSummary := []byte("[npm install] added 3 packages, and audited 4 packages in 1s\n")
+	if !wssCompactedPackageSuccessSummary(cleanOriginal, cleanSummary) {
+		t.Fatal("clean npm install summary should be accepted")
+	}
+	if !wssCompactedPackageSuccessSummary([]byte("Collecting a\nSuccessfully installed a-1.0.0\n"), []byte("[pip install] Successfully installed a-1.0.0\n")) {
+		t.Fatal("clean pip install summary should be accepted")
+	}
+	if !wssCompactedPackageSuccessSummary([]byte("resolving packages\nDone in 3.5s.\n"), []byte("[yarn install] Done in 3.5s.\n")) {
+		t.Fatal("clean yarn install summary should be accepted")
+	}
+
+	rejects := []struct {
+		name      string
+		original  []byte
+		compacted []byte
+	}{
+		{name: "not bracketed", original: cleanOriginal, compacted: []byte("npm install ok\n")},
+		{name: "empty label", original: cleanOriginal, compacted: []byte("[] added 3 packages\n")},
+		{name: "unsupported label", original: cleanOriginal, compacted: []byte("[cargo build] added 3 packages\n")},
+		{name: "empty status", original: cleanOriginal, compacted: []byte("[npm install]\n")},
+		{name: "error status", original: cleanOriginal, compacted: []byte("[npm install] error: failed\n")},
+		{name: "warning original", original: []byte("npm warn deprecated x\nadded 3 packages\n"), compacted: cleanSummary},
+		{name: "vulnerability original", original: []byte("added 3 packages\n3 vulnerabilities\n"), compacted: cleanSummary},
+		{name: "resolver original", original: []byte("ERR_PNPM_NO_MATCHING_VERSION missing\n"), compacted: []byte("[pnpm install] added 3 packages\n")},
+	}
+	for _, tt := range rejects {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if wssCompactedPackageSuccessSummary(tt.original, tt.compacted) {
+				t.Fatalf("unsafe package summary accepted: original=%q compacted=%q", tt.original, tt.compacted)
+			}
+		})
 	}
 }
 
@@ -985,6 +1245,104 @@ func TestWSSGitStatusPathspecBoundary(t *testing.T) {
 	}
 	if !wssSafeStatefulStatusToolOutput(toolUse, output) {
 		t.Fatal("git status pathspec should be stateful-safe after parser validation")
+	}
+}
+
+func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
+	t.Parallel()
+
+	gitStatusCases := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{name: "short untracked pathspec", command: "git status --short --untracked-files all -- internal/proxy", want: true},
+		{name: "git dir ignored porcelain", command: "git -C /repo status --ignored=matching --porcelain=v1", want: true},
+		{name: "invalid untracked value", command: "git status --untracked-files weird", want: false},
+		{name: "rich long flag", command: "git status --long", want: false},
+		{name: "not git", command: "status --short", want: false},
+	}
+	for _, tt := range gitStatusCases {
+		tt := tt
+		t.Run("git_status/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeGitStatusCommand(tt.command); got != tt.want {
+				t.Fatalf("wssSafeGitStatusCommand(%q)=%v want %v", tt.command, got, tt.want)
+			}
+		})
+	}
+
+	gitLogCases := []struct {
+		name    string
+		command string
+		payload string
+		want    bool
+	}{
+		{name: "dash n bounded", command: "git log --oneline -n 3", payload: "a1b2c3d Tighten guards\nb2c3d4e Recover savings\nc3d4e5f Add proof\n", want: true},
+		{name: "max count equals with pathspec", command: "git -C /repo log --oneline --max-count=2 -- internal/proxy", payload: "a1b2c3d Tighten guards\nb2c3d4e Recover savings\n", want: true},
+		{name: "compact numeric flag", command: "git log --oneline -3", payload: "a1b2c3d Tighten guards\n", want: true},
+		{name: "unbounded", command: "git log --oneline", payload: "a1b2c3d Tighten guards\n", want: false},
+		{name: "too many lines", command: "git log --oneline -n 1", payload: "a1b2c3d Tighten guards\nb2c3d4e Recover savings\n", want: false},
+		{name: "rich stat flag", command: "git log --stat --oneline -n 1", payload: "a1b2c3d Tighten guards\n", want: false},
+		{name: "non hex hash", command: "git log --oneline -n 1", payload: "zzzzzzz Tighten guards\n", want: false},
+		{name: "missing subject", command: "git log --oneline -n 1", payload: "a1b2c3d\n", want: false},
+	}
+	for _, tt := range gitLogCases {
+		tt := tt
+		t.Run("git_log/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeGitLogOnelineOutput(tt.command, tt.payload); got != tt.want {
+				t.Fatalf("wssSafeGitLogOnelineOutput(%q, %q)=%v want %v", tt.command, tt.payload, got, tt.want)
+			}
+		})
+	}
+
+	findCases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "bounded path list", args: []string{"internal/proxy", "-maxdepth", "2", "-type", "f", "-name", "*.go", "-print"}, want: true},
+		{name: "bounded with mindepth zero", args: []string{".", "-mindepth", "0", "-maxdepth", "1", "(", "-type", "f", "-o", "-type", "d", ")", "-print"}, want: true},
+		{name: "missing maxdepth", args: []string{"internal/proxy", "-type", "f", "-print"}, want: false},
+		{name: "exec side effect", args: []string{"internal", "-maxdepth", "2", "-exec", "cat", "{}", ";"}, want: false},
+		{name: "missing name value", args: []string{"internal", "-maxdepth", "2", "-name"}, want: false},
+		{name: "too deep", args: []string{"internal", "-maxdepth", fmt.Sprintf("%d", wssSafeFindMaxDepth+1), "-print"}, want: false},
+		{name: "unknown flag", args: []string{"internal", "-maxdepth", "2", "-perm", "0644"}, want: false},
+		{name: "empty arg", args: []string{"internal", "-maxdepth", "2", ""}, want: false},
+	}
+	for _, tt := range findCases {
+		tt := tt
+		t.Run("find/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeFindArgs(tt.args); got != tt.want {
+				t.Fatalf("wssSafeFindArgs(%q)=%v want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+
+	treeCases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "bounded with charset and separator", args: []string{"-L", "2", "--dirsfirst", "--charset", "ascii", "--", "internal/proxy"}, want: true},
+		{name: "joined depth and charset", args: []string{"-adF", "-L2", "--charset=ascii", "internal/proxy"}, want: true},
+		{name: "split depth", args: []string{"-d", "-L", "1", "internal/proxy"}, want: true},
+		{name: "missing depth", args: []string{"--dirsfirst", "internal/proxy"}, want: false},
+		{name: "empty charset value", args: []string{"-L", "2", "--charset", ""}, want: false},
+		{name: "rich disk usage flag", args: []string{"-L", "2", "--du", "internal/proxy"}, want: false},
+		{name: "too deep", args: []string{fmt.Sprintf("-L%d", wssSafeTreeMaxDepth+1), "internal/proxy"}, want: false},
+		{name: "empty separator rest", args: []string{"-L", "2", "--", ""}, want: false},
+	}
+	for _, tt := range treeCases {
+		tt := tt
+		t.Run("tree/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeTreeArgs(tt.args); got != tt.want {
+				t.Fatalf("wssSafeTreeArgs(%q)=%v want %v", tt.args, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1749,6 +2107,105 @@ func wssPlaywrightAllPassFixture(count int) string {
 	return out.String()
 }
 
+func wssCypressRunAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("====================================================================================================\n")
+	out.WriteString("  (Run Finished)\n\n")
+	out.WriteString("       Spec                                              Tests  Passing  Failing  Pending  Skipped\n")
+	out.WriteString("  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  │ ✔  cypress/e2e/generated_%03d.cy.ts              00:01        1        1        -        -        - │\n", i)
+	}
+	out.WriteString("  └────────────────────────────────────────────────────────────────────────────────────────────────┘\n")
+	fmt.Fprintf(&out, "    ✔  All specs passed!                              00:12        %d        %d        -        -        -\n", count, count)
+	return out.String()
+}
+
+func wssWdioRunAllPassFixture(count int, specs int) string {
+	if specs <= 0 {
+		specs = 1
+	}
+	perSpec := count / specs
+	var out strings.Builder
+	out.WriteString("Execution of 2 workers started at 2026-06-18T12:00:00.000Z\n\n")
+	written := 0
+	for spec := 0; spec < specs; spec++ {
+		specCount := perSpec
+		if spec == specs-1 {
+			specCount = count - written
+		}
+		fmt.Fprintf(&out, "[0-%d] RUNNING in chrome - file:///test/specs/generated_%03d.e2e.ts\n", spec, spec)
+		fmt.Fprintf(&out, "[0-%d] PASSED in chrome - file:///test/specs/generated_%03d.e2e.ts\n\n", spec, spec)
+		out.WriteString(" \"spec\" Reporter:\n")
+		out.WriteString("------------------------------------------------------------------\n")
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Running: chrome on mac\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Session ID: session-%03d\n", spec, spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] \u00bb /test/specs/generated_%03d.e2e.ts\n", spec, spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Generated suite %03d\n", spec, spec)
+		for i := 0; i < specCount; i++ {
+			fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]    ✓ be able to render op %03d\n", spec, written+i)
+		}
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] %d passing (5.9s)\n\n", spec, specCount)
+		written += specCount
+	}
+	fmt.Fprintf(&out, "Spec Files:      %d passed, %d total (100%% completed) in 00:00:08\n", specs, specs)
+	return out.String()
+}
+
+func wssNxTestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("> nx run web:test\n\n")
+	out.WriteString("PASS apps/web/src/app/app.spec.ts\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  ✓ renders op %03d (2 ms)\n", i)
+	}
+	out.WriteString("\n")
+	out.WriteString("Test Suites: 1 passed, 1 total\n")
+	fmt.Fprintf(&out, "Tests: %d passed, %d total\n", count, count)
+	out.WriteString("Snapshots: 0 total\n")
+	out.WriteString("Time: 1.2 s\n")
+	out.WriteString("Ran all test suites.\n\n")
+	out.WriteString(" >  NX   Successfully ran target test for project web\n")
+	return out.String()
+}
+
+func wssTurboTestAllPassFixture(count int, tasks int) string {
+	if tasks <= 0 {
+		tasks = 1
+	}
+	perTask := count / tasks
+	var out strings.Builder
+	out.WriteString("turbo 2.5.4\n")
+	out.WriteString("• Packages in scope: @repo/web, @repo/ui\n")
+	fmt.Fprintf(&out, "• Running test in %d packages\n", tasks)
+	out.WriteString("• Remote caching disabled\n\n")
+	written := 0
+	for task := 0; task < tasks; task++ {
+		taskName := fmt.Sprintf("@repo/pkg%d:test", task)
+		taskCount := perTask
+		if task == tasks-1 {
+			taskCount = count - written
+		}
+		fmt.Fprintf(&out, "%s: cache miss, executing abcdef%d\n", taskName, task)
+		fmt.Fprintf(&out, "%s:\n", taskName)
+		fmt.Fprintf(&out, "%s: PASS packages/pkg%d/src/app.spec.ts\n", taskName, task)
+		for i := 0; i < taskCount; i++ {
+			fmt.Fprintf(&out, "%s:   ✓ renders op %03d (2 ms)\n", taskName, written+i)
+		}
+		fmt.Fprintf(&out, "%s:\n", taskName)
+		fmt.Fprintf(&out, "%s: Test Suites: 1 passed, 1 total\n", taskName)
+		fmt.Fprintf(&out, "%s: Tests: %d passed, %d total\n", taskName, taskCount, taskCount)
+		fmt.Fprintf(&out, "%s: Time: 1.2 s\n\n", taskName)
+		written += taskCount
+	}
+	fmt.Fprintf(&out, "Tasks:    %d successful, %d total\n", tasks, tasks)
+	fmt.Fprintf(&out, "Cached:   0 cached, %d total\n", tasks)
+	out.WriteString("Time:     1.234s\n")
+	return out.String()
+}
+
 func wssBunTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("bun test v1.3.14 (0d9b296a)\n\nwidget.test.ts:\n")
@@ -1802,6 +2259,33 @@ func wssDotnetBuildSuccessFixture(projects, warnings int) string {
 	}
 	out.WriteString("    0 Error(s)\n\n")
 	out.WriteString("Time Elapsed 00:00:03.21\n")
+	return out.String()
+}
+
+func wssNpmInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "npm http fetch GET 200 https://registry.npmjs.org/package_%03d 12%dms\n", i, i%10)
+		fmt.Fprintf(&out, "npm timing idealTree:node_modules/package_%03d Completed in %dms\n", i, i%20+1)
+	}
+	fmt.Fprintf(&out, "\nadded %d packages, and audited %d packages in 12s\n\n", packages, packages+1)
+	out.WriteString("12 packages are looking for funding\n")
+	out.WriteString("  run `npm fund` for details\n\n")
+	out.WriteString("found 0 vulnerabilities\n")
+	return out.String()
+}
+
+func wssPipInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	installed := make([]string, 0, packages)
+	for i := 0; i < packages; i++ {
+		name := fmt.Sprintf("package-%03d", i)
+		installed = append(installed, name+"-1.0.0")
+		fmt.Fprintf(&out, "Collecting %s\n", name)
+		fmt.Fprintf(&out, "  Downloading %s-1.0.0-py3-none-any.whl (62 kB)\n", name)
+		out.WriteString("     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 62.6/62.6 kB 1.2 MB/s eta 0:00:00\n")
+	}
+	fmt.Fprintf(&out, "Successfully installed %s\n", strings.Join(installed, " "))
 	return out.String()
 }
 

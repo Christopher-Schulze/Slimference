@@ -682,23 +682,40 @@ func compactJSTestVerbosePass(stdout []byte, label string) ([]byte, bool) {
 	lines := strings.Split(s, "\n")
 	kept := make([]string, 0, len(lines))
 	passed := 0
+	summaryPassed := 0
+	summaryLine := ""
 	for _, line := range lines {
 		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "\u2713 ") || strings.HasPrefix(t, "\u2714 ") {
+		if count, total, ok := nxJSTestSummaryCounts(t); ok {
+			if count <= 0 || count != total {
+				return stdout, false
+			}
+			summaryPassed = count
+			summaryLine = t
+		}
+		if jsVerbosePerTestCheckLine(t) {
 			passed++
 			continue
 		}
 		kept = append(kept, line)
 	}
-	if passed == 0 {
+	if passed == 0 || summaryPassed != passed {
 		return stdout, false
 	}
 	out := fmt.Sprintf("[%s] ok - %d passed, per-test check lines elided\n", label, passed) +
 		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
-	if len(out) >= len(s) {
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
 		return stdout, false
 	}
 	return []byte(out), true
+}
+
+func jsVerbosePerTestCheckLine(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "\u2713 ") && !strings.HasPrefix(trimmed, "\u2714 ") {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	return !strings.HasSuffix(lower, " tests)") && !strings.HasSuffix(lower, " test)")
 }
 
 // TryCompactKarma summarizes successful `karma start` / `npx|pnpm exec|yarn … karma start` output (F08 partial).
@@ -1193,97 +1210,473 @@ func playwrightPassedSummaryCount(line string) (int, bool) {
 	return n, n > 0
 }
 
-// TryCompactCypressRun summarizes empty stdout from `cypress run` / `npx|pnpm exec|yarn … cypress run` (F08 partial).
+// TryCompactCypressRun summarizes successful `cypress run` / `npx|pnpm exec|yarn … cypress run` output (F08 partial).
 func TryCompactCypressRun(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "cypress", "run") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "cypress" || b == "cypress.cmd") && argv[1] == "run" {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[cypress run] ok\n"), true
 	}
-	if npxMatches(argv, "cypress", "run") {
-		return []byte("[cypress run] ok\n"), true
-	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "cypress" && argv[3] == "run" {
-		return []byte("[cypress run] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "cypress" && argv[2] == "run" {
-		return []byte("[cypress run] ok\n"), true
-	}
-	return stdout, false
+	return compactCypressRunAllPass(stdout)
 }
 
-// TryCompactWdioRun summarizes empty stdout from `wdio run …` / `npx|pnpm exec|yarn … wdio run` (WebdriverIO) (F08 partial).
+type cypressRunCounts struct {
+	tests   int
+	passing int
+	failing int
+	pending int
+	skipped int
+}
+
+func compactCypressRunAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	specs := 0
+	totalTests := 0
+	sawSummary := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if cypressRunTableHeaderLine(lower) || cypressRunBorderLine(trimmed) {
+			continue
+		}
+		counts, hasCounts := cypressRunLineCounts(trimmed)
+		if strings.Contains(lower, "all specs passed") {
+			if !hasCounts || !cypressRunAllCountsPassed(counts) {
+				return stdout, false
+			}
+			totalTests = counts.tests
+			sawSummary = true
+			continue
+		}
+		if hasCounts {
+			if !cypressRunAllCountsPassed(counts) {
+				return stdout, false
+			}
+			if cypressRunSpecLine(lower) {
+				specs++
+			}
+			continue
+		}
+		if cypressRunUnsafeLine(trimmed, lower) {
+			return stdout, false
+		}
+	}
+	if !sawSummary || specs <= 0 || totalTests <= 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[cypress run] ok - %d tests passed across %d specs\n", totalTests, specs)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func cypressRunLineCounts(line string) (cypressRunCounts, bool) {
+	fields := cypressRunFields(line)
+	if len(fields) < 5 {
+		return cypressRunCounts{}, false
+	}
+	fields = fields[len(fields)-5:]
+	tests, ok := parsePositiveASCIIInt(fields[0])
+	if !ok {
+		return cypressRunCounts{}, false
+	}
+	passing, ok := parseNonNegativeASCIIInt(fields[1])
+	if !ok {
+		return cypressRunCounts{}, false
+	}
+	failing, ok := cypressRunZeroOrDashCount(fields[2])
+	if !ok {
+		return cypressRunCounts{}, false
+	}
+	pending, ok := cypressRunZeroOrDashCount(fields[3])
+	if !ok {
+		return cypressRunCounts{}, false
+	}
+	skipped, ok := cypressRunZeroOrDashCount(fields[4])
+	if !ok {
+		return cypressRunCounts{}, false
+	}
+	return cypressRunCounts{tests: tests, passing: passing, failing: failing, pending: pending, skipped: skipped}, true
+}
+
+func cypressRunFields(line string) []string {
+	raw := strings.Fields(line)
+	fields := make([]string, 0, len(raw))
+	for _, field := range raw {
+		field = strings.TrimSpace(strings.Trim(field, "|│"))
+		if field == "" || (field != "-" && cypressRunBorderLine(field)) {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func cypressRunZeroOrDashCount(field string) (int, bool) {
+	field = strings.TrimSpace(field)
+	if field == "-" {
+		return 0, true
+	}
+	return parseNonNegativeASCIIInt(field)
+}
+
+func cypressRunAllCountsPassed(counts cypressRunCounts) bool {
+	return counts.tests > 0 && counts.tests == counts.passing &&
+		counts.failing == 0 && counts.pending == 0 && counts.skipped == 0
+}
+
+func cypressRunSpecLine(lower string) bool {
+	return strings.Contains(lower, ".cy.")
+}
+
+func cypressRunTableHeaderLine(lower string) bool {
+	return strings.Contains(lower, "spec") &&
+		strings.Contains(lower, "tests") &&
+		strings.Contains(lower, "passing") &&
+		strings.Contains(lower, "failing") &&
+		strings.Contains(lower, "pending") &&
+		strings.Contains(lower, "skipped")
+}
+
+func cypressRunBorderLine(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		switch r {
+		case ' ', '\t', '-', '=', '+', '|', '│', '─', '━', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func cypressRunUnsafeLine(trimmed, lower string) bool {
+	if cypressRunTableHeaderLine(lower) || cypressRunBorderLine(trimmed) {
+		return false
+	}
+	for _, marker := range []string{
+		"failed",
+		"failing",
+		"failure",
+		"error",
+		"exception",
+		"timed out",
+		"timeout",
+		"warning",
+		"warn:",
+		"deprecated",
+		"pending",
+		"skipped",
+		"cancelled",
+		"canceled",
+		"no specs",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TryCompactWdioRun summarizes successful `wdio run …` /
+// `npx|pnpm exec|yarn … wdio run` (WebdriverIO) output (F08 partial).
 func TryCompactWdioRun(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "wdio", "run") {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[wdio run] ok\n"), true
+	}
+	return compactWdioRunAllPass(stdout)
+}
+
+func compactWdioRunAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	specPassed := 0
+	specTotal := 0
+	passedSpecRows := 0
+	passingTests := 0
+	checkRows := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		payload, prefixed := wdioLogPayload(trimmed)
+		lowerPayload := strings.ToLower(payload)
+		if passed, total, ok := wdioSpecFilesSummaryCounts(payload); ok {
+			if passed <= 0 || passed != total {
+				return stdout, false
+			}
+			specPassed = passed
+			specTotal = total
+			kept = append(kept, line)
+			continue
+		}
+		if count, ok := wdioPassingSummaryCount(payload); ok {
+			passingTests += count
+			kept = append(kept, line)
+			continue
+		}
+		if wdioRunLineHasUnsafeMarker(payload, lowerPayload) {
+			return stdout, false
+		}
+		switch {
+		case strings.HasPrefix(payload, "PASSED in "):
+			passedSpecRows++
+			kept = append(kept, line)
+		case wdioTestCheckLine(payload):
+			checkRows++
+		case wdioRunNoiseLine(trimmed, payload):
+			kept = append(kept, line)
+		case prefixed && len(payload) <= 256:
+			kept = append(kept, line)
+		default:
+			return stdout, false
+		}
+	}
+	if specPassed <= 0 || specTotal != specPassed || passedSpecRows != specPassed ||
+		passingTests <= 0 || checkRows != passingTests {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[wdio run] ok - %d test(s) passed across %d spec file(s), per-test check lines elided\n", passingTests, specPassed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func wdioLogPayload(line string) (string, bool) {
+	if strings.HasPrefix(line, "[") {
+		if idx := strings.Index(line, "] "); idx > 0 {
+			return strings.TrimSpace(line[idx+2:]), true
+		}
+		if strings.HasSuffix(line, "]") {
+			return "", true
+		}
+	}
+	return line, false
+}
+
+func wdioSpecFilesSummaryCounts(line string) (passed, total int, ok bool) {
+	if !strings.HasPrefix(line, "Spec Files:") {
+		return 0, 0, false
+	}
+	counts, parsed := nxSummaryCounts(strings.TrimSpace(strings.TrimPrefix(line, "Spec Files:")))
+	if !parsed {
+		return 0, 0, false
+	}
+	return counts["passed"], counts["total"], true
+}
+
+func wdioPassingSummaryCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[1] != "passing" || !asciiDecimal(fields[0]) {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[0])
+}
+
+func wdioTestCheckLine(line string) bool {
+	return strings.HasPrefix(line, "\u2713 ") || strings.HasPrefix(line, "\u2714 ")
+}
+
+func wdioRunNoiseLine(trimmed, payload string) bool {
+	if strings.HasPrefix(payload, "Execution of ") ||
+		strings.HasPrefix(payload, "RUNNING in ") ||
+		strings.HasPrefix(payload, "Estimating resolution as ") ||
+		strings.HasPrefix(payload, "Running: ") ||
+		strings.HasPrefix(payload, "Session ID: ") ||
+		strings.HasPrefix(payload, "\u00bb ") ||
+		payload == "\"spec\" Reporter:" {
+		return true
+	}
+	if trimmed != "" {
+		for _, r := range trimmed {
+			if r != '-' {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func wdioRunLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.HasPrefix(trimmed, "FAILED in ") ||
+		strings.HasPrefix(trimmed, "\u2715 ") ||
+		strings.HasPrefix(trimmed, "\u2716 ") ||
+		strings.HasPrefix(trimmed, "\u00d7 ") {
+		return true
+	}
+	for _, marker := range []string{
+		"failed",
+		"failure",
+		"error:",
+		"exception",
+		"timeout",
+		"timed out",
+		"warning",
+		"deprecated",
+		"skipped",
+		"pending",
+		"not ok",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TryCompactNpmRunTest summarizes `npm test` / `npm run test`. Non-empty output
+// compacts only when a strict known runner parser proves an all-pass transcript.
+func TryCompactNpmRunTest(argv []string, stdout []byte) ([]byte, bool) {
+	label, ok := packageManagerTestScriptLabel(argv)
+	if !ok || (label != "npm test" && label != "npm run test") {
+		return stdout, false
+	}
+	return compactPackageManagerTestScriptOutput(stdout, label)
+}
+
+// TryCompactPnpmTest summarizes `pnpm test` / `pnpm run test`. Non-empty output
+// compacts only when a strict known runner parser proves an all-pass transcript.
+func TryCompactPnpmTest(argv []string, stdout []byte) ([]byte, bool) {
+	label, ok := packageManagerTestScriptLabel(argv)
+	if !ok || (label != "pnpm test" && label != "pnpm run test") {
+		return stdout, false
+	}
+	return compactPackageManagerTestScriptOutput(stdout, label)
+}
+
+// TryCompactYarnTest summarizes `yarn test` / `yarn run test`. Non-empty output
+// compacts only when a strict known runner parser proves an all-pass transcript.
+func TryCompactYarnTest(argv []string, stdout []byte) ([]byte, bool) {
+	label, ok := packageManagerTestScriptLabel(argv)
+	if !ok || (label != "yarn test" && label != "yarn run test") {
+		return stdout, false
+	}
+	return compactPackageManagerTestScriptOutput(stdout, label)
+}
+
+// TryCompactPackageManagerTestScript covers npm/pnpm/yarn test scripts through
+// existing strict runner parsers. It does not use the broad diagnostic fallback,
+// so unknown/failure output stays byte-identical.
+func TryCompactPackageManagerTestScript(argv []string, stdout []byte) ([]byte, bool) {
+	label, ok := packageManagerTestScriptLabel(argv)
+	if !ok {
+		return stdout, false
+	}
+	return compactPackageManagerTestScriptOutput(stdout, label)
+}
+
+func packageManagerTestScriptLabel(argv []string) (string, bool) {
 	if len(argv) < 2 {
-		return stdout, false
+		return "", false
 	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "wdio" || b == "wdio.cmd") && argv[1] == "run" {
-		return []byte("[wdio run] ok\n"), true
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if b0 == "npm" || b0 == "npm.cmd" {
+		if argv[1] == "test" {
+			return "npm test", true
+		}
+		if len(argv) >= 3 && argv[1] == "run" && argv[2] == "test" {
+			return "npm run test", true
+		}
+		return "", false
 	}
-	if npxMatches(argv, "wdio", "run") {
-		return []byte("[wdio run] ok\n"), true
+	if b0 == "pnpm" || b0 == "pnpm.cmd" {
+		if argv[1] == "test" {
+			return "pnpm test", true
+		}
+		if len(argv) >= 3 && argv[1] == "run" && argv[2] == "test" {
+			return "pnpm run test", true
+		}
+		return "", false
 	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "wdio" && argv[3] == "run" {
-		return []byte("[wdio run] ok\n"), true
+	if b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg" {
+		if argv[1] == "test" {
+			return "yarn test", true
+		}
+		if len(argv) >= 3 && argv[1] == "run" && argv[2] == "test" {
+			return "yarn run test", true
+		}
 	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "wdio" && argv[2] == "run" {
-		return []byte("[wdio run] ok\n"), true
+	return "", false
+}
+
+func compactPackageManagerTestScriptOutput(stdout []byte, label string) ([]byte, bool) {
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[" + label + "] ok\n"), true
+	}
+	return compactKnownRunnerAllPassForTestScript(stdout)
+}
+
+func compactKnownRunnerAllPassForTestScript(stdout []byte) ([]byte, bool) {
+	for _, candidate := range knownRunnerAllPassForTestScriptParsers() {
+		if out, ok := candidate.parser(candidate.argv, stdout); ok && knownRunnerAllPassSummary(out) {
+			return out, true
+		}
 	}
 	return stdout, false
 }
 
-// TryCompactNpmRunTest summarizes empty stdout from `npm run test` (F08 partial).
-func TryCompactNpmRunTest(argv []string, stdout []byte) ([]byte, bool) {
-	if len(argv) < 3 {
-		return stdout, false
-	}
-	if strings.ToLower(filepath.Base(argv[0])) != "npm" {
-		return stdout, false
-	}
-	if argv[1] != "run" || argv[2] != "test" {
-		return stdout, false
-	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
-	return []byte("[npm run test] ok\n"), true
+type knownRunnerParser struct {
+	argv   []string
+	parser func([]string, []byte) ([]byte, bool)
 }
 
-// TryCompactPnpmTest summarizes empty stdout from `pnpm test` (F08 partial).
-func TryCompactPnpmTest(argv []string, stdout []byte) ([]byte, bool) {
-	if len(argv) < 2 {
-		return stdout, false
+func knownRunnerAllPassForTestScriptParsers() []knownRunnerParser {
+	return []knownRunnerParser{
+		{[]string{"jest", "--json"}, TryCompactVitestJSON},
+		{[]string{"vitest", "run", "--reporter=json"}, TryCompactVitestJSON},
+		{[]string{"jest"}, TryCompactJest},
+		{[]string{"vitest", "run"}, TryCompactVitest},
+		{[]string{"mocha"}, TryCompactMocha},
+		{[]string{"ava"}, TryCompactAva},
+		{[]string{"tap"}, TryCompactTap},
+		{[]string{"playwright", "test"}, TryCompactPlaywrightTest},
+		{[]string{"cypress", "run"}, TryCompactCypressRun},
+		{[]string{"wdio", "run", "wdio.conf.ts"}, TryCompactWdioRun},
+		{[]string{"nx", "test", "app"}, TryCompactNxTest},
+		{[]string{"turbo", "run", "test"}, TryCompactTurboTest},
+		{[]string{"bun", "test"}, TryCompactBunTest},
+		{[]string{"deno", "test"}, TryCompactDenoTest},
 	}
-	if filepath.Base(argv[0]) != "pnpm" || argv[1] != "test" {
-		return stdout, false
-	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
-	return []byte("[pnpm test] ok\n"), true
 }
 
-// TryCompactYarnTest summarizes empty stdout from `yarn test` (F08 partial).
-func TryCompactYarnTest(argv []string, stdout []byte) ([]byte, bool) {
-	if len(argv) < 2 {
-		return stdout, false
+func knownRunnerAllPassSummary(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[") {
+		return false
 	}
-	if filepath.Base(argv[0]) != "yarn" || argv[1] != "test" {
-		return stdout, false
+	closeBracket := strings.IndexByte(text, ']')
+	if closeBracket <= 0 {
+		return false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
+	status := strings.TrimSpace(text[closeBracket+1:])
+	lower := strings.ToLower(status)
+	if strings.Contains(lower, "failed") || strings.Contains(lower, "error") ||
+		strings.Contains(lower, "warning") || strings.Contains(lower, "skipped") ||
+		strings.Contains(lower, "todo") {
+		return false
 	}
-	return []byte("[yarn test] ok\n"), true
+	return strings.HasPrefix(status, "ok") ||
+		strings.Contains(lower, " tests passed") ||
+		strings.Contains(lower, " test(s) passed") ||
+		strings.Contains(lower, " test passed")
 }
 
 // TryCompactBunTest summarizes successful `bun test` / `npx|pnpm exec|yarn … bun test` output (F08 partial).
@@ -1404,77 +1797,381 @@ func bunRanSummaryCount(line string) (int, bool) {
 	return n, n > 0
 }
 
-// TryCompactNxTest summarizes empty stdout from `nx test …` / `npx|pnpm exec|yarn … nx test` (F08 partial).
+// TryCompactNxTest summarizes successful `nx test …` /
+// `npx|pnpm exec|yarn … nx test` output (F08 partial).
 func TryCompactNxTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "nx", "test") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "nx" || b == "nx.cmd") && argv[1] == "test" {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[nx test] ok\n"), true
 	}
-	if npxMatches(argv, "nx", "test") {
-		return []byte("[nx test] ok\n"), true
-	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "nx" && argv[3] == "test" {
-		return []byte("[nx test] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "nx" && argv[2] == "test" {
-		return []byte("[nx test] ok\n"), true
-	}
-	return stdout, false
+	return compactNxTestAllPass(stdout)
 }
 
-// TryCompactTurboTest summarizes empty stdout from `turbo test` / `turbo run test` / `npx|pnpm exec|yarn … turbo … test` (F08 partial).
-func TryCompactTurboTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+func compactNxTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passRows := 0
+	checkRows := 0
+	testsPassed := 0
+	testsTotal := 0
+	sawNxSuccess := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		if passed, total, ok := nxJSTestSummaryCounts(trimmed); ok {
+			if passed <= 0 || passed != total {
+				return stdout, false
+			}
+			testsPassed = passed
+			testsTotal = total
+			kept = append(kept, line)
+			continue
+		}
+		if ok, safe := nxJSTestSuiteSummarySafe(trimmed); ok {
+			if !safe {
+				return stdout, false
+			}
+			kept = append(kept, line)
+			continue
+		}
+		if nxTestLineHasUnsafeMarker(trimmed, lower) {
+			return stdout, false
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "PASS "):
+			passRows++
+			kept = append(kept, line)
+		case nxTestCheckLine(trimmed):
+			checkRows++
+		case strings.HasPrefix(trimmed, "> nx run "):
+			kept = append(kept, line)
+		case strings.Contains(trimmed, "NX") && strings.Contains(lower, "successfully ran target test"):
+			sawNxSuccess = true
+			kept = append(kept, line)
+		case strings.HasPrefix(trimmed, "Time: ") || trimmed == "Ran all test suites." ||
+			nxSnapshotSummarySafe(trimmed):
+			kept = append(kept, line)
+		default:
+			return stdout, false
+		}
+	}
+	if testsPassed <= 0 || testsTotal != testsPassed || passRows <= 0 ||
+		checkRows != testsPassed || !sawNxSuccess {
 		return stdout, false
 	}
-	if len(argv) < 2 {
+	out := fmt.Sprintf("[nx test] ok - %d passed, per-test check lines elided\n", testsPassed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
 		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func nxJSTestSummaryCounts(line string) (passed, total int, ok bool) {
+	if !strings.HasPrefix(line, "Tests:") {
+		return 0, 0, false
+	}
+	counts, parsed := nxSummaryCounts(strings.TrimSpace(strings.TrimPrefix(line, "Tests:")))
+	if !parsed {
+		return 0, 0, false
+	}
+	passed = counts["passed"]
+	total = counts["total"]
+	failed := counts["failed"]
+	skipped := counts["skipped"]
+	todo := counts["todo"]
+	return passed, total, passed > 0 && total > 0 && failed == 0 && skipped == 0 && todo == 0
+}
+
+func nxJSTestSuiteSummarySafe(line string) (seen, safe bool) {
+	if !strings.HasPrefix(line, "Test Suites:") {
+		return false, false
+	}
+	counts, ok := nxSummaryCounts(strings.TrimSpace(strings.TrimPrefix(line, "Test Suites:")))
+	if !ok {
+		return true, false
+	}
+	return true, counts["failed"] == 0 && counts["skipped"] == 0 && counts["todo"] == 0 &&
+		counts["passed"] > 0 && counts["total"] >= counts["passed"]
+}
+
+func nxSummaryCounts(summary string) (map[string]int, bool) {
+	counts := make(map[string]int)
+	parts := strings.Split(summary, ",")
+	for _, part := range parts {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) < 2 || !asciiDecimal(fields[0]) {
+			continue
+		}
+		n, ok := parseNonNegativeASCIIInt(fields[0])
+		if !ok {
+			return nil, false
+		}
+		key := strings.ToLower(strings.TrimSuffix(fields[1], ","))
+		switch key {
+		case "passed", "failed", "skipped", "todo", "total":
+			counts[key] = n
+		}
+	}
+	return counts, len(counts) > 0
+}
+
+func nxTestCheckLine(line string) bool {
+	return strings.HasPrefix(line, "\u2713 ") || strings.HasPrefix(line, "\u2714 ")
+}
+
+func nxSnapshotSummarySafe(line string) bool {
+	if !strings.HasPrefix(line, "Snapshots:") {
+		return false
+	}
+	lower := strings.ToLower(line)
+	return !strings.Contains(lower, "failed") &&
+		!strings.Contains(lower, "obsolete") &&
+		!strings.Contains(lower, "written") &&
+		!strings.Contains(lower, "updated")
+}
+
+func nxTestLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.HasPrefix(trimmed, "FAIL ") ||
+		strings.HasPrefix(trimmed, "\u2715 ") ||
+		strings.HasPrefix(trimmed, "\u2716 ") ||
+		strings.HasPrefix(trimmed, "\u00d7 ") {
+		return true
+	}
+	for _, marker := range []string{
+		"failed",
+		"failure",
+		"error:",
+		"exception",
+		"timeout",
+		"timed out",
+		"warning",
+		"deprecated",
+		"skipped",
+		"todo",
+		"open handle",
+		"leak",
+		"not ok",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TryCompactTurboTest summarizes successful `turbo test` / `turbo run test` /
+// `npx|pnpm exec|yarn … turbo … test` output (F08 partial).
+func TryCompactTurboTest(argv []string, stdout []byte) ([]byte, bool) {
+	if !isTurboTestArgv(argv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[turbo test] ok\n"), true
+	}
+	return compactTurboTestAllPass(stdout)
+}
+
+func isTurboTestArgv(argv []string) bool {
+	if len(argv) < 2 {
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "turbo" || b == "turbo.cmd" {
-		okTurbo := false
+	if b == "npx" || b == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		return ok && isTurboTestArgv(rest)
+	}
+	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" {
+		return isTurboTestArgv(argv[2:])
+	}
+	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") {
+		return isTurboTestArgv(argv[1:])
+	}
+	if b != "turbo" && b != "turbo.cmd" {
+		return false
+	}
+	return argv[1] == "test" || (argv[1] == "run" && len(argv) >= 3 && argv[2] == "test")
+}
+
+func compactTurboTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passRows := 0
+	checkRows := 0
+	testsPassed := 0
+	successfulTasks := 0
+	totalTasks := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		payload := turboTestLogPayload(trimmed)
+		lowerPayload := strings.ToLower(payload)
+		if successful, total, ok := turboTasksSummaryCounts(payload); ok {
+			if successful <= 0 || successful != total {
+				return stdout, false
+			}
+			successfulTasks = successful
+			totalTasks = total
+			kept = append(kept, line)
+			continue
+		}
+		if cached, total, ok := turboCachedSummaryCounts(payload); ok {
+			if cached < 0 || total <= 0 || cached > total {
+				return stdout, false
+			}
+			kept = append(kept, line)
+			continue
+		}
+		if passed, total, ok := nxJSTestSummaryCounts(payload); ok {
+			if passed <= 0 || passed != total {
+				return stdout, false
+			}
+			testsPassed += passed
+			kept = append(kept, line)
+			continue
+		}
+		if ok, safe := nxJSTestSuiteSummarySafe(payload); ok {
+			if !safe {
+				return stdout, false
+			}
+			kept = append(kept, line)
+			continue
+		}
+		if turboTestLineHasUnsafeMarker(payload, lowerPayload) {
+			return stdout, false
+		}
 		switch {
-		case argv[1] == "test":
-			okTurbo = true
-		case argv[1] == "run" && len(argv) >= 3 && argv[2] == "test":
-			okTurbo = true
+		case strings.HasPrefix(payload, "PASS "):
+			passRows++
+			kept = append(kept, line)
+		case nxTestCheckLine(payload):
+			checkRows++
+		case turboTestNoiseLine(trimmed, payload, lowerPayload):
+			kept = append(kept, line)
+		case nxSnapshotSummarySafe(payload) || strings.HasPrefix(payload, "Time: ") ||
+			payload == "Ran all test suites.":
+			kept = append(kept, line)
+		default:
+			return stdout, false
 		}
-		if okTurbo {
-			return []byte("[turbo test] ok\n"), true
-		}
+	}
+	if successfulTasks <= 0 || totalTasks != successfulTasks || testsPassed <= 0 ||
+		passRows <= 0 || checkRows != testsPassed {
 		return stdout, false
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && strings.EqualFold(filepath.Base(rest[0]), "turbo") {
-		if len(rest) >= 2 && rest[1] == "test" {
-			return []byte("[turbo test] ok\n"), true
-		}
-		if len(rest) >= 3 && rest[1] == "run" && rest[2] == "test" {
-			return []byte("[turbo test] ok\n"), true
+	out := fmt.Sprintf("[turbo test] ok - %d passed across %d successful task(s), per-test check lines elided\n", testsPassed, successfulTasks) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func turboTestLogPayload(line string) string {
+	if idx := strings.Index(line, ": "); idx > 0 {
+		prefix := line[:idx]
+		if strings.Contains(prefix, ":test") || strings.HasSuffix(prefix, "#test") {
+			return strings.TrimSpace(line[idx+2:])
 		}
 	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "turbo" {
-		if argv[3] == "test" {
-			return []byte("[turbo test] ok\n"), true
+	return line
+}
+
+func turboTasksSummaryCounts(line string) (successful, total int, ok bool) {
+	if !strings.HasPrefix(line, "Tasks:") {
+		return 0, 0, false
+	}
+	counts, parsed := turboSummaryCounts(strings.TrimSpace(strings.TrimPrefix(line, "Tasks:")))
+	if !parsed {
+		return 0, 0, false
+	}
+	return counts["successful"], counts["total"], true
+}
+
+func turboCachedSummaryCounts(line string) (cached, total int, ok bool) {
+	if !strings.HasPrefix(line, "Cached:") {
+		return 0, 0, false
+	}
+	counts, parsed := turboSummaryCounts(strings.TrimSpace(strings.TrimPrefix(line, "Cached:")))
+	if !parsed {
+		return 0, 0, false
+	}
+	return counts["cached"], counts["total"], true
+}
+
+func turboSummaryCounts(summary string) (map[string]int, bool) {
+	counts := make(map[string]int)
+	for _, part := range strings.Split(summary, ",") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) < 2 || !asciiDecimal(fields[0]) {
+			continue
 		}
-		if argv[3] == "run" && len(argv) >= 5 && argv[4] == "test" {
-			return []byte("[turbo test] ok\n"), true
+		n, ok := parseNonNegativeASCIIInt(fields[0])
+		if !ok {
+			return nil, false
+		}
+		key := strings.ToLower(strings.TrimSuffix(fields[1], ","))
+		switch key {
+		case "successful", "cached", "total":
+			counts[key] = n
 		}
 	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "turbo" {
-		if argv[2] == "test" {
-			return []byte("[turbo test] ok\n"), true
-		}
-		if argv[2] == "run" && len(argv) >= 4 && argv[3] == "test" {
-			return []byte("[turbo test] ok\n"), true
+	return counts, len(counts) > 0
+}
+
+func turboTestNoiseLine(trimmed, payload, lowerPayload string) bool {
+	lowerTrimmed := strings.ToLower(trimmed)
+	return strings.HasPrefix(trimmed, "• Packages in scope:") ||
+		strings.HasPrefix(trimmed, "• Running test in ") ||
+		strings.HasPrefix(trimmed, "• Remote caching ") ||
+		strings.HasPrefix(lowerTrimmed, "turbo ") ||
+		strings.Contains(lowerPayload, "cache hit,") ||
+		strings.Contains(lowerPayload, "cache miss,") ||
+		strings.HasPrefix(payload, ">>> FULL TURBO") ||
+		turboTestTaskHeaderLine(trimmed)
+}
+
+func turboTestTaskHeaderLine(line string) bool {
+	return strings.HasSuffix(line, ":") &&
+		(strings.Contains(line, ":test:") || strings.HasSuffix(line, "#test:"))
+}
+
+func turboTestLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.HasPrefix(trimmed, "FAIL ") ||
+		strings.HasPrefix(trimmed, "\u2715 ") ||
+		strings.HasPrefix(trimmed, "\u2716 ") ||
+		strings.HasPrefix(trimmed, "\u00d7 ") {
+		return true
+	}
+	for _, marker := range []string{
+		"failed",
+		"failure",
+		"error:",
+		"exception",
+		"timeout",
+		"timed out",
+		"warning",
+		"deprecated",
+		"skipped",
+		"todo",
+		"not ok",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
 		}
 	}
-	return stdout, false
+	return false
 }
 
 // TryCompactPythonUnittest summarizes successful `python -m unittest` / `npx|pnpm exec|yarn … python … -m unittest` output (F08 partial).
@@ -2341,6 +3038,9 @@ func TryCompactTestOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactYarnTest(argv, stdout); ok {
 		return out, true
 	}
+	if _, ok := packageManagerTestScriptLabel(argv); ok {
+		return stdout, false
+	}
 	// Fallback: for recognized test tools with non-empty output, extract failures or detect success.
 	if label := testToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
@@ -2413,18 +3113,8 @@ func testToolLabel(argv []string) string {
 	if isSingleBinarySubcmdArgv(argv, "turbo", "test") {
 		return "turbo test"
 	}
-	// npm/pnpm/yarn run test
-	if len(argv) >= 3 {
-		b0 := strings.ToLower(filepath.Base(argv[0]))
-		if b0 == "npm" && argv[1] == "run" && argv[2] == "test" {
-			return "npm run test"
-		}
-		if (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "run" && argv[2] == "test" {
-			return "pnpm run test"
-		}
-		if (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && argv[1] == "run" && argv[2] == "test" {
-			return "yarn run test"
-		}
+	if label, ok := packageManagerTestScriptLabel(argv); ok {
+		return label
 	}
 	return ""
 }

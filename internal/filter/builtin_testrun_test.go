@@ -596,13 +596,25 @@ func TestTryCompactTestOutput_goCargo(t *testing.T) {
 	if !ok || string(npmT) != "[npm run test] ok\n" {
 		t.Fatalf("npm test: %q", npmT)
 	}
+	npmT2, ok := TryCompactNpmRunTest([]string{"npm", "test"}, []byte(""))
+	if !ok || string(npmT2) != "[npm test] ok\n" {
+		t.Fatalf("npm test alias: %q", npmT2)
+	}
 	pnpmT, ok := TryCompactPnpmTest([]string{"pnpm", "test"}, []byte(""))
 	if !ok || string(pnpmT) != "[pnpm test] ok\n" {
 		t.Fatalf("pnpm: %q", pnpmT)
 	}
+	pnpmT2, ok := TryCompactPnpmTest([]string{"pnpm", "run", "test"}, []byte(""))
+	if !ok || string(pnpmT2) != "[pnpm run test] ok\n" {
+		t.Fatalf("pnpm run test: %q", pnpmT2)
+	}
 	yarnT, ok := TryCompactYarnTest([]string{"yarn", "test"}, []byte(""))
 	if !ok || string(yarnT) != "[yarn test] ok\n" {
 		t.Fatalf("yarn: %q", yarnT)
+	}
+	yarnT2, ok := TryCompactYarnTest([]string{"yarn", "run", "test"}, []byte(""))
+	if !ok || string(yarnT2) != "[yarn run test] ok\n" {
+		t.Fatalf("yarn run test: %q", yarnT2)
 	}
 	bunT, ok := TryCompactBunTest([]string{"bun", "test"}, []byte(""))
 	if !ok || string(bunT) != "[bun test] ok\n" {
@@ -1145,6 +1157,101 @@ func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
 	if out, ok = TryCompactKarma([]string{"karma", "start"}, []byte("TOTAL: 1 SUCCESS\n")); ok || string(out) != "TOTAL: 1 SUCCESS\n" {
 		t.Fatalf("karma short all-pass must fail open when summary would not shrink: ok=%v out=%q", ok, out)
 	}
+
+	wdio := wdioRunAllPassFixture(64, 2)
+	out, ok = TryCompactTestOutput([]string{"wdio", "run", "wdio.conf.ts"}, []byte(wdio))
+	if !ok || !strings.Contains(string(out), "[wdio run] ok - 64 test(s) passed across 2 spec file(s)") ||
+		!strings.Contains(string(out), "Spec Files:      2 passed, 2 total") ||
+		strings.Contains(string(out), "be able to render op 063") {
+		t.Fatalf("wdio run all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+	for _, argv := range [][]string{
+		{"npx", "-y", "wdio", "run", "wdio.conf.ts"},
+		{"pnpm", "exec", "wdio", "run", "wdio.conf.ts"},
+		{"yarn", "wdio", "run", "wdio.conf.ts"},
+	} {
+		out, ok = TryCompactWdioRun(argv, []byte(wdio))
+		if !ok || !strings.Contains(string(out), "[wdio run] ok - 64 test(s) passed across 2 spec file(s)") ||
+			strings.Contains(string(out), "be able to render op 063") {
+			t.Fatalf("wdio run all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
+
+	cypress := cypressRunAllPassFixture(64)
+	out, ok = TryCompactTestOutput([]string{"cypress", "run", "--headless"}, []byte(cypress))
+	if !ok || string(out) != "[cypress run] ok - 64 tests passed across 64 specs\n" {
+		t.Fatalf("cypress all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+	for _, argv := range [][]string{
+		{"npx", "-y", "cypress", "run"},
+		{"pnpm", "exec", "cypress", "run"},
+		{"yarn", "cypress", "run"},
+	} {
+		out, ok = TryCompactCypressRun(argv, []byte(cypress))
+		if !ok || string(out) != "[cypress run] ok - 64 tests passed across 64 specs\n" {
+			t.Fatalf("cypress all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
+
+	nx := nxTestAllPassFixture(64)
+	out, ok = TryCompactTestOutput([]string{"nx", "test", "web"}, []byte(nx))
+	if !ok || !strings.Contains(string(out), "[nx test] ok - 64 passed") ||
+		!strings.Contains(string(out), "Tests: 64 passed, 64 total") ||
+		strings.Contains(string(out), "renders op 063") {
+		t.Fatalf("nx test all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+	for _, argv := range [][]string{
+		{"npx", "-y", "nx", "test", "web"},
+		{"pnpm", "exec", "nx", "test", "web"},
+		{"yarn", "nx", "test", "web"},
+	} {
+		out, ok = TryCompactNxTest(argv, []byte(nx))
+		if !ok || !strings.Contains(string(out), "[nx test] ok - 64 passed") ||
+			strings.Contains(string(out), "renders op 063") {
+			t.Fatalf("nx test all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
+
+	turbo := turboTestAllPassFixture(64, 2)
+	out, ok = TryCompactTestOutput([]string{"turbo", "run", "test"}, []byte(turbo))
+	if !ok || !strings.Contains(string(out), "[turbo test] ok - 64 passed across 2 successful task(s)") ||
+		!strings.Contains(string(out), "Tasks:    2 successful, 2 total") ||
+		strings.Contains(string(out), "renders op 063") {
+		t.Fatalf("turbo test all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
+	for _, argv := range [][]string{
+		{"npx", "-y", "turbo", "run", "test"},
+		{"pnpm", "exec", "turbo", "test"},
+		{"yarn", "turbo", "run", "test"},
+	} {
+		out, ok = TryCompactTurboTest(argv, []byte(turbo))
+		if !ok || !strings.Contains(string(out), "[turbo test] ok - 64 passed across 2 successful task(s)") ||
+			strings.Contains(string(out), "renders op 063") {
+			t.Fatalf("turbo test all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
+
+	var packageJest strings.Builder
+	packageJest.WriteString("PASS src/alpha.test.ts\n")
+	for i := 0; i < 64; i++ {
+		fmt.Fprintf(&packageJest, "  ✓ renders op %03d (2 ms)\n", i)
+	}
+	packageJest.WriteString("\nTests: 64 passed, 64 total\nTime: 1.2 s\n")
+	for _, argv := range [][]string{
+		{"npm", "test"},
+		{"npm", "run", "test"},
+		{"pnpm", "test"},
+		{"pnpm", "run", "test"},
+		{"yarn", "test"},
+		{"yarn", "run", "test"},
+	} {
+		out, ok = TryCompactTestOutput(argv, []byte(packageJest.String()))
+		if !ok || !strings.Contains(string(out), "[jest] ok - 64 passed") ||
+			!strings.Contains(string(out), "Tests: 64 passed, 64 total") ||
+			strings.Contains(string(out), "renders op 063") {
+			t.Fatalf("package-manager test script all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
+		}
+	}
 }
 
 func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
@@ -1194,6 +1301,162 @@ func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
 	if _, ok := TryCompactKarma([]string{"npm", "test"}, []byte("TOTAL: 10 SUCCESS\n")); ok {
 		t.Fatal("non-karma command must fail open")
 	}
+	if _, ok := TryCompactWdioRun([]string{"wdio", "run", "wdio.conf.ts"}, []byte(strings.Replace(wdioRunAllPassFixture(4, 2), "Spec Files:      2 passed, 2 total", "Spec Files:      1 passed, 1 failed, 2 total", 1))); ok {
+		t.Fatal("wdio run failure summary must fail open")
+	}
+	if _, ok := TryCompactWdioRun([]string{"wdio", "run", "wdio.conf.ts"}, []byte(wdioRunAllPassFixture(4, 2)+"Warning: browser log diagnostics\n")); ok {
+		t.Fatal("wdio run warning output must fail open")
+	}
+	if _, ok := TryCompactWdioRun([]string{"wdio", "run", "wdio.conf.ts"}, []byte(strings.Replace(wdioRunAllPassFixture(4, 2), "   ✓ be able to render op 003\n", "", 1))); ok {
+		t.Fatal("wdio run mismatched pass-line count must fail open")
+	}
+	if _, ok := TryCompactWdioRun([]string{"wdio", "config"}, []byte(wdioRunAllPassFixture(4, 2))); ok {
+		t.Fatal("non-run wdio command must fail open")
+	}
+	if _, ok := TryCompactCypressRun([]string{"cypress", "run"}, []byte(strings.Replace(cypressRunAllPassFixture(4), "All specs passed!", "1 spec failed!", 1))); ok {
+		t.Fatal("cypress failure summary must fail open")
+	}
+	if _, ok := TryCompactCypressRun([]string{"cypress", "run"}, []byte(strings.Replace(cypressRunAllPassFixture(4), "        -        -        -", "        1        -        -", 1))); ok {
+		t.Fatal("cypress non-zero failing count must fail open")
+	}
+	if _, ok := TryCompactCypressRun([]string{"cypress", "run"}, []byte(cypressRunAllPassFixture(4)+"Warning: experimental Cypress option\n")); ok {
+		t.Fatal("cypress warning output must fail open")
+	}
+	if _, ok := TryCompactCypressRun([]string{"cypress", "open"}, []byte(cypressRunAllPassFixture(4))); ok {
+		t.Fatal("non-run cypress command must fail open")
+	}
+	if _, ok := TryCompactNxTest([]string{"nx", "test", "web"}, []byte(strings.Replace(nxTestAllPassFixture(4), "Tests: 4 passed, 4 total", "Tests: 3 passed, 1 failed, 4 total", 1))); ok {
+		t.Fatal("nx test failure summary must fail open")
+	}
+	if _, ok := TryCompactNxTest([]string{"nx", "test", "web"}, []byte(nxTestAllPassFixture(4)+"Warning: experimental Jest option\n")); ok {
+		t.Fatal("nx test warning output must fail open")
+	}
+	if _, ok := TryCompactNxTest([]string{"nx", "test", "web"}, []byte(strings.Replace(nxTestAllPassFixture(4), "  ✓ renders op 003 (2 ms)\n", "", 1))); ok {
+		t.Fatal("nx test mismatched pass-line count must fail open")
+	}
+	if _, ok := TryCompactNxTest([]string{"nx", "build", "web"}, []byte(nxTestAllPassFixture(4))); ok {
+		t.Fatal("non-test nx command must fail open")
+	}
+	if _, ok := TryCompactTurboTest([]string{"turbo", "run", "test"}, []byte(strings.Replace(turboTestAllPassFixture(4, 2), "Tests: 2 passed, 2 total", "Tests: 1 passed, 1 failed, 2 total", 1))); ok {
+		t.Fatal("turbo test child failure summary must fail open")
+	}
+	if _, ok := TryCompactTurboTest([]string{"turbo", "run", "test"}, []byte(strings.Replace(turboTestAllPassFixture(4, 2), "Tasks:    2 successful, 2 total", "Tasks:    1 successful, 2 total", 1))); ok {
+		t.Fatal("turbo test task failure summary must fail open")
+	}
+	if _, ok := TryCompactTurboTest([]string{"turbo", "run", "test"}, []byte(turboTestAllPassFixture(4, 2)+"WARNING: child task emitted diagnostics\n")); ok {
+		t.Fatal("turbo test warning output must fail open")
+	}
+	if _, ok := TryCompactTurboTest([]string{"turbo", "run", "test"}, []byte(strings.Replace(turboTestAllPassFixture(4, 2), "  ✓ renders op 003 (2 ms)\n", "", 1))); ok {
+		t.Fatal("turbo test mismatched pass-line count must fail open")
+	}
+	if _, ok := TryCompactTurboTest([]string{"turbo", "run", "build"}, []byte(turboTestAllPassFixture(4, 2))); ok {
+		t.Fatal("non-test turbo command must fail open")
+	}
+	if _, ok := TryCompactTestOutput([]string{"npm", "test"}, []byte(strings.Replace(nxTestAllPassFixture(4), "  ✓ renders op 003 (2 ms)\n", "", 1))); ok {
+		t.Fatal("package-manager test script mismatched all-pass must fail open without generic fallback")
+	}
+	if _, ok := TryCompactTestOutput([]string{"pnpm", "run", "test"}, []byte("PASS src/a.test.ts\nTests: 1 passed, 1 total\nWarning: runner emitted diagnostics\n")); ok {
+		t.Fatal("package-manager test script warnings must fail open without generic fallback")
+	}
+}
+
+func cypressRunAllPassFixture(specs int) string {
+	var out strings.Builder
+	out.WriteString("====================================================================================================\n")
+	out.WriteString("  (Run Finished)\n\n")
+	out.WriteString("       Spec                                              Tests  Passing  Failing  Pending  Skipped\n")
+	out.WriteString("  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐\n")
+	for i := 0; i < specs; i++ {
+		fmt.Fprintf(&out, "  │ ✔  cypress/e2e/generated_%03d.cy.ts              00:01        1        1        -        -        - │\n", i)
+	}
+	out.WriteString("  └────────────────────────────────────────────────────────────────────────────────────────────────┘\n")
+	fmt.Fprintf(&out, "    ✔  All specs passed!                              00:12        %d        %d        -        -        -\n", specs, specs)
+	return out.String()
+}
+
+func wdioRunAllPassFixture(count int, specs int) string {
+	if specs <= 0 {
+		specs = 1
+	}
+	perSpec := count / specs
+	var out strings.Builder
+	out.WriteString("Execution of 2 workers started at 2026-06-18T12:00:00.000Z\n\n")
+	written := 0
+	for spec := 0; spec < specs; spec++ {
+		specCount := perSpec
+		if spec == specs-1 {
+			specCount = count - written
+		}
+		fmt.Fprintf(&out, "[0-%d] RUNNING in chrome - file:///test/specs/generated_%03d.e2e.ts\n", spec, spec)
+		fmt.Fprintf(&out, "[0-%d] PASSED in chrome - file:///test/specs/generated_%03d.e2e.ts\n\n", spec, spec)
+		out.WriteString(" \"spec\" Reporter:\n")
+		out.WriteString("------------------------------------------------------------------\n")
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Running: chrome on mac\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Session ID: session-%03d\n", spec, spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] \u00bb /test/specs/generated_%03d.e2e.ts\n", spec, spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] Generated suite %03d\n", spec, spec)
+		for i := 0; i < specCount; i++ {
+			fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]    ✓ be able to render op %03d\n", spec, written+i)
+		}
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d]\n", spec)
+		fmt.Fprintf(&out, "[chrome 125.0 mac #0-%d] %d passing (5.9s)\n\n", spec, specCount)
+		written += specCount
+	}
+	fmt.Fprintf(&out, "Spec Files:      %d passed, %d total (100%% completed) in 00:00:08\n", specs, specs)
+	return out.String()
+}
+
+func nxTestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("> nx run web:test\n\n")
+	out.WriteString("PASS apps/web/src/app/app.spec.ts\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  ✓ renders op %03d (2 ms)\n", i)
+	}
+	out.WriteString("\n")
+	out.WriteString("Test Suites: 1 passed, 1 total\n")
+	fmt.Fprintf(&out, "Tests: %d passed, %d total\n", count, count)
+	out.WriteString("Snapshots: 0 total\n")
+	out.WriteString("Time: 1.2 s\n")
+	out.WriteString("Ran all test suites.\n\n")
+	out.WriteString(" >  NX   Successfully ran target test for project web\n")
+	return out.String()
+}
+
+func turboTestAllPassFixture(count int, tasks int) string {
+	if tasks <= 0 {
+		tasks = 1
+	}
+	perTask := count / tasks
+	var out strings.Builder
+	out.WriteString("turbo 2.5.4\n")
+	out.WriteString("• Packages in scope: @repo/web, @repo/ui\n")
+	fmt.Fprintf(&out, "• Running test in %d packages\n", tasks)
+	out.WriteString("• Remote caching disabled\n\n")
+	written := 0
+	for task := 0; task < tasks; task++ {
+		taskName := fmt.Sprintf("@repo/pkg%d:test", task)
+		taskCount := perTask
+		if task == tasks-1 {
+			taskCount = count - written
+		}
+		fmt.Fprintf(&out, "%s: cache miss, executing abcdef%d\n", taskName, task)
+		fmt.Fprintf(&out, "%s:\n", taskName)
+		fmt.Fprintf(&out, "%s: PASS packages/pkg%d/src/app.spec.ts\n", taskName, task)
+		for i := 0; i < taskCount; i++ {
+			fmt.Fprintf(&out, "%s:   ✓ renders op %03d (2 ms)\n", taskName, written+i)
+		}
+		fmt.Fprintf(&out, "%s:\n", taskName)
+		fmt.Fprintf(&out, "%s: Test Suites: 1 passed, 1 total\n", taskName)
+		fmt.Fprintf(&out, "%s: Tests: %d passed, %d total\n", taskName, taskCount, taskCount)
+		fmt.Fprintf(&out, "%s: Time: 1.2 s\n\n", taskName)
+		written += taskCount
+	}
+	fmt.Fprintf(&out, "Tasks:    %d successful, %d total\n", tasks, tasks)
+	fmt.Fprintf(&out, "Cached:   0 cached, %d total\n", tasks)
+	out.WriteString("Time:     1.234s\n")
+	return out.String()
 }
 
 func TestTryCompactTestOutput_nonEmptyGoTestFail(t *testing.T) {
@@ -1222,8 +1485,11 @@ func TestTestToolLabel_packageManagerRunTest(t *testing.T) {
 		argv  []string
 		label string
 	}{
+		{[]string{"npm", "test"}, "npm test"},
 		{[]string{"npm", "run", "test"}, "npm run test"},
+		{[]string{"pnpm", "test"}, "pnpm test"},
 		{[]string{"pnpm", "run", "test"}, "pnpm run test"},
+		{[]string{"yarn", "test"}, "yarn test"},
 		{[]string{"yarn", "run", "test"}, "yarn run test"},
 	}
 	for _, c := range cases {
