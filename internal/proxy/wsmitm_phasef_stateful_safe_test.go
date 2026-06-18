@@ -43,6 +43,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
 	cargoClippyClean := wssCargoClippyCleanFixture(80)
 	cargoClippyWarning := cargoClippyClean + "warning: generated binding is deprecated\n"
+	cargoBuildClean := wssCargoBuildCleanProgressFixture("Compiling", 80)
+	cargoCheckClean := wssCargoBuildCleanProgressFixture("Checking", 80)
+	cargoDocClean := wssCargoBuildCleanProgressFixture("Documenting", 80)
+	cargoBuildWarning := cargoBuildClean + "warning: generated binding is deprecated\n"
 	ginkgoAllPass := wssGinkgoAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	pytestJSONAllPass := wssPytestJSONAllPassFixture(80)
@@ -120,6 +124,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "go test verbose all-pass", command: "GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
 		{name: "cargo clippy clean progress", command: "cargo clippy --all-targets --all-features", output: cargoClippyClean, wantSafe: true},
+		{name: "cargo build clean progress", command: "cargo build --workspace", output: cargoBuildClean, wantSafe: true},
+		{name: "cargo check clean progress", command: "cargo check --all-targets", output: cargoCheckClean, wantSafe: true},
+		{name: "cargo doc clean progress", command: "cargo doc --no-deps", output: cargoDocClean, wantSafe: true},
 		{name: "ginkgo all-pass", command: "ginkgo", output: ginkgoAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
 		{name: "pytest json all-pass", command: "pytest --json-report --json-report-file=-", output: pytestJSONAllPass, wantSafe: true},
@@ -185,6 +192,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
 		{name: "cargo clippy warning", command: "cargo clippy --all-targets", output: cargoClippyWarning, wantGuard: "cargo clippy warnings stay guarded"},
+		{name: "cargo build warning", command: "cargo build --workspace", output: cargoBuildWarning, wantGuard: "cargo build warnings stay guarded"},
 		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
 		{name: "vitest json failure", command: "vitest run --reporter=json", output: vitestJSONFailure, wantGuard: "vitest JSON failures stay guarded"},
 		{name: "eslint json warning", command: "eslint --format json src", output: eslintJSONWarning, wantGuard: "eslint JSON findings stay guarded"},
@@ -808,6 +816,53 @@ func TestWSSStatefulSafeCargoClippyCleanCompactsFullHistoryTurn(t *testing.T) {
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe cargo clippy clean should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeCargoBuildCleanCompactsFullHistoryTurn(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		output  string
+		want    string
+	}{
+		{name: "build", command: "cargo build --workspace", output: wssCargoBuildCleanProgressFixture("Compiling", 120), want: "[cargo build] ok"},
+		{name: "check", command: "cargo check --all-targets", output: wssCargoBuildCleanProgressFixture("Checking", 120), want: "[cargo check] ok"},
+		{name: "doc", command: "cargo doc --no-deps", output: wssCargoBuildCleanProgressFixture("Documenting", 120), want: "[cargo doc] ok"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.Compression.OutputReduce.StopSequencesEnabled = false
+			cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+			cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+			p := New(cfg)
+			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+			envelope := "Chunk ID: cargo-build-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+				tt.output
+
+			env := parseWSJSON(t, wssCommandOutputRequestBody("resp-cargo-build-clean", "call_cargo_build_clean", tt.command, envelope, "stateful-cargo-build-safe-session"))
+			replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+			if err != nil {
+				t.Fatalf("handle cargo build clean request: %v", err)
+			}
+			if !replace {
+				t.Fatal("full-history cargo clean output should compact")
+			}
+			body := string(env.Body)
+			if !strings.Contains(body, tt.want) ||
+				!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+				strings.Contains(body, "slimtest_119") {
+				t.Fatalf("cargo clean output was not archive-backed compacted: %s", body)
+			}
+			summary := p.DebugRecorder().Last(1, false)[0]
+			if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+				summary.DebugFacts["wss.request_shape"] != "full_history" {
+				t.Fatalf("stateful-safe cargo clean should save without structured guard: %+v", summary)
+			}
+		})
 	}
 }
 
@@ -2115,6 +2170,15 @@ func wssCargoClippyCleanFixture(packages int) string {
 	var out strings.Builder
 	for i := 0; i < packages; i++ {
 		fmt.Fprintf(&out, "    Checking slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", i, i)
+	}
+	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	return out.String()
+}
+
+func wssCargoBuildCleanProgressFixture(verb string, packages int) string {
+	var out strings.Builder
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "    %s slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", verb, i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
 	return out.String()

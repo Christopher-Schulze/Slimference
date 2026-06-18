@@ -45,15 +45,20 @@ func isGoBuildArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactCargoBuild replaces empty stdout from `cargo build …` / `npx|pnpm exec|yarn … cargo build …` with one line (F07 partial).
+// TryCompactCargoBuild replaces empty and parser-proven clean stdout from
+// `cargo build ...` / `npx|pnpm exec|yarn ... cargo build ...` with one line.
 func TryCompactCargoBuild(argv []string, stdout []byte) ([]byte, bool) {
 	if !isCargoBuildArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[cargo build] ok\n"), true
 	}
-	return []byte("[cargo build] ok\n"), true
+	if compacted, ok := compactCargoCleanProgressOutput(s, len(stdout), "cargo build"); ok {
+		return compacted, true
+	}
+	return stdout, false
 }
 
 func isCargoBuildArgv(argv []string) bool {
@@ -104,15 +109,20 @@ func isCargoCheckArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactCargoCheck replaces empty stdout from `cargo check …` / `npx|pnpm exec|yarn … cargo check …` (F07 partial).
+// TryCompactCargoCheck replaces empty and parser-proven clean stdout from
+// `cargo check ...` / `npx|pnpm exec|yarn ... cargo check ...`.
 func TryCompactCargoCheck(argv []string, stdout []byte) ([]byte, bool) {
 	if !isCargoCheckArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[cargo check] ok\n"), true
 	}
-	return []byte("[cargo check] ok\n"), true
+	if compacted, ok := compactCargoCleanProgressOutput(s, len(stdout), "cargo check"); ok {
+		return compacted, true
+	}
+	return stdout, false
 }
 
 func isCargoDocArgv(argv []string) bool {
@@ -139,15 +149,95 @@ func isCargoDocArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactCargoDoc replaces empty stdout from `cargo doc …` / `npx|pnpm exec|yarn … cargo doc …` (F07 partial).
+// TryCompactCargoDoc replaces empty and parser-proven clean stdout from
+// `cargo doc ...` / `npx|pnpm exec|yarn ... cargo doc ...`.
 func TryCompactCargoDoc(argv []string, stdout []byte) ([]byte, bool) {
 	if !isCargoDocArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[cargo doc] ok\n"), true
 	}
-	return []byte("[cargo doc] ok\n"), true
+	if compacted, ok := compactCargoCleanProgressOutput(s, len(stdout), "cargo doc"); ok {
+		return compacted, true
+	}
+	return stdout, false
+}
+
+func compactCargoCleanProgressOutput(stdout string, originalLen int, label string) ([]byte, bool) {
+	lines := strings.Split(stdout, "\n")
+	sawFinished := false
+	sawProgress := false
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if cargoBuildLineHasUnsafeMarker(line) {
+			return nil, false
+		}
+		switch {
+		case cargoBuildProgressLine(line):
+			sawProgress = true
+		case cargoBuildFinishedLine(line):
+			sawFinished = true
+		default:
+			return nil, false
+		}
+	}
+	if !sawFinished || !sawProgress {
+		return nil, false
+	}
+	out := []byte("[" + label + "] ok\n")
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
+}
+
+func cargoBuildProgressLine(line string) bool {
+	for _, prefix := range []string{"Checking ", "Compiling ", "Documenting ", "Fresh "} {
+		if strings.HasPrefix(line, prefix) && strings.TrimSpace(strings.TrimPrefix(line, prefix)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func cargoBuildFinishedLine(line string) bool {
+	if !strings.HasPrefix(line, "Finished ") {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "Finished "))
+	return strings.Contains(rest, "profile") && strings.Contains(rest, "target(s) in")
+}
+
+func cargoBuildLineHasUnsafeMarker(line string) bool {
+	lower := strings.ToLower(line)
+	if strings.HasPrefix(lower, "warning") ||
+		strings.HasPrefix(lower, "error") ||
+		strings.HasPrefix(lower, "note:") ||
+		strings.HasPrefix(lower, "help:") ||
+		strings.HasPrefix(lower, "-->") {
+		return true
+	}
+	for _, marker := range []string{
+		" failed",
+		"failure",
+		"panicked",
+		"aborting",
+		"aborted",
+		"could not",
+		"cannot ",
+		"unresolved",
+		" denied",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // TryCompactBufBuild replaces empty stdout from `buf build` / `npx|pnpm exec|yarn … buf build` (F07 partial).

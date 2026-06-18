@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -731,6 +732,67 @@ Build succeeded with 0 errors.
 	if s != "[go build] ok\n" {
 		t.Errorf("want [go build] ok, got: %q", s)
 	}
+}
+
+func TestTryCompactCargoBuildCleanProgressOutput(t *testing.T) {
+	t.Parallel()
+
+	buildInput := cargoBuildCleanProgressFixture("Compiling", 40)
+	out, ok := TryCompactCargoBuild([]string{"cargo", "build", "--workspace"}, []byte(buildInput))
+	if !ok || string(out) != "[cargo build] ok\n" {
+		t.Fatalf("cargo build clean: ok=%v out=%q", ok, out)
+	}
+	checkInput := cargoBuildCleanProgressFixture("Checking", 40)
+	checkOut, ok := TryCompactBuildOutput([]string{"pnpm", "exec", "cargo", "check", "--all-targets"}, []byte(checkInput))
+	if !ok || string(checkOut) != "[cargo check] ok\n" {
+		t.Fatalf("cargo check clean through build chain: ok=%v out=%q", ok, checkOut)
+	}
+	docInput := cargoBuildCleanProgressFixture("Documenting", 40)
+	docOut, ok := TryCompactCargoDoc([]string{"yarn", "cargo", "doc", "--no-deps"}, []byte(docInput))
+	if !ok || string(docOut) != "[cargo doc] ok\n" {
+		t.Fatalf("cargo doc clean: ok=%v out=%q", ok, docOut)
+	}
+	if len(out) >= len(buildInput) || len(checkOut) >= len(checkInput) || len(docOut) >= len(docInput) {
+		t.Fatal("cargo clean summaries must be shorter than original progress output")
+	}
+}
+
+func TestTryCompactCargoBuildCleanProgressOutputGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "warning", input: cargoBuildCleanProgressFixture("Compiling", 4) + "warning: generated binding is deprecated\n"},
+		{name: "error", input: "   Compiling slimtest v0.1.0 (/repo/slimtest)\nerror[E0308]: mismatched types\n"},
+		{name: "note", input: cargoBuildCleanProgressFixture("Checking", 4) + "note: run with `RUST_BACKTRACE=1`\n"},
+		{name: "help", input: cargoBuildCleanProgressFixture("Checking", 4) + "help: remove this binding\n"},
+		{name: "unknown progress", input: "    Updating crates.io index\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
+		{name: "missing finished", input: "    Checking slimtest v0.1.0 (/repo/slimtest)\n"},
+		{name: "finished only", input: "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := TryCompactCargoBuild([]string{"cargo", "build"}, []byte(tt.input)); ok {
+				t.Fatalf("unsafe cargo build output compacted: %q", tt.input)
+			}
+		})
+	}
+	if _, ok := TryCompactCargoBuild([]string{"cargo", "test"}, []byte(cargoBuildCleanProgressFixture("Compiling", 4))); ok {
+		t.Fatal("cargo test must not use cargo build parser")
+	}
+}
+
+func cargoBuildCleanProgressFixture(verb string, packages int) string {
+	var out strings.Builder
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "    %s slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", verb, i, i)
+	}
+	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	return out.String()
 }
 
 func TestTryCompactBuildOutput_successWithWarningFailsOpen(t *testing.T) {
