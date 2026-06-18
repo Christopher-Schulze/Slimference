@@ -646,52 +646,177 @@ func isJestCompactArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactMocha summarizes empty stdout from `mocha` / `npx|pnpm exec|yarn … mocha` (F08 partial).
+// TryCompactMocha summarizes successful `mocha` / `npx|pnpm exec|yarn … mocha` output (F08 partial).
 func TryCompactMocha(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
 	if len(argv) < 1 {
 		return stdout, false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
+	matches := false
 	if b == "mocha" || b == "mocha.cmd" {
+		matches = true
+	} else if npxMatches(argv, "mocha") {
+		matches = true
+	} else if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "mocha" {
+		matches = true
+	} else if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "mocha" {
+		matches = true
+	}
+	if !matches {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[mocha] ok\n"), true
 	}
-	if npxMatches(argv, "mocha") {
-		return []byte("[mocha] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "mocha" {
-		return []byte("[mocha] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "mocha" {
-		return []byte("[mocha] ok\n"), true
-	}
-	return stdout, false
+	return compactMochaAllPass(stdout)
 }
 
-// TryCompactAva summarizes empty stdout from `ava` / `npx|pnpm exec|yarn … ava` (F08 partial).
-func TryCompactAva(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+func compactMochaAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failed", "failing", "failure", "error", "exception", "uncaught", "timeout", "pending", "skipped", "warning", "deprecated", "\u2716", "\u00d7"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
+	}
+	summaryCount := 0
+	summaryLine := ""
+	lines := strings.Split(s, "\n")
+	for _, line := range lines {
+		count, ok := mochaPassingSummaryCount(strings.TrimSpace(line))
+		if ok {
+			summaryCount = count
+			summaryLine = strings.TrimSpace(line)
+		}
+	}
+	if summaryCount <= 0 {
 		return stdout, false
 	}
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "\u2714 ") || strings.HasPrefix(trimmed, "\u2713 ") || strings.HasPrefix(trimmed, "\u221a ") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed != summaryCount {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[mocha] ok - %d passed, per-test pass lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func mochaPassingSummaryCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[1] != "passing" || !asciiDecimal(fields[0]) {
+		return 0, false
+	}
+	count := 0
+	for _, r := range fields[0] {
+		count = count*10 + int(r-'0')
+	}
+	return count, count > 0
+}
+
+// TryCompactAva summarizes successful `ava` / `npx|pnpm exec|yarn … ava` output (F08 partial).
+func TryCompactAva(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
+	matches := false
 	if b == "ava" || b == "ava.cmd" {
+		matches = true
+	} else if npxMatches(argv, "ava") {
+		matches = true
+	} else if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "ava" {
+		matches = true
+	} else if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "ava" {
+		matches = true
+	}
+	if !matches {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[ava] ok\n"), true
 	}
-	if npxMatches(argv, "ava") {
-		return []byte("[ava] ok\n"), true
+	return compactAvaAllPass(stdout)
+}
+
+func compactAvaAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	low := strings.ToLower(s)
+	for _, marker := range []string{"failed", "failing", "failure", "error", "exception", "uncaught", "rejected", "timeout", "timed out", "skipped", "todo", "warning", "deprecated", "not ok", "\u2716", "\u00d7"} {
+		if strings.Contains(low, marker) {
+			return stdout, false
+		}
 	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "ava" {
-		return []byte("[ava] ok\n"), true
+	summaryCount := 0
+	summaryLine := ""
+	lines := strings.Split(s, "\n")
+	for _, line := range lines {
+		count, ok := avaPassedSummaryCount(strings.TrimSpace(line))
+		if ok {
+			summaryCount = count
+			summaryLine = strings.TrimSpace(line)
+		}
 	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "ava" {
-		return []byte("[ava] ok\n"), true
+	if summaryCount <= 0 {
+		return stdout, false
 	}
-	return stdout, false
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "\u2714 ") || strings.HasPrefix(trimmed, "\u2713 ") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed != summaryCount {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[ava] ok - %d passed, per-test pass lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func avaPassedSummaryCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 || !asciiDecimal(fields[0]) || fields[len(fields)-1] != "passed" {
+		return 0, false
+	}
+	if fields[1] != "test" && fields[1] != "tests" {
+		return 0, false
+	}
+	count := 0
+	for _, r := range fields[0] {
+		count = count*10 + int(r-'0')
+	}
+	return count, count > 0
+}
+
+func asciiDecimal(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // TryCompactTap summarizes empty stdout from `tap` / `npx|pnpm exec|yarn … tap` (Node-TAP) (F08 partial).

@@ -43,8 +43,12 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
+	mochaAllPass := wssMochaAllPassFixture(70)
+	avaAllPass := wssAvaAllPassFixture(70)
 	rspecAllPass := wssRspecAllPassFixture(70)
 	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
+	mochaFailure := "  widget suite\n    1) renders failure details\n\n  0 passing (10ms)\n  1 failing\n"
+	avaFailure := "  ✖ renders failure details\n\n  1 test failed\n"
 	dotnetAllPass := wssDotnetTestAllPassFixture(60)
 	dotnetBuildSuccess := wssDotnetBuildSuccessFixture(24, 0)
 	dotnetBuildWarning := wssDotnetBuildSuccessFixture(24, 1)
@@ -80,6 +84,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
 		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
+		{name: "mocha verbose all-pass", command: "mocha", output: mochaAllPass, wantSafe: true},
+		{name: "ava verbose all-pass", command: "ava", output: avaAllPass, wantSafe: true},
 		{name: "rspec all-pass", command: "bundle exec rspec", output: rspecAllPass, wantSafe: true},
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
@@ -117,6 +123,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
 		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
+		{name: "mocha failure", command: "mocha", output: mochaFailure, wantGuard: "mocha failures stay guarded"},
+		{name: "ava failure", command: "ava", output: avaFailure, wantGuard: "ava failures stay guarded"},
 		{name: "rspec failure", command: "bundle exec rspec", output: rspecFailure, wantGuard: "rspec failures stay guarded"},
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
@@ -1462,6 +1470,25 @@ func wssJestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "  \u2713 renders op %03d (2 ms)\n", i)
 	}
 	fmt.Fprintf(&out, "\nTests: %d passed, %d total\nTime: 1.2 s\n", count, count)
+	return out.String()
+}
+
+func wssMochaAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("  widget suite\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "    ✔ renders op %03d (2ms)\n", i)
+	}
+	fmt.Fprintf(&out, "\n  %d passing (95ms)\n", count)
+	return out.String()
+}
+
+func wssAvaAllPassFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "  ✔ renders op %03d\n", i)
+	}
+	fmt.Fprintf(&out, "\n  %d tests passed\n", count)
 	return out.String()
 }
 

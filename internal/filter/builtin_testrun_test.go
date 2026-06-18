@@ -1346,6 +1346,37 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		t.Fatal("jest failure must fail open")
 	}
 
+	var mocha strings.Builder
+	mocha.WriteString("  widget suite\n")
+	for i := 0; i < 64; i++ {
+		fmt.Fprintf(&mocha, "    ✔ renders op %03d (2ms)\n", i)
+	}
+	mocha.WriteString("\n  64 passing (95ms)\n")
+	out, ok = TryCompactMocha([]string{"mocha", "test/**/*.spec.js"}, []byte(mocha.String()))
+	if !ok || !strings.Contains(string(out), "[mocha] ok - 64 passed") ||
+		!strings.Contains(string(out), "64 passing (95ms)") ||
+		strings.Contains(string(out), "renders op 000") {
+		t.Fatalf("mocha verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactMocha([]string{"mocha"}, []byte("  1 failing\n  1) widget breaks\n")); ok {
+		t.Fatal("mocha failure must fail open")
+	}
+
+	var ava strings.Builder
+	for i := 0; i < 52; i++ {
+		fmt.Fprintf(&ava, "  ✔ renders op %03d\n", i)
+	}
+	ava.WriteString("\n  52 tests passed\n")
+	out, ok = TryCompactAva([]string{"ava"}, []byte(ava.String()))
+	if !ok || !strings.Contains(string(out), "[ava] ok - 52 passed") ||
+		!strings.Contains(string(out), "52 tests passed") ||
+		strings.Contains(string(out), "renders op 000") {
+		t.Fatalf("ava verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactAva([]string{"ava"}, []byte("  ✖ widget breaks\n\n  1 test failed\n")); ok {
+		t.Fatal("ava failure must fail open")
+	}
+
 	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
 	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
 	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {
