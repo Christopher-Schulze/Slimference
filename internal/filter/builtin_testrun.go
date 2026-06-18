@@ -1625,8 +1625,29 @@ func compactPackageManagerTestScriptOutput(stdout []byte, label string) ([]byte,
 }
 
 func compactKnownRunnerAllPassForTestScript(stdout []byte) ([]byte, bool) {
+	for _, candidate := range packageManagerScriptTranscriptCandidates(stdout) {
+		if out, ok := compactKnownRunnerAllPassForTestScriptArgv(candidate.argv, candidate.payload); ok && len(out) < len(stdout) {
+			return out, true
+		}
+	}
+	if out, ok := compactKnownRunnerAllPassForTestScriptPayload(stdout); ok {
+		return out, true
+	}
+	return stdout, false
+}
+
+func compactKnownRunnerAllPassForTestScriptPayload(stdout []byte) ([]byte, bool) {
 	for _, candidate := range knownRunnerAllPassForTestScriptParsers() {
 		if out, ok := candidate.parser(candidate.argv, stdout); ok && knownRunnerAllPassSummary(out) {
+			return out, true
+		}
+	}
+	return stdout, false
+}
+
+func compactKnownRunnerAllPassForTestScriptArgv(argv []string, stdout []byte) ([]byte, bool) {
+	for _, parse := range knownRunnerAllPassParserFuncs() {
+		if out, ok := parse(argv, stdout); ok && knownRunnerAllPassSummary(out) {
 			return out, true
 		}
 	}
@@ -1636,6 +1657,24 @@ func compactKnownRunnerAllPassForTestScript(stdout []byte) ([]byte, bool) {
 type knownRunnerParser struct {
 	argv   []string
 	parser func([]string, []byte) ([]byte, bool)
+}
+
+func knownRunnerAllPassParserFuncs() []func([]string, []byte) ([]byte, bool) {
+	return []func([]string, []byte) ([]byte, bool){
+		TryCompactVitestJSON,
+		TryCompactJest,
+		TryCompactVitest,
+		TryCompactMocha,
+		TryCompactAva,
+		TryCompactTap,
+		TryCompactPlaywrightTest,
+		TryCompactCypressRun,
+		TryCompactWdioRun,
+		TryCompactNxTest,
+		TryCompactTurboTest,
+		TryCompactBunTest,
+		TryCompactDenoTest,
+	}
 }
 
 func knownRunnerAllPassForTestScriptParsers() []knownRunnerParser {

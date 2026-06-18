@@ -1252,6 +1252,18 @@ func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
 			t.Fatalf("package-manager test script all-pass compaction failed for %v: ok=%v out=%q", argv, ok, out)
 		}
 	}
+
+	var packageTranscript strings.Builder
+	packageTranscript.WriteString("> web@1.0.0 test /repo\n")
+	packageTranscript.WriteString("> jest --runInBand\n")
+	packageTranscript.WriteString(packageJest.String())
+	out, ok = TryCompactTestOutput([]string{"pnpm", "test"}, []byte(packageTranscript.String()))
+	if !ok || !strings.Contains(string(out), "[jest] ok - 64 passed") ||
+		!strings.Contains(string(out), "Tests: 64 passed, 64 total") ||
+		strings.Contains(string(out), "renders op 063") ||
+		strings.Contains(string(out), "web@1.0.0 test") {
+		t.Fatalf("package-manager transcript test all-pass compaction failed: ok=%v out=%q", ok, out)
+	}
 }
 
 func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
@@ -1357,6 +1369,12 @@ func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
 	}
 	if _, ok := TryCompactTestOutput([]string{"pnpm", "run", "test"}, []byte("PASS src/a.test.ts\nTests: 1 passed, 1 total\nWarning: runner emitted diagnostics\n")); ok {
 		t.Fatal("package-manager test script warnings must fail open without generic fallback")
+	}
+	if _, ok := TryCompactTestOutput([]string{"pnpm", "test"}, []byte("> web@1.0.0 test /repo\n> jest --runInBand\nPASS src/a.test.ts\nTests: 1 passed, 1 total\nWarning: runner emitted diagnostics\n")); ok {
+		t.Fatal("package-manager transcript test warnings must fail open")
+	}
+	if _, ok := TryCompactTestOutput([]string{"pnpm", "test"}, []byte("> web@1.0.0 test /repo\n> jest --runInBand\nFAIL src/a.test.ts\nTests: 1 failed, 1 total\n")); ok {
+		t.Fatal("package-manager transcript test failure must fail open")
 	}
 }
 

@@ -481,6 +481,39 @@ func TestWSSStatefulSafePackageManagerTestScriptAllPassCompactsFullHistoryTurn(t
 	}
 }
 
+func TestWSSStatefulSafePackageManagerTestScriptTranscriptAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: package-manager-test-transcript-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		"> web@1.0.0 test /repo\n> jest --runInBand\n" + wssJestVerboseAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-manager-test-transcript-all-pass", "call_package_manager_test_transcript_all_pass", "pnpm test", envelope, "stateful-package-manager-test-transcript-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle package-manager test transcript request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history package-manager test transcript all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[jest] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "renders op 119") ||
+		strings.Contains(body, "web@1.0.0 test") {
+		t.Fatalf("package-manager test transcript all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe package-manager test transcript should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulSafePackageInstallCleanSuccessCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
