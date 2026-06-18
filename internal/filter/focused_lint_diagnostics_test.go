@@ -59,6 +59,13 @@ func TestParseFailuresFocusedLintDiagnosticShapes(t *testing.T) {
 		prefix string
 	}{
 		{
+			name:   "golangci-lint colon",
+			argv:   []string{"golangci-lint", "run", "./..."},
+			line:   "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)",
+			want:   "[golangci-lint] FAILED (35 diagnostics)",
+			prefix: "running golangci-lint run ./...\n",
+		},
+		{
 			name:   "ineffassign colon",
 			argv:   []string{"ineffassign", "./..."},
 			line:   "internal/app/app.go:10:2: ineffectual assignment to err",
@@ -153,6 +160,19 @@ func TestParseFailuresFocusedLintDiagnosticsFailOpen(t *testing.T) {
 			argv:   []string{"nilaway", "./..."},
 			stdout: "Success: no issues found\n",
 		},
+		{
+			name: "golangci-lint source context",
+			argv: []string{"golangci-lint", "run", "./..."},
+			stdout: strings.Join([]string{
+				"internal/app/app.go:10:2: unused-parameter: bad (revive)",
+				"func run(ctx context.Context) error {",
+			}, "\n") + "\n",
+		},
+		{
+			name:   "golangci-lint unknown info line",
+			argv:   []string{"golangci-lint", "run", "./..."},
+			stdout: "level=info msg=\"golangci-lint has version 2.1.0\"\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -174,6 +194,13 @@ func TestTryCompactFocusedLintDiagnosticParsers(t *testing.T) {
 		try  func([]string, []byte) ([]byte, bool)
 		want string
 	}{
+		{
+			name: "golangci-lint",
+			argv: []string{"golangci-lint", "run", "./..."},
+			line: "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)",
+			try:  TryCompactGolangciLint,
+			want: "[golangci-lint] FAILED (40 diagnostics)",
+		},
 		{
 			name: "errcheck",
 			argv: []string{"errcheck", "./..."},
@@ -262,6 +289,12 @@ func TestTryCompactFocusedLintDiagnosticParsersFailOpen(t *testing.T) {
 			argv:   []string{"customlint", "./..."},
 			stdout: strings.Repeat("internal/proxy/handler.go:164:15: Close() error return value is not checked\n", 40),
 			try:    TryCompactErrcheck,
+		},
+		{
+			name:   "golangci-lint unknown info line",
+			argv:   []string{"golangci-lint", "run", "./..."},
+			stdout: "level=info msg=\"golangci-lint has version 2.1.0\"\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n",
+			try:    TryCompactGolangciLint,
 		},
 		{
 			name: "source context",

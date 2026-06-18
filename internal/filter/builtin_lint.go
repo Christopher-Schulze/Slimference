@@ -159,28 +159,10 @@ func TryCompactCargoAudit(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte("[cargo audit] ok\n"), true
 }
 
-// TryCompactGolangciLint summarizes empty stdout from golangci-lint / `npx|pnpm exec|yarn … golangci-lint` (F09 partial).
+// TryCompactGolangciLint summarizes empty stdout and parser-proven diagnostics
+// from golangci-lint / `npx|pnpm exec|yarn ... golangci-lint`.
 func TryCompactGolangciLint(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "golangci-lint" || b == "golangci-lint.exe" {
-		return []byte("[golangci-lint] ok\n"), true
-	}
-	if npxMatches(argv, "golangci-lint") {
-		return []byte("[golangci-lint] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "golangci-lint" {
-		return []byte("[golangci-lint] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "golangci-lint" {
-		return []byte("[golangci-lint] ok\n"), true
-	}
-	return stdout, false
+	return compactFocusedLintOutput(argv, stdout, "golangci-lint")
 }
 
 // TryCompactStaticcheck summarizes empty stdout from `staticcheck` / `npx|pnpm exec|yarn … staticcheck` (F09 partial).

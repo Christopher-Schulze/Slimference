@@ -54,6 +54,50 @@ func TestWSSStatefulSafeFocusedLintDiagnosticsCompactFullHistoryTurn(t *testing.
 	}
 }
 
+func TestWSSStatefulSafeGolangciLintDiagnosticsCompactFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var payload strings.Builder
+	payload.WriteString("Chunk ID: golangci-lint-diagnostics\n")
+	payload.WriteString("Wall time: 0.0010 seconds\n")
+	payload.WriteString("Process exited with code 1\n")
+	payload.WriteString("Original token count: 10000\n")
+	payload.WriteString("Output:\n")
+	for i := 0; i < 90; i++ {
+		fmt.Fprintln(&payload, "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)")
+	}
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-golangci-lint", "call_golangci_lint", "golangci-lint run ./...", payload.String(), "stateful-golangci-lint-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle golangci-lint diagnostics request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history golangci-lint diagnostics should compact")
+	}
+	body := string(env.Body)
+	for _, want := range []string{
+		"[golangci-lint] FAILED (90 diagnostics)",
+		"(repeated 90 times)",
+		"[context-archive kind=tool-output uri=local-archive://",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("golangci-lint diagnostics missing %q in body=%s", want, body)
+		}
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe golangci-lint diagnostics should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulUnsafeFocusedLintDiagnosticsStayGuarded(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -95,6 +139,11 @@ func TestWSSCompactedFocusedLintDiagnosticClassifier(t *testing.T) {
 		in   string
 		want bool
 	}{
+		{
+			name: "golangci-lint failure",
+			in:   "[golangci-lint] FAILED (2 diagnostics)\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n",
+			want: true,
+		},
 		{
 			name: "errcheck failure",
 			in:   "[errcheck] FAILED (2 diagnostics)\ninternal/app/app.go:10:2: unchecked error\n",

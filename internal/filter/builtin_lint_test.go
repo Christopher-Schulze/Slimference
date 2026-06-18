@@ -1469,13 +1469,14 @@ func TestTryCompactPyrightCleanOutputGuards(t *testing.T) {
 
 func TestTryCompactLintOutput_truncatesLargeOutput(t *testing.T) {
 	t.Parallel()
-	// Build a large golangci-lint output (>60 non-empty lines)
+	// Build a large lint output that is not parser-proven (>60 non-empty lines)
+	// so the legacy non-WSS truncation fallback remains covered.
 	var sb strings.Builder
 	for i := 1; i <= 80; i++ {
 		sb.WriteString("src/handler.go:123:45: error: unused variable 'x' (deadcode)\n")
 	}
 	input := sb.String()
-	out, ok := TryCompactLintOutput([]string{"golangci-lint", "run"}, []byte(input))
+	out, ok := TryCompactLintOutput([]string{"staticcheck", "./..."}, []byte(input))
 	if !ok {
 		t.Fatalf("expected truncation, got pass-through (input %d bytes)", len(input))
 	}
@@ -1492,7 +1493,7 @@ func TestTryCompactLintOutput_shortPassthrough(t *testing.T) {
 	t.Parallel()
 	// Short lint output (< 60 lines) should pass through unchanged
 	input := "src/main.go:10:1: error: unused import\nsrc/main.go:20:1: error: missing return\n"
-	_, ok := TryCompactLintOutput([]string{"golangci-lint", "run"}, []byte(input))
+	_, ok := TryCompactLintOutput([]string{"staticcheck", "./..."}, []byte(input))
 	if ok {
 		t.Fatal("short lint output should not be truncated")
 	}

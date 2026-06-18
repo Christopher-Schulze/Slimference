@@ -241,6 +241,26 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 			t.Fatalf("compact package-script lint failure missing %q in %q", want, out)
 		}
 	}
+
+	stdout.Reset()
+	stdout.WriteString("> api@1.0.0 lint /repo\n")
+	stdout.WriteString("> golangci-lint run ./...\n")
+	for i := 0; i < 80; i++ {
+		stdout.WriteString("internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)\n")
+	}
+	out, ok = TryCompactLintOutput([]string{"npm", "run", "lint"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script golangci-lint diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[golangci-lint] FAILED (80 diagnostics)",
+		"(repeated 80 times)",
+		"internal/app/app.go:10:2: unused-parameter",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script golangci-lint failure missing %q in %q", want, out)
+		}
+	}
 }
 
 func TestCompactPackageManagerLintScriptFailureOutputFailsOpen(t *testing.T) {
