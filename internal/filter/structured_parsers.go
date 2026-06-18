@@ -19,6 +19,7 @@ var structuredParsers = []structuredParser{
 	{"typescript", isTypeScriptDiagnosticArgv, parseStructuredWithoutArgv(parseTypeScriptDiagnostics)},
 	{"svelte", isSvelteDiagnosticArgv, parseStructuredWithoutArgv(parseSvelteDiagnostics)},
 	{"frontend", isFrontendDiagnosticArgv, parseStructuredWithoutArgv(parseFrontendDiagnostics)},
+	{"mypy", isMypyArgv, parseMypyDiagnosticsForArgv},
 	{"python", isPythonDiagnosticArgv, parseStructuredWithoutArgv(parsePythonDiagnostics)},
 	{"zig", isZigDiagnosticArgv, parseStructuredWithoutArgv(parseZigDiagnostics)},
 	{"sql", isSQLDiagnosticArgv, parseStructuredWithoutArgv(parseSQLDiagnostics)},
@@ -46,6 +47,11 @@ func parseStructuredWithoutArgv(fn func(string) (string, bool, bool)) func([]str
 	return func(_ []string, stdout string) (string, bool, bool) {
 		return fn(stdout)
 	}
+}
+
+func parseMypyDiagnosticsForArgv(_ []string, stdout string) (string, bool, bool) {
+	compact, ok := compactStrictMypyDiagnostics(stdout)
+	return compact, ok, ok
 }
 
 func isGoBuildOrVetArgv(argv []string) bool {

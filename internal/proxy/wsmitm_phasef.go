@@ -1952,6 +1952,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeFocusedLintDiagnosticOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeMypyDiagnosticOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2670,6 +2673,29 @@ func wssSafeFocusedLintDiagnosticOutput(commandLine, payload string) bool {
 	return wssCompactedFocusedLintDiagnostic(compacted)
 }
 
+func wssSafeMypyDiagnosticOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	parsers := []func([]string, []byte) ([]byte, bool){
+		filter.TryCompactMypyDiagnostics,
+		filter.TryCompactBuildOutput,
+		filter.TryCompactLintOutput,
+	}
+	for _, parser := range parsers {
+		compacted, ok := parser(argv, stdout)
+		if !ok || len(compacted) >= len(stdout) {
+			continue
+		}
+		if wssCompactedMypyDiagnostic(compacted) {
+			return true
+		}
+	}
+	return false
+}
+
 func wssSafeLogDuplicateRunsOutput(commandLine, payload string) bool {
 	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
@@ -2765,6 +2791,27 @@ func wssCompactedFocusedLintDiagnostic(compacted []byte) bool {
 	return strings.HasPrefix(status, "FAILED (") &&
 		strings.Contains(status, "diagnostic") &&
 		strings.Contains(text, "\n")
+}
+
+func wssCompactedMypyDiagnostic(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[mypy] FAILED (") || !strings.Contains(text, " diagnostic") {
+		return false
+	}
+	hasError := false
+	hasSummary := false
+	for _, raw := range strings.Split(text, "\n")[1:] {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if (strings.Contains(line, ".py:") || strings.Contains(line, ".pyi:")) && strings.Contains(line, ": error:") {
+			hasError = true
+			continue
+		}
+		if strings.HasPrefix(lower, "found ") && strings.Contains(lower, " error") {
+			hasSummary = true
+		}
+	}
+	return hasError && hasSummary
 }
 
 func containsTypeScriptDiagnosticCode(line string) bool {

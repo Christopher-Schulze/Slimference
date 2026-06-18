@@ -1471,6 +1471,108 @@ func isMypyArgv(argv []string) bool {
 	return false
 }
 
+// TryCompactMypyDiagnostics compacts only fully understood mypy failure output.
+// Unlike TryCompactMypy, this strict path fails open on stub notices, progress,
+// source context, or any other line that is not an error, note, or final count.
+func TryCompactMypyDiagnostics(argv []string, stdout []byte) ([]byte, bool) {
+	if !isMypyArgv(argv) {
+		return stdout, false
+	}
+	compact, ok := compactStrictMypyDiagnostics(string(stdout))
+	if !ok || len(compact) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(compact), true
+}
+
+func compactStrictMypyDiagnostics(stdout string) (string, bool) {
+	if strings.TrimSpace(stdout) == "" {
+		return "", false
+	}
+	lines := strings.Split(stdout, "\n")
+	diagnostics := make([]string, 0, len(lines))
+	errorCount := 0
+	summaryCount := 0
+	summary := ""
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if count, ok := strictMypyErrorSummary(line); ok {
+			if summary != "" {
+				return "", false
+			}
+			summary = line
+			summaryCount = count
+			continue
+		}
+		kind, ok := strictMypyDiagnosticKind(line)
+		if !ok {
+			return "", false
+		}
+		diagnostics = append(diagnostics, line)
+		if kind == "error" {
+			errorCount++
+		}
+	}
+	if errorCount == 0 || summary == "" || summaryCount != errorCount {
+		return "", false
+	}
+	result := "[mypy] FAILED (" + diagnosticCountText(len(diagnostics)) + ")\n" +
+		strings.Join(compactAdjacentFocusedLintDiagnostics(diagnostics), "\n") + "\n" +
+		summary + "\n"
+	return result, true
+}
+
+func strictMypyDiagnosticKind(line string) (string, bool) {
+	before, after, ok := strings.Cut(line, ": ")
+	if !ok || (!strings.Contains(before, ".py:") && !strings.Contains(before, ".pyi:")) {
+		return "", false
+	}
+	if !strings.Contains(before, ":") || strings.ContainsAny(before, "\t") {
+		return "", false
+	}
+	switch {
+	case strings.HasPrefix(after, "error:"):
+		return "error", true
+	case strings.HasPrefix(after, "note:"):
+		return "note", true
+	default:
+		return "", false
+	}
+}
+
+func strictMypyErrorSummary(line string) (int, bool) {
+	fields := strings.Fields(strings.ToLower(line))
+	if len(fields) < 6 || fields[0] != "found" || fields[3] != "in" {
+		return 0, false
+	}
+	if fields[2] != "error" && fields[2] != "errors" {
+		return 0, false
+	}
+	if fields[5] != "file" && fields[5] != "files" {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[1])
+	if err != nil || count <= 0 {
+		return 0, false
+	}
+	fileCount, err := strconv.Atoi(fields[4])
+	if err != nil || fileCount <= 0 {
+		return 0, false
+	}
+	if len(fields) == 6 {
+		return count, true
+	}
+	if len(fields) == 10 && fields[6] == "(checked" && fields[8] == "source" &&
+		(strings.HasSuffix(fields[9], "file)") || strings.HasSuffix(fields[9], "files)")) {
+		checked, err := strconv.Atoi(fields[7])
+		return count, err == nil && checked > 0
+	}
+	return 0, false
+}
+
 // TryCompactEslint summarizes empty stdout from `eslint` / `npx|pnpm exec|yarn … eslint` (F09 partial).
 func TryCompactEslint(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
@@ -1923,6 +2025,9 @@ func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
 		return out, true
 	}
 	if out, ok := TryCompactPhan(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactMypyDiagnostics(argv, stdout); ok {
 		return out, true
 	}
 	if out, ok := TryCompactMypy(argv, stdout); ok {

@@ -16,7 +16,10 @@ func compactPackageManagerBuildScriptOutput(argv []string, stdout []byte) ([]byt
 	if out, ok := compactPackageManagerScriptOutput(argv, stdout, packageManagerBuildScriptParsers()); ok {
 		return out, true
 	}
-	return compactPackageManagerTypeScriptFailureScriptOutput(argv, stdout)
+	if out, ok := compactPackageManagerTypeScriptFailureScriptOutput(argv, stdout); ok {
+		return out, true
+	}
+	return compactPackageManagerMypyScriptOutput(argv, stdout)
 }
 
 func compactPackageManagerLintScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
@@ -68,6 +71,23 @@ func compactPackageManagerTypeScriptFailureScriptOutput(argv []string, stdout []
 			continue
 		}
 		return compact, true
+	}
+	return stdout, false
+}
+
+func compactPackageManagerMypyScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if !isSafePackageManagerScriptArgv(argv) || strings.TrimSpace(string(stdout)) == "" {
+		return stdout, false
+	}
+	for _, candidate := range packageManagerScriptTranscriptCandidates(stdout) {
+		if compact, ok := TryCompactMypyDiagnostics(candidate.argv, candidate.payload); ok && len(compact) < len(stdout) {
+			return compact, true
+		}
+		if compact, ok := TryCompactMypy(candidate.argv, candidate.payload); ok &&
+			packageManagerScriptOKSummary(compact) &&
+			len(compact) < len(stdout) {
+			return compact, true
+		}
 	}
 	return stdout, false
 }

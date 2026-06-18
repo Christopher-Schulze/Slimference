@@ -54,6 +54,40 @@ func TestCompactPackageManagerBuildScriptTypeScriptFailureOutput(t *testing.T) {
 	}
 }
 
+func TestCompactPackageManagerBuildScriptMypyOutput(t *testing.T) {
+	t.Parallel()
+
+	var stdout strings.Builder
+	stdout.WriteString("> api@1.0.0 typecheck /repo\n")
+	stdout.WriteString("> mypy src\n")
+	for i := 0; i < 70; i++ {
+		stdout.WriteString("src/app.py:10: error: Incompatible return value type\n")
+	}
+	stdout.WriteString("src/app.py:10: note: expected str\n")
+	stdout.WriteString("Found 70 errors in 1 file (checked 48 source files)\n")
+
+	out, ok := TryCompactBuildOutput([]string{"pnpm", "run", "typecheck"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script mypy diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[mypy] FAILED (71 diagnostics)",
+		"(repeated 70 times)",
+		"src/app.py:10: note: expected str",
+		"Found 70 errors in 1 file",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script mypy diagnostics missing %q in %q", want, out)
+		}
+	}
+
+	success := "> api@1.0.0 typecheck /repo\n> mypy src\nSuccess: no issues found in 188 source files\n"
+	out, ok = TryCompactBuildOutput([]string{"npm", "run", "typecheck"}, []byte(success))
+	if !ok || !strings.Contains(string(out), "[mypy] ok (Success: no issues found in 188 source files)") {
+		t.Fatalf("expected package-script mypy success to compact: ok=%v out=%q", ok, out)
+	}
+}
+
 func TestCompactPackageManagerLintScriptOutput(t *testing.T) {
 	t.Parallel()
 
@@ -156,10 +190,16 @@ func TestCompactPackageManagerScriptOutputFailsOpen(t *testing.T) {
 			try:    TryCompactLintOutput,
 		},
 		{
-			name:   "mypy diagnostics rejected",
+			name:   "mypy stub notice rejected",
 			argv:   []string{"npm", "run", "typecheck"},
-			stdout: "> app@1.0.0 typecheck\n> mypy src\nsrc/app.py:1: error: bad\nFound 1 error in 1 file\n",
-			try:    TryCompactLintOutput,
+			stdout: "> app@1.0.0 typecheck\n> mypy src\nSkipping analyzing 'requests': module is installed, but missing library stubs\nsrc/app.py:1: error: bad\nFound 1 error in 1 file\n",
+			try:    TryCompactBuildOutput,
+		},
+		{
+			name:   "mypy source context rejected",
+			argv:   []string{"npm", "run", "typecheck"},
+			stdout: "> app@1.0.0 typecheck\n> mypy src\nsrc/app.py:1: error: bad\nif value:\nFound 1 error in 1 file\n",
+			try:    TryCompactBuildOutput,
 		},
 		{
 			name:   "non shrinking",

@@ -93,7 +93,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	dotnetBuildWarning := wssDotnetBuildSuccessFixture(24, 1)
 	dotnetWarning := "Passed!  - Failed: 0, Passed: 60, Skipped: 0, Total: 60, Duration: 1 s - Tests.dll (net8.0)\nWarning: diagnostics were emitted\n"
 	mypySuccess := wssMypySuccessFixture(12)
-	mypyFailure := "src/app.py:11: error: Incompatible return value type\nsrc/app.py:11: note: expected str\nFound 1 error in 1 file (checked 48 source files)\n"
+	mypyFailureWithNotice := "Skipping analyzing 'requests': module is installed, but missing library stubs\nsrc/app.py:11: error: Incompatible return value type\nsrc/app.py:11: note: expected str\nFound 1 error in 1 file (checked 48 source files)\n"
 	pyrightJSONSuccess := wssPyrightJSONSuccessFixture(24)
 	pyrightJSONWarning := strings.Replace(pyrightJSONSuccess, `"warningCount": 0`, `"warningCount": 1`, 1)
 	logDuplicateRuns := wssLogDuplicateRunsFixture(24)
@@ -235,7 +235,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "rspec failure", command: "bundle exec rspec", output: rspecFailure, wantGuard: "rspec failures stay guarded"},
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
-		{name: "mypy failure", command: "mypy src", output: mypyFailure, wantGuard: "mypy diagnostics stay guarded"},
+		{name: "mypy failure with stub notice", command: "mypy src", output: mypyFailureWithNotice, wantGuard: "mypy diagnostics with extra notices stay guarded"},
 		{name: "pyright JSON warning", command: "pyright --outputjson src", output: pyrightJSONWarning, wantGuard: "pyright JSON findings stay guarded"},
 		{name: "docker logs unique", command: "docker logs app", output: logUnique, wantGuard: "unique logs stay guarded"},
 		{name: "docker logs source-looking duplicate", command: "docker logs app", output: logSourceLike, wantGuard: "source-looking logs stay guarded"},

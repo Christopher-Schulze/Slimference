@@ -1297,6 +1297,45 @@ Found 2 errors in 2 files (checked 5 source files)
 	}
 }
 
+func TestTryCompactMypyDiagnosticsStrict(t *testing.T) {
+	t.Parallel()
+
+	var input strings.Builder
+	for i := 0; i < 80; i++ {
+		input.WriteString("src/app.py:10: error: Incompatible return value type\n")
+	}
+	input.WriteString("src/app.py:10: note: expected str\n")
+	input.WriteString("Found 80 errors in 1 file (checked 48 source files)\n")
+
+	out, ok := TryCompactMypyDiagnostics([]string{"mypy", "src"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected strict mypy diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[mypy] FAILED (81 diagnostics)",
+		"src/app.py:10: error: Incompatible return value type (repeated 80 times)",
+		"src/app.py:10: note: expected str",
+		"Found 80 errors in 1 file",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("strict mypy diagnostics missing %q in %q", want, out)
+		}
+	}
+
+	if _, ok := TryCompactMypyDiagnostics([]string{"mypy", "src"}, []byte("Skipping analyzing 'requests': module is installed, but missing library stubs\nsrc/app.py:10: error: bad\nFound 1 error in 1 file\n")); ok {
+		t.Fatal("strict mypy diagnostics must fail open on stub notices")
+	}
+	if _, ok := TryCompactMypyDiagnostics([]string{"mypy", "src"}, []byte("src/app.py:10: error: bad\nif value:\nFound 1 error in 1 file\n")); ok {
+		t.Fatal("strict mypy diagnostics must fail open on source context")
+	}
+	if _, ok := TryCompactMypyDiagnostics([]string{"mypy", "src"}, []byte("src/app.py:10: error: bad\nFound 2 errors in 1 file\n")); ok {
+		t.Fatal("strict mypy diagnostics must fail open on mismatched summary count")
+	}
+	if _, ok := TryCompactMypyDiagnostics([]string{"python", "script.py"}, []byte(input.String())); ok {
+		t.Fatal("non-mypy command must fail open")
+	}
+}
+
 func TestTryCompactMypy_success(t *testing.T) {
 	t.Parallel()
 	// mypy success with non-empty output (Success: line)
