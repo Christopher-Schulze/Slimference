@@ -64,8 +64,8 @@ type LeafAuditReport struct {
 //
 //   - tryCompactEmptyStdoutSingleBinary call -> empty-only-stub.
 //   - extractBuildErrors / extractTestFailures / detectBuildSuccess /
-//     bytes.* on stdout -> real-parser (does semantic work on non-empty
-//     output).
+//     parse/group/collapse helpers / TryCompact* delegation / bytes.* on stdout
+//     -> real-parser (does semantic work on non-empty output).
 //   - both signals present -> mixed.
 //   - func body is essentially `return stdout, false` -> fallback.
 func classifyTryCompactFunc(decl *ast.FuncDecl, fset *token.FileSet) (LeafCategory, string, []string) {
@@ -95,6 +95,9 @@ func classifyTryCompactFunc(decl *ast.FuncDecl, fset *token.FileSet) (LeafCatego
 		case strings.HasPrefix(c, "extract"):
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)
+		case strings.HasPrefix(c, "parse") || strings.HasPrefix(c, "Parse"):
+			hasParserHelper = true
+			parserHelpers = appendUnique(parserHelpers, c)
 		case strings.HasPrefix(c, "compact"):
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)
@@ -102,6 +105,12 @@ func classifyTryCompactFunc(decl *ast.FuncDecl, fset *token.FileSet) (LeafCatego
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)
 		case strings.HasPrefix(c, "collapse"):
+			hasParserHelper = true
+			parserHelpers = appendUnique(parserHelpers, c)
+		case strings.HasPrefix(c, "group"):
+			hasParserHelper = true
+			parserHelpers = appendUnique(parserHelpers, c)
+		case strings.HasPrefix(c, "TryCompact") && c != decl.Name.Name:
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)
 		case strings.HasPrefix(c, "summarize") || strings.HasPrefix(c, "Summarize"):

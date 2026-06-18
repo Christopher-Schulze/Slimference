@@ -180,6 +180,59 @@ func TestClassifyTryCompactFunc_CollapsePrefix(t *testing.T) {
 	}
 }
 
+func TestClassifyTryCompactFunc_ParsePrefix(t *testing.T) {
+	t.Parallel()
+	fn, fset := parseFnForTest(t, `func TryCompactX(stdout []byte) ([]byte, bool) {
+		out, _, ok := parseTypeScriptDiagnostics(string(stdout))
+		if !ok {
+			return stdout, false
+		}
+		return []byte(out), true
+	}`)
+	cat, _, helpers := classifyTryCompactFunc(fn, fset)
+	if cat != LeafRealParser {
+		t.Fatalf("expected real_parser via parse* prefix, got %s", cat)
+	}
+	if len(helpers) == 0 || helpers[0] != "parseTypeScriptDiagnostics" {
+		t.Fatalf("expected parse helper, got %v", helpers)
+	}
+}
+
+func TestClassifyTryCompactFunc_GroupPrefix(t *testing.T) {
+	t.Parallel()
+	fn, fset := parseFnForTest(t, `func TryCompactX(stdout []byte) ([]byte, bool) {
+		out, ok := groupPathListResults(stdout, "fd")
+		if !ok {
+			return stdout, false
+		}
+		return out, true
+	}`)
+	cat, _, helpers := classifyTryCompactFunc(fn, fset)
+	if cat != LeafRealParser {
+		t.Fatalf("expected real_parser via group* prefix, got %s", cat)
+	}
+	if len(helpers) == 0 || helpers[0] != "groupPathListResults" {
+		t.Fatalf("expected group helper, got %v", helpers)
+	}
+}
+
+func TestClassifyTryCompactFunc_TryCompactDelegation(t *testing.T) {
+	t.Parallel()
+	fn, fset := parseFnForTest(t, `func TryCompactX(argv []string, stdout []byte) ([]byte, bool) {
+		if out, ok := TryCompactY(argv, stdout); ok {
+			return out, true
+		}
+		return stdout, false
+	}`)
+	cat, _, helpers := classifyTryCompactFunc(fn, fset)
+	if cat != LeafRealParser {
+		t.Fatalf("expected real_parser via TryCompact delegation, got %s", cat)
+	}
+	if len(helpers) == 0 || helpers[0] != "TryCompactY" {
+		t.Fatalf("expected TryCompact helper, got %v", helpers)
+	}
+}
+
 func TestClassifyTryCompactFunc_RegexMatch(t *testing.T) {
 	t.Parallel()
 	fn, fset := parseFnForTest(t, `func TryCompactX(stdout []byte) ([]byte, bool) {
