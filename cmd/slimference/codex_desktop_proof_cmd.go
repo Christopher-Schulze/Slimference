@@ -47,6 +47,10 @@ type codexDesktopStatusOutput struct {
 	LiveProofRequired           bool                     `json:"live_proof_required"`
 	ConversationObserved        bool                     `json:"conversation_observed"`
 	LaunchCommand               string                   `json:"launch_command"`
+	OwnerPrompt                 string                   `json:"owner_prompt,omitempty"`
+	FinishCommand               string                   `json:"finish_command,omitempty"`
+	ClassDistributionCommand    string                   `json:"class_distribution_command,omitempty"`
+	NextSteps                   []string                 `json:"next_steps,omitempty"`
 	LastProof                   *codexDesktopProofOutput `json:"last_proof,omitempty"`
 	Notes                       []string                 `json:"notes,omitempty"`
 }
@@ -82,6 +86,12 @@ type codexDesktopProofSession struct {
 }
 
 const codexDesktopProofStateTimeout = 10 * time.Second
+
+const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real coding-session proof workload: read AGENTS.md, docs/todo.md, docs/todo/roadmap-48pct-wss.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg/sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
+
+const codexDesktopFinishProofCommand = "slimference codex desktop prove --finish --json"
+
+const codexDesktopClassDistributionCommand = "go run ./scripts/utils wss-class-distribution ~/.slimference/debug/decisions.jsonl --since-file=/tmp/slimference-desktop-proof-since.txt --min-local-ratio=0.48 --json"
 
 func runCodexDesktopCmd(args []string, p installPrinter) int {
 	if len(args) == 0 {
@@ -434,7 +444,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 	case "desktop_ready_for_prompt":
 		out.Mode = "desktop_proof_prompt_required"
 		out.FailureClass = "prompt_required"
-		out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `slimference codex desktop prove --finish --json`")
+		applyCodexDesktopPromptRequiredHandoff(out)
 	case "desktop_ca_env_rejected":
 		out.Mode = "desktop_direct_only"
 		out.FailureClass = firstNonEmpty(last.FailureClass, "tls_trust_rejected")
@@ -449,6 +459,18 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.ConversationObserved = true
 		out.Notes = append(out.Notes, "last Desktop proof carried WSS bytes but did not prove Phase-F savings")
 	}
+}
+
+func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
+	out.OwnerPrompt = codexDesktopOwnerProofPrompt
+	out.FinishCommand = codexDesktopFinishProofCommand
+	out.ClassDistributionCommand = codexDesktopClassDistributionCommand
+	out.NextSteps = append(out.NextSteps,
+		"Paste owner_prompt into the scoped Codex.app window that was launched by the manual Desktop proof.",
+		"Run finish_command after the prompt completes.",
+		"Run class_distribution_command and continue guard work only when headroom_present=true.",
+	)
+	out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `"+codexDesktopFinishProofCommand+"`")
 }
 
 func classifyCodexDesktopProof(out *codexDesktopProofOutput, manual bool) {
@@ -727,6 +749,18 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 	}
 	fmt.Fprintf(w, "  Proof     live_required=%v conversation_observed=%v\n", out.LiveProofRequired, out.ConversationObserved)
 	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
+	for _, step := range out.NextSteps {
+		fmt.Fprintf(w, "  Next      %s\n", step)
+	}
+	if out.FinishCommand != "" {
+		fmt.Fprintf(w, "  Finish    %s\n", out.FinishCommand)
+	}
+	if out.ClassDistributionCommand != "" {
+		fmt.Fprintf(w, "  Measure   %s\n", out.ClassDistributionCommand)
+	}
+	if out.OwnerPrompt != "" {
+		fmt.Fprintf(w, "  Prompt    %s\n", out.OwnerPrompt)
+	}
 	for _, note := range out.Notes {
 		fmt.Fprintf(w, "  Note      %s\n", note)
 	}
