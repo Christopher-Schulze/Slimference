@@ -1946,6 +1946,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeExactJQJSONOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeExactKnownCLIJSONOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2107,6 +2110,33 @@ func wssSafeExactJQJSONOutput(commandLine, payload string) bool {
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactJQJSONExact(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssSafeExactKnownCLIJSONOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	if wssKnownCLIJSONStructuredReducerMatches(argv, stdout) {
+		return false
+	}
+	compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssKnownCLIJSONStructuredReducerMatches(argv []string, stdout []byte) bool {
+	parsers := []func([]string, []byte) ([]byte, bool){
+		filter.TryCompactKubectlJSON,
+		filter.TryCompactCargoMetadataJSON,
+		filter.TryCompactTerraformShowJSON,
+	}
+	for _, parser := range parsers {
+		if _, ok := parser(argv, stdout); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func wssExactJSONWhitespaceMinified(original, compacted []byte) bool {

@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -181,6 +182,35 @@ func TryCompactTerraformShowJSON(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte(out), true
 }
 
+// TryCompactKnownCLIJSONExact exact-minifies JSON output for CLI commands whose
+// argv already proves a JSON-output mode. It runs after structured JSON parsers
+// and before generic JSON schema extraction.
+func TryCompactKnownCLIJSONExact(argv []string, stdout []byte) ([]byte, bool) {
+	if !knownCLIJSONExactArgv(argv) {
+		return stdout, false
+	}
+	trimmed := bytes.TrimSpace(stdout)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return stdout, true
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(trimmed))
+	if err := json.Compact(&buf, trimmed); err != nil {
+		return stdout, true
+	}
+	compact := buf.Bytes()
+	if len(compact) < len(stdout) {
+		return compact, true
+	}
+	return stdout, true
+}
+
+func knownCLIJSONExactArgv(argv []string) bool {
+	return isKubectlJSONArgv(argv) ||
+		isCargoMetadataArgv(argv) ||
+		isTerraformJSONOutputArgv(argv)
+}
+
 func isKubectlJSONArgv(argv []string) bool {
 	if len(argv) < 2 || !commandMatchesAny(argv, "kubectl", "oc") {
 		return false
@@ -205,6 +235,10 @@ func isCargoMetadataArgv(argv []string) bool {
 
 func isTerraformShowJSONArgv(argv []string) bool {
 	return isTerraformSubcommand(argv, "show") && hasTerraformJSONFlag(argv)
+}
+
+func isTerraformJSONOutputArgv(argv []string) bool {
+	return (isTerraformSubcommand(argv, "show") || isTerraformSubcommand(argv, "output")) && hasTerraformJSONFlag(argv)
 }
 
 func containsArg(args []string, want string) bool {

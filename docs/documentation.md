@@ -284,8 +284,10 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    network output is guarded before generic reducers: valid JSON may be
    whitespace-compacted exactly, while non-JSON and already-compact JSON
    full-pass so API bodies cannot be log-windowed, schema-summarized, or
-   truncated by default. `gh`/`glab` API calls, explicit JSON output flags, and
-   `jq` JSON output follow exact-only paths before generic JSON minify so large
+   truncated by default. `gh`/`glab` API calls and `jq` JSON output follow
+   exact-only paths before generic JSON minify. Known CLI JSON modes
+   (`kubectl`/`oc -o json`, `cargo metadata`, and `terraform`/`tofu show|output -json`)
+   also use an exact fallback after their structured parsers decline, so large
    API/VCS/inspected JSON payloads cannot be schema-summarized or TOML-truncated
    by default. Long `terraform state list` and plain human-readable
    `terraform output` full-pass in the default package because resource

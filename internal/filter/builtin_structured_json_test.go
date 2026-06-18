@@ -202,6 +202,102 @@ func TestTryCompactTerraformShowJSONKeepsLateStateResource(t *testing.T) {
 	}
 }
 
+func TestTryCompactKnownCLIJSONExact_ExactMinify(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		argv []string
+		body []byte
+		want string
+	}{
+		{
+			name: "kubectl healthy json",
+			argv: []string{"kubectl", "get", "pods", "-o", "json"},
+			body: []byte("{\n  \"kind\": \"List\",\n  \"items\": []\n}\n"),
+			want: `{"kind":"List","items":[]}`,
+		},
+		{
+			name: "oc output json",
+			argv: []string{"oc", "get", "routes", "--output=json"},
+			body: []byte("{\n  \"kind\": \"RouteList\",\n  \"items\": []\n}\n"),
+			want: `{"kind":"RouteList","items":[]}`,
+		},
+		{
+			name: "terraform output json",
+			argv: []string{"terraform", "output", "-json"},
+			body: []byte("{\n  \"endpoint\": {\"value\": \"https://example.com\"}\n}\n"),
+			want: `{"endpoint":{"value":"https://example.com"}}`,
+		},
+		{
+			name: "tofu show json",
+			argv: []string{"tofu", "show", "--json"},
+			body: []byte("{\n  \"format_version\": \"1.0\",\n  \"values\": {}\n}\n"),
+			want: `{"format_version":"1.0","values":{}}`,
+		},
+		{
+			name: "cargo metadata fallback",
+			argv: []string{"cargo", "metadata", "--format-version", "1"},
+			body: []byte("{\n  \"packages\": []\n}\n"),
+			want: `{"packages":[]}`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactKnownCLIJSONExact(tc.argv, tc.body)
+			if !ok {
+				t.Fatal("known CLI JSON should enter exact fallback")
+			}
+			if got := string(out); got != tc.want {
+				t.Fatalf("unexpected compact JSON: %q", got)
+			}
+		})
+	}
+}
+
+func TestTryCompactKnownCLIJSONExact_LargeJSONNeverSchemaSummarized(t *testing.T) {
+	t.Parallel()
+
+	body := "{\n  \"items\": [\n    " +
+		strings.Repeat("{\"id\":1,\"name\":\"same\",\"value\":\"abcdef\"},\n    ", 80) +
+		"{\"id\":2,\"name\":\"last\",\"value\":\"uvwxyz\"}\n  ]\n}\n"
+	out, ok := TryCompactKnownCLIJSONExact([]string{"kubectl", "get", "pods", "-o", "json"}, []byte(body))
+	if !ok {
+		t.Fatal("large known CLI JSON should be handled to block generic schema extraction")
+	}
+	got := string(out)
+	if strings.Contains(got, "{object,") || strings.Contains(got, "[array,") {
+		t.Fatalf("known CLI JSON must not be schema-summarized: %q", got[:min(len(got), 120)])
+	}
+	if !strings.Contains(got, `"last"`) || !strings.Contains(got, `"uvwxyz"`) {
+		t.Fatalf("known CLI JSON lost scalar evidence: %q", got[:min(len(got), 120)])
+	}
+}
+
+func TestTryCompactKnownCLIJSONExact_NonJSONFullPassAndUnrelated(t *testing.T) {
+	t.Parallel()
+
+	text := []byte("plain output\nplain output\n")
+	out, ok := TryCompactKnownCLIJSONExact([]string{"kubectl", "get", "pods", "-o", "json"}, text)
+	if !ok {
+		t.Fatal("known CLI non-JSON should be handled to block later lossy reducers")
+	}
+	if string(out) != string(text) {
+		t.Fatalf("known CLI non-JSON must full-pass, got %q", out)
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"kubectl", "get", "pods"}, []byte(`{"items":[]}`)); ok {
+		t.Fatal("kubectl without JSON output flag must not match exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"terraform", "output"}, []byte(`{"x":1}`)); ok {
+		t.Fatal("terraform output without JSON flag must not match exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"git", "status", "--json"}, []byte(`{"x":1}`)); ok {
+		t.Fatal("unrelated JSON-looking command must not match exact gate")
+	}
+}
+
 func TestStructuredJSONParsersPassThrough(t *testing.T) {
 	t.Parallel()
 	if _, ok := TryCompactKubectlJSON([]string{"kubectl", "get", "pods"}, []byte(`{"items":[]}`)); ok {
