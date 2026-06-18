@@ -1937,6 +1937,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeDotnetOKSummaryOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeExactNetworkResponseOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2068,6 +2071,29 @@ func wssSafeStructuredNoFindingsOutput(commandLine, payload string) bool {
 	}
 	compacted, ok := filter.TryCompactSARIF(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssCompactedSARIFZeroResults(compacted)
+}
+
+func wssSafeExactNetworkResponseOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactNetworkResponse(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssExactJSONWhitespaceMinified(original, compacted []byte) bool {
+	trimmed := bytes.TrimSpace(original)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return false
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(trimmed))
+	if err := json.Compact(&buf, trimmed); err != nil {
+		return false
+	}
+	return bytes.Equal(bytes.TrimSpace(compacted), buf.Bytes())
 }
 
 func wssCompactedEslintCleanSummary(compacted []byte) bool {
