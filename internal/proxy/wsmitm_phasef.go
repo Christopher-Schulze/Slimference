@@ -2088,12 +2088,20 @@ func wssCompactedSARIFZeroResults(compacted []byte) bool {
 }
 
 func wssSafeSARIFArgv(argv []string) bool {
-	joined := strings.ToLower(strings.Join(argv, " "))
-	return strings.Contains(joined, "--format sarif") ||
-		strings.Contains(joined, "--format=sarif") ||
-		strings.Contains(joined, "--output-format sarif") ||
-		strings.Contains(joined, "--output-format=sarif") ||
-		strings.Contains(joined, "-f sarif")
+	for i := 1; i < len(argv); i++ {
+		arg := strings.ToLower(strings.TrimSpace(argv[i]))
+		switch arg {
+		case "--sarif":
+			return true
+		case "--format", "--output-format", "--reporter", "-f":
+			if i+1 < len(argv) && strings.EqualFold(strings.TrimSpace(argv[i+1]), "sarif") {
+				return true
+			}
+		case "--format=sarif", "--output-format=sarif", "--reporter=sarif", "-f=sarif", "-fsarif":
+			return true
+		}
+	}
+	return false
 }
 
 func wssSafeGitStatusCommand(commandLine string) bool {
