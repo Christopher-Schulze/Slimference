@@ -49,6 +49,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	cargoCheckClean := wssCargoBuildCleanProgressFixture("Checking", 80)
 	cargoDocClean := wssCargoBuildCleanProgressFixture("Documenting", 80)
 	cargoBuildWarning := cargoBuildClean + "warning: generated binding is deprecated\n"
+	ctestAllPass := wssCtestAllPassFixture(80)
+	ctestFailure := strings.Replace(ctestAllPass, "0 tests failed", "1 tests failed", 1) + "The following tests FAILED:\n"
 	ginkgoAllPass := wssGinkgoAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	pytestJSONAllPass := wssPytestJSONAllPassFixture(80)
@@ -130,6 +132,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo build clean progress", command: "cargo build --workspace", output: cargoBuildClean, wantSafe: true},
 		{name: "cargo check clean progress", command: "cargo check --all-targets", output: cargoCheckClean, wantSafe: true},
 		{name: "cargo doc clean progress", command: "cargo doc --no-deps", output: cargoDocClean, wantSafe: true},
+		{name: "ctest all-pass", command: "ctest --output-on-failure", output: ctestAllPass, wantSafe: true},
 		{name: "ginkgo all-pass", command: "ginkgo", output: ginkgoAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
 		{name: "pytest json all-pass", command: "pytest --json-report --json-report-file=-", output: pytestJSONAllPass, wantSafe: true},
@@ -197,6 +200,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo nextest failure", command: "cargo nextest run", output: cargoNextestFailure, wantGuard: "cargo nextest failures stay guarded"},
 		{name: "cargo clippy warning", command: "cargo clippy --all-targets", output: cargoClippyWarning, wantGuard: "cargo clippy warnings stay guarded"},
 		{name: "cargo build warning", command: "cargo build --workspace", output: cargoBuildWarning, wantGuard: "cargo build warnings stay guarded"},
+		{name: "ctest failure", command: "ctest --output-on-failure", output: ctestFailure, wantGuard: "ctest failures stay guarded"},
 		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
 		{name: "vitest json failure", command: "vitest run --reporter=json", output: vitestJSONFailure, wantGuard: "vitest JSON failures stay guarded"},
 		{name: "eslint json warning", command: "eslint --format json src", output: eslintJSONWarning, wantGuard: "eslint JSON findings stay guarded"},
@@ -1387,6 +1391,38 @@ func TestWSSStatefulSafeCargoNextestAllPassCompactsFullHistoryTurn(t *testing.T)
 	}
 }
 
+func TestWSSStatefulSafeCtestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: ctest-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssCtestAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-ctest-all-pass", "call_ctest_all_pass", "ctest --output-on-failure", envelope, "stateful-ctest-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle ctest all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history ctest all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[ctest] ok (100% tests passed, 0 tests failed out of 120)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "generated_119") {
+		t.Fatalf("ctest all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe ctest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulSafeGitLogOnelineRepeatCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -2212,6 +2248,17 @@ func wssCargoNextestAllPassFixture(count int) string {
 	}
 	out.WriteString("------------\n")
 	fmt.Fprintf(&out, "     Summary [   0.088s] %d tests run: %d passed, 0 skipped\n", count, count)
+	return out.String()
+}
+
+func wssCtestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("Test project /repo/build\n")
+	for i := 1; i <= count; i++ {
+		fmt.Fprintf(&out, "      Start %3d: generated_%03d\n", i, i)
+		fmt.Fprintf(&out, "%3d/%d Test #%3d: generated_%03d ....................   Passed    0.01 sec\n", i, count, i, i)
+	}
+	fmt.Fprintf(&out, "100%% tests passed, 0 tests failed out of %d\n", count)
 	return out.String()
 }
 
