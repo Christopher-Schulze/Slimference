@@ -875,19 +875,19 @@ func tryCompactEmptyStdoutSingleBinary(argv []string, stdout []byte, tool string
 	return stdout, false
 }
 
-// TryCompactErrcheck summarizes empty stdout from `errcheck` / `npx|pnpm exec|yarn … errcheck` (F09 partial).
+// TryCompactErrcheck summarizes empty stdout and parser-proven diagnostics from `errcheck` / `npx|pnpm exec|yarn … errcheck`.
 func TryCompactErrcheck(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "errcheck")
+	return compactFocusedLintOutput(argv, stdout, "errcheck")
 }
 
-// TryCompactIneffassign summarizes empty stdout from `ineffassign` / `npx|pnpm exec|yarn … ineffassign` (F09 partial).
+// TryCompactIneffassign summarizes empty stdout and parser-proven diagnostics from `ineffassign` / `npx|pnpm exec|yarn … ineffassign`.
 func TryCompactIneffassign(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "ineffassign")
+	return compactFocusedLintOutput(argv, stdout, "ineffassign")
 }
 
-// TryCompactNilaway summarizes empty stdout from `nilaway` / `npx|pnpm exec|yarn … nilaway` (F09 partial).
+// TryCompactNilaway summarizes empty stdout and parser-proven diagnostics from `nilaway` / `npx|pnpm exec|yarn … nilaway`.
 func TryCompactNilaway(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "nilaway")
+	return compactFocusedLintOutput(argv, stdout, "nilaway")
 }
 
 func isGoVetArgv(argv []string) bool {
@@ -925,29 +925,45 @@ func TryCompactGoVet(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte("[go vet] ok\n"), true
 }
 
-// TryCompactUnparam summarizes empty stdout from `unparam` / `npx|pnpm exec|yarn … unparam` (F09 partial).
+// TryCompactUnparam summarizes empty stdout and parser-proven diagnostics from `unparam` / `npx|pnpm exec|yarn … unparam`.
 func TryCompactUnparam(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "unparam")
+	return compactFocusedLintOutput(argv, stdout, "unparam")
 }
 
-// TryCompactMisspell summarizes empty stdout from `misspell` / `npx|pnpm exec|yarn … misspell` (F09 partial).
+// TryCompactMisspell summarizes empty stdout and parser-proven diagnostics from `misspell` / `npx|pnpm exec|yarn … misspell`.
 func TryCompactMisspell(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "misspell")
+	return compactFocusedLintOutput(argv, stdout, "misspell")
 }
 
-// TryCompactGocyclo summarizes empty stdout from `gocyclo` / `npx|pnpm exec|yarn … gocyclo` (F09 partial).
+// TryCompactGocyclo summarizes empty stdout and parser-proven diagnostics from `gocyclo` / `npx|pnpm exec|yarn … gocyclo`.
 func TryCompactGocyclo(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "gocyclo")
+	return compactFocusedLintOutput(argv, stdout, "gocyclo")
 }
 
-// TryCompactForbidigo summarizes empty stdout from `forbidigo` / `npx|pnpm exec|yarn … forbidigo` (F09 partial).
+// TryCompactForbidigo summarizes empty stdout and parser-proven diagnostics from `forbidigo` / `npx|pnpm exec|yarn … forbidigo`.
 func TryCompactForbidigo(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "forbidigo")
+	return compactFocusedLintOutput(argv, stdout, "forbidigo")
 }
 
-// TryCompactPrealloc summarizes empty stdout from `prealloc` / `npx|pnpm exec|yarn … prealloc` (F09 partial).
+// TryCompactPrealloc summarizes empty stdout and parser-proven diagnostics from `prealloc` / `npx|pnpm exec|yarn … prealloc`.
 func TryCompactPrealloc(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "prealloc")
+	return compactFocusedLintOutput(argv, stdout, "prealloc")
+}
+
+func compactFocusedLintOutput(argv []string, stdout []byte, tool string) ([]byte, bool) {
+	if out, ok := tryCompactEmptyStdoutSingleBinary(argv, stdout, tool); ok {
+		return out, true
+	}
+	compact, hadFailures, ok := parseFocusedLintDiagnostics(tool, string(stdout))
+	if !ok || !hadFailures || !focusedLintDiagnosticArgvMatchesTool(argv, tool) {
+		return stdout, false
+	}
+	return []byte(compact), true
+}
+
+func focusedLintDiagnosticArgvMatchesTool(argv []string, tool string) bool {
+	label, ok := focusedLintDiagnosticLabel(argv)
+	return ok && label == tool
 }
 
 // TryCompactRuffCheck summarizes empty stdout and exact all-clear output when
