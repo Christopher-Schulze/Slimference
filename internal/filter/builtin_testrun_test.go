@@ -1437,6 +1437,25 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		t.Fatal("playwright mismatched summary must fail open")
 	}
 
+	var bun strings.Builder
+	bun.WriteString("bun test v1.3.14 (0d9b296a)\n\nsession.test.ts:\n")
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&bun, "(pass) sample_session.jsonl > case %03d [0.%02dms]\n", i, i%100)
+	}
+	bun.WriteString("\n 40 pass\n 0 fail\n 46 expect() calls\nRan 40 tests across 2 files. [3.01s]\n")
+	out, ok = TryCompactBunTest([]string{"bun", "test"}, []byte(bun.String()))
+	if !ok || !strings.Contains(string(out), "[bun test] ok - 40 passed") ||
+		!strings.Contains(string(out), "Ran 40 tests across 2 files.") ||
+		strings.Contains(string(out), "case 001") {
+		t.Fatalf("bun verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactBunTest([]string{"bun", "test"}, []byte("bun test v1.3.14\n\nx.test.ts:\n(fail) breaks [1.00ms]\n\n 0 pass\n 1 fail\nRan 1 tests across 1 files. [1.00ms]\n")); ok {
+		t.Fatal("bun failure must fail open")
+	}
+	if _, ok := TryCompactBunTest([]string{"bun", "test"}, []byte("bun test v1.3.14\n\nx.test.ts:\n(pass) passes [1.00ms]\n\n 1 pass\n 0 fail\nRan 2 tests across 1 files. [1.00ms]\n")); ok {
+		t.Fatal("bun mismatched summary must fail open")
+	}
+
 	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
 	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
 	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {

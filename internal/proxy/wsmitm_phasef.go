@@ -2374,6 +2374,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactDartTest,
 	filter.TryCompactFlutterTest,
 	filter.TryCompactDenoTest,
+	filter.TryCompactBunTest,
 }
 
 func wssSafeTestAllPassOutput(commandLine, payload string) bool {

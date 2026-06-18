@@ -1116,28 +1116,122 @@ func TryCompactYarnTest(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte("[yarn test] ok\n"), true
 }
 
-// TryCompactBunTest summarizes empty stdout from `bun test` / `npx|pnpm exec|yarn … bun test` (F08 partial).
+// TryCompactBunTest summarizes successful `bun test` / `npx|pnpm exec|yarn … bun test` output (F08 partial).
 func TryCompactBunTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isBunTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[bun test] ok\n"), true
+	}
+	return compactBunTestAllPass(stdout)
+}
+
+func isBunTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if (b == "bun" || b == "bun.exe") && argv[1] == "test" {
-		return []byte("[bun test] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "bun", "test") {
-		return []byte("[bun test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "bun" && argv[3] == "test" {
-		return []byte("[bun test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "bun" && argv[2] == "test" {
-		return []byte("[bun test] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
+}
+
+func compactBunTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	passRows := 0
+	passSummary := 0
+	passSummarySeen := false
+	failSummarySeen := false
+	ranTests := 0
+	ranSummary := ""
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if bunLineHasUnsafeMarker(trimmed, lower) {
+			return stdout, false
+		}
+		if n, ok := bunSummaryCount(trimmed, "pass"); ok {
+			passSummary = n
+			passSummarySeen = true
+		}
+		if n, ok := bunSummaryCount(trimmed, "fail"); ok {
+			if n != 0 {
+				return stdout, false
+			}
+			failSummarySeen = true
+		}
+		if n, ok := bunRanSummaryCount(trimmed); ok {
+			ranTests = n
+			ranSummary = trimmed
+		}
+		if strings.HasPrefix(trimmed, "(pass) ") {
+			passRows++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passRows <= 0 || !passSummarySeen || !failSummarySeen || ranTests <= 0 ||
+		passRows != passSummary || passRows != ranTests {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[bun test] ok - %d passed, per-test pass lines elided\n", passRows) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, ranSummary) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func bunLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.HasPrefix(trimmed, "(fail)") {
+		return true
+	}
+	return strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "failure") ||
+		strings.Contains(lower, "error:") ||
+		strings.Contains(lower, "exception") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "warning:") ||
+		strings.Contains(lower, "deprecated") ||
+		strings.Contains(lower, " skip")
+}
+
+func bunSummaryCount(line, word string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 2 || fields[1] != word || !asciiDecimal(fields[0]) {
+		return 0, false
+	}
+	n := 0
+	for _, r := range fields[0] {
+		n = n*10 + int(r-'0')
+	}
+	return n, true
+}
+
+func bunRanSummaryCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 6 || fields[0] != "Ran" || fields[2] != "tests" || fields[3] != "across" || !asciiDecimal(fields[1]) {
+		return 0, false
+	}
+	n := 0
+	for _, r := range fields[1] {
+		n = n*10 + int(r-'0')
+	}
+	return n, n > 0
 }
 
 // TryCompactNxTest summarizes empty stdout from `nx test …` / `npx|pnpm exec|yarn … nx test` (F08 partial).

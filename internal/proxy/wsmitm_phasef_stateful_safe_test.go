@@ -47,12 +47,14 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	avaAllPass := wssAvaAllPassFixture(70)
 	tapAllPass := wssTapAllPassFixture(70)
 	playwrightAllPass := wssPlaywrightAllPassFixture(70)
+	bunAllPass := wssBunTestAllPassFixture(70)
 	rspecAllPass := wssRspecAllPassFixture(70)
 	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
 	mochaFailure := "  widget suite\n    1) renders failure details\n\n  0 passing (10ms)\n  1 failing\n"
 	avaFailure := "  ✖ renders failure details\n\n  1 test failed\n"
 	tapFailure := "TAP version 13\nnot ok 1 - renders failure details\n1..1\n# tests 1\n# pass 0\n# fail 1\n"
 	playwrightFailure := "Running 1 test\n  ✘  1 [chromium] › spec.ts:1:1 › renders failure details\n\n  1 failed\n"
+	bunFailure := "bun test v1.3.14\n\nwidget.test.ts:\n(fail) renders failure details [1.00ms]\n\n 0 pass\n 1 fail\nRan 1 tests across 1 files. [1.00ms]\n"
 	dotnetAllPass := wssDotnetTestAllPassFixture(60)
 	dotnetBuildSuccess := wssDotnetBuildSuccessFixture(24, 0)
 	dotnetBuildWarning := wssDotnetBuildSuccessFixture(24, 1)
@@ -92,6 +94,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ava verbose all-pass", command: "ava", output: avaAllPass, wantSafe: true},
 		{name: "tap verbose all-pass", command: "tap", output: tapAllPass, wantSafe: true},
 		{name: "playwright verbose all-pass", command: "playwright test", output: playwrightAllPass, wantSafe: true},
+		{name: "bun verbose all-pass", command: "bun test", output: bunAllPass, wantSafe: true},
 		{name: "rspec all-pass", command: "bundle exec rspec", output: rspecAllPass, wantSafe: true},
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
@@ -133,6 +136,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ava failure", command: "ava", output: avaFailure, wantGuard: "ava failures stay guarded"},
 		{name: "tap failure", command: "tap", output: tapFailure, wantGuard: "tap failures stay guarded"},
 		{name: "playwright failure", command: "playwright test", output: playwrightFailure, wantGuard: "playwright failures stay guarded"},
+		{name: "bun failure", command: "bun test", output: bunFailure, wantGuard: "bun failures stay guarded"},
 		{name: "rspec failure", command: "bundle exec rspec", output: rspecFailure, wantGuard: "rspec failures stay guarded"},
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
@@ -1517,6 +1521,16 @@ func wssPlaywrightAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "  ✓  %d [chromium] › tests/e2e/spec_%03d.spec.ts:5:1 › renders op %03d (120ms)\n", i, i, i)
 	}
 	fmt.Fprintf(&out, "\n  %d passed (12.3s)\n", count)
+	return out.String()
+}
+
+func wssBunTestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("bun test v1.3.14 (0d9b296a)\n\nwidget.test.ts:\n")
+	for i := 1; i <= count; i++ {
+		fmt.Fprintf(&out, "(pass) widget suite > renders op %03d [0.%02dms]\n", i, i%100)
+	}
+	fmt.Fprintf(&out, "\n %d pass\n 0 fail\n 140 expect() calls\nRan %d tests across 2 files. [3.01s]\n", count, count)
 	return out.String()
 }
 
