@@ -41,6 +41,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	goTestFailure := wssGoTestVerboseFailureFixture(40)
 	goTestRace := "=== RUN   TestRacy\nWARNING: DATA RACE\n--- PASS: TestRacy (0.00s)\nPASS\nok  \tslimtest/lib\t0.006s\n"
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
+	cargoNextestAllPass := wssCargoNextestAllPassFixture(80)
+	cargoNextestFailure := strings.Replace(cargoNextestAllPass, "0 skipped", "1 failed, 0 skipped", 1)
 	cargoClippyClean := wssCargoClippyCleanFixture(80)
 	cargoClippyWarning := cargoClippyClean + "warning: generated binding is deprecated\n"
 	cargoBuildClean := wssCargoBuildCleanProgressFixture("Compiling", 80)
@@ -123,6 +125,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "go test verbose all-pass", command: "GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
+		{name: "cargo nextest all-pass", command: "cargo nextest run", output: cargoNextestAllPass, wantSafe: true},
 		{name: "cargo clippy clean progress", command: "cargo clippy --all-targets --all-features", output: cargoClippyClean, wantSafe: true},
 		{name: "cargo build clean progress", command: "cargo build --workspace", output: cargoBuildClean, wantSafe: true},
 		{name: "cargo check clean progress", command: "cargo check --all-targets", output: cargoCheckClean, wantSafe: true},
@@ -191,6 +194,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantSafe: true},
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
+		{name: "cargo nextest failure", command: "cargo nextest run", output: cargoNextestFailure, wantGuard: "cargo nextest failures stay guarded"},
 		{name: "cargo clippy warning", command: "cargo clippy --all-targets", output: cargoClippyWarning, wantGuard: "cargo clippy warnings stay guarded"},
 		{name: "cargo build warning", command: "cargo build --workspace", output: cargoBuildWarning, wantGuard: "cargo build warnings stay guarded"},
 		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
@@ -1351,6 +1355,38 @@ func TestWSSStatefulSafeGoTestFailureDeltaStillGuarded(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafeCargoNextestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: cargo-nextest-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssCargoNextestAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-cargo-nextest-all-pass", "call_cargo_nextest_all_pass", "cargo nextest run", envelope, "stateful-cargo-nextest-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle cargo nextest all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history cargo nextest all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[cargo nextest run] ok - 120 passed") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "slimference::test_119") {
+		t.Fatalf("cargo nextest all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe cargo nextest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulSafeGitLogOnelineRepeatCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -2163,6 +2199,19 @@ func wssCargoTestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "test alpha::op_%03d ... ok\n", i)
 	}
 	fmt.Fprintf(&out, "\ntest result: ok. %d passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n", count)
+	return out.String()
+}
+
+func wssCargoNextestAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n")
+	out.WriteString("------------\n")
+	fmt.Fprintf(&out, "    Starting %d tests across 1 binary\n", count)
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "        PASS [   0.%03ds] slimference::test_%03d\n", i%100, i)
+	}
+	out.WriteString("------------\n")
+	fmt.Fprintf(&out, "     Summary [   0.088s] %d tests run: %d passed, 0 skipped\n", count, count)
 	return out.String()
 }
 
