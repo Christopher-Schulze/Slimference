@@ -3,6 +3,7 @@ package filter
 import (
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +17,11 @@ var (
 	rePytestFailedLine = regexp.MustCompile(`^(FAILED|ERROR)\s+[^ \t]+\.py(::|\s+-\s+)`)
 	reKotlinLine       = regexp.MustCompile(`^[ew]:\s+[^:\n]+\.kts?:\s+\(\d+,\s*\d+\):\s+`)
 	reSummaryLine      = regexp.MustCompile(`(?i)(\b(error|errors|warning|warnings|failed|failures|violations|problems|issues|diagnostics)\b|✖|✗)`)
+
+	reFocusedLintColonLine    = regexp.MustCompile(`^[^\s:][^:\n]*:\d+(:\d+)?:\s+\S`)
+	reFocusedLintGocycloLine  = regexp.MustCompile(`^\d+\s+[^\s:][^:\n]*:\d+:\d+:\s+\S`)
+	reFocusedLintMisspellLine = regexp.MustCompile(`^[^\s:][^:\n]*:\d+:\d+\s+found\s+"[^"]+"\s+a\s+misspelling\s+of\s+"[^"]+"$`)
+	reFocusedLintCSVRow       = regexp.MustCompile(`^"[^"\n]+",\d+,\d+,[^,\n]+,[^,\n]+$`)
 )
 
 func parseDiagnosticRows(label string, stdout string) (string, bool, bool) {
@@ -192,6 +198,115 @@ func parseMarkdownDiagnostics(stdout string) (string, bool, bool) {
 
 func parsePracticalEcosystemDiagnostics(stdout string) (string, bool, bool) {
 	return parseDiagnosticRows("ecosystem", stdout)
+}
+
+func parseFocusedLintDiagnosticsForArgv(argv []string, stdout string) (string, bool, bool) {
+	label, ok := focusedLintDiagnosticLabel(argv)
+	if !ok {
+		return "", false, false
+	}
+	return parseFocusedLintDiagnostics(label, stdout)
+}
+
+func parseFocusedLintDiagnostics(label string, stdout string) (string, bool, bool) {
+	if strings.TrimSpace(stdout) == "" {
+		return "", false, false
+	}
+	lines := strings.Split(stdout, "\n")
+	diagnostics := make([]string, 0, len(lines))
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if isFocusedLintDiagnosticLine(line) {
+			diagnostics = append(diagnostics, line)
+			continue
+		}
+		if isFocusedLintNeutralLine(line, label) {
+			continue
+		}
+		return "", false, false
+	}
+	if len(diagnostics) == 0 {
+		return "", false, false
+	}
+	compactedDiagnostics := compactAdjacentFocusedLintDiagnostics(diagnostics)
+	result := "[" + label + "] FAILED (" + diagnosticCountText(len(diagnostics)) + ")\n" +
+		strings.Join(compactedDiagnostics, "\n") + "\n"
+	if len(result) >= len(stdout) {
+		return "", false, false
+	}
+	return result, true, true
+}
+
+func isFocusedLintDiagnosticLine(line string) bool {
+	if line == "file,line,column,typo,corrected" {
+		return true
+	}
+	return reFocusedLintColonLine.MatchString(line) ||
+		reFocusedLintGocycloLine.MatchString(line) ||
+		reFocusedLintMisspellLine.MatchString(line) ||
+		reFocusedLintCSVRow.MatchString(line)
+}
+
+func isFocusedLintNeutralLine(line string, label string) bool {
+	lower := strings.ToLower(line)
+	if strings.HasPrefix(line, "> ") || strings.HasPrefix(line, "$ ") {
+		return true
+	}
+	if strings.HasPrefix(lower, "running "+label) ||
+		strings.HasPrefix(lower, label+" ") ||
+		strings.HasPrefix(lower, "checking ") ||
+		strings.HasPrefix(lower, "analyzing ") {
+		return true
+	}
+	return false
+}
+
+func compactAdjacentFocusedLintDiagnostics(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); {
+		line := lines[i]
+		j := i + 1
+		for j < len(lines) && lines[j] == line {
+			j++
+		}
+		count := j - i
+		if count == 1 {
+			out = append(out, line)
+		} else {
+			out = append(out, line+" (repeated "+strconv.Itoa(count)+" times)")
+		}
+		i = j
+	}
+	return out
+}
+
+func diagnosticCountText(count int) string {
+	if count == 1 {
+		return "1 diagnostic"
+	}
+	return strconv.Itoa(count) + " diagnostics"
+}
+
+func isFocusedLintDiagnosticArgv(argv []string) bool {
+	_, ok := focusedLintDiagnosticLabel(argv)
+	return ok
+}
+
+func focusedLintDiagnosticLabel(argv []string) (string, bool) {
+	if !commandMatchesAny(argv,
+		"errcheck", "ineffassign", "nilaway", "unparam",
+		"misspell", "gocyclo", "forbidigo", "prealloc",
+	) {
+		return "", false
+	}
+	label := lintToolLabel(argv)
+	if label == "" {
+		return "", false
+	}
+	return label, true
 }
 
 func isTypeScriptDiagnosticArgv(argv []string) bool {

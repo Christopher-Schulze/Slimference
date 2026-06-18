@@ -1949,6 +1949,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeExactKnownCLIJSONOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeFocusedLintDiagnosticOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2654,6 +2657,19 @@ func wssSafeTypeScriptDiagnosticOutput(commandLine, payload string) bool {
 	return wssCompactedTypeScriptDiagnostic(compacted)
 }
 
+func wssSafeFocusedLintDiagnosticOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+	if !ok || len(compacted) >= len(stdout) {
+		return false
+	}
+	return wssCompactedFocusedLintDiagnostic(compacted)
+}
+
 func wssSafeLogDuplicateRunsOutput(commandLine, payload string) bool {
 	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
@@ -2731,6 +2747,24 @@ func wssCompactedTypeScriptDiagnostic(compacted []byte) bool {
 		}
 	}
 	return false
+}
+
+func wssCompactedFocusedLintDiagnostic(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	closeBracket := strings.Index(text, "]")
+	if !strings.HasPrefix(text, "[") || closeBracket <= 0 {
+		return false
+	}
+	label := text[1:closeBracket]
+	switch label {
+	case "errcheck", "ineffassign", "nilaway", "unparam", "misspell", "gocyclo", "forbidigo", "prealloc":
+	default:
+		return false
+	}
+	status := strings.TrimSpace(text[closeBracket+1:])
+	return strings.HasPrefix(status, "FAILED (") &&
+		strings.Contains(status, "diagnostic") &&
+		strings.Contains(text, "\n")
 }
 
 func containsTypeScriptDiagnosticCode(line string) bool {

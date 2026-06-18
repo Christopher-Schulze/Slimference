@@ -15,6 +15,7 @@ var structuredParsers = []structuredParser{
 	{"go_build", isGoBuildOrVetArgv, parseStructuredWithoutArgv(parseGoErrors)},
 	{"cargo_build", isCargoBuildOrCheckArgv, parseCargoErrorsForArgv},
 	{"gcc_clang", isGccClangArgv, parseStructuredWithoutArgv(parseGccClangErrors)},
+	{"focused_lint", isFocusedLintDiagnosticArgv, parseFocusedLintDiagnosticsForArgv},
 	{"typescript", isTypeScriptDiagnosticArgv, parseStructuredWithoutArgv(parseTypeScriptDiagnostics)},
 	{"svelte", isSvelteDiagnosticArgv, parseStructuredWithoutArgv(parseSvelteDiagnostics)},
 	{"frontend", isFrontendDiagnosticArgv, parseStructuredWithoutArgv(parseFrontendDiagnostics)},
