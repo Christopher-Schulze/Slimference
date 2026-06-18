@@ -73,6 +73,33 @@ func TestProxyFootprintScoreUsesCachedPriceRatio(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0FullPassEvidenceUsesCheapTokenEstimate(t *testing.T) {
+	body := strings.Repeat("deterministic guarded output row\n", 32)
+	decision := proxyLayer0EvidenceDecision(
+		"python generate_report.py",
+		body,
+		"",
+		proxyLayer0MechanismCapturedOut,
+		evidence.ActionFullPass,
+		"latency_budget_full_context",
+		0,
+		0,
+		savingspolicy.CodexWorkloadCommand,
+		2,
+		12,
+		0.1,
+	)
+	wantTokens := len(body) / 4
+	if decision.OriginalTokens != wantTokens ||
+		decision.FinalTokens != wantTokens ||
+		decision.SavedTokens != 0 ||
+		decision.NetTokens != 0 ||
+		decision.FootprintScore <= 0 ||
+		decision.FootprintScoreBucket == "" {
+		t.Fatalf("full-pass evidence must own the guarded block without claiming savings: %+v wantTokens=%d", decision, wantTokens)
+	}
+}
+
 func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	t.Parallel()
 

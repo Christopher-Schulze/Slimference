@@ -1099,6 +1099,13 @@ func proxyLayer0EvidenceDecision(commandLine string, beforeText string, afterTex
 	preserved := proxyLayer0PreservedEvidence(mechanism, workload)
 	safety := proxyLayer0EvidenceSafety(mechanism)
 	recovery := proxyLayer0EvidenceRecovery(mechanism)
+	if action == evidence.ActionFullPass && beforeText != "" && afterText == "" && beforeTokens == 0 && afterTokens == 0 {
+		beforeTokens = tokens.Estimate(len(beforeText))
+		if beforeTokens == 0 {
+			beforeTokens = 1
+		}
+		afterTokens = beforeTokens
+	}
 	var decision evidence.BlockDecision
 	if afterText == "" && beforeTokens == 0 && afterTokens == 0 {
 		decision = evidence.DecisionFromObservation(0, string(mechanism), safety, action, reason, analysis, preserved, recovery, 0, 0)
