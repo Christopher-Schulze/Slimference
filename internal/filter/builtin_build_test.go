@@ -733,6 +733,18 @@ Build succeeded with 0 errors.
 	}
 }
 
+func TestTryCompactBuildOutput_successWithWarningFailsOpen(t *testing.T) {
+	t.Parallel()
+	input := `# github.com/myapp/cmd
+# Compiled successfully
+warning: generated binding is deprecated
+Build succeeded with 0 errors and 1 warning.
+`
+	if out, ok := TryCompactBuildOutput([]string{"go", "build", "./..."}, []byte(input)); ok {
+		t.Fatalf("build success with warning must fail open, got %q", out)
+	}
+}
+
 func TestTryCompactBuildOutput_DoesNotEatMypySuccess(t *testing.T) {
 	t.Parallel()
 	input := "Using mypy cache metadata for 188 modules\nSuccess: no issues found in 188 source files\n"

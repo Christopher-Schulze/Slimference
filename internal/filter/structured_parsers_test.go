@@ -278,6 +278,36 @@ func TestParseGccClangErrors_BuildSucceeded(t *testing.T) {
 	_ = ok
 }
 
+func TestBuildSuccessWithWarningsFailsOpenAcrossParsers(t *testing.T) {
+	t.Parallel()
+	stdout := strings.Join([]string{
+		"# github.com/example/project",
+		"warning: generated binding is deprecated",
+		"Build succeeded with 0 errors and 1 warning.",
+		strings.Repeat("padding line with neutral build output\n", 8),
+	}, "\n")
+	tests := []struct {
+		name  string
+		parse func(string) (string, bool, bool)
+	}{
+		{name: "go", parse: parseGoErrors},
+		{name: "cargo", parse: parseCargoErrors},
+		{name: "gcc", parse: parseGccClangErrors},
+		{name: "diagnostic rows", parse: func(s string) (string, bool, bool) {
+			return parseDiagnosticRows("frontend", s)
+		}},
+	}
+	for _, tt := range tests {
+		got, hadFailures, ok := tt.parse(stdout)
+		if ok || hadFailures {
+			t.Fatalf("%s parser compacted success-with-warning output: got=%q hadFailures=%v ok=%v", tt.name, got, hadFailures, ok)
+		}
+	}
+	if got, ok := ParseFailures([]string{"go", "build", "./..."}, stdout); ok {
+		t.Fatalf("ParseFailures compacted go build success-with-warning output: %q", got)
+	}
+}
+
 func TestParseGccClangErrors_OutputNotShorter(t *testing.T) {
 	t.Parallel()
 	stdout := "main.c:1:1: error: x\n"

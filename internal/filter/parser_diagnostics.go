@@ -23,6 +23,9 @@ func parseDiagnosticRows(label string, stdout string) (string, bool, bool) {
 		return "", false, false
 	}
 	if detectBuildSuccess(stdout) {
+		if buildOutputHasNonZeroWarning(stdout) {
+			return "", false, false
+		}
 		result := "[" + label + "] ok\n"
 		if len(result) < len(stdout) {
 			return result, false, true

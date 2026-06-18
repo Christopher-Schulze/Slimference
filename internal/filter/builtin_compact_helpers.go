@@ -57,10 +57,13 @@ func detectBuildSuccess(s string) bool {
 }
 
 // extractBuildErrors compacts non-empty build output.
-// On success: returns "[label] ok\n".
+// On warning-free success: returns "[label] ok\n"; success with warnings fails open.
 // On failure: returns "[label] FAILED\n<error lines>\n" if shorter than input.
 func extractBuildErrors(s, label string) (string, bool) {
 	if detectBuildSuccess(s) {
+		if buildOutputHasNonZeroWarning(s) {
+			return "", false
+		}
 		return fmt.Sprintf("[%s] ok\n", label), true
 	}
 	var errLines []string
@@ -85,6 +88,24 @@ func extractBuildErrors(s, label string) (string, bool) {
 		return "", false
 	}
 	return out, true
+}
+
+func buildOutputHasNonZeroWarning(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		tl := strings.ToLower(t)
+		if !strings.Contains(tl, "warning") {
+			continue
+		}
+		if strings.Contains(tl, "0 warning") || strings.Contains(tl, "0 warnings") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // extractTestFailures compacts non-empty test output.

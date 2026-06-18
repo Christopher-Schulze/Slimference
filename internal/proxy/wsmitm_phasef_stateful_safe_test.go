@@ -43,7 +43,11 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
+	rspecAllPass := wssRspecAllPassFixture(70)
+	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
 	dotnetAllPass := wssDotnetTestAllPassFixture(60)
+	dotnetBuildSuccess := wssDotnetBuildSuccessFixture(24, 0)
+	dotnetBuildWarning := wssDotnetBuildSuccessFixture(24, 1)
 	dotnetWarning := "Passed!  - Failed: 0, Passed: 60, Skipped: 0, Total: 60, Duration: 1 s - Tests.dll (net8.0)\nWarning: diagnostics were emitted\n"
 	mypySuccess := wssMypySuccessFixture(12)
 	mypyFailure := "src/app.py:11: error: Incompatible return value type\nsrc/app.py:11: note: expected str\nFound 1 error in 1 file (checked 48 source files)\n"
@@ -55,6 +59,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	}, "\n") + "\n"
 	terraformValidateFailure := "╷\n│ Error: Missing required argument\n│\n│   on main.tf line 12, in resource \"aws_s3_bucket\" \"bad\":\n│   12: resource \"aws_s3_bucket\" \"bad\" {}\n╵\n"
 	emptyBuildEnvelope := "Chunk ID: build-empty\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10\nOutput:\n"
+	goBuildWarning := "# github.com/slim/example\n# Compiled successfully\nwarning: generated binding is deprecated\nBuild succeeded with 0 errors and 1 warning.\n"
 
 	tests := []struct {
 		name      string
@@ -75,7 +80,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
 		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
+		{name: "rspec all-pass", command: "bundle exec rspec", output: rspecAllPass, wantSafe: true},
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
+		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
 		{name: "mypy success summary", command: "mypy src", output: mypySuccess, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
@@ -110,10 +117,13 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
 		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
+		{name: "rspec failure", command: "bundle exec rspec", output: rspecFailure, wantGuard: "rspec failures stay guarded"},
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
+		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
 		{name: "mypy failure", command: "mypy src", output: mypyFailure, wantGuard: "mypy diagnostics stay guarded"},
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
 		{name: "empty build envelope", command: "go build ./...", output: emptyBuildEnvelope, wantGuard: "empty success envelopes stay guarded because they do not save bytes"},
+		{name: "build success with warning", command: "go build ./...", output: goBuildWarning, wantGuard: "build warnings stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
 		{name: "find unbounded", command: "find internal/proxy -type f -name '*.go' -print", output: listingOutput, wantGuard: "unbounded find stays guarded"},
 		{name: "find exec", command: "find internal -type f -exec cat {} ;", output: listingOutput, wantGuard: "find side-effect/rich predicates stay guarded"},
@@ -188,6 +198,70 @@ func TestWSSStatefulSafeGenericTestAllPassCompactsFullHistoryTurn(t *testing.T) 
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe pytest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeRspecAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: rspec-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssRspecAllPassFixture(120)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-rspec-all-pass", "call_rspec_all_pass", "bundle exec rspec", envelope, "stateful-rspec-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle rspec all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history rspec all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[rspec] ok (120 examples, 0 failures)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "example_119") {
+		t.Fatalf("rspec all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe rspec all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeDotnetBuildSuccessCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: dotnet-build-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssDotnetBuildSuccessFixture(120, 0)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-dotnet-build-success", "call_dotnet_build_success", "dotnet build", envelope, "stateful-dotnet-build-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle dotnet build success request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history dotnet build success output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[dotnet build] ok") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "Project119.dll") {
+		t.Fatalf("dotnet build success output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe dotnet build should save without structured guard: %+v", summary)
 	}
 }
 
@@ -1391,12 +1465,40 @@ func wssJestVerboseAllPassFixture(count int) string {
 	return out.String()
 }
 
+func wssRspecAllPassFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&out, "spec/models/widget_spec.rb:%03d: example_%03d passed\n", i+1, i)
+	}
+	out.WriteString("\nFinished in 0.12345 seconds (files took 1.234 seconds to load)\n")
+	fmt.Fprintf(&out, "%d examples, 0 failures\n", count)
+	return out.String()
+}
+
 func wssDotnetTestAllPassFixture(count int) string {
 	var out strings.Builder
 	for i := 0; i < count; i++ {
 		fmt.Fprintf(&out, "  Passed Test%03d [1 ms]\n", i)
 	}
 	fmt.Fprintf(&out, "Passed!  - Failed: 0, Passed: %d, Skipped: 0, Total: %d, Duration: 1 s - Tests.dll (net8.0)\n", count, count)
+	return out.String()
+}
+
+func wssDotnetBuildSuccessFixture(projects, warnings int) string {
+	var out strings.Builder
+	out.WriteString("Microsoft (R) Build Engine version 17.8.0\n")
+	out.WriteString("  Determining projects to restore...\n")
+	for i := 0; i < projects; i++ {
+		fmt.Fprintf(&out, "  Project%03d -> /repo/bin/Debug/net8.0/Project%03d.dll\n", i, i)
+	}
+	out.WriteString("\nBuild succeeded.\n")
+	if warnings > 0 {
+		fmt.Fprintf(&out, "    %d Warning(s)\n", warnings)
+	} else {
+		out.WriteString("    0 Warning(s)\n")
+	}
+	out.WriteString("    0 Error(s)\n\n")
+	out.WriteString("Time Elapsed 00:00:03.21\n")
 	return out.String()
 }
 

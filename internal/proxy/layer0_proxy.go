@@ -603,6 +603,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			readCtx.SearchCompactOptions = req.SearchCompactOptions
 			readReq := readRequestFromCommandLine(commandLine)
 			readCommand := readReq.FilePath != ""
+			statefulSafeToolOutputBlock := req.Route == codexLayer0RouteWSSPhaseF &&
+				!readCommand &&
+				wssSafeStatefulStatusCommandOutput(commandLine, block.Text)
 			workload := savingspolicy.CodexWorkloadCommand
 			if readCommand {
 				workload = savingspolicy.CodexWorkloadRead
@@ -613,7 +616,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			wssSearchProofAllowed, wssSearchProofReason := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, req.WSSSearchMutationAllowed, req.StatefulDeltaMutationBlocked)
-			wssSearchRisk := req.Route == codexLayer0RouteWSSPhaseF && proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
+			wssSearchRisk := req.Route == codexLayer0RouteWSSPhaseF &&
+				!statefulSafeToolOutputBlock &&
+				proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
 			wssSearchOutputBlocked := wssSearchRisk
 			if wssSearchOutputBlocked && wssSearchProofAllowed {
 				wssSearchOutputBlocked = false
@@ -673,9 +678,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			mechanism := proxyLayer0MechanismReadDelta
 			chunkReport := chunkdedup.EncodeResult{}
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
-			statefulSafeToolOutputBlock := req.Route == codexLayer0RouteWSSPhaseF &&
-				!readCommand &&
-				wssSafeStatefulStatusCommandOutput(commandLine, block.Text)
 			// The delta guard protects Codex server state, not just output shape.
 			// Safe output classes only narrow the broader structured mutation guard.
 			statefulDeltaBlockedForBlock := req.StatefulDeltaMutationBlocked

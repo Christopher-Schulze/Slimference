@@ -28,6 +28,9 @@ func parseGccClangErrors(stdout string) (string, bool, bool) {
 
 	if len(errs) == 0 {
 		if detectBuildSuccess(stdout) {
+			if buildOutputHasNonZeroWarning(stdout) {
+				return "", false, false
+			}
 			return "[gcc/clang] ok\n", false, true
 		}
 		return "", false, false

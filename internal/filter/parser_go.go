@@ -33,6 +33,9 @@ func parseGoErrors(stdout string) (string, bool, bool) {
 
 	if len(errs) == 0 {
 		if detectBuildSuccess(stdout) {
+			if buildOutputHasNonZeroWarning(stdout) {
+				return "", false, false
+			}
 			return "[go build] ok\n", false, true
 		}
 		return "", false, false

@@ -1934,6 +1934,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeGoTestFailureDiagnosticOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeDotnetOKSummaryOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2360,6 +2363,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactNoxTest,
 	filter.TryCompactPythonUnittest,
 	filter.TryCompactPhpunit,
+	filter.TryCompactRubyOutput,
 	filter.TryCompactGradleTest,
 	filter.TryCompactVitest,
 	filter.TryCompactJest,
@@ -2393,6 +2397,26 @@ func wssSafeGoTestFailureDiagnosticOutput(commandLine, payload string) bool {
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactTestOutput(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssCompactedGoTestFailureDiagnostic(compacted)
+}
+
+func wssSafeDotnetOKSummaryOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactDotnet(argv, stdout)
+	if !ok || len(compacted) >= len(stdout) {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(string(compacted)))
+	if !strings.HasPrefix(text, "[dotnet ") ||
+		strings.Contains(text, "warning") ||
+		strings.Contains(text, "failed") ||
+		strings.Contains(text, "error") {
+		return false
+	}
+	return wssCompactedOKSummary(compacted)
 }
 
 func wssPlainGoTestFailurePayload(payload string) bool {
