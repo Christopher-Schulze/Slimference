@@ -17,7 +17,10 @@ func compactPackageManagerBuildScriptOutput(argv []string, stdout []byte) ([]byt
 }
 
 func compactPackageManagerLintScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
-	return compactPackageManagerScriptOutput(argv, stdout, packageManagerLintScriptParsers())
+	if out, ok := compactPackageManagerScriptOutput(argv, stdout, packageManagerLintScriptParsers()); ok {
+		return out, true
+	}
+	return compactPackageManagerScriptFailureOutput(argv, stdout)
 }
 
 func compactPackageManagerFormatScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
@@ -36,6 +39,32 @@ func compactPackageManagerScriptOutput(argv []string, stdout []byte, parsers []p
 		}
 	}
 	return stdout, false
+}
+
+func compactPackageManagerScriptFailureOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if !isSafePackageManagerScriptArgv(argv) || strings.TrimSpace(string(stdout)) == "" {
+		return stdout, false
+	}
+	for _, candidate := range packageManagerScriptTranscriptCandidates(stdout) {
+		compact, ok := ParseFailures(candidate.argv, string(candidate.payload))
+		if !ok || !packageManagerScriptFailureSummary([]byte(compact)) || len(compact) >= len(stdout) {
+			continue
+		}
+		return []byte(compact), true
+	}
+	return stdout, false
+}
+
+func packageManagerScriptFailureSummary(out []byte) bool {
+	text := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(text, "[") {
+		return false
+	}
+	closeBracket := strings.IndexByte(text, ']')
+	if closeBracket <= 0 {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(text[closeBracket+1:]), "FAILED")
 }
 
 func packageManagerBuildScriptParsers() []packageManagerScriptParser {

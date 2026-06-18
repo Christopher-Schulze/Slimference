@@ -101,6 +101,88 @@ func TestWSSStatefulUnsafePackageManagerScriptStaysGuarded(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafePackageManagerLintScriptFailureCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var output strings.Builder
+	output.WriteString("Chunk ID: package-script-lint-failure\n")
+	output.WriteString("Wall time: 0.0010 seconds\n")
+	output.WriteString("Process exited with code 1\n")
+	output.WriteString("Original token count: 10000\n")
+	output.WriteString("Output:\n")
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&output, "> workspace lint failure prelude %03d\n", i)
+	}
+	output.WriteString("> web@1.0.0 lint /repo\n")
+	output.WriteString("> errcheck ./...\n")
+	for i := 0; i < 90; i++ {
+		output.WriteString("internal/proxy/handler.go:164:15: Close() error return value is not checked\n")
+	}
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-script-lint-failure", "call_package_script_lint_failure", "pnpm run lint", output.String(), "stateful-package-script-lint-failure-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle package-manager lint failure request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history package-manager lint failure output should compact")
+	}
+	body := string(env.Body)
+	for _, want := range []string{
+		"[errcheck] FAILED (90 diagnostics)",
+		"(repeated 90 times)",
+		"[context-archive kind=tool-output uri=local-archive://",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("package-manager lint failure output missing %q in body=%s", want, body)
+		}
+	}
+	if strings.Contains(body, "workspace lint failure prelude 119") {
+		t.Fatalf("package-manager lint failure prelude was not compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe package-manager lint failure should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulUnsafePackageManagerLintFailureStaysGuarded(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	output := packageManagerScriptUnsafeEnvelope("lint", strings.Join([]string{
+		"> errcheck ./...",
+		"internal/proxy/handler.go:164:15: Close() error return value is not checked",
+		"if err != nil {",
+		"",
+	}, "\n"))
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-script-lint-failure-unsafe", "call_package_script_lint_failure_unsafe", "pnpm run lint", output, "stateful-package-script-lint-failure-unsafe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle unsafe package-manager lint failure request: %v", err)
+	}
+	body := string(env.Body)
+	if replace ||
+		strings.Contains(body, "[errcheck] FAILED (") ||
+		strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "if err != nil {") {
+		t.Fatalf("unsafe package-manager lint failure should stay byte-identical: replace=%v body=%s", replace, body)
+	}
+}
+
 func packageManagerScriptUnsafeEnvelope(script, tail string) string {
 	var output strings.Builder
 	output.WriteString("Chunk ID: package-script-unsafe\n")

@@ -127,3 +127,67 @@ func TestCompactPackageManagerScriptOutputFailsOpen(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
+	t.Parallel()
+
+	var stdout strings.Builder
+	stdout.WriteString("> web@1.0.0 lint /repo\n")
+	stdout.WriteString("> errcheck ./...\n")
+	for i := 0; i < 80; i++ {
+		stdout.WriteString("internal/proxy/handler.go:164:15: Close() error return value is not checked\n")
+	}
+
+	out, ok := TryCompactLintOutput([]string{"pnpm", "run", "lint"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script lint failure diagnostics to compact")
+	}
+	for _, want := range []string{
+		"[errcheck] FAILED (80 diagnostics)",
+		"(repeated 80 times)",
+		"internal/proxy/handler.go:164:15: Close() error return value is not checked",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script lint failure missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestCompactPackageManagerLintScriptFailureOutputFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{
+			name:   "source context",
+			argv:   []string{"pnpm", "run", "lint"},
+			stdout: "> web@1.0.0 lint /repo\n> errcheck ./...\ninternal/proxy/handler.go:164:15: Close() error return value is not checked\nif err != nil {\n",
+		},
+		{
+			name:   "shell pipeline",
+			argv:   []string{"npm", "run", "lint"},
+			stdout: "> web@1.0.0 lint\n> errcheck ./... | tee lint.log\ninternal/proxy/handler.go:164:15: Close() error return value is not checked\n",
+		},
+		{
+			name:   "unsafe script",
+			argv:   []string{"npm", "run", "lint:fix"},
+			stdout: "> web@1.0.0 lint:fix\n> errcheck ./...\ninternal/proxy/handler.go:164:15: Close() error return value is not checked\n",
+		},
+		{
+			name:   "short non shrinking",
+			argv:   []string{"pnpm", "run", "lint"},
+			stdout: "> web@1.0.0 lint /repo\n> errcheck ./...\ninternal/proxy/handler.go:164:15: Close() error return value is not checked\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if out, ok := TryCompactLintOutput(tt.argv, []byte(tt.stdout)); ok {
+				t.Fatalf("expected fail-open, got %q", out)
+			}
+		})
+	}
+}
