@@ -41,6 +41,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	goTestFailure := wssGoTestVerboseFailureFixture(40)
 	goTestRace := "=== RUN   TestRacy\nWARNING: DATA RACE\n--- PASS: TestRacy (0.00s)\nPASS\nok  \tslimtest/lib\t0.006s\n"
 	cargoTestAllPass := wssCargoTestVerboseAllPassFixture(80)
+	ginkgoAllPass := wssGinkgoAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
 	mochaAllPass := wssMochaAllPassFixture(70)
@@ -50,6 +51,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	bunAllPass := wssBunTestAllPassFixture(70)
 	rspecAllPass := wssRspecAllPassFixture(70)
 	rspecFailure := "....F\n\nFailures:\n\n  1) Widget renders failure details\n     Failure/Error: expect(result).to eq(:ok)\n\n     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\nFinished in 0.05432 seconds\n5 examples, 1 failure\n"
+	ginkgoFailure := "Will run 2 of 2 specs\n•F\nRan 2 of 2 Specs in 0.123 seconds\nFAIL! -- 1 Passed | 1 Failed | 0 Pending | 0 Skipped\n"
 	mochaFailure := "  widget suite\n    1) renders failure details\n\n  0 passing (10ms)\n  1 failing\n"
 	avaFailure := "  ✖ renders failure details\n\n  1 test failed\n"
 	tapFailure := "TAP version 13\nnot ok 1 - renders failure details\n1..1\n# tests 1\n# pass 0\n# fail 1\n"
@@ -88,6 +90,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "wc line counts", command: "wc -l " + strings.Join(wcArgs, " "), output: wcOutput.String(), wantSafe: true},
 		{name: "go test verbose all-pass", command: "GOCACHE=/tmp/slimference-cache go test ./... -v", output: goTestAllPass, wantSafe: true},
 		{name: "cargo test verbose all-pass", command: "cargo test", output: cargoTestAllPass, wantSafe: true},
+		{name: "ginkgo all-pass", command: "ginkgo", output: ginkgoAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
 		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
 		{name: "mocha verbose all-pass", command: "mocha", output: mochaAllPass, wantSafe: true},
@@ -130,6 +133,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "go test failure", command: "go test ./... -v", output: goTestFailure, wantSafe: true},
 		{name: "go test data race", command: "go test ./... -v", output: goTestRace, wantGuard: "go test data race stays guarded"},
 		{name: "cargo test failure", command: "cargo test", output: "running 2 tests\ntest a ... ok\ntest b ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed\n", wantGuard: "cargo test failures stay guarded"},
+		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
 		{name: "pytest failure", command: "pytest -v", output: "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n", wantGuard: "pytest failures stay guarded"},
 		{name: "jest failure", command: "jest", output: "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n", wantGuard: "jest failures stay guarded"},
 		{name: "mocha failure", command: "mocha", output: mochaFailure, wantGuard: "mocha failures stay guarded"},
@@ -1462,6 +1466,20 @@ func wssCargoTestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "test alpha::op_%03d ... ok\n", i)
 	}
 	fmt.Fprintf(&out, "\ntest result: ok. %d passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n", count)
+	return out.String()
+}
+
+func wssGinkgoAllPassFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("Running Suite: Slimference Suite - internal/proxy\n")
+	out.WriteString("==========================================================\n")
+	out.WriteString("Random Seed: 1634748172\n\n")
+	fmt.Fprintf(&out, "Will run %d of %d specs\n", count, count)
+	out.WriteString(strings.Repeat("•", count))
+	out.WriteString("\n\n")
+	fmt.Fprintf(&out, "Ran %d of %d Specs in 0.123 seconds\n", count, count)
+	fmt.Fprintf(&out, "SUCCESS! -- %d Passed | 0 Failed | 0 Pending | 0 Skipped\n", count)
+	out.WriteString("PASS\n")
 	return out.String()
 }
 

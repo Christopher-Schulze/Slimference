@@ -1456,6 +1456,28 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		t.Fatal("bun mismatched summary must fail open")
 	}
 
+	var ginkgo strings.Builder
+	ginkgo.WriteString("Running Suite: Books Suite - path/to/books\n")
+	ginkgo.WriteString("==========================================================\n")
+	ginkgo.WriteString("Random Seed: 1634748172\n\n")
+	ginkgo.WriteString("Will run 64 of 64 specs\n")
+	ginkgo.WriteString(strings.Repeat("•", 64) + "\n\n")
+	ginkgo.WriteString("Ran 64 of 64 Specs in 0.123 seconds\n")
+	ginkgo.WriteString("SUCCESS! -- 64 Passed | 0 Failed | 0 Pending | 0 Skipped\n")
+	ginkgo.WriteString("PASS\n")
+	out, ok = TryCompactGinkgo([]string{"ginkgo"}, []byte(ginkgo.String()))
+	if !ok || !strings.Contains(string(out), "[ginkgo] ok - 64 passed") ||
+		!strings.Contains(string(out), "SUCCESS! -- 64 Passed") ||
+		strings.Contains(string(out), strings.Repeat("•", 16)) {
+		t.Fatalf("ginkgo verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactGinkgo([]string{"ginkgo"}, []byte("Will run 2 of 2 specs\n•F\nRan 2 of 2 Specs in 0.123 seconds\nFAIL! -- 1 Passed | 1 Failed | 0 Pending | 0 Skipped\n")); ok {
+		t.Fatal("ginkgo failure must fail open")
+	}
+	if _, ok := TryCompactGinkgo([]string{"ginkgo"}, []byte("Will run 2 of 2 specs\n••\nRan 1 of 1 Specs in 0.123 seconds\nSUCCESS! -- 2 Passed | 0 Failed | 0 Pending | 0 Skipped\nPASS\n")); ok {
+		t.Fatal("ginkgo mismatched summary must fail open")
+	}
+
 	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
 	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
 	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {

@@ -390,9 +390,119 @@ func TryCompactCargoLlvmCov(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte("[cargo llvm-cov] ok\n"), true
 }
 
-// TryCompactGinkgo summarizes empty stdout from `ginkgo` / `npx|pnpm exec|yarn … ginkgo` (F08 partial).
+// TryCompactGinkgo summarizes successful `ginkgo` / `npx|pnpm exec|yarn … ginkgo` output (F08 partial).
 func TryCompactGinkgo(argv []string, stdout []byte) ([]byte, bool) {
-	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "ginkgo")
+	if !isSingleBinarySubcmdArgv(argv, "ginkgo", "") {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[ginkgo] ok\n"), true
+	}
+	return compactGinkgoAllPass(stdout)
+}
+
+func compactGinkgoAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	willRun := 0
+	ranSpecs := 0
+	successPassed := 0
+	bulletCount := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if n, ok := ginkgoWillRunCount(trimmed); ok {
+			willRun = n
+			kept = append(kept, line)
+			continue
+		}
+		if n, ok := ginkgoRanSpecsCount(trimmed); ok {
+			ranSpecs = n
+			kept = append(kept, line)
+			continue
+		}
+		if n, ok := ginkgoSuccessPassedCount(trimmed); ok {
+			successPassed = n
+			kept = append(kept, line)
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if ginkgoLineHasUnsafeMarker(trimmed, lower) {
+			return stdout, false
+		}
+		if count, ok := ginkgoBulletProgressCount(trimmed); ok {
+			bulletCount += count
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if successPassed <= 0 || willRun != successPassed || ranSpecs != successPassed || bulletCount != successPassed {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[ginkgo] ok - %d passed, progress line elided\n", successPassed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func ginkgoWillRunCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 6 || fields[0] != "Will" || fields[1] != "run" || fields[3] != "of" ||
+		!strings.EqualFold(fields[5], "specs") || !asciiDecimal(fields[2]) || fields[2] != fields[4] {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[2])
+}
+
+func ginkgoRanSpecsCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 7 || fields[0] != "Ran" || fields[2] != "of" ||
+		!strings.EqualFold(fields[4], "Specs") || !asciiDecimal(fields[1]) || fields[1] != fields[3] {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[1])
+}
+
+func ginkgoSuccessPassedCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 13 || fields[0] != "SUCCESS!" || fields[1] != "--" ||
+		fields[3] != "Passed" || fields[4] != "|" ||
+		fields[6] != "Failed" || fields[7] != "|" ||
+		fields[9] != "Pending" || fields[10] != "|" ||
+		fields[12] != "Skipped" ||
+		!asciiDecimal(fields[2]) || fields[5] != "0" || fields[8] != "0" || fields[11] != "0" {
+		return 0, false
+	}
+	return parsePositiveASCIIInt(fields[2])
+}
+
+func ginkgoLineHasUnsafeMarker(trimmed, lower string) bool {
+	return strings.HasPrefix(trimmed, "FAIL!") ||
+		strings.HasPrefix(trimmed, "Failure") ||
+		strings.Contains(lower, "failed") ||
+		strings.Contains(lower, "panic") ||
+		strings.Contains(lower, "error") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "interrupted") ||
+		strings.Contains(lower, "pending") ||
+		strings.Contains(lower, "skipped")
+}
+
+func ginkgoBulletProgressCount(line string) (int, bool) {
+	if line == "" {
+		return 0, false
+	}
+	count := 0
+	for _, r := range line {
+		if r != '\u2022' {
+			return 0, false
+		}
+		count++
+	}
+	return count, count > 0
 }
 
 // TryCompactCtest summarizes `ctest` / `npx|pnpm exec|yarn ... ctest`.
