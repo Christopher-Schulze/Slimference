@@ -2520,28 +2520,106 @@ func compactDartFlutterAllPass(stdout []byte, label string) ([]byte, bool) {
 	return []byte(out), true
 }
 
-// TryCompactElmTest summarizes empty stdout from `elm-test` / `npx|pnpm exec|yarn … elm-test` (F08 partial).
+// TryCompactElmTest summarizes `elm-test` / `npx|pnpm exec|yarn ... elm-test`.
 func TryCompactElmTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isElmTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[elm-test] ok\n"), true
+	}
+	return compactElmTestAllPass(stdout)
+}
+
+func isElmTestArgv(argv []string) bool {
 	if len(argv) < 1 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if b == "elm-test" || b == "elm-test.cmd" {
-		return []byte("[elm-test] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "elm-test") {
-		return []byte("[elm-test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "elm-test" {
-		return []byte("[elm-test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "elm-test" {
-		return []byte("[elm-test] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
+}
+
+func compactElmTestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	passed := -1
+	failed := -1
+	sawPassed := false
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.EqualFold(trimmed, "TEST RUN PASSED"):
+			sawPassed = true
+		case strings.HasPrefix(lower, "passed:"):
+			n, ok := parseCountAfterColon(trimmed)
+			if !ok || n <= 0 {
+				return stdout, false
+			}
+			passed = n
+		case strings.HasPrefix(lower, "failed:"):
+			n, ok := parseCountAfterColon(trimmed)
+			if !ok || n != 0 {
+				return stdout, false
+			}
+			failed = n
+		case elmTestLineHasUnsafeMarker(lower):
+			return stdout, false
+		}
+	}
+	if !sawPassed || passed <= 0 || failed != 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[elm-test] ok (Passed: %d; Failed: 0)\n", passed)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func elmTestLineHasUnsafeMarker(lower string) bool {
+	for _, marker := range []string{
+		"test run failed",
+		"failed",
+		"failure",
+		"error",
+		"exception",
+		"panic",
+		"warning",
+		"deprecated",
+		"falsified",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseCountAfterColon(line string) (int, bool) {
+	idx := strings.IndexByte(line, ':')
+	if idx < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(line[idx+1:])
+	if len(fields) == 0 {
+		return 0, false
+	}
+	return parseNonNegativeASCIIInt(fields[0])
 }
 
 func isDenoBin(name string) bool {
@@ -2680,55 +2758,213 @@ func isSbtTestBin(name string) bool {
 	return b == "sbt" || b == "sbt.bat"
 }
 
-// TryCompactSbtTest summarizes empty stdout from `sbt … test` / `npx|pnpm exec|yarn … sbt …` when `test` appears as a task token (F08 partial).
+// TryCompactSbtTest summarizes `sbt ... test` / `npx|pnpm exec|yarn ... sbt ...`
+// when `test` appears as a task token.
 func TryCompactSbtTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSbtTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[sbt test] ok\n"), true
+	}
+	return compactScalaStyleTestAllPass(stdout, "sbt test")
+}
+
+func isSbtTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	if !argvHasExactToken(argv, "test") {
-		return stdout, false
+		return false
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if isSbtTestBin(argv[0]) {
-		return []byte("[sbt test] ok\n"), true
+		return true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && isSbtTestBin(rest[0]) {
-		return []byte("[sbt test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isSbtTestBin(argv[2]) {
-		return []byte("[sbt test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isSbtTestBin(argv[1]) {
-		return []byte("[sbt test] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
 }
 
-// TryCompactMillTest summarizes empty stdout from `mill test` / `npx|pnpm exec|yarn … mill test` (F08 partial).
+// TryCompactMillTest summarizes `mill test`, `mill foo.test`, and wrapper forms.
 func TryCompactMillTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isMillTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[mill test] ok\n"), true
+	}
+	return compactScalaStyleTestAllPass(stdout, "mill test")
+}
+
+func isMillTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "mill" || b == "mill.bat") && argv[1] == "test" {
-		return []byte("[mill test] ok\n"), true
+	if b == "npx" || b == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		return ok && isMillTestArgv(rest)
 	}
-	if npxMatches(argv, "mill", "test") {
-		return []byte("[mill test] ok\n"), true
+	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" {
+		return isMillTestArgv(argv[2:])
 	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "mill" && argv[3] == "test" {
-		return []byte("[mill test] ok\n"), true
+	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") {
+		return isMillTestArgv(argv[1:])
 	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "mill" && argv[2] == "test" {
-		return []byte("[mill test] ok\n"), true
+	if b != "mill" && b != "mill.bat" {
+		return false
 	}
-	return stdout, false
+	return millArgsContainTestTask(argv[1:])
+}
+
+func millArgsContainTestTask(args []string) bool {
+	for _, arg := range args {
+		trimmed := strings.Trim(arg, `"'`)
+		if trimmed == "" || strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		if trimmed == "test" || strings.HasSuffix(trimmed, ".test") {
+			return true
+		}
+	}
+	return false
+}
+
+func compactScalaStyleTestAllPass(stdout []byte, label string) ([]byte, bool) {
+	s := string(stdout)
+	succeeded := 0
+	sawSummary := false
+	sawAllPassed := false
+	sawSuccess := false
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		payload := stripScalaLogPrefix(trimmed)
+		lowerTrimmed := strings.ToLower(trimmed)
+		lowerPayload := strings.ToLower(payload)
+		if strings.HasPrefix(lowerTrimmed, "[warn]") || strings.HasPrefix(lowerTrimmed, "[error]") {
+			return stdout, false
+		}
+		if aborted, ok := parseScalaStyleSuitesAborted(payload); ok {
+			if aborted != 0 {
+				return stdout, false
+			}
+			continue
+		}
+		if counts, ok := parseScalaStyleTestsSummary(payload); ok {
+			if counts["succeeded"] <= 0 || counts["failed"] != 0 || counts["canceled"] != 0 ||
+				counts["ignored"] != 0 || counts["pending"] != 0 {
+				return stdout, false
+			}
+			succeeded = counts["succeeded"]
+			sawSummary = true
+			continue
+		}
+		if strings.EqualFold(strings.TrimSuffix(payload, "."), "All tests passed") {
+			sawAllPassed = true
+			continue
+		}
+		if strings.HasPrefix(lowerTrimmed, "[success]") || strings.HasPrefix(lowerPayload, "total time:") {
+			sawSuccess = true
+			continue
+		}
+		if scalaStyleTestLineHasUnsafeMarker(lowerPayload) {
+			return stdout, false
+		}
+	}
+	if !sawSummary || !sawAllPassed || !sawSuccess || succeeded <= 0 {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[%s] ok (%d succeeded)\n", label, succeeded)
+	if len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func stripScalaLogPrefix(line string) string {
+	for _, prefix := range []string{"[info]", "[success]", "[warn]", "[error]"} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return line
+}
+
+func parseScalaStyleSuitesAborted(line string) (int, bool) {
+	idx := strings.Index(line, "Suites:")
+	if idx < 0 {
+		return 0, false
+	}
+	fields := strings.FieldsFunc(line[idx+len("Suites:"):], func(r rune) bool {
+		return r == ' ' || r == '\t' || r == ','
+	})
+	for i := 0; i < len(fields)-1; i++ {
+		if strings.ToLower(strings.TrimSpace(fields[i])) != "aborted" {
+			continue
+		}
+		n, ok := parseNonNegativeASCIIInt(strings.TrimSpace(fields[i+1]))
+		return n, ok
+	}
+	return 0, false
+}
+
+func parseScalaStyleTestsSummary(line string) (map[string]int, bool) {
+	idx := strings.Index(line, "Tests:")
+	if idx < 0 {
+		return nil, false
+	}
+	fields := strings.FieldsFunc(line[idx+len("Tests:"):], func(r rune) bool {
+		return r == ' ' || r == '\t' || r == ','
+	})
+	counts := make(map[string]int)
+	for i := 0; i < len(fields)-1; i++ {
+		key := strings.ToLower(strings.TrimSpace(fields[i]))
+		switch key {
+		case "succeeded", "failed", "canceled", "ignored", "pending":
+			n, ok := parseNonNegativeASCIIInt(strings.TrimSpace(fields[i+1]))
+			if !ok {
+				return nil, false
+			}
+			counts[key] = n
+		}
+	}
+	for _, key := range []string{"succeeded", "failed", "canceled", "ignored", "pending"} {
+		if _, ok := counts[key]; !ok {
+			return nil, false
+		}
+	}
+	return counts, true
+}
+
+func scalaStyleTestLineHasUnsafeMarker(lower string) bool {
+	for _, marker := range []string{
+		"failed",
+		"failure",
+		"error",
+		"exception",
+		"canceled",
+		"cancelled",
+		"ignored",
+		"pending",
+		"warning",
+		"deprecated",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // TryCompactHatchTest summarizes `hatch test` / `npx|pnpm exec|yarn ... hatch test`.
