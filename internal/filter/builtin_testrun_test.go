@@ -1418,6 +1418,25 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		}
 	}
 
+	var playwright strings.Builder
+	playwright.WriteString("Running 36 tests using 4 workers\n")
+	for i := 1; i <= 36; i++ {
+		fmt.Fprintf(&playwright, "  ✓  %d [chromium] › tests/e2e/spec_%03d.spec.ts:5:1 › renders op %03d (120ms)\n", i, i, i)
+	}
+	playwright.WriteString("\n  36 passed (12.3s)\n")
+	out, ok = TryCompactPlaywrightTest([]string{"playwright", "test"}, []byte(playwright.String()))
+	if !ok || !strings.Contains(string(out), "[playwright test] ok - 36 passed") ||
+		!strings.Contains(string(out), "36 passed (12.3s)") ||
+		strings.Contains(string(out), "renders op 001") {
+		t.Fatalf("playwright verbose all-pass: ok=%v %q", ok, out)
+	}
+	if _, ok := TryCompactPlaywrightTest([]string{"playwright", "test"}, []byte("Running 1 test\n  ✘  1 [chromium] › spec.ts:1:1 › breaks\n\n  1 failed\n")); ok {
+		t.Fatal("playwright failure must fail open")
+	}
+	if _, ok := TryCompactPlaywrightTest([]string{"playwright", "test"}, []byte("Running 1 test\n  ✓  1 [chromium] › spec.ts:1:1 › passes\n\n  2 passed (1s)\n")); ok {
+		t.Fatal("playwright mismatched summary must fail open")
+	}
+
 	vit := strings.ReplaceAll(js.String(), "PASS src/alpha.test.ts", " ✓ src/alpha.test.ts (70 tests)")
 	out, ok = TryCompactVitest([]string{"vitest", "run"}, []byte(vit))
 	if !ok || !strings.Contains(string(out), "[vitest] ok") || strings.Contains(string(out), "renders op 000") {

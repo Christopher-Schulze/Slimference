@@ -931,28 +931,96 @@ func parseNonNegativeASCIIInt(s string) (int, bool) {
 	return n, true
 }
 
-// TryCompactPlaywrightTest summarizes empty stdout from `playwright test` / `npx|pnpm exec|yarn … playwright test` (F08 partial).
+// TryCompactPlaywrightTest summarizes successful `playwright test` / `npx|pnpm exec|yarn … playwright test` output (F08 partial).
 func TryCompactPlaywrightTest(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isPlaywrightTestArgv(argv) {
 		return stdout, false
 	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[playwright test] ok\n"), true
+	}
+	return compactPlaywrightAllPass(stdout)
+}
+
+func isPlaywrightTestArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	if (b == "playwright" || b == "playwright.cmd") && argv[1] == "test" {
-		return []byte("[playwright test] ok\n"), true
+		return true
 	}
 	if npxMatches(argv, "playwright", "test") {
-		return []byte("[playwright test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && strings.EqualFold(filepath.Base(argv[2]), "playwright") && argv[3] == "test" {
-		return []byte("[playwright test] ok\n"), true
+		return true
 	}
 	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && strings.EqualFold(filepath.Base(argv[1]), "playwright") && argv[2] == "test" {
-		return []byte("[playwright test] ok\n"), true
+		return true
 	}
-	return stdout, false
+	return false
+}
+
+func compactPlaywrightAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	summaryCount := 0
+	summaryLine := ""
+	kept := make([]string, 0, len(lines))
+	passed := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if playwrightLineHasUnsafeMarker(trimmed, lower) {
+			return stdout, false
+		}
+		if count, ok := playwrightPassedSummaryCount(trimmed); ok {
+			summaryCount = count
+			summaryLine = trimmed
+		}
+		if strings.HasPrefix(trimmed, "\u2713 ") || strings.HasPrefix(trimmed, "\u2714 ") {
+			passed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if passed <= 0 || summaryCount != passed {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[playwright test] ok - %d passed, per-test pass lines elided\n", passed) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func playwrightLineHasUnsafeMarker(trimmed, lower string) bool {
+	if strings.HasPrefix(trimmed, "\u2718 ") || strings.HasPrefix(trimmed, "\u2716 ") || strings.HasPrefix(trimmed, "\u00d7 ") {
+		return true
+	}
+	return strings.Contains(lower, " failed") ||
+		strings.Contains(lower, "failure") ||
+		strings.Contains(lower, "error:") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "skipped") ||
+		strings.Contains(lower, "flaky") ||
+		strings.Contains(lower, "warning:") ||
+		strings.Contains(lower, "deprecated")
+}
+
+func playwrightPassedSummaryCount(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[1] != "passed" || !asciiDecimal(fields[0]) {
+		return 0, false
+	}
+	n := 0
+	for _, r := range fields[0] {
+		n = n*10 + int(r-'0')
+	}
+	return n, n > 0
 }
 
 // TryCompactCypressRun summarizes empty stdout from `cypress run` / `npx|pnpm exec|yarn … cypress run` (F08 partial).
