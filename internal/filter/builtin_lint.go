@@ -950,18 +950,36 @@ func TryCompactPrealloc(argv []string, stdout []byte) ([]byte, bool) {
 	return tryCompactEmptyStdoutSingleBinary(argv, stdout, "prealloc")
 }
 
-// TryCompactRuffCheck summarizes empty stdout when argv includes `ruff` … `check` / `python -m ruff … check` / `npx|pnpm exec|yarn … ruff check` / `pnpm exec|yarn … python … -m ruff … check` (F09 partial).
+// TryCompactRuffCheck summarizes empty stdout and exact all-clear output when
+// argv includes `ruff` ... `check` / `python -m ruff ... check` /
+// `npx|pnpm exec|yarn ... ruff check` /
+// `pnpm exec|yarn ... python ... -m ruff ... check`.
 func TryCompactRuffCheck(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 2 || !argvContainsToken(argv, "check") {
-		return stdout, false
-	}
-	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
 	if !isRuffArgv(argv) {
 		return stdout, false
 	}
-	return []byte("[ruff check] ok\n"), true
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[ruff check] ok\n"), true
+	}
+	if compacted, ok := compactRuffCheckCleanOutput(s, len(stdout)); ok {
+		return compacted, true
+	}
+	return stdout, false
+}
+
+func compactRuffCheckCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	if stdout != "All checks passed!" {
+		return nil, false
+	}
+	out := []byte("[ruff check] ok\n")
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
 }
 
 // TryCompactPylint summarizes empty stdout from `pylint` / `python -m pylint` / `npx|pnpm exec|yarn … pylint` / `pnpm exec|yarn … python … -m pylint` (F09 partial).
@@ -1227,28 +1245,73 @@ func isBanditArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactBiomeCheck summarizes empty stdout from `biome check` / `npx|pnpm exec|yarn … biome check` (F09 partial).
+// TryCompactBiomeCheck summarizes empty stdout and exact clean summaries from
+// `biome check` / `npx|pnpm exec|yarn ... biome check`.
 func TryCompactBiomeCheck(argv []string, stdout []byte) ([]byte, bool) {
 	if !argvContainsToken(argv, "check") {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	matched := false
+	if (b0 == "biome" || b0 == "biome.exe" || b0 == "biome.cmd") && argvContainsToken(argv, "check") {
+		matched = true
+	} else if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && strings.EqualFold(filepath.Base(rest[0]), "biome") {
+		matched = true
+	} else if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && strings.EqualFold(filepath.Base(argv[2]), "biome") {
+		matched = true
+	} else if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && strings.EqualFold(filepath.Base(argv[1]), "biome") {
+		matched = true
+	}
+	if !matched {
 		return stdout, false
 	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if (b0 == "biome" || b0 == "biome.exe" || b0 == "biome.cmd") && argvContainsToken(argv, "check") {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[biome check] ok\n"), true
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && strings.EqualFold(filepath.Base(rest[0]), "biome") {
-		return []byte("[biome check] ok\n"), true
-	}
-	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && strings.EqualFold(filepath.Base(argv[2]), "biome") {
-		return []byte("[biome check] ok\n"), true
-	}
-	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && strings.EqualFold(filepath.Base(argv[1]), "biome") {
-		return []byte("[biome check] ok\n"), true
+	if compacted, ok := compactBiomeCheckCleanOutput(s, len(stdout)); ok {
+		return compacted, true
 	}
 	return stdout, false
+}
+
+func compactBiomeCheckCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	if strings.Contains(stdout, "\n") || strings.Contains(stdout, "\r") {
+		return nil, false
+	}
+	const prefix = "Checked "
+	const suffix = ". No fixes applied."
+	if !strings.HasPrefix(stdout, prefix) || !strings.HasSuffix(stdout, suffix) {
+		return nil, false
+	}
+	middle := strings.TrimSuffix(strings.TrimPrefix(stdout, prefix), suffix)
+	countText, rest, ok := strings.Cut(middle, " ")
+	if !ok {
+		return nil, false
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil || count <= 0 {
+		return nil, false
+	}
+	if strings.HasPrefix(rest, "file in ") {
+		if count != 1 || strings.TrimSpace(strings.TrimPrefix(rest, "file in ")) == "" {
+			return nil, false
+		}
+	} else if strings.HasPrefix(rest, "files in ") {
+		if count == 1 || strings.TrimSpace(strings.TrimPrefix(rest, "files in ")) == "" {
+			return nil, false
+		}
+	} else {
+		return nil, false
+	}
+	out := []byte(fmt.Sprintf("[biome check] ok (%d files checked)\n", count))
+	if count == 1 {
+		out = []byte("[biome check] ok (1 file checked)\n")
+	}
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
 }
 
 // TryCompactSqlfluffLint summarizes empty stdout from `sqlfluff lint` / `python -m sqlfluff lint` / `npx|pnpm exec|yarn … sqlfluff lint` / `pnpm exec|yarn … python … -m sqlfluff lint` (F09 partial).
