@@ -73,6 +73,13 @@ func TestParseFailuresFocusedLintDiagnosticShapes(t *testing.T) {
 			prefix: "checking staticcheck ./...\n",
 		},
 		{
+			name:   "revive colon",
+			argv:   []string{"revive", "./..."},
+			line:   "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _",
+			want:   "[revive] FAILED (35 diagnostics)",
+			prefix: "running revive ./...\n",
+		},
+		{
 			name:   "ineffassign colon",
 			argv:   []string{"ineffassign", "./..."},
 			line:   "internal/app/app.go:10:2: ineffectual assignment to err",
@@ -185,6 +192,11 @@ func TestParseFailuresFocusedLintDiagnosticsFailOpen(t *testing.T) {
 			argv:   []string{"staticcheck", "./..."},
 			stdout: "warning: matched no packages\ninternal/app/app.go:22:7: this value of err is never used (SA4006)\n",
 		},
+		{
+			name:   "revive unknown warning line",
+			argv:   []string{"revive", "./..."},
+			stdout: "warning: config is deprecated\ninternal/app/app.go:10:2: unused-parameter: bad\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -219,6 +231,13 @@ func TestTryCompactFocusedLintDiagnosticParsers(t *testing.T) {
 			line: "internal/app/app.go:22:7: this value of err is never used (SA4006)",
 			try:  TryCompactStaticcheck,
 			want: "[staticcheck] FAILED (40 diagnostics)",
+		},
+		{
+			name: "revive",
+			argv: []string{"revive", "./..."},
+			line: "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _",
+			try:  TryCompactRevive,
+			want: "[revive] FAILED (40 diagnostics)",
 		},
 		{
 			name: "errcheck",
@@ -320,6 +339,12 @@ func TestTryCompactFocusedLintDiagnosticParsersFailOpen(t *testing.T) {
 			argv:   []string{"staticcheck", "./..."},
 			stdout: "warning: matched no packages\ninternal/app/app.go:22:7: this value of err is never used (SA4006)\n",
 			try:    TryCompactStaticcheck,
+		},
+		{
+			name:   "revive unknown warning line",
+			argv:   []string{"revive", "./..."},
+			stdout: "warning: config is deprecated\ninternal/app/app.go:10:2: unused-parameter: bad\n",
+			try:    TryCompactRevive,
 		},
 		{
 			name: "source context",

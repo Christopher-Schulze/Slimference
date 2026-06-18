@@ -791,28 +791,10 @@ func TryCompactGofumpt(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
-// TryCompactRevive summarizes empty stdout from `revive` / `npx|pnpm exec|yarn … revive` (F09 partial).
+// TryCompactRevive summarizes empty stdout and parser-proven diagnostics from
+// `revive` / `npx|pnpm exec|yarn ... revive`.
 func TryCompactRevive(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
-	}
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "revive" || b == "revive.exe" {
-		return []byte("[revive] ok\n"), true
-	}
-	if npxMatches(argv, "revive") {
-		return []byte("[revive] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "revive" {
-		return []byte("[revive] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "revive" {
-		return []byte("[revive] ok\n"), true
-	}
-	return stdout, false
+	return compactFocusedLintOutput(argv, stdout, "revive")
 }
 
 // tryCompactEmptyStdoutSingleBinary matches direct `tool` or `npx|pnpm exec|yarn … tool` (empty stdout only).

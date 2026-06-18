@@ -1378,6 +1378,58 @@ func TestTryCompactTestOutput_secondaryAllPassFailOpenOnSignals(t *testing.T) {
 	}
 }
 
+func TestTryCompactPackageManagerTestScript_directAllPassAndFailOpen(t *testing.T) {
+	t.Parallel()
+
+	var packageJest strings.Builder
+	packageJest.WriteString("PASS src/alpha.test.ts\n")
+	for i := 0; i < 64; i++ {
+		fmt.Fprintf(&packageJest, "  ✓ renders op %03d (2 ms)\n", i)
+	}
+	packageJest.WriteString("\nTests: 64 passed, 64 total\nTime: 1.2 s\n")
+
+	for _, tc := range []struct {
+		argv  []string
+		label string
+	}{
+		{[]string{"npm", "test"}, "npm test"},
+		{[]string{"npm", "run", "test"}, "npm run test"},
+		{[]string{"pnpm", "test"}, "pnpm test"},
+		{[]string{"pnpm", "run", "test"}, "pnpm run test"},
+		{[]string{"yarn", "test"}, "yarn test"},
+		{[]string{"yarn", "run", "test"}, "yarn run test"},
+	} {
+		out, ok := TryCompactPackageManagerTestScript(tc.argv, []byte(packageJest.String()))
+		if !ok ||
+			!strings.Contains(string(out), "[jest] ok - 64 passed") ||
+			!strings.Contains(string(out), "Tests: 64 passed, 64 total") ||
+			strings.Contains(string(out), "renders op 063") {
+			t.Fatalf("%s direct all-pass compaction failed: ok=%v out=%q", tc.label, ok, out)
+		}
+	}
+
+	var packageTranscript strings.Builder
+	packageTranscript.WriteString("> web@1.0.0 test /repo\n")
+	packageTranscript.WriteString("> jest --runInBand\n")
+	packageTranscript.WriteString(packageJest.String())
+	out, ok := TryCompactPackageManagerTestScript([]string{"pnpm", "test"}, []byte(packageTranscript.String()))
+	if !ok ||
+		!strings.Contains(string(out), "[jest] ok - 64 passed") ||
+		!strings.Contains(string(out), "Tests: 64 passed, 64 total") ||
+		strings.Contains(string(out), "renders op 063") ||
+		strings.Contains(string(out), "web@1.0.0 test") {
+		t.Fatalf("direct package-manager transcript compaction failed: ok=%v out=%q", ok, out)
+	}
+
+	if _, ok := TryCompactPackageManagerTestScript([]string{"npm", "run", "lint"}, []byte(packageJest.String())); ok {
+		t.Fatal("non-test package script must fail open")
+	}
+	failure := "> web@1.0.0 test\n> jest\nFAIL src/a.test.ts\nTests: 1 failed, 1 total\n"
+	if _, ok := TryCompactPackageManagerTestScript([]string{"pnpm", "test"}, []byte(failure)); ok {
+		t.Fatal("package-manager test failure transcript must fail open")
+	}
+}
+
 func cypressRunAllPassFixture(specs int) string {
 	var out strings.Builder
 	out.WriteString("====================================================================================================\n")
