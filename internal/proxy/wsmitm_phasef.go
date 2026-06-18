@@ -1940,6 +1940,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeExactNetworkResponseOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeExactAPIJSONOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2080,6 +2083,16 @@ func wssSafeExactNetworkResponseOutput(commandLine, payload string) bool {
 	}
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactNetworkResponse(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssSafeExactAPIJSONOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactAPIJSONExact(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
 }
 

@@ -278,13 +278,15 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    preserved-evidence contract before the reducer can participate in product
    dispatch. The default order covers git-status, git-diff, git-log, git-show,
    build-output, test-output, dotnet, ruby, exact path-list grouping, search grouping, ls, tree, wc,
-   exact network-response JSON, lint, log, format, psql, package-manager,
+   exact API/network-response JSON, lint, log, format, psql, package-manager,
    container, gh list, glab list, AWS JSON, python traceback, Terraform
    plan/init/validate/show, structured JSON, and JSON minify. `curl`/`wget`/HTTPie
    network output is guarded before generic reducers: valid JSON may be
    whitespace-compacted exactly, while non-JSON and already-compact JSON
    full-pass so API bodies cannot be log-windowed, schema-summarized, or
-   truncated by default. Long `terraform state list` and plain human-readable
+   truncated by default. `gh api` and `glab api` follow the same exact-only
+   path before generic JSON minify so large API payloads cannot be schema-
+   summarized by default. Long `terraform state list` and plain human-readable
    `terraform output` full-pass in the default package because resource
    addresses, output names, and output values are requested facts unless a
    future route-specific reducer owns exact archive recovery.
@@ -306,7 +308,7 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    surfaced by the filter coverage audit, including direct build/lint/format/search
    binaries such as `ninja`, `cmake`, `next`, `vite`, `webpack`,
    `staticcheck`, `semgrep`, `stylelint`, `dprint`, `taplo`, `shfmt`,
-   `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, `wget`, `http`, and `https`. Arbitrary
+   `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, `wget`, `http`, `https`, `gh`, and `glab`. Arbitrary
    runtime commands that can execute user programs remain guarded; for example
    `deno run`, `dart run`, and `flutter run` are not rewritten by default.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
