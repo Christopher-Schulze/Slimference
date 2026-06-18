@@ -1952,6 +1952,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
+	if wssSafeTypeScriptDiagnosticOutput(commandLine, payload) {
+		return true
+	}
 	if wssSafeReducerOKSummaryOutput(commandLine, payload) {
 		return true
 	}
@@ -2630,6 +2633,47 @@ func wssSafeGoTestFailureDiagnosticOutput(commandLine, payload string) bool {
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactTestOutput(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssCompactedGoTestFailureDiagnostic(compacted)
+}
+
+func wssSafeTypeScriptDiagnosticOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactTscDiagnostics(argv, stdout)
+	if !ok || len(compacted) >= len(stdout) {
+		return false
+	}
+	return wssCompactedTypeScriptDiagnostic(compacted)
+}
+
+func wssCompactedTypeScriptDiagnostic(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[typescript] FAILED\n") {
+		return false
+	}
+	for _, raw := range strings.Split(text, "\n")[1:] {
+		line := strings.TrimSpace(raw)
+		if containsTypeScriptDiagnosticCode(line) &&
+			(strings.Contains(strings.ToLower(line), "error") ||
+				strings.Contains(strings.ToLower(line), "warning")) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTypeScriptDiagnosticCode(line string) bool {
+	for i := 0; i+2 < len(line); i++ {
+		if line[i] != 'T' || line[i+1] != 'S' {
+			continue
+		}
+		if line[i+2] >= '0' && line[i+2] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 func wssSafeDotnetOKSummaryOutput(commandLine, payload string) bool {

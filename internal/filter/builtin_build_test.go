@@ -809,6 +809,21 @@ func TestTryCompactBuildOutput_FallbackExtractsBuildErrors(t *testing.T) {
 	}
 }
 
+func TestTryCompactBuildOutput_TypeScriptFallbackFailsOpenWhenParserDeclines(t *testing.T) {
+	t.Parallel()
+	weakSummary := strings.Repeat("tsc progress\n", 40) + "Found 2 errors in 2 files.\n"
+	if out, ok := TryCompactBuildOutput([]string{"tsc", "--noEmit"}, []byte(weakSummary)); ok {
+		t.Fatalf("summary-only TypeScript failure must fail open, got %q", out)
+	}
+	withSource := strings.Repeat("tsc progress\n", 40) +
+		"src/App.tsx(12,7): error TS2322: Type 'string' is not assignable to type 'number'.\n" +
+		"import { missingName } from './missing';\n" +
+		"Found 1 error in 1 file.\n"
+	if out, ok := TryCompactBuildOutput([]string{"tsc", "--noEmit"}, []byte(withSource)); ok {
+		t.Fatalf("TypeScript failure with source context must fail open, got %q", out)
+	}
+}
+
 // TestBuildToolLabel_pnpmYarnNinjaBazelZig covers the four uncovered branches in buildToolLabel:
 // pnpm exec ninja, yarn ninja, npx zig build, npx bazel build.
 func TestBuildToolLabel_pnpmYarnNinjaBazelZig(t *testing.T) {

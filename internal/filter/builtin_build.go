@@ -1062,6 +1062,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if label := buildToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
 		if s != "" {
+			if label == "tsc" && !detectBuildSuccess(s) {
+				return stdout, false
+			}
 			if out, ok := extractBuildErrors(s, label); ok {
 				return []byte(out), true
 			}

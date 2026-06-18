@@ -97,7 +97,73 @@ func dedupeAdjacent(lines []string) []string {
 }
 
 func parseTypeScriptDiagnostics(stdout string) (string, bool, bool) {
-	return parseDiagnosticRows("typescript", stdout)
+	compact, hadFailures, ok := parseDiagnosticRows("typescript", stdout)
+	if !ok {
+		return "", false, false
+	}
+	if hadFailures && (!typeScriptDiagnosticsHaveConcreteDetail(compact) || typeScriptDiagnosticPayloadHasSourceContext(stdout)) {
+		return "", false, false
+	}
+	return compact, hadFailures, true
+}
+
+func typeScriptDiagnosticsHaveConcreteDetail(compact string) bool {
+	for _, raw := range strings.Split(compact, "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if containsTypeScriptDiagnosticCode(line) &&
+			(strings.Contains(lower, "error") || strings.Contains(lower, "warning")) {
+			return true
+		}
+	}
+	return false
+}
+
+func typeScriptDiagnosticPayloadHasSourceContext(stdout string) bool {
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || isDiagnosticLine(line) || isDiagnosticSummary(line) {
+			continue
+		}
+		if typeScriptLineLooksLikeSource(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func typeScriptLineLooksLikeSource(line string) bool {
+	for _, prefix := range []string{
+		"import ",
+		"export ",
+		"function ",
+		"class ",
+		"const ",
+		"let ",
+		"var ",
+		"interface ",
+		"type ",
+	} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+		if strings.Contains(line, "| "+prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTypeScriptDiagnosticCode(line string) bool {
+	for i := 0; i+2 < len(line); i++ {
+		if line[i] != 'T' || line[i+1] != 'S' {
+			continue
+		}
+		if line[i+2] >= '0' && line[i+2] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 func parseZigDiagnostics(stdout string) (string, bool, bool) {

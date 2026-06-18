@@ -21,6 +21,26 @@ Found 2 errors in 2 files.`)
 	}
 }
 
+func TestParseTypeScriptDiagnosticsFailsOpenOnWeakOrSourceContext(t *testing.T) {
+	t.Parallel()
+	weakSummary := paddedDiagnosticOutput("Found 2 errors in 2 files.")
+	if got, hadFailures, ok := parseTypeScriptDiagnostics(weakSummary); ok || hadFailures {
+		t.Fatalf("summary-only TypeScript diagnostics must fail open: got=%q hadFailures=%v", got, hadFailures)
+	}
+	withSource := paddedDiagnosticOutput(`src/App.tsx(12,7): error TS2322: Type 'string' is not assignable to type 'number'.
+import { missingName } from "./missing";
+Found 1 error in 1 file.`)
+	if got, hadFailures, ok := parseTypeScriptDiagnostics(withSource); ok || hadFailures {
+		t.Fatalf("TypeScript diagnostics with source context must fail open: got=%q hadFailures=%v", got, hadFailures)
+	}
+	withPrettySource := paddedDiagnosticOutput(`src/App.tsx:12:7 - error TS2322: Type 'string' is not assignable to type 'number'.
+12 | const value: number = "wrong";
+Found 1 error in 1 file.`)
+	if got, hadFailures, ok := parseTypeScriptDiagnostics(withPrettySource); ok || hadFailures {
+		t.Fatalf("TypeScript diagnostics with pretty source context must fail open: got=%q hadFailures=%v", got, hadFailures)
+	}
+}
+
 func TestParseZigDiagnostics(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`src/main.zig:8:17: error: expected type 'u8', found 'u16'
