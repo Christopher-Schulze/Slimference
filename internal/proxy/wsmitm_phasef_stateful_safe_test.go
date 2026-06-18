@@ -53,7 +53,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	ctestFailure := strings.Replace(ctestAllPass, "0 tests failed", "1 tests failed", 1) + "The following tests FAILED:\n"
 	ginkgoAllPass := wssGinkgoAllPassFixture(80)
 	pytestAllPass := wssPytestVerboseAllPassFixture(80)
+	pytestWrapperFailure := "tests/test_a.py::test_x FAILED\n=== 1 failed in 0.1s ===\n"
 	pytestJSONAllPass := wssPytestJSONAllPassFixture(80)
+	pythonUnittestAllPass := wssPythonUnittestAllPassFixture(200)
+	pythonUnittestFailure := strings.Replace(pythonUnittestAllPass, "OK\n", "FAILED (failures=1)\n", 1)
 	jestAllPass := wssJestVerboseAllPassFixture(70)
 	jestFailure := "FAIL src/a.test.ts\n  x broken (3 ms)\nTests: 1 failed, 1 total\n"
 	vitestJSONAllPass := wssVitestJSONAllPassFixture(70)
@@ -135,7 +138,12 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ctest all-pass", command: "ctest --output-on-failure", output: ctestAllPass, wantSafe: true},
 		{name: "ginkgo all-pass", command: "ginkgo", output: ginkgoAllPass, wantSafe: true},
 		{name: "pytest verbose all-pass", command: "pytest -v", output: pytestAllPass, wantSafe: true},
+		{name: "uv run pytest verbose all-pass", command: "uv run pytest -v", output: pytestAllPass, wantSafe: true},
+		{name: "poetry run pytest verbose all-pass", command: "poetry run pytest -v", output: pytestAllPass, wantSafe: true},
+		{name: "hatch test pytest all-pass", command: "hatch test", output: pytestAllPass, wantSafe: true},
+		{name: "nox test pytest all-pass", command: "nox -s test", output: pytestAllPass, wantSafe: true},
 		{name: "pytest json all-pass", command: "pytest --json-report --json-report-file=-", output: pytestJSONAllPass, wantSafe: true},
+		{name: "python unittest all-pass", command: "python3 -m unittest discover -v", output: pythonUnittestAllPass, wantSafe: true},
 		{name: "jest verbose all-pass", command: "jest", output: jestAllPass, wantSafe: true},
 		{name: "vitest json all-pass", command: "vitest run --reporter=json", output: vitestJSONAllPass, wantSafe: true},
 		{name: "eslint json clean", command: "eslint --format json src", output: eslintJSONClean, wantSafe: true},
@@ -204,6 +212,11 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "ginkgo failure", command: "ginkgo", output: ginkgoFailure, wantGuard: "ginkgo failures stay guarded"},
 		{name: "vitest json failure", command: "vitest run --reporter=json", output: vitestJSONFailure, wantGuard: "vitest JSON failures stay guarded"},
 		{name: "eslint json warning", command: "eslint --format json src", output: eslintJSONWarning, wantGuard: "eslint JSON findings stay guarded"},
+		{name: "uv run pytest failure", command: "uv run pytest -v", output: pytestWrapperFailure, wantGuard: "uv run pytest failures stay guarded"},
+		{name: "poetry run pytest failure", command: "poetry run pytest -v", output: pytestWrapperFailure, wantGuard: "poetry run pytest failures stay guarded"},
+		{name: "hatch test failure", command: "hatch test", output: pytestWrapperFailure, wantGuard: "hatch test failures stay guarded"},
+		{name: "nox test failure", command: "nox -s test", output: pytestWrapperFailure, wantGuard: "nox test failures stay guarded"},
+		{name: "python unittest failure", command: "python3 -m unittest discover -v", output: pythonUnittestFailure, wantGuard: "python unittest failures stay guarded"},
 		{name: "sarif warning", command: "clippy --format sarif", output: sarifWarning, wantGuard: "SARIF findings stay guarded"},
 		{name: "sarif cat zero results", command: "cat report.sarif", output: sarifZeroResults, wantGuard: "SARIF zero-results cat output stays guarded"},
 		{name: "sarif pattern file flag", command: "grep -f sarif.patterns report.sarif", output: sarifZeroResults, wantGuard: "SARIF-looking pattern-file args stay guarded"},
@@ -1423,6 +1436,85 @@ func TestWSSStatefulSafeCtestAllPassCompactsFullHistoryTurn(t *testing.T) {
 	}
 }
 
+func TestWSSStatefulSafePythonUnittestAllPassCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: python-unittest-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssPythonUnittestAllPassFixture(5000)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-python-unittest-all-pass", "call_python_unittest_all_pass", "python3 -m unittest discover -v", envelope, "stateful-python-unittest-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle python unittest all-pass request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history python unittest all-pass output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "[python -m unittest] ok (Ran 5000 tests in 0.321s; OK)") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, strings.Repeat(".", 40)) {
+		t.Fatalf("python unittest all-pass output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe python unittest all-pass should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafePytestWrappersAllPassCompactFullHistoryTurn(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "uv", command: "uv run pytest -v", want: "[uv run pytest] ok - 120 passed"},
+		{name: "poetry", command: "poetry run pytest -v", want: "[poetry run pytest] ok - 120 passed"},
+		{name: "hatch", command: "hatch test", want: "[hatch test] ok - 120 passed"},
+		{name: "nox", command: "nox -s test", want: "[nox test] ok - 120 passed"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.Compression.OutputReduce.StopSequencesEnabled = false
+			cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+			cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+			p := New(cfg)
+			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+			envelope := "Chunk ID: pytest-wrapper-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+				wssPytestVerboseAllPassFixture(120)
+
+			env := parseWSJSON(t, wssCommandOutputRequestBody("resp-pytest-wrapper-all-pass", "call_pytest_wrapper_all_pass", tt.command, envelope, "stateful-pytest-wrapper-safe-session"))
+			replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+			if err != nil {
+				t.Fatalf("handle pytest wrapper all-pass request: %v", err)
+			}
+			if !replace {
+				t.Fatal("full-history pytest wrapper all-pass output should compact")
+			}
+			body := string(env.Body)
+			if !strings.Contains(body, tt.want) ||
+				!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+				strings.Contains(body, "test_op_119") {
+				t.Fatalf("pytest wrapper all-pass output was not archive-backed compacted: %s", body)
+			}
+			summary := p.DebugRecorder().Last(1, false)[0]
+			if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+				summary.DebugFacts["wss.request_shape"] != "full_history" {
+				t.Fatalf("stateful-safe pytest wrapper all-pass should save without structured guard: %+v", summary)
+			}
+		})
+	}
+}
+
 func TestWSSStatefulSafeGitLogOnelineRepeatCompactsFullHistoryTurn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -2312,6 +2404,19 @@ func wssPytestVerboseAllPassFixture(count int) string {
 		fmt.Fprintf(&out, "tests/test_alpha.py::test_op_%03d PASSED                                  [ %2d%%]\n", i, i)
 	}
 	fmt.Fprintf(&out, "============================== %d passed in 0.42s ===============================\n", count)
+	return out.String()
+}
+
+func wssPythonUnittestAllPassFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		out.WriteByte('.')
+		if (i+1)%80 == 0 {
+			out.WriteByte('\n')
+		}
+	}
+	out.WriteString("\n----------------------------------------------------------------------\n")
+	fmt.Fprintf(&out, "Ran %d tests in 0.321s\n\nOK\n", count)
 	return out.String()
 }
 
