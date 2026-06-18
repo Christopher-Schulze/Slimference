@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -146,12 +147,97 @@ func compactRspecOutput(s string) string {
 	return sb.String()
 }
 
-// TryCompactRubyOutput chains rake / rspec empty-success summaries (rubocop → lint.go).
+func isMinitestRubyArgv(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	if len(argv) >= 4 {
+		b0 := strings.ToLower(filepath.Base(argv[0]))
+		b2 := strings.ToLower(filepath.Base(argv[2]))
+		if b0 == "bundle" && argv[1] == "exec" && (b2 == "ruby" || b2 == "ruby.exe") {
+			return isMinitestRubyArgv(argv[2:])
+		}
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "ruby" && b != "ruby.exe" {
+		return false
+	}
+	for _, arg := range argv[1:] {
+		if minitestTestFileArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func minitestTestFileArg(arg string) bool {
+	normalized := filepath.ToSlash(arg)
+	return strings.Contains(normalized, "test/") && strings.HasSuffix(normalized, "_test.rb")
+}
+
+// TryCompactMinitest summarizes Ruby Minitest all-pass dot-progress output.
+func TryCompactMinitest(argv []string, stdout []byte) ([]byte, bool) {
+	if !isMinitestRubyArgv(argv) {
+		return stdout, false
+	}
+	return compactMinitestAllPass(stdout)
+}
+
+func compactMinitestAllPass(stdout []byte) ([]byte, bool) {
+	s := string(stdout)
+	lines := strings.Split(s, "\n")
+	kept := make([]string, 0, len(lines))
+	progressDots := 0
+	summaryLine := ""
+	runs, assertions := 0, 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		if railsProgressDotLine(trimmed) {
+			progressDots += len(trimmed)
+			continue
+		}
+		if r, a, failures, errors, skips, ok := railsSummaryCounts(trimmed); ok {
+			if r <= 0 || failures != 0 || errors != 0 || skips != 0 {
+				return stdout, false
+			}
+			runs = r
+			assertions = a
+			summaryLine = trimmed
+			kept = append(kept, line)
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		for _, marker := range []string{"failure:", "error:", "failed", "exception", "traceback", "warning", "deprecated"} {
+			if strings.Contains(lower, marker) {
+				return stdout, false
+			}
+		}
+		kept = append(kept, line)
+	}
+	if runs <= 0 || progressDots != runs || summaryLine == "" {
+		return stdout, false
+	}
+	out := fmt.Sprintf("[minitest] ok - %d runs, %d assertions, progress dots elided\n", runs, assertions) +
+		strings.TrimLeft(strings.Join(kept, "\n"), "\n")
+	if !strings.Contains(out, summaryLine) || len(out) >= len(s) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+// TryCompactRubyOutput chains rake, rspec, and minitest Ruby summaries.
 func TryCompactRubyOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactRake(argv, stdout); ok {
 		return out, true
 	}
 	if out, ok := TryCompactRspec(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactMinitest(argv, stdout); ok {
 		return out, true
 	}
 	return stdout, false
