@@ -280,7 +280,7 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    build-output, test-output, dotnet, ruby, exact path-list grouping, search grouping, ls, tree, wc,
    exact network-response JSON, lint, log, format, psql, package-manager,
    container, gh list, glab list, AWS JSON, python traceback, Terraform
-   plan/init/validate/show, structured JSON, and JSON minify. `curl`/`wget`
+   plan/init/validate/show, structured JSON, and JSON minify. `curl`/`wget`/HTTPie
    network output is guarded before generic reducers: valid JSON may be
    whitespace-compacted exactly, while non-JSON and already-compact JSON
    full-pass so API bodies cannot be log-windowed, schema-summarized, or
@@ -306,7 +306,7 @@ preserves other repo-local Codex policy hooks in `.codex/hooks.json`.
    surfaced by the filter coverage audit, including direct build/lint/format/search
    binaries such as `ninja`, `cmake`, `next`, `vite`, `webpack`,
    `staticcheck`, `semgrep`, `stylelint`, `dprint`, `taplo`, `shfmt`,
-   `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, and `wget`. Arbitrary
+   `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, `wget`, `http`, and `https`. Arbitrary
    runtime commands that can execute user programs remain guarded; for example
    `deno run`, `dart run`, and `flutter run` are not rewritten by default.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage

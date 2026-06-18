@@ -12,11 +12,14 @@ func isNetworkResponseArgv(argv []string) bool {
 		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	return b == "curl" || b == "curl.exe" || b == "wget" || b == "wget.exe"
+	return b == "curl" || b == "curl.exe" ||
+		b == "wget" || b == "wget.exe" ||
+		b == "http" || b == "http.exe" ||
+		b == "https" || b == "https.exe"
 }
 
 // TryCompactNetworkResponse only performs exact network-response reductions.
-// It intentionally matches all curl/wget output to stop later lossy generic
+// It intentionally matches common HTTP client output to stop later lossy generic
 // reducers from schema-summarizing or log-windowing API bodies.
 func TryCompactNetworkResponse(argv []string, stdout []byte) ([]byte, bool) {
 	if !isNetworkResponseArgv(argv) {

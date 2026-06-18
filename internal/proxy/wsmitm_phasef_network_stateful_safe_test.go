@@ -15,8 +15,14 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if !wssSafeStatefulStatusCommandOutput("curl https://api.example.com/data", prettyJSON) {
 		t.Fatal("exact curl JSON whitespace minify should be stateful-safe")
 	}
+	if !wssSafeStatefulStatusCommandOutput("http GET https://api.example.com/data", prettyJSON) {
+		t.Fatal("exact HTTPie JSON whitespace minify should be stateful-safe")
+	}
 	if wssSafeStatefulStatusCommandOutput("curl https://api.example.com/logs", "INFO boot\nINFO ready\n") {
 		t.Fatal("curl non-JSON logs must not become stateful-safe")
+	}
+	if wssSafeStatefulStatusCommandOutput("https api.example.com/logs", "INFO boot\nINFO ready\n") {
+		t.Fatal("HTTPie non-JSON logs must not become stateful-safe")
 	}
 	if wssSafeStatefulStatusCommandOutput("gh api /repos/x/y", prettyJSON) {
 		t.Fatal("non-network JSON must not enter the network exact-minify gate")

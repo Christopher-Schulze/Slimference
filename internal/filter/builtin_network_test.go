@@ -18,6 +18,17 @@ func TestTryCompactNetworkResponse_ExactJSONMinify(t *testing.T) {
 	if got := string(out); got != `{"status":"ok","count":42}` {
 		t.Fatalf("unexpected compact JSON: %q", got)
 	}
+
+	httpieOut, ok := TryCompactNetworkResponse(
+		[]string{"http", "GET", "https://api.example.com/data"},
+		[]byte("{\n  \"status\": \"ok\",\n  \"client\": \"httpie\"\n}\n"),
+	)
+	if !ok {
+		t.Fatal("HTTPie JSON should be handled to block later lossy reducers")
+	}
+	if got := string(httpieOut); got != `{"status":"ok","client":"httpie"}` {
+		t.Fatalf("unexpected HTTPie compact JSON: %q", got)
+	}
 }
 
 func TestTryCompactNetworkResponse_LargeJSONNeverSchemaSummarized(t *testing.T) {
@@ -47,6 +58,14 @@ func TestTryCompactNetworkResponse_NonJSONFullPass(t *testing.T) {
 	}
 	if string(out) != string(body) {
 		t.Fatalf("non-JSON network output must full-pass, got %q", out)
+	}
+
+	out, ok = TryCompactNetworkResponse([]string{"https", "api.example.com/logs"}, body)
+	if !ok {
+		t.Fatal("HTTPie https non-JSON should be handled to block later log reduction")
+	}
+	if string(out) != string(body) {
+		t.Fatalf("HTTPie non-JSON network output must full-pass, got %q", out)
 	}
 }
 
