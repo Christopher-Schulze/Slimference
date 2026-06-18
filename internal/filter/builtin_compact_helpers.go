@@ -57,11 +57,12 @@ func detectBuildSuccess(s string) bool {
 }
 
 // extractBuildErrors compacts non-empty build output.
-// On warning-free success: returns "[label] ok\n"; success with warnings fails open.
+// On warning/deprecation-free success: returns "[label] ok\n"; success with
+// warnings/deprecations fails open.
 // On failure: returns "[label] FAILED\n<error lines>\n" if shorter than input.
 func extractBuildErrors(s, label string) (string, bool) {
 	if detectBuildSuccess(s) {
-		if buildOutputHasNonZeroWarning(s) {
+		if outputHasUnsafeSuccessSignal(s) {
 			return "", false
 		}
 		return fmt.Sprintf("[%s] ok\n", label), true
@@ -91,19 +92,34 @@ func extractBuildErrors(s, label string) (string, bool) {
 }
 
 func buildOutputHasNonZeroWarning(s string) bool {
+	return outputHasUnsafeSuccessSignal(s)
+}
+
+func outputHasUnsafeSuccessSignal(s string) bool {
 	for _, line := range strings.Split(s, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" {
 			continue
 		}
 		tl := strings.ToLower(t)
-		if !strings.Contains(tl, "warning") {
-			continue
+		if strings.Contains(tl, "deprecated") || strings.Contains(tl, "deprecation") {
+			return true
 		}
-		if strings.Contains(tl, "0 warning") || strings.Contains(tl, "0 warnings") {
-			continue
+		if strings.Contains(tl, "warning") {
+			if strings.Contains(tl, "0 warning") || strings.Contains(tl, "0 warnings") {
+				continue
+			}
+			return true
 		}
-		return true
+		for _, marker := range []string{"skipped", "pending", "todo", "incomplete", "risky"} {
+			if !strings.Contains(tl, marker) {
+				continue
+			}
+			if strings.Contains(tl, "0 "+marker) {
+				continue
+			}
+			return true
+		}
 	}
 	return false
 }
@@ -140,6 +156,9 @@ func extractTestFailures(s, label string) (string, bool) {
 	}
 
 	if isAllPass {
+		if outputHasUnsafeSuccessSignal(s) {
+			return "", false
+		}
 		// Find a summary line with counts for the label
 		for _, line := range strings.Split(s, "\n") {
 			t := strings.TrimSpace(line)

@@ -40,6 +40,11 @@ func TestExtractTestFailures(t *testing.T) {
 		t.Errorf("timing pass: want timing in output, got %q", out3)
 	}
 
+	// Success-with-warning must fail open instead of hiding diagnostics as ok.
+	if out, ok := extractTestFailures("00:01 +1: All tests passed!\nWarning: golden images changed\n", "flutter test"); ok {
+		t.Fatalf("success-with-warning should fail open, got %q", out)
+	}
+
 	// Failure: "--- FAIL: TestFoo" (go test style)
 	// Generate enough failure lines so the compact is shorter than the input
 	var failLines strings.Builder
@@ -182,6 +187,32 @@ func TestExtractTestFailures_okSingleTab(t *testing.T) {
 	}
 }
 
+func TestOutputHasUnsafeSuccessSignal(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "zero warnings", text: "Build succeeded with 0 warnings.", want: false},
+		{name: "warning", text: "Build succeeded with 1 warning.", want: true},
+		{name: "deprecated", text: "Deprecated Gradle features were used in this build.", want: true},
+		{name: "deprecation", text: "1 deprecation notice emitted", want: true},
+		{name: "zero skipped", text: "120 passed, 0 skipped", want: false},
+		{name: "skipped", text: "119 passed, 1 skipped", want: true},
+		{name: "pending", text: "119 passed, 1 pending", want: true},
+		{name: "todo", text: "119 passed, 1 todo", want: true},
+		{name: "incomplete", text: "119 passed, 1 incomplete", want: true},
+		{name: "risky", text: "119 passed, 1 risky", want: true},
+	}
+	for _, tt := range tests {
+		got := outputHasUnsafeSuccessSignal(tt.text)
+		if got != tt.want {
+			t.Fatalf("%s: got %v want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 // TestExtractTestFailures_compactNotShorter covers the len(out) >= len(s) guard (line 158-160):
 // single short failure line where the compact "[label] FAILED\nLINE\n" is longer than original.
 func TestExtractTestFailures_compactNotShorter(t *testing.T) {
@@ -237,6 +268,12 @@ func TestExtractBuildErrors(t *testing.T) {
 	}
 	if out != "[go build] ok\n" {
 		t.Errorf("success: want '[go build] ok\\n', got %q", out)
+	}
+
+	// Success-with-deprecation must fail open instead of becoming ok.
+	deprecatedSuccess := "BUILD SUCCESSFUL in 1s\nDeprecated Gradle features were used in this build.\n"
+	if out, ok := extractBuildErrors(deprecatedSuccess, "ecosystem"); ok {
+		t.Fatalf("success-with-deprecation should fail open, got %q", out)
 	}
 
 	// No error lines found → false
