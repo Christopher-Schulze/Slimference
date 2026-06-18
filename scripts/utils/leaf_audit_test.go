@@ -165,6 +165,21 @@ func TestClassifyTryCompactFunc_CompactPrefix(t *testing.T) {
 	}
 }
 
+func TestClassifyTryCompactFunc_CollapsePrefix(t *testing.T) {
+	t.Parallel()
+	fn, fset := parseFnForTest(t, `func TryCompactX(stdout []byte) ([]byte, bool) {
+		out := collapseConsecutiveDuplicateLines(string(stdout))
+		return []byte(out), true
+	}`)
+	cat, _, helpers := classifyTryCompactFunc(fn, fset)
+	if cat != LeafRealParser {
+		t.Fatalf("expected real_parser via collapse* prefix, got %s", cat)
+	}
+	if len(helpers) == 0 || helpers[0] != "collapseConsecutiveDuplicateLines" {
+		t.Fatalf("expected collapse helper, got %v", helpers)
+	}
+}
+
 func TestClassifyTryCompactFunc_RegexMatch(t *testing.T) {
 	t.Parallel()
 	fn, fset := parseFnForTest(t, `func TryCompactX(stdout []byte) ([]byte, bool) {

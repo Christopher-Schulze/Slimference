@@ -276,6 +276,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("git_log", "git", []string{"commit hash", "subject", "file count", "insertions", "deletions"}, TryCompactGitLog),
 		evidenceReducer("git_show", "git", []string{"commit hash", "subject", "file path", "hunk header", "added line", "removed line"}, TryCompactGitShow),
 		evidenceReducer("git_f05", "git", []string{"ref update", "changed count", "success marker", "failure line"}, TryCompactGitF05),
+		evidenceReducer("log_duplicate_runs", "log", []string{"all unique log lines", "exact consecutive duplicate counts"}, TryCompactLogDuplicateRuns),
 		diagnosticReducer("test_output", "test", []string{"tool", "failed test", "failure line", "summary", "file", "line"}, TryCompactTestOutput),
 		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
 		diagnosticReducer("dotnet", "build", []string{"tool", "error code", "file", "line", "message"}, TryCompactDotnet),

@@ -101,6 +101,9 @@ func classifyTryCompactFunc(decl *ast.FuncDecl, fset *token.FileSet) (LeafCatego
 		case strings.HasPrefix(c, "compress"):
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)
+		case strings.HasPrefix(c, "collapse"):
+			hasParserHelper = true
+			parserHelpers = appendUnique(parserHelpers, c)
 		case strings.HasPrefix(c, "summarize") || strings.HasPrefix(c, "Summarize"):
 			hasParserHelper = true
 			parserHelpers = appendUnique(parserHelpers, c)

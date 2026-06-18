@@ -61,6 +61,37 @@ func TestTryCompactLogDedup_delegatesToLogOutput(t *testing.T) {
 	}
 }
 
+func TestTryCompactLogDuplicateRunsOnlyDedupsKnownLogCommands(t *testing.T) {
+	t.Parallel()
+	in := strings.Join([]string{
+		"2026-06-18T10:00:00Z DEBUG warm cache",
+		"2026-06-18T10:00:00Z DEBUG warm cache",
+		"2026-06-18T10:00:01Z ERROR connection refused",
+		"2026-06-18T10:00:01Z ERROR connection refused",
+		"",
+	}, "\n")
+	out, ok := TryCompactLogDuplicateRuns([]string{"docker", "logs", "app"}, []byte(in))
+	if !ok {
+		t.Fatal("docker logs duplicate runs should compact")
+	}
+	got := string(out)
+	for _, want := range []string{"DEBUG warm cache [×2]", "ERROR connection refused [×2]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("dedup output lost %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "more log line(s)") {
+		t.Fatalf("duplicate-only reducer must not truncate logs: %q", got)
+	}
+
+	if _, ok := TryCompactLogDuplicateRuns([]string{"python", "script.py"}, []byte("same\nsame\n")); ok {
+		t.Fatal("unknown command duplicate output must stay unmodified")
+	}
+	if _, ok := TryCompactLogDuplicateRuns([]string{"docker", "logs", "app"}, []byte("a\nb\nc\n")); ok {
+		t.Fatal("unique log output must stay unmodified")
+	}
+}
+
 func TestCollapseConsecutiveDuplicateLines(t *testing.T) {
 	t.Parallel()
 	if collapseConsecutiveDuplicateLines("a\na\n") != "a [×2]\n" {

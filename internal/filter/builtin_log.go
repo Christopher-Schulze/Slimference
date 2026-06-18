@@ -12,6 +12,18 @@ func TryCompactLogDedup(argv []string, stdout []byte) ([]byte, bool) {
 	return TryCompactLogOutput(argv, stdout)
 }
 
+func TryCompactLogDuplicateRuns(argv []string, stdout []byte) ([]byte, bool) {
+	if !isLogReadingArgv(argv) || len(stdout) == 0 {
+		return stdout, false
+	}
+	s := string(stdout)
+	deduped := collapseConsecutiveDuplicateLines(s)
+	if len(deduped) >= len(s) {
+		return stdout, false
+	}
+	return []byte(deduped), true
+}
+
 func TryCompactLogOutput(argv []string, stdout []byte) ([]byte, bool) {
 	argvMatch := isLogReadingArgv(argv)
 	if !argvMatch {

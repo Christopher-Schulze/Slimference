@@ -81,6 +81,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	dotnetWarning := "Passed!  - Failed: 0, Passed: 60, Skipped: 0, Total: 60, Duration: 1 s - Tests.dll (net8.0)\nWarning: diagnostics were emitted\n"
 	mypySuccess := wssMypySuccessFixture(12)
 	mypyFailure := "src/app.py:11: error: Incompatible return value type\nsrc/app.py:11: note: expected str\nFound 1 error in 1 file (checked 48 source files)\n"
+	logDuplicateRuns := wssLogDuplicateRunsFixture(24)
+	logUnique := "2026-06-18T10:00:00Z INFO service started\n2026-06-18T10:00:01Z WARN connection refused\n"
+	logSourceLike := "app.go:10: failed to bind\napp.go:10: failed to bind\n"
 	terraformValidateSuccess := strings.Join([]string{
 		"Terraform used the selected providers to generate the following execution plan.",
 		"Acquiring state lock. This may take a few moments...",
@@ -141,6 +144,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "dotnet test all-pass", command: "dotnet test", output: dotnetAllPass, wantSafe: true},
 		{name: "dotnet build success no warnings", command: "dotnet build", output: dotnetBuildSuccess, wantSafe: true},
 		{name: "mypy success summary", command: "mypy src", output: mypySuccess, wantSafe: true},
+		{name: "docker logs duplicate runs", command: "docker logs app", output: logDuplicateRuns, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "npm install clean success", command: "npm install", output: npmInstallClean, wantSafe: true},
 		{name: "pip install clean success", command: "pip install -r requirements.txt", output: pipInstallClean, wantSafe: true},
@@ -196,6 +200,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "dotnet test warning", command: "dotnet test", output: dotnetWarning, wantGuard: "dotnet warnings stay guarded"},
 		{name: "dotnet build warning", command: "dotnet build", output: dotnetBuildWarning, wantGuard: "dotnet build warnings stay guarded"},
 		{name: "mypy failure", command: "mypy src", output: mypyFailure, wantGuard: "mypy diagnostics stay guarded"},
+		{name: "docker logs unique", command: "docker logs app", output: logUnique, wantGuard: "unique logs stay guarded"},
+		{name: "docker logs source-looking duplicate", command: "docker logs app", output: logSourceLike, wantGuard: "source-looking logs stay guarded"},
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
 		{name: "npm install warning", command: "npm install", output: npmInstallWarning, wantGuard: "package install warnings stay guarded"},
 		{name: "npm install vulnerability", command: "npm install", output: npmInstallVulnerability, wantGuard: "package install vulnerability findings stay guarded"},
@@ -730,6 +736,39 @@ func TestWSSStatefulSafeMypySuccessCompactsFullHistoryTurn(t *testing.T) {
 	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" {
 		t.Fatalf("stateful-safe mypy success should save without structured guard: %+v", summary)
+	}
+}
+
+func TestWSSStatefulSafeLogDuplicateRunsCompactsFullHistoryTurn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: logs-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssLogDuplicateRunsFixture(80)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-log-duplicate-runs", "call_log_duplicate_runs", "docker logs app", envelope, "stateful-log-duplicate-safe-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle log duplicate-runs request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history log duplicate-runs output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "INFO worker heartbeat 079 [×2]") ||
+		!strings.Contains(body, "ERROR upstream timeout 079 [×3]") ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "INFO worker heartbeat 079\nINFO worker heartbeat 079") {
+		t.Fatalf("log duplicate-runs output was not archive-backed compacted: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe log duplicate-runs should save without structured guard: %+v", summary)
 	}
 }
 
@@ -2286,6 +2325,18 @@ func wssPipInstallCleanFixture(packages int) string {
 		out.WriteString("     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 62.6/62.6 kB 1.2 MB/s eta 0:00:00\n")
 	}
 	fmt.Fprintf(&out, "Successfully installed %s\n", strings.Join(installed, " "))
+	return out.String()
+}
+
+func wssLogDuplicateRunsFixture(entries int) string {
+	var out strings.Builder
+	for i := 0; i < entries; i++ {
+		fmt.Fprintf(&out, "2026-06-18T10:%02d:00Z INFO worker heartbeat %03d\n", i%60, i)
+		fmt.Fprintf(&out, "2026-06-18T10:%02d:00Z INFO worker heartbeat %03d\n", i%60, i)
+		fmt.Fprintf(&out, "2026-06-18T10:%02d:01Z ERROR upstream timeout %03d\n", i%60, i)
+		fmt.Fprintf(&out, "2026-06-18T10:%02d:01Z ERROR upstream timeout %03d\n", i%60, i)
+		fmt.Fprintf(&out, "2026-06-18T10:%02d:01Z ERROR upstream timeout %03d\n", i%60, i)
+	}
 	return out.String()
 }
 

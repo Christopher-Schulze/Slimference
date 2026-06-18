@@ -53,6 +53,7 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 		"tier1_sarif",
 		"git_status",
 		"git_ls_files",
+		"log_duplicate_runs",
 		"build_output",
 		"test_output",
 		"search_output",
@@ -87,6 +88,9 @@ func TestLayer0ReducerRegistryOrder(t *testing.T) {
 
 	if position["tier1_sarif"] > position["git_status"] {
 		t.Fatal("tier1 reducers must run before heuristic reducers")
+	}
+	if position["log_duplicate_runs"] > position["test_output"] {
+		t.Fatal("exact log duplicate reducer must run before generic diagnostic reducers")
 	}
 	if position["test_output"] > position["build_output"] {
 		t.Fatal("dedicated test reducer must run before build reducer fallback")

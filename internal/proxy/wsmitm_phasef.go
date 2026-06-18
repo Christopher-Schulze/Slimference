@@ -1952,6 +1952,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
+	if wssSafeLogDuplicateRunsOutput(commandLine, payload) {
+		return true
+	}
 	if wssSafeTypeScriptDiagnosticOutput(commandLine, payload) {
 		return true
 	}
@@ -2646,6 +2649,69 @@ func wssSafeTypeScriptDiagnosticOutput(commandLine, payload string) bool {
 		return false
 	}
 	return wssCompactedTypeScriptDiagnostic(compacted)
+}
+
+func wssSafeLogDuplicateRunsOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	if wssLogPayloadHasCodeLocation(payload) {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
+	return ok && len(compacted) < len(stdout)
+}
+
+func wssLogPayloadHasCodeLocation(payload string) bool {
+	for _, raw := range strings.Split(payload, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if wssLineHasCodeLocation(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssLineHasCodeLocation(line string) bool {
+	for idx := 1; idx < len(line)-2; idx++ {
+		if line[idx] != ':' {
+			continue
+		}
+		extStart := idx - 1
+		for extStart >= 0 && line[extStart] != '/' && line[extStart] != '\\' && line[extStart] != ' ' && line[extStart] != '\t' {
+			extStart--
+		}
+		pathPart := line[extStart+1 : idx]
+		if !wssPathPartLooksSourceFile(pathPart) {
+			continue
+		}
+		next := idx + 1
+		if next >= len(line) || line[next] < '0' || line[next] > '9' {
+			continue
+		}
+		for next < len(line) && line[next] >= '0' && line[next] <= '9' {
+			next++
+		}
+		if next < len(line) && line[next] == ':' {
+			return true
+		}
+	}
+	return false
+}
+
+func wssPathPartLooksSourceFile(pathPart string) bool {
+	lower := strings.ToLower(strings.TrimSpace(pathPart))
+	for _, ext := range []string{".go", ".rs", ".py", ".rb", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".php"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func wssCompactedTypeScriptDiagnostic(compacted []byte) bool {
