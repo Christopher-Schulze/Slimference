@@ -121,7 +121,7 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	}
 }
 
-func TestWSSClassDistributionRouteCeilingVerdict(t *testing.T) {
+func TestWSSClassDistributionCorpusCeilingVerdict(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -135,8 +135,8 @@ func TestWSSClassDistributionRouteCeilingVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadWSSClassDistribution() error = %v", err)
 	}
-	if report.Verdict != "route_ceiling_evidence" {
-		t.Fatalf("expected route_ceiling_evidence, got %q: %s", report.Verdict, report.VerdictDetail)
+	if report.Verdict != "corpus_ceiling_evidence" {
+		t.Fatalf("expected corpus_ceiling_evidence, got %q: %s", report.Verdict, report.VerdictDetail)
 	}
 	if report.ReducibleCeilingRatio >= report.TargetRatio {
 		t.Fatalf("reducible ceiling %.4f should be below target %.4f", report.ReducibleCeilingRatio, report.TargetRatio)

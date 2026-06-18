@@ -87,6 +87,8 @@ func TestWSPhaseFStatelessContinuationReconnectFullHistorySearchCompacts(t *test
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.stateless_history_continuation"] != "true" ||
+		summary.DebugFacts["wss.stateless_history_continuation_detached_previous_response"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
 		summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.previous_response_id"] != "false" ||
 		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||

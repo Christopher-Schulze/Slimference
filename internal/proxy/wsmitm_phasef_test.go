@@ -7127,6 +7127,13 @@ func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testin
 		strings.Contains(raw, "src/file_089.go:90:needle") {
 		t.Fatalf("first-socket full-history search output should compact with archive recovery: replace=%v raw=%s", replace, raw)
 	}
+	forwardedBody, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("first-socket full-history search output rewritten body missing")
+	}
+	if bytes.Contains(forwardedBody, []byte("previous_response_id")) {
+		t.Fatalf("first-socket full-history stateless mutation must detach previous_response_id: %s", forwardedBody)
+	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
 		summary.DebugFacts["wss.delta_shape"] != "false" ||
@@ -7135,12 +7142,72 @@ func TestWSPhaseFFirstSocketFullHistorySearchOutputCompactsWithArchive(t *testin
 		summary.DebugFacts["wss.history_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.downstream_state_mutation_guard"] != "" ||
 		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
 		t.Fatalf("first-socket full-history search output should save without an effective structured guard: %+v", summary)
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
 		t.Fatalf("first-socket full-history search output should record Layer 0 savings: %+v", snap)
+	}
+}
+
+func TestWSPhaseFReconnectFullHistorySearchOutputLabDetachesPreviousResponse(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-reconnect-lab-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-lab-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-reconnect-full-history-lab", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-lab", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("lab reconnect full-history search output handle: %v", err)
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("lab reconnect full-history search output rewritten body missing")
+	}
+	raw := string(body)
+	if !replace ||
+		!strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("lab reconnect full-history search output should compact with archive recovery: replace=%v raw=%s", replace, raw)
+	}
+	if bytes.Contains(body, []byte("previous_response_id")) {
+		t.Fatalf("lab reconnect full-history stateless mutation must detach previous_response_id: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("lab reconnect full-history search output should save as stateless mutation: %+v", summary)
 	}
 }
 

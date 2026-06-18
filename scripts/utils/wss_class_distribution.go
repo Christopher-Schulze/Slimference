@@ -26,7 +26,7 @@ import (
 // The headline metric is reducible_ceiling_ratio = reducible_tool_output /
 // original: the most optimistic S_local achievable if every tool output were
 // compacted to zero. When that ceiling is below the owner target the report
-// emits route-ceiling evidence; otherwise it reports un-captured headroom so
+// emits corpus-ceiling evidence; otherwise it reports un-captured headroom so
 // the next move is a guard/shape investigation, not a structural claim.
 
 type wssClassDistributionFlags struct {
@@ -128,7 +128,7 @@ estimated from wss.prefix_estimated_tokens), reducible tool-output tokens
 context tokens (the remainder: messages, user prompts, and Class-D reasoning).
 reducible_ceiling_ratio is the most optimistic S_local achievable if every tool
 output were compacted to zero; when it is below the target the report records
-route-ceiling evidence, otherwise it reports un-captured reducible headroom.
+corpus-ceiling evidence, otherwise it reports un-captured reducible headroom.
 Provider-cache tokens are reported separately and never counted as S_local.`
 
 func runWSSClassDistribution(args []string, stdout, stderr io.Writer) int {
@@ -443,8 +443,8 @@ func wssClassDistributionVerdict(report wssClassDistributionReport, targetRatio 
 		return "no_data", "No WSS Phase-F mass found; cannot evaluate the S_local ceiling."
 	}
 	if report.ReducibleCeilingRatio+wssClassDistributionEpsilon < targetRatio {
-		return "route_ceiling_evidence", fmt.Sprintf(
-			"Realistic max S_local (every reducible tool output compacted to zero) is %.2f%%, below the %.2f%% target. Protected prefix is %.2f%% and other context (messages plus Class-D reasoning) is %.2f%%; even the absolute non-prefix upper bound (if messages and reasoning were also reducible, which they are not) is only %.2f%%. Reaching the target would require reducing prefix, message, or reasoning mass, which the zero-drawdown policy forbids. Treat this as a route ceiling for this corpus unless Class-B (full_history) mass grows.",
+		return "corpus_ceiling_evidence", fmt.Sprintf(
+			"Realistic max S_local for this corpus (every reducible tool output compacted to zero) is %.2f%%, below the %.2f%% target. Protected prefix is %.2f%% and other context (messages plus Class-D reasoning) is %.2f%%; even the absolute non-prefix upper bound (if messages and reasoning were also reducible, which they are not) is only %.2f%%. Reaching the target on this corpus would require reducing prefix, message, or reasoning mass, which the zero-drawdown policy forbids. Treat this as corpus/session-class ceiling evidence unless a fresh long capture shows materially higher Class-B (full_history) mass.",
 			report.ReducibleCeilingRatio*100,
 			targetRatio*100,
 			report.PrefixProtectedShare*100,
@@ -486,8 +486,8 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 	if report.RequestsWithoutFacts > 0 {
 		notes = append(notes, fmt.Sprintf("%d of %d Phase-F rows lack content-free prefix/shape facts (stale pre-instrumentation captures); their reducible split defaults to other-context and understates nothing but cannot confirm prefix mass.", report.RequestsWithoutFacts, report.PhaseFRequests))
 	}
-	if report.Verdict == "route_ceiling_evidence" {
-		notes = append(notes, "Route-ceiling evidence: do not widen guards to chase the target on this corpus; the binding next step is a fresh long real-session capture to confirm the Class-B mass share, or an owner decision on the S_local target physics.")
+	if report.Verdict == "corpus_ceiling_evidence" {
+		notes = append(notes, "Corpus-ceiling evidence: do not widen guards to chase the target on this corpus; the binding next step is a fresh long real-session capture to confirm the Class-B mass share, T354/L9 proof work, or an owner decision on the S_local target physics.")
 	} else if report.Verdict == "headroom_present" {
 		notes = append(notes, "Headroom present: rank the un-captured reducible tool-output by wss-local-gap guarded_potential and request shape before changing any guard.")
 	}

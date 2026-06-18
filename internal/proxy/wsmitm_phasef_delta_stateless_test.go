@@ -126,7 +126,9 @@ func TestWSPhaseFDefaultDeltaSavingsOpenWhenStatelessRecoveryReady(t *testing.T)
 		t.Fatalf("stateless follow-up must include prior chain, got %d input items: %s", len(input), followupBody)
 	}
 	followupSummary := p.DebugRecorder().Last(1, false)[0]
-	if followupSummary.DebugFacts["wss.stateless_history_continuation"] != "true" {
+	if followupSummary.DebugFacts["wss.stateless_history_continuation"] != "true" ||
+		followupSummary.DebugFacts["wss.stateless_history_continuation_detached_previous_response"] != "true" ||
+		followupSummary.DebugFacts["wss.full_history_detached_previous_response"] != "true" {
 		t.Fatalf("follow-up should carry stateless continuation fact: %+v", followupSummary)
 	}
 }

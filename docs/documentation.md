@@ -864,6 +864,20 @@ live socket may compact with an archive marker. Reconnect full-history requests
 that still carry `previous_response_id` remain guarded; reconnect full-history
 requests without `previous_response_id` may compact only when the mutation arms
 stateless continuation and exports the exact forwarded chain for future sockets.
+When an explicitly allowed full-history structured mutation does carry
+`previous_response_id`, Slimference detaches that field before forwarding the
+mutated body and marks the request as a stateless full-history follow-up, so the
+next continuation does not rely on already-mutated server state. This is not a
+guard bypass: guarded reconnect full-history requests stay byte-equal until a
+fresh downstream-delta proof exists.
+When Codex sends a `previous_response_id` delta after Slimference has an exact
+stateless history chain, Slimference rebuilds a full-history continuation,
+drops `previous_response_id`, and logs the detach with
+`wss.stateless_history_continuation_detached_previous_response` plus
+`wss.full_history_detached_previous_response`. A scoped default WSS reconnect
+proof passed this class with upstream errors 0; raw reconnect full-history rows
+that still carry `previous_response_id` remain guarded because that exact raw
+shape was not observed clean.
 Ambiguous stateful/delta tool output still full-passes until fresh live proof
 shows the current WSS contract accepts that mutation without upstream 400s or
 model-facing context loss. History-only full-history stale/obsolete reducers are

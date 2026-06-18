@@ -533,6 +533,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				meta.DebugFacts = make(map[string]string)
 			}
 			meta.DebugFacts["wss.stateless_history_continuation"] = "true"
+			meta.DebugFacts["wss.stateless_history_continuation_detached_previous_response"] = "true"
+			meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
 		}
 	} else {
 		requestContainsToolOutput = wssBodyContainsFunctionCallOutput(out)
@@ -879,6 +881,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 						}
 						if requestShape == "full_history" {
 							meta.DebugFacts["wss.full_history_stateless_followup"] = "true"
+							if meta.PreviousResponseID != "" {
+								if detached, detachedOK := detachCodexPreviousResponseID(out); detachedOK {
+									out = detached
+									meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
+								}
+							}
 						}
 						meta.DebugFacts["wss.stateful_mutation_stateless_followup"] = "true"
 					}
