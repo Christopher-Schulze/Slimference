@@ -40,93 +40,153 @@ type wssClassDistributionFlags struct {
 }
 
 type wssClassDistributionReport struct {
-	Path                      string                         `json:"path"`
-	TargetRatio               float64                        `json:"target_ratio"`
-	Logs                      int                            `json:"logs"`
-	PhaseFRequests            int                            `json:"phasef_requests"`
-	RequestsWithoutFacts      int                            `json:"requests_without_shape_facts,omitempty"`
-	OriginalTokens            int                            `json:"original_tokens"`
-	LocalSavedTokens          int                            `json:"local_saved_tokens"`
-	LocalSavingsRatio         float64                        `json:"local_savings_ratio"`
-	PrefixProtectedTokens     int                            `json:"prefix_protected_tokens"`
-	PrefixProtectedShare      float64                        `json:"prefix_protected_share"`
-	ReducibleToolOutputTokens int                            `json:"reducible_tool_output_tokens"`
-	ReducibleToolOutputShare  float64                        `json:"reducible_tool_output_share"`
-	OtherContextTokens        int                            `json:"other_context_tokens"`
-	OtherContextShare         float64                        `json:"other_context_share"`
-	NonPrefixTokens           int                            `json:"non_prefix_tokens"`
-	NonPrefixRatio            float64                        `json:"non_prefix_ratio"`
-	PrefixMutationSavedTokens int                            `json:"prefix_mutation_saved_tokens,omitempty"`
-	ReducibleCeilingRatio     float64                        `json:"reducible_ceiling_ratio"`
-	ReducibleCeilingDeficit   int                            `json:"reducible_ceiling_deficit_tokens,omitempty"`
-	ReducibleHeadroomTokens   int                            `json:"reducible_headroom_tokens,omitempty"`
-	ProviderCacheReadTokens   int                            `json:"provider_cache_read_tokens"`
-	ProviderCachedTokens      int                            `json:"provider_cached_tokens"`
-	ReasoningItems            int                            `json:"reasoning_items"`
-	Verdict                   string                         `json:"verdict"`
-	VerdictDetail             string                         `json:"verdict_detail"`
-	HeadroomPresent           bool                           `json:"headroom_present"`
-	GapInventoryRecommended   bool                           `json:"gap_inventory_recommended"`
-	NextAction                string                         `json:"next_action"`
-	Classes                   []wssClassDistributionClassRow `json:"classes"`
-	T354ShapeTable            []wssClassDistributionT354Row  `json:"t354_shape_table,omitempty"`
-	PerLog                    []wssClassDistributionLogRow   `json:"per_log,omitempty"`
-	Notes                     []string                       `json:"notes,omitempty"`
+	Path                            string                         `json:"path"`
+	TargetRatio                     float64                        `json:"target_ratio"`
+	Logs                            int                            `json:"logs"`
+	PhaseFRequests                  int                            `json:"phasef_requests"`
+	RequestsWithoutFacts            int                            `json:"requests_without_shape_facts,omitempty"`
+	OriginalTokens                  int                            `json:"original_tokens"`
+	LocalSavedTokens                int                            `json:"local_saved_tokens"`
+	LocalSavingsRatio               float64                        `json:"local_savings_ratio"`
+	PrefixProtectedTokens           int                            `json:"prefix_protected_tokens"`
+	PrefixProtectedShare            float64                        `json:"prefix_protected_share"`
+	PrefixTotalBytes                int                            `json:"prefix_total_bytes,omitempty"`
+	PrefixSplitBytes                int                            `json:"prefix_split_bytes,omitempty"`
+	PrefixSplitInconsistentBytes    int                            `json:"prefix_split_inconsistent_bytes,omitempty"`
+	PrefixSplitInconsistentRequests int                            `json:"prefix_split_inconsistent_requests,omitempty"`
+	PrefixToolDefinitionBytes       int                            `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixToolDefinitionTokens      int                            `json:"prefix_tool_definition_tokens,omitempty"`
+	PrefixInstructionBytes          int                            `json:"prefix_instruction_bytes,omitempty"`
+	PrefixInstructionTokens         int                            `json:"prefix_instruction_tokens,omitempty"`
+	PrefixDefaultKeepToolBytes      int                            `json:"prefix_default_keep_tool_bytes,omitempty"`
+	PrefixNonDefaultToolBytes       int                            `json:"prefix_nondefault_tool_bytes,omitempty"`
+	PrefixUnnamedToolBytes          int                            `json:"prefix_unnamed_tool_bytes,omitempty"`
+	PrefixToolDefinitions           int                            `json:"prefix_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools          int                            `json:"prefix_default_keep_tools,omitempty"`
+	PrefixNonDefaultTools           int                            `json:"prefix_nondefault_tools,omitempty"`
+	PrefixUnnamedTools              int                            `json:"prefix_unnamed_tools,omitempty"`
+	ReducibleToolOutputTokens       int                            `json:"reducible_tool_output_tokens"`
+	ReducibleToolOutputShare        float64                        `json:"reducible_tool_output_share"`
+	OtherContextTokens              int                            `json:"other_context_tokens"`
+	OtherContextShare               float64                        `json:"other_context_share"`
+	NonPrefixTokens                 int                            `json:"non_prefix_tokens"`
+	NonPrefixRatio                  float64                        `json:"non_prefix_ratio"`
+	PrefixMutationSavedTokens       int                            `json:"prefix_mutation_saved_tokens,omitempty"`
+	ReducibleCeilingRatio           float64                        `json:"reducible_ceiling_ratio"`
+	ReducibleCeilingDeficit         int                            `json:"reducible_ceiling_deficit_tokens,omitempty"`
+	ReducibleHeadroomTokens         int                            `json:"reducible_headroom_tokens,omitempty"`
+	ProviderCacheReadTokens         int                            `json:"provider_cache_read_tokens"`
+	ProviderCachedTokens            int                            `json:"provider_cached_tokens"`
+	ReasoningItems                  int                            `json:"reasoning_items"`
+	Verdict                         string                         `json:"verdict"`
+	VerdictDetail                   string                         `json:"verdict_detail"`
+	HeadroomPresent                 bool                           `json:"headroom_present"`
+	GapInventoryRecommended         bool                           `json:"gap_inventory_recommended"`
+	NextAction                      string                         `json:"next_action"`
+	Classes                         []wssClassDistributionClassRow `json:"classes"`
+	T354ShapeTable                  []wssClassDistributionT354Row  `json:"t354_shape_table,omitempty"`
+	PerLog                          []wssClassDistributionLogRow   `json:"per_log,omitempty"`
+	Notes                           []string                       `json:"notes,omitempty"`
 }
 
 type wssClassDistributionClassRow struct {
-	Class                     string         `json:"class"`
-	Requests                  int            `json:"requests"`
-	OriginalTokens            int            `json:"original_tokens"`
-	LocalSavedTokens          int            `json:"local_saved_tokens"`
-	LocalSavingsRatio         float64        `json:"local_savings_ratio"`
-	PrefixProtectedTokens     int            `json:"prefix_protected_tokens"`
-	PrefixProtectedShare      float64        `json:"prefix_protected_share"`
-	ReducibleToolOutputTokens int            `json:"reducible_tool_output_tokens"`
-	ReducibleToolOutputShare  float64        `json:"reducible_tool_output_share"`
-	OtherContextTokens        int            `json:"other_context_tokens"`
-	OtherContextShare         float64        `json:"other_context_share"`
-	ReducibleCeilingRatio     float64        `json:"reducible_ceiling_ratio"`
-	ProviderCachedTokens      int            `json:"provider_cached_tokens"`
-	ShapeSources              map[string]int `json:"shape_sources,omitempty"`
+	Class                           string         `json:"class"`
+	Requests                        int            `json:"requests"`
+	OriginalTokens                  int            `json:"original_tokens"`
+	LocalSavedTokens                int            `json:"local_saved_tokens"`
+	LocalSavingsRatio               float64        `json:"local_savings_ratio"`
+	PrefixProtectedTokens           int            `json:"prefix_protected_tokens"`
+	PrefixProtectedShare            float64        `json:"prefix_protected_share"`
+	PrefixTotalBytes                int            `json:"prefix_total_bytes,omitempty"`
+	PrefixSplitBytes                int            `json:"prefix_split_bytes,omitempty"`
+	PrefixSplitInconsistentBytes    int            `json:"prefix_split_inconsistent_bytes,omitempty"`
+	PrefixSplitInconsistentRequests int            `json:"prefix_split_inconsistent_requests,omitempty"`
+	PrefixToolDefinitionBytes       int            `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixToolDefinitionTokens      int            `json:"prefix_tool_definition_tokens,omitempty"`
+	PrefixInstructionBytes          int            `json:"prefix_instruction_bytes,omitempty"`
+	PrefixInstructionTokens         int            `json:"prefix_instruction_tokens,omitempty"`
+	PrefixDefaultKeepToolBytes      int            `json:"prefix_default_keep_tool_bytes,omitempty"`
+	PrefixNonDefaultToolBytes       int            `json:"prefix_nondefault_tool_bytes,omitempty"`
+	PrefixUnnamedToolBytes          int            `json:"prefix_unnamed_tool_bytes,omitempty"`
+	PrefixToolDefinitions           int            `json:"prefix_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools          int            `json:"prefix_default_keep_tools,omitempty"`
+	PrefixNonDefaultTools           int            `json:"prefix_nondefault_tools,omitempty"`
+	PrefixUnnamedTools              int            `json:"prefix_unnamed_tools,omitempty"`
+	ReducibleToolOutputTokens       int            `json:"reducible_tool_output_tokens"`
+	ReducibleToolOutputShare        float64        `json:"reducible_tool_output_share"`
+	OtherContextTokens              int            `json:"other_context_tokens"`
+	OtherContextShare               float64        `json:"other_context_share"`
+	ReducibleCeilingRatio           float64        `json:"reducible_ceiling_ratio"`
+	ProviderCachedTokens            int            `json:"provider_cached_tokens"`
+	ShapeSources                    map[string]int `json:"shape_sources,omitempty"`
 }
 
 type wssClassDistributionLogRow struct {
-	Name                      string  `json:"name"`
-	Path                      string  `json:"path"`
-	PhaseFRequests            int     `json:"phasef_requests"`
-	OriginalTokens            int     `json:"original_tokens"`
-	LocalSavedTokens          int     `json:"local_saved_tokens"`
-	LocalSavingsRatio         float64 `json:"local_savings_ratio"`
-	PrefixProtectedTokens     int     `json:"prefix_protected_tokens"`
-	ReducibleToolOutputTokens int     `json:"reducible_tool_output_tokens"`
-	ReducibleCeilingRatio     float64 `json:"reducible_ceiling_ratio"`
+	Name                            string  `json:"name"`
+	Path                            string  `json:"path"`
+	PhaseFRequests                  int     `json:"phasef_requests"`
+	OriginalTokens                  int     `json:"original_tokens"`
+	LocalSavedTokens                int     `json:"local_saved_tokens"`
+	LocalSavingsRatio               float64 `json:"local_savings_ratio"`
+	PrefixProtectedTokens           int     `json:"prefix_protected_tokens"`
+	PrefixTotalBytes                int     `json:"prefix_total_bytes,omitempty"`
+	PrefixSplitBytes                int     `json:"prefix_split_bytes,omitempty"`
+	PrefixSplitInconsistentBytes    int     `json:"prefix_split_inconsistent_bytes,omitempty"`
+	PrefixSplitInconsistentRequests int     `json:"prefix_split_inconsistent_requests,omitempty"`
+	PrefixToolDefinitionBytes       int     `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixToolDefinitionTokens      int     `json:"prefix_tool_definition_tokens,omitempty"`
+	PrefixInstructionBytes          int     `json:"prefix_instruction_bytes,omitempty"`
+	PrefixInstructionTokens         int     `json:"prefix_instruction_tokens,omitempty"`
+	PrefixDefaultKeepToolBytes      int     `json:"prefix_default_keep_tool_bytes,omitempty"`
+	PrefixNonDefaultToolBytes       int     `json:"prefix_nondefault_tool_bytes,omitempty"`
+	PrefixUnnamedToolBytes          int     `json:"prefix_unnamed_tool_bytes,omitempty"`
+	PrefixToolDefinitions           int     `json:"prefix_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools          int     `json:"prefix_default_keep_tools,omitempty"`
+	PrefixNonDefaultTools           int     `json:"prefix_nondefault_tools,omitempty"`
+	PrefixUnnamedTools              int     `json:"prefix_unnamed_tools,omitempty"`
+	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
+	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
 }
 
 type wssClassDistributionT354Row struct {
-	RequestShape              string  `json:"request_shape"`
-	ShapeSource               string  `json:"shape_source"`
-	PreviousResponseID        string  `json:"previous_response_id"`
-	SocketSeq                 string  `json:"socket_seq"`
-	ToolOutputResolution      string  `json:"tool_output_resolution"`
-	ContinuationMode          string  `json:"continuation_mode"`
-	GuardReason               string  `json:"guard_reason"`
-	Requests                  int     `json:"requests"`
-	OriginalTokens            int     `json:"original_tokens"`
-	LocalSavedTokens          int     `json:"local_saved_tokens"`
-	LocalSavingsRatio         float64 `json:"local_savings_ratio"`
-	ReducibleToolOutputTokens int     `json:"reducible_tool_output_tokens"`
-	ReducibleCeilingRatio     float64 `json:"reducible_ceiling_ratio"`
-	ProviderInputTokens       int     `json:"provider_input_tokens"`
-	ProviderCachedTokens      int     `json:"provider_cached_tokens"`
-	ProviderCachedPct         float64 `json:"provider_cached_pct"`
-	CacheReadTokens           int     `json:"cache_read_tokens"`
-	CacheCreateTokens         int     `json:"cache_create_tokens"`
-	ErrorRequests             int     `json:"error_requests"`
-	UpstreamErrorRequests     int     `json:"upstream_error_requests"`
-	HTTP400ErrorRequests      int     `json:"http_400_error_requests"`
-	GuardedRequests           int     `json:"guarded_requests"`
-	AppliedRequests           int     `json:"applied_requests"`
+	RequestShape                    string  `json:"request_shape"`
+	ShapeSource                     string  `json:"shape_source"`
+	PreviousResponseID              string  `json:"previous_response_id"`
+	SocketSeq                       string  `json:"socket_seq"`
+	ToolOutputResolution            string  `json:"tool_output_resolution"`
+	ContinuationMode                string  `json:"continuation_mode"`
+	GuardReason                     string  `json:"guard_reason"`
+	Requests                        int     `json:"requests"`
+	OriginalTokens                  int     `json:"original_tokens"`
+	LocalSavedTokens                int     `json:"local_saved_tokens"`
+	LocalSavingsRatio               float64 `json:"local_savings_ratio"`
+	PrefixTotalBytes                int     `json:"prefix_total_bytes,omitempty"`
+	PrefixSplitBytes                int     `json:"prefix_split_bytes,omitempty"`
+	PrefixSplitInconsistentBytes    int     `json:"prefix_split_inconsistent_bytes,omitempty"`
+	PrefixSplitInconsistentRequests int     `json:"prefix_split_inconsistent_requests,omitempty"`
+	PrefixToolDefinitionBytes       int     `json:"prefix_tool_definition_bytes,omitempty"`
+	PrefixToolDefinitionTokens      int     `json:"prefix_tool_definition_tokens,omitempty"`
+	PrefixInstructionBytes          int     `json:"prefix_instruction_bytes,omitempty"`
+	PrefixInstructionTokens         int     `json:"prefix_instruction_tokens,omitempty"`
+	PrefixDefaultKeepToolBytes      int     `json:"prefix_default_keep_tool_bytes,omitempty"`
+	PrefixNonDefaultToolBytes       int     `json:"prefix_nondefault_tool_bytes,omitempty"`
+	PrefixUnnamedToolBytes          int     `json:"prefix_unnamed_tool_bytes,omitempty"`
+	PrefixToolDefinitions           int     `json:"prefix_tool_definitions,omitempty"`
+	PrefixDefaultKeepTools          int     `json:"prefix_default_keep_tools,omitempty"`
+	PrefixNonDefaultTools           int     `json:"prefix_nondefault_tools,omitempty"`
+	PrefixUnnamedTools              int     `json:"prefix_unnamed_tools,omitempty"`
+	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
+	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
+	ProviderInputTokens             int     `json:"provider_input_tokens"`
+	ProviderCachedTokens            int     `json:"provider_cached_tokens"`
+	ProviderCachedPct               float64 `json:"provider_cached_pct"`
+	CacheReadTokens                 int     `json:"cache_read_tokens"`
+	CacheCreateTokens               int     `json:"cache_create_tokens"`
+	ErrorRequests                   int     `json:"error_requests"`
+	UpstreamErrorRequests           int     `json:"upstream_error_requests"`
+	HTTP400ErrorRequests            int     `json:"http_400_error_requests"`
+	GuardedRequests                 int     `json:"guarded_requests"`
+	AppliedRequests                 int     `json:"applied_requests"`
 }
 
 // wssClassDistributionClass maps a resolved request shape to a billing-class
@@ -160,6 +220,10 @@ request is split into protected prefix tokens (Class C capability context,
 estimated from wss.prefix_estimated_tokens), reducible tool-output tokens
 (Layer-0 target, tokens.Estimate of wss.tool_result_output_bytes), and other
 context tokens (the remainder: messages, user prompts, and Class-D reasoning).
+When available, content-free prefix-byte facts are additionally split into
+tool schemas, instructions, default-keep tool schemas, nondefault tool schemas,
+and unnamed tool schemas for T407/T410 proof planning. Those bytes are reported
+separately and never counted as reducible tool-output by this gate.
 reducible_ceiling_ratio is the most optimistic S_local achievable if every tool
 output were compacted to zero; when it is below the target the report records
 corpus-ceiling evidence, otherwise it reports un-captured reducible headroom.
@@ -332,11 +396,13 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	original := maxInt(0, summary.Tokens.Original)
 	saved := maxInt(0, summary.Tokens.Saved)
 	prefixTokens, reducibleTokens, otherTokens, prefixMutationSaved := wssClassDistributionSplit(summary, original, saved)
+	prefixSurface := wssClassDistributionPrefixSurfaceFromFacts(summary.DebugFacts)
 
 	a.report.PhaseFRequests++
 	a.report.OriginalTokens += original
 	a.report.LocalSavedTokens += saved
 	a.report.PrefixProtectedTokens += prefixTokens
+	a.report.addPrefixSurface(prefixSurface)
 	a.report.ReducibleToolOutputTokens += reducibleTokens
 	a.report.OtherContextTokens += otherTokens
 	a.report.PrefixMutationSavedTokens += prefixMutationSaved
@@ -354,20 +420,22 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	row.OriginalTokens += original
 	row.LocalSavedTokens += saved
 	row.PrefixProtectedTokens += prefixTokens
+	row.addPrefixSurface(prefixSurface)
 	row.ReducibleToolOutputTokens += reducibleTokens
 	row.OtherContextTokens += otherTokens
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
 	addWSSAuditCount(&row.ShapeSources, resolution.Source)
-	a.addT354Shape(summary, resolution, original, saved, reducibleTokens)
+	a.addT354Shape(summary, resolution, original, saved, reducibleTokens, prefixSurface)
 
 	logRow.PhaseFRequests++
 	logRow.OriginalTokens += original
 	logRow.LocalSavedTokens += saved
 	logRow.PrefixProtectedTokens += prefixTokens
+	logRow.addPrefixSurface(prefixSurface)
 	logRow.ReducibleToolOutputTokens += reducibleTokens
 }
 
-func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution, original, saved, reducibleTokens int) {
+func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution, original, saved, reducibleTokens int, prefixSurface wssClassDistributionPrefixSurface) {
 	if a == nil {
 		return
 	}
@@ -409,6 +477,7 @@ func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummar
 	row.Requests++
 	row.OriginalTokens += original
 	row.LocalSavedTokens += saved
+	row.addPrefixSurface(prefixSurface)
 	row.ReducibleToolOutputTokens += reducibleTokens
 	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
@@ -429,6 +498,128 @@ func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummar
 	if wssClassDistributionHasAppliedDecision(summary) {
 		row.AppliedRequests++
 	}
+}
+
+type wssClassDistributionPrefixSurface struct {
+	TotalBytes                int
+	SplitBytes                int
+	SplitInconsistentBytes    int
+	SplitInconsistentRequests int
+	ToolDefinitionBytes       int
+	ToolDefinitionTokens      int
+	InstructionBytes          int
+	InstructionTokens         int
+	DefaultKeepToolBytes      int
+	NonDefaultToolBytes       int
+	UnnamedToolBytes          int
+	ToolDefinitions           int
+	DefaultKeepTools          int
+	NonDefaultTools           int
+	UnnamedTools              int
+}
+
+func wssClassDistributionPrefixSurfaceFromFacts(facts map[string]string) wssClassDistributionPrefixSurface {
+	if facts == nil {
+		return wssClassDistributionPrefixSurface{}
+	}
+	toolBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
+	instructionBytes := wssLocalGapFactInt(facts, "wss.instructions_bytes")
+	totalBytes := wssLocalGapFactInt(facts, "wss.prefix_total_bytes")
+	splitBytes := toolBytes + instructionBytes
+	inconsistentBytes := maxInt(0, splitBytes-totalBytes)
+	inconsistentRequests := 0
+	if inconsistentBytes > 0 {
+		inconsistentRequests = 1
+	}
+	return wssClassDistributionPrefixSurface{
+		TotalBytes:                totalBytes,
+		SplitBytes:                splitBytes,
+		SplitInconsistentBytes:    inconsistentBytes,
+		SplitInconsistentRequests: inconsistentRequests,
+		ToolDefinitionBytes:       toolBytes,
+		ToolDefinitionTokens:      tokens.Estimate(toolBytes),
+		InstructionBytes:          instructionBytes,
+		InstructionTokens:         tokens.Estimate(instructionBytes),
+		DefaultKeepToolBytes:      wssLocalGapFactInt(facts, "wss.tool_definition_default_keep_bytes"),
+		NonDefaultToolBytes:       wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes"),
+		UnnamedToolBytes:          wssLocalGapFactInt(facts, "wss.tool_definition_unnamed_bytes"),
+		ToolDefinitions:           wssLocalGapFactInt(facts, "wss.tool_definitions"),
+		DefaultKeepTools:          wssLocalGapFactInt(facts, "wss.tool_definition_default_keep"),
+		NonDefaultTools:           wssLocalGapFactInt(facts, "wss.tool_definition_nondefault"),
+		UnnamedTools:              wssLocalGapFactInt(facts, "wss.tool_definition_unnamed"),
+	}
+}
+
+func (r *wssClassDistributionReport) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
+	r.PrefixTotalBytes += surface.TotalBytes
+	r.PrefixSplitBytes += surface.SplitBytes
+	r.PrefixSplitInconsistentBytes += surface.SplitInconsistentBytes
+	r.PrefixSplitInconsistentRequests += surface.SplitInconsistentRequests
+	r.PrefixToolDefinitionBytes += surface.ToolDefinitionBytes
+	r.PrefixToolDefinitionTokens += surface.ToolDefinitionTokens
+	r.PrefixInstructionBytes += surface.InstructionBytes
+	r.PrefixInstructionTokens += surface.InstructionTokens
+	r.PrefixDefaultKeepToolBytes += surface.DefaultKeepToolBytes
+	r.PrefixNonDefaultToolBytes += surface.NonDefaultToolBytes
+	r.PrefixUnnamedToolBytes += surface.UnnamedToolBytes
+	r.PrefixToolDefinitions += surface.ToolDefinitions
+	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
+	r.PrefixNonDefaultTools += surface.NonDefaultTools
+	r.PrefixUnnamedTools += surface.UnnamedTools
+}
+
+func (r *wssClassDistributionClassRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
+	r.PrefixTotalBytes += surface.TotalBytes
+	r.PrefixSplitBytes += surface.SplitBytes
+	r.PrefixSplitInconsistentBytes += surface.SplitInconsistentBytes
+	r.PrefixSplitInconsistentRequests += surface.SplitInconsistentRequests
+	r.PrefixToolDefinitionBytes += surface.ToolDefinitionBytes
+	r.PrefixToolDefinitionTokens += surface.ToolDefinitionTokens
+	r.PrefixInstructionBytes += surface.InstructionBytes
+	r.PrefixInstructionTokens += surface.InstructionTokens
+	r.PrefixDefaultKeepToolBytes += surface.DefaultKeepToolBytes
+	r.PrefixNonDefaultToolBytes += surface.NonDefaultToolBytes
+	r.PrefixUnnamedToolBytes += surface.UnnamedToolBytes
+	r.PrefixToolDefinitions += surface.ToolDefinitions
+	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
+	r.PrefixNonDefaultTools += surface.NonDefaultTools
+	r.PrefixUnnamedTools += surface.UnnamedTools
+}
+
+func (r *wssClassDistributionLogRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
+	r.PrefixTotalBytes += surface.TotalBytes
+	r.PrefixSplitBytes += surface.SplitBytes
+	r.PrefixSplitInconsistentBytes += surface.SplitInconsistentBytes
+	r.PrefixSplitInconsistentRequests += surface.SplitInconsistentRequests
+	r.PrefixToolDefinitionBytes += surface.ToolDefinitionBytes
+	r.PrefixToolDefinitionTokens += surface.ToolDefinitionTokens
+	r.PrefixInstructionBytes += surface.InstructionBytes
+	r.PrefixInstructionTokens += surface.InstructionTokens
+	r.PrefixDefaultKeepToolBytes += surface.DefaultKeepToolBytes
+	r.PrefixNonDefaultToolBytes += surface.NonDefaultToolBytes
+	r.PrefixUnnamedToolBytes += surface.UnnamedToolBytes
+	r.PrefixToolDefinitions += surface.ToolDefinitions
+	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
+	r.PrefixNonDefaultTools += surface.NonDefaultTools
+	r.PrefixUnnamedTools += surface.UnnamedTools
+}
+
+func (r *wssClassDistributionT354Row) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
+	r.PrefixTotalBytes += surface.TotalBytes
+	r.PrefixSplitBytes += surface.SplitBytes
+	r.PrefixSplitInconsistentBytes += surface.SplitInconsistentBytes
+	r.PrefixSplitInconsistentRequests += surface.SplitInconsistentRequests
+	r.PrefixToolDefinitionBytes += surface.ToolDefinitionBytes
+	r.PrefixToolDefinitionTokens += surface.ToolDefinitionTokens
+	r.PrefixInstructionBytes += surface.InstructionBytes
+	r.PrefixInstructionTokens += surface.InstructionTokens
+	r.PrefixDefaultKeepToolBytes += surface.DefaultKeepToolBytes
+	r.PrefixNonDefaultToolBytes += surface.NonDefaultToolBytes
+	r.PrefixUnnamedToolBytes += surface.UnnamedToolBytes
+	r.PrefixToolDefinitions += surface.ToolDefinitions
+	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
+	r.PrefixNonDefaultTools += surface.NonDefaultTools
+	r.PrefixUnnamedTools += surface.UnnamedTools
 }
 
 func wssClassDistributionPreviousResponseID(summary dbg.RequestSummary) string {
@@ -740,6 +931,23 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 	if report.ProviderCacheReadTokens > 0 || report.ProviderCachedTokens > 0 {
 		notes = append(notes, "Provider-cache tokens are present but excluded from S_local by AGENTS.md 3.2.")
 	}
+	if report.PrefixTotalBytes > 0 || report.PrefixToolDefinitionBytes > 0 || report.PrefixInstructionBytes > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"Prefix split is content-free telemetry for T407/T410: raw total=%d bytes, split total=%d bytes, tool schemas=%d bytes (~%d tokens), instructions=%d bytes (~%d tokens), default-keep=%d bytes, nondefault=%d bytes, unnamed=%d bytes. These bytes are capability/context mass, not reducible tool-output unless a separate zero-drawdown prefix proof exists.",
+			report.PrefixTotalBytes,
+			report.PrefixSplitBytes,
+			report.PrefixToolDefinitionBytes,
+			report.PrefixToolDefinitionTokens,
+			report.PrefixInstructionBytes,
+			report.PrefixInstructionTokens,
+			report.PrefixDefaultKeepToolBytes,
+			report.PrefixNonDefaultToolBytes,
+			report.PrefixUnnamedToolBytes,
+		))
+	}
+	if report.PrefixSplitInconsistentRequests > 0 {
+		notes = append(notes, fmt.Sprintf("%d Phase-F rows have prefix split bytes greater than recorded prefix_total_bytes by %d bytes; treat the split as planning telemetry and capture a fresh window before making a T407/T410 product unlock decision.", report.PrefixSplitInconsistentRequests, report.PrefixSplitInconsistentBytes))
+	}
 	if report.PrefixMutationSavedTokens > 0 {
 		notes = append(notes, fmt.Sprintf("%d saved tokens came from Class-C prefix mutation (lab-only stateful prefix elision) and were excluded from reducible tool-output; those captures can show actual S_local above the tool-output ceiling because the savings are prefix, not tool output.", report.PrefixMutationSavedTokens))
 	}
@@ -778,6 +986,24 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	fmt.Fprintf(w, "S_local saved/ratio:       %d/%d / %.2f%%\n", report.LocalSavedTokens, report.OriginalTokens, report.LocalSavingsRatio*100)
 	fmt.Fprintln(w, "Token composition (estimated):")
 	fmt.Fprintf(w, "  Prefix protected (Class C):     %d / %.2f%%  [capability+cache, not reducible]\n", report.PrefixProtectedTokens, report.PrefixProtectedShare*100)
+	if report.PrefixTotalBytes > 0 || report.PrefixToolDefinitionBytes > 0 || report.PrefixInstructionBytes > 0 {
+		fmt.Fprintf(w, "    prefix split bytes: raw_total=%d split_total=%d inconsistent=%dB/%drows tool_schemas=%d(~%d tok) instructions=%d(~%d tok) default_keep=%d nondefault=%d unnamed=%d tool_defs=%d/%d/%d/%d\n",
+			report.PrefixTotalBytes,
+			report.PrefixSplitBytes,
+			report.PrefixSplitInconsistentBytes,
+			report.PrefixSplitInconsistentRequests,
+			report.PrefixToolDefinitionBytes,
+			report.PrefixToolDefinitionTokens,
+			report.PrefixInstructionBytes,
+			report.PrefixInstructionTokens,
+			report.PrefixDefaultKeepToolBytes,
+			report.PrefixNonDefaultToolBytes,
+			report.PrefixUnnamedToolBytes,
+			report.PrefixToolDefinitions,
+			report.PrefixDefaultKeepTools,
+			report.PrefixNonDefaultTools,
+			report.PrefixUnnamedTools)
+	}
 	fmt.Fprintf(w, "  Reducible tool-output (Layer-0): %d / %.2f%%  [the only Layer-0 target]\n", report.ReducibleToolOutputTokens, report.ReducibleToolOutputShare*100)
 	fmt.Fprintf(w, "  Other context (msgs/reasoning):  %d / %.2f%%  [model context, not L0-reducible]\n", report.OtherContextTokens, report.OtherContextShare*100)
 	if report.PrefixMutationSavedTokens > 0 {
@@ -797,7 +1023,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.Classes) > 0 {
 		fmt.Fprintln(w, "\nPer request class:")
 		for _, row := range report.Classes {
-			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
+			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
 				row.Class,
 				row.Requests,
 				row.OriginalTokens,
@@ -805,6 +1031,12 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.LocalSavingsRatio*100,
 				row.PrefixProtectedTokens,
 				row.PrefixProtectedShare*100,
+				row.PrefixTotalBytes,
+				row.PrefixSplitBytes,
+				row.PrefixSplitInconsistentBytes,
+				row.PrefixSplitInconsistentRequests,
+				row.PrefixToolDefinitionBytes,
+				row.PrefixInstructionBytes,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleToolOutputShare*100,
 				row.OtherContextTokens,
@@ -818,7 +1050,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.T354ShapeTable) > 0 {
 		fmt.Fprintln(w, "\nT354 shape table:")
 		for _, row := range report.T354ShapeTable {
-			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
+			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d default_keep_bytes=%d nondefault_bytes=%d unnamed_bytes=%d reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
 				row.RequestShape,
 				row.ShapeSource,
 				row.PreviousResponseID,
@@ -830,6 +1062,15 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.OriginalTokens,
 				row.LocalSavedTokens,
 				row.LocalSavingsRatio*100,
+				row.PrefixTotalBytes,
+				row.PrefixSplitBytes,
+				row.PrefixSplitInconsistentBytes,
+				row.PrefixSplitInconsistentRequests,
+				row.PrefixToolDefinitionBytes,
+				row.PrefixInstructionBytes,
+				row.PrefixDefaultKeepToolBytes,
+				row.PrefixNonDefaultToolBytes,
+				row.PrefixUnnamedToolBytes,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100,
 				row.ProviderCachedTokens,
@@ -848,12 +1089,18 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.PerLog) > 0 {
 		fmt.Fprintln(w, "\nPer capture (by reducible ceiling):")
 		for _, row := range report.PerLog {
-			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% reducible=%d ceiling=%.2f%%\n",
+			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d reducible=%d ceiling=%.2f%%\n",
 				row.Name,
 				row.PhaseFRequests,
 				row.OriginalTokens,
 				row.LocalSavedTokens,
 				row.LocalSavingsRatio*100,
+				row.PrefixTotalBytes,
+				row.PrefixSplitBytes,
+				row.PrefixSplitInconsistentBytes,
+				row.PrefixSplitInconsistentRequests,
+				row.PrefixToolDefinitionBytes,
+				row.PrefixInstructionBytes,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100)
 		}

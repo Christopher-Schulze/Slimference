@@ -14,6 +14,7 @@ import (
 )
 
 func wssClassDistributionTestSummary(id, shape string, original, saved, prefixTokens, outputBytes, providerCached, reasoningItems int) dbg.RequestSummary {
+	prefixBytes := prefixTokens * 4
 	return dbg.RequestSummary{
 		RequestID:            id,
 		Path:                 "/backend-api/codex/responses",
@@ -21,11 +22,20 @@ func wssClassDistributionTestSummary(id, shape string, original, saved, prefixTo
 		Tokens:               dbg.TokenCounts{Original: original, Final: original - saved, Saved: saved},
 		ProviderCachedTokens: providerCached,
 		DebugFacts: map[string]string{
-			"wss.request_shape":             shape,
-			"wss.prefix_total_bytes":        "36000",
-			"wss.prefix_estimated_tokens":   strconv.Itoa(prefixTokens),
-			"wss.tool_result_output_bytes":  strconv.Itoa(outputBytes),
-			"wss.raw_input_reasoning_items": strconv.Itoa(reasoningItems),
+			"wss.request_shape":                      shape,
+			"wss.prefix_total_bytes":                 strconv.Itoa(prefixBytes),
+			"wss.prefix_estimated_tokens":            strconv.Itoa(prefixTokens),
+			"wss.tool_definition_bytes":              strconv.Itoa(prefixTokens * 3),
+			"wss.tool_definition_default_keep_bytes": strconv.Itoa(prefixTokens * 2),
+			"wss.tool_definition_nondefault_bytes":   strconv.Itoa(prefixTokens),
+			"wss.tool_definition_unnamed_bytes":      "0",
+			"wss.instructions_bytes":                 strconv.Itoa(prefixTokens),
+			"wss.tool_definitions":                   "4",
+			"wss.tool_definition_default_keep":       "3",
+			"wss.tool_definition_nondefault":         "1",
+			"wss.tool_definition_unnamed":            "0",
+			"wss.tool_result_output_bytes":           strconv.Itoa(outputBytes),
+			"wss.raw_input_reasoning_items":          strconv.Itoa(reasoningItems),
 		},
 	}
 }
@@ -70,6 +80,19 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	if report.OriginalTokens != 30000 ||
 		report.LocalSavedTokens != 8500 ||
 		report.PrefixProtectedTokens != 10000 ||
+		report.PrefixTotalBytes != 40000 ||
+		report.PrefixSplitBytes != 40000 ||
+		report.PrefixSplitInconsistentBytes != 0 ||
+		report.PrefixSplitInconsistentRequests != 0 ||
+		report.PrefixToolDefinitionBytes != 30000 ||
+		report.PrefixInstructionBytes != 10000 ||
+		report.PrefixDefaultKeepToolBytes != 20000 ||
+		report.PrefixNonDefaultToolBytes != 10000 ||
+		report.PrefixUnnamedToolBytes != 0 ||
+		report.PrefixToolDefinitions != 8 ||
+		report.PrefixDefaultKeepTools != 6 ||
+		report.PrefixNonDefaultTools != 2 ||
+		report.PrefixUnnamedTools != 0 ||
 		report.ReducibleToolOutputTokens != 15500 ||
 		report.OtherContextTokens != 4500 ||
 		report.NonPrefixTokens != 20000 {
@@ -111,8 +134,22 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	if delta.ReducibleToolOutputTokens != 1500 || delta.PrefixProtectedTokens != 8000 || delta.OtherContextTokens != 500 {
 		t.Fatalf("bad delta class split: %+v", delta)
 	}
+	if delta.PrefixTotalBytes != 32000 || delta.PrefixSplitBytes != 32000 ||
+		delta.PrefixSplitInconsistentBytes != 0 || delta.PrefixSplitInconsistentRequests != 0 ||
+		delta.PrefixToolDefinitionBytes != 24000 || delta.PrefixInstructionBytes != 8000 ||
+		delta.PrefixDefaultKeepToolBytes != 16000 || delta.PrefixNonDefaultToolBytes != 8000 ||
+		delta.PrefixToolDefinitions != 4 || delta.PrefixDefaultKeepTools != 3 || delta.PrefixNonDefaultTools != 1 {
+		t.Fatalf("bad delta prefix surface: %+v", delta)
+	}
 	if fullHist.ReducibleToolOutputTokens != 14000 || fullHist.PrefixProtectedTokens != 2000 || fullHist.OtherContextTokens != 4000 {
 		t.Fatalf("bad full_history class split: %+v", fullHist)
+	}
+	if fullHist.PrefixTotalBytes != 8000 || fullHist.PrefixSplitBytes != 8000 ||
+		fullHist.PrefixSplitInconsistentBytes != 0 || fullHist.PrefixSplitInconsistentRequests != 0 ||
+		fullHist.PrefixToolDefinitionBytes != 6000 || fullHist.PrefixInstructionBytes != 2000 ||
+		fullHist.PrefixDefaultKeepToolBytes != 4000 || fullHist.PrefixNonDefaultToolBytes != 2000 ||
+		fullHist.PrefixToolDefinitions != 4 || fullHist.PrefixDefaultKeepTools != 3 || fullHist.PrefixNonDefaultTools != 1 {
+		t.Fatalf("bad full_history prefix surface: %+v", fullHist)
 	}
 	floatNearTest(t, delta.ReducibleCeilingRatio, 0.15)
 	floatNearTest(t, fullHist.ReducibleCeilingRatio, 0.70)
@@ -123,6 +160,9 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	// Per-log sorted by reducible ceiling desc: cap-fullhist (70%) before cap-delta (15%).
 	if len(report.PerLog) != 2 || report.PerLog[0].Name != "cap-fullhist" || report.PerLog[1].Name != "cap-delta" {
 		t.Fatalf("bad per-log ordering: %+v", report.PerLog)
+	}
+	if report.PerLog[0].PrefixToolDefinitionBytes != 6000 || report.PerLog[1].PrefixToolDefinitionBytes != 24000 {
+		t.Fatalf("bad per-log prefix split: %+v", report.PerLog)
 	}
 }
 
@@ -208,7 +248,15 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 		deltaRow.UpstreamErrorRequests != 1 ||
 		deltaRow.HTTP400ErrorRequests != 1 ||
 		deltaRow.CacheReadTokens != 111 ||
-		deltaRow.CacheCreateTokens != 22 {
+		deltaRow.CacheCreateTokens != 22 ||
+		deltaRow.PrefixTotalBytes != 32000 ||
+		deltaRow.PrefixSplitBytes != 32000 ||
+		deltaRow.PrefixSplitInconsistentBytes != 0 ||
+		deltaRow.PrefixSplitInconsistentRequests != 0 ||
+		deltaRow.PrefixToolDefinitionBytes != 24000 ||
+		deltaRow.PrefixInstructionBytes != 8000 ||
+		deltaRow.PrefixDefaultKeepToolBytes != 16000 ||
+		deltaRow.PrefixNonDefaultToolBytes != 8000 {
 		t.Fatalf("bad delta T354 row: %+v", deltaRow)
 	}
 	floatNearTest(t, deltaRow.ProviderCachedPct, 0.7)
@@ -222,7 +270,11 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 		fullRow.ContinuationMode != "stateless_followup_detached" ||
 		fullRow.GuardReason != "none" ||
 		fullRow.GuardedRequests != 0 ||
-		fullRow.AppliedRequests != 1 {
+		fullRow.AppliedRequests != 1 ||
+		fullRow.PrefixTotalBytes != 8000 ||
+		fullRow.PrefixSplitBytes != 8000 ||
+		fullRow.PrefixToolDefinitionBytes != 6000 ||
+		fullRow.PrefixInstructionBytes != 2000 {
 		t.Fatalf("bad full-history T354 row: %+v", fullRow)
 	}
 
@@ -232,7 +284,9 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "T354 shape table:") ||
 		!strings.Contains(stdout.String(), "guard=wss.effective_mutation_guard=wss_stateful_delta_mutation_proof_gate") ||
-		!strings.Contains(stdout.String(), "continuation=stateless_followup_detached") {
+		!strings.Contains(stdout.String(), "continuation=stateless_followup_detached") ||
+		!strings.Contains(stdout.String(), "tool_prefix_bytes=24000") ||
+		!strings.Contains(stdout.String(), "default_keep_bytes=16000") {
 		t.Fatalf("text output missing T354 table details:\n%s", stdout.String())
 	}
 }
@@ -301,6 +355,8 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "WSS Class Distribution") ||
 		!strings.Contains(stdout.String(), "Reducible ceiling ratio") ||
+		!strings.Contains(stdout.String(), "prefix split bytes:") ||
+		!strings.Contains(stdout.String(), "tool_prefix_bytes=") ||
 		!strings.Contains(stdout.String(), "Non-prefix upper bound") ||
 		!strings.Contains(stdout.String(), "Headroom present:") ||
 		!strings.Contains(stdout.String(), "Next action:") ||
@@ -321,6 +377,11 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 	if report.PhaseFRequests != 1 ||
 		report.ReducibleToolOutputTokens != 14000 ||
 		report.PrefixProtectedTokens != 2000 ||
+		report.PrefixTotalBytes != 8000 ||
+		report.PrefixSplitBytes != 8000 ||
+		report.PrefixSplitInconsistentBytes != 0 ||
+		report.PrefixToolDefinitionBytes != 6000 ||
+		report.PrefixInstructionBytes != 2000 ||
 		report.Verdict != "headroom_present" ||
 		!report.HeadroomPresent ||
 		!report.GapInventoryRecommended ||
