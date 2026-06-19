@@ -191,6 +191,19 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "fdfind", args: []string{"-e", "go", "internal"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-type", "f"}},
 		{command: "wc", args: []string{"-l", "cmd/slimference/command_output_first.go"}},
+		{command: "npx", args: []string{"-y", "next", "build"}},
+		{command: "make", args: []string{"-j8"}},
+		{command: "cmake", args: []string{"--build", "build", "--parallel"}},
+		{command: "tsc", args: []string{"--noEmit"}},
+		{command: "pre-commit", args: []string{"run", "--all-files"}},
+		{command: "ruff", args: []string{"check", "."}},
+		{command: "pyright", args: []string{"--outputjson", "src"}},
+		{command: "stylelint", args: []string{"--formatter", "json", "**/*.css"}},
+		{command: "prettier", args: []string{"--check", "."}},
+		{command: "npm", args: []string{"run", "lint"}},
+		{command: "pnpm", args: []string{"run", "typecheck"}},
+		{command: "yarn", args: []string{"run", "format:check"}},
+		{command: "bun", args: []string{"run", "build"}},
 	} {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v should be captured", tc.command, tc.args)
@@ -204,7 +217,6 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "npm", args: []string{"run", "dev"}},
 		{command: "pnpm", args: []string{"exec", "vitest"}},
 		{command: "yarn", args: []string{"start"}},
-		{command: "bun", args: []string{"run", "build"}},
 		{command: "bun", args: []string{"install"}},
 		{command: "cargo", args: []string{"install", "ripgrep"}},
 		{command: "cargo", args: []string{"nextest", "list"}},
@@ -217,6 +229,14 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "fd", args: []string{"--exec", "rm", "{}"}},
 		{command: "wc", args: []string{"-l"}},
 		{command: "wc", args: []string{"--files0-from=list"}},
+		{command: "npx", args: []string{"-c", "next build"}},
+		{command: "npx", args: []string{"cowsay", "hello"}},
+		{command: "make", args: []string{"-n"}},
+		{command: "cmake", args: []string{"-S", ".", "-B", "build"}},
+		{command: "prettier", args: []string{"--write", "."}},
+		{command: "ruff", args: []string{"format", "."}},
+		{command: "npm", args: []string{"run", "dev"}},
+		{command: "yarn", args: []string{"run", "format"}},
 	} {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
@@ -522,6 +542,151 @@ func TestCommandOutputFirstShimPackageBuildEmptyFullPasses(t *testing.T) {
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
+}
+
+func TestCommandOutputFirstShimNpxNextBuildCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstNextBuildFixture()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npx", "--real-bin=" + realNpx, "--", "-y", "next", "build"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "[next build] ok\n" {
+		t.Fatalf("unexpected compacted npx next stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:npx] npx -y next build") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
+	var build strings.Builder
+	build.WriteString("make[1]: Entering directory '/repo/build'\n")
+	build.WriteString("Consolidate compiler generated dependencies of target app\n")
+	for i := 0; i < 24; i++ {
+		build.WriteString("[ 50%] Building CXX object src/CMakeFiles/app.dir/generated/object.cpp.o\n")
+	}
+	build.WriteString("[100%] Linking CXX executable app\n")
+	build.WriteString("[100%] Built target app\n")
+	build.WriteString("make[1]: Leaving directory '/repo/build'\n")
+	realMake := writeFakeCommand(t, "make", "#!/bin/sh\ncat <<'EOF'\n"+build.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=make", "--real-bin=" + realMake, "--", "-j8"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("make rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "[make] ok\n" {
+		t.Fatalf("unexpected make compacted stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstNpxToolEdges(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantTool string
+		wantArgs []string
+		wantOK   bool
+	}{
+		{name: "yes next", args: []string{"--yes", "next", "build"}, wantTool: "next", wantArgs: []string{"build"}, wantOK: true},
+		{name: "package value", args: []string{"--package", "next", "next", "build"}, wantTool: "next", wantArgs: []string{"build"}, wantOK: true},
+		{name: "package equals", args: []string{"--package=next", "--", "next", "build"}, wantTool: "next", wantArgs: []string{"build"}, wantOK: true},
+		{name: "missing package value", args: []string{"--package"}, wantOK: false},
+		{name: "unknown option", args: []string{"--call", "next build"}, wantOK: false},
+		{name: "empty", args: []string{""}, wantOK: false},
+		{name: "separator without tool", args: []string{"--"}, wantOK: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, toolArgs, ok := commandOutputFirstNpxTool(tc.args)
+			if ok != tc.wantOK || tool != tc.wantTool || strings.Join(toolArgs, "\x00") != strings.Join(tc.wantArgs, "\x00") {
+				t.Fatalf("npx tool args=%v got tool=%q args=%v ok=%v want tool=%q args=%v ok=%v", tc.args, tool, toolArgs, ok, tc.wantTool, tc.wantArgs, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
+	var hooks strings.Builder
+	for i := 0; i < 20; i++ {
+		hooks.WriteString("Hook check...............................................................Passed\n")
+	}
+	realPreCommit := writeFakeCommand(t, "pre-commit", "#!/bin/sh\ncat <<'EOF'\n"+hooks.String()+"EOF\n")
+	var lintStdout, lintStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=pre-commit", "--real-bin=" + realPreCommit, "--", "run", "--all-files"}, &bytes.Buffer{}, &lintStdout, &lintStderr)
+	if rc != 0 {
+		t.Fatalf("pre-commit rc=%d stderr=%q", rc, lintStderr.String())
+	}
+	if got := lintStdout.String(); got != "[pre-commit] ok (20 hooks passed)\n" {
+		t.Fatalf("unexpected pre-commit compacted stdout=%q", got)
+	}
+
+	realPrettier := writeFakeCommand(t, "prettier", "#!/bin/sh\ncat <<'EOF'\nChecking formatting...\nAll matched files use Prettier code style!\nEOF\n")
+	var fmtStdout, fmtStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=prettier", "--real-bin=" + realPrettier, "--", "--check", "."}, &bytes.Buffer{}, &fmtStdout, &fmtStderr)
+	if rc != 0 {
+		t.Fatalf("prettier rc=%d stderr=%q", rc, fmtStderr.String())
+	}
+	if got := fmtStdout.String(); got != "[prettier] ok\n" {
+		t.Fatalf("unexpected prettier compacted stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
+	realNpm := writeFakeCommand(t, "npm", "#!/bin/sh\ncat <<'EOF'\n> app@1.0.0 lint /repo\n> pre-commit run --all-files\nHook one................................................................Passed\nHook two................................................................Passed\nHook three..............................................................Passed\nHook four...............................................................Passed\nHook five...............................................................Passed\nHook six................................................................Passed\nHook seven..............................................................Passed\nHook eight..............................................................Passed\nHook nine...............................................................Passed\nHook ten................................................................Passed\nHook eleven.............................................................Passed\nHook twelve.............................................................Passed\nEOF\n")
+	var lintStdout, lintStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npm", "--real-bin=" + realNpm, "--", "run", "lint"}, &bytes.Buffer{}, &lintStdout, &lintStderr)
+	if rc != 0 {
+		t.Fatalf("npm lint rc=%d stderr=%q", rc, lintStderr.String())
+	}
+	if got := lintStdout.String(); got != "[pre-commit] ok (12 hooks passed)\n" {
+		t.Fatalf("unexpected npm lint compacted stdout=%q", got)
+	}
+
+	realYarn := writeFakeCommand(t, "yarn", "#!/bin/sh\ncat <<'EOF'\n> app@1.0.0 format:check /repo\n> prettier --check .\nChecking formatting...\nAll matched files use Prettier code style!\nEOF\n")
+	var fmtStdout, fmtStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=yarn", "--real-bin=" + realYarn, "--", "run", "format:check"}, &bytes.Buffer{}, &fmtStdout, &fmtStderr)
+	if rc != 0 {
+		t.Fatalf("yarn format rc=%d stderr=%q", rc, fmtStderr.String())
+	}
+	if got := fmtStdout.String(); got != "[prettier] ok\n" {
+		t.Fatalf("unexpected yarn format compacted stdout=%q", got)
+	}
+}
+
+func commandOutputFirstNextBuildFixture() string {
+	var b strings.Builder
+	b.WriteString("Next.js 15.3.0\n")
+	b.WriteString("Creating an optimized production build ...\n")
+	b.WriteString("Compiled successfully in 2.8s\n")
+	b.WriteString("Linting and checking validity of types ...\n")
+	b.WriteString("Collecting page data ...\n")
+	b.WriteString("Generating static pages (0/8) ...\n")
+	b.WriteString("Generating static pages (4/8) ...\n")
+	b.WriteString("Generating static pages (8/8) ...\n")
+	b.WriteString("Finalizing page optimization ...\n")
+	b.WriteString("Collecting build traces ...\n")
+	b.WriteString("Route (app)                              Size     First Load JS\n")
+	for i := 0; i < 24; i++ {
+		b.WriteString("/dashboard/section                      2.00 kB        110 kB\n")
+	}
+	return b.String()
 }
 
 func TestCommandOutputFirstShimCargoTestCompactsWithAccounting(t *testing.T) {
@@ -1094,6 +1259,10 @@ func TestCommandOutputFirstPackageScriptEdges(t *testing.T) {
 		{name: "yarn run option build", command: "yarn", args: []string{"run", "--silent", "build"}},
 		{name: "npm inline prefix test", command: "npm", args: []string{"--prefix=app", "test"}},
 		{name: "bun direct test", command: "bun", args: []string{"--cwd", "app", "test"}},
+		{name: "bun run build", command: "bun", args: []string{"run", "build"}},
+		{name: "npm run lint", command: "npm", args: []string{"run", "lint"}},
+		{name: "pnpm run typecheck", command: "pnpm", args: []string{"run", "typecheck"}},
+		{name: "yarn run format check", command: "yarn", args: []string{"run", "format:check"}},
 	}
 	for _, tc := range allowed {
 		t.Run("allow "+tc.name, func(t *testing.T) {
@@ -1113,7 +1282,7 @@ func TestCommandOutputFirstPackageScriptEdges(t *testing.T) {
 		{name: "npm empty args", command: "npm", args: []string{""}},
 		{name: "pnpm missing option value", command: "pnpm", args: []string{"--dir"}},
 		{name: "bun run test", command: "bun", args: []string{"run", "test"}},
-		{name: "bun run build", command: "bun", args: []string{"run", "build"}},
+		{name: "yarn run write format", command: "yarn", args: []string{"run", "format"}},
 	}
 	for _, tc := range denied {
 		t.Run("deny "+tc.name, func(t *testing.T) {

@@ -51,7 +51,14 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
-	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo", "pytest", "py.test", "python", "python3", "uv", "poetry", "fd", "fdfind", "find", "wc"} {
+	for _, command := range []string{
+		"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo",
+		"pytest", "py.test", "python", "python3", "uv", "poetry",
+		"fd", "fdfind", "find", "wc",
+		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
+		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
+		"basedpyright", "stylelint", "prettier", "mypy",
+	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
@@ -221,13 +228,117 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		}
 	case "npm", "pnpm", "yarn", "bun":
 		return commandOutputFirstPackageScriptAllowed(command, args)
+	case "npx":
+		return commandOutputFirstNpxAllowed(args)
 	case "cargo":
 		return commandOutputFirstCargoAllowed(args)
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
 		return commandOutputFirstPythonTestAllowed(command, args)
 	default:
+		return commandOutputFirstDirectBuildAllowed(command, args) ||
+			commandOutputFirstDirectLintAllowed(command, args) ||
+			commandOutputFirstDirectFormatAllowed(command, args)
+	}
+}
+
+func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
+	switch command {
+	case "make", "gmake", "ninja", "tsc", "next", "vite", "webpack", "webpack-cli":
+		return !commandOutputFirstArgsContain(args, "-n", "--just-print", "--dry-run")
+	case "cmake":
+		return len(args) > 0 && args[0] == "--build"
+	default:
 		return false
 	}
+}
+
+func commandOutputFirstDirectLintAllowed(command string, args []string) bool {
+	switch command {
+	case "pre-commit":
+		return len(args) > 0 && args[0] == "run"
+	case "ruff":
+		return commandOutputFirstArgsContain(args, "check")
+	case "pyright", "basedpyright", "stylelint", "mypy":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstDirectFormatAllowed(command string, args []string) bool {
+	switch command {
+	case "prettier":
+		return commandOutputFirstArgsContain(args, "--check", "-c", "--list-different")
+	case "ruff":
+		return commandOutputFirstArgsContain(args, "format") &&
+			commandOutputFirstArgsContain(args, "--check")
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstNpxAllowed(args []string) bool {
+	tool, toolArgs, ok := commandOutputFirstNpxTool(args)
+	if !ok {
+		return false
+	}
+	return commandOutputFirstDirectBuildAllowed(tool, toolArgs) ||
+		commandOutputFirstDirectLintAllowed(tool, toolArgs) ||
+		commandOutputFirstDirectFormatAllowed(tool, toolArgs)
+}
+
+func commandOutputFirstNpxTool(args []string) (string, []string, bool) {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return "", nil, false
+		}
+		if arg == "--" {
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return "", nil, false
+			}
+			return strings.TrimSpace(args[i+1]), append([]string(nil), args[i+2:]...), true
+		}
+		if commandOutputFirstNpxOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return "", nil, false
+			}
+			continue
+		}
+		switch {
+		case arg == "-y", arg == "--yes", arg == "--no-install", arg == "--ignore-existing",
+			arg == "--quiet", arg == "--npm":
+			continue
+		case strings.HasPrefix(arg, "--package="), strings.HasPrefix(arg, "-p="):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			return "", nil, false
+		default:
+			return arg, append([]string(nil), args[i+1:]...), true
+		}
+	}
+	return "", nil, false
+}
+
+func commandOutputFirstNpxOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-p", "--package", "--userconfig", "--cache":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstArgsContain(args []string, wants ...string) bool {
+	for _, arg := range args {
+		for _, want := range wants {
+			if arg == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func compactCommandOutputFirst(command, realBin string, args []string, stdout, stderr []byte, code int) ([]byte, bool) {
@@ -298,6 +409,32 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			compacted, ok := filter.TryCompactBuildOutput(packageArgv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
+		if commandOutputFirstPackageScriptIsLint(command, args) {
+			compacted, ok := filter.TryCompactLintOutput(packageArgv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstPackageScriptIsFormat(command, args) {
+			compacted, ok := filter.TryCompactFormatOutput(packageArgv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		return nil, false
+	case "npx":
+		tool, toolArgs, ok := commandOutputFirstNpxTool(args)
+		if !ok {
+			return nil, false
+		}
+		if commandOutputFirstDirectBuildAllowed(tool, toolArgs) {
+			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstDirectLintAllowed(tool, toolArgs) {
+			compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstDirectFormatAllowed(tool, toolArgs) {
+			compacted, ok := filter.TryCompactFormatOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		return nil, false
 	case "cargo":
 		switch commandOutputFirstCargoSubcommand(args) {
@@ -317,6 +454,18 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 		compacted, ok := filter.TryCompactTestOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
+		if commandOutputFirstDirectBuildAllowed(command, args) {
+			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstDirectLintAllowed(command, args) {
+			compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstDirectFormatAllowed(command, args) {
+			compacted, ok := filter.TryCompactFormatOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		return nil, false
 	}
 }
@@ -596,7 +745,9 @@ func commandOutputFirstPoetryRunPytest(args []string) bool {
 
 func commandOutputFirstPackageScriptAllowed(command string, args []string) bool {
 	return commandOutputFirstPackageScriptIsTest(command, args) ||
-		commandOutputFirstPackageScriptIsBuild(command, args)
+		commandOutputFirstPackageScriptIsBuild(command, args) ||
+		commandOutputFirstPackageScriptIsLint(command, args) ||
+		commandOutputFirstPackageScriptIsFormat(command, args)
 }
 
 func commandOutputFirstPackageScriptIsTest(command string, args []string) bool {
@@ -611,11 +762,39 @@ func commandOutputFirstPackageScriptIsTest(command string, args []string) bool {
 }
 
 func commandOutputFirstPackageScriptIsBuild(command string, args []string) bool {
+	script := packageRunScriptName(args)
 	switch command {
 	case "npm", "pnpm", "yarn":
-		return packageRunScriptName(args) == "build"
+		return script == "build" || script == "typecheck"
 	case "bun":
+		return script == "build" || script == "typecheck"
+	default:
 		return false
+	}
+}
+
+func commandOutputFirstPackageScriptIsLint(command string, args []string) bool {
+	switch command {
+	case "npm", "pnpm", "yarn", "bun":
+		return packageRunScriptName(args) == "lint"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPackageScriptIsFormat(command string, args []string) bool {
+	switch command {
+	case "npm", "pnpm", "yarn", "bun":
+		return commandOutputFirstFormatScriptName(packageRunScriptName(args))
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstFormatScriptName(script string) bool {
+	switch script {
+	case "format:check", "check:format", "fmt:check", "check:fmt", "prettier:check":
+		return true
 	default:
 		return false
 	}
