@@ -245,7 +245,7 @@ Terraform has been successfully initialized!
 	if !strings.Contains(s, "successfully initialized") {
 		t.Fatalf("missing success line, got %q", s)
 	}
-	if !strings.Contains(s, "provider(s) installed") {
+	if !strings.Contains(s, "- 3 provider(s) installed") {
 		t.Fatalf("missing provider count line, got %q", s)
 	}
 	if strings.Contains(s, "hashicorp/aws v5.31.0") {

@@ -29,8 +29,9 @@ func TryCompactTerraformPlan(argv []string, stdout []byte) ([]byte, bool) {
 // TryCompactTerraformInit compresses `terraform init` output. Real-session
 // init runs are typically 30-150 lines: a banner, per-module download lines,
 // per-provider download lines, the success footer. Compaction keeps the
-// final success/failure verdict, the provider count, the module count, and
-// any error/warning blocks; the per-line download chatter is dropped.
+// final success/failure verdict, the provider count, the module count, the
+// lock-file-created fact, and any error/warning blocks; the per-line download
+// chatter is dropped.
 func TryCompactTerraformInit(argv []string, stdout []byte) ([]byte, bool) {
 	if !isTerraformSubcommand(argv, "init") {
 		return stdout, false
@@ -233,14 +234,15 @@ var reTerraformInitFinalizer = regexp.MustCompile(`^(Terraform|OpenTofu) has bee
 var reTerraformInitProviderInstall = regexp.MustCompile(`^- (Installing|Installed|Reusing|Finding|Using|Downloading) `)
 
 // compressTerraformInit keeps the verdict line, the count of providers /
-// modules touched, and any error / warning blocks; per-provider install
-// chatter is collapsed into a single "<N> providers installed" line.
+// modules touched, the lock-file-created fact, and any error / warning blocks;
+// per-provider install chatter is collapsed into a single count line.
 func compressTerraformInit(stdout []byte) []byte {
 	lines := strings.Split(string(stdout), "\n")
 	kept := make([]string, 0, 16)
-	providerCount := 0
+	providers := make(map[string]struct{})
 	moduleCount := 0
 	successSeen := false
+	lockFileCreated := false
 	for _, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
 		switch {
@@ -258,21 +260,58 @@ func compressTerraformInit(stdout []byte) []byte {
 		case strings.HasPrefix(trimmed, "Downloading ") && strings.Contains(trimmed, "for module"):
 			moduleCount++
 		case reTerraformInitProviderInstall.MatchString(trimmed):
-			providerCount++
+			provider, ok := terraformInitProviderAddress(trimmed)
+			if !ok {
+				kept = append(kept, line)
+				continue
+			}
+			providers[provider] = struct{}{}
+		case strings.Contains(trimmed, "has created a lock file") && strings.Contains(trimmed, ".terraform.lock.hcl"):
+			lockFileCreated = true
 		}
 	}
-	if !successSeen && providerCount == 0 && moduleCount == 0 && len(kept) == 0 {
+	if !successSeen && len(providers) == 0 && moduleCount == 0 && len(kept) == 0 {
 		// Nothing recognised; return original bytes so the caller's
 		// shorter-than-input gate falls through to passthrough.
 		return stdout
 	}
-	if providerCount > 0 {
-		kept = append(kept, fmt.Sprintf("- %d provider(s) installed", providerCount))
+	if len(providers) > 0 {
+		kept = append(kept, fmt.Sprintf("- %d provider(s) installed", len(providers)))
 	}
 	if moduleCount > 0 {
 		kept = append(kept, fmt.Sprintf("- %d module(s) downloaded", moduleCount))
 	}
+	if lockFileCreated {
+		kept = append(kept, "- lock file created: .terraform.lock.hcl")
+	}
 	return []byte(strings.Join(kept, "\n"))
+}
+
+func terraformInitProviderAddress(line string) (string, bool) {
+	for _, raw := range strings.Fields(line) {
+		token := strings.Trim(raw, `"'(),:;[]`)
+		token = strings.TrimRight(token, ".")
+		token = strings.TrimPrefix(token, "registry.terraform.io/")
+		parts := strings.Split(token, "/")
+		if len(parts) != 2 || !terraformProviderAddressPart(parts[0]) || !terraformProviderAddressPart(parts[1]) {
+			continue
+		}
+		return token, true
+	}
+	return "", false
+}
+
+func terraformProviderAddressPart(part string) bool {
+	if part == "" {
+		return false
+	}
+	for _, r := range part {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // compressTerraformValidate keeps every error block verbatim plus the

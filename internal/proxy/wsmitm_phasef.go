@@ -2025,6 +2025,7 @@ func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
 		filter.TryCompactBuildOutput,
 		filter.TryCompactLintOutput,
 		filter.TryCompactPackageOutput,
+		filter.TryCompactTerraformInit,
 		filter.TryCompactTerraformValidate,
 	}
 	for _, parser := range parsers {
@@ -2034,6 +2035,7 @@ func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
 		}
 		if wssCompactedOKSummary(compacted) ||
 			wssCompactedPackageSuccessSummary(stdout, compacted) ||
+			wssCompactedTerraformInitSuccess(compacted) ||
 			wssCompactedTerraformValidateSuccess(compacted) {
 			return true
 		}
@@ -2161,6 +2163,48 @@ func wssCompactedTerraformValidateSuccess(compacted []byte) bool {
 		return false
 	}
 	return success
+}
+
+func wssCompactedTerraformInitSuccess(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "error:") || strings.Contains(lower, "warning:") ||
+		strings.Contains(text, "│") {
+		return false
+	}
+	success := false
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "Terraform has been successfully initialized!") ||
+			strings.HasPrefix(line, "OpenTofu has been successfully initialized!"):
+			success = true
+		case strings.HasPrefix(line, "Initializing the backend"),
+			strings.HasPrefix(line, "Initializing modules"),
+			strings.HasPrefix(line, "Initializing provider plugins"):
+		case wssTerraformInitCountLine(line, "provider(s) installed"),
+			wssTerraformInitCountLine(line, "module(s) downloaded"):
+		case line == "- lock file created: .terraform.lock.hcl":
+		default:
+			return false
+		}
+	}
+	return success
+}
+
+func wssTerraformInitCountLine(line, suffix string) bool {
+	prefix := "- "
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, " "+suffix) {
+		return false
+	}
+	count := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix))
+	return allASCIIDigits(count)
 }
 
 func wssSafeStructuredNoFindingsOutput(commandLine, payload string) bool {
