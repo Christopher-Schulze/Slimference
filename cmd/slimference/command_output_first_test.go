@@ -196,6 +196,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "make", args: []string{"-j8"}},
 		{command: "cmake", args: []string{"--build", "build", "--parallel"}},
 		{command: "tsc", args: []string{"--noEmit"}},
+		{command: "next", args: []string{"build"}},
+		{command: "vite", args: []string{"build"}},
+		{command: "webpack", args: []string{"--mode", "production"}},
+		{command: "webpack-cli", args: []string{"--mode", "production"}},
 		{command: "pre-commit", args: []string{"run", "--all-files"}},
 		{command: "ruff", args: []string{"check", "."}},
 		{command: "pyright", args: []string{"--outputjson", "src"}},
@@ -205,6 +209,26 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "pnpm", args: []string{"run", "typecheck"}},
 		{command: "yarn", args: []string{"run", "format:check"}},
 		{command: "bun", args: []string{"run", "build"}},
+		{command: "tsup", args: []string{"src/index.ts"}},
+		{command: "rspack", args: []string{"build"}},
+		{command: "parcel", args: []string{"build", "src/index.html"}},
+		{command: "rollup", args: []string{"-c"}},
+		{command: "esbuild", args: []string{"src/index.ts", "--bundle"}},
+		{command: "nx", args: []string{"build", "web"}},
+		{command: "turbo", args: []string{"run", "build"}},
+		{command: "mvn", args: []string{"test"}},
+		{command: "mvnw", args: []string{"-q", "verify"}},
+		{command: "gradle", args: []string{"build"}},
+		{command: "gradlew", args: []string{"build", "--parallel"}},
+		{command: "meson", args: []string{"compile", "-C", "build"}},
+		{command: "zig", args: []string{"build"}},
+		{command: "wasm-pack", args: []string{"build"}},
+		{command: "bazel", args: []string{"build", "//..."}},
+		{command: "swift", args: []string{"build"}},
+		{command: "buf", args: []string{"build"}},
+		{command: "ko", args: []string{"build", "./cmd/app"}},
+		{command: "moon", args: []string{"run", "web:build"}},
+		{command: "pack", args: []string{"build", "app"}},
 		{command: "vitest", args: []string{"run"}},
 		{command: "jest", args: []string{"--runInBand"}},
 		{command: "mocha", args: []string{"test/**/*.spec.js"}},
@@ -251,14 +275,16 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "npx", args: []string{"cowsay", "hello"}},
 		{command: "make", args: []string{"-n"}},
 		{command: "cmake", args: []string{"-S", ".", "-B", "build"}},
+		{command: "tsc", args: []string{"--watch"}},
+		{command: "next", args: []string{"dev"}},
+		{command: "vite", args: []string{"--host", "127.0.0.1"}},
+		{command: "webpack", args: []string{"serve"}},
 		{command: "prettier", args: []string{"--write", "."}},
 		{command: "ruff", args: []string{"format", "."}},
 		{command: "npm", args: []string{"run", "dev"}},
 		{command: "yarn", args: []string{"run", "format"}},
 		{command: "playwright", args: []string{"codegen"}},
 		{command: "cypress", args: []string{"open"}},
-		{command: "nx", args: []string{"build", "web"}},
-		{command: "turbo", args: []string{"run", "build"}},
 		{command: "deno", args: []string{"run", "script.ts"}},
 		{command: "nox", args: []string{"-s", "lint"}},
 		{command: "tox", args: []string{"-e", "lint"}},
@@ -267,6 +293,16 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "sbt", args: []string{"compile"}},
 		{command: "mill", args: []string{"foo.compile"}},
+		{command: "tsup", args: []string{"--watch"}},
+		{command: "rspack", args: []string{"serve"}},
+		{command: "parcel", args: []string{"watch", "src/index.html"}},
+		{command: "rollup", args: []string{"--watch", "-c"}},
+		{command: "esbuild", args: []string{"src/index.ts"}},
+		{command: "mvn", args: []string{"deploy"}},
+		{command: "mvn", args: []string{"site"}},
+		{command: "gradle", args: []string{"assemble"}},
+		{command: "meson", args: []string{"setup", "build"}},
+		{command: "moon", args: []string{"run", "web:test"}},
 	} {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
@@ -637,6 +673,61 @@ func TestCommandOutputFirstShimDirectVitestCompactsWithAccounting(t *testing.T) 
 	}
 }
 
+func TestCommandOutputFirstShimMavenBuildCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realMvn := writeFakeCommand(t, "mvn", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstMavenFixture(24)+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=mvn", "--real-bin=" + realMvn, "--", "test"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "[mvn] ok (Tests run: 42, Failures: 0, Errors: 0, Skipped: 0)\n" {
+		t.Fatalf("unexpected compacted maven stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:mvn] mvn test") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGradleBuildCompacts(t *testing.T) {
+	realGradle := writeFakeCommand(t, "gradle", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstGradleBuildFixture(18)+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=gradle", "--real-bin=" + realGradle, "--", "build", "--parallel"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "[gradle build] ok (18 actionable tasks: 18 executed)\n" {
+		t.Fatalf("unexpected compacted gradle stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimNpxEsbuildCompacts(t *testing.T) {
+	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\ndist/index.js 12.3 kb\nDone in 10ms\nEOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npx", "--real-bin=" + realNpx, "--", "-y", "esbuild", "src/index.ts", "--bundle"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "[esbuild] ok\n" {
+		t.Fatalf("unexpected compacted esbuild stdout=%q", got)
+	}
+}
+
 func TestCommandOutputFirstShimNpxVitestCompacts(t *testing.T) {
 	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstJSTestFixture(24)+"EOF\n")
 	var stdout, stderr bytes.Buffer
@@ -707,6 +798,52 @@ func commandOutputFirstJSTestFixture(count int) string {
 		out.WriteRune(ch)
 	}
 	out.WriteString(" total\nTime: 1.2 s\n")
+	return out.String()
+}
+
+func commandOutputFirstMavenFixture(modules int) string {
+	var out strings.Builder
+	out.WriteString("[INFO] Scanning for projects...\n")
+	out.WriteString("[INFO] \n")
+	out.WriteString("[INFO] -----------------------< com.example:demo >------------------------\n")
+	out.WriteString("[INFO] Building demo 1.0.0\n")
+	out.WriteString("[INFO] --------------------------------[ jar ]---------------------------------\n")
+	for i := 0; i < modules; i++ {
+		out.WriteString("[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources-")
+		out.WriteString(strconv.Itoa(i))
+		out.WriteString(") @ demo ---\n")
+		out.WriteString("[INFO] Copying 1 resources from src/main/resources to target/classes\n")
+	}
+	out.WriteString("[INFO] --- maven-compiler-plugin:3.13.0:compile (default-compile) @ demo ---\n")
+	out.WriteString("[INFO] Changes detected - recompiling the module!\n")
+	out.WriteString("[INFO] Compiling 3 source files with javac [debug target 21] to target/classes\n")
+	out.WriteString("[INFO] --- maven-surefire-plugin:3.2.5:test (default-test) @ demo ---\n")
+	out.WriteString("[INFO] Running com.example.DemoTest\n")
+	out.WriteString("[INFO] Tests run: 42, Failures: 0, Errors: 0, Skipped: 0\n")
+	out.WriteString("[INFO] --- maven-jar-plugin:3.4.1:jar (default-jar) @ demo ---\n")
+	out.WriteString("[INFO] Building jar: /repo/target/demo.jar\n")
+	out.WriteString("[INFO] ------------------------------------------------------------------------\n")
+	out.WriteString("[INFO] BUILD SUCCESS\n")
+	out.WriteString("[INFO] ------------------------------------------------------------------------\n")
+	out.WriteString("[INFO] Total time:  4.123 s\n")
+	out.WriteString("[INFO] Finished at: 2026-06-20T01:02:03Z\n")
+	out.WriteString("[INFO] ------------------------------------------------------------------------\n")
+	return out.String()
+}
+
+func commandOutputFirstGradleBuildFixture(tasks int) string {
+	var out strings.Builder
+	out.WriteString("Starting a Gradle Daemon, 1 busy Daemon could not be reused, use --status for details\n")
+	for i := 0; i < tasks; i++ {
+		out.WriteString("> Task :module")
+		out.WriteString(strconv.Itoa(i))
+		out.WriteString(":compileJava\n")
+	}
+	out.WriteString("BUILD SUCCESSFUL in 4s\n")
+	out.WriteString(strconv.Itoa(tasks))
+	out.WriteString(" actionable tasks: ")
+	out.WriteString(strconv.Itoa(tasks))
+	out.WriteString(" executed\n")
 	return out.String()
 }
 
@@ -1431,6 +1568,75 @@ func TestCommandOutputFirstDirectTestEdges(t *testing.T) {
 	}
 	if got := commandOutputFirstFirstNonOption([]string{"--verbose", "test"}); got != "test" {
 		t.Fatalf("flag before test first command=%q", got)
+	}
+}
+
+func TestCommandOutputFirstDirectBuildEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "make", args: []string{"-j8"}},
+		{command: "ninja", args: []string{"-C", "build"}},
+		{command: "cmake", args: []string{"--build", "build"}},
+		{command: "tsc", args: []string{"--noEmit"}},
+		{command: "next", args: []string{"--turbo", "build"}},
+		{command: "vite", args: []string{"--config", "vite.config.ts", "build"}},
+		{command: "webpack", args: []string{"--mode", "production"}},
+		{command: "webpack-cli", args: []string{"--mode", "production"}},
+		{command: "tsup", args: nil},
+		{command: "rollup", args: []string{"--config", "rollup.config.mjs"}},
+		{command: "esbuild", args: []string{"src/index.ts", "--bundle=true"}},
+		{command: "nx", args: []string{"--project", "web", "build"}},
+		{command: "turbo", args: []string{"build"}},
+		{command: "turbo", args: []string{"run", "build", "--filter", "web"}},
+		{command: "mvn", args: []string{"--batch-mode", "package"}},
+		{command: "mvnw", args: []string{"-q", "install"}},
+		{command: "gradlew", args: []string{"build", "--parallel"}},
+		{command: "moon", args: []string{"run", "build"}},
+		{command: "moon", args: []string{"run", "web:build"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstDirectBuildAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v should be allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "make", args: []string{"dev"}},
+		{command: "ninja", args: []string{"-t", "commands"}},
+		{command: "cmake", args: []string{"--build", "build", "--target", "serve"}},
+		{command: "tsc", args: []string{"-w"}},
+		{command: "next", args: []string{"dev"}},
+		{command: "next", args: nil},
+		{command: "vite", args: []string{"--host", "127.0.0.1"}},
+		{command: "webpack", args: []string{"serve"}},
+		{command: "tsup", args: []string{"--watch"}},
+		{command: "rspack", args: []string{"serve"}},
+		{command: "parcel", args: []string{"watch", "src/index.html"}},
+		{command: "rollup", args: []string{"--watch", "--config"}},
+		{command: "rollup", args: nil},
+		{command: "esbuild", args: []string{"src/index.ts"}},
+		{command: "nx", args: []string{"build", "--watch"}},
+		{command: "turbo", args: []string{"run", "--filter", "web", "dev"}},
+		{command: "turbo", args: []string{"prune"}},
+		{command: "mvn", args: nil},
+		{command: "mvn", args: []string{"--batch-mode"}},
+		{command: "mvn", args: []string{""}},
+		{command: "mvn", args: []string{"release"}},
+		{command: "gradle", args: []string{"build", "--continuous"}},
+		{command: "meson", args: []string{"setup", "build"}},
+		{command: "moon", args: []string{"run"}},
+		{command: "moon", args: []string{"run", "web:test"}},
+		{command: "unknown", args: []string{"build"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstDirectBuildAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be allowed", tc.command, tc.args)
+		}
 	}
 }
 

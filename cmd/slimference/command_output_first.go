@@ -62,6 +62,9 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"wdio", "nx", "turbo", "deno", "phpunit", "ctest", "ginkgo",
 		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
 		"gradle", "sbt", "mill",
+		"tsup", "rspack", "parcel", "rollup", "esbuild", "mvn", "mvnw",
+		"gradlew", "meson", "zig", "wasm-pack", "bazel", "bazelisk",
+		"swift", "buf", "ko", "moon", "pack",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -248,10 +251,50 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 
 func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 	switch command {
-	case "make", "gmake", "ninja", "tsc", "next", "vite", "webpack", "webpack-cli":
-		return !commandOutputFirstArgsContain(args, "-n", "--just-print", "--dry-run")
+	case "make", "gmake":
+		return !commandOutputFirstArgsContain(args, "-n", "--just-print", "--dry-run") &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "ninja":
+		return !commandOutputFirstArgsContain(args, "-n", "--just-print", "--dry-run", "-t") &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "tsc":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "next", "vite":
+		return commandOutputFirstFirstNonOption(args) == "build" &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "webpack", "webpack-cli":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
 	case "cmake":
-		return len(args) > 0 && args[0] == "--build"
+		return len(args) > 0 && args[0] == "--build" &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "tsup":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "rspack", "parcel":
+		return commandOutputFirstFirstNonOption(args) == "build" &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "rollup":
+		return commandOutputFirstArgsContain(args, "-c", "--config") &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "esbuild":
+		return commandOutputFirstEsbuildBundleAllowed(args) &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "nx":
+		return commandOutputFirstFirstNonOption(args) == "build" &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "turbo":
+		return commandOutputFirstTurboBuildAllowed(args) &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "mvn", "mvnw":
+		return commandOutputFirstMavenBuildAllowed(args)
+	case "gradle", "gradlew":
+		return commandOutputFirstArgsContain(args, "build") &&
+			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "meson":
+		return commandOutputFirstFirstNonOption(args) == "compile"
+	case "zig", "wasm-pack", "bazel", "bazelisk", "swift", "buf", "ko", "pack":
+		return commandOutputFirstFirstNonOption(args) == "build"
+	case "moon":
+		return commandOutputFirstMoonBuildAllowed(args)
 	default:
 		return false
 	}
@@ -427,6 +470,62 @@ func commandOutputFirstTurboTestAllowed(args []string) bool {
 		return false
 	}
 	return commandOutputFirstArgsContain(args, "test")
+}
+
+func commandOutputFirstBuildArgsUnsafeLongRunning(args []string) bool {
+	return commandOutputFirstArgsContain(args, "--watch", "-w", "--continuous", "watch", "dev", "serve", "start")
+}
+
+func commandOutputFirstEsbuildBundleAllowed(args []string) bool {
+	for _, arg := range args {
+		if arg == "--bundle" || strings.HasPrefix(arg, "--bundle=") {
+			return true
+		}
+	}
+	return false
+}
+
+func commandOutputFirstTurboBuildAllowed(args []string) bool {
+	first := commandOutputFirstFirstNonOption(args)
+	if first == "build" {
+		return true
+	}
+	if first != "run" {
+		return false
+	}
+	return commandOutputFirstArgsContain(args, "build")
+}
+
+func commandOutputFirstMavenBuildAllowed(args []string) bool {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			return false
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		switch arg {
+		case "compile", "test", "package", "verify", "install":
+			return true
+		case "deploy", "release", "site":
+			return false
+		}
+	}
+	return false
+}
+
+func commandOutputFirstMoonBuildAllowed(args []string) bool {
+	if commandOutputFirstFirstNonOption(args) != "run" {
+		return false
+	}
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "build" || strings.HasSuffix(arg, ":build") {
+			return true
+		}
+	}
+	return false
 }
 
 func commandOutputFirstNoxTestAllowed(args []string) bool {
