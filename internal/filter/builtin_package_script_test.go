@@ -218,6 +218,58 @@ func TestCompactPackageManagerScriptOutputFailsOpen(t *testing.T) {
 	}
 }
 
+func TestPackageManagerScriptSafetyEdges(t *testing.T) {
+	t.Parallel()
+
+	safeScripts := []string{
+		"lint:frontend",
+		"frontend:lint",
+		"build:web",
+		"web:build",
+		"typecheck:api",
+		"api:typecheck",
+		"type-check:web",
+		"web:type-check",
+		"check:prettier",
+	}
+	for _, script := range safeScripts {
+		if !safePackageManagerScriptName(script) {
+			t.Fatalf("script should be safe: %q", script)
+		}
+	}
+	unsafeScripts := []string{
+		"",
+		"lint fix",
+		"deploy:prod",
+		"lint:fix",
+		"dev:web",
+		"db:migrate",
+		"release.candidate",
+		"preview",
+	}
+	for _, script := range unsafeScripts {
+		if safePackageManagerScriptName(script) {
+			t.Fatalf("script should be unsafe: %q", script)
+		}
+	}
+
+	if script, ok := packageManagerScriptName([]string{"npm", "run", "--workspace", "web", "lint"}); !ok || script != "lint" {
+		t.Fatalf("npm workspace script = %q ok=%v", script, ok)
+	}
+	if script, ok := packageManagerScriptName([]string{"pnpm", "--filter", "web", "lint"}); ok || script != "" {
+		t.Fatalf("pnpm builtin option should not be a script shorthand: %q ok=%v", script, ok)
+	}
+	if script, ok := packageManagerScriptName([]string{"yarn", "lint"}); !ok || script != "lint" {
+		t.Fatalf("yarn shorthand script = %q ok=%v", script, ok)
+	}
+	if script, ok := packageManagerScriptName([]string{"bun", "run", "--", "lint"}); ok || script != "" {
+		t.Fatalf("script after -- should not be inferred: %q ok=%v", script, ok)
+	}
+	if packageManagerScriptShorthandOK("install") {
+		t.Fatal("package-manager builtin must not be treated as script shorthand")
+	}
+}
+
 func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	t.Parallel()
 
@@ -299,6 +351,26 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("compact package-script revive failure missing %q in %q", want, out)
+		}
+	}
+
+	stdout.Reset()
+	stdout.WriteString("> web@1.0.0 lint /repo\n")
+	stdout.WriteString("> eslint src --format stylish\n")
+	stdout.WriteString(eslintStylishFixture("src/app.js", 40, true))
+	out, ok = TryCompactLintOutput([]string{"pnpm", "run", "lint"}, []byte(stdout.String()))
+	if !ok {
+		t.Fatal("expected package-script ESLint stylish findings to compact")
+	}
+	for _, want := range []string{
+		"[eslint] FINDINGS (80 problems: 40 errors, 40 warnings in 1 file)",
+		"src/app.js",
+		"2:1 warning [no-console]",
+		"2:20 error [eqeqeq]",
+		"1 error and 0 warnings potentially fixable",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("compact package-script ESLint stylish missing %q in %q", want, out)
 		}
 	}
 }

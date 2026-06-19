@@ -2068,6 +2068,9 @@ func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactPyright(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := TryCompactEslintStylish(argv, stdout); ok {
+		return out, true
+	}
 	if out, ok := TryCompactEslint(argv, stdout); ok {
 		return out, true
 	}

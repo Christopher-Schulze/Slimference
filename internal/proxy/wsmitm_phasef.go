@@ -1955,6 +1955,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeFocusedLintDiagnosticOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeEslintStylishDiagnosticOutput(commandLine, payload) {
+		return true
+	}
 	if wssSafeMypyDiagnosticOutput(commandLine, payload) {
 		return true
 	}
@@ -2764,6 +2767,19 @@ func wssSafeFocusedLintDiagnosticOutput(commandLine, payload string) bool {
 	return wssCompactedFocusedLintDiagnostic(compacted)
 }
 
+func wssSafeEslintStylishDiagnosticOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+	if !ok || len(compacted) >= len(stdout) {
+		return false
+	}
+	return wssCompactedEslintStylishDiagnostic(compacted)
+}
+
 func wssSafeMypyDiagnosticOutput(commandLine, payload string) bool {
 	argv := wssSafeStatefulCommandArgv(commandLine)
 	if len(argv) == 0 {
@@ -2882,6 +2898,61 @@ func wssCompactedFocusedLintDiagnostic(compacted []byte) bool {
 	return strings.HasPrefix(status, "FAILED (") &&
 		strings.Contains(status, "diagnostic") &&
 		strings.Contains(text, "\n")
+}
+
+func wssCompactedEslintStylishDiagnostic(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	if !strings.HasPrefix(text, "[eslint] FINDINGS (") {
+		return false
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return false
+	}
+	seenFile := false
+	for _, raw := range lines[1:] {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, " potentially fixable with the `--fix` option.") {
+			continue
+		}
+		if wssEslintStylishCompactedFileLine(line) {
+			seenFile = true
+			continue
+		}
+		if seenFile && wssEslintStylishCompactedFindingLine(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssEslintStylishCompactedFileLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte", ".astro"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssEslintStylishCompactedFindingLine(line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) < 4 {
+		return false
+	}
+	location := fields[0]
+	lineText, columnText, ok := strings.Cut(location, ":")
+	if !ok || !allASCIIDigits(lineText) || !allASCIIDigits(columnText) {
+		return false
+	}
+	if fields[1] != "error" && fields[1] != "warning" {
+		return false
+	}
+	return strings.HasPrefix(fields[2], "[") && strings.HasSuffix(fields[2], "]")
 }
 
 func wssCompactedMypyDiagnostic(compacted []byte) bool {

@@ -26,6 +26,9 @@ func compactPackageManagerLintScriptOutput(argv []string, stdout []byte) ([]byte
 	if out, ok := compactPackageManagerScriptOutput(argv, stdout, packageManagerLintScriptParsers()); ok {
 		return out, true
 	}
+	if out, ok := compactPackageManagerEslintStylishScriptOutput(argv, stdout); ok {
+		return out, true
+	}
 	return compactPackageManagerScriptFailureOutput(argv, stdout)
 }
 
@@ -92,6 +95,20 @@ func compactPackageManagerMypyScriptOutput(argv []string, stdout []byte) ([]byte
 	return stdout, false
 }
 
+func compactPackageManagerEslintStylishScriptOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if !isSafePackageManagerScriptArgv(argv) || strings.TrimSpace(string(stdout)) == "" {
+		return stdout, false
+	}
+	for _, candidate := range packageManagerScriptTranscriptCandidates(stdout) {
+		compact, ok := TryCompactEslintStylish(candidate.argv, candidate.payload)
+		if !ok || !packageManagerEslintStylishFindingsSummary(compact) || len(compact) >= len(stdout) {
+			continue
+		}
+		return compact, true
+	}
+	return stdout, false
+}
+
 func packageManagerScriptFailureSummary(out []byte) bool {
 	text := strings.TrimSpace(string(out))
 	if !strings.HasPrefix(text, "[") {
@@ -102,6 +119,10 @@ func packageManagerScriptFailureSummary(out []byte) bool {
 		return false
 	}
 	return strings.HasPrefix(strings.TrimSpace(text[closeBracket+1:]), "FAILED")
+}
+
+func packageManagerEslintStylishFindingsSummary(out []byte) bool {
+	return strings.HasPrefix(strings.TrimSpace(string(out)), "[eslint] FINDINGS (")
 }
 
 func packageManagerTypeScriptFailureSummary(out []byte) bool {

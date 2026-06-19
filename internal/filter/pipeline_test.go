@@ -1416,6 +1416,13 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			wantContains: "[eslint] ok",
 		},
 		{
+			name:         "eslint stylish findings before frontend fallback",
+			argv:         []string{"eslint", "src/", "--format", "stylish"},
+			stdout:       []byte(eslintStylishFixture("src/app.js", 30, true)),
+			wantContains: "[eslint] FINDINGS (60 problems: 30 errors, 30 warnings in 1 file)",
+			wantAbsent:   "[frontend] FAILED",
+		},
+		{
 			name:         "stylelint ok",
 			argv:         []string{"stylelint", "src/**/*.css"},
 			stdout:       []byte(""),
