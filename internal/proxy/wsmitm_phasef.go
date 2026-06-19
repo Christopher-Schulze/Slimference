@@ -1958,6 +1958,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeMypyDiagnosticOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafePackageSuccessSummaryOutput(commandLine, payload) {
+		return true
+	}
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
@@ -2060,6 +2063,19 @@ func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
 	return false
 }
 
+func wssSafePackageSuccessSummaryOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+	if !ok || len(compacted) >= len(stdout) {
+		return false
+	}
+	return wssCompactedPackageSuccessSummary(stdout, compacted)
+}
+
 func wssCompactedOKSummary(compacted []byte) bool {
 	text := strings.TrimSpace(string(compacted))
 	if !strings.HasPrefix(text, "[") {
@@ -2102,7 +2118,7 @@ func wssPackageSummaryLabel(label string) bool {
 	case "npm install", "npm ci", "npm update",
 		"pnpm install", "pnpm ci", "pnpm update",
 		"yarn install", "yarn upgrade",
-		"pip install", "uv pip install", "uv sync",
+		"pip install", "poetry install", "uv pip install", "uv sync",
 		"bun install":
 		return true
 	default:
@@ -2116,6 +2132,9 @@ func wssPackageSuccessStatus(status string) bool {
 		return false
 	}
 	if strings.HasPrefix(lower, "successfully installed") || strings.HasPrefix(lower, "done in ") {
+		return true
+	}
+	if strings.HasPrefix(lower, "ok ") {
 		return true
 	}
 	return strings.Contains(lower, "package") &&

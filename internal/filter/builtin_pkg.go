@@ -4,35 +4,43 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 // compactEmptyStdoutWithNpxPnpmYarn applies match to argv, npx argv suffix, pnpm exec tail, and yarn tail.
 func compactEmptyStdoutWithNpxPnpmYarn(argv []string, stdout []byte, match func([]string) bool, okLine []byte) ([]byte, bool) {
-	if len(argv) < 1 {
-		return stdout, false
-	}
 	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, match) {
+		return stdout, false
+	}
+	return okLine, true
+}
+
+func packageArgvMatchesWithNpxPnpmYarn(argv []string, match func([]string) bool) bool {
+	if len(argv) < 1 {
+		return false
+	}
 	if match(argv) {
-		return okLine, true
+		return true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && match(rest) {
-		return okLine, true
+		return true
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
 		if match(argv[2:]) {
-			return okLine, true
+			return true
 		}
 	}
 	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
 		if match(argv[1:]) {
-			return okLine, true
+			return true
 		}
 	}
-	return stdout, false
+	return false
 }
 
 func isPoetryInstallArgv(argv []string) bool {
@@ -289,9 +297,15 @@ func jsonArrayIsEmpty(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &arr) == nil && len(arr) == 0
 }
 
-// TryCompactPoetryInstall summarizes empty stdout from `poetry install` / `npx|pnpm exec|yarn … poetry install` (F12 partial).
+// TryCompactPoetryInstall summarizes empty stdout or strict clean success from `poetry install` / `npx|pnpm exec|yarn … poetry install` (F12 partial).
 func TryCompactPoetryInstall(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isPoetryInstallArgv, []byte("[poetry install] ok\n"))
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isPoetryInstallArgv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[poetry install] ok\n"), true
+	}
+	return compactPoetryInstallSuccess(stdout)
 }
 
 // TryCompactPipenvInstall summarizes empty stdout from `pipenv install` / `npx|pnpm exec|yarn … pipenv install` (F12 partial).
@@ -340,29 +354,15 @@ func isUvPipInstallArgv(argv []string) bool {
 	return argv[1] == "pip" && argv[2] == "install"
 }
 
-// TryCompactUvPipInstall summarizes empty stdout from `uv pip install …` / `npx|pnpm exec|yarn … uv pip install …` (F12 partial).
+// TryCompactUvPipInstall summarizes empty stdout or strict clean success from `uv pip install …` / `npx|pnpm exec|yarn … uv pip install …` (F12 partial).
 func TryCompactUvPipInstall(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isUvPipInstallArgv) {
 		return stdout, false
 	}
-	if isUvPipInstallArgv(argv) {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[uv pip install] ok\n"), true
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && isUvPipInstallArgv(rest) {
-		return []byte("[uv pip install] ok\n"), true
-	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if len(argv) >= 5 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
-		if isUvPipInstallArgv(argv[2:]) {
-			return []byte("[uv pip install] ok\n"), true
-		}
-	}
-	if len(argv) >= 4 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
-		if isUvPipInstallArgv(argv[1:]) {
-			return []byte("[uv pip install] ok\n"), true
-		}
-	}
-	return stdout, false
+	return compactUvPackageSuccess(stdout, "uv pip install")
 }
 
 func isUvSyncArgv(argv []string) bool {
@@ -376,29 +376,260 @@ func isUvSyncArgv(argv []string) bool {
 	return argv[1] == "sync"
 }
 
-// TryCompactUvSync summarizes empty stdout from `uv sync` / `npx|pnpm exec|yarn … uv sync` (F12 partial).
+// TryCompactUvSync summarizes empty stdout or strict clean success from `uv sync` / `npx|pnpm exec|yarn … uv sync` (F12 partial).
 func TryCompactUvSync(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isUvSyncArgv) {
 		return stdout, false
 	}
-	if isUvSyncArgv(argv) {
+	if strings.TrimSpace(string(stdout)) == "" {
 		return []byte("[uv sync] ok\n"), true
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && isUvSyncArgv(rest) {
-		return []byte("[uv sync] ok\n"), true
-	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
-		if isUvSyncArgv(argv[2:]) {
-			return []byte("[uv sync] ok\n"), true
+	return compactUvPackageSuccess(stdout, "uv sync")
+}
+
+func compactPoetryInstallSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var sawDependencyHeader bool
+	var noDependencies bool
+	var lockWritten bool
+	var currentProject bool
+	var installs, updates, removals int
+	var expectedOperations *int
+	var bulletOperations int
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case trimmed == "Installing dependencies from lock file":
+			sawDependencyHeader = true
+		case trimmed == "No dependencies to install or update" || trimmed == "No changes.":
+			noDependencies = true
+		case trimmed == "Writing lock file":
+			lockWritten = true
+		case strings.HasPrefix(trimmed, "Installing the current project: "):
+			if strings.TrimSpace(strings.TrimPrefix(trimmed, "Installing the current project: ")) == "" {
+				return stdout, false
+			}
+			currentProject = true
+		case strings.HasPrefix(trimmed, "Package operations: "):
+			parsedInstalls, parsedUpdates, parsedRemovals, ok := parsePoetryPackageOperations(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			installs, updates, removals = parsedInstalls, parsedUpdates, parsedRemovals
+			total := installs + updates + removals
+			expectedOperations = &total
+		case strings.HasPrefix(trimmed, "- Installing ") ||
+			strings.HasPrefix(trimmed, "- Updating ") ||
+			strings.HasPrefix(trimmed, "- Removing "):
+			if !poetryPackageBulletLineOK(trimmed) {
+				return stdout, false
+			}
+			bulletOperations++
+		default:
+			return stdout, false
 		}
 	}
-	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
-		if isUvSyncArgv(argv[1:]) {
-			return []byte("[uv sync] ok\n"), true
+	if expectedOperations != nil && *expectedOperations != bulletOperations {
+		return stdout, false
+	}
+	if expectedOperations == nil && !noDependencies && !currentProject {
+		return stdout, false
+	}
+	parts := make([]string, 0, 4)
+	if expectedOperations != nil {
+		parts = append(parts, poetryOperationsSummary(installs, updates, removals))
+	}
+	if noDependencies {
+		parts = append(parts, "up to date")
+	}
+	if currentProject {
+		parts = append(parts, "current project installed")
+	}
+	if lockWritten {
+		parts = append(parts, "lock file written")
+	}
+	if len(parts) == 0 || (!sawDependencyHeader && expectedOperations == nil) {
+		return stdout, false
+	}
+	out := []byte("[poetry install] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func parsePoetryPackageOperations(line string) (int, int, int, bool) {
+	rest := strings.TrimPrefix(line, "Package operations: ")
+	parts := strings.Split(rest, ",")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	installs, ok := parsePoetryOperationPart(parts[0], "install")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	updates, ok := parsePoetryOperationPart(parts[1], "update")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	removals, ok := parsePoetryOperationPart(parts[2], "removal")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	return installs, updates, removals, true
+}
+
+func parsePoetryOperationPart(part, singular string) (int, bool) {
+	fields := strings.Fields(strings.TrimSpace(part))
+	if len(fields) != 2 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	want := singular
+	if count != 1 {
+		switch singular {
+		case "removal":
+			want = "removals"
+		default:
+			want = singular + "s"
 		}
 	}
-	return stdout, false
+	return count, fields[1] == want
+}
+
+func poetryPackageBulletLineOK(line string) bool {
+	for _, prefix := range []string{"- Installing ", "- Updating ", "- Removing "} {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		detail := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		return detail != "" && strings.Contains(detail, "(") && strings.Contains(detail, ")")
+	}
+	return false
+}
+
+func poetryOperationsSummary(installs, updates, removals int) string {
+	return fmt.Sprintf("%d %s, %d %s, %d %s",
+		installs, pluralWord(installs, "install", "installs"),
+		updates, pluralWord(updates, "update", "updates"),
+		removals, pluralWord(removals, "removal", "removals"))
+}
+
+func compactUvPackageSuccess(stdout []byte, label string) ([]byte, bool) {
+	text := string(stdout)
+	counts := map[string]int{}
+	rowOperations := 0
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if packageOutputLineUnsafe(trimmed, lower) {
+			return stdout, false
+		}
+		if strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "~ ") {
+			if strings.TrimSpace(trimmed[2:]) == "" {
+				return stdout, false
+			}
+			rowOperations++
+			continue
+		}
+		matched := false
+		for _, verb := range []string{"Resolved", "Prepared", "Installed", "Uninstalled", "Updated", "Audited"} {
+			if count, ok := parseUvPackageCountLine(trimmed, verb); ok {
+				counts[strings.ToLower(verb)] = count
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Using CPython ") ||
+			strings.HasPrefix(trimmed, "Using Python ") ||
+			strings.HasPrefix(trimmed, "Creating virtual environment at: ") ||
+			strings.HasPrefix(trimmed, "Creating virtual environment with ") {
+			continue
+		}
+		return stdout, false
+	}
+	if len(counts) == 0 {
+		return stdout, false
+	}
+	changed := counts["installed"] + counts["uninstalled"] + counts["updated"]
+	if rowOperations > 0 {
+		if changed == 0 || rowOperations != changed {
+			return stdout, false
+		}
+	}
+	if counts["installed"] == 0 && counts["uninstalled"] == 0 && counts["updated"] == 0 && counts["audited"] == 0 {
+		return stdout, false
+	}
+	parts := make([]string, 0, 4)
+	for _, key := range []string{"resolved", "prepared", "installed", "uninstalled", "updated", "audited"} {
+		count, ok := counts[key]
+		if !ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d %s", key, count, pluralWord(count, "package", "packages")))
+	}
+	out := []byte("[" + label + "] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func parseUvPackageCountLine(line, verb string) (int, bool) {
+	if !strings.HasPrefix(line, verb+" ") {
+		return 0, false
+	}
+	fields := strings.Fields(line)
+	if len(fields) < 4 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[1])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	if fields[2] != pluralWord(count, "package", "packages") || fields[3] != "in" {
+		return 0, false
+	}
+	return count, true
+}
+
+func packageOutputLineUnsafe(trimmed, lower string) bool {
+	if isPackageErrorSummaryLine(trimmed, lower) {
+		return true
+	}
+	for _, marker := range []string{
+		"warning", "warn ", "warn:", "deprecated", "deprecation", "vulnerab",
+		"failed", "failure", "fatal", "panic", "exception", "traceback",
+		"skipped", "pending", "todo", "incomplete", "yanked", "conflict",
+		"could not", "cannot", "not found", "no matching version",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return buildOutputLineHasSourceLocationPrefix(trimmed)
+}
+
+func pluralWord(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
 }
 
 func isGoModCompactArgv(argv []string) bool {

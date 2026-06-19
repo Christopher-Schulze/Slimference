@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -301,6 +302,225 @@ func TestTryCompactPackageOutput_missingBranches(t *testing.T) {
 	swYarn, ok := TryCompactSwiftPackageResolve([]string{"yarn", "swift", "package", "resolve"}, []byte(""))
 	if !ok || string(swYarn) != "[swift package resolve] ok\n" {
 		t.Fatalf("yarn swift package resolve: ok=%v %q", ok, swYarn)
+	}
+}
+
+func TestTryCompactPoetryInstallNonEmptySuccess(t *testing.T) {
+	t.Parallel()
+
+	input := poetryInstallCleanFixture(80)
+	out, ok := TryCompactPoetryInstall([]string{"poetry", "install"}, []byte(input))
+	if !ok {
+		t.Fatal("expected poetry install clean success to compact")
+	}
+	got := string(out)
+	if got != "[poetry install] ok (80 installs, 0 updates, 0 removals; lock file written)\n" {
+		t.Fatalf("unexpected poetry summary: %q", got)
+	}
+	if len(out) >= len(input) || strings.Contains(got, "package-079") {
+		t.Fatalf("poetry summary did not shrink or leaked package rows: %q", got)
+	}
+
+	wrapped, ok := TryCompactPoetryInstall([]string{"pnpm", "exec", "poetry", "install"}, []byte(input))
+	if !ok || string(wrapped) != got {
+		t.Fatalf("pnpm exec poetry install: ok=%v out=%q", ok, wrapped)
+	}
+	chain, ok := TryCompactPackageOutput([]string{"yarn", "poetry", "install"}, []byte(input))
+	if !ok || string(chain) != got {
+		t.Fatalf("package chain poetry install: ok=%v out=%q", ok, chain)
+	}
+
+	upToDate := "Installing dependencies from lock file\n\nNo dependencies to install or update\nInstalling the current project: slimtest (0.1.0)\n"
+	upToDateOut, ok := TryCompactPoetryInstall([]string{"poetry", "install"}, []byte(upToDate))
+	if !ok || string(upToDateOut) != "[poetry install] ok (up to date; current project installed)\n" {
+		t.Fatalf("poetry up-to-date: ok=%v out=%q", ok, upToDateOut)
+	}
+}
+
+func TestTryCompactPoetryInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := poetryInstallCleanFixture(3)
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "wrong command", argv: []string{"poetry", "update"}, stdout: clean},
+		{name: "warning", argv: []string{"poetry", "install"}, stdout: "Warning: lock file is not consistent\n" + clean},
+		{name: "error", argv: []string{"poetry", "install"}, stdout: "Installing dependencies from lock file\n\nError: package resolution failed\n"},
+		{name: "unknown line", argv: []string{"poetry", "install"}, stdout: "Installing dependencies from lock file\nResolving dependencies...\nNo dependencies to install or update\n"},
+		{name: "count mismatch", argv: []string{"poetry", "install"}, stdout: "Installing dependencies from lock file\nPackage operations: 2 installs, 0 updates, 0 removals\n  - Installing package-000 (1.0.0)\n"},
+		{name: "non-shrinking", argv: []string{"poetry", "install"}, stdout: "No changes.\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactPoetryInstall(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe poetry output compacted: ok=%v out=%q", ok, out)
+			}
+		})
+	}
+}
+
+func TestTryCompactUvInstallNonEmptySuccess(t *testing.T) {
+	t.Parallel()
+
+	syncInput := uvPackageCleanFixture(80, true)
+	syncOut, ok := TryCompactUvSync([]string{"uv", "sync"}, []byte(syncInput))
+	if !ok {
+		t.Fatal("expected uv sync clean success to compact")
+	}
+	wantSync := "[uv sync] ok (resolved 80 packages; prepared 80 packages; installed 80 packages; audited 80 packages)\n"
+	if string(syncOut) != wantSync {
+		t.Fatalf("unexpected uv sync summary: %q", syncOut)
+	}
+	if len(syncOut) >= len(syncInput) || strings.Contains(string(syncOut), "uv-package-079") {
+		t.Fatalf("uv sync summary did not shrink or leaked package rows: %q", syncOut)
+	}
+
+	wrapped, ok := TryCompactUvSync([]string{"pnpm", "exec", "uv", "sync"}, []byte(syncInput))
+	if !ok || string(wrapped) != wantSync {
+		t.Fatalf("pnpm exec uv sync: ok=%v out=%q", ok, wrapped)
+	}
+	chain, ok := TryCompactPackageOutput([]string{"yarn", "uv", "sync"}, []byte(syncInput))
+	if !ok || string(chain) != wantSync {
+		t.Fatalf("package chain uv sync: ok=%v out=%q", ok, chain)
+	}
+
+	pipInput := uvPackageCleanFixture(40, false)
+	pipOut, ok := TryCompactUvPipInstall([]string{"uv", "pip", "install", "requests"}, []byte(pipInput))
+	if !ok {
+		t.Fatal("expected uv pip install clean success to compact")
+	}
+	wantPip := "[uv pip install] ok (resolved 40 packages; prepared 40 packages; installed 40 packages)\n"
+	if string(pipOut) != wantPip {
+		t.Fatalf("unexpected uv pip summary: %q", pipOut)
+	}
+}
+
+func TestTryCompactUvInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := uvPackageCleanFixture(3, true)
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "wrong command", argv: []string{"uv", "run", "pip", "install"}, stdout: clean},
+		{name: "warning", argv: []string{"uv", "sync"}, stdout: "warning: package is yanked\n" + clean},
+		{name: "error", argv: []string{"uv", "sync"}, stdout: "Resolved 3 packages in 10ms\nerror: No solution found when resolving dependencies\n"},
+		{name: "unknown line", argv: []string{"uv", "sync"}, stdout: "Resolved 3 packages in 10ms\nDownloading package metadata\nAudited 3 packages in 1ms\n"},
+		{name: "count mismatch", argv: []string{"uv", "sync"}, stdout: "Resolved 2 packages in 1ms\nInstalled 2 packages in 1ms\n + uv-package-000==1.0.0\n"},
+		{name: "non-shrinking", argv: []string{"uv", "sync"}, stdout: "Audited 1 package in 1ms\n"},
+		{name: "empty argv", argv: nil, stdout: ""},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactUvSync(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe uv sync output compacted: ok=%v out=%q", ok, out)
+			}
+		})
+	}
+}
+
+func TestPackageInstallParserHelpers(t *testing.T) {
+	t.Parallel()
+
+	installs, updates, removals, ok := parsePoetryPackageOperations("Package operations: 1 install, 2 updates, 1 removal")
+	if !ok || installs != 1 || updates != 2 || removals != 1 {
+		t.Fatalf("poetry package operations parse failed: installs=%d updates=%d removals=%d ok=%v", installs, updates, removals, ok)
+	}
+
+	badPoetryOperations := []string{
+		"Package operations: 1 installs, 0 updates, 0 removals",
+		"Package operations: one install, 0 updates, 0 removals",
+		"Package operations: 1 install, 0 updates",
+		"Package operations: 1 install, 0 updates, -1 removals",
+	}
+	for _, input := range badPoetryOperations {
+		input := input
+		t.Run("bad poetry operations "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, _, _, ok := parsePoetryPackageOperations(input); ok {
+				t.Fatalf("invalid poetry operations parsed: %q", input)
+			}
+		})
+	}
+
+	if !poetryPackageBulletLineOK("- Updating package-a (1.0.0 -> 1.1.0)") {
+		t.Fatal("valid poetry update bullet rejected")
+	}
+	if poetryPackageBulletLineOK("- Installing package-a") {
+		t.Fatal("poetry bullet without version/detail parens accepted")
+	}
+
+	count, ok := parseUvPackageCountLine("Installed 1 package in 4ms", "Installed")
+	if !ok || count != 1 {
+		t.Fatalf("uv singular package count parse failed: count=%d ok=%v", count, ok)
+	}
+	badUvCounts := []string{
+		"Installed one package in 4ms",
+		"Installed 1 packages in 4ms",
+		"Installed 2 package in 4ms",
+		"Installed 2 packages",
+		"Prepared 2 packages after 4ms",
+	}
+	for _, input := range badUvCounts {
+		input := input
+		t.Run("bad uv count "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseUvPackageCountLine(input, strings.Fields(input)[0]); ok {
+				t.Fatalf("invalid uv package count parsed: %q", input)
+			}
+		})
+	}
+}
+
+func TestTryCompactPackageInstallNonEmptyEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	poetryMixed := `Installing dependencies from lock file
+Package operations: 1 install, 1 update, 1 removal
+  - Installing alpha (1.0.0)
+  - Updating beta (1.0.0 -> 1.1.0)
+  - Removing oldpkg (0.9.0)
+`
+	poetryOut, ok := TryCompactPoetryInstall([]string{"poetry", "install"}, []byte(poetryMixed))
+	if !ok || string(poetryOut) != "[poetry install] ok (1 install, 1 update, 1 removal)\n" {
+		t.Fatalf("poetry mixed operations: ok=%v out=%q", ok, poetryOut)
+	}
+
+	poetryBadCurrentProject := "Installing dependencies from lock file\nInstalling the current project: \n"
+	if out, ok := TryCompactPoetryInstall([]string{"poetry", "install"}, []byte(poetryBadCurrentProject)); ok || string(out) != poetryBadCurrentProject {
+		t.Fatalf("empty current project compacted: ok=%v out=%q", ok, out)
+	}
+
+	uvUpdate := `Using Python 3.12.4
+Resolved 2 packages in 2ms
+Updated 2 packages in 1ms
+ ~ alpha==1.1.0
+ ~ beta==2.0.0
+`
+	uvOut, ok := TryCompactUvSync([]string{"uv", "sync"}, []byte(uvUpdate))
+	if !ok || string(uvOut) != "[uv sync] ok (resolved 2 packages; updated 2 packages)\n" {
+		t.Fatalf("uv update rows: ok=%v out=%q", ok, uvOut)
+	}
+
+	uvRowsWithoutChangedCount := "Resolved 1 package in 1ms\nAudited 1 package in 1ms\n + alpha==1.0.0\n"
+	if out, ok := TryCompactUvSync([]string{"uv", "sync"}, []byte(uvRowsWithoutChangedCount)); ok || string(out) != uvRowsWithoutChangedCount {
+		t.Fatalf("uv row without changed count compacted: ok=%v out=%q", ok, out)
+	}
+
+	uvWarnColon := "Resolved 1 package in 1ms\nwarn: alpha is yanked\nInstalled 1 package in 1ms\n + alpha==1.0.0\n"
+	if out, ok := TryCompactUvSync([]string{"uv", "sync"}, []byte(uvWarnColon)); ok || string(out) != uvWarnColon {
+		t.Fatalf("uv warn: output compacted: ok=%v out=%q", ok, out)
 	}
 }
 
@@ -616,4 +836,30 @@ func TestExtractPkgSummary(t *testing.T) {
 	if strings.Count(out5, "npm ERR!") != 12 {
 		t.Fatalf("expected 12 capped error lines, got %q", out5)
 	}
+}
+
+func poetryInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	out.WriteString("Installing dependencies from lock file\n\n")
+	fmt.Fprintf(&out, "Package operations: %d %s, 0 updates, 0 removals\n\n", packages, pluralWord(packages, "install", "installs"))
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "  - Installing package-%03d (1.0.%d)\n", i, i)
+	}
+	out.WriteString("\nWriting lock file\n")
+	return out.String()
+}
+
+func uvPackageCleanFixture(packages int, audit bool) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Using CPython 3.12.4 interpreter at: /usr/bin/python3\n")
+	fmt.Fprintf(&out, "Resolved %d %s in 23ms\n", packages, pluralWord(packages, "package", "packages"))
+	fmt.Fprintf(&out, "Prepared %d %s in 42ms\n", packages, pluralWord(packages, "package", "packages"))
+	fmt.Fprintf(&out, "Installed %d %s in 5ms\n", packages, pluralWord(packages, "package", "packages"))
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, " + uv-package-%03d==1.0.%d\n", i, i)
+	}
+	if audit {
+		fmt.Fprintf(&out, "Audited %d %s in 1ms\n", packages, pluralWord(packages, "package", "packages"))
+	}
+	return out.String()
 }

@@ -112,6 +112,11 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	npmInstallWarning := "npm warn deprecated left-pad@1.3.0: use String.prototype.padStart()\n" + npmInstallClean
 	npmInstallVulnerability := strings.Replace(npmInstallClean, "found 0 vulnerabilities", "3 vulnerabilities (1 moderate, 2 high)", 1)
 	pipInstallClean := wssPipInstallCleanFixture(70)
+	poetryInstallClean := wssPoetryInstallCleanFixture(70)
+	poetryInstallWarning := "Warning: lock file is not consistent\n" + poetryInstallClean
+	uvSyncClean := wssUvSyncCleanFixture(70)
+	uvSyncError := "Resolved 70 packages in 10ms\nerror: No solution found when resolving dependencies\n"
+	uvPipInstallClean := wssUvPipInstallCleanFixture(70)
 
 	tests := []struct {
 		name      string
@@ -175,6 +180,9 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "npm install clean success", command: "npm install", output: npmInstallClean, wantSafe: true},
 		{name: "pip install clean success", command: "pip install -r requirements.txt", output: pipInstallClean, wantSafe: true},
+		{name: "poetry install clean success", command: "poetry install", output: poetryInstallClean, wantSafe: true},
+		{name: "uv sync clean success", command: "uv sync", output: uvSyncClean, wantSafe: true},
+		{name: "uv pip install clean success", command: "uv pip install requests", output: uvPipInstallClean, wantSafe: true},
 		{name: "ls small listing", command: "ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "cd wrapped ls small listing", command: "cd /repo/project && ls internal/proxy", output: listingOutput, wantSafe: true},
 		{name: "format path list", command: "gofmt -l .", output: listingOutput, wantSafe: true},
@@ -242,6 +250,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
 		{name: "npm install warning", command: "npm install", output: npmInstallWarning, wantGuard: "package install warnings stay guarded"},
 		{name: "npm install vulnerability", command: "npm install", output: npmInstallVulnerability, wantGuard: "package install vulnerability findings stay guarded"},
+		{name: "poetry install warning", command: "poetry install", output: poetryInstallWarning, wantGuard: "poetry install warnings stay guarded"},
+		{name: "uv sync error", command: "uv sync", output: uvSyncError, wantGuard: "uv sync errors stay guarded"},
 		{name: "empty build envelope", command: "go build ./...", output: emptyBuildEnvelope, wantGuard: "empty success envelopes stay guarded because they do not save bytes"},
 		{name: "build success with warning", command: "go build ./...", output: goBuildWarning, wantGuard: "build warnings stay guarded"},
 		{name: "ls long format", command: "ls -la internal/proxy", output: "total 16\n-rw-r--r--  1 user group 1200 Jan 01 00:00 wsmitm_phasef.go\n", wantGuard: "rich ls output stays guarded"},
@@ -515,34 +525,51 @@ func TestWSSStatefulSafePackageManagerTestScriptTranscriptAllPassCompactsFullHis
 }
 
 func TestWSSStatefulSafePackageInstallCleanSuccessCompactsFullHistoryTurn(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Compression.OutputReduce.StopSequencesEnabled = false
-	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
-	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
-	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
-	p := New(cfg)
-	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
-	envelope := "Chunk ID: package-install-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
-		wssNpmInstallCleanFixture(160)
+	tests := []struct {
+		name      string
+		command   string
+		output    string
+		want      string
+		forbidden string
+	}{
+		{name: "npm", command: "npm install", output: wssNpmInstallCleanFixture(160), want: "[npm install] added 160 packages", forbidden: "package_159"},
+		{name: "poetry", command: "poetry install", output: wssPoetryInstallCleanFixture(160), want: "[poetry install] ok (160 installs, 0 updates, 0 removals", forbidden: "package-159"},
+		{name: "uv sync", command: "uv sync", output: wssUvSyncCleanFixture(160), want: "[uv sync] ok (resolved 160 packages", forbidden: "uv-package-159"},
+		{name: "uv pip install", command: "uv pip install requests", output: wssUvPipInstallCleanFixture(160), want: "[uv pip install] ok (resolved 160 packages", forbidden: "uv-package-159"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.Compression.OutputReduce.StopSequencesEnabled = false
+			cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+			cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+			p := New(cfg)
+			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+			envelope := "Chunk ID: package-install-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+				tt.output
 
-	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-install-clean", "call_package_install_clean", "npm install", envelope, "stateful-package-install-safe-session"))
-	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
-	if err != nil {
-		t.Fatalf("handle package install clean success request: %v", err)
-	}
-	if !replace {
-		t.Fatal("full-history package install clean success output should compact")
-	}
-	body := string(env.Body)
-	if !strings.Contains(body, "[npm install] added 160 packages") ||
-		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
-		strings.Contains(body, "package_159") {
-		t.Fatalf("package install clean success output was not archive-backed compacted: %s", body)
-	}
-	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
-		summary.DebugFacts["wss.request_shape"] != "full_history" {
-		t.Fatalf("stateful-safe package install clean success should save without structured guard: %+v", summary)
+			env := parseWSJSON(t, wssCommandOutputRequestBody("resp-package-install-clean", "call_package_install_clean", tt.command, envelope, "stateful-package-install-safe-session"))
+			replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+			if err != nil {
+				t.Fatalf("handle package install clean success request: %v", err)
+			}
+			if !replace {
+				t.Fatal("full-history package install clean success output should compact")
+			}
+			body := string(env.Body)
+			if !strings.Contains(body, tt.want) ||
+				!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+				strings.Contains(body, tt.forbidden) {
+				t.Fatalf("package install clean success output was not archive-backed compacted: %s", body)
+			}
+			summary := p.DebugRecorder().Last(1, false)[0]
+			if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+				summary.DebugFacts["wss.request_shape"] != "full_history" {
+				t.Fatalf("stateful-safe package install clean success should save without structured guard: %+v", summary)
+			}
+		})
 	}
 }
 
@@ -2713,6 +2740,47 @@ func wssNpmInstallCleanFixture(packages int) string {
 	out.WriteString("  run `npm fund` for details\n\n")
 	out.WriteString("found 0 vulnerabilities\n")
 	return out.String()
+}
+
+func wssPoetryInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	out.WriteString("Installing dependencies from lock file\n\n")
+	fmt.Fprintf(&out, "Package operations: %d %s, 0 updates, 0 removals\n\n", packages, wssPluralWord(packages, "install", "installs"))
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "  - Installing package-%03d (1.0.%d)\n", i, i)
+	}
+	out.WriteString("\nWriting lock file\n")
+	return out.String()
+}
+
+func wssUvSyncCleanFixture(packages int) string {
+	return wssUvPackageCleanFixture(packages, true)
+}
+
+func wssUvPipInstallCleanFixture(packages int) string {
+	return wssUvPackageCleanFixture(packages, false)
+}
+
+func wssUvPackageCleanFixture(packages int, audit bool) string {
+	var out strings.Builder
+	out.WriteString("Using CPython 3.12.4 interpreter at: /usr/bin/python3\n")
+	fmt.Fprintf(&out, "Resolved %d %s in 23ms\n", packages, wssPluralWord(packages, "package", "packages"))
+	fmt.Fprintf(&out, "Prepared %d %s in 42ms\n", packages, wssPluralWord(packages, "package", "packages"))
+	fmt.Fprintf(&out, "Installed %d %s in 5ms\n", packages, wssPluralWord(packages, "package", "packages"))
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, " + uv-package-%03d==1.0.%d\n", i, i)
+	}
+	if audit {
+		fmt.Fprintf(&out, "Audited %d %s in 1ms\n", packages, wssPluralWord(packages, "package", "packages"))
+	}
+	return out.String()
+}
+
+func wssPluralWord(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
 }
 
 func wssPipInstallCleanFixture(packages int) string {
