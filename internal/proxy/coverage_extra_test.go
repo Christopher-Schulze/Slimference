@@ -251,10 +251,32 @@ func TestWindowComplexityHelpers(t *testing.T) {
 		{ToolInput: `{"filename":"src/main.go"}`},
 		{ToolInput: `{"filepath":"src/other.go"}`},
 		{ToolInput: `{"file":"README.md"}`},
+		{ToolInput: `{"absolute_path":"/tmp/config.yaml"}`},
+		{ToolInput: `{"arguments":{"path":"nested/config.toml"}}`},
+		{ToolInput: `{"input":{"file_path":"nested/input.go"}}`},
+		{ToolInput: `{"params":{"file":"nested/params.env"}}`},
 	} {
 		if path := windowBlockFilePath(block); path == "" {
 			t.Fatalf("expected path from block %+v", block)
 		}
+	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "mcp.read_file",
+		ToolInput: `{"arguments":{"target":"docs/todo.md"},"current_working_directory":"/repo/project"}`,
+	}); path != "/repo/project/docs/todo.md" {
+		t.Fatalf("nested read-tool target path = %q", path)
+	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "local_file_read",
+		ToolInput: `{"input":{"source_path":"docs/spec.md"},"cwd":"/repo/project"}`,
+	}); path != "/repo/project/docs/spec.md" {
+		t.Fatalf("nested read-tool source path = %q", path)
+	}
+	if path := windowBlockFilePath(types.ContentBlock{
+		ToolName:  "deploy",
+		ToolInput: `{"target":"production"}`,
+	}); path != "" {
+		t.Fatalf("non-read target must not count as a file path: %q", path)
 	}
 	if path := windowBlockFilePath(types.ContentBlock{ToolInput: `{"path":123}`}); path != "" {
 		t.Fatalf("malformed path parse = %q", path)

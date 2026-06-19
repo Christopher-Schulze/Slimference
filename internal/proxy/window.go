@@ -170,15 +170,45 @@ func structuredWindowBlockFilePath(block types.ContentBlock) (string, bool) {
 		return "", false
 	}
 	workdir := proxyToolWorkdir(fields)
-	for _, key := range []string{"path", "file_path", "filename", "filepath", "file"} {
-		if path := strings.TrimSpace(rawJSONString(fields[key])); path != "" {
-			return proxyPathWithWorkdir(path, workdir), true
+	if path := structuredWindowPathFromFields(fields, workdir, looksLikeReadTool(block.ToolName)); path != "" {
+		return path, true
+	}
+	for _, key := range []string{"arguments", "input", "params", "parameters"} {
+		if path := structuredWindowNestedPath(fields[key], workdir, looksLikeReadTool(block.ToolName)); path != "" {
+			return path, true
 		}
 	}
 	if req := readRequestFromCommandLine(proxyLayer0CommandLine(block)); req.FilePath != "" {
 		return req.FilePath, true
 	}
 	return "", true
+}
+
+func structuredWindowNestedPath(raw json.RawMessage, workdir string, readTool bool) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ""
+	}
+	return structuredWindowPathFromFields(fields, workdir, readTool)
+}
+
+func structuredWindowPathFromFields(fields map[string]json.RawMessage, workdir string, readTool bool) string {
+	for _, key := range []string{"path", "file_path", "filename", "filepath", "file", "absolute_path"} {
+		if path := strings.TrimSpace(rawJSONString(fields[key])); path != "" {
+			return proxyPathWithWorkdir(path, workdir)
+		}
+	}
+	if readTool {
+		for _, key := range []string{"uri", "target", "source_path"} {
+			if path := strings.TrimSpace(rawJSONString(fields[key])); path != "" {
+				return proxyPathWithWorkdir(path, workdir)
+			}
+		}
+	}
+	return ""
 }
 
 func scanWindowBlockFilePath(input string) string {
