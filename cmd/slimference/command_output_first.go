@@ -199,6 +199,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		switch sub {
 		case "status", "ls-files":
 			return true
+		case "grep":
+			return true
 		case "diff":
 			return commandOutputFirstGitDiffMetadataOnly(args)
 		default:
@@ -240,6 +242,11 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "ls-files":
 			compacted, ok := filter.TryCompactGitLsFiles(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "grep":
+			compacted, ok := filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
+				MinRetainedPct: 100,
+			})
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
 			return nil, false

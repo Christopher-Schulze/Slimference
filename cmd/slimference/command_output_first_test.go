@@ -145,6 +145,9 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	if commandOutputFirstAllowCapture("git", []string{"show", "HEAD"}) {
 		t.Fatal("git show must not be captured")
 	}
+	if !commandOutputFirstAllowCapture("git", []string{"grep", "-n", "TODO", "--", "internal"}) {
+		t.Fatal("git grep should be captured by the command-output-first shim")
+	}
 	if !commandOutputFirstAllowCapture("rg", []string{"TODO"}) {
 		t.Fatal("rg should be captured by the command-output-first shim")
 	}
@@ -209,6 +212,59 @@ func TestCommandOutputFirstShimRgEmptyFullPasses(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRg, "--", "missing"}, &bytes.Buffer{}, &stdout, &stderr)
 	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimGitGrepCompactsWithFullRetentionAndAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 1; i <= 34; i++ {
+		b.WriteString("internal/proxy/long/path/handler.go:")
+		b.WriteString("42")
+		b.WriteString(":func handleGitGrepResult() { return nil } // repeated search payload\n")
+	}
+	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=git", "--real-bin=" + realGit, "--", "grep", "-n", "handleGitGrepResult", "--", "internal/proxy"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[git grep] 34 match(es) in 1 file(s)") || !strings.Contains(got, "internal/proxy/long/path/handler.go") {
+		t.Fatalf("unexpected compacted git grep stdout=%q", got)
+	}
+	if strings.Contains(got, "[+") {
+		t.Fatalf("git grep command-output-first must retain every match in first product slice: %q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:git] git grep -n handleGitGrepResult -- internal/proxy") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGitGrepNoMatchFullPasses(t *testing.T) {
+	realGit := writeFakeGit(t, "#!/bin/sh\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=git", "--real-bin=" + realGit, "--", "grep", "-n", "missing"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
