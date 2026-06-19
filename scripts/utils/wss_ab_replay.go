@@ -784,6 +784,7 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 		Payload   json.RawMessage `json:"payload"`
 		Frame     json.RawMessage `json:"frame"`
 		Mutated   bool            `json:"mutated"`
+		Sequence  int64           `json:"sequence"`
 	}
 	if err := json.Unmarshal(line, &rec); err != nil {
 		return proxy.WSSABReplayFrame{}, fmt.Errorf("decode replay record: %w", err)
@@ -800,7 +801,7 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 	if err != nil {
 		return proxy.WSSABReplayFrame{}, err
 	}
-	return proxy.WSSABReplayFrame{Direction: direction, Payload: body, Mutated: rec.Mutated}, nil
+	return proxy.WSSABReplayFrame{Direction: direction, Payload: body, Mutated: rec.Mutated, Sequence: rec.Sequence}, nil
 }
 
 func parseWSSABReplayDirection(raw string) (wsmitm.Direction, bool) {

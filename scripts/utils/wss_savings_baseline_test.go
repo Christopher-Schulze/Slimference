@@ -21,7 +21,8 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 	writeProofSearchFrames(t, rootSearchPath, "baseline-root-search")
 	writeBaselineDeltaSearchFrames(t, deltaSearchPath, "baseline-delta-search")
 	writeJSONLFile(t, t354Path,
-		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequest("resp-before", "call_mutated"), true),
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 180), false),
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 40), true),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
 		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
@@ -65,8 +66,20 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 		report.Totals.T354UnsafeCandidates != 0 {
 		t.Fatalf("T354 downstream proof counters missing: %+v", report.Totals)
 	}
+	if report.Totals.T354CapturedLocalSavedTokens <= 0 ||
+		report.Totals.T354RetryOrResendExtraTokens != 0 ||
+		report.Totals.T354NetCapturedLocalSavedTokens <= 0 ||
+		report.Totals.T354ProviderInputTokens != 2000 ||
+		report.Totals.T354ProviderCachedTokens != 600 ||
+		report.Totals.T354ProviderOutputTokens != 24 {
+		t.Fatalf("T354 economics counters missing: %+v", report.Totals)
+	}
 	if !strings.Contains(strings.Join(report.Findings, "\n"), "t354_candidates_passing=1") {
 		t.Fatalf("findings did not surface T354 passing candidate: %+v", report.Findings)
+	}
+	if !strings.Contains(strings.Join(report.Findings, "\n"), "t354_captured_local_saved_tokens_estimate=") ||
+		!strings.Contains(strings.Join(report.Findings, "\n"), "t354_provider_cached_tokens=600") {
+		t.Fatalf("findings did not surface T354 economics: %+v", report.Findings)
 	}
 }
 

@@ -124,6 +124,13 @@ type wssSavingsBaselineTotal struct {
 	T354CandidatesPassing              int `json:"t354_candidates_passing"`
 	T354MissingFollowingTurnCandidates int `json:"t354_missing_following_turn_candidates"`
 	T354UnsafeCandidates               int `json:"t354_unsafe_candidates"`
+	T354ReplayLocalSavedTokens         int `json:"t354_replay_local_saved_tokens"`
+	T354CapturedLocalSavedTokens       int `json:"t354_captured_local_saved_tokens_estimate"`
+	T354RetryOrResendExtraTokens       int `json:"t354_retry_or_resend_extra_tokens_estimate"`
+	T354NetCapturedLocalSavedTokens    int `json:"t354_net_captured_local_saved_tokens_estimate"`
+	T354ProviderInputTokens            int `json:"t354_provider_input_tokens"`
+	T354ProviderCachedTokens           int `json:"t354_provider_cached_tokens"`
+	T354ProviderOutputTokens           int `json:"t354_provider_output_tokens"`
 }
 
 type wssSavingsBaselineSkip struct {
@@ -485,6 +492,13 @@ func applyWSSSavingsBaselineRow(total *wssSavingsBaselineTotal, row wssSavingsBa
 	if row.T354DownstreamProof.GatePassed {
 		total.T354PassingFiles++
 	}
+	total.T354ReplayLocalSavedTokens += row.T354DownstreamProof.ReplayLocalSavedTokens
+	total.T354CapturedLocalSavedTokens += row.T354DownstreamProof.CapturedLocalSavedTokens
+	total.T354RetryOrResendExtraTokens += row.T354DownstreamProof.RetryOrResendExtraTokens
+	total.T354NetCapturedLocalSavedTokens += row.T354DownstreamProof.NetCapturedLocalSavedTokens
+	total.T354ProviderInputTokens += row.T354DownstreamProof.ProviderUsage.InputTokens
+	total.T354ProviderCachedTokens += row.T354DownstreamProof.ProviderUsage.CachedTokens
+	total.T354ProviderOutputTokens += row.T354DownstreamProof.ProviderUsage.OutputTokens
 	for _, candidate := range row.T354DownstreamProof.Candidates {
 		total.T354MutatedCandidates++
 		switch candidate.Shape {
@@ -542,6 +556,15 @@ func wssSavingsBaselineFindings(report wssSavingsBaselineReport) []string {
 	if report.Totals.T354MissingFollowingTurnCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("t354_missing_following_turn_candidates=%d", report.Totals.T354MissingFollowingTurnCandidates))
 	}
+	if report.Totals.T354CapturedLocalSavedTokens > 0 {
+		findings = append(findings, fmt.Sprintf("t354_captured_local_saved_tokens_estimate=%d", report.Totals.T354CapturedLocalSavedTokens))
+	}
+	if report.Totals.T354RetryOrResendExtraTokens > 0 {
+		findings = append(findings, fmt.Sprintf("t354_retry_or_resend_extra_tokens_estimate=%d", report.Totals.T354RetryOrResendExtraTokens))
+	}
+	if report.Totals.T354ProviderCachedTokens > 0 {
+		findings = append(findings, fmt.Sprintf("t354_provider_cached_tokens=%d", report.Totals.T354ProviderCachedTokens))
+	}
 	return findings
 }
 
@@ -596,6 +619,14 @@ func writeWSSSavingsBaselineText(w io.Writer, report wssSavingsBaselineReport) {
 		report.Totals.T354CandidatesPassing,
 		report.Totals.T354UnsafeCandidates,
 		report.Totals.T354MissingFollowingTurnCandidates)
+	fmt.Fprintf(w, "  t354_economics:    replay_local_saved=%d captured_local_saved_est=%d retry_or_resend_extra_est=%d net_captured_local_saved_est=%d provider_input=%d provider_cached=%d provider_output=%d\n",
+		report.Totals.T354ReplayLocalSavedTokens,
+		report.Totals.T354CapturedLocalSavedTokens,
+		report.Totals.T354RetryOrResendExtraTokens,
+		report.Totals.T354NetCapturedLocalSavedTokens,
+		report.Totals.T354ProviderInputTokens,
+		report.Totals.T354ProviderCachedTokens,
+		report.Totals.T354ProviderOutputTokens)
 	if report.IncludeUnsafeDeltaLab {
 		fmt.Fprintf(w, "  unsafe_delta_lab:  files=%d extra_tokens=%d extra_bytes=%d safety_issues=%d\n",
 			report.Totals.UnsafeDeltaLabPositiveFiles,

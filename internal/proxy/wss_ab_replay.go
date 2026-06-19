@@ -25,6 +25,7 @@ type WSSABReplayFrame struct {
 	Direction wsmitm.Direction
 	Payload   []byte
 	Mutated   bool
+	Sequence  int64
 }
 
 // WSSABReplayOptions contains proof-only controls for offline replay. These

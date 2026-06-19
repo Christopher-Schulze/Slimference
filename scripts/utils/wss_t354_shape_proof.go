@@ -8,6 +8,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
 type wssT354ShapeProofFlags struct {
@@ -29,52 +30,75 @@ type wssT354ShapeProofReport struct {
 }
 
 type wssT354ShapeProofTotal struct {
-	Frames                         int               `json:"frames"`
-	RequestTurns                   int               `json:"request_turns"`
-	RequestShapes                  replayShapeCounts `json:"request_shapes"`
-	MutatedRequests                int               `json:"mutated_requests"`
-	MutatedToolOutputCandidates    int               `json:"mutated_tool_output_candidates"`
-	MutatedDeltaCandidates         int               `json:"mutated_delta_candidates"`
-	MutatedFullHistoryCandidates   int               `json:"mutated_full_history_candidates"`
-	CandidatesWithCleanCurrentTurn int               `json:"candidates_with_clean_current_turn"`
-	CandidatesWithFollowingTurn    int               `json:"candidates_with_following_turn"`
-	CandidatesWithCleanFollowing   int               `json:"candidates_with_clean_following"`
-	CandidatesPassing              int               `json:"candidates_passing"`
-	UpstreamErrorFrames            int               `json:"upstream_error_frames"`
-	InvalidRequestErrors           int               `json:"invalid_request_errors"`
-	HTTP400Errors                  int               `json:"http_400_errors"`
-	ResponseFailedFrames           int               `json:"response_failed_frames"`
-	Lost                           int               `json:"lost"`
-	MissingFollowingTurnCandidates int               `json:"missing_following_turn_candidates"`
-	UnsafeCandidates               int               `json:"unsafe_candidates"`
+	Frames                         int                  `json:"frames"`
+	RequestTurns                   int                  `json:"request_turns"`
+	RequestShapes                  replayShapeCounts    `json:"request_shapes"`
+	MutatedRequests                int                  `json:"mutated_requests"`
+	MutatedToolOutputCandidates    int                  `json:"mutated_tool_output_candidates"`
+	MutatedDeltaCandidates         int                  `json:"mutated_delta_candidates"`
+	MutatedFullHistoryCandidates   int                  `json:"mutated_full_history_candidates"`
+	CandidatesWithCleanCurrentTurn int                  `json:"candidates_with_clean_current_turn"`
+	CandidatesWithFollowingTurn    int                  `json:"candidates_with_following_turn"`
+	CandidatesWithCleanFollowing   int                  `json:"candidates_with_clean_following"`
+	CandidatesPassing              int                  `json:"candidates_passing"`
+	UpstreamErrorFrames            int                  `json:"upstream_error_frames"`
+	InvalidRequestErrors           int                  `json:"invalid_request_errors"`
+	HTTP400Errors                  int                  `json:"http_400_errors"`
+	ResponseFailedFrames           int                  `json:"response_failed_frames"`
+	Lost                           int                  `json:"lost"`
+	ReplayLocalSavedTokens         int                  `json:"replay_local_saved_tokens"`
+	CapturedLocalSavedTokens       int                  `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens       int                  `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens    int                  `json:"net_captured_local_saved_tokens_estimate"`
+	ProviderUsage                  wssT354ProviderUsage `json:"provider_usage"`
+	MissingFollowingTurnCandidates int                  `json:"missing_following_turn_candidates"`
+	UnsafeCandidates               int                  `json:"unsafe_candidates"`
 }
 
 type wssT354ShapeProofRow struct {
-	Path          string                  `json:"path"`
-	Frames        int                     `json:"frames"`
-	RequestTurns  int                     `json:"request_turns"`
-	RequestShapes replayShapeCounts       `json:"request_shapes"`
-	Candidates    []wssT354CandidateProof `json:"candidates,omitempty"`
-	Upstream      wssT354UpstreamProof    `json:"upstream"`
-	Lost          int                     `json:"lost"`
-	GatePassed    bool                    `json:"gate_passed"`
-	GateFailures  []string                `json:"gate_failures,omitempty"`
+	Path                        string                  `json:"path"`
+	Frames                      int                     `json:"frames"`
+	RequestTurns                int                     `json:"request_turns"`
+	RequestShapes               replayShapeCounts       `json:"request_shapes"`
+	Candidates                  []wssT354CandidateProof `json:"candidates,omitempty"`
+	Upstream                    wssT354UpstreamProof    `json:"upstream"`
+	Lost                        int                     `json:"lost"`
+	ReplayLocalSavedTokens      int                     `json:"replay_local_saved_tokens"`
+	CapturedLocalSavedTokens    int                     `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens    int                     `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens int                     `json:"net_captured_local_saved_tokens_estimate"`
+	ProviderUsage               wssT354ProviderUsage    `json:"provider_usage"`
+	GatePassed                  bool                    `json:"gate_passed"`
+	GateFailures                []string                `json:"gate_failures,omitempty"`
 }
 
 type wssT354CandidateProof struct {
-	TurnIndex            int                `json:"turn_index"`
-	Shape                string             `json:"shape"`
-	PreviousResponseID   bool               `json:"previous_response_id"`
-	ToolOutputs          int                `json:"tool_outputs"`
-	CustomToolOutputs    int                `json:"custom_tool_outputs"`
-	CurrentTurnClean     bool               `json:"current_turn_clean"`
-	CurrentTurnHealth    wssT354TurnHealth  `json:"current_turn_health"`
-	FollowingTurnPresent bool               `json:"following_turn_present"`
-	FollowingTurnShape   string             `json:"following_turn_shape,omitempty"`
-	FollowingTurnClean   bool               `json:"following_turn_clean"`
-	FollowingTurnHealth  *wssT354TurnHealth `json:"following_turn_health,omitempty"`
-	UnlockProofPassing   bool               `json:"unlock_proof_passing"`
-	BlockReasons         []string           `json:"block_reasons,omitempty"`
+	TurnIndex                      int                `json:"turn_index"`
+	Shape                          string             `json:"shape"`
+	PreviousResponseID             bool               `json:"previous_response_id"`
+	ToolOutputs                    int                `json:"tool_outputs"`
+	CustomToolOutputs              int                `json:"custom_tool_outputs"`
+	RequestTokensEstimate          int                `json:"request_tokens_estimate"`
+	CapturedOriginalRequestTokens  int                `json:"captured_original_request_tokens_estimate,omitempty"`
+	CapturedLocalSavedTokens       int                `json:"captured_local_saved_tokens_estimate,omitempty"`
+	CurrentTurnClean               bool               `json:"current_turn_clean"`
+	CurrentTurnHealth              wssT354TurnHealth  `json:"current_turn_health"`
+	FollowingTurnPresent           bool               `json:"following_turn_present"`
+	FollowingTurnShape             string             `json:"following_turn_shape,omitempty"`
+	FollowingRequestTokensEstimate int                `json:"following_request_tokens_estimate,omitempty"`
+	RetryOrResendExtraTokens       int                `json:"retry_or_resend_extra_tokens_estimate,omitempty"`
+	FollowingTurnClean             bool               `json:"following_turn_clean"`
+	FollowingTurnHealth            *wssT354TurnHealth `json:"following_turn_health,omitempty"`
+	UnlockProofPassing             bool               `json:"unlock_proof_passing"`
+	BlockReasons                   []string           `json:"block_reasons,omitempty"`
+}
+
+type wssT354ProviderUsage struct {
+	InputTokens      int     `json:"input_tokens"`
+	CachedTokens     int     `json:"cached_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CachedPct        float64 `json:"cached_pct,omitempty"`
+	CompletionFrames int     `json:"completion_frames,omitempty"`
 }
 
 type wssT354TurnHealth struct {
@@ -98,16 +122,20 @@ type wssT354ShapeProofSkip struct {
 }
 
 type wssT354Turn struct {
-	shape              string
-	previousResponseID bool
-	toolOutputs        int
-	customToolOutputs  int
-	mutated            bool
-	terminal           bool
-	errorFrames        int
-	http400Errors      int
-	invalidRequests    int
-	responseFailures   int
+	shape                         string
+	previousResponseID            bool
+	toolOutputs                   int
+	customToolOutputs             int
+	requestTokensEstimate         int
+	capturedOriginalRequestTokens int
+	capturedLocalSavedTokens      int
+	sequence                      int64
+	mutated                       bool
+	terminal                      bool
+	errorFrames                   int
+	http400Errors                 int
+	invalidRequests               int
+	responseFailures              int
 }
 
 const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
@@ -229,9 +257,11 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 	upstream := wssABReplayUpstreamDiagnostics(frames)
 	turns := wssT354TurnsFromFrames(frames)
 	row := wssT354ShapeProofRow{
-		Path:         path,
-		Frames:       len(frames),
-		RequestTurns: len(turns),
+		Path:                   path,
+		Frames:                 len(frames),
+		RequestTurns:           len(turns),
+		ReplayLocalSavedTokens: replay.ReducerTokensSaved,
+		ProviderUsage:          wssT354ProviderUsageFromFrames(frames),
 		Upstream: wssT354UpstreamProof{
 			ErrorFrames:          upstream.ErrorFrames,
 			HTTP400Errors:        upstream.HTTP400Errors,
@@ -249,26 +279,36 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 			continue
 		}
 		candidate := wssT354CandidateProof{
-			TurnIndex:          i,
-			Shape:              turn.shape,
-			PreviousResponseID: turn.previousResponseID,
-			ToolOutputs:        turn.toolOutputs,
-			CustomToolOutputs:  turn.customToolOutputs,
-			CurrentTurnClean:   wssT354TurnClean(turn),
-			CurrentTurnHealth:  wssT354TurnHealthFromTurn(turn),
+			TurnIndex:                     i,
+			Shape:                         turn.shape,
+			PreviousResponseID:            turn.previousResponseID,
+			ToolOutputs:                   turn.toolOutputs,
+			CustomToolOutputs:             turn.customToolOutputs,
+			RequestTokensEstimate:         turn.requestTokensEstimate,
+			CapturedOriginalRequestTokens: turn.capturedOriginalRequestTokens,
+			CapturedLocalSavedTokens:      turn.capturedLocalSavedTokens,
+			CurrentTurnClean:              wssT354TurnClean(turn),
+			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
 		}
 		if i+1 < len(turns) {
 			following := turns[i+1]
 			followingHealth := wssT354TurnHealthFromTurn(following)
 			candidate.FollowingTurnPresent = true
 			candidate.FollowingTurnShape = following.shape
+			candidate.FollowingRequestTokensEstimate = following.requestTokensEstimate
+			if following.shape == "full_history" {
+				candidate.RetryOrResendExtraTokens = following.requestTokensEstimate
+			}
 			candidate.FollowingTurnClean = wssT354TurnClean(following)
 			candidate.FollowingTurnHealth = &followingHealth
 		}
 		candidate.BlockReasons = wssT354CandidateBlockReasons(candidate)
 		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
+		row.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
+		row.RetryOrResendExtraTokens += candidate.RetryOrResendExtraTokens
 		row.Candidates = append(row.Candidates, candidate)
 	}
+	row.NetCapturedLocalSavedTokens = row.CapturedLocalSavedTokens - row.RetryOrResendExtraTokens
 	row.GateFailures = wssT354RowGateFailures(row)
 	row.GatePassed = len(row.GateFailures) == 0
 	return row, nil
@@ -277,23 +317,36 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 	var turns []wssT354Turn
 	current := -1
+	var lastOriginal *wssT354Turn
 	for _, frame := range frames {
 		if frame.Direction == wsmitm.DirClientToServer {
-			root, ok := wssT354FrameObject(frame.Payload)
+			body, root, ok := wssT354RequestBody(frame.Payload)
 			if !ok || !wssT354LooksLikeRequestBody(root) {
+				lastOriginal = nil
 				continue
 			}
 			info := wssT354RequestInfo(root)
+			info.requestTokensEstimate = tokens.Estimate(len(body))
+			info.sequence = frame.Sequence
 			turns = append(turns, info)
 			current = len(turns) - 1
 			if frame.Mutated {
 				turns[current].mutated = true
+				if wssT354SameCapturedSequence(lastOriginal, info) {
+					turns[current].capturedOriginalRequestTokens = lastOriginal.requestTokensEstimate
+					turns[current].capturedLocalSavedTokens = positiveDelta(lastOriginal.requestTokensEstimate, info.requestTokensEstimate)
+				}
+				lastOriginal = nil
+			} else {
+				copyInfo := info
+				lastOriginal = &copyInfo
 			}
 			continue
 		}
 		if current < 0 || frame.Direction != wsmitm.DirServerToClient {
 			continue
 		}
+		lastOriginal = nil
 		env, err := wsmitm.Parse(frame.Payload)
 		if err != nil {
 			continue
@@ -329,6 +382,16 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 	return turns
 }
 
+func wssT354SameCapturedSequence(previous *wssT354Turn, current wssT354Turn) bool {
+	if previous == nil {
+		return false
+	}
+	if previous.sequence == 0 || current.sequence == 0 {
+		return previous.sequence == 0 && current.sequence == 0
+	}
+	return previous.sequence == current.sequence
+}
+
 func wssT354FrameObject(payload []byte) (map[string]json.RawMessage, bool) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &root); err != nil {
@@ -341,6 +404,32 @@ func wssT354FrameObject(payload []byte) (map[string]json.RawMessage, bool) {
 		}
 	}
 	return root, true
+}
+
+func wssT354RequestBody(payload []byte) ([]byte, map[string]json.RawMessage, bool) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return nil, nil, false
+	}
+	for _, key := range []string{"body", "request"} {
+		raw := root[key]
+		if !jsonRawObject(raw) {
+			continue
+		}
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &nested); err == nil && len(nested) > 0 {
+			return append([]byte(nil), raw...), nested, true
+		}
+	}
+	if wssT354LooksLikeRequestBody(root) {
+		return append([]byte(nil), payload...), root, true
+	}
+	return nil, nil, false
+}
+
+func jsonRawObject(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}")
 }
 
 func wssT354LooksLikeRequestBody(root map[string]json.RawMessage) bool {
@@ -411,6 +500,118 @@ func rawJSONScalarString(raw json.RawMessage) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+type wssT354OpenAIUsage struct {
+	InputTokens        int `json:"input_tokens"`
+	PromptTokens       int `json:"prompt_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	CompletionTokens   int `json:"completion_tokens"`
+	InputTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details,omitempty"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+}
+
+func wssT354ProviderUsageFromFrames(frames []proxy.WSSABReplayFrame) wssT354ProviderUsage {
+	var out wssT354ProviderUsage
+	for _, frame := range frames {
+		if frame.Direction != wsmitm.DirServerToClient {
+			continue
+		}
+		usage, ok := wssT354ProviderUsageFromPayload(frame.Payload)
+		if !ok {
+			continue
+		}
+		out.InputTokens += usage.inputTokens()
+		out.CachedTokens += usage.cachedTokens()
+		out.OutputTokens += usage.outputTokens()
+		out.CompletionFrames++
+	}
+	if out.InputTokens > 0 {
+		out.CachedPct = float64(out.CachedTokens) / float64(out.InputTokens) * 100
+	}
+	return out
+}
+
+func wssT354ProviderUsageFromPayload(payload []byte) (wssT354OpenAIUsage, bool) {
+	var envelope struct {
+		Usage    *wssT354OpenAIUsage `json:"usage,omitempty"`
+		Response *struct {
+			Usage *wssT354OpenAIUsage `json:"usage,omitempty"`
+		} `json:"response,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return wssT354OpenAIUsage{}, false
+	}
+	var merged wssT354OpenAIUsage
+	found := false
+	if envelope.Usage != nil {
+		merged = wssT354MergeUsage(merged, *envelope.Usage)
+		found = true
+	}
+	if envelope.Response != nil && envelope.Response.Usage != nil {
+		merged = wssT354MergeUsage(merged, *envelope.Response.Usage)
+		found = true
+	}
+	return merged, found
+}
+
+func wssT354MergeUsage(a, b wssT354OpenAIUsage) wssT354OpenAIUsage {
+	if b.InputTokens > a.InputTokens {
+		a.InputTokens = b.InputTokens
+	}
+	if b.PromptTokens > a.PromptTokens {
+		a.PromptTokens = b.PromptTokens
+	}
+	if b.OutputTokens > a.OutputTokens {
+		a.OutputTokens = b.OutputTokens
+	}
+	if b.CompletionTokens > a.CompletionTokens {
+		a.CompletionTokens = b.CompletionTokens
+	}
+	if b.InputTokensDetails != nil {
+		if a.InputTokensDetails == nil {
+			a.InputTokensDetails = b.InputTokensDetails
+		} else if b.InputTokensDetails.CachedTokens > a.InputTokensDetails.CachedTokens {
+			a.InputTokensDetails.CachedTokens = b.InputTokensDetails.CachedTokens
+		}
+	}
+	if b.PromptTokensDetails != nil {
+		if a.PromptTokensDetails == nil {
+			a.PromptTokensDetails = b.PromptTokensDetails
+		} else if b.PromptTokensDetails.CachedTokens > a.PromptTokensDetails.CachedTokens {
+			a.PromptTokensDetails.CachedTokens = b.PromptTokensDetails.CachedTokens
+		}
+	}
+	return a
+}
+
+func (u wssT354OpenAIUsage) inputTokens() int {
+	if u.InputTokens > 0 {
+		return u.InputTokens
+	}
+	return u.PromptTokens
+}
+
+func (u wssT354OpenAIUsage) outputTokens() int {
+	if u.OutputTokens > 0 {
+		return u.OutputTokens
+	}
+	return u.CompletionTokens
+}
+
+func (u wssT354OpenAIUsage) cachedTokens() int {
+	cached := 0
+	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > cached {
+		cached = u.InputTokensDetails.CachedTokens
+	}
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > cached {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	return cached
 }
 
 func wssT354CandidateTurn(turn wssT354Turn) bool {
@@ -508,6 +709,11 @@ func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapePr
 	total.HTTP400Errors += row.Upstream.HTTP400Errors
 	total.ResponseFailedFrames += row.Upstream.ResponseFailedFrames
 	total.Lost += row.Lost
+	total.ReplayLocalSavedTokens += row.ReplayLocalSavedTokens
+	total.CapturedLocalSavedTokens += row.CapturedLocalSavedTokens
+	total.RetryOrResendExtraTokens += row.RetryOrResendExtraTokens
+	total.NetCapturedLocalSavedTokens += row.NetCapturedLocalSavedTokens
+	total.ProviderUsage.add(row.ProviderUsage)
 	for _, candidate := range row.Candidates {
 		total.MutatedToolOutputCandidates++
 		switch candidate.Shape {
@@ -567,6 +773,15 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.MissingFollowingTurnCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("missing_following_turn_candidates=%d", report.Totals.MissingFollowingTurnCandidates))
 	}
+	if report.Totals.CapturedLocalSavedTokens > 0 {
+		findings = append(findings, fmt.Sprintf("captured_local_saved_tokens_estimate=%d", report.Totals.CapturedLocalSavedTokens))
+	}
+	if report.Totals.RetryOrResendExtraTokens > 0 {
+		findings = append(findings, fmt.Sprintf("retry_or_resend_extra_tokens_estimate=%d", report.Totals.RetryOrResendExtraTokens))
+	}
+	if report.Totals.ProviderUsage.CachedTokens > 0 {
+		findings = append(findings, fmt.Sprintf("provider_cached_tokens=%d", report.Totals.ProviderUsage.CachedTokens))
+	}
 	if report.Totals.UpstreamErrorFrames == 0 && report.Totals.Lost == 0 {
 		findings = append(findings, "upstream_and_lost_clean")
 	}
@@ -596,6 +811,17 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.HTTP400Errors,
 		report.Totals.ResponseFailedFrames,
 		report.Totals.Lost)
+	fmt.Fprintf(w, "  economics:         replay_local_saved=%d captured_local_saved_est=%d retry_or_resend_extra_est=%d net_captured_local_saved_est=%d\n",
+		report.Totals.ReplayLocalSavedTokens,
+		report.Totals.CapturedLocalSavedTokens,
+		report.Totals.RetryOrResendExtraTokens,
+		report.Totals.NetCapturedLocalSavedTokens)
+	fmt.Fprintf(w, "  provider_usage:    input=%d cached=%d cached_pct=%.2f%% output=%d frames=%d\n",
+		report.Totals.ProviderUsage.InputTokens,
+		report.Totals.ProviderUsage.CachedTokens,
+		report.Totals.ProviderUsage.CachedPct,
+		report.Totals.ProviderUsage.OutputTokens,
+		report.Totals.ProviderUsage.CompletionFrames)
 	if len(report.Findings) > 0 {
 		fmt.Fprintln(w, "  findings:")
 		for _, finding := range report.Findings {
@@ -608,6 +834,16 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		for _, failure := range report.GateFailures {
 			fmt.Fprintf(w, "    - %s\n", failure)
 		}
+	}
+}
+
+func (u *wssT354ProviderUsage) add(other wssT354ProviderUsage) {
+	u.InputTokens += other.InputTokens
+	u.CachedTokens += other.CachedTokens
+	u.OutputTokens += other.OutputTokens
+	u.CompletionFrames += other.CompletionFrames
+	if u.InputTokens > 0 {
+		u.CachedPct = float64(u.CachedTokens) / float64(u.InputTokens) * 100
 	}
 }
 
