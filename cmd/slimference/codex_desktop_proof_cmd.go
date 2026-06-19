@@ -21,15 +21,17 @@ type codexDesktopStatusFlags struct {
 }
 
 type codexDesktopProveFlags struct {
-	host     string
-	port     string
-	duration time.Duration
-	json     bool
-	keepOpen bool
-	replace  bool
-	manual   bool
-	finish   bool
-	help     bool
+	host       string
+	port       string
+	duration   time.Duration
+	capture    string
+	matrixPath string
+	json       bool
+	keepOpen   bool
+	replace    bool
+	manual     bool
+	finish     bool
+	help       bool
 }
 
 type codexDesktopStatusOutput struct {
@@ -48,6 +50,11 @@ type codexDesktopStatusOutput struct {
 	ConversationObserved        bool                     `json:"conversation_observed"`
 	LaunchCommand               string                   `json:"launch_command"`
 	ProofStartedAt              string                   `json:"proof_started_at,omitempty"`
+	CapturePath                 string                   `json:"capture_path,omitempty"`
+	MatrixPath                  string                   `json:"matrix_path,omitempty"`
+	SearchCapProofCommand       string                   `json:"search_cap_proof_command,omitempty"`
+	MatrixRowCommand            string                   `json:"matrix_row_command,omitempty"`
+	FocusedMatrixCommand        string                   `json:"focused_matrix_command,omitempty"`
 	ManualProofCommand          string                   `json:"manual_proof_command,omitempty"`
 	OwnerPrompt                 string                   `json:"owner_prompt,omitempty"`
 	FinishCommand               string                   `json:"finish_command,omitempty"`
@@ -65,6 +72,11 @@ type codexDesktopProofOutput struct {
 	StartedAt                string              `json:"started_at,omitempty"`
 	LaunchPID                int                 `json:"launch_pid,omitempty"`
 	LaunchOutput             string              `json:"launch_output,omitempty"`
+	CapturePath              string              `json:"capture_path,omitempty"`
+	MatrixPath               string              `json:"matrix_path,omitempty"`
+	SearchCapProofCommand    string              `json:"search_cap_proof_command,omitempty"`
+	MatrixRowCommand         string              `json:"matrix_row_command,omitempty"`
+	FocusedMatrixCommand     string              `json:"focused_matrix_command,omitempty"`
 	DeltaWSS                 control.WSSState    `json:"delta_wss"`
 	CATrust                  codexDesktopCAState `json:"ca_trust"`
 	SessionPath              string              `json:"session_path,omitempty"`
@@ -87,11 +99,13 @@ type codexDesktopProofSession struct {
 	StartedAt     time.Time        `json:"started_at"`
 	BaselineWSS   control.WSSState `json:"baseline_wss"`
 	LaunchOutput  string           `json:"launch_output,omitempty"`
+	CapturePath   string           `json:"capture_path,omitempty"`
+	MatrixPath    string           `json:"matrix_path,omitempty"`
 }
 
 const codexDesktopProofStateTimeout = 10 * time.Second
 
-const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real coding-session proof workload: read AGENTS.md, docs/todo.md, docs/todo/roadmap-48pct-wss.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg/sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
+const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real search-loop coding-session proof workload: read AGENTS.md, docs/todo.md, docs/todo/roadmap-48pct-wss.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg searches with enough matching output, follow with sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
 
 const codexDesktopManualProofCommand = "slimference codex desktop prove --manual --json --duration=30s --keep-open"
 
@@ -105,11 +119,93 @@ const codexDesktopClassDistributionCommandPrefix = "go run ./scripts/utils wss-c
 
 var codexDesktopProofSinceFilePathFn = func() string { return codexDesktopProofSinceFilePath }
 
+var codexDesktopProofCapturePathFn = codexDesktopDefaultProofCapturePath
+
+const codexDesktopProofCaptureEnv = "SLIMFERENCE_WSS_AB_CAPTURE"
+
 func formatCodexDesktopProofStartedAt(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func codexDesktopDefaultProofCapturePath(startedAt time.Time) string {
+	if startedAt.IsZero() {
+		startedAt = codexNowFn().UTC()
+	}
+	stamp := startedAt.UTC().Format("20060102T150405Z")
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return filepath.Join(os.TempDir(), "slimference-captures", "codex-desktop-proof-"+stamp, "frames.jsonl")
+	}
+	return filepath.Join(home, ".slimference", "captures", "codex-desktop-proof-"+stamp, "frames.jsonl")
+}
+
+func expandCodexDesktopProofPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := osUserHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return "", fmt.Errorf("home unresolved for %s", path)
+		}
+		if path == "~" {
+			return home, nil
+		}
+		return filepath.Join(home, strings.TrimPrefix(path, "~/")), nil
+	}
+	return path, nil
+}
+
+func codexDesktopProofMatrixPath(capturePath string) string {
+	capturePath = strings.TrimSpace(capturePath)
+	if capturePath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(capturePath), "matrix.jsonl")
+}
+
+func prepareCodexDesktopProofCapturePath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create Desktop proof capture dir: %w", err)
+	}
+	return nil
+}
+
+func applyCodexDesktopProofCaptureCommands(out *codexDesktopProofOutput, host string, port string) {
+	if out == nil || strings.TrimSpace(out.CapturePath) == "" {
+		return
+	}
+	out.SearchCapProofCommand = codexDesktopSearchCapProofCommand(out.CapturePath)
+	if strings.TrimSpace(out.MatrixPath) == "" {
+		out.MatrixPath = codexDesktopProofMatrixPath(out.CapturePath)
+	}
+	if strings.TrimSpace(out.MatrixPath) == "" {
+		return
+	}
+	out.MatrixRowCommand = codexDesktopMatrixRowCommand(out.MatrixPath, out.CapturePath, host, port)
+	out.FocusedMatrixCommand = codexDesktopFocusedMatrixCommand(out.MatrixPath)
+}
+
+func codexDesktopSearchCapProofCommand(capturePath string) string {
+	return "go run ./scripts/utils search-cap-proof --frames " + capturePath + " --candidate=30:15 --candidate=25:15 --min-candidate-retained-pct=40 --min-search-outputs=2 --min-extra-reducer-tokens=1 --json"
+}
+
+func codexDesktopMatrixRowCommand(matrixPath string, capturePath string, host string, port string) string {
+	host = firstNonEmpty(strings.TrimSpace(host), "127.0.0.1")
+	port = firstNonEmpty(strings.TrimSpace(port), "8990")
+	return "go run ./scripts/utils wss-proof-live-row --matrix-row " + matrixPath + " --frames " + capturePath + " --client desktop --workload-class search_loop --expected-reducer captured_output --host " + host + " --port " + port + " --json"
+}
+
+func codexDesktopFocusedMatrixCommand(matrixPath string) string {
+	return "go run ./scripts/utils wss-proof-matrix " + matrixPath + " --require-live-token-delta --required-workload=search_loop --min-captures=1 --min-desktop=1 --min-positive=1 --expected-reducer captured_output --search-cap-candidate=30:15 --search-cap-candidate=25:15 --search-cap-min-retained-pct=40 --search-cap-min-search-outputs=2 --search-cap-min-extra-tokens=1 --json"
 }
 
 func codexDesktopClassDistributionCommandForSince(startedAt string) string {
@@ -221,6 +317,45 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 
 	startedAt := codexNowFn().UTC()
 	startedAtText := formatCodexDesktopProofStartedAt(startedAt)
+	capturePath := strings.TrimSpace(flags.capture)
+	if capturePath == "" && flags.manual {
+		capturePath = codexDesktopProofCapturePathFn(startedAt)
+	}
+	if capturePath != "" {
+		var expandErr error
+		capturePath, expandErr = expandCodexDesktopProofPath(capturePath)
+		if expandErr != nil {
+			out := codexDesktopProofOutput{
+				Mode:         "capture_path_invalid",
+				FailureClass: "capture_path_invalid",
+				Duration:     flags.duration.String(),
+				StartedAt:    startedAtText,
+				Notes:        []string{expandErr.Error()},
+			}
+			emitCodexDesktopProof(p, flags.json, out)
+			return 2
+		}
+	}
+	matrixPath := strings.TrimSpace(flags.matrixPath)
+	if matrixPath != "" {
+		var expandErr error
+		matrixPath, expandErr = expandCodexDesktopProofPath(matrixPath)
+		if expandErr != nil {
+			out := codexDesktopProofOutput{
+				Mode:         "matrix_path_invalid",
+				FailureClass: "matrix_path_invalid",
+				Duration:     flags.duration.String(),
+				StartedAt:    startedAtText,
+				CapturePath:  capturePath,
+				Notes:        []string{expandErr.Error()},
+			}
+			emitCodexDesktopProof(p, flags.json, out)
+			return 2
+		}
+	}
+	if matrixPath == "" {
+		matrixPath = codexDesktopProofMatrixPath(capturePath)
+	}
 	before, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
 	if err != nil {
 		out := codexDesktopProofOutput{
@@ -228,8 +363,25 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 			FailureClass: "daemon_unreachable",
 			Duration:     flags.duration.String(),
 			StartedAt:    startedAtText,
+			CapturePath:  capturePath,
+			MatrixPath:   matrixPath,
 			Notes:        []string{"start the Slimference daemon before running the Desktop proof"},
 		}
+		applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+	if err := prepareCodexDesktopProofCapturePath(capturePath); err != nil {
+		out := codexDesktopProofOutput{
+			Mode:         "capture_prepare_failed",
+			FailureClass: "capture_prepare_failed",
+			Duration:     flags.duration.String(),
+			StartedAt:    startedAtText,
+			CapturePath:  capturePath,
+			MatrixPath:   matrixPath,
+			Notes:        []string{err.Error()},
+		}
+		applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -239,18 +391,25 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	if flags.replace {
 		launchArgs = append(launchArgs, "--replace-existing")
 	}
+	if capturePath != "" {
+		launchArgs = append(launchArgs, "--env="+codexDesktopProofCaptureEnv+"="+capturePath)
+	}
 	rc := runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
 		StartedAt:         startedAtText,
 		Transport:         codexDesktopTransportAppServer,
 		LaunchOutput:      strings.TrimSpace(launchOut.String()),
+		CapturePath:       capturePath,
+		MatrixPath:        matrixPath,
 		ManualPromptStill: true,
 		Notes: []string{
 			"automated proof covers launch-time app-server shim routing",
+			"proof captures WSS frames through SLIMFERENCE_WSS_AB_CAPTURE when capture_path is set and a prompt is run",
 			"full Desktop savings proof still needs a prompt-tied WSS delta if launch-time bytes do not flow",
 		},
 	}
+	applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
 	out.LaunchPID = parseCodexDesktopLaunchPID(out.LaunchOutput)
 	if rc != 0 {
 		out.Mode = "launch_failed"
@@ -328,9 +487,12 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 			StartedAt:                startedAtText,
 			LaunchPID:                session.LaunchPID,
 			SessionPath:              sessionPath,
+			CapturePath:              session.CapturePath,
+			MatrixPath:               session.MatrixPath,
 			ClassDistributionCommand: codexDesktopClassDistributionCommandForSince(startedAtText),
 			Notes:                    []string{err.Error()},
 		}
+		applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -343,10 +505,13 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 		LaunchPID:                session.LaunchPID,
 		LaunchOutput:             session.LaunchOutput,
 		SessionPath:              sessionPath,
+		CapturePath:              session.CapturePath,
+		MatrixPath:               session.MatrixPath,
 		ClassDistributionCommand: codexDesktopClassDistributionCommandForSince(startedAtText),
 		DeltaWSS:                 codexSetupDelta(before, after).WSS,
 		Notes:                    []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
 	}
+	applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
 	classifyCodexDesktopProof(&out, false)
 	writeCodexDesktopProofResult(&out)
 	emitCodexDesktopProof(p, flags.json, out)
@@ -377,6 +542,16 @@ func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) 
 			f.host = strings.TrimPrefix(a, "--host=")
 		case strings.HasPrefix(a, "--port="):
 			f.port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--capture="):
+			f.capture = strings.TrimSpace(strings.TrimPrefix(a, "--capture="))
+			if f.capture == "" {
+				return f, fmt.Errorf("--capture requires a non-empty path")
+			}
+		case strings.HasPrefix(a, "--matrix-row="):
+			f.matrixPath = strings.TrimSpace(strings.TrimPrefix(a, "--matrix-row="))
+			if f.matrixPath == "" {
+				return f, fmt.Errorf("--matrix-row requires a non-empty path")
+			}
 		case strings.HasPrefix(a, "--duration="):
 			d, err := time.ParseDuration(strings.TrimPrefix(a, "--duration="))
 			if err != nil || d <= 0 {
@@ -567,12 +742,49 @@ func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
 	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAt)
+	applyCodexDesktopStatusCaptureHandoff(out)
 	out.NextSteps = append(out.NextSteps,
 		"Paste owner_prompt into the scoped Codex.app window that was launched by the manual Desktop proof.",
 		"Run finish_command after the prompt completes.",
-		"Run class_distribution_command and continue guard work only when headroom_present=true.",
+		"Run matrix_row_command, focused_matrix_command, search_cap_proof_command, and class_distribution_command; continue guard work only when all focused proof gates pass and headroom_present=true.",
 	)
 	out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `"+codexDesktopFinishProofCommand+"`")
+}
+
+func applyCodexDesktopStatusCaptureHandoff(out *codexDesktopStatusOutput) {
+	if out == nil {
+		return
+	}
+	var capturePath string
+	var matrixPath string
+	host := "127.0.0.1"
+	port := "8990"
+	if out.LastProof != nil {
+		capturePath = out.LastProof.CapturePath
+		matrixPath = out.LastProof.MatrixPath
+	}
+	if session, err := readCodexDesktopProofSession(codexDesktopSessionFn()); err == nil {
+		sessionMatchesLastProof := out.LastProof == nil || out.LastProof.LaunchPID <= 0 || session.LaunchPID == out.LastProof.LaunchPID
+		if sessionMatchesLastProof {
+			host = firstNonEmpty(session.Host, host)
+			port = firstNonEmpty(session.Port, port)
+			if strings.TrimSpace(capturePath) == "" {
+				capturePath = session.CapturePath
+			}
+			matrixPath = firstNonEmpty(matrixPath, session.MatrixPath)
+		}
+	}
+	capturePath = strings.TrimSpace(capturePath)
+	if capturePath == "" {
+		return
+	}
+	out.CapturePath = capturePath
+	out.MatrixPath = firstNonEmpty(strings.TrimSpace(matrixPath), codexDesktopProofMatrixPath(capturePath))
+	proof := &codexDesktopProofOutput{CapturePath: out.CapturePath, MatrixPath: out.MatrixPath}
+	applyCodexDesktopProofCaptureCommands(proof, host, port)
+	out.SearchCapProofCommand = proof.SearchCapProofCommand
+	out.MatrixRowCommand = proof.MatrixRowCommand
+	out.FocusedMatrixCommand = proof.FocusedMatrixCommand
 }
 
 func codexDesktopPromptProofStartedAt(last *codexDesktopProofOutput) string {
@@ -770,6 +982,8 @@ func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline contro
 		StartedAt:     startedAt.UTC(),
 		BaselineWSS:   baseline,
 		LaunchOutput:  out.LaunchOutput,
+		CapturePath:   out.CapturePath,
+		MatrixPath:    out.MatrixPath,
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create Desktop proof session dir: %w", err)
@@ -835,8 +1049,20 @@ func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
 	if out.SessionPath != "" {
 		fmt.Fprintf(w, "  Session   %s\n", out.SessionPath)
 	}
+	if out.CapturePath != "" {
+		fmt.Fprintf(w, "  Capture   %s\n", out.CapturePath)
+	}
 	if out.ClassDistributionCommand != "" {
 		fmt.Fprintf(w, "  Measure   %s\n", out.ClassDistributionCommand)
+	}
+	if out.MatrixRowCommand != "" {
+		fmt.Fprintf(w, "  Row       %s\n", out.MatrixRowCommand)
+	}
+	if out.FocusedMatrixCommand != "" {
+		fmt.Fprintf(w, "  Matrix    %s\n", out.FocusedMatrixCommand)
+	}
+	if out.SearchCapProofCommand != "" {
+		fmt.Fprintf(w, "  SearchCap %s\n", out.SearchCapProofCommand)
 	}
 	fmt.Fprintf(w, "  Delta WSS mitm=%d bytes_c2s=%d bytes_s2c=%d frames_reencoded=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
 		out.DeltaWSS.MITMBridged, out.DeltaWSS.BytesC2S, out.DeltaWSS.BytesS2C,
@@ -888,6 +1114,9 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 	if out.ManualProofCommand != "" {
 		fmt.Fprintf(w, "  Manual    %s\n", out.ManualProofCommand)
 	}
+	if out.CapturePath != "" {
+		fmt.Fprintf(w, "  Capture   %s\n", out.CapturePath)
+	}
 	for _, step := range out.NextSteps {
 		fmt.Fprintf(w, "  Next      %s\n", step)
 	}
@@ -896,6 +1125,15 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 	}
 	if out.ClassDistributionCommand != "" {
 		fmt.Fprintf(w, "  Measure   %s\n", out.ClassDistributionCommand)
+	}
+	if out.MatrixRowCommand != "" {
+		fmt.Fprintf(w, "  Row       %s\n", out.MatrixRowCommand)
+	}
+	if out.FocusedMatrixCommand != "" {
+		fmt.Fprintf(w, "  Matrix    %s\n", out.FocusedMatrixCommand)
+	}
+	if out.SearchCapProofCommand != "" {
+		fmt.Fprintf(w, "  SearchCap %s\n", out.SearchCapProofCommand)
 	}
 	if out.OwnerPrompt != "" {
 		fmt.Fprintf(w, "  Prompt    %s\n", out.OwnerPrompt)

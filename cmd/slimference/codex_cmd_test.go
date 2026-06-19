@@ -56,6 +56,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopSession := codexDesktopSessionFn
 	oldDesktopResult := codexDesktopResultFn
 	oldDesktopSinceFile := codexDesktopProofSinceFilePathFn
+	oldDesktopCapturePath := codexDesktopProofCapturePathFn
 	oldDesktopDirect := tuiCodexDesktopDirectFn
 	oldTerminalTitle := terminalTitleWriteFn
 	codexVersionFn = func() string { return "codex-test" }
@@ -110,6 +111,8 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopResultFn = func() string { return resultPath }
 	sincePath := filepath.Join(t.TempDir(), "desktop-proof-since.txt")
 	codexDesktopProofSinceFilePathFn = func() string { return sincePath }
+	capturePath := filepath.Join(t.TempDir(), "desktop-proof.frames.jsonl")
+	codexDesktopProofCapturePathFn = func(startedAt time.Time) string { return capturePath }
 	tuiCodexDesktopDirectFn = func(string) error { return nil }
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
@@ -146,6 +149,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopSessionFn = oldDesktopSession
 		codexDesktopResultFn = oldDesktopResult
 		codexDesktopProofSinceFilePathFn = oldDesktopSinceFile
+		codexDesktopProofCapturePathFn = oldDesktopCapturePath
 		tuiCodexDesktopDirectFn = oldDesktopDirect
 		terminalTitleWriteFn = oldTerminalTitle
 	})
@@ -1570,6 +1574,8 @@ func TestClassifyCodexDesktopProofIgnoresPhasefBridgedWithErrors(t *testing.T) {
 
 func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	withCodexCmdStubs(t)
+	capturePath := filepath.Join(t.TempDir(), "frames.jsonl")
+	matrixPath := filepath.Join(t.TempDir(), "matrix.jsonl")
 	calls := 0
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		calls++
@@ -1584,13 +1590,15 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		}
 		return state, nil
 	}
+	var launchedEnv []string
 	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launchedEnv = append([]string(nil), env...)
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 4242) with scoped Slimference env.")
 		return 0
 	}
 
 	p, out, errBuf := newTestPrinter()
-	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns"}, p)
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns", "--capture=" + capturePath, "--matrix-row=" + matrixPath}, p)
 	if rc != 0 {
 		t.Fatalf("manual rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
 	}
@@ -1600,6 +1608,22 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	}
 	if started.Mode != "desktop_ready_for_prompt" || !started.LaunchReady || started.DesktopSavings || started.SessionPath == "" {
 		t.Fatalf("manual proof=%+v", started)
+	}
+	if started.CapturePath != capturePath || started.MatrixPath != matrixPath {
+		t.Fatalf("manual proof lost capture/matrix paths: %+v", started)
+	}
+	joinedEnv := strings.Join(launchedEnv, "\n")
+	if !strings.Contains(joinedEnv, codexDesktopProofCaptureEnv+"="+capturePath) {
+		t.Fatalf("manual proof launch env missing capture path %q in %v", capturePath, launchedEnv)
+	}
+	for _, want := range []string{
+		"search-cap-proof --frames " + capturePath,
+		"wss-proof-live-row --matrix-row " + matrixPath + " --frames " + capturePath,
+		"wss-proof-matrix " + matrixPath,
+	} {
+		if !strings.Contains(started.SearchCapProofCommand+"\n"+started.MatrixRowCommand+"\n"+started.FocusedMatrixCommand, want) {
+			t.Fatalf("manual proof missing command fragment %q: %+v", want, started)
+		}
 	}
 
 	out.Reset()
@@ -1615,6 +1639,11 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	if finished.Mode != "desktop_app_server_phasef_proven" || !finished.DesktopSavings || finished.LaunchPID != 4242 {
 		t.Fatalf("finish proof=%+v", finished)
 	}
+	if finished.CapturePath != capturePath || finished.MatrixPath != matrixPath ||
+		!strings.Contains(finished.SearchCapProofCommand, "search-cap-proof --frames "+capturePath) ||
+		!strings.Contains(finished.FocusedMatrixCommand, "wss-proof-matrix "+matrixPath) {
+		t.Fatalf("finish proof lost capture handoff: %+v", finished)
+	}
 }
 
 func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) {
@@ -1629,7 +1658,9 @@ func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) 
 		postProbeTimeout = timeout
 		return control.SetupState{}, errors.New("admin state timeout")
 	}
+	var launchedEnv []string
 	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launchedEnv = append([]string(nil), env...)
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 5151) with scoped Slimference env.")
 		return 0
 	}
@@ -1654,11 +1685,104 @@ func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) 
 	if !proof.CleanupAttempted || cleanupPID != 5151 {
 		t.Fatalf("manual post-probe must clean launched app: cleanup=%v pid=%d proof=%+v", proof.CleanupAttempted, cleanupPID, proof)
 	}
+	if proof.CapturePath == "" || !strings.Contains(strings.Join(launchedEnv, "\n"), codexDesktopProofCaptureEnv+"="+proof.CapturePath) {
+		t.Fatalf("manual default capture env missing: capture=%q env=%v", proof.CapturePath, launchedEnv)
+	}
 	if postProbeTimeout < 10*time.Second {
 		t.Fatalf("post-probe timeout too short: %s", postProbeTimeout)
 	}
 	if proof.LaunchReady || proof.SessionPath != "" || proof.DesktopProven || proof.DesktopSavings {
 		t.Fatalf("failed post-probe must not leave a launch-ready proof session: %+v", proof)
+	}
+}
+
+func TestCodexDesktopProofCaptureHelpersAndHumanRender(t *testing.T) {
+	oldHome := osUserHomeDir
+	t.Cleanup(func() { osUserHomeDir = oldHome })
+	osUserHomeDir = func() (string, error) { return "/Users/proof", nil }
+
+	startedAt := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	wantCapture := filepath.Join("/Users/proof", ".slimference", "captures", "codex-desktop-proof-20260518T120000Z", "frames.jsonl")
+	if got := codexDesktopDefaultProofCapturePath(startedAt); got != wantCapture {
+		t.Fatalf("default capture path=%q want %q", got, wantCapture)
+	}
+	expanded, err := expandCodexDesktopProofPath("~/captures/frames.jsonl")
+	if err != nil {
+		t.Fatalf("expand home path: %v", err)
+	}
+	if expanded != filepath.Join("/Users/proof", "captures", "frames.jsonl") {
+		t.Fatalf("expanded path=%q", expanded)
+	}
+
+	proof := &codexDesktopProofOutput{CapturePath: "/tmp/proof/frames.jsonl"}
+	applyCodexDesktopProofCaptureCommands(proof, "", "")
+	if proof.MatrixPath != "/tmp/proof/matrix.jsonl" ||
+		!strings.Contains(proof.SearchCapProofCommand, "search-cap-proof --frames /tmp/proof/frames.jsonl") ||
+		!strings.Contains(proof.MatrixRowCommand, "--host 127.0.0.1 --port 8990") ||
+		!strings.Contains(proof.FocusedMatrixCommand, "wss-proof-matrix /tmp/proof/matrix.jsonl") {
+		t.Fatalf("capture commands=%+v", proof)
+	}
+
+	var rendered bytes.Buffer
+	renderCodexDesktopProof(&rendered, codexDesktopProofOutput{
+		Mode:                     "desktop_ready_for_prompt",
+		Duration:                 "1s",
+		StartedAt:                "2026-05-18T12:00:00Z",
+		LaunchPID:                4242,
+		Transport:                codexDesktopTransportAppServer,
+		SessionPath:              "/tmp/session.json",
+		CapturePath:              "/tmp/proof/frames.jsonl",
+		ClassDistributionCommand: "measure",
+		MatrixRowCommand:         "row",
+		FocusedMatrixCommand:     "matrix",
+		SearchCapProofCommand:    "search",
+		Notes:                    []string{"capture note"},
+	})
+	for _, want := range []string{
+		"Capture   /tmp/proof/frames.jsonl",
+		"Measure   measure",
+		"Row       row",
+		"Matrix    matrix",
+		"SearchCap search",
+		"Note      capture note",
+	} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("rendered proof missing %q:\n%s", want, rendered.String())
+		}
+	}
+
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	if _, err := expandCodexDesktopProofPath("~/frames.jsonl"); err == nil {
+		t.Fatal("expected home expansion error")
+	}
+}
+
+func TestCodexDesktopProveCapturePrepareFailureDoesNotLaunch(t *testing.T) {
+	withCodexCmdStubs(t)
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	launched := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launched = true
+		return 0
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns", "--capture=" + filepath.Join(blocker, "frames.jsonl")}, p)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	if launched {
+		t.Fatal("capture prepare failure must stop before launching Codex.app")
+	}
+	var proof codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &proof); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if proof.Mode != "capture_prepare_failed" || proof.FailureClass != "capture_prepare_failed" {
+		t.Fatalf("proof=%+v", proof)
 	}
 }
 
@@ -1698,6 +1822,12 @@ func TestCodexDesktopProveErrorsAndHelpers(t *testing.T) {
 	}
 	if _, err := parseCodexDesktopProveFlags([]string{"--duration=0s"}); err == nil {
 		t.Fatal("expected bad duration error")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--capture="}); err == nil {
+		t.Fatal("expected empty capture path error")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--matrix-row="}); err == nil {
+		t.Fatal("expected empty matrix-row path error")
 	}
 	if _, err := parseCodexDesktopProveFlags([]string{"--bogus"}); err == nil {
 		t.Fatal("expected bad flag error")

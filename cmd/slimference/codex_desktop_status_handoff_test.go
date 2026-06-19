@@ -17,6 +17,8 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 		Transport:         codexDesktopTransportAppServer,
 		StartedAt:         "2026-05-18T12:00:00Z",
 		LaunchPID:         4242,
+		CapturePath:       "/tmp/desktop-proof.frames.jsonl",
+		MatrixPath:        "/tmp/desktop-proof.matrix.jsonl",
 		LaunchReady:       true,
 		ManualPromptStill: true,
 	})
@@ -51,6 +53,13 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 	if !strings.Contains(got.ClassDistributionCommand, "--since=2026-05-18T12:00:00Z") ||
 		strings.Contains(got.ClassDistributionCommand, "--since-file=") {
 		t.Fatalf("class distribution command=%q", got.ClassDistributionCommand)
+	}
+	if got.CapturePath != "/tmp/desktop-proof.frames.jsonl" ||
+		got.MatrixPath != "/tmp/desktop-proof.matrix.jsonl" ||
+		!strings.Contains(got.SearchCapProofCommand, "search-cap-proof --frames /tmp/desktop-proof.frames.jsonl") ||
+		!strings.Contains(got.MatrixRowCommand, "wss-proof-live-row --matrix-row /tmp/desktop-proof.matrix.jsonl --frames /tmp/desktop-proof.frames.jsonl") ||
+		!strings.Contains(got.FocusedMatrixCommand, "wss-proof-matrix /tmp/desktop-proof.matrix.jsonl") {
+		t.Fatalf("capture proof handoff missing: %+v", got)
 	}
 	if !strings.Contains(strings.Join(got.NextSteps, "\n"), "headroom_present=true") {
 		t.Fatalf("next steps missing headroom gate: %+v", got.NextSteps)
@@ -180,6 +189,8 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 		Transport:         codexDesktopTransportAppServer,
 		StartedAt:         "2026-05-18T12:00:00Z",
 		LaunchPID:         5151,
+		CapturePath:       "/tmp/desktop-proof-text.frames.jsonl",
+		MatrixPath:        "/tmp/desktop-proof-text.matrix.jsonl",
 		LaunchReady:       true,
 		ManualPromptStill: true,
 	})
@@ -196,7 +207,11 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 		"desktop_proof_prompt_required",
 		"Since     2026-05-18T12:00:00Z",
 		"Finish    slimference codex desktop prove --finish --json",
+		"Capture   /tmp/desktop-proof-text.frames.jsonl",
 		"Measure   go run ./scripts/utils wss-class-distribution",
+		"Row       go run ./scripts/utils wss-proof-live-row --matrix-row /tmp/desktop-proof-text.matrix.jsonl --frames /tmp/desktop-proof-text.frames.jsonl",
+		"Matrix    go run ./scripts/utils wss-proof-matrix /tmp/desktop-proof-text.matrix.jsonl",
+		"SearchCap go run ./scripts/utils search-cap-proof --frames /tmp/desktop-proof-text.frames.jsonl",
 		"--since=2026-05-18T12:00:00Z",
 		"Prompt    In the current Slimference repository",
 		"PROOF_DONE",

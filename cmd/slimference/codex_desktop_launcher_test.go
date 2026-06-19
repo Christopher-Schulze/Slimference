@@ -238,6 +238,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 			"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
 			"HTTPS_PROXY=http://evil-proxy",
 			"CODEX_THREAD_ID=evil-thread",
+			"SLIMFERENCE_WSS_AB_CAPTURE=/tmp/frames.jsonl",
 		},
 	)
 	joined := strings.Join(got, "\n")
@@ -266,6 +267,7 @@ func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_SUPPORTS_WEBSOCKETS=false",
 		"NO_PROXY=127.0.0.1,localhost,::1",
 		"FOO=bar",
+		"SLIMFERENCE_WSS_AB_CAPTURE=/tmp/frames.jsonl",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("app-server env missing %s in %v", want, got)

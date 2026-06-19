@@ -721,7 +721,7 @@ Reports whether the process-local CODEX_CLI_PATH app-server shim is ready
 and whether a live Desktop conversation WSS proof has already been seen.
 `
 
-const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--replace-existing] [--host=127.0.0.1] [--port=8990]
+const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--replace-existing] [--capture=<frames.jsonl>] [--matrix-row=<matrix.jsonl>] [--host=127.0.0.1] [--port=8990]
 
 Starts Codex.app with process-local CODEX_CLI_PATH app-server shim, snapshots daemon WSS
 counters before/after, classifies the result, and closes the spawned app
@@ -734,6 +734,10 @@ green and the output names the failure class.
 Use --manual to start a prompt-driven proof session and keep the launched app
 open when it is ready. Send a prompt in that app, then run --finish to compare
 the current daemon WSS state against the saved session baseline.
+
+Manual proof auto-sets SLIMFERENCE_WSS_AB_CAPTURE to a timestamped local
+capture path unless --capture is passed. --matrix-row overrides the derived
+wss-proof-matrix row path printed by the proof handoff.
 `
 
 const codexCertifyHelpText = `usage: slimference codex certify wss [--dry-run] [--operator NAME] [--notes TEXT] [--host=127.0.0.1] [--port=8990]
