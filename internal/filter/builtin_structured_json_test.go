@@ -241,6 +241,42 @@ func TestTryCompactKnownCLIJSONExact_ExactMinify(t *testing.T) {
 			body: []byte("{\n  \"packages\": []\n}\n"),
 			want: `{"packages":[]}`,
 		},
+		{
+			name: "docker inspect json",
+			argv: []string{"docker", "container", "inspect", "web"},
+			body: []byte("[\n  {\"Id\": \"abc\", \"State\": {\"Status\": \"running\"}}\n]\n"),
+			want: `[{"Id":"abc","State":{"Status":"running"}}]`,
+		},
+		{
+			name: "docker compose config json",
+			argv: []string{"docker", "compose", "config", "--format", "json"},
+			body: []byte("{\n  \"services\": {\"web\": {\"image\": \"nginx\"}}\n}\n"),
+			want: `{"services":{"web":{"image":"nginx"}}}`,
+		},
+		{
+			name: "go env json",
+			argv: []string{"go", "env", "-json"},
+			body: []byte("{\n  \"GOOS\": \"darwin\",\n  \"GOARCH\": \"arm64\"\n}\n"),
+			want: `{"GOOS":"darwin","GOARCH":"arm64"}`,
+		},
+		{
+			name: "npm view json",
+			argv: []string{"npm", "view", "react", "--json=true"},
+			body: []byte("{\n  \"name\": \"react\",\n  \"version\": \"19.0.0\"\n}\n"),
+			want: `{"name":"react","version":"19.0.0"}`,
+		},
+		{
+			name: "pnpm list json",
+			argv: []string{"pnpm", "list", "--json"},
+			body: []byte("[\n  {\"name\": \"app\", \"version\": \"1.0.0\"}\n]\n"),
+			want: `[{"name":"app","version":"1.0.0"}]`,
+		},
+		{
+			name: "yarn npm info json",
+			argv: []string{"yarn", "npm", "info", "react", "--json"},
+			body: []byte("{\n  \"name\": \"react\",\n  \"version\": \"19.0.0\"\n}\n"),
+			want: `{"name":"react","version":"19.0.0"}`,
+		},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -295,6 +331,66 @@ func TestTryCompactKnownCLIJSONExact_NonJSONFullPassAndUnrelated(t *testing.T) {
 	}
 	if _, ok := TryCompactKnownCLIJSONExact([]string{"git", "status", "--json"}, []byte(`{"x":1}`)); ok {
 		t.Fatal("unrelated JSON-looking command must not match exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"go", "test", "-json", "./..."}, []byte(`{"Action":"pass"}`)); ok {
+		t.Fatal("go test JSONL stream must stay owned by test parsers, not known CLI exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"npm", "install", "--json"}, []byte(`{"added":1}`)); ok {
+		t.Fatal("package installation JSON must stay owned by package parsers, not known CLI exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"npm", "audit", "--json"}, []byte(`{"metadata":{"vulnerabilities":{"total":0}}}`)); ok {
+		t.Fatal("package audit JSON must stay owned by zero-vulnerability audit parser, not known CLI exact gate")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"npm", "view", "react", "--json=false"}, []byte(`{"name":"react"}`)); ok {
+		t.Fatal("explicit false JSON flag must not match exact gate")
+	}
+}
+
+func TestTryCompactKnownCLIJSONExact_WrapperAndVariantBranches(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("{\n  \"ok\": true,\n  \"items\": [1, 2]\n}\n")
+	want := `{"ok":true,"items":[1,2]}`
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{name: "npx unwrap", argv: []string{"npx", "-y", "go", "env", "-json"}},
+		{name: "pnpm exec unwrap", argv: []string{"pnpm", "exec", "docker", "inspect", "web"}},
+		{name: "npm x unwrap", argv: []string{"npm", "x", "--", "go", "env", "-json"}},
+		{name: "bun x unwrap", argv: []string{"bun", "x", "go", "env", "-json"}},
+		{name: "bun run unwrap", argv: []string{"bun", "run", "docker", "compose", "config", "--format", "json"}},
+		{name: "docker compose split format", argv: []string{"docker", "compose", "config", "--format", "json"}},
+		{name: "docker-compose split format", argv: []string{"docker-compose", "config", "--format", "json"}},
+		{name: "podman inspect", argv: []string{"podman", "inspect", "web"}},
+		{name: "nerdctl object inspect", argv: []string{"nerdctl", "image", "inspect", "web"}},
+		{name: "go list json", argv: []string{"go", "list", "-json", "./..."}},
+		{name: "go mod edit json", argv: []string{"go", "mod", "edit", "-json"}},
+		{name: "yarn info json", argv: []string{"yarn", "info", "react", "--json"}},
+		{name: "bun pm list json", argv: []string{"bun", "pm", "list", "--json"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactKnownCLIJSONExact(tc.argv, body)
+			if !ok {
+				t.Fatal("expected known CLI JSON exact match")
+			}
+			if got := string(out); got != want {
+				t.Fatalf("unexpected compact JSON: %q", got)
+			}
+		})
+	}
+
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"npx", "-y"}, body); ok {
+		t.Fatal("npx without resolved command must not match")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"docker", "compose", "config"}, body); ok {
+		t.Fatal("docker compose config without JSON format must not match")
+	}
+	if _, ok := TryCompactKnownCLIJSONExact([]string{"bun", "pm", "install", "--json"}, body); ok {
+		t.Fatal("bun package install JSON must not match generic exact gate")
 	}
 }
 

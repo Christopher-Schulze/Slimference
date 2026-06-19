@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -208,7 +209,132 @@ func TryCompactKnownCLIJSONExact(argv []string, stdout []byte) ([]byte, bool) {
 func knownCLIJSONExactArgv(argv []string) bool {
 	return isKubectlJSONArgv(argv) ||
 		isCargoMetadataArgv(argv) ||
-		isTerraformJSONOutputArgv(argv)
+		isTerraformJSONOutputArgv(argv) ||
+		isGoJSONOutputArgv(argv) ||
+		isContainerJSONOutputArgv(argv) ||
+		isPackageManagerJSONOutputArgv(argv)
+}
+
+func knownCLIJSONArgvTail(argv []string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	b0 := knownCLIJSONArgvBase(argv[0])
+	if b0 == "npx" || b0 == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		if !ok {
+			return nil
+		}
+		return knownCLIJSONArgvTail(rest)
+	}
+	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
+		return knownCLIJSONArgvTail(argv[2:])
+	}
+	if len(argv) >= 3 && (b0 == "npm" || b0 == "npm.cmd") && (argv[1] == "exec" || argv[1] == "x") {
+		rest := argv[2:]
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+		return knownCLIJSONArgvTail(rest)
+	}
+	if len(argv) >= 3 && (b0 == "bun" || b0 == "bun.exe") && (argv[1] == "x" || argv[1] == "run") {
+		return knownCLIJSONArgvTail(argv[2:])
+	}
+	return argv
+}
+
+func knownCLIJSONArgvBase(arg string) string {
+	return strings.ToLower(filepath.Base(strings.TrimSpace(arg)))
+}
+
+func hasKnownJSONModeFlag(args []string) bool {
+	for i, raw := range args {
+		arg := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case arg == "-json" || arg == "--json":
+			return true
+		case strings.HasPrefix(arg, "--json="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--json="))
+			return value != "" && value != "false" && value != "0"
+		case arg == "--format=json" || arg == "--output=json" || arg == "-o=json":
+			return true
+		case arg == "--format" || arg == "--output" || arg == "-o":
+			return i+1 < len(args) && strings.EqualFold(strings.TrimSpace(args[i+1]), "json")
+		}
+	}
+	return false
+}
+
+func isGoJSONOutputArgv(argv []string) bool {
+	tail := knownCLIJSONArgvTail(argv)
+	if len(tail) < 3 || knownCLIJSONArgvBase(tail[0]) != "go" {
+		return false
+	}
+	switch tail[1] {
+	case "env", "list", "version":
+		return hasKnownJSONModeFlag(tail[2:])
+	case "mod":
+		return len(tail) >= 4 && tail[2] == "edit" && hasKnownJSONModeFlag(tail[3:])
+	default:
+		return false
+	}
+}
+
+func isContainerJSONOutputArgv(argv []string) bool {
+	tail := knownCLIJSONArgvTail(argv)
+	if len(tail) < 2 {
+		return false
+	}
+	base := knownCLIJSONArgvBase(tail[0])
+	switch base {
+	case "docker", "docker.exe", "podman", "podman.exe", "nerdctl", "nerdctl.exe":
+		if tail[1] == "inspect" {
+			return true
+		}
+		if len(tail) >= 3 && tail[2] == "inspect" {
+			switch tail[1] {
+			case "container", "image", "network", "volume", "service", "node", "plugin", "context":
+				return true
+			}
+		}
+		return len(tail) >= 4 && tail[1] == "compose" && tail[2] == "config" && hasKnownJSONModeFlag(tail[3:])
+	case "docker-compose", "docker-compose.exe":
+		return len(tail) >= 3 && tail[1] == "config" && hasKnownJSONModeFlag(tail[2:])
+	default:
+		return false
+	}
+}
+
+func isPackageManagerJSONOutputArgv(argv []string) bool {
+	tail := knownCLIJSONArgvTail(argv)
+	if len(tail) < 3 || !hasKnownJSONModeFlag(tail[1:]) {
+		return false
+	}
+	base := knownCLIJSONArgvBase(tail[0])
+	switch base {
+	case "npm", "npm.cmd":
+		return packageManagerJSONSubcommand(tail[1])
+	case "pnpm", "pnpm.cmd":
+		return packageManagerJSONSubcommand(tail[1])
+	case "yarn", "yarn.cmd", "yarnpkg":
+		if packageManagerJSONSubcommand(tail[1]) {
+			return true
+		}
+		return len(tail) >= 4 && tail[1] == "npm" && packageManagerJSONSubcommand(tail[2])
+	case "bun", "bun.exe":
+		return len(tail) >= 4 && tail[1] == "pm" && packageManagerJSONSubcommand(tail[2])
+	default:
+		return false
+	}
+}
+
+func packageManagerJSONSubcommand(sub string) bool {
+	switch sub {
+	case "fund", "info", "list", "ls", "outdated", "query", "view", "why":
+		return true
+	default:
+		return false
+	}
 }
 
 func isKubectlJSONArgv(argv []string) bool {

@@ -45,11 +45,32 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if !wssSafeStatefulStatusCommandOutput("terraform output -json", prettyJSON) {
 		t.Fatal("explicit terraform output JSON should be exact-minify stateful-safe")
 	}
+	if !wssSafeStatefulStatusCommandOutput("docker container inspect web", "[\n  {\"Id\": \"abc\", \"State\": {\"Status\": \"running\"}}\n]\n") {
+		t.Fatal("docker inspect JSON should be exact-minify stateful-safe")
+	}
+	if !wssSafeStatefulStatusCommandOutput("docker compose config --format json", prettyJSON) {
+		t.Fatal("docker compose config JSON should be exact-minify stateful-safe")
+	}
+	if !wssSafeStatefulStatusCommandOutput("go env -json", prettyJSON) {
+		t.Fatal("go env -json should be exact-minify stateful-safe")
+	}
+	if !wssSafeStatefulStatusCommandOutput("npm view react --json", prettyJSON) {
+		t.Fatal("npm view --json should be exact-minify stateful-safe")
+	}
 	if wssSafeStatefulStatusCommandOutput("kubectl get pods -o json", "plain response\nplain response\n") {
 		t.Fatal("known CLI JSON non-JSON output must not become stateful-safe")
 	}
 	if wssSafeStatefulStatusCommandOutput("kubectl get pods", prettyJSON) {
 		t.Fatal("kubectl JSON without explicit JSON flag must not enter the known CLI exact-minify gate")
+	}
+	if wssSafeStatefulStatusCommandOutput("npm install --json", prettyJSON) {
+		t.Fatal("package install JSON must stay out of the known CLI exact-minify WSS gate")
+	}
+	if wssSafeStatefulStatusCommandOutput("npm audit --json", prettyJSON) {
+		t.Fatal("package audit JSON must stay owned by the zero-vulnerability audit WSS parser")
+	}
+	if wssSafeStatefulStatusCommandOutput("go test -json ./...", prettyJSON) {
+		t.Fatal("go test -json must stay out of the known CLI exact-minify WSS gate")
 	}
 	kubectlAttentionJSON := "{\n  \"kind\": \"List\",\n  \"items\": [\n    {\"kind\": \"Pod\", \"metadata\": {\"namespace\": \"prod\", \"name\": \"bad\"}, \"status\": {\"phase\": \"Pending\", \"containerStatuses\": [{\"name\": \"app\", \"ready\": false, \"restartCount\": 7, \"state\": {\"waiting\": {\"reason\": \"CrashLoopBackOff\"}}}]}}\n  ]\n}\n"
 	if !wssSafeStatefulStatusCommandOutput("kubectl get pods -o json", kubectlAttentionJSON) {
@@ -259,6 +280,27 @@ func TestWSSStatefulSafeStructuredKnownCLIJSONUsesExactMinify(t *testing.T) {
 			mustKeep:   `\"resource_changes\"`,
 			mustReject: "[terraform show -json]",
 		},
+		{
+			name:       "docker inspect json",
+			command:    "docker image inspect app:latest",
+			body:       wssPrettyDockerInspectJSONFixture(120),
+			mustKeep:   `\"RepoTags\"`,
+			mustReject: "[docker",
+		},
+		{
+			name:       "go env json",
+			command:    "go env -json",
+			body:       wssPrettyGoEnvJSONFixture(120),
+			mustKeep:   `\"VAR_119\"`,
+			mustReject: "[go env]",
+		},
+		{
+			name:       "npm view json",
+			command:    "npm view react --json",
+			body:       wssPrettyPackageInfoJSONFixture(120),
+			mustKeep:   `\"versions\"`,
+			mustReject: "[npm",
+		},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -368,4 +410,38 @@ func wssPrettyTerraformShowJSONFixture(count int) string {
 	}
 	out.WriteString("\n  ]\n}\n")
 	return out.String()
+}
+
+func wssPrettyDockerInspectJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("[\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "  {\"Id\": \"sha256:%03d\", \"RepoTags\": [\"app:%03d\"], \"Config\": {\"Env\": [\"K=%03d\"]}}", i, i, i)
+	}
+	out.WriteString("\n]\n")
+	return out.String()
+}
+
+func wssPrettyGoEnvJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("{\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "  \"VAR_%03d\": \"value-%03d\"", i, i)
+	}
+	out.WriteString("\n}\n")
+	return out.String()
+}
+
+func wssPrettyPackageInfoJSONFixture(count int) string {
+	var versions []string
+	for i := 0; i < count; i++ {
+		versions = append(versions, fmt.Sprintf("\"1.0.%d\"", i))
+	}
+	return "{\n  \"name\": \"react\",\n  \"versions\": [\n    " + strings.Join(versions, ",\n    ") + "\n  ]\n}\n"
 }
