@@ -698,6 +698,70 @@ func TestTryCompactNpmInstallNonEmptyGuards(t *testing.T) {
 	}
 }
 
+func TestTryCompactBunInstallNonEmptyCleanSuccess(t *testing.T) {
+	t.Parallel()
+
+	clean := bunInstallCleanFixture(80, true)
+	out, ok := TryCompactBunInstall([]string{"bun", "install", "--ignore-scripts"}, []byte(clean))
+	if !ok {
+		t.Fatal("expected bun install clean success to compact")
+	}
+	want := "[bun install] ok (installed 80 packages; lockfile saved)\n"
+	if string(out) != want {
+		t.Fatalf("unexpected bun summary: %q", out)
+	}
+	if len(out) >= len(clean) || strings.Contains(string(out), "bun-package-079") {
+		t.Fatalf("bun summary did not shrink or leaked package rows: %q", out)
+	}
+
+	wrapped, ok := TryCompactPackageOutput([]string{"pnpm", "exec", "bun", "install", "--ignore-scripts"}, []byte(clean))
+	if !ok || string(wrapped) != want {
+		t.Fatalf("pnpm exec bun install: ok=%v out=%q", ok, wrapped)
+	}
+
+	noPackages := "bun install v1.3.14 (0d9b296a)\nNo packages! Deleted empty lockfile\n\n[1.00ms] done\n"
+	noPackagesOut, ok := TryCompactBunInstall([]string{"bun", "install", "--ignore-scripts"}, []byte(noPackages))
+	if !ok || string(noPackagesOut) != "[bun install] ok (no packages; empty lockfile deleted)\n" {
+		t.Fatalf("bun no-packages summary: ok=%v out=%q", ok, noPackagesOut)
+	}
+}
+
+func TestTryCompactBunInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := bunInstallCleanFixture(3, true)
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "wrong command", argv: []string{"bun", "add", "x"}, stdout: clean},
+		{name: "warning", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: "warning: package has a deprecated postinstall\n" + clean},
+		{name: "dry run", argv: []string{"bun", "install", "--dry-run"}, stdout: clean},
+		{name: "lockfile only", argv: []string{"bun", "install", "--lockfile-only"}, stdout: clean},
+		{name: "unknown flag", argv: []string{"bun", "install", "--backend=copyfile"}, stdout: clean},
+		{name: "positional package", argv: []string{"bun", "install", "left-pad@1.3.0"}, stdout: clean},
+		{name: "missing header", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: strings.TrimPrefix(clean, "bun install v1.3.14 (0d9b296a)\n")},
+		{name: "bad row", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: strings.Replace(clean, "+ bun-package-000@1.0.0", "+ bun package 000", 1)},
+		{name: "count mismatch", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: strings.Replace(clean, "3 packages installed", "2 packages installed", 1)},
+		{name: "missing terminal", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: strings.Replace(clean, "3 packages installed [9.00ms]\n", "", 1)},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactBunInstall(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe bun install output compacted: ok=%v out=%q", ok, out)
+			}
+			chainOut, chainOK := TryCompactPackageOutput(tt.argv, []byte(tt.stdout))
+			if chainOK || string(chainOut) != tt.stdout {
+				t.Fatalf("unsafe bun install chain compacted: ok=%v out=%q", chainOK, chainOut)
+			}
+		})
+	}
+}
+
 func TestTryCompactPackageOutput_pipInstall(t *testing.T) {
 	t.Parallel()
 	// pip install with verbose output
@@ -998,6 +1062,21 @@ func npmInstallCleanFixture(packages int) string {
 	out.WriteString("45 packages are looking for funding\n")
 	out.WriteString("  run `npm fund` for details\n\n")
 	out.WriteString("found 0 vulnerabilities\n")
+	return out.String()
+}
+
+func bunInstallCleanFixture(packages int, savedLockfile bool) string {
+	var out strings.Builder
+	out.WriteString("bun install v1.3.14 (0d9b296a)\n")
+	if savedLockfile {
+		out.WriteString("Saved lockfile\n")
+	}
+	out.WriteString("\n")
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "+ bun-package-%03d@1.0.%d\n", i, i)
+	}
+	out.WriteString("\n")
+	fmt.Fprintf(&out, "%d %s installed [9.00ms]\n", packages, pluralWord(packages, "package", "packages"))
 	return out.String()
 }
 

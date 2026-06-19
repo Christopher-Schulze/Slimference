@@ -341,9 +341,19 @@ func TryCompactPipInstall(argv []string, stdout []byte) ([]byte, bool) {
 	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isPipInstallArgv, []byte("[pip install] ok\n"))
 }
 
-// TryCompactBunInstall summarizes empty stdout from `bun install` / `npx|pnpm exec|yarn … bun install` (F12 partial).
+// TryCompactBunInstall summarizes empty stdout or strict clean success from `bun install` / `npx|pnpm exec|yarn … bun install` (F12 partial).
 func TryCompactBunInstall(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isBunInstallArgv, []byte("[bun install] ok\n"))
+	matched, ok := bunInstallArgvSuffix(argv)
+	if !ok {
+		return stdout, false
+	}
+	if bunInstallArgvUnsafe(matched[2:]) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[bun install] ok\n"), true
+	}
+	return compactBunInstallCleanSuccess(stdout)
 }
 
 func isUvPipInstallArgv(argv []string) bool {
@@ -613,6 +623,41 @@ func npmInstallArgvUnsafe(args []string) bool {
 	return false
 }
 
+func bunInstallArgvSuffix(argv []string) ([]string, bool) {
+	if isBunInstallArgv(argv) {
+		return argv, true
+	}
+	if rest, ok := npxArgvSuffix(argv); ok && isBunInstallArgv(rest) {
+		return rest, true
+	}
+	if len(argv) < 1 {
+		return nil, false
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isBunInstallArgv(argv[2:]) {
+		return argv[2:], true
+	}
+	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isBunInstallArgv(argv[1:]) {
+		return argv[1:], true
+	}
+	return nil, false
+}
+
+func bunInstallArgvUnsafe(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		switch lower {
+		case "--ignore-scripts", "--no-progress", "--production", "-p", "--frozen-lockfile", "--yarn", "-y":
+			continue
+		case "--dry-run", "--lockfile-only", "--verbose", "--silent", "--quiet", "--no-summary", "--analyze", "-a", "--help", "-h", "--global", "-g", "--trust", "--no-save":
+			return true
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func npmInstallLogLevelUnsafe(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "verbose", "silly":
@@ -620,6 +665,113 @@ func npmInstallLogLevelUnsafe(value string) bool {
 	default:
 		return false
 	}
+}
+
+func compactBunInstallCleanSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var sawHeader bool
+	var sawSavedLockfile bool
+	var sawNoPackages bool
+	var sawDone bool
+	var packageRows int
+	var installedCount *int
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case bunInstallHeaderLineOK(trimmed):
+			sawHeader = true
+		case trimmed == "Saved lockfile":
+			sawSavedLockfile = true
+		case trimmed == "No packages! Deleted empty lockfile":
+			sawNoPackages = true
+		case strings.HasPrefix(trimmed, "+ "):
+			if !bunInstallPackageRowOK(trimmed) {
+				return stdout, false
+			}
+			packageRows++
+		default:
+			if count, ok := parseBunInstallTerminalLine(trimmed); ok {
+				installedCount = &count
+				continue
+			}
+			if bunInstallDoneLineOK(trimmed) {
+				sawDone = true
+				continue
+			}
+			return stdout, false
+		}
+	}
+	if !sawHeader {
+		return stdout, false
+	}
+	parts := make([]string, 0, 2)
+	switch {
+	case sawNoPackages:
+		if packageRows != 0 || installedCount != nil || !sawDone {
+			return stdout, false
+		}
+		parts = append(parts, "no packages", "empty lockfile deleted")
+	case packageRows > 0:
+		if installedCount == nil || *installedCount != packageRows || sawDone {
+			return stdout, false
+		}
+		parts = append(parts, fmt.Sprintf("installed %d %s", packageRows, pluralWord(packageRows, "package", "packages")))
+	default:
+		return stdout, false
+	}
+	if sawSavedLockfile {
+		parts = append(parts, "lockfile saved")
+	}
+	out := []byte("[bun install] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func bunInstallHeaderLineOK(line string) bool {
+	fields := strings.Fields(line)
+	return len(fields) == 4 &&
+		fields[0] == "bun" &&
+		fields[1] == "install" &&
+		strings.HasPrefix(fields[2], "v") &&
+		strings.HasPrefix(fields[3], "(") &&
+		strings.HasSuffix(fields[3], ")")
+}
+
+func bunInstallPackageRowOK(line string) bool {
+	detail := strings.TrimSpace(strings.TrimPrefix(line, "+ "))
+	return detail != "" && strings.Contains(detail, "@") && !strings.ContainsAny(detail, " \t")
+}
+
+func parseBunInstallTerminalLine(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 4 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count <= 0 {
+		return 0, false
+	}
+	if fields[1] != pluralWord(count, "package", "packages") || fields[2] != "installed" {
+		return 0, false
+	}
+	return count, bunBracketedDurationOK(fields[3])
+}
+
+func bunInstallDoneLineOK(line string) bool {
+	fields := strings.Fields(line)
+	return len(fields) == 2 && fields[1] == "done" && bunBracketedDurationOK(fields[0])
+}
+
+func bunBracketedDurationOK(field string) bool {
+	return strings.HasPrefix(field, "[") && strings.HasSuffix(field, "]") && len(field) > 2
 }
 
 func compactNpmInstallCleanSuccess(stdout []byte, label string) ([]byte, bool) {
