@@ -330,17 +330,16 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 			candidate.OriginalMetadataFootprint = turn.capturedOriginalMetadata.publicCopy()
 			candidate.MutatedMetadataFootprint = turn.metadataFootprint.publicCopy()
 		}
-		if following, ok := wssT354NextLogicalTurn(turns, i); ok {
+		following, hasFollowing := wssT354NextLogicalTurn(turns, i)
+		if hasFollowing {
 			followingHealth := wssT354TurnHealthFromTurn(following)
 			candidate.FollowingTurnPresent = true
 			candidate.FollowingTurnShape = following.shape
 			candidate.FollowingRequestTokensEstimate = following.requestTokensEstimate
-			if following.shape == "full_history" {
-				candidate.RetryOrResendExtraTokens = following.requestTokensEstimate
-			}
 			candidate.FollowingTurnClean = wssT354TurnClean(following)
 			candidate.FollowingTurnHealth = &followingHealth
 		}
+		candidate.RetryOrResendExtraTokens = wssT354RetryOrResendExtraTokens(turn, following, hasFollowing)
 		candidate.BlockReasons = wssT354CandidateBlockReasons(candidate)
 		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
 		row.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
@@ -458,6 +457,22 @@ func wssT354NextLogicalTurn(turns []wssT354Turn, index int) (wssT354Turn, bool) 
 		return turns[i], true
 	}
 	return wssT354Turn{}, false
+}
+
+func wssT354RetryOrResendExtraTokens(current, following wssT354Turn, hasFollowing bool) int {
+	if current.shape == "full_history" && current.capturedOriginalRequestTokens > 0 {
+		return positiveDelta(current.requestTokensEstimate, current.capturedOriginalRequestTokens)
+	}
+	if !hasFollowing {
+		return 0
+	}
+	if following.shape != "full_history" {
+		return 0
+	}
+	if wssT354CandidateTurn(following) && following.capturedOriginalRequestTokens > 0 {
+		return 0
+	}
+	return following.requestTokensEstimate
 }
 
 func wssT354SameCapturedSequence(previous *wssT354Turn, current wssT354Turn) bool {

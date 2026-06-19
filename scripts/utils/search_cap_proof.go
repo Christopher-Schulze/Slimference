@@ -354,17 +354,16 @@ func loadSearchCapDownstreamStateProof(path string) (searchCapDownstreamStatePro
 			CurrentTurnClean:              wssT354TurnClean(turn),
 			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
 		}
-		if following, ok := wssT354NextLogicalTurn(turns, i); ok {
+		following, hasFollowing := wssT354NextLogicalTurn(turns, i)
+		if hasFollowing {
 			followingHealth := wssT354TurnHealthFromTurn(following)
 			candidate.FollowingTurnPresent = true
 			candidate.FollowingTurnShape = following.shape
 			candidate.FollowingRequestTokensEstimate = following.requestTokensEstimate
-			if following.shape == "full_history" {
-				candidate.RetryOrResendExtraTokens = following.requestTokensEstimate
-			}
 			candidate.FollowingTurnClean = wssT354TurnClean(following)
 			candidate.FollowingTurnHealth = &followingHealth
 		}
+		candidate.RetryOrResendExtraTokens = wssT354RetryOrResendExtraTokens(turn, following, hasFollowing)
 		if candidate.Shape != "delta" && candidate.Shape != "full_history" {
 			candidate.BlockReasons = append(candidate.BlockReasons, "unsupported_shape_"+candidate.Shape)
 		}

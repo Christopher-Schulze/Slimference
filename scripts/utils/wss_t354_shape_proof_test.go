@@ -93,6 +93,68 @@ func TestWSST354ShapeProofAcceptsFinalOpenCandidateWhenDownstreamProven(t *testi
 	}
 }
 
+func TestWSST354ShapeProofChargesPairedFullHistoryExpansionOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-paired-full-history-expansion.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_a", 20), false, 71),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_a", 180), true, 71),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-a-mutated"), false),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a-mutated", "call_b", 20), false, 72),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_b", 160), true, 72),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-b-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-b-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.Totals.CandidatesPassing != 2 {
+		t.Fatalf("paired full-history expansion proof should pass cleanly: %+v", report)
+	}
+	wantRetry := 0
+	for _, candidate := range report.Rows[0].Candidates {
+		if candidate.Shape != "full_history" {
+			continue
+		}
+		wantRetry += positiveDelta(candidate.RequestTokensEstimate, candidate.CapturedOriginalRequestTokens)
+	}
+	if wantRetry <= 0 ||
+		report.Totals.RetryOrResendExtraTokens != wantRetry ||
+		report.Rows[0].Candidates[0].RetryOrResendExtraTokens >= report.Rows[0].Candidates[0].FollowingRequestTokensEstimate {
+		t.Fatalf("paired full-history rebuild must charge only expansion over captured original, totals=%+v candidates=%+v want_retry=%d",
+			report.Totals, report.Rows[0].Candidates, wantRetry)
+	}
+}
+
+func TestWSST354ShapeProofChargesUnpairedFullHistoryFollowingConservatively(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-unpaired-full-history-following.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_a", 180), false),
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_a", 40), true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-a-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_following", 40), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || len(report.Rows[0].Candidates) != 1 {
+		t.Fatalf("unpaired following full-history proof should pass but stay cost-conservative: %+v", report)
+	}
+	candidate := report.Rows[0].Candidates[0]
+	if candidate.FollowingTurnShape != "full_history" ||
+		candidate.RetryOrResendExtraTokens != candidate.FollowingRequestTokensEstimate ||
+		report.Totals.RetryOrResendExtraTokens != candidate.FollowingRequestTokensEstimate {
+		t.Fatalf("unpaired full-history following must charge the full following request, totals=%+v candidate=%+v", report.Totals, candidate)
+	}
+}
+
 func TestWSST354ShapeProofBlocksInvalidRequest400(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "t354-400.frames.jsonl")
