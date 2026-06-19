@@ -2601,6 +2601,7 @@ var wssSafeTestAllPassParsers = []func([]string, []byte) ([]byte, bool){
 	filter.TryCompactPoetryRunPytest,
 	filter.TryCompactHatchTest,
 	filter.TryCompactNoxTest,
+	filter.TryCompactToxTest,
 	filter.TryCompactPythonUnittest,
 	filter.TryCompactPhpunit,
 	filter.TryCompactRailsTest,

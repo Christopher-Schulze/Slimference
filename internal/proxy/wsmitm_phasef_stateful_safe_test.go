@@ -1511,6 +1511,7 @@ func TestWSSStatefulSafePytestWrappersAllPassCompactFullHistoryTurn(t *testing.T
 		{name: "poetry", command: "poetry run pytest -v", want: "[poetry run pytest] ok - 120 passed"},
 		{name: "hatch", command: "hatch test", want: "[hatch test] ok - 120 passed"},
 		{name: "nox", command: "nox -s test", want: "[nox test] ok - 120 passed"},
+		{name: "tox", command: "tox -e py311", want: "[tox test] ok - 120 passed"},
 	}
 	for _, tt := range tests {
 		tt := tt

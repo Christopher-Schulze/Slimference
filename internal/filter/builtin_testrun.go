@@ -3182,6 +3182,158 @@ func isNoxTestSessionArgv(argv []string) bool {
 	return argvHasNoxTestSessionFlags(argv[1:])
 }
 
+// TryCompactToxTest summarizes explicit tox test environments, plus parser-proven
+// non-empty bare `tox` output. Empty bare tox stays byte-identical because the
+// default envlist can be lint/build-only in some projects.
+func TryCompactToxTest(argv []string, stdout []byte) ([]byte, bool) {
+	if isToxExplicitTestEnvArgv(argv) {
+		return compactPytestWrapperOutput(stdout, "tox test")
+	}
+	if isBareToxArgv(argv) && strings.TrimSpace(string(stdout)) != "" {
+		return compactPytestVerbosePass(stdout, "tox test")
+	}
+	return stdout, false
+}
+
+func toxArgs(argv []string) ([]string, bool) {
+	if len(argv) < 1 {
+		return nil, false
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if b0 == "npx" || b0 == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		if !ok {
+			return nil, false
+		}
+		return toxArgs(rest)
+	}
+	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
+		return toxArgs(argv[2:])
+	}
+	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
+		return toxArgs(argv[1:])
+	}
+	if b0 != "tox" && b0 != "tox.exe" {
+		return nil, false
+	}
+	return argv[1:], true
+}
+
+func isBareToxArgv(argv []string) bool {
+	args, ok := toxArgs(argv)
+	if !ok {
+		return false
+	}
+	for _, arg := range args {
+		if arg == "" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			switch {
+			case arg == "-q", arg == "-qq", arg == "-v", arg == "-vv":
+				continue
+			case strings.HasPrefix(arg, "-c"), strings.HasPrefix(arg, "--conf"):
+				continue
+			default:
+				return false
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func isToxExplicitTestEnvArgv(argv []string) bool {
+	args, ok := toxArgs(argv)
+	if !ok || toxArgsDisableTests(args) {
+		return false
+	}
+	envs, hasEnv := toxEnvList(args)
+	if !hasEnv || len(envs) == 0 {
+		return false
+	}
+	for _, env := range envs {
+		if !toxEnvLooksTestLike(env) {
+			return false
+		}
+	}
+	return true
+}
+
+func toxArgsDisableTests(args []string) bool {
+	for _, arg := range args {
+		if arg == "--notest" || strings.HasPrefix(arg, "--notest=") ||
+			arg == "--no-test" || strings.HasPrefix(arg, "--no-test=") ||
+			arg == "--skip-test" || strings.HasPrefix(arg, "--skip-test=") ||
+			arg == "--skip-tests" || strings.HasPrefix(arg, "--skip-tests=") {
+			return true
+		}
+	}
+	return false
+}
+
+func toxEnvList(args []string) ([]string, bool) {
+	envs := make([]string, 0, 2)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-e" || arg == "--env" || arg == "--environment" || arg == "--envlist":
+			if i+1 >= len(args) {
+				return nil, false
+			}
+			envs = append(envs, splitToxEnvList(args[i+1])...)
+			i++
+		case strings.HasPrefix(arg, "-e") && len(arg) > len("-e"):
+			envs = append(envs, splitToxEnvList(strings.TrimPrefix(arg, "-e"))...)
+		case strings.HasPrefix(arg, "--env="):
+			envs = append(envs, splitToxEnvList(strings.TrimPrefix(arg, "--env="))...)
+		case strings.HasPrefix(arg, "--environment="):
+			envs = append(envs, splitToxEnvList(strings.TrimPrefix(arg, "--environment="))...)
+		case strings.HasPrefix(arg, "--envlist="):
+			envs = append(envs, splitToxEnvList(strings.TrimPrefix(arg, "--envlist="))...)
+		}
+	}
+	return envs, len(envs) > 0
+}
+
+func splitToxEnvList(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';'
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, `"'`))
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func toxEnvLooksTestLike(env string) bool {
+	env = strings.ToLower(strings.TrimSpace(env))
+	if env == "" {
+		return false
+	}
+	for _, bad := range []string{"lint", "format", "fmt", "type", "types", "typecheck", "type-check", "mypy", "pyright", "docs", "doc", "build", "package", "release"} {
+		if env == bad || strings.Contains(env, "-"+bad) || strings.Contains(env, bad+"-") || strings.Contains(env, "_"+bad) || strings.Contains(env, bad+"_") {
+			return false
+		}
+	}
+	if env == "py" || strings.HasPrefix(env, "pypy") {
+		return true
+	}
+	if strings.HasPrefix(env, "py") && len(env) > 2 {
+		r := env[2]
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return env == "test" || env == "tests" || env == "unit" || env == "units" ||
+		strings.Contains(env, "pytest") || strings.Contains(env, "test") ||
+		strings.Contains(env, "unit")
+}
+
 func argvHasExactToken(argv []string, token string) bool {
 	for _, a := range argv[1:] {
 		if a == token {
@@ -3236,6 +3388,9 @@ func TryCompactTestOutput(argv []string, stdout []byte) ([]byte, bool) {
 		return out, true
 	}
 	if out, ok := TryCompactNoxTest(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactToxTest(argv, stdout); ok {
 		return out, true
 	}
 	if out, ok := TryCompactPythonUnittest(argv, stdout); ok {
@@ -3351,6 +3506,8 @@ func testToolLabel(argv []string) string {
 		return "deno test"
 	case isNoxTestSessionArgv(argv):
 		return "nox test"
+	case isToxExplicitTestEnvArgv(argv) || isBareToxArgv(argv):
+		return "tox test"
 	case isUvRunPytestArgv(argv):
 		return "uv run pytest"
 	case isPoetryRunPytestArgv(argv):

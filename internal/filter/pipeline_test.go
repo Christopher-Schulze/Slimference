@@ -1239,7 +1239,7 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			stdout:       []byte(""),
 			wantContains: "[kube-linter] ok",
 		},
-		// test: uv run pytest, poetry run pytest, hatch test, nox test
+		// test: uv run pytest, poetry run pytest, hatch test, nox test, tox test
 		{
 			name:         "uv run pytest ok",
 			argv:         []string{"uv", "run", "pytest"},
@@ -1263,6 +1263,12 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			argv:         []string{"nox", "-s", "test"},
 			stdout:       []byte(""),
 			wantContains: "[nox test] ok",
+		},
+		{
+			name:         "tox test ok",
+			argv:         []string{"tox", "-e", "py311"},
+			stdout:       []byte(""),
+			wantContains: "[tox test] ok",
 		},
 		// test: rails test, sbt test, mill test, elm-test
 		{

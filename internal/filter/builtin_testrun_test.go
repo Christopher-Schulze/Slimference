@@ -252,6 +252,45 @@ func TestTryCompactTestOutput_goCargo(t *testing.T) {
 	if _, ok := TryCompactNoxTest([]string{"nox", "-s", "lint"}, []byte("")); ok {
 		t.Fatal("nox -s lint not test")
 	}
+	toxT, ok := TryCompactToxTest([]string{"tox", "-e", "py311"}, []byte(""))
+	if !ok || string(toxT) != "[tox test] ok\n" {
+		t.Fatalf("tox -e py311: %q", toxT)
+	}
+	toxRun, ok := TryCompactToxTest([]string{"tox", "run", "-e", "py311"}, []byte("\n"))
+	if !ok || string(toxRun) != "[tox test] ok\n" {
+		t.Fatalf("tox run -e py311: %q", toxRun)
+	}
+	toxEnvEq, ok := TryCompactToxTest([]string{"tox", "--env=test"}, []byte(""))
+	if !ok || string(toxEnvEq) != "[tox test] ok\n" {
+		t.Fatalf("tox --env=test: %q", toxEnvEq)
+	}
+	toxNpx, ok := TryCompactToxTest([]string{"npx", "-y", "tox", "-e", "py312"}, []byte(""))
+	if !ok || string(toxNpx) != "[tox test] ok\n" {
+		t.Fatalf("npx -y tox -e py312: %q", toxNpx)
+	}
+	toxPnpm, ok := TryCompactToxTest([]string{"pnpm", "exec", "tox", "-e", "py312"}, []byte(""))
+	if !ok || string(toxPnpm) != "[tox test] ok\n" {
+		t.Fatalf("pnpm exec tox -e py312: %q", toxPnpm)
+	}
+	toxYarn, ok := TryCompactToxTest([]string{"yarn", "tox", "-epy312"}, []byte(""))
+	if !ok || string(toxYarn) != "[tox test] ok\n" {
+		t.Fatalf("yarn tox -epy312: %q", toxYarn)
+	}
+	if _, ok := TryCompactToxTest([]string{"tox", "-e", "lint"}, []byte("")); ok {
+		t.Fatal("tox -e lint must fail open")
+	}
+	if _, ok := TryCompactToxTest([]string{"tox", "-e", "py311,lint"}, []byte("")); ok {
+		t.Fatal("tox mixed py/lint envlist must fail open")
+	}
+	if _, ok := TryCompactToxTest([]string{"tox", "--notest", "-e", "py311"}, []byte("")); ok {
+		t.Fatal("tox --notest must fail open")
+	}
+	if _, ok := TryCompactToxTest([]string{"tox", "-e", "py311-type"}, []byte("")); ok {
+		t.Fatal("tox type env must fail open")
+	}
+	if _, ok := TryCompactToxTest([]string{"tox"}, []byte("")); ok {
+		t.Fatal("bare empty tox must fail open")
+	}
 	pu2, ok := TryCompactPythonUnittest([]string{"python3", "-m", "unittest", "discover"}, []byte(""))
 	if !ok || string(pu2) != "[python -m unittest] ok\n" {
 		t.Fatalf("python -m unittest: %q", pu2)
@@ -691,6 +730,9 @@ func TestTryCompactTestOutput_missingWrappers(t *testing.T) {
 	if _, ok := TryCompactNoxTest([]string{"nox", "-s", "test"}, []byte("FAILED\n")); ok {
 		t.Fatal("nox non-empty stdout")
 	}
+	if _, ok := TryCompactToxTest([]string{"tox", "-e", "py311"}, []byte("FAILED\n")); ok {
+		t.Fatal("tox failure stdout")
+	}
 
 	// --- GoTestJSON edge cases ---
 	// empty s="" branch (L15): TryCompactGoTestJSON with first line empty
@@ -944,6 +986,12 @@ func TestTryCompactTestOutput_missingWrappers(t *testing.T) {
 	// wrong tool after npx
 	if _, ok := TryCompactNoxTest([]string{"npx", "rake", "-s", "test"}, []byte("")); ok {
 		t.Fatal("npx rake not nox")
+	}
+	if _, ok := TryCompactToxTest([]string{"npx", "-y"}, []byte("")); ok {
+		t.Fatal("npx -y: no tox command")
+	}
+	if _, ok := TryCompactToxTest([]string{"npx", "rake", "-e", "py311"}, []byte("")); ok {
+		t.Fatal("npx rake not tox")
 	}
 
 	// --- isDartTestArgv: pnpm+fvm + yarn+fvm ---
@@ -1650,6 +1698,8 @@ func TestTestToolLabel_switchCases(t *testing.T) {
 		{[]string{"deno", "test"}, "deno test"},
 		// nox -s test (isNoxTestSessionArgv)
 		{[]string{"nox", "-s", "test"}, "nox test"},
+		// tox -e py311 (isToxExplicitTestEnvArgv)
+		{[]string{"tox", "-e", "py311"}, "tox test"},
 		// uv run pytest (isUvRunPytestArgv)
 		{[]string{"uv", "run", "pytest"}, "uv run pytest"},
 		// poetry run pytest (isPoetryRunPytestArgv)
@@ -1723,6 +1773,8 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 		{"poetry run pytest", []string{"poetry", "run", "pytest", "-v"}, TryCompactPoetryRunPytest},
 		{"hatch test", []string{"hatch", "test"}, TryCompactHatchTest},
 		{"nox test", []string{"nox", "-s", "test"}, TryCompactNoxTest},
+		{"tox test", []string{"tox", "-e", "py311"}, TryCompactToxTest},
+		{"tox test", []string{"tox"}, TryCompactToxTest},
 	}
 	for _, wrapper := range wrappers {
 		out, ok = wrapper.fn(wrapper.argv, []byte(py.String()))

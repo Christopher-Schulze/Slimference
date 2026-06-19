@@ -335,6 +335,7 @@ func isPythonDiagnosticArgv(argv []string) bool {
 		isMypyArgv(argv) ||
 		isUvRunPytestArgv(argv) ||
 		isPoetryRunPytestArgv(argv) ||
+		isToxExplicitTestEnvArgv(argv) ||
 		isPythonUnittestArgv(argv) {
 		return true
 	}
