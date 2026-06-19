@@ -2261,25 +2261,8 @@ func wssSafeExactKnownCLIJSONOutput(commandLine, payload string) bool {
 		return false
 	}
 	stdout := []byte(payload)
-	if wssKnownCLIJSONStructuredReducerMatches(argv, stdout) {
-		return false
-	}
 	compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
-}
-
-func wssKnownCLIJSONStructuredReducerMatches(argv []string, stdout []byte) bool {
-	parsers := []func([]string, []byte) ([]byte, bool){
-		filter.TryCompactKubectlJSON,
-		filter.TryCompactCargoMetadataJSON,
-		filter.TryCompactTerraformShowJSON,
-	}
-	for _, parser := range parsers {
-		if _, ok := parser(argv, stdout); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func wssExactJSONWhitespaceMinified(original, compacted []byte) bool {

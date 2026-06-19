@@ -850,6 +850,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					mechanism = proxyLayer0MechanismCapturedOut
 				}
 			}
+			if !changed && !wssSearchOutputBlocked && !readCommand && statefulSafeToolOutputBlock && req.Route == codexLayer0RouteWSSPhaseF {
+				latencyStart := time.Now()
+				afterText, changed, mechanism = compactProxyWSSStatefulExactKnownCLIJSON(commandLine, block.Text)
+				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
+			}
 			if !changed && !wssSearchOutputBlocked {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
@@ -1826,6 +1831,26 @@ func compactProxyLayer0CapturedOutputFirst(commandLine, text string, ctx filter.
 		}
 	}
 	return "", false
+}
+
+func compactProxyWSSStatefulExactKnownCLIJSON(commandLine, text string) (string, bool, proxyLayer0Mechanism) {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	argv := filter.ArgvForCapturedOutput(filterCommandLine)
+	if len(argv) == 0 {
+		return "", false, ""
+	}
+	if header, payload, ok := splitCodexExecEnvelope(text); ok {
+		compacted, changed := filter.TryCompactKnownCLIJSONExact(argv, []byte(payload))
+		if !changed || len(compacted) >= len(payload) || !wssExactJSONWhitespaceMinified([]byte(payload), compacted) {
+			return "", false, ""
+		}
+		return header + string(compacted), true, proxyLayer0MechanismCapturedOut
+	}
+	compacted, changed := filter.TryCompactKnownCLIJSONExact(argv, []byte(text))
+	if !changed || len(compacted) >= len(text) || !wssExactJSONWhitespaceMinified([]byte(text), compacted) {
+		return "", false, ""
+	}
+	return string(compacted), true, proxyLayer0MechanismCapturedOut
 }
 
 func proxyInferredPlainPathListCommand(commandLine string) bool {

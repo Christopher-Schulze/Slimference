@@ -51,13 +51,13 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if wssSafeStatefulStatusCommandOutput("kubectl get pods", prettyJSON) {
 		t.Fatal("kubectl JSON without explicit JSON flag must not enter the known CLI exact-minify gate")
 	}
-	kubectlAttentionJSON := `{"kind":"List","items":[{"kind":"Pod","metadata":{"namespace":"prod","name":"bad"},"status":{"phase":"Pending","containerStatuses":[{"name":"app","ready":false,"restartCount":7,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}]}`
-	if wssSafeStatefulStatusCommandOutput("kubectl get pods -o json", kubectlAttentionJSON) {
-		t.Fatal("structured kubectl JSON summaries must not be unlocked through the exact fallback gate")
+	kubectlAttentionJSON := "{\n  \"kind\": \"List\",\n  \"items\": [\n    {\"kind\": \"Pod\", \"metadata\": {\"namespace\": \"prod\", \"name\": \"bad\"}, \"status\": {\"phase\": \"Pending\", \"containerStatuses\": [{\"name\": \"app\", \"ready\": false, \"restartCount\": 7, \"state\": {\"waiting\": {\"reason\": \"CrashLoopBackOff\"}}}]}}\n  ]\n}\n"
+	if !wssSafeStatefulStatusCommandOutput("kubectl get pods -o json", kubectlAttentionJSON) {
+		t.Fatal("structured kubectl JSON should be exact-minify stateful-safe")
 	}
-	cargoMetadataJSON := `{"packages":[{"name":"app","version":"0.1.0","id":"path+file:///app#0.1.0"}],"workspace_members":["path+file:///app#0.1.0"]}`
-	if wssSafeStatefulStatusCommandOutput("cargo metadata --format-version 1", cargoMetadataJSON) {
-		t.Fatal("structured cargo metadata summaries must not be unlocked through the exact fallback gate")
+	cargoMetadataJSON := "{\n  \"packages\": [\n    {\"name\": \"app\", \"version\": \"0.1.0\", \"id\": \"path+file:///app#0.1.0\"}\n  ],\n  \"workspace_members\": [\n    \"path+file:///app#0.1.0\"\n  ]\n}\n"
+	if !wssSafeStatefulStatusCommandOutput("cargo metadata --format-version 1", cargoMetadataJSON) {
+		t.Fatal("structured cargo metadata JSON should be exact-minify stateful-safe")
 	}
 }
 
@@ -181,6 +181,82 @@ func TestWSSStatefulSafeKnownCLIJSONExactMinifyCompactsFullHistoryTurn(t *testin
 	}
 }
 
+func TestWSSStatefulSafeStructuredKnownCLIJSONUsesExactMinify(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	cases := []struct {
+		name       string
+		command    string
+		body       string
+		mustKeep   string
+		mustReject string
+	}{
+		{
+			name:       "kubectl attention json",
+			command:    "kubectl get pods -o json",
+			body:       wssPrettyKubectlAttentionJSONFixture(240),
+			mustKeep:   `\"CrashLoopBackOff\"`,
+			mustReject: "[kubectl -o json]",
+		},
+		{
+			name:       "cargo metadata",
+			command:    "cargo metadata --format-version 1",
+			body:       wssPrettyCargoMetadataJSONFixture(240),
+			mustKeep:   `\"workspace_members\"`,
+			mustReject: "[cargo metadata]",
+		},
+		{
+			name:       "terraform show json",
+			command:    "terraform show -json plan.out",
+			body:       wssPrettyTerraformShowJSONFixture(240),
+			mustKeep:   `\"resource_changes\"`,
+			mustReject: "[terraform show -json]",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if !wssSafeStatefulStatusCommandOutput(tc.command, tc.body) {
+				t.Fatalf("%s should be classified as WSS stateful-safe exact JSON", tc.name)
+			}
+			envelope := "Chunk ID: structured-known-cli-json-safe\n" +
+				"Wall time: 0.0010 seconds\n" +
+				"Process exited with code 0\n" +
+				"Original token count: 10000\n" +
+				"Output:\n" +
+				tc.body
+			caseID := strings.ReplaceAll(tc.name, " ", "_")
+			env := parseWSJSON(t, wssCommandOutputRequestBody("resp_"+caseID, "call_"+caseID, tc.command, envelope, "stateful-structured-json-session"))
+			replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+			if err != nil {
+				t.Fatalf("handle %s request: %v", tc.name, err)
+			}
+			if !replace {
+				t.Fatalf("%s should exact-minify and compact", tc.name)
+			}
+			raw := string(env.Body)
+			summary := p.DebugRecorder().Last(1, false)[0]
+			if !strings.Contains(raw, tc.mustKeep) ||
+				!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+				strings.Contains(raw, tc.mustReject) ||
+				strings.Contains(raw, `\"items\": [`) ||
+				strings.Contains(raw, "{object,") {
+				t.Fatalf("%s was not exact-minified archive-backed JSON: summary=%+v raw=%s", tc.name, summary, raw)
+			}
+			if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+				summary.DebugFacts["wss.request_shape"] != "full_history" {
+				t.Fatalf("%s should save without structured guard: %+v", tc.name, summary)
+			}
+		})
+	}
+}
+
 func wssNetworkJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"items\": [\n")
@@ -191,5 +267,51 @@ func wssNetworkJSONFixture(count int) string {
 		fmt.Fprintf(&out, "    {\"id\": %d, \"name\": \"item-%03d\", \"value\": \"payload-%03d\"}", i, i, i)
 	}
 	out.WriteString("\n  ],\n  \"final\": \"kept\"\n}\n")
+	return out.String()
+}
+
+func wssPrettyKubectlAttentionJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("{\n  \"kind\": \"List\",\n  \"items\": [\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "    {\"kind\": \"Pod\", \"metadata\": {\"namespace\": \"prod\", \"name\": \"pod-%03d\"}, \"status\": {\"phase\": \"Pending\", \"containerStatuses\": [{\"name\": \"app\", \"ready\": false, \"restartCount\": %d, \"state\": {\"waiting\": {\"reason\": \"CrashLoopBackOff\"}}}]}}", i, i+1)
+	}
+	out.WriteString("\n  ]\n}\n")
+	return out.String()
+}
+
+func wssPrettyCargoMetadataJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("{\n  \"packages\": [\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "    {\"name\": \"crate%03d\", \"version\": \"0.1.%d\", \"id\": \"path+file:///repo/crate%03d#0.1.%d\"}", i, i, i, i)
+	}
+	out.WriteString("\n  ],\n  \"workspace_members\": [\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "    \"path+file:///repo/crate%03d#0.1.%d\"", i, i)
+	}
+	out.WriteString("\n  ]\n}\n")
+	return out.String()
+}
+
+func wssPrettyTerraformShowJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("{\n  \"format_version\": \"1.0\",\n  \"resource_changes\": [\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "    {\"address\": \"aws_instance.node_%03d\", \"change\": {\"actions\": [\"update\"], \"before\": {\"id\": \"i-%03d\"}, \"after\": {\"id\": \"i-%03d\"}}}", i, i, i)
+	}
+	out.WriteString("\n  ]\n}\n")
 	return out.String()
 }
