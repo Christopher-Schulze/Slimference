@@ -51,7 +51,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
-	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun"} {
+	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo", "pytest", "py.test", "python", "python3", "uv", "poetry"} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
@@ -217,6 +217,10 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		}
 	case "npm", "pnpm", "yarn", "bun":
 		return commandOutputFirstPackageScriptAllowed(command, args)
+	case "cargo":
+		return commandOutputFirstCargoAllowed(args)
+	case "pytest", "py.test", "python", "python3", "uv", "poetry":
+		return commandOutputFirstPythonTestAllowed(command, args)
 	default:
 		return false
 	}
@@ -281,6 +285,23 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
 		return nil, false
+	case "cargo":
+		switch commandOutputFirstCargoSubcommand(args) {
+		case "test", "nextest", "llvm-cov":
+			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "build", "check", "doc":
+			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "clippy", "audit":
+			compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		default:
+			return nil, false
+		}
+	case "pytest", "py.test", "python", "python3", "uv", "poetry":
+		compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		return nil, false
 	}
@@ -383,6 +404,133 @@ func commandOutputFirstGoSubcommand(args []string) string {
 		}
 	}
 	return ""
+}
+
+func commandOutputFirstCargoAllowed(args []string) bool {
+	sub, idx := commandOutputFirstCargoCommand(args)
+	switch sub {
+	case "test", "llvm-cov", "build", "check", "doc", "clippy", "audit":
+		return true
+	case "nextest":
+		return idx+1 < len(args) && strings.TrimSpace(args[idx+1]) == "run"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstCargoSubcommand(args []string) string {
+	sub, _ := commandOutputFirstCargoCommand(args)
+	return sub
+}
+
+func commandOutputFirstCargoCommand(args []string) (string, int) {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return "", -1
+		}
+		if strings.HasPrefix(arg, "+") && len(arg) > 1 {
+			continue
+		}
+		switch {
+		case arg == "-C" || arg == "--config" || arg == "-Z":
+			i++
+			if i >= len(args) {
+				return "", -1
+			}
+		case strings.HasPrefix(arg, "--config="), strings.HasPrefix(arg, "-Z"):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return arg, i
+		}
+	}
+	return "", -1
+}
+
+func commandOutputFirstPythonTestAllowed(command string, args []string) bool {
+	switch command {
+	case "pytest", "py.test":
+		return true
+	case "python", "python3":
+		module := commandOutputFirstPythonModule(args)
+		return module == "pytest" || module == "unittest"
+	case "uv":
+		return commandOutputFirstUvRunPytest(args)
+	case "poetry":
+		return commandOutputFirstPoetryRunPytest(args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPythonModule(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return ""
+		}
+		if arg == "-m" {
+			if i+1 >= len(args) {
+				return ""
+			}
+			return strings.TrimSpace(args[i+1])
+		}
+		if commandOutputFirstPythonOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return ""
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return ""
+	}
+	return ""
+}
+
+func commandOutputFirstPythonOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-W", "-X":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstUvRunPytest(args []string) bool {
+	verb, idx := packageScriptFirstCommand(args)
+	if verb != "run" {
+		return false
+	}
+	if idx+1 >= len(args) {
+		return false
+	}
+	next := strings.TrimSpace(args[idx+1])
+	if next == "pytest" {
+		return true
+	}
+	if (next == "python" || next == "python3") && idx+3 < len(args) && args[idx+2] == "-m" && args[idx+3] == "pytest" {
+		return true
+	}
+	return false
+}
+
+func commandOutputFirstPoetryRunPytest(args []string) bool {
+	if len(args) < 2 || strings.TrimSpace(args[0]) != "run" {
+		return false
+	}
+	next := strings.TrimSpace(args[1])
+	if next == "pytest" {
+		return true
+	}
+	if (next == "python" || next == "python3") && len(args) >= 4 && args[2] == "-m" && args[3] == "pytest" {
+		return true
+	}
+	return false
 }
 
 func commandOutputFirstPackageScriptAllowed(command string, args []string) bool {
@@ -489,7 +637,7 @@ func packageScriptFirstCommand(args []string) (string, int) {
 
 func packageScriptOptionConsumesValue(arg string) bool {
 	switch arg {
-	case "-C", "--prefix", "--workspace", "--dir", "--cwd", "--filter", "-F":
+	case "-C", "--prefix", "--workspace", "--dir", "--cwd", "--filter", "--project", "-F":
 		return true
 	default:
 		return false

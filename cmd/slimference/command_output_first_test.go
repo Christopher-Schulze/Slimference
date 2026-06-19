@@ -175,6 +175,15 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "npm", args: []string{"run", "build"}},
 		{command: "pnpm", args: []string{"run", "build"}},
 		{command: "yarn", args: []string{"run", "build"}},
+		{command: "cargo", args: []string{"test", "--", "--nocapture"}},
+		{command: "cargo", args: []string{"+nightly", "nextest", "run"}},
+		{command: "cargo", args: []string{"check", "--workspace"}},
+		{command: "cargo", args: []string{"clippy", "--all-targets"}},
+		{command: "pytest", args: []string{"-vv"}},
+		{command: "python3", args: []string{"-m", "pytest", "-vv"}},
+		{command: "python", args: []string{"-u", "-m", "unittest"}},
+		{command: "uv", args: []string{"run", "pytest", "-vv"}},
+		{command: "poetry", args: []string{"run", "python", "-m", "pytest"}},
 	} {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v should be captured", tc.command, tc.args)
@@ -190,6 +199,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "yarn", args: []string{"start"}},
 		{command: "bun", args: []string{"run", "build"}},
 		{command: "bun", args: []string{"install"}},
+		{command: "cargo", args: []string{"install", "ripgrep"}},
+		{command: "cargo", args: []string{"nextest", "list"}},
+		{command: "python3", args: []string{"script.py"}},
+		{command: "python3", args: []string{"-m", "http.server"}},
+		{command: "uv", args: []string{"run", "python", "script.py"}},
+		{command: "poetry", args: []string{"install"}},
 	} {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
@@ -419,6 +434,160 @@ func TestCommandOutputFirstShimPackageBuildEmptyFullPasses(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimCargoTestCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	b.WriteString("running 42 tests\n")
+	for i := 1; i <= 42; i++ {
+		b.WriteString("test suite::case_")
+		if i < 10 {
+			b.WriteString("0")
+		}
+		b.WriteString(strings.TrimSpace(string(rune('0' + i/10))))
+		b.WriteString(strings.TrimSpace(string(rune('0' + i%10))))
+		b.WriteString(" ... ok\n")
+	}
+	b.WriteString("\ntest result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n")
+	realCargo := writeFakeCommand(t, "cargo", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=cargo", "--real-bin=" + realCargo, "--", "test", "--", "--nocapture"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[cargo test] ok - 42 passed") || !strings.Contains(got, "test result: ok. 42 passed") {
+		t.Fatalf("unexpected compacted cargo test stdout=%q", got)
+	}
+	if strings.Contains(got, "suite::case_01") {
+		t.Fatalf("cargo test command-output-first should elide redundant pass roll-call: %q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:cargo] cargo test -- --nocapture") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimCargoBuildAndClippyCompact(t *testing.T) {
+	var build strings.Builder
+	for i := 0; i < 40; i++ {
+		build.WriteString("    Compiling slimtest v0.1.0 (/repo/crates/slimtest)\n")
+	}
+	build.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	realCargoBuild := writeFakeCommand(t, "cargo", "#!/bin/sh\ncat <<'EOF'\n"+build.String()+"EOF\n")
+	var buildStdout, buildStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=cargo", "--real-bin=" + realCargoBuild, "--", "build", "--workspace"}, &bytes.Buffer{}, &buildStdout, &buildStderr)
+	if rc != 0 {
+		t.Fatalf("cargo build rc=%d stderr=%q", rc, buildStderr.String())
+	}
+	if got := buildStdout.String(); got != "[cargo build] ok\n" {
+		t.Fatalf("cargo build compacted stdout=%q", got)
+	}
+
+	var clippy strings.Builder
+	for i := 0; i < 40; i++ {
+		clippy.WriteString("    Checking slimtest v0.1.0 (/repo/crates/slimtest)\n")
+	}
+	clippy.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	realCargoClippy := writeFakeCommand(t, "cargo", "#!/bin/sh\ncat <<'EOF'\n"+clippy.String()+"EOF\n")
+	var clippyStdout, clippyStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=cargo", "--real-bin=" + realCargoClippy, "--", "clippy", "--all-targets"}, &bytes.Buffer{}, &clippyStdout, &clippyStderr)
+	if rc != 0 {
+		t.Fatalf("cargo clippy rc=%d stderr=%q", rc, clippyStderr.String())
+	}
+	if got := clippyStdout.String(); got != "[cargo clippy] ok\n" {
+		t.Fatalf("cargo clippy compacted stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimCargoStderrFullPasses(t *testing.T) {
+	realCargo := writeFakeCommand(t, "cargo", "#!/bin/sh\nprintf '    Checking slimtest v0.1.0\\n'\nprintf 'warning: diagnostic\\n' >&2\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=cargo", "--real-bin=" + realCargo, "--", "check"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != "    Checking slimtest v0.1.0\n" {
+		t.Fatalf("stdout passthrough=%q", got)
+	}
+	if got := stderr.String(); got != "warning: diagnostic\n" {
+		t.Fatalf("stderr passthrough=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimPythonUnittestCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 1; i <= 80; i++ {
+		b.WriteByte('.')
+		if i%40 == 0 {
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString("\n----------------------------------------------------------------------\n")
+	b.WriteString("Ran 80 tests in 0.321s\n\nOK\n")
+	realPython := writeFakeCommand(t, "python3", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=python3", "--real-bin=" + realPython, "--", "-u", "-m", "unittest"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if got != "[python -m unittest] ok (Ran 80 tests in 0.321s; OK)\n" {
+		t.Fatalf("unexpected compacted unittest stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:python3] python3 -u -m unittest") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimPytestCompacts(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("============================= test session starts ==============================\n")
+	for i := 0; i < 80; i++ {
+		b.WriteString("tests/test_alpha.py::test_op PASSED                                  [ 10%]\n")
+	}
+	b.WriteString("============================== 80 passed in 0.42s ===============================\n")
+	realPytest := writeFakeCommand(t, "pytest", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=pytest", "--real-bin=" + realPytest, "--", "-v"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[pytest] ok - 80 passed") || strings.Contains(got, "test_alpha.py::test_op") {
+		t.Fatalf("unexpected compacted pytest stdout=%q", got)
 	}
 }
 
@@ -705,6 +874,80 @@ func TestCommandOutputFirstGoSubcommandGlobalOptionEdges(t *testing.T) {
 		if got := commandOutputFirstGoSubcommand(tc.args); got != tc.want {
 			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
 		}
+	}
+}
+
+func TestCommandOutputFirstCargoSubcommandEdges(t *testing.T) {
+	cases := []struct {
+		args    []string
+		wantSub string
+		wantOK  bool
+	}{
+		{args: []string{"test", "--workspace"}, wantSub: "test", wantOK: true},
+		{args: []string{"+nightly", "nextest", "run"}, wantSub: "nextest", wantOK: true},
+		{args: []string{"+nightly", "nextest", "list"}, wantSub: "nextest", wantOK: false},
+		{args: []string{"--config", "build.jobs=1", "check"}, wantSub: "check", wantOK: true},
+		{args: []string{"--config=build.jobs=1", "doc"}, wantSub: "doc", wantOK: true},
+		{args: []string{"-Z", "unstable-options", "llvm-cov"}, wantSub: "llvm-cov", wantOK: true},
+		{args: []string{"-Zunstable-options", "-v", "audit"}, wantSub: "audit", wantOK: true},
+		{args: []string{"--config"}, wantSub: "", wantOK: false},
+		{args: []string{"+stable"}, wantSub: "", wantOK: false},
+		{args: []string{"install", "ripgrep"}, wantSub: "install", wantOK: false},
+		{args: []string{""}, wantSub: "", wantOK: false},
+	}
+	for _, tc := range cases {
+		if got := commandOutputFirstCargoSubcommand(tc.args); got != tc.wantSub {
+			t.Fatalf("cargo args=%v sub=%q want %q", tc.args, got, tc.wantSub)
+		}
+		if got := commandOutputFirstCargoAllowed(tc.args); got != tc.wantOK {
+			t.Fatalf("cargo args=%v allowed=%v want %v", tc.args, got, tc.wantOK)
+		}
+	}
+}
+
+func TestCommandOutputFirstPythonTestEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "pytest", args: []string{"-vv"}},
+		{command: "py.test", args: []string{"tests/"}},
+		{command: "python3", args: []string{"-u", "-m", "pytest"}},
+		{command: "python", args: []string{"-W", "ignore", "-m", "unittest"}},
+		{command: "python3", args: []string{"-X", "dev", "-m", "unittest"}},
+		{command: "uv", args: []string{"--project", "app", "run", "pytest"}},
+		{command: "uv", args: []string{"run", "python3", "-m", "pytest"}},
+		{command: "poetry", args: []string{"run", "pytest"}},
+		{command: "poetry", args: []string{"run", "python", "-m", "pytest"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstPythonTestAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v should be allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "python3", args: []string{"script.py"}},
+		{command: "python3", args: []string{"-m", "http.server"}},
+		{command: "python3", args: []string{"-W"}},
+		{command: "python3", args: []string{"-X", ""}},
+		{command: "uv", args: []string{"run", "python", "script.py"}},
+		{command: "uv", args: []string{"run"}},
+		{command: "uv", args: []string{"pip", "install", "pytest"}},
+		{command: "poetry", args: []string{"install"}},
+		{command: "poetry", args: []string{"run", "python", "script.py"}},
+		{command: "ruby", args: []string{"-e", "puts 1"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstPythonTestAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be allowed", tc.command, tc.args)
+		}
+	}
+	if got := commandOutputFirstPythonModule([]string{"-u", "-m", "pytest"}); got != "pytest" {
+		t.Fatalf("python module=%q", got)
 	}
 }
 
