@@ -180,11 +180,20 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 			_, _ = stderr.Write(rawErr)
 			return code
 		}
-		recordCommandOutputFirstRun(cfg.command, childArgs, compacted.raw, recoverable)
+		accountingRaw := compacted.raw
+		if len(compacted.accountingRaw) != 0 {
+			accountingRaw = compacted.accountingRaw
+		}
 		if compacted.stream == "stderr" {
+			accountingCompacted := append(append([]byte(nil), compacted.passthroughStdout...), recoverable...)
+			recordCommandOutputFirstRun(cfg.command, childArgs, accountingRaw, accountingCompacted)
+			_, _ = stdout.Write(compacted.passthroughStdout)
 			_, _ = stderr.Write(recoverable)
 		} else {
+			accountingCompacted := append(append([]byte(nil), recoverable...), compacted.passthroughStderr...)
+			recordCommandOutputFirstRun(cfg.command, childArgs, accountingRaw, accountingCompacted)
 			_, _ = stdout.Write(recoverable)
+			_, _ = stderr.Write(compacted.passthroughStderr)
 		}
 		return code
 	}
@@ -221,9 +230,12 @@ func parseCommandOutputFirstShimArgs(args []string) (commandOutputFirstShimConfi
 }
 
 type commandOutputFirstCompaction struct {
-	stream    string
-	raw       []byte
-	compacted []byte
+	stream            string
+	raw               []byte
+	compacted         []byte
+	passthroughStdout []byte
+	passthroughStderr []byte
+	accountingRaw     []byte
 }
 
 func commandOutputFirstAllowCapture(command string, args []string) bool {
@@ -593,6 +605,10 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 	if len(stderr) != 0 {
 		return nil, false
 	}
+	return compactCommandOutputFirstStdout(command, realBin, args, stdout, code)
+}
+
+func compactCommandOutputFirstStdout(command, realBin string, args []string, stdout []byte, code int) ([]byte, bool) {
 	argv := append([]string{realBin}, args...)
 	if code != 0 {
 		return compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stdout)
@@ -737,11 +753,55 @@ func compactCommandOutputFirstStreams(command, realBin string, args []string, st
 			return commandOutputFirstCompaction{stream: "stderr", raw: stderr, compacted: compacted}, true
 		}
 	}
+	if len(stdout) != 0 && len(stderr) != 0 {
+		if compacted, ok := compactCommandOutputFirstStdout(command, realBin, args, stdout, code); ok {
+			return commandOutputFirstMixedCompaction("stdout", stdout, stderr, compacted)
+		}
+		if code != 0 {
+			argv := append([]string{realBin}, args...)
+			compacted, ok := compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stderr)
+			if ok {
+				return commandOutputFirstMixedCompaction("stderr", stdout, stderr, compacted)
+			}
+		}
+	}
 	compacted, ok := compactCommandOutputFirst(command, realBin, args, stdout, stderr, code)
 	if !ok {
 		return commandOutputFirstCompaction{}, false
 	}
 	return commandOutputFirstCompaction{stream: "stdout", raw: stdout, compacted: compacted}, true
+}
+
+func commandOutputFirstMixedCompaction(stream string, stdout, stderr, compacted []byte) (commandOutputFirstCompaction, bool) {
+	accountingRaw := append(append([]byte(nil), stdout...), stderr...)
+	switch stream {
+	case "stdout":
+		accountingCompacted := append(append([]byte(nil), compacted...), stderr...)
+		if _, ok := commandOutputFirstPositiveCompaction(accountingCompacted, true, accountingRaw); !ok {
+			return commandOutputFirstCompaction{}, false
+		}
+		return commandOutputFirstCompaction{
+			stream:            "stdout",
+			raw:               stdout,
+			compacted:         compacted,
+			passthroughStderr: stderr,
+			accountingRaw:     accountingRaw,
+		}, true
+	case "stderr":
+		accountingCompacted := append(append([]byte(nil), stdout...), compacted...)
+		if _, ok := commandOutputFirstPositiveCompaction(accountingCompacted, true, accountingRaw); !ok {
+			return commandOutputFirstCompaction{}, false
+		}
+		return commandOutputFirstCompaction{
+			stream:            "stderr",
+			raw:               stderr,
+			compacted:         compacted,
+			passthroughStdout: stdout,
+			accountingRaw:     accountingRaw,
+		}, true
+	default:
+		return commandOutputFirstCompaction{}, false
+	}
 }
 
 func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []string, stdout []byte) ([]byte, bool) {

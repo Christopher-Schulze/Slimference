@@ -1100,7 +1100,118 @@ func TestCommandOutputFirstShimFocusedLintNonzeroStderrDiagnosticsCompactWithArc
 	}
 }
 
-func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrFullPasses(t *testing.T) {
+func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStdout(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 72; i++ {
+		diagnostics.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
+	}
+	realStaticcheck := writeFakeCommand(t, "staticcheck", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nprintf 'warning: matched no packages\\n' >&2\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=staticcheck", "--real-bin=" + realStaticcheck, "--", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"[staticcheck] FAILED (72 diagnostics)",
+		"internal/app/app.go:22:7: this value of err is never used (SA4006) (repeated 72 times)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("focused lint mixed stdout compact output missing %q in %q", want, got)
+		}
+	}
+	if got := stderr.String(); got != "warning: matched no packages\n" {
+		t.Fatalf("stderr must stay byte-identical, got %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing mixed stdout archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand mixed stdout archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("this value of err is never used")) != 72 {
+		t.Fatalf("archive did not preserve mixed stdout diagnostics: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStderr(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 72; i++ {
+		diagnostics.WriteString("internal/app/app.go:10:2: unused-parameter: bad (revive)\n")
+	}
+	realGolangci := writeFakeCommand(t, "golangci-lint", "#!/bin/sh\nprintf 'lint runner note\\n'\ncat >&2 <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=golangci-lint", "--real-bin=" + realGolangci, "--", "run", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if got := stdout.String(); got != "lint runner note\n" {
+		t.Fatalf("stdout must stay byte-identical, got %q", got)
+	}
+	got := commandOutputFirstVisibleOutput(stderr.String())
+	if !strings.Contains(got, "[golangci-lint] FAILED (72 diagnostics)") ||
+		!strings.Contains(got, "internal/app/app.go:10:2: unused-parameter: bad (revive) (repeated 72 times)") {
+		t.Fatalf("focused lint mixed stderr compact output=%q", got)
+	}
+	if !strings.Contains(stderr.String(), "stream=stderr") {
+		t.Fatalf("stderr archive marker must preserve stream distinction: %q", stderr.String())
+	}
+	uri := commandOutputFirstArchiveURI(stderr.String())
+	if uri == "" {
+		t.Fatalf("missing mixed stderr archive marker in %q", stderr.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand mixed stderr archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("unused-parameter")) != 72 {
+		t.Fatalf("archive did not preserve mixed stderr diagnostics: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroMixedTinyFullPasses(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	realStaticcheck := writeFakeCommand(t, "staticcheck", `#!/bin/sh
 printf 'internal/app/app.go:22:7: this value of err is never used (SA4006)\n'
@@ -1118,8 +1229,8 @@ exit 1
 	if got := stderr.String(); got != "warning: matched no packages\n" {
 		t.Fatalf("stderr=%q", got)
 	}
-	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
-		t.Fatalf("stderr full-pass must not archive: %q", stdout.String())
+	if uri := commandOutputFirstArchiveURI(stdout.String() + stderr.String()); uri != "" {
+		t.Fatalf("tiny mixed full-pass must not archive: %q %q", stdout.String(), stderr.String())
 	}
 	db, err := filter.OpenDB(dbPath)
 	if err != nil {
@@ -1262,21 +1373,52 @@ func TestCommandOutputFirstShimEslintStylishNonzeroStderrCompactWithArchive(t *t
 	}
 }
 
-func TestCommandOutputFirstShimEslintStylishMixedStdoutStderrFullPasses(t *testing.T) {
+func TestCommandOutputFirstShimEslintStylishMixedStdoutStderrCompactsStdout(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
 	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstEslintStylishFixture("src/app.js", 20)+"EOF\nprintf 'warning: config ignored\\n' >&2\nexit 1\n")
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
 	if rc != 1 {
 		t.Fatalf("rc=%d", rc)
 	}
-	if !strings.Contains(stdout.String(), "Unexpected console statement") {
-		t.Fatalf("stdout full-pass lost eslint output: %q", stdout.String())
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[eslint] FINDINGS (40 problems: 20 errors, 20 warnings in 1 file)") ||
+		!strings.Contains(got, "2:1 warning [no-console] Unexpected console statement") {
+		t.Fatalf("eslint mixed compact output=%q", got)
 	}
 	if got := stderr.String(); got != "warning: config ignored\n" {
-		t.Fatalf("stderr=%q", got)
+		t.Fatalf("stderr must stay byte-identical, got %q", got)
 	}
-	if uri := commandOutputFirstArchiveURI(stdout.String() + stderr.String()); uri != "" {
-		t.Fatalf("mixed eslint full-pass must not archive: %q %q", stdout.String(), stderr.String())
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing eslint mixed archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand mixed eslint archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("Unexpected console statement")) != 20 ||
+		bytes.Count(raw, []byte("Expected '===' and instead saw '=='")) != 20 {
+		t.Fatalf("archive did not preserve mixed eslint raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
 	}
 }
 
@@ -1759,6 +1901,33 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 	if out, ok := compactCommandOutputFirst("npm", "/usr/bin/npm", []string{"run", "dev"}, []byte("ready\n"), nil, 0); ok || out != nil {
 		t.Fatalf("npm run dev compacted: out=%q ok=%v", out, ok)
+	}
+}
+
+func TestCommandOutputFirstMixedCompactionRejectsNonPositiveAndUnknownStream(t *testing.T) {
+	if got, ok := commandOutputFirstMixedCompaction("stdout", []byte("short\n"), []byte("warn\n"), []byte("short\n")); ok {
+		t.Fatalf("non-positive mixed stdout compacted: %+v", got)
+	}
+	if got, ok := commandOutputFirstMixedCompaction("stderr", []byte("note\n"), []byte("short\n"), []byte("short\n")); ok {
+		t.Fatalf("non-positive mixed stderr compacted: %+v", got)
+	}
+	if got, ok := commandOutputFirstMixedCompaction("weird", []byte("note\n"), []byte("diag\n"), []byte("compact\n")); ok {
+		t.Fatalf("unknown mixed stream compacted: %+v", got)
+	}
+}
+
+func TestCommandOutputFirstDiagnosticPredicatesNpxAndDeny(t *testing.T) {
+	if !commandOutputFirstFocusedLintDiagnosticAllowed("npx", []string{"--yes", "staticcheck", "./..."}) {
+		t.Fatal("npx staticcheck diagnostic should be allowed")
+	}
+	if commandOutputFirstFocusedLintDiagnosticAllowed("npx", []string{"--yes", "eslint", "src"}) {
+		t.Fatal("npx eslint must not use focused Go lint diagnostic path")
+	}
+	if !commandOutputFirstEslintStylishDiagnosticAllowed("npx", []string{"--yes", "eslint", "src"}) {
+		t.Fatal("npx eslint stylish diagnostic should be allowed")
+	}
+	if commandOutputFirstEslintStylishDiagnosticAllowed("pnpm", []string{"exec", "eslint", "src"}) {
+		t.Fatal("only direct eslint or strict npx eslint should be allowed in command-output-first")
 	}
 }
 
