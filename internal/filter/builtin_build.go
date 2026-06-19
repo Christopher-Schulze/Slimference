@@ -535,140 +535,190 @@ func webBuildLineHasErrorSignal(lower string) bool {
 		strings.Contains(lower, " errors")
 }
 
-// TryCompactWebpack replaces empty stdout from `webpack` / `webpack-cli` / `npx|pnpm exec|yarn … webpack` (F07 partial).
+// TryCompactWebpack replaces empty or strictly clean stdout from `webpack` / `webpack-cli` / `npx|pnpm exec|yarn ... webpack`.
 func TryCompactWebpack(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isWebpackArgv(argv) {
 		return stdout, false
 	}
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "webpack" || b == "webpack.cmd" || b == "webpack-cli" || b == "webpack-cli.cmd" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[webpack] ok\n"), true
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 {
-		bn := strings.ToLower(filepath.Base(rest[0]))
-		if bn == "webpack" || bn == "webpack-cli" {
-			return []byte("[webpack] ok\n"), true
-		}
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && (argv[2] == "webpack" || argv[2] == "webpack-cli") {
-		return []byte("[webpack] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && (argv[1] == "webpack" || argv[1] == "webpack-cli") {
-		return []byte("[webpack] ok\n"), true
-	}
-	return stdout, false
+	return compactWebpackCleanOutput(s, len(stdout))
 }
 
-// TryCompactRspackBuild replaces empty stdout from `rspack build` / `npx|pnpm exec|yarn … rspack build` (F07 partial).
+func isWebpackArgv(argv []string) bool {
+	return isSingleBinarySubcmdArgv(argv, "webpack", "") ||
+		isSingleBinarySubcmdArgv(argv, "webpack-cli", "")
+}
+
+func compactWebpackCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[webpack] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "webpack") ||
+		!strings.Contains(lower, "compiled successfully") ||
+		!webBuildHasArtifactSignal(lower) {
+		return nil, false
+	}
+	return out, true
+}
+
+// TryCompactRspackBuild replaces empty or strictly clean stdout from `rspack build` / `npx|pnpm exec|yarn ... rspack build`.
 func TryCompactRspackBuild(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "rspack", "build") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "rspack" || b == "rspack.cmd") && argv[1] == "build" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[rspack build] ok\n"), true
 	}
-	if npxMatches(argv, "rspack", "build") {
-		return []byte("[rspack build] ok\n"), true
-	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "rspack" && argv[3] == "build" {
-		return []byte("[rspack build] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "rspack" && argv[2] == "build" {
-		return []byte("[rspack build] ok\n"), true
-	}
-	return stdout, false
+	return compactRspackCleanOutput(s, len(stdout))
 }
 
-// TryCompactParcelBuild replaces empty stdout from `parcel build` / `npx|pnpm exec|yarn … parcel build` (F07 partial).
+func compactRspackCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[rspack build] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "rspack") ||
+		!strings.Contains(lower, "compiled successfully") ||
+		!webBuildHasArtifactSignal(lower) {
+		return nil, false
+	}
+	return out, true
+}
+
+// TryCompactParcelBuild replaces empty or strictly clean stdout from `parcel build` / `npx|pnpm exec|yarn ... parcel build`.
 func TryCompactParcelBuild(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isSingleBinarySubcmdArgv(argv, "parcel", "build") {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if (b == "parcel" || b == "parcel.cmd") && argv[1] == "build" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[parcel build] ok\n"), true
 	}
-	if npxMatches(argv, "parcel", "build") {
-		return []byte("[parcel build] ok\n"), true
-	}
-	if len(argv) >= 4 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "parcel" && argv[3] == "build" {
-		return []byte("[parcel build] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "parcel" && argv[2] == "build" {
-		return []byte("[parcel build] ok\n"), true
-	}
-	return stdout, false
+	return compactParcelCleanOutput(s, len(stdout))
 }
 
-// TryCompactRollupConfig replaces empty stdout from `rollup -c` / `rollup --config …` / `npx|pnpm exec|yarn … rollup …` (F07 partial).
+func compactParcelCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[parcel build] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "built in") || !webBuildHasArtifactSignal(lower) {
+		return nil, false
+	}
+	return out, true
+}
+
+// TryCompactRollupConfig replaces empty or strictly clean stdout from `rollup -c` / `rollup --config ...` / `npx|pnpm exec|yarn ... rollup ...`.
 func TryCompactRollupConfig(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isRollupConfigArgv(argv) {
 		return stdout, false
 	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[rollup] ok\n"), true
+	}
+	return compactRollupCleanOutput(s, len(stdout))
+}
+
+func isRollupConfigArgv(argv []string) bool {
 	if len(argv) < 2 {
-		return stdout, false
+		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	hasConfig := false
+	if b == "npx" || b == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		return ok && isRollupConfigArgv(rest)
+	}
+	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" {
+		return isRollupConfigArgv(argv[2:])
+	}
+	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") {
+		return isRollupConfigArgv(argv[1:])
+	}
+	if b != "rollup" && b != "rollup.cmd" {
+		return false
+	}
 	for _, a := range argv[1:] {
 		if a == "-c" || a == "--config" {
-			hasConfig = true
-			break
+			return true
 		}
 	}
-	if !hasConfig {
-		return stdout, false
-	}
-	if b == "rollup" || b == "rollup.cmd" {
-		return []byte("[rollup] ok\n"), true
-	}
-	if npxMatches(argv, "rollup") {
-		return []byte("[rollup] ok\n"), true
-	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "rollup" {
-		return []byte("[rollup] ok\n"), true
-	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "rollup" {
-		return []byte("[rollup] ok\n"), true
-	}
-	return stdout, false
+	return false
 }
 
-// TryCompactEsbuildBundle replaces empty stdout from `esbuild … --bundle …` / `npx|pnpm exec|yarn … esbuild … --bundle …` (F07 partial).
+func compactRollupCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[rollup] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "created ") ||
+		!strings.Contains(lower, " in ") ||
+		!webBuildHasArtifactSignal(lower) {
+		return nil, false
+	}
+	return out, true
+}
+
+// TryCompactEsbuildBundle replaces empty or strictly clean stdout from `esbuild ... --bundle ...` / `npx|pnpm exec|yarn ... esbuild ... --bundle ...`.
 func TryCompactEsbuildBundle(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if !isEsbuildBundleArgv(argv) {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	if !argvContainsToken(argv, "--bundle") {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b == "esbuild" || b == "esbuild.cmd" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[esbuild] ok\n"), true
 	}
-	if npxMatches(argv, "esbuild") {
-		return []byte("[esbuild] ok\n"), true
+	return compactEsbuildCleanOutput(s, len(stdout))
+}
+
+func isEsbuildBundleArgv(argv []string) bool {
+	return isSingleBinarySubcmdArgv(argv, "esbuild", "") && argvContainsToken(argv, "--bundle")
+}
+
+func compactEsbuildCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[esbuild] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
 	}
-	if len(argv) >= 3 && (b == "pnpm" || b == "pnpm.cmd") && argv[1] == "exec" && argv[2] == "esbuild" {
-		return []byte("[esbuild] ok\n"), true
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "done in") || !webBuildHasArtifactSignal(lower) {
+		return nil, false
 	}
-	if len(argv) >= 2 && (b == "yarn" || b == "yarn.cmd" || b == "yarnpkg") && argv[1] == "esbuild" {
-		return []byte("[esbuild] ok\n"), true
+	return out, true
+}
+
+func webBuildHasArtifactSignal(lower string) bool {
+	for _, line := range strings.Split(lower, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		hasPath := strings.Contains(line, "dist/") ||
+			strings.Contains(line, "asset ") ||
+			strings.Contains(line, ".js") ||
+			strings.Contains(line, ".mjs") ||
+			strings.Contains(line, ".cjs") ||
+			strings.Contains(line, ".css") ||
+			strings.Contains(line, ".html")
+		hasSize := strings.Contains(line, " kb") ||
+			strings.Contains(line, " kib") ||
+			strings.Contains(line, " mb") ||
+			strings.Contains(line, " mib") ||
+			strings.Contains(line, " bytes")
+		if hasPath && (hasSize || strings.Contains(line, "created ") || strings.Contains(line, "asset ")) {
+			return true
+		}
 	}
-	return stdout, false
+	return false
 }
 
 // TryCompactNxBuild replaces empty stdout from `nx build …` / `npx|pnpm exec|yarn … nx build` (F07 partial).

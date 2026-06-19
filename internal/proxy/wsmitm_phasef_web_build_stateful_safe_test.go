@@ -32,6 +32,41 @@ func TestWSSStatefulSafeWebBuildCleanOutputCompactsFullHistoryTurn(t *testing.T)
 			want:      "[vite build] ok",
 			forbidden: "dist/assets/chunk-39.js",
 		},
+		{
+			name:      "webpack",
+			command:   "webpack --mode production",
+			output:    webBuildCleanEnvelope("webpack-safe", wssWebpackCleanFixture()),
+			want:      "[webpack] ok",
+			forbidden: "asset chunk-39.js",
+		},
+		{
+			name:      "rspack build",
+			command:   "rspack build",
+			output:    webBuildCleanEnvelope("rspack-safe", wssRspackCleanFixture()),
+			want:      "[rspack build] ok",
+			forbidden: "asset chunk-39.js",
+		},
+		{
+			name:      "parcel build",
+			command:   "parcel build src/index.html",
+			output:    webBuildCleanEnvelope("parcel-safe", wssParcelCleanFixture()),
+			want:      "[parcel build] ok",
+			forbidden: "dist/chunk-39.js",
+		},
+		{
+			name:      "rollup",
+			command:   "rollup -c",
+			output:    webBuildCleanEnvelope("rollup-safe", wssRollupCleanFixture()),
+			want:      "[rollup] ok",
+			forbidden: "dist/chunk-39.min.js",
+		},
+		{
+			name:      "esbuild",
+			command:   "esbuild src/index.ts --bundle --outfile=dist/index.js",
+			output:    webBuildCleanEnvelope("esbuild-safe", wssEsbuildCleanFixture()),
+			want:      "[esbuild] ok",
+			forbidden: "dist/chunk-39.js",
+		},
 	}
 
 	for _, tt := range tests {
@@ -106,5 +141,51 @@ func wssViteBuildCleanFixture() string {
 		fmt.Fprintf(&b, "dist/assets/chunk-%02d.js                 %0.2f kB | gzip: %0.2f kB\n", i, float64(i)+12.4, float64(i)+3.1)
 	}
 	b.WriteString("built in 2.31s\n")
+	return b.String()
+}
+
+func wssWebpackCleanFixture() string {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] [minimized] (name: chunk-%02d)\n", i, 20+i, i)
+	}
+	b.WriteString("./src/index.ts 128 bytes [built] [code generated]\n")
+	b.WriteString("webpack 5.97.1 compiled successfully in 1234 ms\n")
+	return b.String()
+}
+
+func wssRspackCleanFixture() string {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] (name: chunk-%02d)\n", i, 18+i, i)
+	}
+	b.WriteString("Rspack compiled successfully in 820 ms\n")
+	return b.String()
+}
+
+func wssParcelCleanFixture() string {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "dist/chunk-%02d.js    %d KB    20ms\n", i, 10+i)
+	}
+	b.WriteString("Built in 1.23s\n")
+	return b.String()
+}
+
+func wssRollupCleanFixture() string {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "dist/chunk-%02d.js -> dist/chunk-%02d.min.js\n", i, i)
+	}
+	b.WriteString("created dist/index.js in 420ms\n")
+	return b.String()
+}
+
+func wssEsbuildCleanFixture() string {
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "dist/chunk-%02d.js  %d kb\n", i, 12+i)
+	}
+	b.WriteString("Done in 45ms\n")
 	return b.String()
 }
