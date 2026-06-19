@@ -58,7 +58,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"fd", "fdfind", "find", "wc",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
-		"basedpyright", "stylelint", "prettier", "mypy",
+		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
 		"golangci-lint", "staticcheck", "revive", "errcheck",
 		"ineffassign", "nilaway", "unparam", "misspell", "gocyclo",
 		"forbidigo", "prealloc",
@@ -363,7 +363,7 @@ func commandOutputFirstDirectLintAllowed(command string, args []string) bool {
 		return true
 	case "ruff":
 		return commandOutputFirstArgsContain(args, "check")
-	case "pyright", "basedpyright", "stylelint", "mypy":
+	case "pyright", "basedpyright", "stylelint", "eslint", "mypy":
 		return true
 	default:
 		return false
@@ -745,11 +745,15 @@ func compactCommandOutputFirstStreams(command, realBin string, args []string, st
 }
 
 func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []string, stdout []byte) ([]byte, bool) {
-	if !commandOutputFirstFocusedLintDiagnosticAllowed(command, args) {
-		return nil, false
+	if commandOutputFirstFocusedLintDiagnosticAllowed(command, args) {
+		compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	}
-	compacted, ok := filter.TryCompactLintOutput(argv, stdout)
-	return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	if commandOutputFirstEslintStylishDiagnosticAllowed(command, args) {
+		compacted, ok := filter.TryCompactEslintStylish(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	}
+	return nil, false
 }
 
 func commandOutputFirstFocusedLintDiagnosticAllowed(command string, args []string) bool {
@@ -771,6 +775,17 @@ func commandOutputFirstFocusedLintCommand(command string) bool {
 	default:
 		return false
 	}
+}
+
+func commandOutputFirstEslintStylishDiagnosticAllowed(command string, args []string) bool {
+	if command == "eslint" {
+		return true
+	}
+	if command != "npx" {
+		return false
+	}
+	tool, _, ok := commandOutputFirstNpxTool(args)
+	return ok && tool == "eslint"
 }
 
 func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte) ([]byte, bool) {

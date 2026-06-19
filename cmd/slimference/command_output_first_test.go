@@ -208,6 +208,7 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "ruff", args: []string{"check", "."}},
 		{command: "pyright", args: []string{"--outputjson", "src"}},
 		{command: "stylelint", args: []string{"--formatter", "json", "**/*.css"}},
+		{command: "eslint", args: []string{"src", "--format", "stylish"}},
 		{command: "prettier", args: []string{"--check", "."}},
 		{command: "npm", args: []string{"run", "lint"}},
 		{command: "pnpm", args: []string{"run", "typecheck"}},
@@ -1180,6 +1181,141 @@ exit 1
 	if uri := commandOutputFirstArchiveURI(stderr.String()); uri != "" {
 		t.Fatalf("unknown-line stderr full-pass must not archive: %q", stderr.String())
 	}
+}
+
+func TestCommandOutputFirstShimEslintStylishNonzeroStdoutCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstEslintStylishFixture("src/app.js", 45)+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "src", "--format", "stylish"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"[eslint] FINDINGS (90 problems: 45 errors, 45 warnings in 1 file)",
+		"src/app.js",
+		"2:1 warning [no-console] Unexpected console statement",
+		"2:20 error [eqeqeq] Expected '===' and instead saw '=='",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("eslint compact output missing %q in %q", want, got)
+		}
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing eslint archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand eslint archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("Unexpected console statement")) != 45 ||
+		bytes.Count(raw, []byte("Expected '===' and instead saw '=='")) != 45 {
+		t.Fatalf("archive did not preserve eslint raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:eslint] eslint src --format stylish") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimEslintStylishNonzeroStderrCompactWithArchive(t *testing.T) {
+	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat >&2 <<'EOF'\n"+commandOutputFirstEslintStylishFixture("src/app.js", 40)+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	if !strings.Contains(commandOutputFirstVisibleOutput(stderr.String()), "[eslint] FINDINGS (80 problems: 40 errors, 40 warnings in 1 file)") {
+		t.Fatalf("eslint stderr compact output=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "stream=stderr") {
+		t.Fatalf("eslint stderr archive marker must preserve stream: %q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stderr.String()); uri == "" {
+		t.Fatalf("missing eslint stderr archive marker in %q", stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimEslintStylishMixedStdoutStderrFullPasses(t *testing.T) {
+	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstEslintStylishFixture("src/app.js", 20)+"EOF\nprintf 'warning: config ignored\\n' >&2\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if !strings.Contains(stdout.String(), "Unexpected console statement") {
+		t.Fatalf("stdout full-pass lost eslint output: %q", stdout.String())
+	}
+	if got := stderr.String(); got != "warning: config ignored\n" {
+		t.Fatalf("stderr=%q", got)
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String() + stderr.String()); uri != "" {
+		t.Fatalf("mixed eslint full-pass must not archive: %q %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimEslintStylishAnsiFullPasses(t *testing.T) {
+	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\nprintf '\\033[31msrc/app.js\\033[0m\\n  1:1  error  bad  no-console\\n\\n\\342\\234\\226 1 problem (1 error, 0 warnings)\\n'\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if !strings.Contains(stdout.String(), "\x1b[31msrc/app.js\x1b[0m") {
+		t.Fatalf("ansi eslint output should full-pass, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("ansi eslint full-pass must not archive: %q", stdout.String())
+	}
+}
+
+func commandOutputFirstEslintStylishFixture(file string, count int) string {
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		b.WriteString("\n")
+		b.WriteString(file)
+		b.WriteString("\n")
+		b.WriteString("  2:1   warning  Unexpected console statement         no-console\n")
+		b.WriteString("  2:20  error    Expected '===' and instead saw '=='  eqeqeq\n")
+	}
+	total := count * 2
+	b.WriteString("\n\u2716 ")
+	b.WriteString(strconv.Itoa(total))
+	b.WriteString(" problems (")
+	b.WriteString(strconv.Itoa(count))
+	b.WriteString(" errors, ")
+	b.WriteString(strconv.Itoa(count))
+	b.WriteString(" warnings)\n")
+	return b.String()
 }
 
 func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
