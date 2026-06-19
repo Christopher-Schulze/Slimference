@@ -896,6 +896,89 @@ func TryCompactPrealloc(argv []string, stdout []byte) ([]byte, bool) {
 	return compactFocusedLintOutput(argv, stdout, "prealloc")
 }
 
+// TryCompactPreCommit summarizes parser-proven all-passed output from
+// `pre-commit run`. Failure, warning, skipped, malformed, and unknown lines
+// fail open so hook detail stays visible.
+func TryCompactPreCommit(argv []string, stdout []byte) ([]byte, bool) {
+	if !isPreCommitRunArgv(argv) {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	hooks, ok := countPreCommitPassedHooks(s)
+	if !ok || hooks <= 0 {
+		return stdout, false
+	}
+	hookWord := "hooks"
+	if hooks == 1 {
+		hookWord = "hook"
+	}
+	out := []byte(fmt.Sprintf("[pre-commit] ok (%d %s passed)\n", hooks, hookWord))
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func isPreCommitRunArgv(argv []string) bool {
+	return isSingleBinarySubcmdArgv(argv, "pre-commit", "run")
+}
+
+func countPreCommitPassedHooks(stdout string) (int, bool) {
+	count := 0
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if preCommitAllowedInfoLine(line) {
+			continue
+		}
+		if !preCommitPassedHookLine(line) {
+			return 0, false
+		}
+		count++
+	}
+	return count, count > 0
+}
+
+func preCommitAllowedInfoLine(line string) bool {
+	switch {
+	case strings.HasPrefix(line, "[INFO] Installing environment for "):
+		return strings.TrimSpace(strings.TrimPrefix(line, "[INFO] Installing environment for ")) != ""
+	case strings.HasPrefix(line, "[INFO] Initializing environment for "):
+		return strings.TrimSpace(strings.TrimPrefix(line, "[INFO] Initializing environment for ")) != ""
+	case line == "[INFO] Once installed this environment will be reused.":
+		return true
+	case line == "[INFO] This may take a few minutes...":
+		return true
+	default:
+		return false
+	}
+}
+
+func preCommitPassedHookLine(line string) bool {
+	const status = "Passed"
+	if !strings.HasSuffix(line, status) {
+		return false
+	}
+	prefix := strings.TrimSpace(strings.TrimSuffix(line, status))
+	if prefix == "" {
+		return false
+	}
+	dotCount := 0
+	for i := len(prefix) - 1; i >= 0 && prefix[i] == '.'; i-- {
+		dotCount++
+	}
+	if dotCount < 3 {
+		return false
+	}
+	hookName := strings.TrimSpace(prefix[:len(prefix)-dotCount])
+	return hookName != ""
+}
+
 func compactFocusedLintOutput(argv []string, stdout []byte, tool string) ([]byte, bool) {
 	if out, ok := tryCompactEmptyStdoutSingleBinary(argv, stdout, tool); ok {
 		return out, true
@@ -1869,6 +1952,9 @@ func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
 		return out, true
 	}
 	if out, ok := TryCompactPrealloc(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactPreCommit(argv, stdout); ok {
 		return out, true
 	}
 	if out, ok := TryCompactRuffCheck(argv, stdout); ok {

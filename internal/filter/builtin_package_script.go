@@ -171,6 +171,7 @@ func packageManagerLintScriptParsers() []packageManagerScriptParser {
 		TryCompactGocyclo,
 		TryCompactForbidigo,
 		TryCompactPrealloc,
+		TryCompactPreCommit,
 		TryCompactRuffCheck,
 		TryCompactPylint,
 		TryCompactFlake8,

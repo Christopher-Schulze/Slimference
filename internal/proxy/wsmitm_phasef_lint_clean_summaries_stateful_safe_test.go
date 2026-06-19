@@ -32,6 +32,13 @@ func TestWSSStatefulSafeLintCleanSummariesCompactFullHistoryTurn(t *testing.T) {
 			want:      "[biome check] ok (196 files checked)",
 			forbidden: "lint prelude 119",
 		},
+		{
+			name:      "pre-commit run",
+			command:   "pre-commit run --all-files",
+			output:    preCommitCleanSummaryEnvelope(90),
+			want:      "[pre-commit] ok (90 hooks passed)",
+			forbidden: "Hook 089",
+		},
 	}
 
 	for _, tt := range tests {
@@ -96,6 +103,13 @@ func TestWSSStatefulUnsafeLintCleanSummarySignalsDoNotBecomeOK(t *testing.T) {
 			forbidden:   "[biome check] ok",
 			mustContain: "Checked 0 files",
 		},
+		{
+			name:        "pre-commit failed hook",
+			command:     "pre-commit run --all-files",
+			output:      preCommitUnsafeSummaryEnvelope("Check Yaml...............................................................Failed\n- hook id: check-yaml\n- exit code: 1\n"),
+			forbidden:   "[pre-commit] ok",
+			mustContain: "Check Yaml",
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,6 +152,37 @@ func lintCleanSummaryEnvelope(name, tail string) string {
 		fmt.Fprintf(&output, "> workspace lint prelude %03d\n", i)
 	}
 	output.WriteString("> web@1.0.0 lint /repo\n")
+	output.WriteString(tail)
+	return output.String()
+}
+
+func preCommitCleanSummaryEnvelope(hooks int) string {
+	var output strings.Builder
+	output.WriteString("Chunk ID: lint-clean-summary-precommit\n")
+	output.WriteString("Wall time: 0.0010 seconds\n")
+	output.WriteString("Process exited with code 0\n")
+	output.WriteString("Original token count: 10000\n")
+	output.WriteString("Output:\n")
+	output.WriteString("[INFO] Installing environment for https://github.com/psf/black.\n")
+	output.WriteString("[INFO] Initializing environment for https://github.com/PyCQA/isort.\n")
+	output.WriteString("[INFO] Once installed this environment will be reused.\n")
+	output.WriteString("[INFO] This may take a few minutes...\n")
+	for i := 0; i < hooks; i++ {
+		fmt.Fprintf(&output, "Hook %03d.................................................................Passed\n", i)
+	}
+	return output.String()
+}
+
+func preCommitUnsafeSummaryEnvelope(tail string) string {
+	var output strings.Builder
+	output.WriteString("Chunk ID: lint-clean-summary-precommit-unsafe\n")
+	output.WriteString("Wall time: 0.0010 seconds\n")
+	output.WriteString("Process exited with code 1\n")
+	output.WriteString("Original token count: 10000\n")
+	output.WriteString("Output:\n")
+	output.WriteString("[INFO] Installing environment for https://github.com/pre-commit/mirrors-isort.\n")
+	output.WriteString("[INFO] Once installed this environment will be reused.\n")
+	output.WriteString("Trim Trailing Whitespace.................................................Passed\n")
 	output.WriteString(tail)
 	return output.String()
 }

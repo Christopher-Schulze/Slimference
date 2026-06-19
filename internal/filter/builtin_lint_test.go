@@ -1396,12 +1396,117 @@ func TestTryCompactCargoClippyCleanOutputGuards(t *testing.T) {
 	}
 }
 
+func TestTryCompactPreCommitAllPassedOutput(t *testing.T) {
+	t.Parallel()
+
+	input := preCommitPassedFixture(12)
+	out, ok := TryCompactPreCommit([]string{"pre-commit", "run", "--all-files"}, []byte(input))
+	if !ok || string(out) != "[pre-commit] ok (12 hooks passed)\n" {
+		t.Fatalf("pre-commit all passed: ok=%v out=%q", ok, out)
+	}
+	if len(out) >= len(input) {
+		t.Fatalf("pre-commit summary should be shorter: %d >= %d", len(out), len(input))
+	}
+
+	chainOut, ok := TryCompactLintOutput([]string{"pre-commit", "run", "--all-files"}, []byte(input))
+	if !ok || string(chainOut) != "[pre-commit] ok (12 hooks passed)\n" {
+		t.Fatalf("pre-commit lint chain: ok=%v out=%q", ok, chainOut)
+	}
+
+	script := "> web@1.0.0 lint /repo\n> pre-commit run --all-files\n" + input
+	scriptOut, ok := TryCompactLintOutput([]string{"pnpm", "run", "lint"}, []byte(script))
+	if !ok || string(scriptOut) != "[pre-commit] ok (12 hooks passed)\n" {
+		t.Fatalf("pre-commit package script: ok=%v out=%q", ok, scriptOut)
+	}
+
+	oneHook := "[INFO] Initializing environment for local:system.\nTrim Trailing Whitespace.................................................Passed\n"
+	oneOut, ok := TryCompactPreCommit([]string{"pre-commit", "run", "trim-trailing-whitespace"}, []byte(oneHook))
+	if !ok || string(oneOut) != "[pre-commit] ok (1 hook passed)\n" {
+		t.Fatalf("pre-commit singular hook: ok=%v out=%q", ok, oneOut)
+	}
+}
+
+func TestTryCompactPreCommitGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		argv  []string
+		input string
+	}{
+		{
+			name:  "failed hook",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: preCommitPassedFixture(8) + "Check Yaml...............................................................Failed\n- hook id: check-yaml\n- exit code: 1\n",
+		},
+		{
+			name:  "skipped hook",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: "mypy.....................................................................Skipped\n",
+		},
+		{
+			name:  "warning line",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: preCommitPassedFixture(4) + "[WARNING] Unstaged files detected.\n",
+		},
+		{
+			name:  "unknown info line",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: preCommitPassedFixture(4) + "[INFO] Stashing unstaged files to /tmp/patch.diff.\n",
+		},
+		{
+			name:  "unknown payload line",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: preCommitPassedFixture(4) + "files were modified by this hook\n",
+		},
+		{
+			name:  "wrong command",
+			argv:  []string{"pre-commit", "autoupdate"},
+			input: preCommitPassedFixture(4),
+		},
+		{
+			name:  "empty stdout",
+			argv:  []string{"pre-commit", "run", "--all-files"},
+			input: "",
+		},
+		{
+			name:  "non shrinking tiny output",
+			argv:  []string{"pre-commit", "run"},
+			input: "x...Passed\n",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := TryCompactPreCommit(tt.argv, []byte(tt.input)); ok {
+				t.Fatalf("unsafe pre-commit output compacted: %q", tt.input)
+			}
+			if _, ok := TryCompactLintOutput(tt.argv, []byte(tt.input)); ok {
+				t.Fatalf("unsafe pre-commit output compacted through lint chain: %q", tt.input)
+			}
+		})
+	}
+}
+
 func cargoClippyCleanFixture(packages int) string {
 	var out strings.Builder
 	for i := 0; i < packages; i++ {
 		fmt.Fprintf(&out, "    Checking slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
+	return out.String()
+}
+
+func preCommitPassedFixture(hooks int) string {
+	var out strings.Builder
+	out.WriteString("[INFO] Installing environment for https://github.com/psf/black.\n")
+	out.WriteString("[INFO] Initializing environment for https://github.com/PyCQA/isort.\n")
+	out.WriteString("[INFO] Once installed this environment will be reused.\n")
+	out.WriteString("[INFO] This may take a few minutes...\n")
+	for i := 0; i < hooks; i++ {
+		fmt.Fprintf(&out, "Hook %03d.................................................................Passed\n", i)
+	}
 	return out.String()
 }
 
