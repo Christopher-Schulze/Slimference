@@ -2234,6 +2234,11 @@ func wssSafeStructuredNoFindingsOutput(commandLine, payload string) bool {
 		wssCompactedEslintCleanSummary(compacted) {
 		return true
 	}
+	if compacted, ok := filter.TryCompactStylelintJSON(argv, stdout); ok &&
+		len(compacted) < len(stdout) &&
+		wssCompactedStylelintCleanSummary(compacted) {
+		return true
+	}
 	if !wssSafeSARIFArgv(argv) {
 		return false
 	}
@@ -2307,6 +2312,11 @@ func wssExactJSONWhitespaceMinified(original, compacted []byte) bool {
 func wssCompactedEslintCleanSummary(compacted []byte) bool {
 	text := strings.TrimSpace(string(compacted))
 	return strings.HasPrefix(text, "[eslint] clean (") && strings.HasSuffix(text, " file(s))")
+}
+
+func wssCompactedStylelintCleanSummary(compacted []byte) bool {
+	text := strings.TrimSpace(string(compacted))
+	return strings.HasPrefix(text, "[stylelint] clean (") && strings.HasSuffix(text, " file(s))")
 }
 
 func wssCompactedSARIFZeroResults(compacted []byte) bool {

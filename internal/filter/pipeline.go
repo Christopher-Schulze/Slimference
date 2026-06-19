@@ -265,6 +265,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		structuredReducer("tier1_pytest_json", "test", []string{"node id", "outcome", "failure message", "traceback frame"}, TryCompactPytestJSON),
 		structuredReducer("tier1_cargo_test_json", "test", []string{"package", "test name", "failure message", "stdout"}, TryCompactCargoTestJSON),
 		structuredReducer("tier1_eslint_json", "lint", []string{"rule id", "severity", "path", "line", "column", "message"}, TryCompactEslintJSON),
+		structuredReducer("tier1_stylelint_json", "lint", []string{"source", "errored flag", "warnings", "deprecations", "invalid option warnings"}, TryCompactStylelintJSON),
 		structuredReducer("tier1_tsc_diagnostics", "lint", []string{"path", "line", "column", "diagnostic code", "message"}, TryCompactTscDiagnostics),
 		structuredReducer("tier1_kubectl_json", "container", []string{"resource kind", "name", "namespace", "status", "reason"}, TryCompactKubectlJSON),
 		structuredReducer("tier1_cargo_metadata_json", "package", []string{"package", "target", "dependency edge"}, TryCompactCargoMetadataJSON),
