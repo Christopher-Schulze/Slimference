@@ -133,7 +133,7 @@ func TestWSPhaseFDefaultDeltaSavingsOpenWhenStatelessRecoveryReady(t *testing.T)
 	}
 }
 
-func TestWSPhaseFSearchCapFinalProofKeepsProofedDeltaStateful(t *testing.T) {
+func TestWSPhaseFSearchCapFinalProofCompactsProofedDeltaStatefully(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
@@ -184,14 +184,14 @@ func TestWSPhaseFSearchCapFinalProofKeepsProofedDeltaStateful(t *testing.T) {
 		}},
 		"stream": true,
 	})
+	original := append([]byte(nil), delta.Raw...)
 	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta); err != nil || !replace {
-		t.Fatalf("proofed search delta should compact in lab, replace=%v err=%v raw=%s", replace, err, delta.Raw)
+		t.Fatalf("proofed search delta should compact in place, replace=%v err=%v raw=%s", replace, err, delta.Raw)
 	}
-	mutated := string(delta.Raw)
-	if !strings.Contains(mutated, "[context-archive kind=tool-output uri=local-archive://") ||
-		!strings.Contains(mutated, "[rg]") ||
-		strings.Contains(mutated, "src/file_089.go:90:needle") {
-		t.Fatalf("proofed search delta should compact through search-cap latch: %s", mutated)
+	if bytes.Equal(delta.Raw, original) ||
+		!bytes.Contains(delta.Raw, []byte("[context-archive kind=tool-output uri=local-archive://")) ||
+		bytes.Contains(delta.Raw, []byte("src/file_050.go:51:needle")) {
+		t.Fatalf("proofed search delta should compact with archive recovery:\noriginal=%s\nmutated=%s", original, delta.Raw)
 	}
 	firstSummary := p.DebugRecorder().Last(1, false)[0]
 	if firstSummary.Tokens.Saved <= 0 ||
@@ -200,12 +200,13 @@ func TestWSPhaseFSearchCapFinalProofKeepsProofedDeltaStateful(t *testing.T) {
 		firstSummary.DebugFacts["wss.delta_stateless_recovery_ready"] != "true" ||
 		firstSummary.DebugFacts["wss.delta_stateless_recovery_gate"] != "open" ||
 		firstSummary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		firstSummary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		firstSummary.DebugFacts["wss.search_proof_block_reasons"] != "" ||
 		firstSummary.DebugFacts["wss.search_cap_stateful_followup"] != "true" ||
 		firstSummary.DebugFacts["wss.search_cap_stateful_followup_proof"] != "true" ||
-		firstSummary.DebugFacts["wss.search_cap_stateful_followup_lab"] == "true" ||
 		firstSummary.DebugFacts["wss.stateful_mutation_stateless_followup"] == "true" ||
 		firstSummary.DebugFacts["wss.stateless_history_continuation"] == "true" {
-		t.Fatalf("final-proof search-cap delta should save without arming stateless follow-up: %+v", firstSummary)
+		t.Fatalf("final-proof search-cap delta should compact with precise proof telemetry: %+v", firstSummary)
 	}
 
 	seedWSSDeltaStatelessToolCall(t, ctx, adapter, "call-after-stateful-lab", "exec_command", map[string]any{"cmd": "printf ok"})
@@ -241,7 +242,7 @@ func TestWSPhaseFSearchCapFinalProofKeepsProofedDeltaStateful(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFSearchCapMixedDeltaArmsStatelessFollowup(t *testing.T) {
+func TestWSPhaseFSearchCapMixedDeltaFullPasses(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
@@ -297,23 +298,22 @@ func TestWSPhaseFSearchCapMixedDeltaArmsStatelessFollowup(t *testing.T) {
 		},
 		"stream": true,
 	})
-	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta); err != nil || !replace {
-		t.Fatalf("mixed search delta should compact allowed block, replace=%v err=%v raw=%s", replace, err, delta.Raw)
+	original := append([]byte(nil), delta.Raw...)
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta); err != nil || replace {
+		t.Fatalf("mixed search delta should full-pass, replace=%v err=%v raw=%s", replace, err, delta.Raw)
 	}
-	mutated := string(delta.Raw)
-	if !strings.Contains(mutated, "[context-archive kind=tool-output uri=local-archive://") ||
-		!strings.Contains(mutated, "[rg]") ||
-		!strings.Contains(mutated, "src/file_029.go:30:unsafe") {
-		t.Fatalf("mixed delta should compact only the proofed search output: %s", mutated)
+	if !bytes.Equal(delta.Raw, original) {
+		t.Fatalf("mixed search delta must remain byte-identical:\noriginal=%s\nmutated=%s", original, delta.Raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.Tokens.Saved <= 0 ||
-		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
-		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "1" ||
+	if summary.Tokens.Saved != 0 ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "2" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "mixed_search_delta_proof=1,workload_not_search=1" ||
 		summary.DebugFacts["wss.search_cap_stateful_followup"] == "true" ||
-		summary.DebugFacts["wss.search_cap_stateful_followup_guard"] != "mixed_search_delta_proof" ||
-		summary.DebugFacts["wss.stateful_mutation_stateless_followup"] != "true" {
-		t.Fatalf("mixed search delta should save but arm stateless follow-up: %+v", summary)
+		summary.DebugFacts["wss.search_cap_stateful_followup_guard"] != "" ||
+		summary.DebugFacts["wss.stateful_mutation_stateless_followup"] == "true" {
+		t.Fatalf("mixed search delta should full-pass with precise proof telemetry: %+v", summary)
 	}
 
 	seedWSSDeltaStatelessToolCall(t, ctx, adapter, "after-mixed", "exec_command", map[string]any{"cmd": "printf ok"})
@@ -332,20 +332,20 @@ func TestWSPhaseFSearchCapMixedDeltaArmsStatelessFollowup(t *testing.T) {
 		}},
 		"stream": true,
 	})
-	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &followup); err != nil || !replace {
-		t.Fatalf("following delta should rewrite to stateless continuation, replace=%v err=%v raw=%s", replace, err, followup.Raw)
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &followup); err != nil || replace {
+		t.Fatalf("following delta should remain stateful byte-equal, replace=%v err=%v raw=%s", replace, err, followup.Raw)
 	}
 	followupBody, _, ok := wsRequestBody(&followup)
 	if !ok {
 		t.Fatal("following delta body missing")
 	}
-	if bytes.Contains(followupBody, []byte("previous_response_id")) {
-		t.Fatalf("following delta must detach previous_response_id: %s", followupBody)
+	if !bytes.Contains(followupBody, []byte("previous_response_id")) {
+		t.Fatalf("following delta should keep previous_response_id after byte-equal delta: %s", followupBody)
 	}
 	followupSummary := p.DebugRecorder().Last(1, false)[0]
-	if followupSummary.DebugFacts["wss.stateless_history_continuation"] != "true" ||
-		followupSummary.DebugFacts["wss.previous_response_id"] != "false" {
-		t.Fatalf("following delta should be stateless after mixed search cap: %+v", followupSummary)
+	if followupSummary.DebugFacts["wss.stateless_history_continuation"] == "true" ||
+		followupSummary.DebugFacts["wss.previous_response_id"] != "true" {
+		t.Fatalf("following delta should remain stateful after byte-equal search delta: %+v", followupSummary)
 	}
 }
 

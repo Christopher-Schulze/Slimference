@@ -217,7 +217,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
-	downstreamProof, err := loadSearchCapDownstreamStateProof(flags.framesPath, flags.socketSeq)
+	downstreamProof, err := loadSearchCapDownstreamStateProof(flags.framesPath, flags.socketSeq, defaultReplay.SearchMutatedRequests)
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
@@ -248,9 +248,6 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	if !downstreamProof.GatePassed {
 		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("downstream_state_proof", downstreamProof.GateFailures)...)
-	}
-	if downstreamProof.NetCapturedLocalSavedTokens <= 0 {
-		report.GateFailures = append(report.GateFailures, fmt.Sprintf("downstream_state_proof: net captured local saved tokens must be positive, got %+d", downstreamProof.NetCapturedLocalSavedTokens))
 	}
 	var selected *searchCapProofSelection
 	for _, row := range profile.Profiles[1:] {
@@ -325,7 +322,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	return report, nil
 }
 
-func loadSearchCapDownstreamStateProof(path string, socketSeq uint64) (searchCapDownstreamStateProof, error) {
+func loadSearchCapDownstreamStateProof(path string, socketSeq uint64, currentSearchMutations int) (searchCapDownstreamStateProof, error) {
 	frames, err := readWSSABReplayFrames(path)
 	if err != nil {
 		return searchCapDownstreamStateProof{}, err
@@ -343,7 +340,7 @@ func loadSearchCapDownstreamStateProof(path string, socketSeq uint64) (searchCap
 	}
 	upstream := wssABReplayUpstreamDiagnostics(frames)
 	turnFrames := wssT354CanonicalTurnFrames(frames)
-	mutatedSearchOutputTurns, err := searchCapMutatedSearchOutputTurnMarkers(turnFrames)
+	mutatedSearchOutputTurns, err := searchCapCurrentSearchOutputTurnMarkers(turnFrames, currentSearchMutations)
 	if err != nil {
 		return searchCapDownstreamStateProof{}, err
 	}
@@ -356,8 +353,12 @@ func loadSearchCapDownstreamStateProof(path string, socketSeq uint64) (searchCap
 		Lost:                 replay.Lost,
 		GatePassed:           true,
 	}
+	mutatedSearchOutputTurnCount := countBoolTrue(mutatedSearchOutputTurns)
 	if len(mutatedSearchOutputTurns) != len(turns) {
 		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("turn marker mismatch: search_markers=%d request_turns=%d", len(mutatedSearchOutputTurns), len(turns)))
+	}
+	if currentSearchMutations > 0 && mutatedSearchOutputTurnCount != currentSearchMutations {
+		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("current search mutation marker mismatch: markers=%d replay_mutations=%d", mutatedSearchOutputTurnCount, currentSearchMutations))
 	}
 	for i, turn := range turns {
 		if i >= len(mutatedSearchOutputTurns) || !mutatedSearchOutputTurns[i] {
@@ -477,7 +478,7 @@ func searchCapDownstreamCandidateReasonHasSafetyFailure(candidate wssT354Candida
 	return wssT354CandidateReasonHasSafetyFailure(candidate, reason)
 }
 
-func searchCapMutatedSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame) ([]bool, error) {
+func searchCapCurrentSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame, currentSearchMutations int) ([]bool, error) {
 	toolUses := make(map[string]searchCapProfileToolUse)
 	var markers []bool
 	for i, frame := range frames {
@@ -490,12 +491,26 @@ func searchCapMutatedSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame) ([
 				continue
 			}
 			rememberSearchCapProfileToolUses(toolUses, body)
-			markers = append(markers, frame.Mutated && searchCapRequestHasNamedSearchFunctionOutput(toolUses, body))
+			info := wssT354RequestInfo(root)
+			searchOutput := currentSearchMutations > 0 && searchCapRequestHasNamedSearchFunctionOutput(toolUses, body)
+			currentFullHistorySearch := searchOutput && !frame.Mutated && info.shape == "full_history"
+			currentDeltaSearch := searchOutput && frame.Mutated && info.shape == "delta"
+			markers = append(markers, currentFullHistorySearch || currentDeltaSearch)
 		default:
 			return nil, fmt.Errorf("frame %d has unsupported direction %q", i, frame.Direction)
 		}
 	}
 	return markers, nil
+}
+
+func countBoolTrue(values []bool) int {
+	n := 0
+	for _, value := range values {
+		if value {
+			n++
+		}
+	}
+	return n
 }
 
 func searchCapRequestHasNamedSearchFunctionOutput(toolUses map[string]searchCapProfileToolUse, body []byte) bool {

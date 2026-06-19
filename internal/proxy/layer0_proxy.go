@@ -333,7 +333,12 @@ type codexLayer0Request struct {
 	// after either the old full-history/lab proof or the final search-cap proof
 	// latch. The latch is intentionally narrower than broad tool-output delta
 	// mutation: non-search, inferred search, and unknown output stay guarded.
-	WSSSearchMutationAllowed   bool
+	WSSSearchMutationAllowed bool
+	// WSSSearchDeltaAllOrNothing is the final stateful search-cap delta path:
+	// if any search-like output in the same delta request is not proof-allowed,
+	// the whole request stays byte-identical instead of partially mutating and
+	// falling back to expensive stateless history recovery.
+	WSSSearchDeltaAllOrNothing bool
 	CacheBustDemotedMechanisms proxyLayer0MechanismMask
 	// CacheBustDemotedClassKeys narrows a provider-cache-bust demotion to
 	// content-free mechanism:content_class keys when the triggering request
@@ -560,6 +565,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	cow := messageCow{original: req.Messages}
 	stats := proxyLayer0Stats{Route: req.Route}
 	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessagesWithToolUses(req.Messages, toolUses)) > 0
+	searchDeltaProofRequestBlocked := proxyLayer0WSSSearchDeltaProofRequestBlocked(req, toolUses)
 
 	for msgIdx, msg := range req.Messages {
 		for blockIdx, block := range msg.Content {
@@ -616,6 +622,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			wssSearchProofAllowed, wssSearchProofReason := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, req.WSSSearchMutationAllowed, req.StatefulDeltaMutationBlocked)
+			if wssSearchProofAllowed && searchDeltaProofRequestBlocked {
+				wssSearchProofAllowed = false
+				wssSearchProofReason = "mixed_search_delta_proof"
+			}
 			wssSearchRisk := req.Route == codexLayer0RouteWSSPhaseF &&
 				!statefulSafeToolOutputBlock &&
 				proxyWSSSearchOutputRisk(commandLine, block.Text, workload)
@@ -991,6 +1001,49 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	return codexLayer0Result{Messages: cow.out, Stats: stats.finish(started)}
 }
 
+func proxyLayer0WSSSearchDeltaProofRequestBlocked(req codexLayer0Request, toolUses map[string]types.ContentBlock) bool {
+	if req.Route != codexLayer0RouteWSSPhaseF || !req.WSSSearchDeltaAllOrNothing || !req.WSSSearchMutationAllowed {
+		return false
+	}
+	for _, msg := range req.Messages {
+		for _, block := range msg.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, _ := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := proxyLayer0CommandLine(use)
+			commandFromToolUse := commandLine != ""
+			if commandLine == "" {
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+				if commandLine == "" {
+					continue
+				}
+			}
+			if proxyCommandLineInvokesReconc(commandLine) {
+				continue
+			}
+			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
+			statefulSafeToolOutputBlock := !readCommand && wssSafeStatefulStatusCommandOutput(commandLine, block.Text)
+			workload := savingspolicy.CodexWorkloadCommand
+			if readCommand {
+				workload = savingspolicy.CodexWorkloadRead
+			} else if proxyWSSPathListOutputReducerEligible(commandLine) {
+				workload = savingspolicy.CodexWorkloadCommand
+			} else if proxyWSSSearchOutputReducerEligible(commandLine) {
+				workload = savingspolicy.CodexWorkloadSearch
+			}
+			if statefulSafeToolOutputBlock || !proxyWSSSearchDeltaProofRelevant(commandLine, block.Text, workload) {
+				continue
+			}
+			allowed, _ := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, true, true)
+			if !allowed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func proxyPlanChunkDedupPriority(req codexLayer0Request, toolUses map[string]types.ContentBlock) proxyChunkDedupPriorityPlan {
 	if !req.ChunkDedupEnabled || req.ChunkStore == nil || strings.TrimSpace(req.SessionID) == "" {
 		return proxyChunkDedupPriorityPlan{}
@@ -1352,6 +1405,29 @@ func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.C
 		return true
 	}
 	return proxyToolResultLooksLikeSearchOutput(text)
+}
+
+func proxyWSSSearchDeltaProofRelevant(commandLine, text string, workload savingspolicy.CodexWorkload) bool {
+	if proxyWSSSearchOutputRisk(commandLine, text, workload) {
+		return true
+	}
+	return proxyCommandLineContainsSearchTool(commandLine)
+}
+
+func proxyCommandLineContainsSearchTool(commandLine string) bool {
+	fields := strings.Fields(commandLine)
+	for i, field := range fields {
+		name := strings.ToLower(filepath.Base(strings.Trim(field, `"'`)))
+		switch name {
+		case "rg", "grep", "ggrep", "ag", "ack", "ack.pl", "ug", "ugrep", "sift":
+			return true
+		case "git":
+			if i+1 < len(fields) && strings.ToLower(strings.Trim(fields[i+1], `"'`)) == "grep" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func proxyWSSSearchOutputCommandRisk(commandLine string, workload savingspolicy.CodexWorkload) bool {

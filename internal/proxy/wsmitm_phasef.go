@@ -841,6 +841,16 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		}
 		searchCapProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
+		searchCapStatefulDeltaAllowed := requestShape == "delta" &&
+			meta.PreviousResponseID != "" &&
+			searchCapProofed &&
+			(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
+				a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled)
+		searchMutationAllowed := (requestShape == "full_history" ||
+			a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled ||
+			searchCapStatefulDeltaAllowed) &&
+			((structuredMutationAllowed && !statefulDeltaMutationBlocked) || searchCapProofed) &&
+			(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapProofed)
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                   codexLayer0RouteWSSPhaseF,
 			Messages:                stagedMessages,
@@ -866,11 +876,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
 				MinRetainedPct:    a.p.config.Compression.OutputReduce.CodexSearchCapMinRetainedPct,
 			},
-			HostBudgetExceeded:        a.p.codexHostBudgetExceeded(),
-			LatencyBudgetExceeded:     a.p.codexLayer0LatencyExceeded.Load(),
-			StructuredMutationBlocked: !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed: ((structuredMutationAllowed && !statefulDeltaMutationBlocked) || searchCapProofed) &&
-				(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapProofed),
+			HostBudgetExceeded:           a.p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded:        a.p.codexLayer0LatencyExceeded.Load(),
+			StructuredMutationBlocked:    !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			WSSSearchMutationAllowed:     searchMutationAllowed,
+			WSSSearchDeltaAllOrNothing:   searchCapStatefulDeltaAllowed,
 			CacheBustDemotedMechanisms:   cacheBustDemoted,
 			CacheBustDemotedClassKeys:    cacheBustDemotedClassKeys,
 			HistoryMutationGuardReason:   downstreamStateMutationGuardReason,

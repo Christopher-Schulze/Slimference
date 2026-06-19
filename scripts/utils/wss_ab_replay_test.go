@@ -545,7 +545,7 @@ func TestWSSABReplaySearchCapProofLatchMutatesNamedDeltaSearch(t *testing.T) {
 		report.ReducerEnvelopeBlocks != 0 ||
 		report.ReducerTokensSaved <= 0 ||
 		report.Lost != 0 {
-		t.Fatalf("product search-cap proof latch should mutate only named delta search through captured-output reducer: %+v", report)
+		t.Fatalf("product search-cap proof latch must compact named delta search: %+v", report)
 	}
 }
 
@@ -1010,22 +1010,26 @@ func writeProofSearchFrames(t *testing.T, path, session string) {
 
 func writeProofSearchFramesWithCount(t *testing.T, path, session string, lines int) {
 	t.Helper()
+	callID := session + "-search-1"
 	writeJSONLFile(t, path,
-		wssABReplayTestRecord("server_to_client", map[string]any{
-			"type": "response.output_item.done",
-			"item": map[string]any{
-				"type":      "function_call",
-				"call_id":   session + "-search-1",
-				"name":      "exec_command",
-				"arguments": `{"cmd":"rg -n needle src"}`,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": session,
+			"input": []map[string]any{
+				{
+					"type":      "function_call",
+					"call_id":   callID,
+					"name":      "exec_command",
+					"arguments": map[string]any{"cmd": "rg -n needle src"},
+				},
+				{
+					"type":    "function_call_output",
+					"call_id": callID,
+					"output":  wssABReplaySearchOutputFixture("needle", lines),
+				},
 			},
+			"stream": true,
 		}),
-		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody(
-			session+"-search-1",
-			session,
-			"",
-			wssABReplaySearchOutputFixture("needle", lines),
-		)),
 	)
 }
 

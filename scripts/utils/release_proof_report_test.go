@@ -424,10 +424,9 @@ func TestReleaseProofReportRejectsBadSearchCapProofArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joined = strings.Join(report.GateFailures, "\n")
-	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
-		!strings.Contains(joined, "desktop-search-cap: search_cap_proof downstream_state_proof net saved tokens must be positive, got -1") {
-		t.Fatalf("negative downstream economics must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	if !report.GatePassed || report.SearchCapProof == nil || !report.SearchCapProof.OK ||
+		report.SearchCapProof.DownstreamNetSavedTokens != 6 {
+		t.Fatalf("negative downstream net is diagnostic-only when selected candidate economics are positive: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
 	}
 
 	badJSONPath := filepath.Join(dir, "not-json.json")

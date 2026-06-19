@@ -6922,7 +6922,7 @@ func TestWSPhaseFSearchOutputPassesThroughUntilLiveSafe(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFSearchCapProofCompactsCapturedOutputDelta(t *testing.T) {
+func TestWSPhaseFSearchCapProofKeepsCapturedOutputDeltaByteEqual(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -6962,34 +6962,31 @@ func TestWSPhaseFSearchCapProofCompactsCapturedOutputDelta(t *testing.T) {
 		}},
 		"stream": true,
 	})
+	original := append([]byte(nil), env.Raw...)
 	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 	if err != nil {
 		t.Fatalf("proofed search delta handle: %v", err)
 	}
-	raw := string(env.Raw)
-	if !replace ||
-		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
-		!strings.Contains(raw, "[rg]") ||
-		strings.Contains(raw, "src/file_089.go:90:needle") {
-		t.Fatalf("proofed captured-output search delta should compact through search-cap latch: replace=%v raw=%s", replace, raw)
+	if replace || !bytes.Equal(env.Raw, original) {
+		t.Fatalf("proofed captured-output search delta should full-pass, replace=%v\noriginal=%s\nmutated=%s", replace, original, env.Raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "delta" ||
 		summary.DebugFacts["wss.previous_response_id"] != "true" ||
 		summary.DebugFacts["wss.search_risk_blocks"] != "1" ||
-		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
-		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
-		summary.DebugFacts["wss.search_proof_block_reasons"] != "" ||
-		summary.Tokens.Saved <= 0 ||
-		summary.MessagesCompressed == 0 {
-		t.Fatalf("proofed search delta should record live search-cap savings: %+v", summary)
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "latch_disabled=1" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("proofed search delta should record byte-equal search-cap guard telemetry: %+v", summary)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
-		t.Fatalf("proofed search delta should record Layer 0 savings: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("proofed search delta should not record Layer 0 savings: %+v", snap)
 	}
 }
 
-func TestWSPhaseFSearchCapProofCompactsSearchEnvelopeDeltaAsCapturedOutput(t *testing.T) {
+func TestWSPhaseFSearchCapProofKeepsSearchEnvelopeDeltaByteEqual(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -7030,26 +7027,77 @@ func TestWSPhaseFSearchCapProofCompactsSearchEnvelopeDeltaAsCapturedOutput(t *te
 		}},
 		"stream": true,
 	})
+	original := append([]byte(nil), env.Raw...)
 	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 	if err != nil {
 		t.Fatalf("proofed search envelope delta handle: %v", err)
+	}
+	if replace || !bytes.Equal(env.Raw, original) {
+		t.Fatalf("proofed search envelope delta should full-pass, replace=%v\noriginal=%s\nmutated=%s", replace, original, env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "latch_disabled=1" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("proofed search envelope delta should record byte-equal search-cap guard telemetry: %+v", summary)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 0 || snap.ProxyLayer0EnvelopeBlocks != 0 || snap.ProxyLayer0TokensSaved != 0 {
+		t.Fatalf("proofed search envelope delta should not record Layer 0 savings: %+v", snap)
+	}
+}
+
+func TestWSPhaseFSearchCapProofCompactsCapturedOutputFullHistory(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "search-proofed-full-history-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-proofed-full-history", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-proofed-full-history", "output": searchOutput},
+		},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("proofed search full-history handle: %v", err)
 	}
 	raw := string(env.Raw)
 	if !replace ||
 		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
 		!strings.Contains(raw, "[rg]") ||
-		strings.Contains(raw, "Chunk ID: search-envelope") ||
 		strings.Contains(raw, "src/file_089.go:90:needle") {
-		t.Fatalf("proofed search envelope delta should compact through captured-output latch: replace=%v raw=%s", replace, raw)
+		t.Fatalf("proofed captured-output full-history search should compact through search-cap latch: replace=%v raw=%s", replace, raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
-	if summary.DebugFacts["wss.request_shape"] != "delta" ||
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.previous_response_id"] != "false" ||
+		summary.DebugFacts["wss.search_risk_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		summary.DebugFacts["wss.search_proof_block_reasons"] != "" ||
 		summary.Tokens.Saved <= 0 ||
 		summary.MessagesCompressed == 0 {
-		t.Fatalf("proofed search envelope delta should record live search-cap savings: %+v", summary)
+		t.Fatalf("proofed search full-history should record live search-cap savings: %+v", summary)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0EnvelopeBlocks != 0 || snap.ProxyLayer0TokensSaved <= 0 {
-		t.Fatalf("proofed search envelope delta should record captured-output Layer 0 savings only: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks == 0 || snap.ProxyLayer0TokensSaved <= 0 {
+		t.Fatalf("proofed search full-history should record Layer 0 savings: %+v", snap)
 	}
 }
 

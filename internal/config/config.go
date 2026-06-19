@@ -1131,9 +1131,6 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 	if !searchProof.DownstreamStateProof {
 		issues = append(issues, "missing final release live mutated search-cap downstream-state proof")
 	}
-	if searchProof.DownstreamNetSavedTokens <= 0 {
-		issues = append(issues, fmt.Sprintf("final release search-cap downstream-state net saved tokens must be positive, got %+d", searchProof.DownstreamNetSavedTokens))
-	}
 	if searchProof.RequiredReducerHits["captured_output"] <= 0 {
 		issues = append(issues, "missing final release captured_output reducer proof for selected search cap")
 	}

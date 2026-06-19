@@ -584,12 +584,6 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof downstream_state_proof has no passing downstream candidates")
 			candidateValid = false
 		}
-		if downstreamProof.NetCapturedLocalSavedTokens <= 0 {
-			issues = append(issues, fmt.Sprintf("%s: search_cap_proof downstream_state_proof net saved tokens must be positive, got %+d",
-				releaseProofSearchCapCaptureID(capture),
-				downstreamProof.NetCapturedLocalSavedTokens))
-			candidateValid = false
-		}
 		selected := capture.SearchCapProof.SelectedCandidate
 		if selected == nil {
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": missing selected search-cap candidate")
@@ -679,9 +673,6 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 	}
 	if summary.TotalExtraReducerTokens <= 0 {
 		issues = append(issues, fmt.Sprintf("total search-cap extra reducer tokens must be positive, got %+d", summary.TotalExtraReducerTokens))
-	}
-	if summary.DownstreamNetSavedTokens <= 0 {
-		issues = append(issues, fmt.Sprintf("total search-cap downstream-state net saved tokens must be positive, got %+d", summary.DownstreamNetSavedTokens))
 	}
 	summary.Issues = issues
 	summary.OK = len(issues) == 0

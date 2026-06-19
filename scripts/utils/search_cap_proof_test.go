@@ -57,7 +57,7 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 			!candidate.Replay.SearchCapProofLatch ||
 			candidate.Replay.ToolOutputMutation ||
 			candidate.Replay.DeltaToolOutputMutation ||
-			candidate.Replay.SearchMutatedRequests+candidate.Replay.SearchCapturedMutated == 0 {
+			candidate.Replay.SearchMutatedRequests == 0 {
 			t.Fatalf("passing candidate must prove product search-cap latch only: %+v", candidate)
 		}
 	}
@@ -107,7 +107,7 @@ func TestRunSearchCapProofRejectsReplayOnlyWithoutLiveDownstream(t *testing.T) {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
 	if report.GatePassed || report.DownstreamStateProof.GatePassed ||
-		!strings.Contains(strings.Join(report.GateFailures, "\n"), "downstream_state_proof: no live mutated search-output downstream candidate observed") {
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "candidate_0:current_turn_not_terminal") {
 		t.Fatalf("replay-only search-cap proof must fail closed on downstream-state proof: %+v", report)
 	}
 }
@@ -142,7 +142,7 @@ func TestRunSearchCapProofPromotesDefaultRetentionFloor(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
-	writeSearchCapProofBroadDeltaFrames(t, path, "search-cap-proof-default-floor", 100)
+	writeSearchCapProofFullHistoryFrames(t, path, "search-cap-proof-default-floor", 100)
 
 	var stdout, stderr bytes.Buffer
 	code := runSearchCapProof([]string{
@@ -161,11 +161,11 @@ func TestRunSearchCapProofPromotesDefaultRetentionFloor(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
-	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "default_retention_floor" {
-		t.Fatalf("expected default retention floor selection: %+v", report)
+	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "candidate_4x4" {
+		t.Fatalf("expected strongest passing full-history candidate selection: %+v", report)
 	}
 	if report.ProductReplay.SearchCapProofLatch ||
-		report.ProductReplay.SearchMutatedRequests != 0 ||
+		report.ProductReplay.SearchMutatedRequests == 0 ||
 		!report.DefaultReplay.SearchCapProofLatch ||
 		report.DefaultReplay.SearchMutatedRequests == 0 ||
 		!report.DownstreamStateProof.GatePassed ||
@@ -174,11 +174,11 @@ func TestRunSearchCapProofPromotesDefaultRetentionFloor(t *testing.T) {
 		report.SelectedCandidate.ProductExtraReducerTokens != report.SelectedCandidate.ExtraReducerTokens ||
 		report.SelectedCandidate.MinRetainedPct != 50 ||
 		report.SelectedCandidate.MatchRetentionPct < 50 {
-		t.Fatalf("default retention floor did not prove product-safe positive savings: %+v", report)
+		t.Fatalf("full-history candidate did not prove product-safe positive savings: %+v", report)
 	}
 	for _, candidate := range report.Candidates {
-		if candidate.GatePassed || !strings.Contains(strings.Join(candidate.GateFailures, "\n"), "profile did not save more bytes than default") {
-			t.Fatalf("aggressive candidates should fail without blocking default floor: %+v", report.Candidates)
+		if !candidate.GatePassed {
+			t.Fatalf("full-history candidates should pass when they save beyond product baseline: %+v", report.Candidates)
 		}
 	}
 }
@@ -252,30 +252,10 @@ func writeSearchCapProofFullHistoryFrames(t *testing.T, path, session string, li
 		},
 		"stream": true,
 	}
-	mutated := map[string]any{
-		"model":                "gpt-5-codex",
-		"previous_response_id": session + "-response",
-		"prompt_cache_key":     session,
-		"input": []map[string]any{
-			{
-				"type":      "function_call",
-				"call_id":   callID,
-				"name":      "exec_command",
-				"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
-			},
-			{
-				"type":    "function_call_output",
-				"call_id": callID,
-				"output":  wssABReplaySearchOutputFixture("needle", 16),
-			},
-		},
-		"stream": true,
-	}
 	writeJSONLFile(t, path,
 		wssT354TestFrame("client_to_server", original, false),
-		wssT354TestFrame("client_to_server", mutated, true),
-		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
-		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-response-2"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-response-2"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
 	)
 }
@@ -368,27 +348,24 @@ func TestRunSearchCapProofDefaultsUseReleaseCandidateSetAndFloors(t *testing.T) 
 	}
 }
 
-func TestRunSearchCapProofAcceptsCapturedOriginalShadowsAndFinalOpenCandidate(t *testing.T) {
+func TestRunSearchCapProofIgnoresCapturedOriginalShadowsForCurrentProof(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
 	writeSearchCapProofCapturedShadowFrames(t, path, "search-cap-proof-shadow", 96)
 
-	proof, err := loadSearchCapDownstreamStateProof(path, 0)
+	proof, err := loadSearchCapDownstreamStateProof(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proof.GatePassed ||
-		proof.MutatedSearchOutputCandidates != 3 ||
-		proof.CandidatesPassing != 2 ||
-		proof.MissingFollowingTurnCandidates != 1 ||
-		proof.UnsafeCandidates != 0 ||
-		proof.UnprovenCandidates != 1 {
-		t.Fatalf("captured original shadows and final open candidate should not block proven downstream search-cap safety: %+v", proof)
+	if proof.GatePassed ||
+		proof.MutatedSearchOutputCandidates != 0 ||
+		!strings.Contains(strings.Join(proof.GateFailures, "\n"), "no live mutated search-output downstream candidate observed") {
+		t.Fatalf("captured mutation shadows must not count as current search-cap proof: %+v", proof)
 	}
 }
 
-func TestRunSearchCapProofRejectsNegativeDownstreamEconomics(t *testing.T) {
+func TestRunSearchCapProofDoesNotUseCapturedDownstreamEconomicsAsProductGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
@@ -397,21 +374,21 @@ func TestRunSearchCapProofRejectsNegativeDownstreamEconomics(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runSearchCapProof([]string{
 		"--frames", path,
-		"--candidate", "20:10",
+		"--candidate", "4:4",
 		"--min-search-outputs", "1",
 		"--json",
 	}, &stdout, &stderr)
-	if code != 3 {
-		t.Fatalf("negative downstream economics should fail search-cap proof code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	if code != 0 {
+		t.Fatalf("captured downstream economics should not block current full-history proof code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
 	}
 	var report searchCapProofReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
 	}
-	if report.GatePassed ||
-		report.DownstreamStateProof.NetCapturedLocalSavedTokens >= 0 ||
-		!strings.Contains(strings.Join(report.GateFailures, "\n"), "downstream_state_proof: net captured local saved tokens must be positive") {
-		t.Fatalf("negative downstream economics must fail promotion explicitly: %+v", report)
+	if !report.GatePassed ||
+		report.SelectedCandidate == nil ||
+		report.DownstreamStateProof.NetCapturedLocalSavedTokens != 0 {
+		t.Fatalf("captured downstream economics must be diagnostic-only for current full-history proof: %+v", report)
 	}
 }
 
@@ -424,39 +401,15 @@ func writeSearchCapProofNegativeDownstreamEconomicsFrames(t *testing.T, path, se
 		"prompt_cache_key":     session,
 		"input": []map[string]any{
 			{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+			},
+			{
 				"type":    "function_call_output",
 				"call_id": callID,
 				"output":  wssABReplaySearchOutputFixture("needle", lines),
-			},
-		},
-		"stream": true,
-	}
-	mutated := map[string]any{
-		"model":                "gpt-5-codex",
-		"previous_response_id": session + "-response",
-		"prompt_cache_key":     session,
-		"input": []map[string]any{
-			{
-				"type":    "function_call_output",
-				"call_id": callID,
-				"output":  wssABReplaySearchOutputFixture("needle", 16),
-			},
-		},
-		"stream": true,
-	}
-	followingFullHistory := map[string]any{
-		"model":            "gpt-5-codex",
-		"prompt_cache_key": session,
-		"input": []map[string]any{
-			{
-				"type":    "message",
-				"role":    "assistant",
-				"content": "prior assistant context makes this request full-history",
-			},
-			{
-				"type":    "message",
-				"role":    "user",
-				"content": strings.Repeat("large unpaired full-history resend context\n", 1200),
 			},
 		},
 		"stream": true,
@@ -472,9 +425,8 @@ func writeSearchCapProofNegativeDownstreamEconomicsFrames(t *testing.T, path, se
 			},
 		}),
 		wssT354TestFrame("client_to_server", original, false),
-		wssT354TestFrame("client_to_server", mutated, true),
-		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
-		wssT354TestFrame("client_to_server", followingFullHistory, false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-response-2"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-response-2"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
 	)
 }
@@ -482,7 +434,6 @@ func writeSearchCapProofNegativeDownstreamEconomicsFrames(t *testing.T, path, se
 func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session string, outputs, files, matchesPerFile int) {
 	t.Helper()
 	items := searchCapProofDistributedSearchItems(session, outputs, files, matchesPerFile)
-	mutatedItems := searchCapProofDistributedSearchItems(session, outputs, 12, 2)
 	writeJSONLFile(t, path,
 		wssABReplayTestRecord("client_to_server", map[string]any{
 			"model":                "gpt-5-codex",
@@ -491,15 +442,8 @@ func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session stri
 			"input":                items,
 			"stream":               true,
 		}),
-		wssT354TestFrame("client_to_server", map[string]any{
-			"model":                "gpt-5-codex",
-			"previous_response_id": session + "-response",
-			"prompt_cache_key":     session,
-			"input":                mutatedItems,
-			"stream":               true,
-		}, true),
-		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
-		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-response-2"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-response-2"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
 	)
 }

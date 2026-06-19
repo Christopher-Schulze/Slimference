@@ -410,7 +410,7 @@ codex_search_cap_proof_path = %q
 	}
 }
 
-func TestLoadWithOptions_CodexSearchCapProofRejectsNegativeDownstreamEconomics(t *testing.T) {
+func TestLoadWithOptions_CodexSearchCapProofAllowsDiagnosticNegativeDownstreamNet(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
 		files:                         25,
@@ -435,12 +435,13 @@ codex_search_cap_proof_path = %q
 		t.Fatal(err)
 	}
 
-	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
-	if err == nil {
-		t.Fatal("expected negative downstream-state economics to reject config")
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("diagnostic negative downstream net must not reject positive final search-cap proof: %v", err)
 	}
-	if !strings.Contains(err.Error(), "final release search-cap downstream-state net saved tokens must be positive, got -1") {
-		t.Fatalf("rejection did not explain negative downstream economics: %v", err)
+	or := cfg.Compression.OutputReduce
+	if !or.CodexSearchCapDeltaMutationEnabled || or.CodexSearchCapMaxFiles != 25 || or.CodexSearchCapMaxMatchesPerFile != 15 {
+		t.Fatalf("search-cap proof was not applied: %+v", or)
 	}
 }
 

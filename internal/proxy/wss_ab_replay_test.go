@@ -579,8 +579,18 @@ func TestRunWSSPhaseFABReplayTracksNamedSearchProofStats(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 
 	frames := []WSSABReplayFrame{
-		wssReplayServerToolCallFrame("search-1", "exec_command", map[string]any{"cmd": "rg -n needle src"}),
-		wssReplayClientToolOutputFrame("search-1", "search-proof-session", "", wssReplaySearchOutputFixture("needle", 96)),
+		{
+			Direction: wsmitm.DirClientToServer,
+			Payload: mustMarshal(map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "search-proof-session",
+				"input": []map[string]any{
+					{"type": "function_call", "call_id": "search-1", "name": "exec_command", "arguments": map[string]any{"cmd": "rg -n needle src"}},
+					{"type": "function_call_output", "call_id": "search-1", "output": wssReplaySearchOutputFixture("needle", 96)},
+				},
+				"stream": true,
+			}),
+		},
 		{
 			Direction: wsmitm.DirServerToClient,
 			Payload: mustMarshal(map[string]any{
