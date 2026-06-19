@@ -969,7 +969,7 @@ func handlePostToolCmd(args []string) {
 		})
 		if archiveErr == nil && entry != nil {
 			context := codexPostToolArchiveContext(*entry)
-			emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context))
+			emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context), context)
 			if !emitReplacement {
 				recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
 				return
@@ -990,7 +990,7 @@ func handlePostToolCmd(args []string) {
 	} else {
 		context = fmt.Sprintf("Bash output was compacted locally.\n%s", compacted)
 	}
-	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context))
+	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context), context)
 	if !emitReplacement {
 		recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
 		return
@@ -1238,12 +1238,21 @@ func claudeHookMode() string {
 }
 
 const (
-	codexPostToolAutoReplaceMinOriginalTokens = 300
-	codexPostToolAutoReplaceMinSavedTokens    = 150
-	codexPostToolAutoReplaceMinSavingsPct     = 35
+	codexPostToolCompactAutoMinOriginalTokens   = 200
+	codexPostToolCompactAutoMinSavedTokens      = 80
+	codexPostToolCompactAutoMinSavingsPct       = 25
+	codexPostToolTruncatedAutoMinOriginalTokens = 600
+	codexPostToolTruncatedAutoMinSavedTokens    = 400
+	codexPostToolTruncatedAutoMinSavingsPct     = 45
 )
 
-func codexPostToolShouldEmitReplacement(changed bool, originalBytes int, finalBytes int) bool {
+type codexPostToolAutoThresholds struct {
+	minOriginalTokens int
+	minSavedTokens    int
+	minSavingsPct     int
+}
+
+func codexPostToolShouldEmitReplacement(changed bool, originalBytes int, finalBytes int, finalContext string) bool {
 	if !changed || finalBytes <= 0 {
 		return false
 	}
@@ -1254,22 +1263,37 @@ func codexPostToolShouldEmitReplacement(changed bool, originalBytes int, finalBy
 		if finalBytes >= originalBytes {
 			return false
 		}
-		return codexPostToolAutoReplacementWorthIt(originalBytes, finalBytes)
+		return codexPostToolAutoReplacementWorthIt(originalBytes, finalBytes, codexPostToolAutoThresholdsForContext(finalContext))
 	default:
 		return false
 	}
 }
 
-func codexPostToolAutoReplacementWorthIt(originalBytes int, finalBytes int) bool {
+func codexPostToolAutoThresholdsForContext(finalContext string) codexPostToolAutoThresholds {
+	if strings.Contains(finalContext, "[output truncated to ") {
+		return codexPostToolAutoThresholds{
+			minOriginalTokens: codexPostToolTruncatedAutoMinOriginalTokens,
+			minSavedTokens:    codexPostToolTruncatedAutoMinSavedTokens,
+			minSavingsPct:     codexPostToolTruncatedAutoMinSavingsPct,
+		}
+	}
+	return codexPostToolAutoThresholds{
+		minOriginalTokens: codexPostToolCompactAutoMinOriginalTokens,
+		minSavedTokens:    codexPostToolCompactAutoMinSavedTokens,
+		minSavingsPct:     codexPostToolCompactAutoMinSavingsPct,
+	}
+}
+
+func codexPostToolAutoReplacementWorthIt(originalBytes int, finalBytes int, thresholds codexPostToolAutoThresholds) bool {
 	originalTokens := filter.EstimateTokensFromBytes(originalBytes)
-	if originalTokens < codexPostToolAutoReplaceMinOriginalTokens {
+	if originalTokens < thresholds.minOriginalTokens {
 		return false
 	}
 	savedTokens := filter.EstimateTokensFromBytes(originalBytes - finalBytes)
-	if savedTokens < codexPostToolAutoReplaceMinSavedTokens {
+	if savedTokens < thresholds.minSavedTokens {
 		return false
 	}
-	return savedTokens*100/originalTokens >= codexPostToolAutoReplaceMinSavingsPct
+	return savedTokens*100/originalTokens >= thresholds.minSavingsPct
 }
 
 func failOpenCodexPostTool(payload []byte, err error) {

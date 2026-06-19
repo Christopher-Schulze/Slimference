@@ -754,6 +754,44 @@ func TestHandlePostToolCmd(t *testing.T) {
 	})
 
 	t.Run("medium_compacted_output_auto_mode_emits_by_default", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
+		termIsTerminalFn = func(int) bool { return false }
+		var statusOutput strings.Builder
+		for i := 0; i < 150; i++ {
+			fmt.Fprintf(&statusOutput, " M file_%03d.go\n", i)
+		}
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status --short",
+			"tool_response": statusOutput.String(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 2000
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("no wd") }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"continue":false`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) {
+			t.Fatalf("expected default auto replacement for medium positive output, got %q", out)
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("medium_generic_truncated_output_silent_by_default", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"command":       "git status",
@@ -776,9 +814,8 @@ func TestHandlePostToolCmd(t *testing.T) {
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
-		out := buf.String()
-		if !strings.Contains(out, `"continue":false`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) {
-			t.Fatalf("expected default auto replacement for medium positive output, got %q", out)
+		if buf.Len() != 0 {
+			t.Fatalf("expected medium generic truncation to stay silent, got %q", buf.String())
 		}
 		readStdinAll = origRead
 		configLoadFn = origConfigLoad
@@ -1283,37 +1320,45 @@ func TestPostToolReplacementDecisionHelpers(t *testing.T) {
 	}
 
 	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
-	if !codexPostToolShouldEmitReplacement(true, 100, 100) {
+	if !codexPostToolShouldEmitReplacement(true, 100, 100, "") {
 		t.Fatal("compact mode must emit changed replacement")
 	}
-	if codexPostToolShouldEmitReplacement(false, 1000, 1) {
+	if codexPostToolShouldEmitReplacement(false, 1000, 1, "") {
 		t.Fatal("unchanged output must not emit replacement")
 	}
-	if codexPostToolShouldEmitReplacement(true, 1000, 0) {
+	if codexPostToolShouldEmitReplacement(true, 1000, 0, "") {
 		t.Fatal("empty final output must not emit replacement")
 	}
 
 	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
-	if codexPostToolShouldEmitReplacement(true, 100, 100) {
+	if codexPostToolShouldEmitReplacement(true, 100, 100, "summary") {
 		t.Fatal("auto mode must reject non-saving replacement")
 	}
-	if codexPostToolAutoReplacementWorthIt(1000, 900) {
+	compactThresholds := codexPostToolAutoThresholdsForContext("[git status] 20 paths")
+	truncatedThresholds := codexPostToolAutoThresholdsForContext("[output truncated to 40 characters]")
+	if codexPostToolAutoReplacementWorthIt(1000, 900, compactThresholds) {
 		t.Fatal("small savings must not pass auto replacement threshold")
 	}
-	if codexPostToolAutoReplacementWorthIt(4000, 3000) {
-		t.Fatal("saved-token threshold must reject weak compaction")
+	if codexPostToolAutoReplacementWorthIt(4000, 3300, compactThresholds) {
+		t.Fatal("savings pct threshold must reject weak compaction")
 	}
-	if codexPostToolAutoReplacementWorthIt(1000, 1) {
+	if codexPostToolAutoReplacementWorthIt(700, 1, compactThresholds) {
 		t.Fatal("small original token estimate must not pass auto replacement threshold")
 	}
-	if !codexPostToolAutoReplacementWorthIt(1600, 700) {
+	if !codexPostToolAutoReplacementWorthIt(900, 500, compactThresholds) {
 		t.Fatal("medium positive auto replacement must pass lowered threshold")
 	}
-	if codexPostToolShouldEmitReplacement(true, 1600, 1300) {
+	if codexPostToolShouldEmitReplacement(true, 900, 700, "summary") {
 		t.Fatal("auto mode must reject weak final-context savings")
 	}
-	if !codexPostToolShouldEmitReplacement(true, 1600, 700) {
+	if !codexPostToolShouldEmitReplacement(true, 900, 500, "summary") {
 		t.Fatal("auto mode must accept net-positive final context")
+	}
+	if codexPostToolShouldEmitReplacement(true, 1600, 700, "[output truncated to 40 characters]") {
+		t.Fatal("auto mode must keep conservative threshold for generic truncation")
+	}
+	if !codexPostToolAutoReplacementWorthIt(8000, 3000, truncatedThresholds) {
+		t.Fatal("large generic truncation must still pass conservative auto threshold")
 	}
 }
 

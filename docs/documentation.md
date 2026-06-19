@@ -2075,10 +2075,11 @@ Bash commands unless `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` is set
 deliberately.
 `PostToolUse` records turn state and archives raw Bash output. The default
 `SLIMFERENCE_CODEX_HOOK_MODE=auto` emits visible `continue:false` replacement
-only for Bash outputs with at least 300 original tokens, at least 150 saved
-tokens, and at least 35% savings after the final archive-pointer or local
-replacement context is included. `compact` / `aggressive` force visible
-replacement for any changed output; `silent` keeps archive-only behaviour. It fail-opens on unknown
+only after the final archive-pointer or local replacement context is included.
+Non-truncated parser-style compactions use a 200 original token / 80 saved token
+/ 25% net-savings floor. Generic truncated previews stay on the older 600
+original token / 400 saved token / 45% floor. `compact` / `aggressive` force
+visible replacement for any changed output; `silent` keeps archive-only behaviour. It fail-opens on unknown
 payload shapes so Codex never sees hook crashes for unsupported tool results:
 missing or non-string tool-output fields are skipped and recorded as telemetry.
 Tiny outputs below `hooks.codex_posttool_min_tokens` are skipped before the
@@ -2678,7 +2679,7 @@ tee_dir               = ""
 slimference_command = "slimference"
 exclude_commands    = []
 codex_posttool_timeout_seconds = 4
-codex_posttool_min_tokens      = 300
+codex_posttool_min_tokens      = 200
 
 [debug]
 level           = "info"

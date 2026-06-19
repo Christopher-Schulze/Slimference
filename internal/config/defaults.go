@@ -158,7 +158,7 @@ func defaultsRaw() *Config {
 		},
 		Hooks: HooksConfig{
 			CodexPostToolTimeoutSeconds: 4,
-			CodexPostToolMinTokens:      300,
+			CodexPostToolMinTokens:      200,
 		},
 		Debug: DebugConfig{},
 	}
@@ -406,7 +406,7 @@ passthrough_max_chars = 2000
 [hooks]
 # slimference_command = "/usr/local/bin/slimference"
 codex_posttool_timeout_seconds = 4
-codex_posttool_min_tokens = 300
+codex_posttool_min_tokens = 200
 
 # Future: filter decision JSONL path (SLIMFERENCE_DEBUG_DECISIONS_LOG overrides).
 [debug]
