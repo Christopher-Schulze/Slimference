@@ -87,6 +87,9 @@ func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	if !PathListOutputReducerEligibleFromCommandLine(`cd /repo/app && rg --files --hidden -g '*.go' src`) {
 		t.Fatal("cd-wrapped rg --files command should be path-list eligible")
 	}
+	if !PathListOutputReducerEligibleArgv([]string{"rg", "--files", "--hidden", "-g", "*.go", "src"}) {
+		t.Fatal("rg --files argv should be path-list eligible")
+	}
 }
 
 func TestTryCompactPlainPathListOutput(t *testing.T) {

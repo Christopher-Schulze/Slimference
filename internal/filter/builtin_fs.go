@@ -78,6 +78,12 @@ func PathListOutputReducerEligibleFromCommandLine(commandLine string) bool {
 	return false
 }
 
+// PathListOutputReducerEligibleArgv reports whether argv can use the path-list
+// reducer without being treated as grep/search-match output.
+func PathListOutputReducerEligibleArgv(argv []string) bool {
+	return pathListOutputEligibleArgv(argv)
+}
+
 // NormalizePathListCommandLine returns the inner command for supported
 // `cd <abs> && <path-list command>` wrappers. Path-list reducers only need the
 // command shape; stdout still carries the actual paths.

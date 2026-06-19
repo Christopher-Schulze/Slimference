@@ -151,6 +151,9 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	if !commandOutputFirstAllowCapture("rg", []string{"TODO"}) {
 		t.Fatal("rg should be captured by the command-output-first shim")
 	}
+	if !commandOutputFirstAllowCapture("rg", []string{"--files", "internal"}) {
+		t.Fatal("rg --files should be captured by the command-output-first shim")
+	}
 	if commandOutputFirstAllowCapture("grep", []string{"TODO"}) {
 		t.Fatal("grep is not part of the first command-output-first command set")
 	}
@@ -184,6 +187,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "python", args: []string{"-u", "-m", "unittest"}},
 		{command: "uv", args: []string{"run", "pytest", "-vv"}},
 		{command: "poetry", args: []string{"run", "python", "-m", "pytest"}},
+		{command: "fd", args: []string{"--extension", "go", "internal"}},
+		{command: "fdfind", args: []string{"-e", "go", "internal"}},
+		{command: "find", args: []string{"internal", "-maxdepth", "4", "-type", "f"}},
+		{command: "wc", args: []string{"-l", "cmd/slimference/command_output_first.go"}},
 	} {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v should be captured", tc.command, tc.args)
@@ -205,6 +212,11 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "python3", args: []string{"-m", "http.server"}},
 		{command: "uv", args: []string{"run", "python", "script.py"}},
 		{command: "poetry", args: []string{"install"}},
+		{command: "find", args: []string{"internal", "-type", "f"}},
+		{command: "find", args: []string{"internal", "-maxdepth", "4", "-delete"}},
+		{command: "fd", args: []string{"--exec", "rm", "{}"}},
+		{command: "wc", args: []string{"-l"}},
+		{command: "wc", args: []string{"--files0-from=list"}},
 	} {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
@@ -263,6 +275,81 @@ func TestCommandOutputFirstShimRgEmptyFullPasses(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimRgFilesCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 0; i < 48; i++ {
+		b.WriteString("internal/filter/generated/deep/file_")
+		if i < 10 {
+			b.WriteByte('0')
+		}
+		b.WriteString(strings.TrimSpace(string(rune('0' + i/10))))
+		b.WriteString(strings.TrimSpace(string(rune('0' + i%10))))
+		b.WriteString(".go\n")
+	}
+	realRg := writeFakeCommand(t, "rg", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRg, "--", "--files", "-g", "*.go", "internal/filter"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[rg --files paths]") || !strings.Contains(got, "internal/filter/generated/deep/") || !strings.Contains(got, "file_47.go") {
+		t.Fatalf("unexpected compacted rg --files stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:rg] rg --files -g *.go internal/filter") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFindAndWcCompact(t *testing.T) {
+	var paths strings.Builder
+	for i := 0; i < 44; i++ {
+		paths.WriteString("docs/todo/generated/task_")
+		if i < 10 {
+			paths.WriteByte('0')
+		}
+		paths.WriteString(strings.TrimSpace(string(rune('0' + i/10))))
+		paths.WriteString(strings.TrimSpace(string(rune('0' + i%10))))
+		paths.WriteString(".md\n")
+	}
+	realFind := writeFakeCommand(t, "find", "#!/bin/sh\ncat <<'EOF'\n"+paths.String()+"EOF\n")
+	var findStdout, findStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=find", "--real-bin=" + realFind, "--", "docs/todo", "-maxdepth", "4", "-type", "f"}, &bytes.Buffer{}, &findStdout, &findStderr)
+	if rc != 0 {
+		t.Fatalf("find rc=%d stderr=%q", rc, findStderr.String())
+	}
+	findOut := findStdout.String()
+	if !strings.Contains(findOut, "[find paths]") || !strings.Contains(findOut, "docs/todo/generated/") || !strings.Contains(findOut, "task_43.md") {
+		t.Fatalf("unexpected compacted find stdout=%q", findOut)
+	}
+
+	realWc := writeFakeCommand(t, "wc", "#!/bin/sh\ncat <<'EOF'\n      30      96 src/main.go\n      50     120 src/lib.go\n      80     216 total\nEOF\n")
+	var wcStdout, wcStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=wc", "--real-bin=" + realWc, "--", "-lw", "src/main.go", "src/lib.go"}, &bytes.Buffer{}, &wcStdout, &wcStderr)
+	if rc != 0 {
+		t.Fatalf("wc rc=%d stderr=%q", rc, wcStderr.String())
+	}
+	if got := wcStdout.String(); got != "[wc prefix=src/]\nmain.go: 30L 96W\nlib.go: 50L 120W\ntotal: 80L 216W\n" {
+		t.Fatalf("unexpected compacted wc stdout=%q", got)
 	}
 }
 
@@ -873,6 +960,51 @@ func TestCommandOutputFirstGoSubcommandGlobalOptionEdges(t *testing.T) {
 	for _, tc := range cases {
 		if got := commandOutputFirstGoSubcommand(tc.args); got != tc.want {
 			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestCommandOutputFirstPathListAndWcEdges(t *testing.T) {
+	pathListAllowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "rg", args: []string{"--files", "--hidden", "-g", "*.go", "internal"}},
+		{command: "fd", args: []string{"--extension", "go", "internal"}},
+		{command: "fdfind", args: []string{"-e", "go", "internal"}},
+		{command: "find", args: []string{"internal", "-maxdepth", "4", "-type", "f"}},
+	}
+	for _, tc := range pathListAllowed {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v should be captured", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "fd", args: []string{"--exec", "rm", "{}"}},
+		{command: "find", args: []string{"internal", "-type", "f"}},
+		{command: "find", args: []string{"internal", "-maxdepth", "9", "-type", "f"}},
+		{command: "find", args: []string{"internal", "-maxdepth", "4", "-printf", "%p\n"}},
+		{command: "wc", args: []string{"-l"}},
+		{command: "wc", args: []string{"--files0-from=list"}},
+		{command: "wc", args: []string{"-q", "file.go"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
+		}
+	}
+	for _, args := range [][]string{
+		{"file.go"},
+		{"-l", "file.go"},
+		{"--lines", "--words", "file.go"},
+		{"-lw", "--", "-leading-name.txt"},
+	} {
+		if !commandOutputFirstWcAllowed(args) {
+			t.Fatalf("wc %v should be allowed", args)
 		}
 	}
 }

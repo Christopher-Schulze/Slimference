@@ -51,7 +51,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
-	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo", "pytest", "py.test", "python", "python3", "uv", "poetry"} {
+	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo", "pytest", "py.test", "python", "python3", "uv", "poetry", "fd", "fdfind", "find", "wc"} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
@@ -208,6 +208,10 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		}
 	case "rg":
 		return true
+	case "fd", "fdfind", "find":
+		return commandOutputFirstPathListAllowed(command, args)
+	case "wc":
+		return commandOutputFirstWcAllowed(args)
 	case "go":
 		switch commandOutputFirstGoSubcommand(args) {
 		case "test", "build":
@@ -258,9 +262,19 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			return nil, false
 		}
 	case "rg":
-		compacted, ok := filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
+		compacted, ok := filter.TryCompactPathListOutput(argv, stdout)
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		compacted, ok = filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
 			MinRetainedPct: 100,
 		})
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "fd", "fdfind", "find":
+		compacted, ok := filter.TryCompactPathListOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "wc":
+		compacted, ok := filter.TryCompactWc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		switch commandOutputFirstGoSubcommand(args) {
@@ -404,6 +418,53 @@ func commandOutputFirstGoSubcommand(args []string) string {
 		}
 	}
 	return ""
+}
+
+func commandOutputFirstPathListAllowed(command string, args []string) bool {
+	argv := append([]string{command}, args...)
+	return filter.PathListOutputReducerEligibleArgv(argv)
+}
+
+func commandOutputFirstWcAllowed(args []string) bool {
+	hasExplicitInput := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for j := i + 1; j < len(args); j++ {
+				if strings.TrimSpace(args[j]) == "" || args[j] == "-" {
+					return false
+				}
+				hasExplicitInput = true
+			}
+			return hasExplicitInput
+		}
+		if !strings.HasPrefix(arg, "-") {
+			hasExplicitInput = true
+			continue
+		}
+		if arg == "-" {
+			return false
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch arg {
+			case "--lines", "--words", "--chars", "--bytes", "--max-line-length":
+				continue
+			default:
+				return false
+			}
+		}
+		for _, ch := range arg[1:] {
+			switch ch {
+			case 'l', 'w', 'm', 'c', 'L':
+			default:
+				return false
+			}
+		}
+	}
+	return hasExplicitInput
 }
 
 func commandOutputFirstCargoAllowed(args []string) bool {
