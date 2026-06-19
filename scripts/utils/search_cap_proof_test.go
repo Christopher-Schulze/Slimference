@@ -42,6 +42,18 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	if len(report.Candidates) != 2 || !report.Candidates[0].GatePassed || !report.Candidates[1].GatePassed {
 		t.Fatalf("unexpected candidate gates: %+v", report.Candidates)
 	}
+	for _, candidate := range report.Candidates {
+		if !candidate.GatePassed {
+			continue
+		}
+		if candidate.Replay == nil ||
+			!candidate.Replay.SearchCapProofLatch ||
+			candidate.Replay.ToolOutputMutation ||
+			candidate.Replay.DeltaToolOutputMutation ||
+			candidate.Replay.SearchMutatedRequests+candidate.Replay.SearchCapturedMutated == 0 {
+			t.Fatalf("passing candidate must prove product search-cap latch only: %+v", candidate)
+		}
+	}
 	if report.Candidates[1].ExtraReducerTokens <= report.Candidates[0].ExtraReducerTokens {
 		t.Fatalf("retention-floor 4x4 candidate should beat 8x6: %+v", report.Candidates)
 	}
