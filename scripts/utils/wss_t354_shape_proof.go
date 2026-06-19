@@ -1,0 +1,629 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+)
+
+type wssT354ShapeProofFlags struct {
+	path         string
+	outputFormat string
+	help         bool
+}
+
+type wssT354ShapeProofReport struct {
+	Path         string                  `json:"path"`
+	FrameFiles   int                     `json:"frame_files"`
+	SkippedFiles int                     `json:"skipped_files"`
+	Totals       wssT354ShapeProofTotal  `json:"totals"`
+	Rows         []wssT354ShapeProofRow  `json:"rows"`
+	Skips        []wssT354ShapeProofSkip `json:"skips,omitempty"`
+	Findings     []string                `json:"findings,omitempty"`
+	GatePassed   bool                    `json:"gate_passed"`
+	GateFailures []string                `json:"gate_failures,omitempty"`
+}
+
+type wssT354ShapeProofTotal struct {
+	Frames                         int               `json:"frames"`
+	RequestTurns                   int               `json:"request_turns"`
+	RequestShapes                  replayShapeCounts `json:"request_shapes"`
+	MutatedRequests                int               `json:"mutated_requests"`
+	MutatedToolOutputCandidates    int               `json:"mutated_tool_output_candidates"`
+	MutatedDeltaCandidates         int               `json:"mutated_delta_candidates"`
+	MutatedFullHistoryCandidates   int               `json:"mutated_full_history_candidates"`
+	CandidatesWithCleanCurrentTurn int               `json:"candidates_with_clean_current_turn"`
+	CandidatesWithFollowingTurn    int               `json:"candidates_with_following_turn"`
+	CandidatesWithCleanFollowing   int               `json:"candidates_with_clean_following"`
+	CandidatesPassing              int               `json:"candidates_passing"`
+	UpstreamErrorFrames            int               `json:"upstream_error_frames"`
+	InvalidRequestErrors           int               `json:"invalid_request_errors"`
+	HTTP400Errors                  int               `json:"http_400_errors"`
+	ResponseFailedFrames           int               `json:"response_failed_frames"`
+	Lost                           int               `json:"lost"`
+	MissingFollowingTurnCandidates int               `json:"missing_following_turn_candidates"`
+	UnsafeCandidates               int               `json:"unsafe_candidates"`
+}
+
+type wssT354ShapeProofRow struct {
+	Path          string                  `json:"path"`
+	Frames        int                     `json:"frames"`
+	RequestTurns  int                     `json:"request_turns"`
+	RequestShapes replayShapeCounts       `json:"request_shapes"`
+	Candidates    []wssT354CandidateProof `json:"candidates,omitempty"`
+	Upstream      wssT354UpstreamProof    `json:"upstream"`
+	Lost          int                     `json:"lost"`
+	GatePassed    bool                    `json:"gate_passed"`
+	GateFailures  []string                `json:"gate_failures,omitempty"`
+}
+
+type wssT354CandidateProof struct {
+	TurnIndex            int                `json:"turn_index"`
+	Shape                string             `json:"shape"`
+	PreviousResponseID   bool               `json:"previous_response_id"`
+	ToolOutputs          int                `json:"tool_outputs"`
+	CustomToolOutputs    int                `json:"custom_tool_outputs"`
+	CurrentTurnClean     bool               `json:"current_turn_clean"`
+	CurrentTurnHealth    wssT354TurnHealth  `json:"current_turn_health"`
+	FollowingTurnPresent bool               `json:"following_turn_present"`
+	FollowingTurnShape   string             `json:"following_turn_shape,omitempty"`
+	FollowingTurnClean   bool               `json:"following_turn_clean"`
+	FollowingTurnHealth  *wssT354TurnHealth `json:"following_turn_health,omitempty"`
+	UnlockProofPassing   bool               `json:"unlock_proof_passing"`
+	BlockReasons         []string           `json:"block_reasons,omitempty"`
+}
+
+type wssT354TurnHealth struct {
+	Terminal             bool `json:"terminal"`
+	ErrorFrames          int  `json:"error_frames"`
+	HTTP400Errors        int  `json:"http_400_errors"`
+	InvalidRequestErrors int  `json:"invalid_request_errors"`
+	ResponseFailedFrames int  `json:"response_failed_frames"`
+}
+
+type wssT354UpstreamProof struct {
+	ErrorFrames          int `json:"error_frames"`
+	HTTP400Errors        int `json:"http_400_errors"`
+	InvalidRequestErrors int `json:"invalid_request_errors"`
+	ResponseFailedFrames int `json:"response_failed_frames"`
+}
+
+type wssT354ShapeProofSkip struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+type wssT354Turn struct {
+	shape              string
+	previousResponseID bool
+	toolOutputs        int
+	customToolOutputs  int
+	mutated            bool
+	terminal           bool
+	errorFrames        int
+	http400Errors      int
+	invalidRequests    int
+	responseFailures   int
+}
+
+const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
+
+Usage:
+  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json]
+
+The report is content-free. It reads WSS frame captures and emits only request
+shape, mutation, downstream-turn, 400/invalid_request, and lost-comprehension
+counters. A passing report proves the capture contains at least one mutated
+delta/full-history tool-output candidate whose current turn and following turn
+are both clean. It does not by itself enable any runtime guard.`
+
+func runWSST354ShapeProof(args []string, stdout, stderr io.Writer) int {
+	flags, err := parseWSST354ShapeProofFlags(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 2
+	}
+	if flags.help {
+		fmt.Fprintln(stdout, wssT354ShapeProofHelpText)
+		return 0
+	}
+	if flags.path == "" {
+		fmt.Fprintln(stderr, "Usage: wss-t354-shape-proof <frames.jsonl-or-dir> [--json]")
+		return 2
+	}
+	report, err := loadWSST354ShapeProofReport(flags)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	if flags.outputFormat == outputJSON {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			fmt.Fprintln(stderr, err.Error())
+			return 1
+		}
+		fmt.Fprintln(stdout, string(data))
+		if !report.GatePassed {
+			return 3
+		}
+		return 0
+	}
+	writeWSST354ShapeProofText(stdout, report)
+	if !report.GatePassed {
+		return 3
+	}
+	return 0
+}
+
+func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) {
+	flags := wssT354ShapeProofFlags{outputFormat: outputText}
+	for _, arg := range args {
+		switch {
+		case arg == "--help" || arg == "-h":
+			flags.help = true
+		case arg == "--json":
+			flags.outputFormat = outputJSON
+		case strings.HasPrefix(arg, "-"):
+			return flags, fmt.Errorf("unknown flag: %s", arg)
+		default:
+			if flags.path != "" {
+				return flags, fmt.Errorf("multiple proof paths provided")
+			}
+			flags.path = arg
+		}
+	}
+	return flags, nil
+}
+
+func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProofReport, error) {
+	files, singleFile, err := wssSavingsBaselineFiles(flags.path)
+	if err != nil {
+		return wssT354ShapeProofReport{}, err
+	}
+	restoreLogger := silenceWSSSavingsBaselineReplayLogs()
+	defer restoreLogger()
+	report := wssT354ShapeProofReport{Path: flags.path, GatePassed: true}
+	for _, path := range files {
+		row, err := loadWSST354ShapeProofRow(path)
+		if err != nil {
+			if singleFile {
+				return wssT354ShapeProofReport{}, err
+			}
+			report.Skips = append(report.Skips, wssT354ShapeProofSkip{Path: path, Reason: err.Error()})
+			report.SkippedFiles++
+			continue
+		}
+		report.Rows = append(report.Rows, row)
+		report.FrameFiles++
+		applyWSST354ShapeProofRow(&report.Totals, row)
+		if !row.GatePassed {
+			report.GatePassed = false
+			report.GateFailures = append(report.GateFailures, fmt.Sprintf("%s: %s", path, strings.Join(row.GateFailures, "; ")))
+		}
+	}
+	if report.FrameFiles == 0 {
+		return wssT354ShapeProofReport{}, fmt.Errorf("no WSS replay frame files found under %s", flags.path)
+	}
+	if report.Totals.Lost > 0 {
+		report.GatePassed = false
+		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", report.Totals.Lost))
+	}
+	report.GateFailures = compactStringList(report.GateFailures)
+	report.Findings = wssT354ShapeProofFindings(report)
+	return report, nil
+}
+
+func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
+	frames, err := readWSSABReplayFrames(path)
+	if err != nil {
+		return wssT354ShapeProofRow{}, err
+	}
+	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		return wssT354ShapeProofRow{}, err
+	}
+	upstream := wssABReplayUpstreamDiagnostics(frames)
+	turns := wssT354TurnsFromFrames(frames)
+	row := wssT354ShapeProofRow{
+		Path:         path,
+		Frames:       len(frames),
+		RequestTurns: len(turns),
+		Upstream: wssT354UpstreamProof{
+			ErrorFrames:          upstream.ErrorFrames,
+			HTTP400Errors:        upstream.HTTP400Errors,
+			InvalidRequestErrors: upstream.InvalidRequestErrors,
+			ResponseFailedFrames: upstream.ResponseFailedFrames,
+		},
+		Lost:       replay.Lost,
+		GatePassed: true,
+	}
+	for _, turn := range turns {
+		addWSST354ShapeCount(&row.RequestShapes, turn.shape)
+	}
+	for i, turn := range turns {
+		if !wssT354CandidateTurn(turn) {
+			continue
+		}
+		candidate := wssT354CandidateProof{
+			TurnIndex:          i,
+			Shape:              turn.shape,
+			PreviousResponseID: turn.previousResponseID,
+			ToolOutputs:        turn.toolOutputs,
+			CustomToolOutputs:  turn.customToolOutputs,
+			CurrentTurnClean:   wssT354TurnClean(turn),
+			CurrentTurnHealth:  wssT354TurnHealthFromTurn(turn),
+		}
+		if i+1 < len(turns) {
+			following := turns[i+1]
+			followingHealth := wssT354TurnHealthFromTurn(following)
+			candidate.FollowingTurnPresent = true
+			candidate.FollowingTurnShape = following.shape
+			candidate.FollowingTurnClean = wssT354TurnClean(following)
+			candidate.FollowingTurnHealth = &followingHealth
+		}
+		candidate.BlockReasons = wssT354CandidateBlockReasons(candidate)
+		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
+		row.Candidates = append(row.Candidates, candidate)
+	}
+	row.GateFailures = wssT354RowGateFailures(row)
+	row.GatePassed = len(row.GateFailures) == 0
+	return row, nil
+}
+
+func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
+	var turns []wssT354Turn
+	current := -1
+	for _, frame := range frames {
+		if frame.Direction == wsmitm.DirClientToServer {
+			root, ok := wssT354FrameObject(frame.Payload)
+			if !ok || !wssT354LooksLikeRequestBody(root) {
+				continue
+			}
+			info := wssT354RequestInfo(root)
+			turns = append(turns, info)
+			current = len(turns) - 1
+			if frame.Mutated {
+				turns[current].mutated = true
+			}
+			continue
+		}
+		if current < 0 || frame.Direction != wsmitm.DirServerToClient {
+			continue
+		}
+		env, err := wsmitm.Parse(frame.Payload)
+		if err != nil {
+			continue
+		}
+		switch env.Kind {
+		case wsmitm.FrameKindResponseCompleted:
+			turns[current].terminal = true
+		case wsmitm.FrameKindError:
+			turns[current].terminal = true
+			turns[current].errorFrames++
+			status, errorType := wssABReplayErrorStatusAndType(frame.Payload)
+			if status == "400" {
+				turns[current].http400Errors++
+			}
+			if errorType == "invalid_request_error" {
+				turns[current].invalidRequests++
+			}
+		case wsmitm.FrameKindResponseFailed, wsmitm.FrameKindResponseIncomplete:
+			turns[current].terminal = true
+			turns[current].errorFrames++
+			if env.Kind == wsmitm.FrameKindResponseFailed {
+				turns[current].responseFailures++
+			}
+			status, errorType := wssABReplayErrorStatusAndType(frame.Payload)
+			if status == "400" {
+				turns[current].http400Errors++
+			}
+			if errorType == "invalid_request_error" {
+				turns[current].invalidRequests++
+			}
+		}
+	}
+	return turns
+}
+
+func wssT354FrameObject(payload []byte) (map[string]json.RawMessage, bool) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return nil, false
+	}
+	if body, ok := root["body"]; ok {
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(body, &nested); err == nil && len(nested) > 0 {
+			return nested, true
+		}
+	}
+	return root, true
+}
+
+func wssT354LooksLikeRequestBody(root map[string]json.RawMessage) bool {
+	if len(root["input"]) > 0 {
+		return true
+	}
+	if len(root["previous_response_id"]) > 0 && len(root["model"]) > 0 {
+		return true
+	}
+	return false
+}
+
+func wssT354RequestInfo(root map[string]json.RawMessage) wssT354Turn {
+	previous := strings.TrimSpace(rawJSONScalarString(root["previous_response_id"])) != ""
+	toolOutputs, customToolOutputs, history := wssT354InputFacts(root["input"])
+	shape := "root"
+	if history {
+		shape = "full_history"
+	} else if previous {
+		shape = "delta"
+	}
+	return wssT354Turn{
+		shape:              shape,
+		previousResponseID: previous,
+		toolOutputs:        toolOutputs,
+		customToolOutputs:  customToolOutputs,
+	}
+}
+
+func wssT354InputFacts(raw json.RawMessage) (toolOutputs int, customToolOutputs int, history bool) {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return 0, 0, false
+	}
+	for _, item := range items {
+		itemType := rawJSONScalarString(item["type"])
+		role := rawJSONScalarString(item["role"])
+		if itemType == "response_item" {
+			var nested map[string]json.RawMessage
+			if err := json.Unmarshal(item["payload"], &nested); err == nil {
+				itemType = rawJSONScalarString(nested["type"])
+				role = rawJSONScalarString(nested["role"])
+			}
+		}
+		switch itemType {
+		case "function_call_output":
+			toolOutputs++
+		case "custom_tool_call_output":
+			toolOutputs++
+			customToolOutputs++
+		case "function_call", "custom_tool_call", "reasoning":
+			history = true
+		case "message":
+			if role == "assistant" {
+				history = true
+			}
+		}
+	}
+	return toolOutputs, customToolOutputs, history
+}
+
+func rawJSONScalarString(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+func wssT354CandidateTurn(turn wssT354Turn) bool {
+	if !turn.mutated || turn.toolOutputs == 0 {
+		return false
+	}
+	return turn.shape == "delta" || turn.shape == "full_history"
+}
+
+func wssT354TurnClean(turn wssT354Turn) bool {
+	return turn.terminal && turn.errorFrames == 0 && turn.http400Errors == 0 &&
+		turn.invalidRequests == 0 && turn.responseFailures == 0
+}
+
+func wssT354TurnHealthFromTurn(turn wssT354Turn) wssT354TurnHealth {
+	return wssT354TurnHealth{
+		Terminal:             turn.terminal,
+		ErrorFrames:          turn.errorFrames,
+		HTTP400Errors:        turn.http400Errors,
+		InvalidRequestErrors: turn.invalidRequests,
+		ResponseFailedFrames: turn.responseFailures,
+	}
+}
+
+func wssT354CandidateBlockReasons(candidate wssT354CandidateProof) []string {
+	var out []string
+	if !candidate.CurrentTurnClean {
+		out = append(out, wssT354TurnHealthBlockReason("current_turn", candidate.CurrentTurnHealth))
+	}
+	if !candidate.FollowingTurnPresent {
+		out = append(out, "missing_following_turn")
+	} else if !candidate.FollowingTurnClean {
+		out = append(out, wssT354TurnHealthBlockReason("following_turn", *candidate.FollowingTurnHealth))
+	}
+	return out
+}
+
+func wssT354TurnHealthBlockReason(prefix string, health wssT354TurnHealth) string {
+	switch {
+	case !health.Terminal:
+		return prefix + "_not_terminal"
+	case health.InvalidRequestErrors > 0:
+		return fmt.Sprintf("%s_invalid_request=%d", prefix, health.InvalidRequestErrors)
+	case health.HTTP400Errors > 0:
+		return fmt.Sprintf("%s_http_400=%d", prefix, health.HTTP400Errors)
+	case health.ResponseFailedFrames > 0:
+		return fmt.Sprintf("%s_response_failed=%d", prefix, health.ResponseFailedFrames)
+	case health.ErrorFrames > 0:
+		return fmt.Sprintf("%s_error_frames=%d", prefix, health.ErrorFrames)
+	default:
+		return prefix + "_not_clean"
+	}
+}
+
+func wssT354RowGateFailures(row wssT354ShapeProofRow) []string {
+	var failures []string
+	if len(row.Candidates) == 0 {
+		failures = append(failures, "no mutated delta/full-history tool-output candidate observed")
+	}
+	if row.Upstream.ErrorFrames > 0 {
+		failures = append(failures, fmt.Sprintf("upstream_error_frames=%d", row.Upstream.ErrorFrames))
+	}
+	if row.Upstream.InvalidRequestErrors > 0 {
+		failures = append(failures, fmt.Sprintf("invalid_request=%d", row.Upstream.InvalidRequestErrors))
+	}
+	if row.Upstream.HTTP400Errors > 0 {
+		failures = append(failures, fmt.Sprintf("http_400=%d", row.Upstream.HTTP400Errors))
+	}
+	if row.Lost > 0 {
+		failures = append(failures, fmt.Sprintf("lost=%d", row.Lost))
+	}
+	passing := 0
+	for _, candidate := range row.Candidates {
+		if candidate.UnlockProofPassing {
+			passing++
+		}
+	}
+	if len(row.Candidates) > 0 && passing == 0 {
+		failures = append(failures, "no candidate has clean current and following turn")
+	}
+	for _, candidate := range row.Candidates {
+		for _, reason := range candidate.BlockReasons {
+			failures = append(failures, fmt.Sprintf("candidate_%d:%s", candidate.TurnIndex, reason))
+		}
+	}
+	return compactStringList(failures)
+}
+
+func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapeProofRow) {
+	total.Frames += row.Frames
+	total.RequestTurns += row.RequestTurns
+	addReplayShapeCounts(&total.RequestShapes, row.RequestShapes)
+	total.UpstreamErrorFrames += row.Upstream.ErrorFrames
+	total.InvalidRequestErrors += row.Upstream.InvalidRequestErrors
+	total.HTTP400Errors += row.Upstream.HTTP400Errors
+	total.ResponseFailedFrames += row.Upstream.ResponseFailedFrames
+	total.Lost += row.Lost
+	for _, candidate := range row.Candidates {
+		total.MutatedToolOutputCandidates++
+		switch candidate.Shape {
+		case "delta":
+			total.MutatedDeltaCandidates++
+		case "full_history":
+			total.MutatedFullHistoryCandidates++
+		}
+		if candidate.CurrentTurnClean {
+			total.CandidatesWithCleanCurrentTurn++
+		}
+		if candidate.FollowingTurnPresent {
+			total.CandidatesWithFollowingTurn++
+		} else {
+			total.MissingFollowingTurnCandidates++
+		}
+		if candidate.FollowingTurnClean {
+			total.CandidatesWithCleanFollowing++
+		}
+		if candidate.UnlockProofPassing {
+			total.CandidatesPassing++
+		} else {
+			total.UnsafeCandidates++
+		}
+	}
+	total.MutatedRequests += len(row.Candidates)
+}
+
+func addReplayShapeCounts(dst *replayShapeCounts, src replayShapeCounts) {
+	dst.Root += src.Root
+	dst.Delta += src.Delta
+	dst.FullHistory += src.FullHistory
+}
+
+func addWSST354ShapeCount(counts *replayShapeCounts, shape string) {
+	switch shape {
+	case "root":
+		counts.Root++
+	case "delta":
+		counts.Delta++
+	case "full_history":
+		counts.FullHistory++
+	}
+}
+
+func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
+	var findings []string
+	if report.Totals.CandidatesPassing > 0 {
+		findings = append(findings, fmt.Sprintf("t354_clean_candidate_count=%d", report.Totals.CandidatesPassing))
+	}
+	if report.Totals.MutatedDeltaCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("mutated_delta_candidates=%d", report.Totals.MutatedDeltaCandidates))
+	}
+	if report.Totals.MutatedFullHistoryCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("mutated_full_history_candidates=%d", report.Totals.MutatedFullHistoryCandidates))
+	}
+	if report.Totals.MissingFollowingTurnCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("missing_following_turn_candidates=%d", report.Totals.MissingFollowingTurnCandidates))
+	}
+	if report.Totals.UpstreamErrorFrames == 0 && report.Totals.Lost == 0 {
+		findings = append(findings, "upstream_and_lost_clean")
+	}
+	return findings
+}
+
+func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
+	fmt.Fprintf(w, "WSS T354 shape proof: %s\n", report.Path)
+	fmt.Fprintf(w, "  frame_files:       %d\n", report.FrameFiles)
+	fmt.Fprintf(w, "  skipped_files:     %d\n", report.SkippedFiles)
+	fmt.Fprintf(w, "  frames:            %d\n", report.Totals.Frames)
+	fmt.Fprintf(w, "  request_turns:     %d\n", report.Totals.RequestTurns)
+	fmt.Fprintf(w, "  shapes:            root=%d delta=%d full_history=%d\n",
+		report.Totals.RequestShapes.Root,
+		report.Totals.RequestShapes.Delta,
+		report.Totals.RequestShapes.FullHistory)
+	fmt.Fprintf(w, "  candidates:        total=%d delta=%d full_history=%d passing=%d unsafe=%d missing_following=%d\n",
+		report.Totals.MutatedToolOutputCandidates,
+		report.Totals.MutatedDeltaCandidates,
+		report.Totals.MutatedFullHistoryCandidates,
+		report.Totals.CandidatesPassing,
+		report.Totals.UnsafeCandidates,
+		report.Totals.MissingFollowingTurnCandidates)
+	fmt.Fprintf(w, "  upstream:          errors=%d invalid_request=%d http_400=%d response_failed=%d lost=%d\n",
+		report.Totals.UpstreamErrorFrames,
+		report.Totals.InvalidRequestErrors,
+		report.Totals.HTTP400Errors,
+		report.Totals.ResponseFailedFrames,
+		report.Totals.Lost)
+	if len(report.Findings) > 0 {
+		fmt.Fprintln(w, "  findings:")
+		for _, finding := range report.Findings {
+			fmt.Fprintf(w, "    - %s\n", finding)
+		}
+	}
+	fmt.Fprintf(w, "  gate:             %s\n", passFail(report.GatePassed))
+	if len(report.GateFailures) > 0 {
+		fmt.Fprintln(w, "  gate_failures:")
+		for _, failure := range report.GateFailures {
+			fmt.Fprintf(w, "    - %s\n", failure)
+		}
+	}
+}
+
+func compactStringList(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
