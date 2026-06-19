@@ -83,6 +83,7 @@ type wssPostEditRequestSignals struct {
 	patchContextBytes      int
 	patchContextKind       string
 	patchContextHash       string
+	patchContextKey        string
 	patchContextExact      bool
 	patchContextRisk       bool
 	patchContextRiskReason string
@@ -338,11 +339,13 @@ func (a *wssPostEditInventoryAccumulator) addPatchContext(signals wssPostEditReq
 	}
 	if signals.patchContextExact {
 		a.report.PatchContextExactTelemetryRequests++
-		if signals.patchContextHash != "" && a.seenPatchKey[signals.patchContextHash] > 0 {
-			a.report.RepeatedPatchContextCandidates++
-			logRow.RepeatedPatchContextCandidates++
+		if !signals.patchContextRisk {
+			if signals.patchContextKey != "" && a.seenPatchKey[signals.patchContextKey] > 0 {
+				a.report.RepeatedPatchContextCandidates++
+				logRow.RepeatedPatchContextCandidates++
+			}
+			a.seenPatchKey[signals.patchContextKey]++
 		}
-		a.seenPatchKey[signals.patchContextHash]++
 		return
 	}
 	a.report.MissingPatchContextTelemetry++
@@ -387,7 +390,7 @@ func wssPostEditSignals(summary dbg.RequestSummary) wssPostEditRequestSignals {
 		)
 		signals.patchContextKind = strings.TrimSpace(wssPostEditFact(facts, "wss.patch_context_kind"))
 		signals.patchContextHash = strings.TrimSpace(wssPostEditFact(facts, "wss.patch_context_hash"))
-		signals.patchContextExact = signals.patchContextKind != "" && signals.patchContextHash != ""
+		signals.patchContextKey, signals.patchContextExact = wssPostEditPatchExactKey(facts)
 		signals.patchContextRisk, signals.patchContextRiskReason = wssPostEditPatchRisk(summary)
 	}
 	return signals
@@ -446,6 +449,22 @@ func wssPostEditPatchCandidate(facts map[string]string, classes map[string]int) 
 		}
 	}
 	return false
+}
+
+func wssPostEditPatchExactKey(facts map[string]string) (string, bool) {
+	kind := wssPostEditFact(facts, "wss.patch_context_kind")
+	if kind == "" {
+		kind = wssPostEditFact(facts, "wss.patch_context_kinds")
+	}
+	hash := wssPostEditFact(facts, "wss.patch_context_hash")
+	if hash == "" {
+		hash = wssPostEditFact(facts, "wss.patch_context_hashes")
+	}
+	if kind == "" || hash == "" {
+		return "", false
+	}
+	count := wssPostEditFact(facts, "wss.patch_context_hash_count")
+	return strings.Join([]string{kind, count, hash}, "|"), true
 }
 
 func wssPostEditPatchRisk(summary dbg.RequestSummary) (bool, string) {

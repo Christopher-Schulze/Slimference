@@ -149,32 +149,102 @@ func TestWSSPostEditInventoryCountsPatchContextTelemetry(t *testing.T) {
 	}
 }
 
-func TestWSSPostEditInventoryPatchRiskBlocksPromotion(t *testing.T) {
+func TestWSSPostEditInventoryCountsMultiHashPatchContextTelemetry(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "decisions.jsonl")
-	writeJSONLFile(t, path, dbg.RequestSummary{
-		RequestID: "patch-conflict",
-		Path:      "/backend-api/codex/responses",
-		RouteMode: "websocket_phasef",
-		Tokens:    dbg.TokenCounts{Original: 7000, Final: 7000},
-		DebugFacts: map[string]string{
-			"wss.tool_command_classes":    "git_diff=1",
-			"wss.patch_context_candidate": "true",
-			"wss.patch_context_kind":      "git_diff",
-			"wss.patch_context_hash":      "patch-hash",
-			"wss.patch_context_conflict":  "true",
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID: "patch-multi-first",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000},
+			DebugFacts: map[string]string{
+				"wss.request_shape":            "full_history",
+				"wss.tool_command_classes":     "git_diff=1,git_show_stat=1",
+				"wss.patch_context_candidate":  "true",
+				"wss.patch_context_kinds":      "git_diff=1,git_show_stat=1",
+				"wss.patch_context_hash_count": "2",
+				"wss.patch_context_hashes":     "hash-a,hash-b",
+				"wss.patch_context_bytes":      "3600",
+				"wss.tool_result_output_bytes": "3600",
+			},
 		},
-	})
+		dbg.RequestSummary{
+			RequestID: "patch-multi-repeat",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 9000, Final: 8600, Saved: 400},
+			DebugFacts: map[string]string{
+				"wss.request_shape":            "full_history",
+				"wss.tool_command_classes":     "git_diff=1,git_show_stat=1",
+				"wss.patch_context_candidate":  "true",
+				"wss.patch_context_kinds":      "git_diff=1,git_show_stat=1",
+				"wss.patch_context_hash_count": "2",
+				"wss.patch_context_hashes":     "hash-a,hash-b",
+				"wss.patch_context_bytes":      "3600",
+			},
+		},
+	)
+
+	report, err := loadWSSPostEditInventory(wssPostEditInventoryFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSPostEditInventory() error = %v", err)
+	}
+	if report.Verdict != "shadow_exact_repeat_ready" ||
+		report.PatchContextRequests != 2 ||
+		report.PatchContextExactTelemetryRequests != 2 ||
+		report.MissingPatchContextTelemetry != 0 ||
+		report.RepeatedPatchContextCandidates != 1 ||
+		report.PatchContextTokensEstimate != 1800 {
+		t.Fatalf("unexpected multi-hash patch-context report: %+v", report)
+	}
+}
+
+func TestWSSPostEditInventoryPatchRiskBlocksPromotionAndRepeatCandidate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID: "patch-conflict-first",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 7000, Final: 7000},
+			DebugFacts: map[string]string{
+				"wss.tool_command_classes":    "git_diff=1",
+				"wss.patch_context_candidate": "true",
+				"wss.patch_context_kind":      "git_diff",
+				"wss.patch_context_hash":      "patch-hash",
+				"wss.patch_context_conflict":  "true",
+			},
+		},
+		dbg.RequestSummary{
+			RequestID: "patch-conflict-repeat",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 7000, Final: 7000},
+			DebugFacts: map[string]string{
+				"wss.tool_command_classes":    "git_diff=1",
+				"wss.patch_context_candidate": "true",
+				"wss.patch_context_kind":      "git_diff",
+				"wss.patch_context_hash":      "patch-hash",
+				"wss.patch_context_conflict":  "true",
+			},
+		},
+	)
 
 	report, err := loadWSSPostEditInventory(wssPostEditInventoryFlags{path: path})
 	if err != nil {
 		t.Fatalf("loadWSSPostEditInventory() error = %v", err)
 	}
 	if report.Verdict != "promotion_blocked_patch_risk" ||
-		report.PatchContextRiskRequests != 1 ||
-		report.RiskReasons["wss.patch_context_conflict"] != 1 {
+		report.PatchContextExactTelemetryRequests != 2 ||
+		report.RepeatedPatchContextCandidates != 0 ||
+		report.PatchContextRiskRequests != 2 ||
+		report.RiskReasons["wss.patch_context_conflict"] != 2 {
 		t.Fatalf("unexpected patch risk report: %+v", report)
 	}
 }
