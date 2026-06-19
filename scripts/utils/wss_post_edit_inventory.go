@@ -390,6 +390,7 @@ func wssPostEditSignals(summary dbg.RequestSummary) wssPostEditRequestSignals {
 				wssPostEditFact(facts, "wss.read_file_path_hash"),
 				wssPostEditFact(facts, "wss.read_range_hash"),
 				wssPostEditFact(facts, "wss.file_hash_after"),
+				wssPostEditFact(facts, "wss.edit_turn_seq"),
 				wssPostEditFact(facts, "wss.changed_range"),
 			}, "|")
 		}

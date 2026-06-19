@@ -100,7 +100,99 @@ func TestWSSRequestDebugFactsMarksRecentlyEditedReadWithoutPathLeak(t *testing.T
 	if facts["wss.read_after_edit"] != "true" || facts["wss.read_after_edit_count"] != "1" {
 		t.Fatalf("recent edit trace missing: %+v", facts)
 	}
+	if facts["wss.file_hash_after"] == "" ||
+		facts["wss.edit_turn_seq"] != "1" ||
+		facts["wss.changed_range"] != "full" {
+		t.Fatalf("exact post-edit state facts missing: %+v", facts)
+	}
 	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/edit.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "package main")
+}
+
+func TestWSSRequestDebugFactsAddsPatchDerivedPostEditRange(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := sessions.ObserveHookFile(sessions.DefaultHookStateDir(home), "session-read-trace-range", "src/edit.go", "edit"); err != nil {
+		t.Fatalf("ObserveHookFile() error = %v", err)
+	}
+	patchCommand := "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: src/edit.go\n@@ -10,2 +10,3 @@\n-old\n+new\n+extra\n*** End Patch\nPATCH"
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			Content: []types.ContentBlock{{
+				Type:      "tool_use",
+				ToolUseID: "call_patch",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":` + strconv.Quote(patchCommand) + `}`,
+			}},
+		},
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:         "tool_result",
+				ToolResultID: "call_read_edit",
+				Text:         "line 10\nline 11\nline 12\n",
+			}},
+		},
+	}
+	meta := wssRequestMeta{
+		SessionID: "session-read-trace-range",
+		ToolUseIndex: map[string]types.ContentBlock{
+			"call_read_edit": {
+				Type:      "tool_use",
+				ToolUseID: "call_read_edit",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"cat src/edit.go"}`,
+			},
+		},
+	}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.read_after_edit"] != "true" ||
+		facts["wss.file_hash_after"] == "" ||
+		facts["wss.edit_turn_seq"] != "1" ||
+		facts["wss.changed_range"] != "lines:10:12" {
+		t.Fatalf("patch-derived post-edit facts missing: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/edit.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "line 10")
+}
+
+func TestWSSRequestDebugFactsDoesNotHashFailedPostEditRead(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := sessions.ObserveHookFile(sessions.DefaultHookStateDir(home), "session-read-trace-fail", "src/missing.go", "edit"); err != nil {
+		t.Fatalf("ObserveHookFile() error = %v", err)
+	}
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_read_missing",
+			Text:         "Process exited with code 1\nOutput:\ncat: src/missing.go: No such file or directory\n",
+		}},
+	}}
+	meta := wssRequestMeta{
+		SessionID: "session-read-trace-fail",
+		ToolUseIndex: map[string]types.ContentBlock{
+			"call_read_missing": {
+				Type:      "tool_use",
+				ToolUseID: "call_read_missing",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"cat src/missing.go"}`,
+			},
+		},
+	}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.read_after_edit"] != "true" {
+		t.Fatalf("post-edit surface should still be visible: %+v", facts)
+	}
+	if facts["wss.file_hash_after"] != "" ||
+		facts["wss.edit_turn_seq"] != "" ||
+		facts["wss.changed_range"] != "" {
+		t.Fatalf("failed read must not claim exact file state: %+v", facts)
+	}
 }
 
 func TestWSSRequestDebugFactsAddsMultipleReadTraceLists(t *testing.T) {
@@ -408,6 +500,101 @@ func TestWSSPatchTraceHelpersClassifyAndBoundHashLists(t *testing.T) {
 	}
 	if got := strings.Count(facts["list"], ",") + 1; got != wssPatchTraceListLimit {
 		t.Fatalf("bounded patch hash list length=%d want %d in %q", got, wssPatchTraceListLimit, facts["list"])
+	}
+}
+
+func TestWSSReadTracePostEditHelperEdges(t *testing.T) {
+	if got := wssReadTraceRecentEdit("", "src/x.go", 2); got.hit {
+		t.Fatalf("empty session must not hit recent edit: %+v", got)
+	}
+	if got := wssReadTraceRecentEdit("session", "", 2); got.hit {
+		t.Fatalf("empty path must not hit recent edit: %+v", got)
+	}
+	if got := wssReadTraceTurnSeqFact("turn-42", -1); got != "42" {
+		t.Fatalf("turn seq fact=%q want 42", got)
+	}
+	if got := wssReadTraceTurnSeqFact("custom/turn", -1); got == "" || strings.Contains(got, "custom") {
+		t.Fatalf("custom turn fact must be hashed and non-empty, got %q", got)
+	}
+	if got := wssReadTraceTurnSeqFact("", 2); got != "3" {
+		t.Fatalf("fallback turn seq=%q want 3", got)
+	}
+	var exact wssReadDependencyTrace
+	exact.addExactPostEditRead("hash-a", "1", "full")
+	exact.addExactPostEditRead("hash-b", "1", "full")
+	if !exact.exactAmbiguous {
+		t.Fatalf("different exact-state hashes must mark ambiguity: %+v", exact)
+	}
+	if payload, ok := wssReadTraceSuccessfulReadPayload("Process exited with code 0\nOutput:\nok\n"); !ok || payload != "ok\n" {
+		t.Fatalf("successful envelope payload=%q ok=%v", payload, ok)
+	}
+	if payload, ok := wssReadTraceSuccessfulReadPayload("raw file\n"); !ok || payload != "raw file\n" {
+		t.Fatalf("raw payload=%q ok=%v", payload, ok)
+	}
+	if payload, ok := wssReadTraceSuccessfulReadPayload("Process exited with code 1\nOutput:\nboom\n"); ok || payload != "" {
+		t.Fatalf("failed envelope payload=%q ok=%v", payload, ok)
+	}
+	if got := wssReadTraceChangedRangeFromPatch("@@ -1 +2 @@\n@@ -5,2 +6,0 @@\n"); got != "lines:2:2,lines:6:6" {
+		t.Fatalf("changed range=%q", got)
+	}
+	if got := wssReadTraceChangedRangeFromPatch("no hunk here"); got != "" {
+		t.Fatalf("no-hunk range=%q", got)
+	}
+
+	rawPatch := "*** Begin Patch\n*** Update File: src/x.go\n@@ -3 +3 @@\n-old\n+new\n*** End Patch"
+	rawTexts := wssReadTracePatchTexts(types.ContentBlock{ToolInput: strconv.Quote(rawPatch)})
+	if len(rawTexts) != 1 || rawTexts[0] != rawPatch {
+		t.Fatalf("raw patch texts=%v", rawTexts)
+	}
+	jsonTexts := wssReadTracePatchTexts(types.ContentBlock{ToolInput: `{"cmd":` + strconv.Quote(rawPatch) + `}`})
+	if len(jsonTexts) != 1 || jsonTexts[0] != rawPatch {
+		t.Fatalf("json patch texts=%v", jsonTexts)
+	}
+	if texts := wssReadTracePatchTexts(types.ContentBlock{ToolInput: `{"cmd":"echo ok"}`}); len(texts) != 0 {
+		t.Fatalf("non-patch command returned patch texts=%v", texts)
+	}
+	if texts := wssReadTracePatchTexts(types.ContentBlock{ToolInput: rawPatch}); len(texts) != 1 || texts[0] != rawPatch {
+		t.Fatalf("invalid-json raw patch texts=%v", texts)
+	}
+	if texts := wssReadTracePatchTexts(types.ContentBlock{ToolInput: "not json"}); len(texts) != 0 {
+		t.Fatalf("invalid-json non-patch texts=%v", texts)
+	}
+	if texts := wssReadTracePatchTexts(types.ContentBlock{}); len(texts) != 0 {
+		t.Fatalf("empty block returned patch texts=%v", texts)
+	}
+
+	writeBlock := types.ContentBlock{
+		Type:      "tool_use",
+		ToolName:  "write",
+		ToolInput: `{"path":"src/x.go"}`,
+	}
+	if got, ok := wssReadTraceChangedRangeFromEditBlock(writeBlock, "src/x.go"); !ok || got != "full" {
+		t.Fatalf("write edit range=%q ok=%v", got, ok)
+	}
+	writeMessages := []types.Message{{Content: []types.ContentBlock{writeBlock}}}
+	if got := wssReadTraceChangedRangeForPath(writeMessages, nil, "src/x.go"); got != "full" {
+		t.Fatalf("write changed range for path=%q", got)
+	}
+	if got := wssReadTraceChangedRangeForPath(nil, nil, "src/x.go"); got != "full" {
+		t.Fatalf("missing edit block should conservatively return full, got %q", got)
+	}
+	if got := wssReadTraceChangedRangeForPath(nil, nil, ""); got != "" {
+		t.Fatalf("empty path changed range=%q", got)
+	}
+	multiPatch := "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: src/x.go\n@@ -1 +1 @@\n-a\n+b\n*** Update File: src/y.go\n@@ -2 +2 @@\n-c\n+d\n*** End Patch\nPATCH"
+	multiBlock := types.ContentBlock{
+		Type:      "tool_use",
+		ToolName:  "exec_command",
+		ToolInput: `{"cmd":` + strconv.Quote(multiPatch) + `}`,
+	}
+	if got, ok := wssReadTraceChangedRangeFromEditBlock(multiBlock, "src/x.go"); !ok || got != "full" {
+		t.Fatalf("multi-file edit range=%q ok=%v", got, ok)
+	}
+	if got, ok := wssReadTraceChangedRangeFromEditBlock(writeBlock, "src/missing.go"); ok || got != "" {
+		t.Fatalf("unmatched path range=%q ok=%v", got, ok)
+	}
+	if wssReadTracePathListContains([]string{"./src/../src/x.go"}, "src/x.go") != true {
+		t.Fatal("normalized path list should match")
 	}
 }
 
