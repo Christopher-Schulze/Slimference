@@ -450,6 +450,9 @@ func proxyRunClientCmd(args []string, env proxyEnv) int {
 		return 2
 	}
 	command := codexEnvCommand(mode, host, port, codexArgs)
+	cleanup := func() {}
+	command, cleanup = maybeApplyCommandOutputFirstEnv(mode, command)
+	defer cleanup()
 	runner := env.RunCommand
 	if runner == nil {
 		runner = defaultProxyCommandRunnerFunc

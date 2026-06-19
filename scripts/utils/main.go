@@ -30,6 +30,7 @@
 //	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
 //	go run ./scripts/utils local-artifact-hygiene [--json|--clean]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
+//	go run ./scripts/utils command-output-control-probe [--json] [--shim-command=git] -- <command> [args...]
 package main
 
 import (
@@ -50,7 +51,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe, command-output-control-probe")
 		os.Exit(1)
 	}
 
@@ -163,6 +164,8 @@ func main() {
 		os.Exit(runLocalArtifactHygiene(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
+	case "command-output-control-probe":
+		os.Exit(runCommandOutputControlProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n", os.Args[1])
 		os.Exit(1)

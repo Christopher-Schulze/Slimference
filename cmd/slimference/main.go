@@ -541,6 +541,9 @@ func handleSubcommand(args []string) {
 	case "filter":
 		handleFilterCmd(args[1:])
 
+	case "__command-output-first-shim":
+		handleCommandOutputFirstShim(args[1:])
+
 	case "rewrite":
 		handleRewriteCmd(args[1:])
 

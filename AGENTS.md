@@ -166,6 +166,16 @@ readiness gaps. Product activation still requires evidence that the complete
 mitigated design has zero, near-zero, or controlled-near-zero product drawdown
 on the exact route/request class where it will run.
 
+Potential estimates always assume the candidate has been fully engineered,
+tested, guarded, measured, and proof-passed. The proof is the production
+activation gate, not the value model. Never answer "0 potential" merely because
+the current implementation is not proof-passed yet. Report two separate values:
+`candidate_potential_if_completed` and `current_production_ready_savings`.
+Before proof, the second may be `0`; the first must still be estimated from the
+best available code, telemetry, route physics, comparable mechanisms, and
+explicit assumptions. This separation is mandatory for every savings plan,
+roadmap review, guard review, and candidate comparison.
+
 Agent reports must not use missing-readiness language as a dismissal or value
 judgment. Use `candidate`, `not production-ready yet`, `readiness gap`, and
 `next engineering move` instead. A readiness gap changes activation status; it
