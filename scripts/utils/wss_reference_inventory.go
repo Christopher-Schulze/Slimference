@@ -18,17 +18,18 @@ type wssReferenceInventoryFlags struct {
 }
 
 type wssReferenceInventoryReport struct {
-	Path                string                       `json:"path"`
-	Files               int                          `json:"files"`
-	Lines               int                          `json:"lines"`
-	JSONRows            int                          `json:"json_rows"`
-	ParseErrors         int                          `json:"parse_errors"`
-	FieldKeys           []wssReferenceInventoryCount `json:"field_keys,omitempty"`
-	RawMentions         []wssReferenceInventoryCount `json:"raw_mentions,omitempty"`
-	LocalReferenceURIs  []wssReferenceInventoryCount `json:"local_reference_uris,omitempty"`
-	ArbitraryCandidates []wssReferenceInventoryCount `json:"arbitrary_reference_candidates,omitempty"`
-	Verdict             string                       `json:"verdict"`
-	Notes               []string                     `json:"notes,omitempty"`
+	Path                 string                       `json:"path"`
+	Files                int                          `json:"files"`
+	Lines                int                          `json:"lines"`
+	JSONRows             int                          `json:"json_rows"`
+	ParseErrors          int                          `json:"parse_errors"`
+	FieldKeys            []wssReferenceInventoryCount `json:"field_keys,omitempty"`
+	RawMentions          []wssReferenceInventoryCount `json:"raw_mentions,omitempty"`
+	ReasoningStateFields []wssReferenceInventoryCount `json:"reasoning_state_fields,omitempty"`
+	LocalReferenceURIs   []wssReferenceInventoryCount `json:"local_reference_uris,omitempty"`
+	ArbitraryCandidates  []wssReferenceInventoryCount `json:"arbitrary_reference_candidates,omitempty"`
+	Verdict              string                       `json:"verdict"`
+	Notes                []string                     `json:"notes,omitempty"`
 }
 
 type wssReferenceInventoryCount struct {
@@ -43,6 +44,12 @@ var wssReferenceInventoryKeys = []string{
 	"file_id",
 	"attachment_id",
 	"encrypted_content",
+	"reasoning",
+	"reasoning_content",
+	"reasoning_items",
+	"reasoning_summary",
+	"reasoning_tokens",
+	"thinking",
 	"reference_id",
 	"content_reference",
 	"content_ref",
@@ -55,6 +62,16 @@ var wssReferenceInventoryKeys = []string{
 	"output_id",
 	"tool_call_id",
 	"id",
+}
+
+var wssReferenceInventoryReasoningKeys = []string{
+	"encrypted_content",
+	"reasoning",
+	"reasoning_content",
+	"reasoning_items",
+	"reasoning_summary",
+	"reasoning_tokens",
+	"thinking",
 }
 
 var wssReferenceInventoryArbitraryKeys = []string{
@@ -76,10 +93,11 @@ Usage:
   go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json]
 
 Directory mode scans *.json and *.jsonl files recursively. The report counts
-only reference-like JSON field names, raw field-name mentions, and local archive
-URI markers. It never prints field values, prompts, tool output, headers, or
-payload text. Use it for T408 backend-reference discovery before any server
-state mirror promotion.`
+only reference-like/reasoning-state JSON field names, raw field-name mentions,
+and local archive URI markers. It never prints field values, prompts, tool
+output, headers, or payload text. Use it for T408 backend-reference discovery
+and T416 reasoning/encrypted-context ceiling proof before any server-state or
+reasoning-state promotion.`
 
 func runWSSReferenceInventory(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSReferenceInventoryFlags(args)
@@ -154,6 +172,7 @@ func loadWSSReferenceInventory(path string) (wssReferenceInventoryReport, error)
 	}
 	report.FieldKeys = wssReferenceInventoryCounts(fieldCounts)
 	report.RawMentions = wssReferenceInventoryCounts(rawCounts)
+	report.ReasoningStateFields = wssReferenceInventoryNamedCounts(wssReferenceInventoryReasoningKeys, fieldCounts, rawCounts)
 	report.LocalReferenceURIs = wssReferenceInventoryCounts(localCounts)
 	report.ArbitraryCandidates = wssReferenceInventoryArbitraryCounts(fieldCounts, rawCounts)
 	report.Verdict, report.Notes = wssReferenceInventoryVerdict(report)
@@ -270,8 +289,12 @@ func wssReferenceInventoryFiles(path string) ([]string, error) {
 }
 
 func wssReferenceInventoryArbitraryCounts(fieldCounts, rawCounts map[string]int) []wssReferenceInventoryCount {
-	out := make([]wssReferenceInventoryCount, 0, len(wssReferenceInventoryArbitraryKeys)*2)
-	for _, key := range wssReferenceInventoryArbitraryKeys {
+	return wssReferenceInventoryNamedCounts(wssReferenceInventoryArbitraryKeys, fieldCounts, rawCounts)
+}
+
+func wssReferenceInventoryNamedCounts(keys []string, fieldCounts, rawCounts map[string]int) []wssReferenceInventoryCount {
+	out := make([]wssReferenceInventoryCount, 0, len(keys)*2)
+	for _, key := range keys {
 		if count := fieldCounts[key]; count > 0 {
 			out = append(out, wssReferenceInventoryCount{Name: "field:" + key, Count: count})
 		}
@@ -310,6 +333,11 @@ func wssReferenceInventoryVerdict(report wssReferenceInventoryReport) (string, [
 		"file_id and attachment_id are scoped upload/attachment identifiers; they do not prove that arbitrary prior text blocks can be referenced.",
 		"local-archive:// and slim://archive/ are Slimference-local recovery references; they are not backend-honored unless rehydrated before upstream visibility.",
 	}
+	if len(report.ReasoningStateFields) > 0 {
+		notes = append(notes, "Reasoning/encrypted state fields were observed; they are Class-D ceiling mass, not product-safe direct savings without a backend-honored exact reference.")
+	} else {
+		notes = append(notes, "No tracked reasoning/encrypted state field was observed in this inventory slice.")
+	}
 	if len(report.ArbitraryCandidates) == 0 {
 		notes = append(notes, "No arbitrary backend reference field was observed; T408 product mutation must remain off.")
 		return "no_arbitrary_backend_reference_observed", notes
@@ -327,6 +355,7 @@ func writeWSSReferenceInventoryText(w io.Writer, report wssReferenceInventoryRep
 	fmt.Fprintf(w, "Verdict:             %s\n", report.Verdict)
 	writeWSSReferenceInventoryRows(w, "\nTracked field keys:", report.FieldKeys)
 	writeWSSReferenceInventoryRows(w, "\nRaw mentions:", report.RawMentions)
+	writeWSSReferenceInventoryRows(w, "\nReasoning/encrypted state fields:", report.ReasoningStateFields)
 	writeWSSReferenceInventoryRows(w, "\nLocal reference URIs:", report.LocalReferenceURIs)
 	writeWSSReferenceInventoryRows(w, "\nArbitrary candidates:", report.ArbitraryCandidates)
 	if len(report.Notes) > 0 {

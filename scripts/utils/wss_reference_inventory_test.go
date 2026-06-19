@@ -48,6 +48,9 @@ func TestWSSReferenceInventoryCountsFieldAndRawReferenceSignals(t *testing.T) {
 	if got := wssReferenceInventoryTestCount(report.RawMentions, "reference_id"); got != 1 {
 		t.Fatalf("reference_id raw count = %d, want 1", got)
 	}
+	if got := wssReferenceInventoryTestCount(report.ReasoningStateFields, "raw:encrypted_content"); got != 1 {
+		t.Fatalf("raw encrypted_content reasoning-state count = %d, want 1", got)
+	}
 	if got := wssReferenceInventoryTestCount(report.LocalReferenceURIs, "local-archive://"); got != 1 {
 		t.Fatalf("local archive count = %d, want 1", got)
 	}
@@ -78,8 +81,14 @@ func TestWSSReferenceInventoryNoArbitraryReferenceVerdict(t *testing.T) {
 		data, _ := json.MarshalIndent(report, "", "  ")
 		t.Fatalf("bad verdict: %s", data)
 	}
+	if got := wssReferenceInventoryTestCount(report.ReasoningStateFields, "field:encrypted_content"); got != 1 {
+		t.Fatalf("field encrypted_content reasoning-state count = %d, want 1", got)
+	}
 	if len(report.ArbitraryCandidates) != 0 {
 		t.Fatalf("unexpected arbitrary candidates: %+v", report.ArbitraryCandidates)
+	}
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "Class-D ceiling mass") {
+		t.Fatalf("missing reasoning no-go note: %+v", report.Notes)
 	}
 	if !strings.Contains(strings.Join(report.Notes, "\n"), "product mutation must remain off") {
 		t.Fatalf("missing no-go note: %+v", report.Notes)
