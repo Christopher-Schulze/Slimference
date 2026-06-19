@@ -1949,6 +1949,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if wssSafeExactKnownCLIJSONOutput(commandLine, payload) {
 		return true
 	}
+	if wssSafeExactAWSJSONOutput(commandLine, payload) {
+		return true
+	}
 	if wssSafeFocusedLintDiagnosticOutput(commandLine, payload) {
 		return true
 	}
@@ -2262,6 +2265,16 @@ func wssSafeExactKnownCLIJSONOutput(commandLine, payload string) bool {
 	}
 	stdout := []byte(payload)
 	compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
+	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
+}
+
+func wssSafeExactAWSJSONOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactAwsJSONExact(argv, stdout)
 	return ok && len(compacted) < len(stdout) && wssExactJSONWhitespaceMinified(stdout, compacted)
 }
 

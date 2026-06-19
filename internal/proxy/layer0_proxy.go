@@ -852,7 +852,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !changed && !wssSearchOutputBlocked && !readCommand && statefulSafeToolOutputBlock && req.Route == codexLayer0RouteWSSPhaseF {
 				latencyStart := time.Now()
-				afterText, changed, mechanism = compactProxyWSSStatefulExactKnownCLIJSON(commandLine, block.Text)
+				afterText, changed, mechanism = compactProxyWSSStatefulExactJSON(commandLine, block.Text)
 				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed && !wssSearchOutputBlocked {
@@ -1833,24 +1833,34 @@ func compactProxyLayer0CapturedOutputFirst(commandLine, text string, ctx filter.
 	return "", false
 }
 
-func compactProxyWSSStatefulExactKnownCLIJSON(commandLine, text string) (string, bool, proxyLayer0Mechanism) {
+func compactProxyWSSStatefulExactJSON(commandLine, text string) (string, bool, proxyLayer0Mechanism) {
 	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
 	argv := filter.ArgvForCapturedOutput(filterCommandLine)
 	if len(argv) == 0 {
 		return "", false, ""
 	}
 	if header, payload, ok := splitCodexExecEnvelope(text); ok {
-		compacted, changed := filter.TryCompactKnownCLIJSONExact(argv, []byte(payload))
+		compacted, changed := compactProxyWSSStatefulExactJSONPayload(argv, []byte(payload))
 		if !changed || len(compacted) >= len(payload) || !wssExactJSONWhitespaceMinified([]byte(payload), compacted) {
 			return "", false, ""
 		}
 		return header + string(compacted), true, proxyLayer0MechanismCapturedOut
 	}
-	compacted, changed := filter.TryCompactKnownCLIJSONExact(argv, []byte(text))
+	compacted, changed := compactProxyWSSStatefulExactJSONPayload(argv, []byte(text))
 	if !changed || len(compacted) >= len(text) || !wssExactJSONWhitespaceMinified([]byte(text), compacted) {
 		return "", false, ""
 	}
 	return string(compacted), true, proxyLayer0MechanismCapturedOut
+}
+
+func compactProxyWSSStatefulExactJSONPayload(argv []string, payload []byte) ([]byte, bool) {
+	if compacted, changed := filter.TryCompactKnownCLIJSONExact(argv, payload); changed {
+		return compacted, true
+	}
+	if compacted, changed := filter.TryCompactAwsJSONExact(argv, payload); changed {
+		return compacted, true
+	}
+	return payload, false
 }
 
 func proxyInferredPlainPathListCommand(commandLine string) bool {

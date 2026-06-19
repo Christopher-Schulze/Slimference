@@ -12,8 +12,7 @@ func TryCompactAwsJSON(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
 	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b != "aws" && b != "aws.exe" {
+	if !isAWSCLIArgv(argv) {
 		return stdout, false
 	}
 	trimmed := bytes.TrimSpace(stdout)
@@ -28,6 +27,37 @@ func TryCompactAwsJSON(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return out, true
+}
+
+// TryCompactAwsJSONExact exact-minifies AWS CLI JSON while preserving every
+// original field, including ResponseMetadata. It is used by WSS stateful-safe
+// paths where lossy metadata stripping is not allowed.
+func TryCompactAwsJSONExact(argv []string, stdout []byte) ([]byte, bool) {
+	if !isAWSCLIArgv(argv) {
+		return stdout, false
+	}
+	trimmed := bytes.TrimSpace(stdout)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return stdout, true
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(trimmed))
+	if err := json.Compact(&buf, trimmed); err != nil {
+		return stdout, true
+	}
+	compact := buf.Bytes()
+	if len(compact) < len(stdout) {
+		return compact, true
+	}
+	return stdout, true
+}
+
+func isAWSCLIArgv(argv []string) bool {
+	if len(argv) < 1 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	return b == "aws" || b == "aws.exe"
 }
 
 // awsJSONStripKeys are common AWS SDK JSON envelopes removed when they shrink output (F16 partial).

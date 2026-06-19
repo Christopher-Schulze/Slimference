@@ -59,6 +59,13 @@ func TestWSSSafeExactNetworkResponseBoundary(t *testing.T) {
 	if !wssSafeStatefulStatusCommandOutput("cargo metadata --format-version 1", cargoMetadataJSON) {
 		t.Fatal("structured cargo metadata JSON should be exact-minify stateful-safe")
 	}
+	awsJSON := "{\n  \"UserId\": \"x\",\n  \"ResponseMetadata\": {\n    \"RequestId\": \"rid\",\n    \"HTTPStatusCode\": 200\n  }\n}\n"
+	if !wssSafeStatefulStatusCommandOutput("aws sts get-caller-identity", awsJSON) {
+		t.Fatal("AWS JSON should be exact-minify stateful-safe")
+	}
+	if wssSafeStatefulStatusCommandOutput("aws sts get-caller-identity", "plain response\nplain response\n") {
+		t.Fatal("AWS non-JSON output must not become stateful-safe")
+	}
 }
 
 func TestWSSStatefulSafeNetworkJSONExactMinifyCompactsFullHistoryTurn(t *testing.T) {
@@ -181,6 +188,40 @@ func TestWSSStatefulSafeKnownCLIJSONExactMinifyCompactsFullHistoryTurn(t *testin
 	}
 }
 
+func TestWSSStatefulSafeAWSJSONExactMinifyPreservesMetadata(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	envelope := "Chunk ID: aws-json-safe\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		wssAWSJSONFixture(90)
+
+	env := parseWSJSON(t, wssCommandOutputRequestBody("resp-aws-json", "call_aws_json", "aws ec2 describe-instances --output json", envelope, "stateful-aws-json-session"))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle AWS JSON request: %v", err)
+	}
+	if !replace {
+		t.Fatal("full-history exact AWS JSON output should compact")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, `\"ResponseMetadata\"`) ||
+		!strings.Contains(body, `\"RequestId\":\"rid-089\"`) ||
+		!strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(body, "{object,") ||
+		strings.Contains(body, `\"ResponseMetadata\": {`) {
+		t.Fatalf("AWS JSON output was not exact-minified with metadata preserved and archive-backed: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 || summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" {
+		t.Fatalf("stateful-safe AWS JSON should save without structured guard: %+v", summary)
+	}
+}
+
 func TestWSSStatefulSafeStructuredKnownCLIJSONUsesExactMinify(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -267,6 +308,19 @@ func wssNetworkJSONFixture(count int) string {
 		fmt.Fprintf(&out, "    {\"id\": %d, \"name\": \"item-%03d\", \"value\": \"payload-%03d\"}", i, i, i)
 	}
 	out.WriteString("\n  ],\n  \"final\": \"kept\"\n}\n")
+	return out.String()
+}
+
+func wssAWSJSONFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("{\n  \"Reservations\": [\n")
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			out.WriteString(",\n")
+		}
+		fmt.Fprintf(&out, "    {\"ReservationId\": \"r-%03d\", \"Instances\": [{\"InstanceId\": \"i-%03d\", \"State\": {\"Name\": \"running\"}}], \"ResponseMetadata\": {\"RequestId\": \"rid-%03d\", \"HTTPStatusCode\": 200}}", i, i, i)
+	}
+	out.WriteString("\n  ],\n  \"ResponseMetadata\": {\n    \"RequestId\": \"rid-top\",\n    \"HTTPStatusCode\": 200\n  }\n}\n")
 	return out.String()
 }
 
