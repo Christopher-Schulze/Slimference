@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -228,6 +229,185 @@ func TestWSSReadTraceHelpersNormalizeAndBoundHashLists(t *testing.T) {
 	}
 	if sortedWSSReadTraceHashes(nil) != nil {
 		t.Fatal("nil hash map should sort to nil")
+	}
+}
+
+func TestWSSRequestDebugFactsAddsContentFreePatchContextTrace(t *testing.T) {
+	diffOutput := "diff --git a/src/app.go b/src/app.go\n@@ -1 +1 @@\n-old\n+new\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_diff",
+			Text:         diffOutput,
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_diff": {
+			Type:      "tool_use",
+			ToolUseID: "call_diff",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git diff --stat"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.patch_context_candidate"] != "true" ||
+		facts["wss.patch_context_requests"] != "1" ||
+		facts["wss.patch_context_kind"] != "git_diff_stat" ||
+		facts["wss.patch_context_hash"] == "" ||
+		facts["wss.patch_context_hash_count"] != "1" ||
+		facts["wss.patch_context_hashes"] == "" ||
+		facts["wss.patch_context_bytes"] != strconv.Itoa(len(diffOutput)) ||
+		facts["wss.tool_command_classes"] != "git_diff_stat=1" {
+		t.Fatalf("missing patch-context facts: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/app.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, diffOutput)
+}
+
+func TestWSSRequestDebugFactsMarksPatchContextRiskWithoutPayloadLeak(t *testing.T) {
+	diffOutput := "diff --git a/src/app.go b/src/app.go\n<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> branch\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_diff",
+			Text:         diffOutput,
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_diff": {
+			Type:      "tool_use",
+			ToolUseID: "call_diff",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git diff"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.patch_context_candidate"] != "true" ||
+		facts["wss.patch_context_kind"] != "git_diff" ||
+		facts["wss.patch_context_conflict"] != "true" {
+		t.Fatalf("missing patch conflict facts: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/app.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, diffOutput)
+}
+
+func TestWSSRequestDebugFactsAddsMultiplePatchContextTraceLists(t *testing.T) {
+	diffOutput := "diff --git a/src/app.go b/src/app.go\nrename from src/old.go\nrename to src/app.go\nBinary files differ\nfatal: failed\n"
+	showOutput := "commit abc123\nerror: patch failed\nchange.rej\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{
+			{
+				Type:         "tool_result",
+				ToolResultID: "call_diff",
+				Text:         diffOutput,
+			},
+			{
+				Type:         "tool_result",
+				ToolResultID: "call_show",
+				Text:         showOutput,
+			},
+		},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_diff": {
+			Type:      "tool_use",
+			ToolUseID: "call_diff",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git diff"}`,
+		},
+		"call_show": {
+			Type:      "tool_use",
+			ToolUseID: "call_show",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git show --stat"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.patch_context_candidate"] != "true" ||
+		facts["wss.patch_context_requests"] != "2" ||
+		facts["wss.patch_context_hash"] != "" ||
+		facts["wss.patch_context_hash_count"] != "2" ||
+		facts["wss.patch_context_hashes"] == "" ||
+		facts["wss.patch_context_kind"] != "" ||
+		!strings.Contains(facts["wss.patch_context_kinds"], "git_diff=1") ||
+		!strings.Contains(facts["wss.patch_context_kinds"], "git_show_stat=1") ||
+		facts["wss.patch_context_failed"] != "true" ||
+		facts["wss.patch_context_rejected"] != "true" ||
+		facts["wss.patch_context_binary"] != "true" ||
+		facts["wss.patch_context_rename"] != "true" {
+		t.Fatalf("missing multi patch-context facts: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/app.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, diffOutput)
+	assertWSSReadTraceFactsDoNotLeak(t, facts, showOutput)
+}
+
+func TestWSSPatchContextDebugFactsNoopWithoutPatchCommand(t *testing.T) {
+	attachWSSPatchContextDebugFacts(nil, nil, wssRequestMeta{})
+	facts := map[string]string{"existing": "1"}
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_status",
+			Text:         "## main\n",
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_status": {
+			Type:      "tool_use",
+			ToolUseID: "call_status",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git status --short"}`,
+		},
+	}}
+
+	attachWSSPatchContextDebugFacts(facts, messages, meta)
+	if len(facts) != 1 || facts["existing"] != "1" {
+		t.Fatalf("non-patch command should not add patch facts: %+v", facts)
+	}
+}
+
+func TestWSSPatchTraceHelpersClassifyAndBoundHashLists(t *testing.T) {
+	for name, tc := range map[string]struct {
+		command string
+		want    string
+	}{
+		"diff":      {command: "git diff", want: "git_diff"},
+		"diff_stat": {command: "git diff --stat", want: "git_diff_stat"},
+		"show":      {command: "git show HEAD", want: "git_show"},
+		"show_stat": {command: "git show --stat HEAD", want: "git_show_stat"},
+		"status":    {command: "git status --short", want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := wssPatchContextCommandKind(tc.command); got != tc.want {
+				t.Fatalf("wssPatchContextCommandKind(%q) = %q want %q", tc.command, got, tc.want)
+			}
+		})
+	}
+
+	wssPatchTraceRiskSignals("fatal: failed\n<<<<<<< HEAD\nrejected\nBinary files differ\nrename from a\n", nil)
+	facts := map[string]string{}
+	attachWSSPatchTraceHashFacts(facts, "list", "count", nil)
+	if len(facts) != 0 {
+		t.Fatalf("nil patch hashes should not add facts: %+v", facts)
+	}
+	hashes := map[string]struct{}{}
+	for i := 0; i < wssPatchTraceListLimit+2; i++ {
+		hashes[wssPatchTraceHash("patch:"+string(rune('a'+i)))] = struct{}{}
+	}
+	attachWSSPatchTraceHashFacts(facts, "list", "count", hashes)
+	if facts["count"] != "18" {
+		t.Fatalf("bad patch hash count: %+v", facts)
+	}
+	if got := strings.Count(facts["list"], ",") + 1; got != wssPatchTraceListLimit {
+		t.Fatalf("bounded patch hash list length=%d want %d in %q", got, wssPatchTraceListLimit, facts["list"])
 	}
 }
 

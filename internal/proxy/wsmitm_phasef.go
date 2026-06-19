@@ -3721,6 +3721,7 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		facts["wss.tool_command_unclassed"] = strconv.Itoa(unclassed)
 	}
 	attachWSSReadDependencyDebugFacts(facts, classMessages, meta)
+	attachWSSPatchContextDebugFacts(facts, classMessages, meta)
 	return facts
 }
 

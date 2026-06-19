@@ -310,6 +310,40 @@ func TestWSSProofExportCorpusAddsContentFreeReadDependencyFacts(t *testing.T) {
 	assertExportDebugFactsDoNotLeak(t, editRead.DebugFacts, "cli-edit-read")
 }
 
+func TestWSSProofExportCorpusAddsContentFreePatchContextFacts(t *testing.T) {
+	dir := t.TempDir()
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "cli-git-status-diff",
+		Client:        "cli",
+		WorkloadClass: "git_status_diff",
+		FramesPath:    filepath.Join(dir, "frames-git-status-diff.jsonl"),
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 900,
+			HostBudgetStatus:         "ok",
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	root := filepath.Join(dir, "corpus")
+	report, err := exportWSSProofCorpus(matrixPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsRead != 1 || report.RowsExported != 1 {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	rec := readFirstExportSummary(t, filepath.Join(root, "cli_git_status", "session_wss_proof_export_001.jsonl"))
+	if rec.DebugFacts["wss.patch_context_candidate"] != "true" ||
+		rec.DebugFacts["wss.patch_context_kind"] != "git_status_diff" ||
+		rec.DebugFacts["wss.patch_context_hash"] == "" ||
+		rec.DebugFacts["wss.patch_context_bytes"] != "3600" {
+		t.Fatalf("git_status_diff export missing patch context facts: %+v", rec.DebugFacts)
+	}
+	assertExportDebugFactsDoNotLeak(t, rec.DebugFacts, "cli-git-status-diff")
+}
+
 func TestWSSProofExportCorpusRefreshesExistingRowsWithWireDenominators(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "corpus")

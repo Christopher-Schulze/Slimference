@@ -443,6 +443,7 @@ func wssProofCorpusDebugFacts(row wssProofMatrixRecord) map[string]string {
 		wssProofCorpusAddCommandClassFacts(facts, "rg_search")
 	case "git_status_diff":
 		wssProofCorpusAddCommandClassFacts(facts, "git_status")
+		wssProofCorpusAddPatchContextFacts(facts, row, "git_status_diff")
 	case "ok_summary_mypy_product":
 		wssProofCorpusAddCommandClassFacts(facts, "mypy")
 	case "build_test_lint_failure", "ok_summary_tool_output":
@@ -490,6 +491,19 @@ func wssProofCorpusAddCommandClassFacts(facts map[string]string, class string) {
 	facts["wss.tool_command_classes"] = class + "=1"
 	facts["wss.tool_command_classed"] = "1"
 	facts["wss.tool_command_unclassed"] = "0"
+}
+
+func wssProofCorpusAddPatchContextFacts(facts map[string]string, row wssProofMatrixRecord, kind string) {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return
+	}
+	facts["wss.patch_context_candidate"] = "true"
+	facts["wss.patch_context_kind"] = kind
+	facts["wss.patch_context_hash"] = wssProofCorpusStableHash("patch:" + row.Client + ":" + row.WorkloadClass + ":" + row.ID)
+	if row.LiveDelta != nil && row.LiveDelta.BillableInputTokensSaved > 0 {
+		facts["wss.patch_context_bytes"] = strconv.FormatInt(row.LiveDelta.BillableInputTokensSaved*4, 10)
+	}
 }
 
 func wssProofCorpusStableHash(value string) string {

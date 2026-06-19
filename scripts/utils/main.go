@@ -12,6 +12,7 @@
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
 //	go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json]
 //	go run ./scripts/utils wss-first-read-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-dependency-trace]
+//	go run ./scripts/utils wss-post-edit-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-exact-state]
 //	go run ./scripts/utils wss-local-gap <decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>] [--min-local-saved=<tokens>]
 //	go run ./scripts/utils wss-local-gap-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>]
 //	go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>] [--require-headroom]
@@ -48,7 +49,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-first-read-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe")
 		os.Exit(1)
 	}
 
@@ -125,6 +126,8 @@ func main() {
 		os.Exit(runWSSReferenceInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-first-read-inventory":
 		os.Exit(runWSSFirstReadInventory(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-post-edit-inventory":
+		os.Exit(runWSSPostEditInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-local-gap":
 		os.Exit(runWSSLocalGap(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-local-gap-inventory":
