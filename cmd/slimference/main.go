@@ -956,8 +956,6 @@ func handlePostToolCmd(args []string) {
 			}
 		}
 	}
-	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(compacted))
-
 	if home, err := osUserHomeDir(); err == nil {
 		turnID := currentHookTurnID(sessions.DefaultHookStateDir(home), details.SessionID)
 		entry, archiveErr := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
@@ -970,11 +968,12 @@ func handlePostToolCmd(args []string) {
 			Preview:   string(compacted),
 		})
 		if archiveErr == nil && entry != nil {
+			context := codexPostToolArchiveContext(*entry)
+			emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context))
 			if !emitReplacement {
 				recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
 				return
 			}
-			context := codexPostToolArchiveContext(*entry)
 			recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(context), codexPostToolDecisionEntries(details, len(details.ToolResponse), len(compacted), len(context)))
 			out := codexPostToolReplacement(context)
 			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
@@ -985,16 +984,16 @@ func handlePostToolCmd(args []string) {
 		}
 	}
 
-	if !emitReplacement {
-		recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
-		return
-	}
-
 	context := "Recent Bash output was compacted locally."
 	if details.CommandLine != "" {
 		context = fmt.Sprintf("Bash output for %q was compacted locally.\n%s", details.CommandLine, compacted)
 	} else {
 		context = fmt.Sprintf("Bash output was compacted locally.\n%s", compacted)
+	}
+	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(context))
+	if !emitReplacement {
+		recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
+		return
 	}
 
 	recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(context), codexPostToolDecisionEntries(details, len(details.ToolResponse), len(compacted), len(context)))
@@ -1239,9 +1238,9 @@ func claudeHookMode() string {
 }
 
 const (
-	codexPostToolAutoReplaceMinOriginalTokens = 600
-	codexPostToolAutoReplaceMinSavedTokens    = 400
-	codexPostToolAutoReplaceMinSavingsPct     = 45
+	codexPostToolAutoReplaceMinOriginalTokens = 300
+	codexPostToolAutoReplaceMinSavedTokens    = 150
+	codexPostToolAutoReplaceMinSavingsPct     = 35
 )
 
 func codexPostToolShouldEmitReplacement(changed bool, originalBytes int, finalBytes int) bool {

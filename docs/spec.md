@@ -1,6 +1,6 @@
 # Slimference Specification v3
 
-Last updated: 2026-06-13
+Last updated: 2026-06-19
 
 This is the normative implementation target for Slimference. `docs/documentation.md`
 is the explanatory reference; this file defines the compact product and technical
@@ -15,13 +15,40 @@ normal Codex behavior. Development effort, captures, benchmarks, proof work, and
 implementation complexity are not product drawdowns.
 
 Default-on savings mechanisms must be deterministic, recoverable, fail-open, or
-proven by live replay. When a mechanism cannot prove model-quality safety, it
-must be removed from the product path.
+validated by live replay. When a mechanism cannot establish model-quality safety,
+it must be removed from the product path.
 
 New product mechanisms must be designed for default-on or automatic safe
 enablement. New permanently default-off, manually promoted, or experimental
 mechanisms are out of scope unless an explicit project override classifies them
 as isolated legacy/lab/proof/operator work.
+
+The owner local-savings target is `S_local >= 48%` on longer eligible Codex
+sessions without counting provider-cache discount. Provider-cache economics,
+output-wire savings, and combined billable savings remain valuable but cannot
+substitute for local input reduction.
+
+Missing production-readiness evidence does not mean a candidate has zero
+savings. Every candidate must be estimated before implementation with affected
+route/workload, expected `S_local` impact, provider-cache impact, output impact,
+confidence, and remaining readiness gaps. Candidate value guides prioritization;
+product activation still requires the complete mitigated design to satisfy the
+drawdown contract on the exact route/request class where it runs.
+
+Guards are surgical product-safety mechanisms, not broad savings brakes. A guard
+may reduce savings only for the exact route, request shape, command/output class,
+state lineage, cache-prefix scope, or capability surface needed to prevent a
+real product drawdown or upstream error. If the same safety can be achieved by a
+narrower predicate, byte-equal observation path, recovery path, readiness latch,
+state detach, metadata-consistent mutation, or scoped demotion, the broader
+guard is a local-savings regression.
+
+Savings work is priority-ordered by expected local impact. Engineering effort
+must focus first on structural double-digit `S_local` candidates such as
+command-output-first Codex interception, T354/Class-B/server-state continuation,
+Desktop/Class-B unlocks, and high-frequency search/captured-output paths. Small
+parser or guard-polish work is acceptable when cheap, when it unblocks a larger
+lane, or when live owner input is the only blocker for the higher-leverage lane.
 
 ## 2. Active Product Layers
 
@@ -45,6 +72,17 @@ filters, and recoverable chunk dedup.
 
 Requirements:
 
+- command-output-first Codex interception is a required product lane: when a
+  scoped Codex hook, launcher shim, app-server boundary, PTY wrapper, command
+  runner proxy, MCP/tool facade, or subprocess wrapper can compact stdout/stderr
+  before large tool output becomes durable WSS history, that path takes
+  priority over equivalent downstream cleanup;
+- command-output-first compaction must preserve command identity, cwd, args,
+  exit code, stdout/stderr ordering and distinction, failure/warning/source/
+  diagnostic/path/line/count/artifact facts, and byte-equal fail-open behavior;
+- command-output-first compactors must provide exact raw-output recovery through
+  archive, tee, sideband, or rerun, and retry/rerun cost is counted as negative
+  savings;
 - first reads and first post-edit reads preserve full relevant context;
 - repeated/ranged reads may compact only with stable session/path/range identity;
 - archive-backed references require exact local recovery;
@@ -171,6 +209,10 @@ Default product routing is scoped Codex:
 - `slimference install` installs launchd service material and Codex hooks, but
   does not arm global hosts, pfctl, system proxy, persistent base-url env vars,
   or Claude Code hooks;
+- scoped Codex launchers may introduce command-output-first interception only
+  inside the launched process tree or explicit local tool boundary; normal Codex,
+  browser ChatGPT, ordinary ChatGPT.app, shell configuration, system proxy, and
+  unrelated apps remain untouched;
 - the TUI Launch view and `slimference codex run -- <prompt>` affect only the
   spawned Codex CLI process and fail open to direct Codex if the daemon route is
   unavailable;
@@ -247,7 +289,10 @@ Observability must distinguish:
 - tool-prune schema-token savings;
 - route/workload/proof status;
 - fail-open and auto-demotion reasons;
-- host-resource status.
+- host-resource status;
+- guard potential: tokens blocked by each guard, exact guard reason, candidate
+  mechanism, request shape, route, command/output class, and the smallest
+  recorded readiness gap for recovering those savings.
 
 The normal TUI must show product signals, not internal parser matrices. Debug
 surfaces may expose detailed counters.

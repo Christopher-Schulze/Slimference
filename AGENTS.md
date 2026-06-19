@@ -156,22 +156,30 @@ does not change: the complete engineered design must still be default-on-safe,
 measured, recoverable/fail-open, and exact to the route/request class where it
 runs.
 
-Agents must estimate potential savings before proof so work can be prioritized
-intelligently. Lack of proof means "not production-ready", not "zero savings"
-and not "finished". Estimates may be rough when evidence is incomplete, but
-they must still be attempted and labeled with confidence, assumptions, affected
-routes/workloads, expected `S_local` impact, provider-cache impact, output
-impact, and remaining proof gaps. Product activation still requires evidence
-that the complete mitigated design has zero, near-zero, or controlled-near-zero
-product drawdown on the exact route/request class where it will run.
+Agents must estimate potential savings before production-readiness evidence is
+complete so work can be prioritized intelligently. Missing readiness evidence
+means "not production-ready yet", not "zero savings" and not "finished".
+Estimates may be rough when evidence is incomplete, but they must still be
+attempted and labeled with confidence, assumptions, affected routes/workloads,
+expected `S_local` impact, provider-cache impact, output impact, and remaining
+readiness gaps. Product activation still requires evidence that the complete
+mitigated design has zero, near-zero, or controlled-near-zero product drawdown
+on the exact route/request class where it will run.
+
+Agent reports must not use missing-readiness language as a dismissal or value
+judgment. Use `candidate`, `not production-ready yet`, `readiness gap`, and
+`next engineering move` instead. A readiness gap changes activation status; it
+does not erase the estimated savings value or remove the candidate from
+planning.
 
 Feature status must stay explicit:
-`estimated_candidate` for a plausible unproven mechanism,
-`engineered_unproven` for implemented or partially implemented work that still
-lacks the required proof, and `production_ready` only after the required
-tests, live proof, recovery/fail-open checks, and non-regression measurements
-pass. Agents must not present an estimated or engineered-unproven feature as
-done, but they also must not ignore its estimated value when planning.
+`estimated_candidate` for a plausible candidate mechanism,
+`engineered_pending_evidence` for implemented or partially implemented work
+that still lacks the required readiness evidence, and `production_ready` only
+after the required tests, live evidence, recovery/fail-open checks, and
+non-regression measurements pass. Agents must not present an estimated or
+engineered-pending feature as done, but they also must not ignore its estimated
+value when planning.
 
 A mechanism is forbidden only after the mitigated complete design still has
 unacceptable product drawdown, or after live evidence proves the route/protocol
@@ -214,16 +222,77 @@ Guards exist to eliminate proven errors and drawdowns with the minimum possible
 savings loss. No percentage point of local savings may be wasted by applying a
 guard more broadly than the evidence requires. Do not preemptively suppress a
 route, mechanism, workload, command class, content class, or request shape
-merely because an unproven error might happen there. Use measured failure
+merely because a hypothetical error might happen there. Use measured failure
 evidence, counterfactual replay, guarded-potential accounting, and exact
 request-class arithmetic to decide the smallest safe guard. If the same safety
 can be achieved with a narrower predicate, observe-only path, recovery path,
 proof latch, or scoped demotion, the broader guard is a savings regression.
 
 If a guard remains broad, the agent must be able to explain why narrower
-engineering is not yet proven safe, what evidence is missing, and what proof or
+engineering is not yet production-ready, what evidence is missing, and what
 mitigation would allow the next safe loosening. Broad guards without that live
-failure evidence and next-proof path are considered unfinished savings work.
+failure evidence and next-readiness path are considered unfinished savings work.
+
+### 3.5 Command-Output-First Savings Mandate (Binding)
+
+Slimference must pursue an RTK-class command-output-first lane for Codex. The
+preferred savings point is before large shell/tool output becomes durable
+model-visible WSS history. If Codex exposes a hook, launcher shim, app-server
+control point, PTY boundary, command wrapper, MCP/tool proxy, or process-local
+subprocess boundary that can compact stdout/stderr before the model stores it,
+agents must evaluate and engineer that path before spending comparable effort
+on smaller downstream WSS cleanup.
+
+The target is the same economic class as RTK's strongest surface: exact,
+parser-bounded command-output compaction on reads, search, git, build, test,
+lint, logs, JSON, tables, package managers, and CI-style transcripts. The Codex
+implementation may be different from Claude/RTK hooks, but the product target is
+not optional: recover large local `S_local` by intercepting or shaping command
+output as early as the scoped Codex architecture permits.
+
+Any command-output-first design must preserve:
+
+- exact command, cwd, args, env-sensitive behavior, exit code, stdout/stderr
+  semantics, ordering, and stream/error distinction;
+- model access to all relevant failure, warning, source, diagnostic, path,
+  line, count, and artifact facts;
+- byte-equal fail-open on unknown command shapes, parser drift, unsupported
+  shells, malformed streams, missing archives, unsafe source/report-file
+  payloads, or capability ambiguity;
+- scoped routing only: no persistent global proxy, base URL, system proxy,
+  hosts patch, or unrelated app interception;
+- local raw-output recovery through archive/tee/rerun when compacted output
+  omits bytes, with retry/rerun cost counted as negative savings.
+
+Lack of a ready Codex hook is not a stop condition. Agents must search for a
+different engineering seam: scoped shell wrapper, command-runner proxy, PTY
+capture, app-server shim, local tool facade, Codex hook configuration,
+sideband recovery, or deterministic rewrite of command invocations emitted by
+the scoped launcher. If all current Codex surfaces reject safe pre-output
+interception, record the exact blocked control point and the next route to test.
+
+### 3.6 High-Leverage Savings Priority (Binding)
+
+Agents must not spend the main engineering loop on low-impact micro-polish while
+large local-savings blockers remain open. Small wins are valid when they are
+cheap, unblock a gate, expand a high-frequency parser class, or can be shipped
+while waiting for live owner input. Otherwise, prioritize structural moves that
+can change `S_local` by double-digit points:
+
+- command-output-first Codex interception;
+- T354/Class-B/server-state continuation engineering;
+- Desktop/Class-B distribution capture and route-specific unlocks;
+- search-cap and captured-output promotion on common WSS shapes;
+- stateful-safe parser classes only when they hit common real workloads or feed
+  the larger unlocks;
+- cache-bust and recovery guards only when they recover broad blocked surface.
+
+Every task plan must name the expected local-savings order of magnitude before
+implementation: low (<1 point), medium (1-5 points), high (5-15 points), or
+major (15+ points) for the relevant route/workload. When a higher-leverage task
+is blocked by required live input or a missing control point, the agent may work
+the next best offline lever, but must keep the high-leverage blocker visible and
+return to it as soon as the blocker is removable.
 
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 

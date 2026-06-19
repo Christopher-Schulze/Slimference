@@ -753,7 +753,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		osGetwd = origGetwd
 	})
 
-	t.Run("compacted_output_silent_by_default", func(t *testing.T) {
+	t.Run("medium_compacted_output_auto_mode_emits_by_default", func(t *testing.T) {
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"command":       "git status",
@@ -776,8 +776,9 @@ func TestHandlePostToolCmd(t *testing.T) {
 		os.Stdout = oldStdout
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
-		if buf.Len() != 0 {
-			t.Fatalf("expected silent default output, got %q", buf.String())
+		out := buf.String()
+		if !strings.Contains(out, `"continue":false`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) {
+			t.Fatalf("expected default auto replacement for medium positive output, got %q", out)
 		}
 		readStdinAll = origRead
 		configLoadFn = origConfigLoad
@@ -1304,6 +1305,15 @@ func TestPostToolReplacementDecisionHelpers(t *testing.T) {
 	}
 	if codexPostToolAutoReplacementWorthIt(1000, 1) {
 		t.Fatal("small original token estimate must not pass auto replacement threshold")
+	}
+	if !codexPostToolAutoReplacementWorthIt(1600, 700) {
+		t.Fatal("medium positive auto replacement must pass lowered threshold")
+	}
+	if codexPostToolShouldEmitReplacement(true, 1600, 1300) {
+		t.Fatal("auto mode must reject weak final-context savings")
+	}
+	if !codexPostToolShouldEmitReplacement(true, 1600, 700) {
+		t.Fatal("auto mode must accept net-positive final context")
 	}
 }
 
