@@ -158,7 +158,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "synthetic": false,
      "evidence_level": "live_operator",
      "client_family": "<codex_cli|codex_desktop>",
-     "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday|chunk_dedup_similar_outputs|chunk_dedup_log_output|chunk_dedup_test_output|output_reduce_aggressive|output_reduce_ab|tool_heavy|provider_cache_long_session|host_resource_long_workday>",
+     "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday|chunk_dedup_similar_outputs|chunk_dedup_log_output|chunk_dedup_test_output|output_reduce_aggressive|output_reduce_ab|tool_heavy|provider_cache_long_session|host_resource_long_workday|stateful_safe_tool_outputs>",
      "language": "<primary language>",
      "tool_mix": "<short summary>",
      "expected_savings_min": 0.30,

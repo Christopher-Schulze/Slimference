@@ -85,6 +85,23 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 			},
 		},
 		wssProofMatrixRecord{
+			ID:            "cli-stateful-safe-tool-outputs",
+			Client:        "cli",
+			WorkloadClass: "stateful_safe_tool_outputs",
+			FramesPath:    filepath.Join(dir, "frames-stateful-safe.jsonl"),
+			Model:         "gpt-5.5",
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 1527,
+				ProviderInputTokens:      171345,
+				ProviderOutputTokens:     706,
+				ProxyLayer0Envelope:      2,
+				ProxyLayer0Repeated:      2,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+		wssProofMatrixRecord{
 			ID:            "desktop-tool-heavy",
 			Client:        "desktop",
 			WorkloadClass: "tool_heavy",
@@ -143,8 +160,8 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RowsRead != 8 || report.RowsExported != 6 || report.RowsSkipped != 2 ||
-		report.CategoriesWritten != 6 || report.SkippedReasons["safety_issue"] != 1 ||
+	if report.RowsRead != 9 || report.RowsExported != 7 || report.RowsSkipped != 2 ||
+		report.CategoriesWritten != 7 || report.SkippedReasons["safety_issue"] != 1 ||
 		report.SkippedReasons["no_economic_signal"] != 1 {
 		t.Fatalf("bad export report: %+v", report)
 	}
@@ -176,6 +193,13 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 		okSummaryMeta.ExpectedSavedTokensMin != 765 || okSummaryMeta.ExpectedMaxErrors != 0 ||
 		!containsString(okSummaryMeta.ScenarioValidators, "host_budget_ok") {
 		t.Fatalf("bad ok-summary metadata: %+v", okSummaryMeta)
+	}
+
+	statefulSafeMeta := readExportMetadata(t, filepath.Join(root, "cli_stateful_safe_tool_outputs", "metadata.json"))
+	if statefulSafeMeta.ClientFamily != "codex_cli" || statefulSafeMeta.WorkloadClass != "stateful_safe_tool_outputs" ||
+		statefulSafeMeta.ExpectedSavedTokensMin != 1527 || statefulSafeMeta.ExpectedMaxErrors != 0 ||
+		!containsString(statefulSafeMeta.ScenarioValidators, "host_budget_ok") {
+		t.Fatalf("bad stateful-safe metadata: %+v", statefulSafeMeta)
 	}
 
 	toolMeta := readExportMetadata(t, filepath.Join(root, "desktop_tool_heavy", "metadata.json"))
@@ -219,6 +243,16 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	}
 	if okSummaryRec.DebugFacts["wss.tool_command_classes"] != "mypy=1" {
 		t.Fatalf("mypy export should carry precise command facts: %+v", okSummaryRec.DebugFacts)
+	}
+
+	statefulSafeRec := readFirstExportSummary(t, filepath.Join(root, "cli_stateful_safe_tool_outputs", "session_wss_proof_export_001.jsonl"))
+	if statefulSafeRec.ProviderInputTokens != 171345 || statefulSafeRec.ProviderOutputTokens != 706 ||
+		statefulSafeRec.Tokens.Original != 172872 || statefulSafeRec.Tokens.Final != 171345 ||
+		statefulSafeRec.Tokens.Saved != 1527 {
+		t.Fatalf("bad stateful-safe denominator: %+v", statefulSafeRec)
+	}
+	if statefulSafeRec.DebugFacts["wss.tool_command_classes"] != "stateful_safe_tool_output=1" {
+		t.Fatalf("stateful-safe export should carry precise command facts: %+v", statefulSafeRec.DebugFacts)
 	}
 
 	outputMeta := readExportMetadata(t, filepath.Join(root, "cli_output_reduce_aggressive", "metadata.json"))

@@ -323,6 +323,8 @@ func corpusWorkloadFromWSS(workload string) (string, bool) {
 		return "large_tool_output", true
 	case "ok_summary_mypy_product", "ok_summary_tool_output":
 		return "ok_summary_tool_output", true
+	case "stateful_safe_tool_outputs":
+		return "stateful_safe_tool_outputs", true
 	case "long_mixed_workday":
 		return "long_workday", true
 	case "chunk_dedup_similar_outputs":
@@ -446,6 +448,8 @@ func wssProofCorpusDebugFacts(row wssProofMatrixRecord) map[string]string {
 		wssProofCorpusAddPatchContextFacts(facts, row, "git_status_diff")
 	case "ok_summary_mypy_product":
 		wssProofCorpusAddCommandClassFacts(facts, "mypy")
+	case "stateful_safe_tool_outputs":
+		wssProofCorpusAddCommandClassFacts(facts, "stateful_safe_tool_output")
 	case "build_test_lint_failure", "ok_summary_tool_output":
 		wssProofCorpusAddCommandClassFacts(facts, "other")
 	case "large_tool_output", "long_mixed_workday", "host_resource_long_workday":
@@ -526,7 +530,7 @@ func tuneCorpusMetadataForWorkload(meta *CategoryMetadataLite, records []wssProo
 		meta.ScenarioValidators = []string{"output_reduce", "host_budget_ok", "low_error"}
 	case "tool_heavy":
 		meta.ScenarioValidators = []string{"tool_heavy", "host_budget_ok", "low_error"}
-	case "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday":
+	case "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday", "stateful_safe_tool_outputs":
 		meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
 	case "ok_summary_tool_output":
 		meta.ScenarioValidators = []string{"host_budget_ok", "low_error"}
