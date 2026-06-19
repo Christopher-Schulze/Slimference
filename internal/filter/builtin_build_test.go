@@ -443,6 +443,207 @@ func TestTryCompactNextViteBuildCleanOutputFailOpen(t *testing.T) {
 	}
 }
 
+func TestTryCompactMakeCmakeCleanProgressOutput(t *testing.T) {
+	t.Parallel()
+
+	makeOut, ok := TryCompactMake([]string{"make", "-j8"}, []byte(makeCmakeStyleCleanFixture(24)))
+	if !ok || string(makeOut) != "[make] ok\n" {
+		t.Fatalf("make CMake-style clean progress: ok=%v out=%q", ok, makeOut)
+	}
+
+	wrappedMake, ok := TryCompactBuildOutput([]string{"pnpm", "exec", "make", "all"}, []byte(makeCmakeStyleCleanFixture(24)))
+	if !ok || string(wrappedMake) != "[make] ok\n" {
+		t.Fatalf("wrapped make CMake-style clean progress: ok=%v out=%q", ok, wrappedMake)
+	}
+
+	cmakeOut, ok := TryCompactCmakeBuild([]string{"cmake", "--build", "build", "--parallel"}, []byte(cmakeBuildCleanFixture(24)))
+	if !ok || string(cmakeOut) != "[cmake --build] ok\n" {
+		t.Fatalf("cmake --build clean progress: ok=%v out=%q", ok, cmakeOut)
+	}
+
+	cmakeNinja, ok := TryCompactBuildOutput([]string{"yarn", "cmake", "--build", "build"}, []byte(cmakeNinjaCleanFixture(24)))
+	if !ok || string(cmakeNinja) != "[cmake --build] ok\n" {
+		t.Fatalf("wrapped cmake ninja clean progress: ok=%v out=%q", ok, cmakeNinja)
+	}
+}
+
+func TestTryCompactMakeCmakeCleanProgressFailOpen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+		try    func([]string, []byte) ([]byte, bool)
+	}{
+		{
+			name:   "make warning",
+			argv:   []string{"make"},
+			stdout: makeCmakeStyleCleanFixture(8) + "warning: generated header is stale\n",
+			try:    TryCompactMake,
+		},
+		{
+			name:   "make arbitrary recipe",
+			argv:   []string{"make"},
+			stdout: "printf 'deploying production'\ncc -O2 main.c -o app\n",
+			try:    TryCompactMake,
+		},
+		{
+			name:   "make dry run",
+			argv:   []string{"make", "-n"},
+			stdout: makeCmakeStyleCleanFixture(8),
+			try:    TryCompactMake,
+		},
+		{
+			name:   "cmake compile error",
+			argv:   []string{"cmake", "--build", "build"},
+			stdout: "[ 50%] Building CXX object src/CMakeFiles/app.dir/main.cpp.o\nerror: missing semicolon\n",
+			try:    TryCompactCmakeBuild,
+		},
+		{
+			name:   "cmake no terminal success",
+			argv:   []string{"cmake", "--build", "build"},
+			stdout: "[ 10%] Building CXX object src/CMakeFiles/app.dir/main.cpp.o\n[ 20%] Building CXX object src/CMakeFiles/app.dir/lib.cpp.o\n",
+			try:    TryCompactCmakeBuild,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if out, ok := tt.try(tt.argv, []byte(tt.stdout)); ok {
+				t.Fatalf("unsafe make/cmake progress compacted: %q", out)
+			}
+		})
+	}
+}
+
+func TestTryCompactMakeCmakeCleanProgressWrapperAndNoWorkBranches(t *testing.T) {
+	t.Parallel()
+
+	progress := cmakeBuildCleanFixture(6)
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{name: "npx make", argv: []string{"npx", "make", "all"}, want: "[make] ok\n"},
+		{name: "yarn make", argv: []string{"yarn", "make", "all"}, want: "[make] ok\n"},
+		{name: "npx cmake build", argv: []string{"npx", "cmake", "--build", "build"}, want: "[cmake --build] ok\n"},
+		{name: "pnpm cmake build", argv: []string{"pnpm", "exec", "cmake", "--build", "build"}, want: "[cmake --build] ok\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactBuildOutput(tt.argv, []byte(progress))
+			if !ok || string(out) != tt.want {
+				t.Fatalf("%s: ok=%v out=%q", tt.name, ok, out)
+			}
+		})
+	}
+
+	noWork, ok := TryCompactCmakeBuild([]string{"cmake", "--build", "build"}, []byte("ninja: no work to do.\n"))
+	if !ok || string(noWork) != "[cmake --build] ok\n" {
+		t.Fatalf("ninja no work: ok=%v out=%q", ok, noWork)
+	}
+	if out, ok := TryCompactMake(nil, []byte(progress)); ok || string(out) != progress {
+		t.Fatalf("empty argv make must fail open: ok=%v out=%q", ok, out)
+	}
+	if out, ok := TryCompactCmakeBuild(nil, []byte(progress)); ok || string(out) != progress {
+		t.Fatalf("empty argv cmake must fail open: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestCmakeStyleCleanBuildProgressLineBranches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		line         string
+		wantOK       bool
+		wantTerminal bool
+	}{
+		{line: "make[1]: Entering directory '/repo/build'", wantOK: true},
+		{line: "gmake[2]: Leaving directory '/repo/build'", wantOK: true},
+		{line: "Scanning dependencies of target app", wantOK: true},
+		{line: "Built target app", wantOK: true, wantTerminal: true},
+		{line: "ninja: no work to do.", wantOK: true, wantTerminal: true},
+		{line: "[ 25%] Automatic MOC for target app", wantOK: true},
+		{line: "[ 26%] Automatic RCC for target app", wantOK: true},
+		{line: "[ 27%] Automatic UIC for target app", wantOK: true},
+		{line: "[ 30%] Building CUDA object src/CMakeFiles/app.dir/kernel.cu.o", wantOK: true},
+		{line: "[ 35%] Building Fortran object src/CMakeFiles/app.dir/main.f90.o", wantOK: true},
+		{line: "[ 40%] Generating generated/version.hpp", wantOK: true},
+		{line: "[ 60%] Copying assets", wantOK: true},
+		{line: "[100%] Linking C shared library libapp.dylib", wantOK: true, wantTerminal: true},
+		{line: "[100%] Linking C static library libapp.a", wantOK: true, wantTerminal: true},
+		{line: "[100%] Linking CXX static library libapp.a", wantOK: true, wantTerminal: true},
+		{line: "[100%] Linking CUDA executable cuda-app", wantOK: true, wantTerminal: true},
+		{line: "[100%] Linking Fortran executable solver", wantOK: true, wantTerminal: true},
+		{line: "[100%] Linking CXX shared library libapp.dylib", wantOK: true, wantTerminal: true},
+		{line: "[1/2] Generating generated/version.hpp", wantOK: true},
+		{line: "[2/2] Linking CXX executable app", wantOK: true, wantTerminal: true},
+		{line: "["},
+		{line: "[] Building CXX object app.o"},
+		{line: "[ /2] Building CXX object app.o"},
+		{line: "[1/ ] Building CXX object app.o"},
+		{line: "[x/2] Building CXX object app.o"},
+		{line: "[1/2] Running custom command"},
+		{line: "[ 50%]"},
+		{line: "[ 50%] Running custom command"},
+		{line: "[100] Building CXX object app.o"},
+		{line: "cc -O2 main.c -o app"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.line, func(t *testing.T) {
+			t.Parallel()
+			gotOK, gotTerminal := cmakeStyleCleanBuildProgressLine(tt.line)
+			if gotOK != tt.wantOK || gotTerminal != tt.wantTerminal {
+				t.Fatalf("line classification mismatch: got ok=%v terminal=%v", gotOK, gotTerminal)
+			}
+		})
+	}
+}
+
+func TestCmakeStyleBuildOutputUnsafeAndBoundaryBranches(t *testing.T) {
+	t.Parallel()
+
+	tooSmall, ok := compactCmakeStyleCleanBuildOutput("Built target app", len("[make] ok\n"), "make")
+	if ok || tooSmall != nil {
+		t.Fatalf("non-shrinking make/cmake compaction must fail closed: ok=%v out=%q", ok, tooSmall)
+	}
+
+	emptyOut, ok := compactCmakeStyleCleanBuildOutput("\n \n", 100, "cmake --build")
+	if ok || emptyOut != nil {
+		t.Fatalf("empty non-direct cmake-style progress must fail closed: ok=%v out=%q", ok, emptyOut)
+	}
+
+	unsafeMarkers := []string{
+		"make[1]: *** [all] Error 2",
+		"undefined reference to `main'",
+		"make: *** No rule to make target 'all'. Stop.",
+		"recipe for target 'app' failed",
+		"make[1]: Leaving directory with error '/repo/build'",
+	}
+	for _, marker := range unsafeMarkers {
+		marker := marker
+		t.Run(marker, func(t *testing.T) {
+			t.Parallel()
+			if !cmakeStyleBuildOutputHasUnsafeSignal(marker) {
+				t.Fatalf("unsafe marker not detected: %q", marker)
+			}
+		})
+	}
+
+	safeOut := "\n" + cmakeNinjaCleanFixture(2) + "\n"
+	if cmakeStyleBuildOutputHasUnsafeSignal(safeOut) {
+		t.Fatalf("clean ninja-style output should not have unsafe signal: %q", safeOut)
+	}
+}
+
 func TestTryCompactBuildOutputPackageScriptWebBuildCleanOutput(t *testing.T) {
 	t.Parallel()
 
@@ -463,6 +664,39 @@ func TestTryCompactBuildOutputPackageScriptWebBuildCleanOutput(t *testing.T) {
 	if !ok || string(out) != "[next build] ok\n" {
 		t.Fatalf("npm run build next clean output: ok=%v out=%q", ok, out)
 	}
+}
+
+func makeCmakeStyleCleanFixture(files int) string {
+	var b strings.Builder
+	b.WriteString("make[1]: Entering directory '/repo/build'\n")
+	b.WriteString("Consolidate compiler generated dependencies of target app\n")
+	for i := 0; i < files; i++ {
+		fmt.Fprintf(&b, "[%3d%%] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, i)
+	}
+	b.WriteString("[100%] Linking CXX executable app\n")
+	b.WriteString("[100%] Built target app\n")
+	b.WriteString("make[1]: Leaving directory '/repo/build'\n")
+	return b.String()
+}
+
+func cmakeBuildCleanFixture(files int) string {
+	var b strings.Builder
+	b.WriteString("Consolidate compiler generated dependencies of target slimference\n")
+	for i := 0; i < files; i++ {
+		fmt.Fprintf(&b, "[%3d%%] Building C object src/CMakeFiles/slimference.dir/generated/object_%02d.c.o\n", i+1, i)
+	}
+	b.WriteString("[100%] Linking C executable slimference\n")
+	b.WriteString("[100%] Built target slimference\n")
+	return b.String()
+}
+
+func cmakeNinjaCleanFixture(files int) string {
+	var b strings.Builder
+	for i := 1; i <= files; i++ {
+		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i, files+1, i)
+	}
+	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)
+	return b.String()
 }
 
 func nextBuildCleanFixture() string {

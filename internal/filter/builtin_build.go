@@ -329,25 +329,52 @@ func isMakeCompactArgv(argv []string) bool {
 	return true
 }
 
-// TryCompactMake replaces empty stdout from `make` / `gmake` / `npx|pnpm exec|yarn … make …` (F07 partial).
+// TryCompactMake replaces empty stdout or strict CMake-style clean progress from
+// `make` / `gmake` / `npx|pnpm exec|yarn … make …` (F07 partial).
 func TryCompactMake(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if isMakeCompactArgv(argv) {
+		s := strings.TrimSpace(string(stdout))
+		if s == "" {
+			return []byte("[make] ok\n"), true
+		}
+		if out, ok := compactCmakeStyleCleanBuildOutput(s, len(stdout), "make"); ok {
+			return out, true
+		}
 		return stdout, false
 	}
-	if isMakeCompactArgv(argv) {
-		return []byte("[make] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return tryCompactMakeEmptyWrapped(argv, stdout)
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && isMakeCompactArgv(rest) {
-		return []byte("[make] ok\n"), true
+	if rest, ok := wrappedMakeArgv(argv); ok && isMakeCompactArgv(rest) {
+		if out, ok := compactCmakeStyleCleanBuildOutput(strings.TrimSpace(string(stdout)), len(stdout), "make"); ok {
+			return out, true
+		}
 	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isMakeCompactArgv(argv[2:]) {
-		return []byte("[make] ok\n"), true
-	}
-	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isMakeCompactArgv(argv[1:]) {
+	return stdout, false
+}
+
+func tryCompactMakeEmptyWrapped(argv []string, stdout []byte) ([]byte, bool) {
+	if rest, ok := wrappedMakeArgv(argv); ok && isMakeCompactArgv(rest) {
 		return []byte("[make] ok\n"), true
 	}
 	return stdout, false
+}
+
+func wrappedMakeArgv(argv []string) ([]string, bool) {
+	if len(argv) == 0 {
+		return nil, false
+	}
+	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && isMakeCompactArgv(rest) {
+		return rest, true
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isMakeCompactArgv(argv[2:]) {
+		return argv[2:], true
+	}
+	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isMakeCompactArgv(argv[1:]) {
+		return argv[1:], true
+	}
+	return nil, false
 }
 
 func isNinjaBin(name string) bool {
@@ -390,25 +417,217 @@ func isCmakeBuildArgv(argv []string) bool {
 	return argv[1] == "--build"
 }
 
-// TryCompactCmakeBuild replaces empty stdout from `cmake --build …` / `npx|pnpm exec|yarn … cmake --build …` (F07 partial).
+// TryCompactCmakeBuild replaces empty stdout or strict clean build progress from
+// `cmake --build …` / `npx|pnpm exec|yarn … cmake --build …` (F07 partial).
 func TryCompactCmakeBuild(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if isCmakeBuildArgv(argv) {
+		s := strings.TrimSpace(string(stdout))
+		if s == "" {
+			return []byte("[cmake --build] ok\n"), true
+		}
+		if out, ok := compactCmakeStyleCleanBuildOutput(s, len(stdout), "cmake --build"); ok {
+			return out, true
+		}
 		return stdout, false
 	}
-	if isCmakeBuildArgv(argv) {
-		return []byte("[cmake --build] ok\n"), true
+	if strings.TrimSpace(string(stdout)) == "" {
+		return tryCompactCmakeBuildEmptyWrapped(argv, stdout)
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isCmakeBuildArgv(rest) {
-		return []byte("[cmake --build] ok\n"), true
+	if rest, ok := wrappedCmakeBuildArgv(argv); ok && isCmakeBuildArgv(rest) {
+		if out, ok := compactCmakeStyleCleanBuildOutput(strings.TrimSpace(string(stdout)), len(stdout), "cmake --build"); ok {
+			return out, true
+		}
 	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isCmakeBuildArgv(argv[2:]) {
-		return []byte("[cmake --build] ok\n"), true
-	}
-	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isCmakeBuildArgv(argv[1:]) {
+	return stdout, false
+}
+
+func tryCompactCmakeBuildEmptyWrapped(argv []string, stdout []byte) ([]byte, bool) {
+	if rest, ok := wrappedCmakeBuildArgv(argv); ok && isCmakeBuildArgv(rest) {
 		return []byte("[cmake --build] ok\n"), true
 	}
 	return stdout, false
+}
+
+func wrappedCmakeBuildArgv(argv []string) ([]string, bool) {
+	if len(argv) == 0 {
+		return nil, false
+	}
+	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isCmakeBuildArgv(rest) {
+		return rest, true
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isCmakeBuildArgv(argv[2:]) {
+		return argv[2:], true
+	}
+	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isCmakeBuildArgv(argv[1:]) {
+		return argv[1:], true
+	}
+	return nil, false
+}
+
+func compactCmakeStyleCleanBuildOutput(stdout string, originalLen int, label string) ([]byte, bool) {
+	out := []byte("[" + label + "] ok\n")
+	if len(out) >= originalLen || cmakeStyleBuildOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	sawProgress := false
+	sawTerminal := false
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		progress, terminal := cmakeStyleCleanBuildProgressLine(line)
+		if !progress {
+			return nil, false
+		}
+		if terminal {
+			sawTerminal = true
+		}
+		sawProgress = true
+	}
+	if !sawProgress || !sawTerminal {
+		return nil, false
+	}
+	return out, true
+}
+
+func cmakeStyleBuildOutputHasUnsafeSignal(stdout string) bool {
+	if webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return true
+	}
+	for _, raw := range strings.Split(stdout, "\n") {
+		lower := strings.ToLower(strings.TrimSpace(raw))
+		if lower == "" {
+			continue
+		}
+		if strings.Contains(lower, "***") ||
+			strings.Contains(lower, "undefined reference") ||
+			strings.Contains(lower, "no rule to make target") ||
+			strings.Contains(lower, "stop.") ||
+			strings.Contains(lower, "recipe for target") ||
+			strings.Contains(lower, "leaving directory with error") {
+			return true
+		}
+	}
+	return false
+}
+
+func cmakeStyleCleanBuildProgressLine(line string) (bool, bool) {
+	if strings.HasPrefix(line, "make[") &&
+		(strings.Contains(line, "Entering directory") || strings.Contains(line, "Leaving directory")) {
+		return true, false
+	}
+	if strings.HasPrefix(line, "gmake[") &&
+		(strings.Contains(line, "Entering directory") || strings.Contains(line, "Leaving directory")) {
+		return true, false
+	}
+	if strings.HasPrefix(line, "Consolidate compiler generated dependencies of target ") ||
+		strings.HasPrefix(line, "Scanning dependencies of target ") {
+		return true, false
+	}
+	if strings.HasPrefix(line, "Built target ") {
+		return true, true
+	}
+	if line == "ninja: no work to do." {
+		return true, true
+	}
+	if ok, terminal := cmakePercentProgressLine(line); ok {
+		return true, terminal
+	}
+	if ok, terminal := cmakeNinjaProgressLine(line); ok {
+		return true, terminal
+	}
+	return false, false
+}
+
+func cmakePercentProgressLine(line string) (bool, bool) {
+	if !strings.HasPrefix(line, "[") {
+		return false, false
+	}
+	closeBracket := strings.IndexByte(line, ']')
+	if closeBracket <= 1 {
+		return false, false
+	}
+	inside := strings.TrimSpace(line[1:closeBracket])
+	if !strings.HasSuffix(inside, "%") {
+		return false, false
+	}
+	rest := strings.TrimSpace(line[closeBracket+1:])
+	if rest == "" || !cmakeProgressText(rest) {
+		return false, false
+	}
+	return true, inside == "100%" && cmakeTerminalProgressText(rest)
+}
+
+func cmakeNinjaProgressLine(line string) (bool, bool) {
+	if !strings.HasPrefix(line, "[") {
+		return false, false
+	}
+	closeBracket := strings.IndexByte(line, ']')
+	if closeBracket <= 1 {
+		return false, false
+	}
+	inside := strings.TrimSpace(line[1:closeBracket])
+	parts := strings.Split(inside, "/")
+	if len(parts) != 2 {
+		return false, false
+	}
+	current := strings.TrimSpace(parts[0])
+	total := strings.TrimSpace(parts[1])
+	if current == "" || total == "" {
+		return false, false
+	}
+	for _, r := range current + total {
+		if r < '0' || r > '9' {
+			return false, false
+		}
+	}
+	rest := strings.TrimSpace(line[closeBracket+1:])
+	if rest == "" || !cmakeProgressText(rest) {
+		return false, false
+	}
+	return true, current == total && cmakeTerminalProgressText(rest)
+}
+
+func cmakeProgressText(rest string) bool {
+	for _, prefix := range []string{
+		"Automatic MOC",
+		"Automatic RCC",
+		"Automatic UIC",
+		"Building C object ",
+		"Building CXX object ",
+		"Building CUDA object ",
+		"Building Fortran object ",
+		"Built target ",
+		"Copying ",
+		"Generating ",
+		"Linking C executable ",
+		"Linking C shared library ",
+		"Linking C static library ",
+		"Linking CXX executable ",
+		"Linking CXX shared library ",
+		"Linking CXX static library ",
+		"Linking CUDA executable ",
+		"Linking Fortran executable ",
+	} {
+		if strings.HasPrefix(rest, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func cmakeTerminalProgressText(rest string) bool {
+	return strings.HasPrefix(rest, "Built target ") ||
+		strings.HasPrefix(rest, "Linking C executable ") ||
+		strings.HasPrefix(rest, "Linking C shared library ") ||
+		strings.HasPrefix(rest, "Linking C static library ") ||
+		strings.HasPrefix(rest, "Linking CXX executable ") ||
+		strings.HasPrefix(rest, "Linking CXX shared library ") ||
+		strings.HasPrefix(rest, "Linking CXX static library ") ||
+		strings.HasPrefix(rest, "Linking CUDA executable ") ||
+		strings.HasPrefix(rest, "Linking Fortran executable ")
 }
 
 // TryCompactTsc replaces empty stdout from `tsc` / `npx|pnpm exec|yarn … tsc` (F07 partial).
