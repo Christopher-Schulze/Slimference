@@ -379,6 +379,71 @@ func TestTryCompactFormat_missingBranches(t *testing.T) {
 	}
 }
 
+func TestTryCompactPrettierCleanCheckOutput(t *testing.T) {
+	t.Parallel()
+
+	clean := []byte("Checking formatting...\nAll matched files use Prettier code style!\n")
+	out, ok := TryCompactPrettier([]string{"prettier", "--check", "."}, clean)
+	if !ok || string(out) != "[prettier] ok\n" {
+		t.Fatalf("prettier clean check: ok=%v out=%q", ok, out)
+	}
+
+	out, ok = TryCompactFormatOutput([]string{"pnpm", "run", "format:check"}, []byte(strings.Join([]string{
+		"> app@1.0.0 format:check /repo",
+		"> prettier --check .",
+		"Checking formatting...",
+		"All matched files use Prettier code style!",
+		"",
+	}, "\n")))
+	if !ok || string(out) != "[prettier] ok\n" {
+		t.Fatalf("package-script prettier clean check: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestTryCompactPrettierCleanCheckOutputFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{
+			name:   "no check arg",
+			argv:   []string{"prettier", "."},
+			stdout: "Checking formatting...\nAll matched files use Prettier code style!\n",
+		},
+		{
+			name:   "warning issue",
+			argv:   []string{"prettier", "--check", "."},
+			stdout: "Checking formatting...\n[warn] src/app.ts\n[warn] Code style issues found in the above file. Run Prettier with --write to fix.\n",
+		},
+		{
+			name:   "unknown line",
+			argv:   []string{"prettier", "--check", "."},
+			stdout: "Checking formatting...\nAll matched files use Prettier code style!\nwarning: generated config is deprecated\n",
+		},
+		{
+			name:   "missing clean verdict",
+			argv:   []string{"prettier", "--check", "."},
+			stdout: "Checking formatting...\n",
+		},
+		{
+			name:   "verdict before checking",
+			argv:   []string{"prettier", "--check", "."},
+			stdout: "All matched files use Prettier code style!\nChecking formatting...\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if out, ok := TryCompactPrettier(tt.argv, []byte(tt.stdout)); ok {
+				t.Fatalf("expected fail-open, got ok with %q", out)
+			}
+		})
+	}
+}
+
 func TestTryCompactFormatOutput_manyFiles(t *testing.T) {
 	t.Parallel()
 	// prettier --write outputting 15 formatted filenames (>formatFileListMax=10) → compact

@@ -2040,6 +2040,7 @@ func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
 	parsers := []func([]string, []byte) ([]byte, bool){
 		filter.TryCompactBuildOutput,
 		filter.TryCompactLintOutput,
+		filter.TryCompactFormatOutput,
 		filter.TryCompactPackageOutput,
 		filter.TryCompactTerraformInit,
 		filter.TryCompactTerraformValidate,

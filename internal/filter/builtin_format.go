@@ -26,15 +26,55 @@ func isPrettierArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactPrettier summarizes empty stdout from Prettier (F24 partial).
+// TryCompactPrettier summarizes empty and exact clean-check stdout from Prettier (F24 partial).
 func TryCompactPrettier(argv []string, stdout []byte) ([]byte, bool) {
 	if !isPrettierArgv(argv) {
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	trimmed := strings.TrimSpace(string(stdout))
+	if trimmed == "" {
+		return []byte("[prettier] ok\n"), true
+	}
+	if !prettierArgvHasCheck(argv) || !prettierCleanCheckOutput(trimmed) {
 		return stdout, false
 	}
 	return []byte("[prettier] ok\n"), true
+}
+
+func prettierArgvHasCheck(argv []string) bool {
+	for _, arg := range argv {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "--check", "-c":
+			return true
+		}
+	}
+	return false
+}
+
+func prettierCleanCheckOutput(trimmed string) bool {
+	seenChecking := false
+	seenClean := false
+	for _, raw := range strings.Split(trimmed, "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" {
+			continue
+		}
+		switch line {
+		case "Checking formatting...":
+			if seenChecking || seenClean {
+				return false
+			}
+			seenChecking = true
+		case "All matched files use Prettier code style!":
+			if !seenChecking || seenClean {
+				return false
+			}
+			seenClean = true
+		default:
+			return false
+		}
+	}
+	return seenChecking && seenClean
 }
 
 // TryCompactDprint summarizes empty stdout from `dprint fmt` / `npx|pnpm exec|yarn … dprint fmt` (F24 partial).
