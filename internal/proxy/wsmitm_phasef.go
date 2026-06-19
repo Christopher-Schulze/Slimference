@@ -1961,6 +1961,9 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 	if looksLikeSource(trimmedPayload) || proxyToolResultLooksLikeSearchOutput(trimmedPayload) {
 		return false
 	}
+	if wssSafeSQLTableOutput(commandLine, payload) {
+		return true
+	}
 	if wssSafeLogDuplicateRunsOutput(commandLine, payload) {
 		return true
 	}
@@ -2016,6 +2019,16 @@ func wssSafeStatefulStatusCommandOutput(commandLine, output string) bool {
 func wssSafeStatefulCommandArgv(commandLine string) []string {
 	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
 	return filter.ArgvForCapturedOutput(filterCommandLine)
+}
+
+func wssSafeSQLTableOutput(commandLine, payload string) bool {
+	argv := wssSafeStatefulCommandArgv(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	stdout := []byte(payload)
+	compacted, ok := filter.TryCompactPsql(argv, stdout)
+	return ok && len(compacted) < len(stdout)
 }
 
 func wssSafeReducerOKSummaryOutput(commandLine, payload string) bool {
