@@ -71,12 +71,14 @@ Requirements:
   a versioned final release proof artifact whose nested focused search-cap
   proof `capture_reports` themselves pass their row gates and prove CLI plus
   Desktop, two positive search-loop rows, retained evidence, replay safety,
-  `captured_output` delta tool-output mutation proof for the selected cap, and
+  `captured_output` delta tool-output mutation proof for the selected cap, live
+  mutated search-output downstream-state proof with a clean following turn, and
   before/after Codex route hygiene with no persistent shared route or legacy
   base-url keys; the final report must preserve `proof_schema_version`, both
-  status snapshot paths, `required_reducer_hits.captured_output`, and a named
-  selected cap; aggregate proof counters, stale unversioned final reports, and
-  raw cap values are not product config knobs;
+  status snapshot paths, `required_reducer_hits.captured_output`,
+  `downstream_state_proof`, and a named selected cap; aggregate proof counters,
+  stale unversioned or pre-v2 final reports, and raw cap values are not product
+  config knobs;
 - every reducer records enough local telemetry to prove hit, miss, block, and
   fail-open reasons without logging raw private payloads.
 

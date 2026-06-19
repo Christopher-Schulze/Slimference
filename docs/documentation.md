@@ -1233,19 +1233,21 @@ passes with live token evidence and the candidate is explicitly promoted.
 Runtime promotion is proof-latched, not a raw tuning knob:
 `compression.output_reduce.codex_search_cap_proof_path` may point at the
 versioned final `release-proof-report --json` artifact. Config loading first
-requires `proof_schema_version=1`; stale unversioned final reports fail closed
-without opening runtime caps, and unsupported proof artifacts are rejected.
+requires `proof_schema_version=2`; stale unversioned or pre-v2 final reports
+fail closed without opening runtime caps, and unsupported proof artifacts are
+rejected.
 Versioned final reports are then validated for a passed final release gate, a
-passed nested search-cap proof, a passed nested Codex route-hygiene proof, both
-before/after `slimference codex status --json` snapshot paths, and a summary
-that still satisfies the release minima (CLI plus Desktop, at least two
-positive rows, at
-least 40% retained matches, positive extra reducer tokens, and a named valid
-	selected cap) plus the product search-cap latch proof bit and
-	`required_reducer_hits.captured_output > 0` before copying the selected
-	files/matches cap into the WSS runtime path and opening the narrow named-search
-	WSS non-delta mutation path. That runtime path covers both plain captured-output
-	search blocks and Codex CLI search-envelope payloads under the same resolved
+passed nested search-cap proof, a passed nested Codex route-hygiene proof, live
+mutated search-output downstream-state proof, both before/after `slimference
+codex status --json` snapshot paths, and a summary that still satisfies the
+release minima (CLI plus Desktop, at least two positive rows, at least 40%
+retained matches, positive extra reducer tokens, and a named valid selected
+cap) plus the product search-cap latch proof bit,
+`downstream_state_proof=true`, and
+`required_reducer_hits.captured_output > 0` before copying the selected
+files/matches cap into the WSS runtime path and opening the narrow named-search
+WSS non-delta mutation path. That runtime path covers both plain captured-output
+search blocks and Codex CLI search-envelope payloads under the same resolved
 	tool-use/search-command proof gate, but search envelopes are emitted as
 	captured-output summaries and previous-response-id delta search output remains
 	byte-equal. A focused
@@ -3219,21 +3221,22 @@ report, also content-free; the release report validates that it passed, contains
 only `search_loop` rows, covers CLI plus Desktop, and selects one consistent cap
 across rows with at least 40% retained matches, at least two resolved search
 outputs, positive extra reducer-token savings, and
-`required_reducer_hits.captured_output > 0`. The CLI/Desktop/positive-row checks
-are recomputed from validated `capture_reports`; each counted capture report
-must have its own row gate passed, so aggregate report counters cannot make a
-thin or failed focused artifact pass. Search-cap promotion additionally
-requires before/after `slimference codex status --json` snapshots proving normal
-direct Codex routing: no marker-owned shared route, no legacy base-url keys, and
-no route conflict. The final JSON must preserve those before/after snapshot
-paths in `codex_route_hygiene`; otherwise config loading rejects the promotion
-artifact.
+`required_reducer_hits.captured_output > 0`, and a live mutated search-output
+downstream-state proof whose current and following turns are clean. The
+CLI/Desktop/positive-row checks are recomputed from validated
+`capture_reports`; each counted capture report must have its own row gate
+passed, so aggregate report counters cannot make a thin or failed focused
+artifact pass. Search-cap promotion additionally requires before/after
+`slimference codex status --json` snapshots proving normal direct Codex
+routing: no marker-owned shared route, no legacy base-url keys, and no route
+conflict. The final JSON must preserve those before/after snapshot paths in
+`codex_route_hygiene`; otherwise config loading rejects the promotion artifact.
 The versioned final `release-proof-report --json` artifact is the only
 supported runtime-promotion input for the search-cap lever through
 `compression.output_reduce.codex_search_cap_proof_path`; raw cap counts,
-stale unversioned final reports, and the focused matrix report are not product
-config inputs because they would bypass the current zero-drawdown route-hygiene
-proof gate.
+stale unversioned or pre-v2 final reports, and the focused matrix report are
+not product config inputs because they would bypass the current zero-drawdown
+route-hygiene and downstream-state proof gates.
 The report keeps local billable-input token deletion, request-side bytes,
 output-wire bytes, provider-cache read/create tokens, tool-prune schema tokens,
 output-reduce input overhead,

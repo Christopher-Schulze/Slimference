@@ -34,6 +34,11 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	if !report.GatePassed || report.SelectedCandidate == nil || report.SelectedCandidate.Name != "candidate_4x4" {
 		t.Fatalf("expected 4x4 selected proof candidate: %+v", report)
 	}
+	if !report.DownstreamStateProof.GatePassed ||
+		report.DownstreamStateProof.MutatedSearchOutputCandidates != 1 ||
+		report.DownstreamStateProof.CandidatesPassing != 1 {
+		t.Fatalf("expected live mutated search-output downstream proof: %+v", report.DownstreamStateProof)
+	}
 	if report.ProductReplay.SearchCapProofLatch ||
 		!report.ProductReplay.GatePassed ||
 		report.DefaultReplay.ReducerTokensSaved <= 0 ||
@@ -77,6 +82,33 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 	if !strings.Contains(stdout.String(), "selected candidate: candidate_4x4") ||
 		strings.Contains(stdout.String(), "needle match") {
 		t.Fatalf("unexpected text report:\n%s", stdout.String())
+	}
+}
+
+func TestRunSearchCapProofRejectsReplayOnlyWithoutLiveDownstream(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofReplayOnlyFullHistoryFrames(t, path, "search-cap-proof-replay-only", 96)
+
+	var stdout, stderr bytes.Buffer
+	code := runSearchCapProof([]string{
+		"--frames", path,
+		"--candidate", "4:4",
+		"--min-candidate-retained-pct", "40",
+		"--min-search-outputs", "1",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("runSearchCapProof replay-only code=%d want 3 stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report searchCapProofReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if report.GatePassed || report.DownstreamStateProof.GatePassed ||
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "downstream_state_proof: no live mutated search-output downstream candidate observed") {
+		t.Fatalf("replay-only search-cap proof must fail closed on downstream-state proof: %+v", report)
 	}
 }
 
@@ -136,6 +168,8 @@ func TestRunSearchCapProofPromotesDefaultRetentionFloor(t *testing.T) {
 		report.ProductReplay.SearchMutatedRequests != 0 ||
 		!report.DefaultReplay.SearchCapProofLatch ||
 		report.DefaultReplay.SearchMutatedRequests == 0 ||
+		!report.DownstreamStateProof.GatePassed ||
+		report.DownstreamStateProof.CandidatesPassing != 1 ||
 		report.SelectedCandidate.ExtraReducerTokens <= 0 ||
 		report.SelectedCandidate.ProductExtraReducerTokens != report.SelectedCandidate.ExtraReducerTokens ||
 		report.SelectedCandidate.MinRetainedPct != 50 ||
@@ -199,6 +233,56 @@ func TestRunSearchCapProofRejectsWeakCaptureAndWeakSavings(t *testing.T) {
 func writeSearchCapProofFullHistoryFrames(t *testing.T, path, session string, lines int) {
 	t.Helper()
 	callID := session + "-search-1"
+	original := map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": session + "-response",
+		"prompt_cache_key":     session,
+		"input": []map[string]any{
+			{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  wssABReplaySearchOutputFixture("needle", lines),
+			},
+		},
+		"stream": true,
+	}
+	mutated := map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": session + "-response",
+		"prompt_cache_key":     session,
+		"input": []map[string]any{
+			{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  wssABReplaySearchOutputFixture("needle", 16),
+			},
+		},
+		"stream": true,
+	}
+	writeJSONLFile(t, path,
+		wssT354TestFrame("client_to_server", original, false),
+		wssT354TestFrame("client_to_server", mutated, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
+	)
+}
+
+func writeSearchCapProofReplayOnlyFullHistoryFrames(t *testing.T, path, session string, lines int) {
+	t.Helper()
+	callID := session + "-search-1"
 	writeJSONLFile(t, path, wssABReplayTestRecord("client_to_server", map[string]any{
 		"model":                "gpt-5-codex",
 		"previous_response_id": session + "-response",
@@ -241,6 +325,11 @@ func TestRunSearchCapProofDefaultsUseReleaseCandidateSetAndFloors(t *testing.T) 
 	if !report.GatePassed || report.SelectedCandidate == nil {
 		t.Fatalf("expected release-default proof candidate: %+v", report)
 	}
+	if !report.DownstreamStateProof.GatePassed ||
+		report.DownstreamStateProof.MutatedSearchOutputCandidates != 1 ||
+		report.DownstreamStateProof.CandidatesPassing != 1 {
+		t.Fatalf("release-default fixture must include live downstream proof: %+v", report.DownstreamStateProof)
+	}
 	if report.MinCandidateRetainedPct != searchCapReleaseMinRetainedPct ||
 		report.MinSearchOutputs != searchCapReleaseMinSearchOutputs ||
 		report.MinExtraReducerTokens != searchCapReleaseMinExtraReducerTokens {
@@ -281,6 +370,30 @@ func TestRunSearchCapProofDefaultsUseReleaseCandidateSetAndFloors(t *testing.T) 
 
 func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session string, outputs, files, matchesPerFile int) {
 	t.Helper()
+	items := searchCapProofDistributedSearchItems(session, outputs, files, matchesPerFile)
+	mutatedItems := searchCapProofDistributedSearchItems(session, outputs, 12, 2)
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": session + "-response",
+			"prompt_cache_key":     session,
+			"input":                items,
+			"stream":               true,
+		}),
+		wssT354TestFrame("client_to_server", map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": session + "-response",
+			"prompt_cache_key":     session,
+			"input":                mutatedItems,
+			"stream":               true,
+		}, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
+	)
+}
+
+func searchCapProofDistributedSearchItems(session string, outputs, files, matchesPerFile int) []map[string]any {
 	items := make([]map[string]any, 0, outputs*2)
 	for outputIndex := 0; outputIndex < outputs; outputIndex++ {
 		callID := fmt.Sprintf("%s-search-%d", session, outputIndex+1)
@@ -298,13 +411,7 @@ func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session stri
 			},
 		)
 	}
-	writeJSONLFile(t, path, wssABReplayTestRecord("client_to_server", map[string]any{
-		"model":                "gpt-5-codex",
-		"previous_response_id": session + "-response",
-		"prompt_cache_key":     session,
-		"input":                items,
-		"stream":               true,
-	}))
+	return items
 }
 
 func searchCapProofDistributedSearchOutput(needle string, files, matchesPerFile int) string {
@@ -336,6 +443,15 @@ func writeSearchCapProofBroadDeltaFrames(t *testing.T, path, session string, lin
 			session+"-response",
 			wssABReplayBroadSearchOutputFixture("needle", lines),
 		)),
+		wssT354TestFrame("client_to_server", wssABReplayTestOutputBody(
+			callID,
+			session,
+			session+"-response",
+			wssABReplaySearchOutputFixture("needle", 20),
+		), true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
 	)
 }
 

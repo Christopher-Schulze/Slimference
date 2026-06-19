@@ -894,7 +894,7 @@ const (
 	codexSearchCapReleaseMinRetainedPct        = 40.0
 	codexSearchCapReleaseMinSearchOutputs      = 2
 	codexSearchCapReleaseMinExtraReducerTokens = 1
-	codexSearchCapRequiredProofSchemaVersion   = 1
+	codexSearchCapRequiredProofSchemaVersion   = 2
 )
 
 type codexSearchCapReleaseProofReport struct {
@@ -932,6 +932,7 @@ type codexSearchCapProofReport struct {
 	TotalExtraReducerTokens int              `json:"total_extra_reducer_tokens"`
 	MinMatchRetentionPct    float64          `json:"min_match_retention_pct"`
 	DeltaToolOutputProof    bool             `json:"delta_tool_output_mutation_proof"`
+	DownstreamStateProof    bool             `json:"downstream_state_proof"`
 	RequiredReducerHits     map[string]int64 `json:"required_reducer_hits"`
 }
 
@@ -963,6 +964,9 @@ func applyCodexSearchCapProof(cfg *Config) error {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: missing proof_schema_version on unsupported proof artifact", path)
 	}
 	if proof.ProofSchemaVersion < codexSearchCapRequiredProofSchemaVersion {
+		if codexSearchCapLooksLikeFinalReleaseProof(proof) {
+			return nil
+		}
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_proof_path rejected %q: proof_schema_version %d < required %d",
 			path, proof.ProofSchemaVersion, codexSearchCapRequiredProofSchemaVersion)
 	}
@@ -1085,6 +1089,9 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 	}
 	if !searchProof.DeltaToolOutputProof {
 		issues = append(issues, "missing final release product search-cap latch proof for selected search cap")
+	}
+	if !searchProof.DownstreamStateProof {
+		issues = append(issues, "missing final release live mutated search-cap downstream-state proof")
 	}
 	if searchProof.RequiredReducerHits["captured_output"] <= 0 {
 		issues = append(issues, "missing final release captured_output reducer proof for selected search cap")

@@ -6,21 +6,26 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
 type searchCapProofReport struct {
-	Path                    string                       `json:"path"`
-	Frames                  int                          `json:"frames"`
-	SearchOutputs           int                          `json:"search_outputs"`
-	MinCandidateRetainedPct float64                      `json:"min_candidate_retained_pct,omitempty"`
-	MinSearchOutputs        int                          `json:"min_search_outputs,omitempty"`
-	MinExtraReducerTokens   int                          `json:"min_extra_reducer_tokens,omitempty"`
-	ProductReplay           searchCapProofReplaySummary  `json:"product_replay"`
-	DefaultReplay           searchCapProofReplaySummary  `json:"default_replay"`
-	SelectedCandidate       *searchCapProofSelection     `json:"selected_candidate,omitempty"`
-	Candidates              []searchCapProofCandidateRow `json:"candidates"`
-	GatePassed              bool                         `json:"gate_passed"`
-	GateFailures            []string                     `json:"gate_failures,omitempty"`
+	Path                    string                        `json:"path"`
+	Frames                  int                           `json:"frames"`
+	SearchOutputs           int                           `json:"search_outputs"`
+	MinCandidateRetainedPct float64                       `json:"min_candidate_retained_pct,omitempty"`
+	MinSearchOutputs        int                           `json:"min_search_outputs,omitempty"`
+	MinExtraReducerTokens   int                           `json:"min_extra_reducer_tokens,omitempty"`
+	ProductReplay           searchCapProofReplaySummary   `json:"product_replay"`
+	DefaultReplay           searchCapProofReplaySummary   `json:"default_replay"`
+	DownstreamStateProof    searchCapDownstreamStateProof `json:"downstream_state_proof"`
+	SelectedCandidate       *searchCapProofSelection      `json:"selected_candidate,omitempty"`
+	Candidates              []searchCapProofCandidateRow  `json:"candidates"`
+	GatePassed              bool                          `json:"gate_passed"`
+	GateFailures            []string                      `json:"gate_failures,omitempty"`
 }
 
 type searchCapProofCandidateRow struct {
@@ -69,6 +74,29 @@ type searchCapProofReplaySummary struct {
 	UpstreamResponseFailures int     `json:"upstream_response_failed_frames"`
 	Lost                     int     `json:"lost"`
 	GatePassed               bool    `json:"gate_passed"`
+}
+
+type searchCapDownstreamStateProof struct {
+	MutatedSearchOutputCandidates  int                     `json:"mutated_search_output_candidates"`
+	MutatedDeltaCandidates         int                     `json:"mutated_delta_candidates"`
+	MutatedFullHistoryCandidates   int                     `json:"mutated_full_history_candidates"`
+	CandidatesWithCleanCurrent     int                     `json:"candidates_with_clean_current_turn"`
+	CandidatesWithFollowingTurn    int                     `json:"candidates_with_following_turn"`
+	CandidatesWithCleanFollowing   int                     `json:"candidates_with_clean_following"`
+	CandidatesPassing              int                     `json:"candidates_passing"`
+	MissingFollowingTurnCandidates int                     `json:"missing_following_turn_candidates"`
+	UnsafeCandidates               int                     `json:"unsafe_candidates"`
+	UpstreamErrorFrames            int                     `json:"upstream_error_frames"`
+	InvalidRequestErrors           int                     `json:"invalid_request_errors"`
+	HTTP400Errors                  int                     `json:"http_400_errors"`
+	ResponseFailedFrames           int                     `json:"response_failed_frames"`
+	Lost                           int                     `json:"lost"`
+	CapturedLocalSavedTokens       int                     `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens       int                     `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens    int                     `json:"net_captured_local_saved_tokens_estimate"`
+	CandidateProofs                []wssT354CandidateProof `json:"candidate_proofs,omitempty"`
+	GatePassed                     bool                    `json:"gate_passed"`
+	GateFailures                   []string                `json:"gate_failures,omitempty"`
 }
 
 type searchCapProofFlags struct {
@@ -180,6 +208,10 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
+	downstreamProof, err := loadSearchCapDownstreamStateProof(flags.framesPath)
+	if err != nil {
+		return searchCapProofReport{}, err
+	}
 	report := searchCapProofReport{
 		Path:                    flags.framesPath,
 		Frames:                  profile.Frames,
@@ -189,6 +221,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		MinExtraReducerTokens:   flags.minExtraReducerTokens,
 		ProductReplay:           searchCapProofReplaySummaryFrom(productReplay),
 		DefaultReplay:           searchCapProofReplaySummaryFrom(defaultReplay),
+		DownstreamStateProof:    downstreamProof,
 		GatePassed:              true,
 	}
 	if profile.SearchOutputs == 0 || len(profile.Profiles) == 0 || !profile.Profiles[0].Applied {
@@ -202,6 +235,9 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	if !defaultReplay.GatePassed {
 		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("default replay", defaultReplay.GateFailures)...)
+	}
+	if !downstreamProof.GatePassed {
+		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("downstream_state_proof", downstreamProof.GateFailures)...)
 	}
 	var selected *searchCapProofSelection
 	for _, row := range profile.Profiles[1:] {
@@ -273,6 +309,173 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func loadSearchCapDownstreamStateProof(path string) (searchCapDownstreamStateProof, error) {
+	frames, err := readWSSABReplayFrames(path)
+	if err != nil {
+		return searchCapDownstreamStateProof{}, err
+	}
+	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	if err != nil {
+		return searchCapDownstreamStateProof{}, err
+	}
+	upstream := wssABReplayUpstreamDiagnostics(frames)
+	mutatedSearchOutputTurns, err := searchCapMutatedSearchOutputTurnMarkers(frames)
+	if err != nil {
+		return searchCapDownstreamStateProof{}, err
+	}
+	turns := wssT354TurnsFromFrames(frames)
+	proof := searchCapDownstreamStateProof{
+		UpstreamErrorFrames:  upstream.ErrorFrames,
+		InvalidRequestErrors: upstream.InvalidRequestErrors,
+		HTTP400Errors:        upstream.HTTP400Errors,
+		ResponseFailedFrames: upstream.ResponseFailedFrames,
+		Lost:                 replay.Lost,
+		GatePassed:           true,
+	}
+	if len(mutatedSearchOutputTurns) != len(turns) {
+		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("turn marker mismatch: search_markers=%d request_turns=%d", len(mutatedSearchOutputTurns), len(turns)))
+	}
+	for i, turn := range turns {
+		if i >= len(mutatedSearchOutputTurns) || !mutatedSearchOutputTurns[i] {
+			continue
+		}
+		candidate := wssT354CandidateProof{
+			TurnIndex:                     i,
+			Shape:                         turn.shape,
+			PreviousResponseID:            turn.previousResponseID,
+			ToolOutputs:                   turn.toolOutputs,
+			CustomToolOutputs:             turn.customToolOutputs,
+			RequestTokensEstimate:         turn.requestTokensEstimate,
+			CapturedOriginalRequestTokens: turn.capturedOriginalRequestTokens,
+			CapturedLocalSavedTokens:      turn.capturedLocalSavedTokens,
+			CurrentTurnClean:              wssT354TurnClean(turn),
+			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
+		}
+		if i+1 < len(turns) {
+			following := turns[i+1]
+			followingHealth := wssT354TurnHealthFromTurn(following)
+			candidate.FollowingTurnPresent = true
+			candidate.FollowingTurnShape = following.shape
+			candidate.FollowingRequestTokensEstimate = following.requestTokensEstimate
+			if following.shape == "full_history" {
+				candidate.RetryOrResendExtraTokens = following.requestTokensEstimate
+			}
+			candidate.FollowingTurnClean = wssT354TurnClean(following)
+			candidate.FollowingTurnHealth = &followingHealth
+		}
+		if candidate.Shape != "delta" && candidate.Shape != "full_history" {
+			candidate.BlockReasons = append(candidate.BlockReasons, "unsupported_shape_"+candidate.Shape)
+		}
+		candidate.BlockReasons = append(candidate.BlockReasons, wssT354CandidateBlockReasons(candidate)...)
+		candidate.BlockReasons = compactStringList(candidate.BlockReasons)
+		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
+		searchCapAccumulateDownstreamCandidate(&proof, candidate)
+	}
+	proof.NetCapturedLocalSavedTokens = proof.CapturedLocalSavedTokens - proof.RetryOrResendExtraTokens
+	proof.GateFailures = append(proof.GateFailures, searchCapDownstreamStateGateFailures(proof)...)
+	proof.GateFailures = compactStringList(proof.GateFailures)
+	proof.GatePassed = len(proof.GateFailures) == 0
+	return proof, nil
+}
+
+func searchCapAccumulateDownstreamCandidate(proof *searchCapDownstreamStateProof, candidate wssT354CandidateProof) {
+	proof.MutatedSearchOutputCandidates++
+	switch candidate.Shape {
+	case "delta":
+		proof.MutatedDeltaCandidates++
+	case "full_history":
+		proof.MutatedFullHistoryCandidates++
+	}
+	if candidate.CurrentTurnClean {
+		proof.CandidatesWithCleanCurrent++
+	}
+	if candidate.FollowingTurnPresent {
+		proof.CandidatesWithFollowingTurn++
+	} else {
+		proof.MissingFollowingTurnCandidates++
+	}
+	if candidate.FollowingTurnClean {
+		proof.CandidatesWithCleanFollowing++
+	}
+	if candidate.UnlockProofPassing {
+		proof.CandidatesPassing++
+	} else {
+		proof.UnsafeCandidates++
+	}
+	proof.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
+	proof.RetryOrResendExtraTokens += candidate.RetryOrResendExtraTokens
+	proof.CandidateProofs = append(proof.CandidateProofs, candidate)
+}
+
+func searchCapDownstreamStateGateFailures(proof searchCapDownstreamStateProof) []string {
+	var failures []string
+	if proof.MutatedSearchOutputCandidates == 0 {
+		failures = append(failures, "no live mutated search-output downstream candidate observed")
+	}
+	if proof.UpstreamErrorFrames > 0 {
+		failures = append(failures, fmt.Sprintf("upstream_error_frames=%d", proof.UpstreamErrorFrames))
+	}
+	if proof.InvalidRequestErrors > 0 {
+		failures = append(failures, fmt.Sprintf("invalid_request=%d", proof.InvalidRequestErrors))
+	}
+	if proof.HTTP400Errors > 0 {
+		failures = append(failures, fmt.Sprintf("http_400=%d", proof.HTTP400Errors))
+	}
+	if proof.ResponseFailedFrames > 0 {
+		failures = append(failures, fmt.Sprintf("response_failed=%d", proof.ResponseFailedFrames))
+	}
+	if proof.Lost > 0 {
+		failures = append(failures, fmt.Sprintf("lost=%d", proof.Lost))
+	}
+	if proof.MutatedSearchOutputCandidates > 0 && proof.CandidatesPassing == 0 {
+		failures = append(failures, "no live mutated search-output candidate has clean current and following turn")
+	}
+	for _, candidate := range proof.CandidateProofs {
+		for _, reason := range candidate.BlockReasons {
+			failures = append(failures, fmt.Sprintf("candidate_%d:%s", candidate.TurnIndex, reason))
+		}
+	}
+	return failures
+}
+
+func searchCapMutatedSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame) ([]bool, error) {
+	toolUses := make(map[string]searchCapProfileToolUse)
+	var markers []bool
+	for i, frame := range frames {
+		switch frame.Direction {
+		case wsmitm.DirServerToClient:
+			rememberSearchCapProfileToolUses(toolUses, frame.Payload)
+		case wsmitm.DirClientToServer:
+			body, root, ok := wssT354RequestBody(frame.Payload)
+			if !ok || !wssT354LooksLikeRequestBody(root) {
+				continue
+			}
+			rememberSearchCapProfileToolUses(toolUses, body)
+			markers = append(markers, frame.Mutated && searchCapRequestHasNamedSearchFunctionOutput(toolUses, body))
+		default:
+			return nil, fmt.Errorf("frame %d has unsupported direction %q", i, frame.Direction)
+		}
+	}
+	return markers, nil
+}
+
+func searchCapRequestHasNamedSearchFunctionOutput(toolUses map[string]searchCapProfileToolUse, body []byte) bool {
+	for _, item := range searchCapProfileInputItems(body) {
+		if strings.TrimSpace(rawStringField(item, "type")) != "function_call_output" {
+			continue
+		}
+		callID := strings.TrimSpace(rawStringField(item, "call_id"))
+		if callID == "" {
+			callID = strings.TrimSpace(rawStringField(item, "id"))
+		}
+		toolUse := toolUses[callID]
+		if filter.NormalizeSearchCommandLine(toolUse.command, toolUse.workdir) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func searchCapProofDefaultRetentionFloorSelection(row searchCapProfileRow, productReplay, defaultReplay wssABReplayReport, flags searchCapProofFlags) *searchCapProofSelection {
@@ -387,6 +590,12 @@ func writeSearchCapProofText(w io.Writer, report searchCapProofReport) {
 		report.DefaultReplay.Lost,
 		report.DefaultReplay.UpstreamErrorFrames,
 		passFail(report.DefaultReplay.GatePassed))
+	fmt.Fprintf(w, "downstream proof: mutated_search_candidates=%d passing=%d lost=%d upstream_errors=%d gate=%s\n",
+		report.DownstreamStateProof.MutatedSearchOutputCandidates,
+		report.DownstreamStateProof.CandidatesPassing,
+		report.DownstreamStateProof.Lost,
+		report.DownstreamStateProof.UpstreamErrorFrames,
+		passFail(report.DownstreamStateProof.GatePassed))
 	if report.SelectedCandidate != nil {
 		fmt.Fprintf(w, "selected candidate: %s (%d/%d, min %.2f%%, extra reducer tokens %+d, product extra %+d, %.2f%% retained)\n",
 			report.SelectedCandidate.Name,

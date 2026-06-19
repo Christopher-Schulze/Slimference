@@ -76,9 +76,10 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    `release-proof-report` is the final content-free proof summary. Run it on
    that clean release matrix file or a focused release bundle, not on the whole
    historical capture archive. The generated JSON includes
-   `proof_schema_version`; stale unversioned final reports fail closed at
-   runtime and do not open search caps. The archive intentionally contains old
-   diagnostic and superseded rows, and those rows fail the strict gate by id.
+   `proof_schema_version=2`; stale unversioned or pre-v2 final reports fail
+   closed at runtime and do not open search caps. The archive intentionally
+   contains old diagnostic and superseded rows, and those rows fail the strict
+   gate by id.
    When promoting the T359 search-cap lever, pass the focused
    `wss-proof-matrix --json` search-cap report through
    `--search-cap-proof-report`; the final report validates that content-free
@@ -86,9 +87,10 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    at least two resolved search outputs, and positive extra reducer-token
    savings. The focused proof must also prove the concrete `captured_output`
    delta tool-output mutation path for the selected cap through
-   `required_reducer_hits.captured_output > 0`; otherwise the runtime latch
-   leaves search caps inactive. The same promotion report must also receive
-   before/after
+   `required_reducer_hits.captured_output > 0` and a live mutated search-output
+   downstream-state proof whose current and following turns are clean; otherwise
+   the runtime latch leaves search caps inactive. The same promotion report must
+   also receive before/after
    `slimference codex status --json` snapshots through `--codex-status-before`
    and `--codex-status-after`, proving no persistent shared Codex route,
    legacy base-url key, or route conflict was active during the proof window.

@@ -67,20 +67,24 @@ type releaseProofEconomics struct {
 }
 
 type releaseSearchCapProofSummary struct {
-	Path                    string           `json:"path"`
-	OK                      bool             `json:"ok"`
-	Issues                  []string         `json:"issues,omitempty"`
-	Captures                int              `json:"captures"`
-	CLI                     int              `json:"cli"`
-	Desktop                 int              `json:"desktop"`
-	PositiveSavings         int              `json:"positive_savings_captures"`
-	DeltaToolOutputProof    bool             `json:"delta_tool_output_mutation_proof"`
-	RequiredReducerHits     map[string]int64 `json:"required_reducer_hits,omitempty"`
-	SelectedCandidate       string           `json:"selected_candidate,omitempty"`
-	MaxFilesShown           int              `json:"max_files_shown,omitempty"`
-	MaxMatchesPerFile       int              `json:"max_matches_per_file,omitempty"`
-	TotalExtraReducerTokens int              `json:"total_extra_reducer_tokens,omitempty"`
-	MinMatchRetentionPct    float64          `json:"min_match_retention_pct,omitempty"`
+	Path                     string           `json:"path"`
+	OK                       bool             `json:"ok"`
+	Issues                   []string         `json:"issues,omitempty"`
+	Captures                 int              `json:"captures"`
+	CLI                      int              `json:"cli"`
+	Desktop                  int              `json:"desktop"`
+	PositiveSavings          int              `json:"positive_savings_captures"`
+	DeltaToolOutputProof     bool             `json:"delta_tool_output_mutation_proof"`
+	DownstreamStateProof     bool             `json:"downstream_state_proof"`
+	DownstreamCandidates     int              `json:"downstream_state_candidates,omitempty"`
+	DownstreamPassing        int              `json:"downstream_state_passing_candidates,omitempty"`
+	DownstreamNetSavedTokens int              `json:"downstream_state_net_saved_tokens,omitempty"`
+	RequiredReducerHits      map[string]int64 `json:"required_reducer_hits,omitempty"`
+	SelectedCandidate        string           `json:"selected_candidate,omitempty"`
+	MaxFilesShown            int              `json:"max_files_shown,omitempty"`
+	MaxMatchesPerFile        int              `json:"max_matches_per_file,omitempty"`
+	TotalExtraReducerTokens  int              `json:"total_extra_reducer_tokens,omitempty"`
+	MinMatchRetentionPct     float64          `json:"min_match_retention_pct,omitempty"`
 }
 
 type releaseCodexRouteHygieneSummary struct {
@@ -102,7 +106,7 @@ type releaseCodexStatusSnapshot struct {
 }
 
 const (
-	releaseProofReportSchemaVersion       = 1
+	releaseProofReportSchemaVersion       = 2
 	releaseSearchCapMinRetainedPct        = searchCapReleaseMinRetainedPct
 	releaseSearchCapMinSearchOutputs      = searchCapReleaseMinSearchOutputs
 	releaseSearchCapMinExtraReducerTokens = searchCapReleaseMinExtraReducerTokens
@@ -503,6 +507,7 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 	validatedDesktopReports := 0
 	validatedPositiveReports := 0
 	productLatchProofReports := 0
+	downstreamStateProofReports := 0
 	for _, capture := range proof.CaptureReports {
 		if strings.TrimSpace(capture.WorkloadClass) != "search_loop" {
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": focused proof contains non-search_loop capture")
@@ -562,6 +567,23 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof default replay did not prove product search-cap latch mutation")
 			candidateValid = false
 		}
+		downstreamProof := capture.SearchCapProof.DownstreamStateProof
+		if !downstreamProof.GatePassed {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof downstream_state_proof failed: "+strings.Join(downstreamProof.GateFailures, "; "))
+			candidateValid = false
+		}
+		if downstreamProof.GatePassed && len(downstreamProof.GateFailures) > 0 {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof downstream_state_proof passed but still contains gate failures: "+strings.Join(downstreamProof.GateFailures, "; "))
+			candidateValid = false
+		}
+		if downstreamProof.MutatedSearchOutputCandidates <= 0 {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof downstream_state_proof has no live mutated search-output candidates")
+			candidateValid = false
+		}
+		if downstreamProof.CandidatesPassing <= 0 {
+			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": search_cap_proof downstream_state_proof has no passing downstream candidates")
+			candidateValid = false
+		}
 		selected := capture.SearchCapProof.SelectedCandidate
 		if selected == nil {
 			issues = append(issues, releaseProofSearchCapCaptureID(capture)+": missing selected search-cap candidate")
@@ -618,6 +640,10 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 			}
 			validatedPositiveReports++
 			productLatchProofReports++
+			downstreamStateProofReports++
+			summary.DownstreamCandidates += downstreamProof.MutatedSearchOutputCandidates
+			summary.DownstreamPassing += downstreamProof.CandidatesPassing
+			summary.DownstreamNetSavedTokens += downstreamProof.NetCapturedLocalSavedTokens
 		}
 	}
 	if validatedSearchLoopReports != proof.Captures {
@@ -636,6 +662,11 @@ func validateReleaseSearchCapProofReport(path string) (*releaseSearchCapProofSum
 		issues = append(issues, fmt.Sprintf("expected product search-cap latch proof for every positive search-cap capture, got %d/%d", productLatchProofReports, validatedPositiveReports))
 	} else {
 		summary.DeltaToolOutputProof = true
+	}
+	if downstreamStateProofReports != validatedPositiveReports || downstreamStateProofReports < 2 {
+		issues = append(issues, fmt.Sprintf("expected live downstream-state proof for every positive search-cap capture, got %d/%d", downstreamStateProofReports, validatedPositiveReports))
+	} else {
+		summary.DownstreamStateProof = true
 	}
 	if summary.SelectedCandidate == "" {
 		issues = append(issues, "no selected search-cap candidate")
@@ -966,7 +997,7 @@ func writeReleaseProofReportText(w io.Writer, report releaseProofReport) {
 		fmt.Fprintf(w, "Resource proof clients: %s\n", strings.Join(report.ResourceProfileProofClients, ","))
 	}
 	if report.SearchCapProof != nil {
-		fmt.Fprintf(w, "Search-cap proof: ok=%v captures=%d cli=%d desktop=%d selected=%s %d/%d extra_tokens=%d min_retention=%.2f%%\n",
+		fmt.Fprintf(w, "Search-cap proof: ok=%v captures=%d cli=%d desktop=%d selected=%s %d/%d extra_tokens=%d min_retention=%.2f%% downstream=%v downstream_candidates=%d passing=%d\n",
 			report.SearchCapProof.OK,
 			report.SearchCapProof.Captures,
 			report.SearchCapProof.CLI,
@@ -975,7 +1006,10 @@ func writeReleaseProofReportText(w io.Writer, report releaseProofReport) {
 			report.SearchCapProof.MaxFilesShown,
 			report.SearchCapProof.MaxMatchesPerFile,
 			report.SearchCapProof.TotalExtraReducerTokens,
-			report.SearchCapProof.MinMatchRetentionPct)
+			report.SearchCapProof.MinMatchRetentionPct,
+			report.SearchCapProof.DownstreamStateProof,
+			report.SearchCapProof.DownstreamCandidates,
+			report.SearchCapProof.DownstreamPassing)
 	}
 	if report.CodexRouteHygiene != nil {
 		fmt.Fprintf(w, "Codex route hygiene: ok=%v before=%s after=%s\n",

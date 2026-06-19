@@ -278,6 +278,45 @@ codex_search_cap_proof_path = %q
 	}
 }
 
+func TestLoadWithOptions_CodexSearchCapProofIgnoresOlderFinalReport(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:              25,
+		matches:            15,
+		retention:          41.25,
+		extraTokens:        120,
+		routeOK:            true,
+		resourceOK:         true,
+		matrixPath:         "clean-release-matrix.jsonl",
+		matrixFiles:        1,
+		rows:               12,
+		positiveRows:       9,
+		clients:            []string{"cli", "desktop"},
+		proofSchemaVersion: 1,
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions returned error for stale v1 final proof: %v", err)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.CodexSearchCapProofPath != proofPath {
+		t.Fatalf("proof path changed: %+v", or)
+	}
+	if or.CodexSearchCapMaxFiles != 0 ||
+		or.CodexSearchCapMaxMatchesPerFile != 0 ||
+		or.CodexSearchCapDeltaMutationEnabled {
+		t.Fatalf("stale v1 final proof must fail closed without promotion: %+v", or)
+	}
+}
+
 func TestLoadWithOptions_CodexSearchCapProofRejectsWeakReport(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 39.5, 0)
@@ -330,6 +369,40 @@ codex_search_cap_proof_path = %q
 	}
 	if !strings.Contains(err.Error(), "missing final release captured_output reducer proof for selected search cap") {
 		t.Fatalf("rejection did not explain missing captured_output proof: %v", err)
+	}
+}
+
+func TestLoadWithOptions_CodexSearchCapProofRejectsMissingDownstreamStateProof(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:                   25,
+		matches:                 15,
+		retention:               41.25,
+		extraTokens:             120,
+		routeOK:                 true,
+		resourceOK:              true,
+		matrixPath:              "clean-release-matrix.jsonl",
+		matrixFiles:             1,
+		rows:                    12,
+		positiveRows:            9,
+		clients:                 []string{"cli", "desktop"},
+		downstreamStateProof:    false,
+		downstreamStateExplicit: true,
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected missing downstream-state proof to reject config")
+	}
+	if !strings.Contains(err.Error(), "missing final release live mutated search-cap downstream-state proof") {
+		t.Fatalf("rejection did not explain missing downstream-state proof: %v", err)
 	}
 }
 
@@ -581,28 +654,31 @@ func writeCodexSearchCapProofFixtureWithRouteHygiene(t *testing.T, dir string, f
 }
 
 type codexSearchCapProofFixtureOptions struct {
-	files                  int
-	matches                int
-	retention              float64
-	extraTokens            int
-	selectedCandidate      string
-	selectedExplicit       bool
-	routeOK                bool
-	routeBefore            string
-	routeAfter             string
-	routeExplicit          bool
-	routeIssues            []string
-	resourceOK             bool
-	resourceIssues         []string
-	searchCapIssues        []string
-	reportGateFailures     []string
-	matrixPath             string
-	matrixFiles            int
-	rows                   int
-	positiveRows           int
-	clients                []string
-	requiredReducerHits    map[string]int64
-	omitProofSchemaVersion bool
+	files                   int
+	matches                 int
+	retention               float64
+	extraTokens             int
+	selectedCandidate       string
+	selectedExplicit        bool
+	routeOK                 bool
+	routeBefore             string
+	routeAfter              string
+	routeExplicit           bool
+	routeIssues             []string
+	resourceOK              bool
+	resourceIssues          []string
+	searchCapIssues         []string
+	reportGateFailures      []string
+	matrixPath              string
+	matrixFiles             int
+	rows                    int
+	positiveRows            int
+	clients                 []string
+	requiredReducerHits     map[string]int64
+	omitProofSchemaVersion  bool
+	downstreamStateProof    bool
+	downstreamStateExplicit bool
+	proofSchemaVersion      int
 }
 
 func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts codexSearchCapProofFixtureOptions) string {
@@ -623,9 +699,17 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 	if requiredReducerHits == nil {
 		requiredReducerHits = map[string]int64{"captured_output": 2}
 	}
+	downstreamStateProof := opts.downstreamStateProof
+	if !opts.downstreamStateExplicit {
+		downstreamStateProof = true
+	}
 	path := filepath.Join(dir, "release-proof-report.json")
+	proofSchemaVersion := codexSearchCapRequiredProofSchemaVersion
+	if opts.proofSchemaVersion != 0 {
+		proofSchemaVersion = opts.proofSchemaVersion
+	}
 	report := map[string]any{
-		"proof_schema_version":           codexSearchCapRequiredProofSchemaVersion,
+		"proof_schema_version":           proofSchemaVersion,
 		"matrix_path":                    opts.matrixPath,
 		"resource_profile_proof_ok":      opts.resourceOK,
 		"resource_profile_proof_clients": opts.clients,
@@ -655,6 +739,7 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 			"total_extra_reducer_tokens":       opts.extraTokens,
 			"min_match_retention_pct":          opts.retention,
 			"delta_tool_output_mutation_proof": true,
+			"downstream_state_proof":           downstreamStateProof,
 			"required_reducer_hits":            requiredReducerHits,
 		},
 		"codex_route_hygiene": map[string]any{
@@ -806,7 +891,11 @@ func TestExpandHomePath(t *testing.T) {
 func TestLoadMissingFile(t *testing.T) {
 	// Not parallel - uses t.Setenv.
 	// Point to a guaranteed non-existent file.
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
 	t.Setenv("SLIMFERENCE_CONFIG", "/tmp/slimference_test_nonexistent_file_xyzzy.toml")
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_PATH", "")
 
 	cfg, err := Load()
 	if err != nil {
