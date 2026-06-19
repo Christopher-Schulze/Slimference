@@ -34,6 +34,7 @@ type wssABReplayFlags struct {
 	searchCapMinRetainedPct    float64
 	uniformChunkBudgetControl  bool
 	requireCompoundImprovement bool
+	socketSeq                  uint64
 	help                       bool
 }
 
@@ -51,6 +52,7 @@ type wssABReplayUniformControlReport struct {
 
 type wssABReplayReport struct {
 	Path                          string                           `json:"path"`
+	SocketSeq                     uint64                           `json:"socket_seq,omitempty"`
 	Frames                        int                              `json:"frames"`
 	RequestTurns                  int                              `json:"request_turns"`
 	MutatedRequests               int                              `json:"mutated_requests"`
@@ -196,6 +198,7 @@ Flags:
   --require-compound-improvement
                            Fail unless the normal footprint-priority replay
                            beats the uniform control on compounded estimate.
+  --socket-seq N            Replay only records captured from WSS socket_seq N.
 
 Input format: JSONL records with direction and payload:
   {"direction":"client_to_server","payload":{"model":"gpt-5-codex","input":[]}}
@@ -355,6 +358,22 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 		case arg == "--require-compound-improvement":
 			flags.uniformChunkBudgetControl = true
 			flags.requireCompoundImprovement = true
+		case arg == "--socket-seq":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--socket-seq requires a value")
+			}
+			i++
+			n, err := parseSocketSeqFlag("--socket-seq", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = n
+		case strings.HasPrefix(arg, "--socket-seq="):
+			n, err := parseSocketSeqFlag("--socket-seq", strings.TrimPrefix(arg, "--socket-seq="))
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = n
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -396,6 +415,13 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	if err != nil {
 		return wssABReplayReport{}, err
 	}
+	frames = filterWSSABReplayFramesBySocketSeq(frames, flags.socketSeq)
+	if len(frames) == 0 {
+		if flags.socketSeq > 0 {
+			return wssABReplayReport{}, fmt.Errorf("no replay frames for socket_seq=%d in %s", flags.socketSeq, flags.path)
+		}
+		return wssABReplayReport{}, fmt.Errorf("replay %s contained no frames", flags.path)
+	}
 	upstream := wssABReplayUpstreamDiagnostics(frames)
 	toolOutputMutation := flags.toolOutputMutation || flags.codexChunkDedup
 	cfg := wssABReplayConfig(flags)
@@ -407,6 +433,7 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	report := wssABReplayReport{
 		Path:                          flags.path,
+		SocketSeq:                     flags.socketSeq,
 		Frames:                        len(frames),
 		RequestTurns:                  result.RequestTurns,
 		MutatedRequests:               result.MutatedRequests,
@@ -778,6 +805,19 @@ func readWSSABReplayFrames(path string) ([]proxy.WSSABReplayFrame, error) {
 	return frames, nil
 }
 
+func filterWSSABReplayFramesBySocketSeq(frames []proxy.WSSABReplayFrame, socketSeq uint64) []proxy.WSSABReplayFrame {
+	if socketSeq == 0 {
+		return frames
+	}
+	out := make([]proxy.WSSABReplayFrame, 0, len(frames))
+	for _, frame := range frames {
+		if frame.SocketSeq == socketSeq {
+			out = append(out, frame)
+		}
+	}
+	return out
+}
+
 func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 	var rec struct {
 		Direction string          `json:"direction"`
@@ -786,6 +826,7 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 		Frame     json.RawMessage `json:"frame"`
 		Mutated   bool            `json:"mutated"`
 		Sequence  int64           `json:"sequence"`
+		SocketSeq uint64          `json:"socket_seq"`
 	}
 	if err := json.Unmarshal(line, &rec); err != nil {
 		return proxy.WSSABReplayFrame{}, fmt.Errorf("decode replay record: %w", err)
@@ -802,7 +843,15 @@ func parseWSSABReplayFrameLine(line []byte) (proxy.WSSABReplayFrame, error) {
 	if err != nil {
 		return proxy.WSSABReplayFrame{}, err
 	}
-	return proxy.WSSABReplayFrame{Direction: direction, Payload: body, Mutated: rec.Mutated, Sequence: rec.Sequence}, nil
+	return proxy.WSSABReplayFrame{Direction: direction, Payload: body, Mutated: rec.Mutated, Sequence: rec.Sequence, SocketSeq: rec.SocketSeq}, nil
+}
+
+func parseSocketSeqFlag(name, raw string) (uint64, error) {
+	n, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return n, nil
 }
 
 func parseWSSABReplayDirection(raw string) (wsmitm.Direction, bool) {

@@ -57,7 +57,7 @@ func TestWSSABReplayCaptureWrapperRecordsBeforeMutation(t *testing.T) {
 		t.Fatal("capture was not created")
 	}
 	env := parseWSJSON(t, map[string]any{"type": string(wsmitm.FrameKindRequest), "body": map[string]any{"input": []any{}}})
-	handler := capture.Wrap(func(_ context.Context, _ wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
+	handler := capture.WrapWithSocketSeq(44, func(_ context.Context, _ wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
 		env.Body = json.RawMessage(`{"input":[{"type":"message","role":"user","content":"mutated"}]}`)
 		return true, nil
 	})
@@ -80,6 +80,9 @@ func TestWSSABReplayCaptureWrapperRecordsBeforeMutation(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], `"mutated":true`) || !strings.Contains(lines[1], `"content":"mutated"`) {
 		t.Fatalf("second record must be the marked post-mutation payload, got %s", lines[1])
+	}
+	if !strings.Contains(lines[0], `"socket_seq":44`) || !strings.Contains(lines[1], `"socket_seq":44`) {
+		t.Fatalf("socket seq must be preserved on original+mutated pair, got %s", data)
 	}
 }
 
@@ -187,11 +190,12 @@ func readWSSABReplayFramesForTest(path string) ([]WSSABReplayFrame, error) {
 		var rec struct {
 			Direction wsmitm.Direction `json:"direction"`
 			Payload   json.RawMessage  `json:"payload"`
+			SocketSeq uint64           `json:"socket_seq"`
 		}
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			return nil, err
 		}
-		frames = append(frames, WSSABReplayFrame{Direction: rec.Direction, Payload: rec.Payload})
+		frames = append(frames, WSSABReplayFrame{Direction: rec.Direction, Payload: rec.Payload, SocketSeq: rec.SocketSeq})
 	}
 	return frames, nil
 }

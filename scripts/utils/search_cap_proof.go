@@ -14,6 +14,7 @@ import (
 
 type searchCapProofReport struct {
 	Path                    string                        `json:"path"`
+	SocketSeq               uint64                        `json:"socket_seq,omitempty"`
 	Frames                  int                           `json:"frames"`
 	SearchOutputs           int                           `json:"search_outputs"`
 	MinCandidateRetainedPct float64                       `json:"min_candidate_retained_pct,omitempty"`
@@ -102,6 +103,7 @@ type searchCapDownstreamStateProof struct {
 
 type searchCapProofFlags struct {
 	framesPath              string
+	socketSeq               uint64
 	candidates              []searchCapProfileCandidate
 	minCandidateRetainedPct float64
 	minSearchOutputs        int
@@ -112,12 +114,14 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("search-cap-proof", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var framesPath string
+	var socketSeq uint64
 	var candidates searchCapProfileCandidateFlags
 	minCandidateRetainedPct := searchCapReleaseMinRetainedPct
 	minSearchOutputs := searchCapReleaseMinSearchOutputs
 	minExtraReducerTokens := searchCapReleaseMinExtraReducerTokens
 	var jsonOut bool
 	fs.StringVar(&framesPath, "frames", "", "Path to WSS frame capture JSONL")
+	fs.Uint64Var(&socketSeq, "socket-seq", 0, "Replay only records captured from WSS socket_seq N")
 	fs.Var(&candidates, "candidate", "Candidate cap as files:matches; repeatable; defaults to release ladder 30:15,25:15,20:10")
 	fs.Float64Var(&minCandidateRetainedPct, "min-candidate-retained-pct", searchCapReleaseMinRetainedPct, "Reject candidates below this match-retention percentage")
 	fs.IntVar(&minSearchOutputs, "min-search-outputs", searchCapReleaseMinSearchOutputs, "Reject captures with fewer resolved search outputs")
@@ -148,6 +152,7 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 	}
 	report, err := loadSearchCapProofReport(searchCapProofFlags{
 		framesPath:              framesPath,
+		socketSeq:               socketSeq,
 		candidates:              candidates,
 		minCandidateRetainedPct: minCandidateRetainedPct,
 		minSearchOutputs:        minSearchOutputs,
@@ -182,6 +187,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	profile, err := loadSearchCapProfileReport(searchCapProfileFlags{
 		framesPath:              flags.framesPath,
+		socketSeq:               flags.socketSeq,
 		candidates:              flags.candidates,
 		inputPath:               "",
 		command:                 "",
@@ -193,6 +199,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	productReplay, err := loadWSSABReplayReport(wssABReplayFlags{
 		path:                flags.framesPath,
+		socketSeq:           flags.socketSeq,
 		failOnLost:          true,
 		failOnUpstreamError: true,
 	})
@@ -201,6 +208,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	}
 	defaultReplay, err := loadWSSABReplayReport(wssABReplayFlags{
 		path:                    flags.framesPath,
+		socketSeq:               flags.socketSeq,
 		failOnLost:              true,
 		failOnUpstreamError:     true,
 		searchCapProofLatch:     true,
@@ -209,12 +217,13 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
-	downstreamProof, err := loadSearchCapDownstreamStateProof(flags.framesPath)
+	downstreamProof, err := loadSearchCapDownstreamStateProof(flags.framesPath, flags.socketSeq)
 	if err != nil {
 		return searchCapProofReport{}, err
 	}
 	report := searchCapProofReport{
 		Path:                    flags.framesPath,
+		SocketSeq:               flags.socketSeq,
 		Frames:                  profile.Frames,
 		SearchOutputs:           profile.SearchOutputs,
 		MinCandidateRetainedPct: flags.minCandidateRetainedPct,
@@ -260,6 +269,7 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 		if len(candidate.GateFailures) == 0 {
 			replay, err := loadWSSABReplayReport(wssABReplayFlags{
 				path:                    flags.framesPath,
+				socketSeq:               flags.socketSeq,
 				failOnLost:              true,
 				failOnUpstreamError:     true,
 				searchCapProofLatch:     true,
@@ -315,12 +325,19 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	return report, nil
 }
 
-func loadSearchCapDownstreamStateProof(path string) (searchCapDownstreamStateProof, error) {
+func loadSearchCapDownstreamStateProof(path string, socketSeq uint64) (searchCapDownstreamStateProof, error) {
 	frames, err := readWSSABReplayFrames(path)
 	if err != nil {
 		return searchCapDownstreamStateProof{}, err
 	}
-	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	frames = filterWSSABReplayFramesBySocketSeq(frames, socketSeq)
+	if len(frames) == 0 {
+		if socketSeq > 0 {
+			return searchCapDownstreamStateProof{}, fmt.Errorf("no replay frames for socket_seq=%d in %s", socketSeq, path)
+		}
+		return searchCapDownstreamStateProof{}, fmt.Errorf("replay %s contained no frames", path)
+	}
+	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path, socketSeq: socketSeq})
 	if err != nil {
 		return searchCapDownstreamStateProof{}, err
 	}

@@ -856,6 +856,22 @@ func TestWSSReplayExpectedInstructionExtraOnlyAllowsOutputReduceSuffix(t *testin
 		"instructions": "base instructions\n\n#slimference-output-rules\nAnswer directly.",
 		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
 	})
+	note := archiveRecoveryNoteText("")
+	withArchiveRecoveryNote := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n\n" + note,
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+	withArchiveRecoveryNoteAfterTrailingNewline := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n\n\n" + note,
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
+	baseWithTrailingNewline := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n",
+		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
+	})
 	unknownExtra := mustMarshal(map[string]any{
 		"model":        "gpt-5-codex",
 		"instructions": "base instructions\n\nunknown extra",
@@ -867,13 +883,19 @@ func TestWSSReplayExpectedInstructionExtraOnlyAllowsOutputReduceSuffix(t *testin
 		"input":        []map[string]any{{"type": "message", "role": "user", "content": "continue"}},
 	})
 
-	if !wssReplayExpectedInstructionExtra(base, withOutputReduce) {
+	if !wssReplayExpectedInstructionExtra(base, withOutputReduce, note) {
 		t.Fatal("output-reduce suffix should be a known expected instruction extra")
 	}
-	if wssReplayExpectedInstructionExtra(base, unknownExtra) {
+	if !wssReplayExpectedInstructionExtra(base, withArchiveRecoveryNote, note) {
+		t.Fatal("archive-recovery note suffix should be a known expected instruction extra")
+	}
+	if !wssReplayExpectedInstructionExtra(baseWithTrailingNewline, withArchiveRecoveryNoteAfterTrailingNewline, note) {
+		t.Fatal("archive-recovery note suffix must preserve trailing instruction bytes")
+	}
+	if wssReplayExpectedInstructionExtra(base, unknownExtra, note) {
 		t.Fatal("unknown instruction additions must not be expected extras")
 	}
-	if wssReplayExpectedInstructionExtra(base, changedPrefix) {
+	if wssReplayExpectedInstructionExtra(base, changedPrefix, note) {
 		t.Fatal("changed instruction prefixes must not be expected extras")
 	}
 }
@@ -884,20 +906,25 @@ func TestWSSReplayMessagesWithoutExpectedArchiveRecoveryNoteOnlyForArchiveStats(
 	system := types.Message{Index: -2, Role: "system", Content: []types.ContentBlock{{Type: "text", Text: note}}}
 	baseAndNote := types.Message{Index: -2, Role: "system", Content: []types.ContentBlock{{Type: "text", Text: "base instructions\n\n" + note}}}
 
-	noArchiveStats := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, proxyLayer0Stats{}, note)
+	noArchiveStats := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, proxyLayer0Stats{}, note, false)
 	if len(noArchiveStats) != 2 || noArchiveStats[0].Content[0].Text != note {
 		t.Fatalf("manual recovery note must remain model-facing without archive stats: %+v", noArchiveStats)
 	}
 
 	archiveStats := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, ReadDeltaBlocks: 1}
-	strippedNewSystem := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, archiveStats, note)
+	strippedNewSystem := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{system, user}, archiveStats, note, false)
 	if len(strippedNewSystem) != 1 || strippedNewSystem[0].Role != "user" {
 		t.Fatalf("auto recovery note-only system block should be removed: %+v", strippedNewSystem)
 	}
 
-	strippedSuffix := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{baseAndNote, user}, archiveStats, note)
+	strippedSuffix := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{baseAndNote, user}, archiveStats, note, false)
 	if len(strippedSuffix) != 2 || strippedSuffix[0].Content[0].Text != "base instructions" {
 		t.Fatalf("auto recovery note suffix should be removed from existing instructions: %+v", strippedSuffix)
+	}
+
+	strippedKnownExtra := wssReplayMessagesWithoutExpectedArchiveRecoveryNote([]types.Message{baseAndNote, user}, proxyLayer0Stats{}, note, true)
+	if len(strippedKnownExtra) != 2 || strippedKnownExtra[0].Content[0].Text != "base instructions" {
+		t.Fatalf("known auto instruction extra should be removed even without current request archive stats: %+v", strippedKnownExtra)
 	}
 }
 
@@ -911,6 +938,8 @@ func TestWSSReplayStripInstructionNote(t *testing.T) {
 	}{
 		{name: "exact", text: note, want: "", ok: true},
 		{name: "suffix", text: "base\n\n" + note, want: "base", ok: true},
+		{name: "suffix preserves trailing newline", text: "base\n\n\n" + note, want: "base\n", ok: true},
+		{name: "suffix trims note-only trailing whitespace", text: "base\n\n" + note + "\n", want: "base", ok: true},
 		{name: "prefix", text: note + "\n\nbase", want: "base", ok: true},
 		{name: "middle", text: "base\n\n" + note + "\n\nmore", want: "base\n\nmore", ok: true},
 		{name: "absent", text: "base", want: "base", ok: false},

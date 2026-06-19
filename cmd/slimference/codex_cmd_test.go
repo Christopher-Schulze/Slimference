@@ -1590,6 +1590,12 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 			state.WSS.FramesReencoded = 1
 			state.WSS.CompressedMessagesMutated = 1
 			state.WSS.MutationActive = true
+			state.WSS.RecentSockets = []control.WSSSocketLifecycle{{
+				SocketSeq:      9,
+				C2SFrames:      4,
+				S2CFrames:      5,
+				TurnsCompleted: 2,
+			}}
 		}
 		return state, nil
 	}
@@ -1655,12 +1661,97 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		t.Fatalf("finish proof=%+v", finished)
 	}
 	if finished.CapturePath != capturePath || finished.MatrixPath != matrixPath ||
-		!strings.Contains(finished.SearchCapProofCommand, "search-cap-proof --frames "+capturePath) ||
+		!strings.Contains(finished.SearchCapProofCommand, "search-cap-proof --frames "+capturePath+" --socket-seq=9") ||
+		!strings.Contains(finished.MatrixRowCommand, "wss-proof-live-row --matrix-row "+matrixPath+" --frames "+capturePath+" --socket-seq=9") ||
 		!strings.Contains(finished.FocusedMatrixCommand, "wss-proof-matrix "+matrixPath) {
 		t.Fatalf("finish proof lost capture handoff: %+v", finished)
 	}
 	if len(captureCalls) != 2 || captureCalls[1].enabled || captureCalls[1].path != "" {
 		t.Fatalf("finish proof did not disarm daemon capture: %+v", captureCalls)
+	}
+}
+
+func TestCodexDesktopProveManualReuseRunningPreviousProof(t *testing.T) {
+	withCodexCmdStubs(t)
+	capturePath := filepath.Join(t.TempDir(), "reuse.frames.jsonl")
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:      "desktop_app_server_phasef_proven",
+		Transport: codexDesktopTransportAppServer,
+		LaunchPID: 7777,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) { return []int{7777}, nil }
+	codexDesktopAppServerActiveFn = func() bool { return true }
+	launched := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launched = true
+		return 0
+	}
+	var captureCalls []bool
+	codexDesktopWSSCaptureFn = func(_ string, _ string, _ string, enabled bool, _ time.Duration) error {
+		captureCalls = append(captureCalls, enabled)
+		return nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--reuse-running", "--json", "--duration=1ns", "--capture=" + capturePath}, p)
+	if rc != 0 {
+		t.Fatalf("reuse rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	if launched {
+		t.Fatal("reuse-running must not launch or replace Codex.app")
+	}
+	var proof codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &proof); err != nil {
+		t.Fatalf("reuse json: %v\nraw=%s", err, out.String())
+	}
+	if proof.Mode != "desktop_ready_for_prompt" || proof.LaunchPID != 7777 || proof.CapturePath != capturePath || proof.SessionPath == "" {
+		t.Fatalf("reuse proof=%+v", proof)
+	}
+	if len(captureCalls) != 1 || !captureCalls[0] {
+		t.Fatalf("reuse did not arm daemon capture exactly once: %v", captureCalls)
+	}
+	if !strings.Contains(proof.LaunchOutput, "reused") {
+		t.Fatalf("reuse launch output=%q", proof.LaunchOutput)
+	}
+}
+
+func TestCodexDesktopProveManualReuseRejectsUnownedRunningApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:      "desktop_app_server_phasef_proven",
+		Transport: codexDesktopTransportAppServer,
+		LaunchPID: 7777,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) { return []int{8888}, nil }
+	codexDesktopAppServerActiveFn = func() bool { return true }
+	launched := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		launched = true
+		return 0
+	}
+	var captureCalls []bool
+	codexDesktopWSSCaptureFn = func(_ string, _ string, _ string, enabled bool, _ time.Duration) error {
+		captureCalls = append(captureCalls, enabled)
+		return nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--reuse-running", "--json", "--duration=1ns"}, p)
+	if rc != 1 {
+		t.Fatalf("reuse rejection rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	if launched {
+		t.Fatal("rejected reuse must not launch Codex.app")
+	}
+	var proof codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &proof); err != nil {
+		t.Fatalf("reuse rejection json: %v\nraw=%s", err, out.String())
+	}
+	if proof.Mode != "reuse_running_unavailable" || proof.FailureClass != "reuse_running_unavailable" {
+		t.Fatalf("reuse rejection proof=%+v", proof)
+	}
+	if len(captureCalls) != 2 || !captureCalls[0] || captureCalls[1] {
+		t.Fatalf("rejected reuse should arm then disarm daemon capture: %v", captureCalls)
 	}
 }
 
@@ -1735,13 +1826,29 @@ func TestCodexDesktopProofCaptureHelpersAndHumanRender(t *testing.T) {
 		t.Fatalf("expanded path=%q", expanded)
 	}
 
-	proof := &codexDesktopProofOutput{CapturePath: "/tmp/proof/frames.jsonl"}
+	proof := &codexDesktopProofOutput{CapturePath: "/tmp/proof/frames.jsonl", DeltaWSS: control.WSSState{RecentSockets: []control.WSSSocketLifecycle{{
+		SocketSeq:      12,
+		C2SFrames:      3,
+		S2CFrames:      4,
+		TurnsCompleted: 1,
+	}}}}
 	applyCodexDesktopProofCaptureCommands(proof, "", "")
 	if proof.MatrixPath != "/tmp/proof/matrix.jsonl" ||
-		!strings.Contains(proof.SearchCapProofCommand, "search-cap-proof --frames /tmp/proof/frames.jsonl") ||
+		!strings.Contains(proof.SearchCapProofCommand, "search-cap-proof --frames /tmp/proof/frames.jsonl --socket-seq=12") ||
+		!strings.Contains(proof.MatrixRowCommand, "wss-proof-live-row --matrix-row /tmp/proof/matrix.jsonl --frames /tmp/proof/frames.jsonl --socket-seq=12") ||
 		!strings.Contains(proof.MatrixRowCommand, "--host 127.0.0.1 --port 8990") ||
 		!strings.Contains(proof.FocusedMatrixCommand, "wss-proof-matrix /tmp/proof/matrix.jsonl") {
 		t.Fatalf("capture commands=%+v", proof)
+	}
+
+	proof = &codexDesktopProofOutput{CapturePath: "/tmp/proof/frames.jsonl", DeltaWSS: control.WSSState{RecentSockets: []control.WSSSocketLifecycle{
+		{SocketSeq: 12, C2SFrames: 3},
+		{SocketSeq: 13, S2CFrames: 4},
+	}}}
+	applyCodexDesktopProofCaptureCommands(proof, "", "")
+	if strings.Contains(proof.SearchCapProofCommand, "--socket-seq=") ||
+		strings.Contains(proof.MatrixRowCommand, "--socket-seq=") {
+		t.Fatalf("ambiguous capture commands must not pin a socket: %+v", proof)
 	}
 
 	var rendered bytes.Buffer
@@ -1855,6 +1962,12 @@ func TestCodexDesktopProveErrorsAndHelpers(t *testing.T) {
 	}
 	if _, err := parseCodexDesktopProveFlags([]string{"--manual", "--finish"}); err == nil {
 		t.Fatal("expected manual+finish conflict")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--reuse-running"}); err == nil {
+		t.Fatal("expected reuse without manual conflict")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--manual", "--reuse-running", "--replace-existing"}); err == nil {
+		t.Fatal("expected reuse+replace conflict")
 	}
 }
 

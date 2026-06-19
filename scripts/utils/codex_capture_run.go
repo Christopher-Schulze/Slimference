@@ -42,6 +42,7 @@ type codexCaptureRunFlags struct {
 	slimferenceCommit             string
 	repo                          string
 	model                         string
+	socketSeq                     uint64
 	abPairID                      string
 	abVariant                     string
 	exitMarker                    string
@@ -2395,6 +2396,7 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		SlimferenceCommit:   flags.slimferenceCommit,
 		Repo:                flags.repo,
 		Model:               flags.model,
+		SocketSeq:           flags.socketSeq,
 		ABPairID:            flags.abPairID,
 		ABVariant:           flags.abVariant,
 		StartedAt:           result.StartedAt,

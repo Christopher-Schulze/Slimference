@@ -26,6 +26,7 @@ type WSSABReplayFrame struct {
 	Payload   []byte
 	Mutated   bool
 	Sequence  int64
+	SocketSeq uint64
 }
 
 // WSSABReplayOptions contains proof-only controls for offline replay. These
@@ -252,7 +253,9 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
 			}
-			after = wssReplayMessagesWithoutExpectedArchiveRecoveryNote(after, stats, archiveRecoveryNoteText(p.config.Compression.OutputReduce.ArchiveRecoveryNoteText))
+			recoveryNote := archiveRecoveryNoteText(p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
+			expectedInstructionExtra := wssReplayExpectedInstructionExtra(requestBody, mutatedBody, recoveryNote)
+			after = wssReplayMessagesWithoutExpectedArchiveRecoveryNote(after, stats, recoveryNote, expectedInstructionExtra)
 			if len(before) > 0 || len(after) > 0 {
 				turns = append(turns, abharness.Turn{Before: before, After: after})
 				out.RequestTurns++
@@ -264,7 +267,7 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 					out.SearchStats.MutatedRequests++
 				}
 			}
-			if wssReplayExpectedInstructionExtra(requestBody, mutatedBody) {
+			if expectedInstructionExtra {
 				out.ExpectedInstructionExtras++
 			}
 			rememberReplayRequestState(adapter, runtimeMessages)
@@ -513,7 +516,7 @@ func (s *wssReplayPrefixElisionState) markSeenTools(key string) {
 	s.seenTools[key] = struct{}{}
 }
 
-func wssReplayExpectedInstructionExtra(before, after []byte) bool {
+func wssReplayExpectedInstructionExtra(before, after []byte, recoveryNote string) bool {
 	beforeInstructions, beforeOK := codexReplayInstructions(before)
 	afterInstructions, afterOK := codexReplayInstructions(after)
 	if !beforeOK || !afterOK || beforeInstructions == afterInstructions {
@@ -522,8 +525,15 @@ func wssReplayExpectedInstructionExtra(before, after []byte) bool {
 	if strings.Contains(beforeInstructions, outputreduce.DefaultMarker) {
 		return false
 	}
-	return strings.HasPrefix(afterInstructions, beforeInstructions) &&
-		strings.Contains(afterInstructions, outputreduce.DefaultMarker)
+	if !strings.HasPrefix(afterInstructions, beforeInstructions) {
+		return false
+	}
+	extra := strings.TrimSpace(strings.TrimPrefix(afterInstructions, beforeInstructions))
+	if strings.Contains(extra, outputreduce.DefaultMarker) {
+		return true
+	}
+	stripped, ok := wssReplayStripInstructionNote(afterInstructions, recoveryNote)
+	return ok && stripped == beforeInstructions
 }
 
 func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {
@@ -560,8 +570,8 @@ func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {
 	return append(prefix, messages...), nil
 }
 
-func wssReplayMessagesWithoutExpectedArchiveRecoveryNote(messages []types.Message, stats proxyLayer0Stats, note string) []types.Message {
-	if !proxyLayer0StatsNeedsArchiveRecoveryNote(stats) {
+func wssReplayMessagesWithoutExpectedArchiveRecoveryNote(messages []types.Message, stats proxyLayer0Stats, note string, expectedInstructionExtra bool) []types.Message {
+	if !proxyLayer0StatsNeedsArchiveRecoveryNote(stats) && !expectedInstructionExtra {
 		return messages
 	}
 	note = strings.TrimSpace(note)
@@ -597,19 +607,22 @@ func wssReplayMessagesWithoutExpectedArchiveRecoveryNote(messages []types.Messag
 }
 
 func wssReplayStripInstructionNote(text string, note string) (string, bool) {
-	text = strings.TrimSpace(text)
-	if text == note {
+	if strings.TrimSpace(text) == note {
 		return "", true
 	}
 	paragraph := "\n\n" + note
 	if strings.HasSuffix(text, paragraph) {
-		return strings.TrimSpace(strings.TrimSuffix(text, paragraph)), true
+		return strings.TrimSuffix(text, paragraph), true
+	}
+	trimmedRight := strings.TrimRight(text, " \t\r\n")
+	if trimmedRight != text && strings.HasSuffix(trimmedRight, paragraph) {
+		return strings.TrimSuffix(trimmedRight, paragraph), true
 	}
 	if strings.HasPrefix(text, note+"\n\n") {
-		return strings.TrimSpace(strings.TrimPrefix(text, note+"\n\n")), true
+		return strings.TrimPrefix(text, note+"\n\n"), true
 	}
 	if strings.Contains(text, paragraph+"\n\n") {
-		return strings.TrimSpace(strings.Replace(text, paragraph, "", 1)), true
+		return strings.Replace(text, paragraph, "", 1), true
 	}
 	return text, false
 }

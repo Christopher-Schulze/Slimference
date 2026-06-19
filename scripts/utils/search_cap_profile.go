@@ -16,6 +16,7 @@ import (
 
 type searchCapProfileReport struct {
 	Path              string                     `json:"path"`
+	SocketSeq         uint64                     `json:"socket_seq,omitempty"`
 	Command           string                     `json:"command"`
 	Workdir           string                     `json:"workdir,omitempty"`
 	Source            string                     `json:"source"`
@@ -133,6 +134,7 @@ func runSearchCapProfile(args []string, stdout, stderr io.Writer) int {
 	var workdir string
 	var inputPath string
 	var framesPath string
+	var socketSeq uint64
 	var jsonOut bool
 	var aggressiveFiles int
 	var aggressiveMatches int
@@ -145,6 +147,7 @@ func runSearchCapProfile(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&workdir, "workdir", "", "Optional absolute workdir used to normalize search commands")
 	fs.StringVar(&inputPath, "input", "", "Path to captured search stdout")
 	fs.StringVar(&framesPath, "frames", "", "Path to WSS frame capture JSONL")
+	fs.Uint64Var(&socketSeq, "socket-seq", 0, "Replay only records captured from WSS socket_seq N")
 	fs.BoolVar(&jsonOut, "json", false, "Output JSON")
 	fs.IntVar(&aggressiveFiles, "aggressive-files", 10, "Aggressive profile file cap")
 	fs.IntVar(&aggressiveMatches, "aggressive-matches", 5, "Aggressive profile per-file match cap")
@@ -189,6 +192,7 @@ func runSearchCapProfile(args []string, stdout, stderr io.Writer) int {
 		workdir:                  workdir,
 		inputPath:                inputPath,
 		framesPath:               framesPath,
+		socketSeq:                socketSeq,
 		aggressiveFiles:          aggressiveFiles,
 		aggressiveMatches:        aggressiveMatches,
 		candidates:               candidates,
@@ -225,6 +229,7 @@ type searchCapProfileFlags struct {
 	workdir                  string
 	inputPath                string
 	framesPath               string
+	socketSeq                uint64
 	aggressiveFiles          int
 	aggressiveMatches        int
 	candidates               []searchCapProfileCandidate
@@ -270,12 +275,20 @@ func loadSearchCapProfileFramesReport(flags searchCapProfileFlags) (searchCapPro
 	if err != nil {
 		return searchCapProfileReport{}, err
 	}
+	frames = filterWSSABReplayFramesBySocketSeq(frames, flags.socketSeq)
+	if len(frames) == 0 {
+		if flags.socketSeq > 0 {
+			return searchCapProfileReport{}, fmt.Errorf("no replay frames for socket_seq=%d in %s", flags.socketSeq, flags.framesPath)
+		}
+		return searchCapProfileReport{}, fmt.Errorf("replay %s contained no frames", flags.framesPath)
+	}
 	outputs, err := searchCapProfileOutputsFromFrames(frames)
 	if err != nil {
 		return searchCapProfileReport{}, err
 	}
 	report := searchCapProfileReport{
 		Path:          flags.framesPath,
+		SocketSeq:     flags.socketSeq,
 		Source:        "frames",
 		Frames:        len(frames),
 		SearchOutputs: len(outputs),

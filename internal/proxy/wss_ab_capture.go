@@ -39,6 +39,7 @@ type wssABReplayCaptureRecord struct {
 	Payload   json.RawMessage  `json:"payload"`
 	Kind      wsmitm.FrameKind `json:"kind,omitempty"`
 	Sequence  int64            `json:"sequence,omitempty"`
+	SocketSeq uint64           `json:"socket_seq,omitempty"`
 	// Mutated marks the B-side: the frame as re-serialized AFTER the Phase-F
 	// handler replaced it (what actually went upstream). Unmutated frames
 	// appear once; mutated frames appear twice (original, then mutated).
@@ -178,11 +179,15 @@ func (c *wssABReplayCapture) Close() error {
 }
 
 func (c *wssABReplayCapture) Wrap(next wsmitm.FrameHandler) wsmitm.FrameHandler {
+	return c.WrapWithSocketSeq(0, next)
+}
+
+func (c *wssABReplayCapture) WrapWithSocketSeq(socketSeq uint64, next wsmitm.FrameHandler) wsmitm.FrameHandler {
 	if c == nil {
 		return next
 	}
 	return func(ctx context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
-		c.Record(dir, env)
+		c.record(dir, env, false, socketSeq)
 		if next == nil {
 			return false, nil
 		}
@@ -191,30 +196,34 @@ func (c *wssABReplayCapture) Wrap(next wsmitm.FrameHandler) wsmitm.FrameHandler 
 			// B-side: the handler replaced the frame in place; record the
 			// authoritative re-serialization that goes upstream so captures
 			// carry the exact original/mutated pair per frame (T354 proof).
-			c.recordMutated(dir, env)
+			c.record(dir, env, true, socketSeq)
 		}
 		return replaced, err
 	}
 }
 
 func (c *wssABReplayRuntimeCapture) Wrap(next wsmitm.FrameHandler) wsmitm.FrameHandler {
+	return c.WrapWithSocketSeq(0, next)
+}
+
+func (c *wssABReplayRuntimeCapture) WrapWithSocketSeq(socketSeq uint64, next wsmitm.FrameHandler) wsmitm.FrameHandler {
 	if c == nil {
 		return next
 	}
 	return func(ctx context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
-		c.record(dir, env, false)
+		c.record(dir, env, false, socketSeq)
 		if next == nil {
 			return false, nil
 		}
 		replaced, err := next(ctx, dir, env)
 		if replaced {
-			c.record(dir, env, true)
+			c.record(dir, env, true, socketSeq)
 		}
 		return replaced, err
 	}
 }
 
-func (c *wssABReplayRuntimeCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool) {
+func (c *wssABReplayRuntimeCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool, socketSeq uint64) {
 	if c == nil {
 		return
 	}
@@ -224,22 +233,18 @@ func (c *wssABReplayRuntimeCapture) record(dir wsmitm.Direction, env *wsmitm.Env
 	if !status.Enabled || c.capture == nil {
 		return
 	}
-	if mutated {
-		c.capture.recordMutated(dir, env)
-		return
-	}
-	c.capture.Record(dir, env)
+	c.capture.record(dir, env, mutated, socketSeq)
 }
 
 func (c *wssABReplayCapture) Record(dir wsmitm.Direction, env *wsmitm.Envelope) {
-	c.record(dir, env, false)
+	c.record(dir, env, false, 0)
 }
 
 func (c *wssABReplayCapture) recordMutated(dir wsmitm.Direction, env *wsmitm.Envelope) {
-	c.record(dir, env, true)
+	c.record(dir, env, true, 0)
 }
 
-func (c *wssABReplayCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool) {
+func (c *wssABReplayCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool, socketSeq uint64) {
 	if c == nil || c.f == nil || env == nil {
 		return
 	}
@@ -272,6 +277,7 @@ func (c *wssABReplayCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, 
 		Payload:   append(json.RawMessage(nil), payload...),
 		Kind:      env.Kind,
 		Sequence:  env.Sequence(),
+		SocketSeq: socketSeq,
 		Mutated:   mutated,
 	}
 	data, err := json.Marshal(rec)

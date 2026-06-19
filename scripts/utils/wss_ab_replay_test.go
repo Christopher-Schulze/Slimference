@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/abharness"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy"
 )
 
 func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
@@ -76,6 +77,22 @@ func TestWSSABReplayProductDefaultKeepsSafeReadDeltaSavings(t *testing.T) {
 	}
 	if report.Lost != 0 || !report.GatePassed {
 		t.Fatalf("product-default read-delta replay should pass comprehension gate: %+v", report)
+	}
+}
+
+func TestWSSABReplayParsesAndFiltersSocketSeq(t *testing.T) {
+	frame, err := parseWSSABReplayFrameLine([]byte(`{"direction":"client_to_server","socket_seq":12,"payload":{"type":"request","body":{"input":[]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.SocketSeq != 12 {
+		t.Fatalf("socket seq=%d want 12", frame.SocketSeq)
+	}
+	other := frame
+	other.SocketSeq = 13
+	filtered := filterWSSABReplayFramesBySocketSeq([]proxy.WSSABReplayFrame{frame, other}, 12)
+	if len(filtered) != 1 || filtered[0].SocketSeq != 12 {
+		t.Fatalf("filtered frames=%+v", filtered)
 	}
 }
 

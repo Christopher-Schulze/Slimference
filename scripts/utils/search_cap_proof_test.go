@@ -374,7 +374,7 @@ func TestRunSearchCapProofAcceptsCapturedOriginalShadowsAndFinalOpenCandidate(t 
 	path := filepath.Join(dir, "frames.jsonl")
 	writeSearchCapProofCapturedShadowFrames(t, path, "search-cap-proof-shadow", 96)
 
-	proof, err := loadSearchCapDownstreamStateProof(path)
+	proof, err := loadSearchCapDownstreamStateProof(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

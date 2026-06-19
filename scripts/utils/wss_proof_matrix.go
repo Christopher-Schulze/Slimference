@@ -64,6 +64,7 @@ type wssProofMatrixCapture struct {
 	SlimferenceCommit   string                 `json:"slimference_commit,omitempty"`
 	Repo                string                 `json:"repo,omitempty"`
 	Model               string                 `json:"model,omitempty"`
+	SocketSeq           uint64                 `json:"socket_seq,omitempty"`
 	ABPairID            string                 `json:"ab_pair_id,omitempty"`
 	ABVariant           string                 `json:"ab_variant,omitempty"`
 	StartedAt           string                 `json:"started_at,omitempty"`
@@ -110,6 +111,7 @@ type wssProofMatrixRecord struct {
 	SlimferenceCommit   string                 `json:"slimference_commit"`
 	Repo                string                 `json:"repo"`
 	Model               string                 `json:"model"`
+	SocketSeq           uint64                 `json:"socket_seq,omitempty"`
 	ABPairID            string                 `json:"ab_pair_id,omitempty"`
 	ABVariant           string                 `json:"ab_variant,omitempty"`
 	StartedAt           string                 `json:"started_at"`
@@ -412,6 +414,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			SlimferenceCommit:   record.SlimferenceCommit,
 			Repo:                record.Repo,
 			Model:               record.Model,
+			SocketSeq:           record.SocketSeq,
 			ABPairID:            record.ABPairID,
 			ABVariant:           record.ABVariant,
 			StartedAt:           record.StartedAt,
@@ -434,6 +437,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 
 		replay, err := loadWSSABReplayReport(wssABReplayFlags{
 			path:                capture.FramesPath,
+			socketSeq:           capture.SocketSeq,
 			failOnLost:          true,
 			failOnUpstreamError: true,
 			toolOutputMutation:  true,
@@ -448,7 +452,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			if capture.WorkloadClass == "search_loop" {
 				searchCapMutationProof := false
 				if len(options.searchCapCandidates) > 0 {
-					searchCapProof, err := loadSearchCapProofReport(wssProofSearchCapFlags(capture.FramesPath, options))
+					searchCapProof, err := loadSearchCapProofReport(wssProofSearchCapFlags(capture.FramesPath, capture.SocketSeq, options))
 					if err != nil {
 						capture.GateFailures = append(capture.GateFailures, fmt.Sprintf("search-cap proof failed: %v", err))
 					} else {
@@ -695,7 +699,7 @@ func wssProofRequirements(options wssProofMatrixOptions) wssProofMatrixRequireme
 	return requirements
 }
 
-func wssProofSearchCapFlags(framesPath string, options wssProofMatrixOptions) searchCapProofFlags {
+func wssProofSearchCapFlags(framesPath string, socketSeq uint64, options wssProofMatrixOptions) searchCapProofFlags {
 	minRetention := options.searchCapMinCandidateRetainedPct
 	if minRetention <= 0 {
 		minRetention = releaseSearchCapMinRetainedPct
@@ -710,6 +714,7 @@ func wssProofSearchCapFlags(framesPath string, options wssProofMatrixOptions) se
 	}
 	return searchCapProofFlags{
 		framesPath:              framesPath,
+		socketSeq:               socketSeq,
 		candidates:              options.searchCapCandidates,
 		minCandidateRetainedPct: minRetention,
 		minSearchOutputs:        minSearchOutputs,

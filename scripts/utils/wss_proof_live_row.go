@@ -20,6 +20,7 @@ type wssProofLiveRowFlags struct {
 	slimferenceCommit string
 	repo              string
 	model             string
+	socketSeq         uint64
 	abPairID          string
 	abVariant         string
 	host              string
@@ -32,6 +33,7 @@ type wssProofLiveRowFlags struct {
 type wssProofLiveRowReport struct {
 	MatrixPath string                 `json:"matrix_path"`
 	FramesPath string                 `json:"frames_path"`
+	SocketSeq  uint64                 `json:"socket_seq,omitempty"`
 	LiveDelta  *codexCaptureLiveDelta `json:"live_delta"`
 }
 
@@ -50,6 +52,7 @@ Flags:
   --slimference-commit VALUE  Matrix row Slimference commit
   --repo VALUE                Repository label
   --model VALUE               Model label
+  --socket-seq VALUE          Replay only records captured from WSS socket_seq N
   --ab-pair-id VALUE          Optional A/B pair id for output-reduce proofs
   --ab-variant VALUE          Optional A/B variant: baseline or directive
   --json                      Print JSON report
@@ -100,6 +103,7 @@ func runWSSProofLiveRow(args []string, stdout, stderr io.Writer) int {
 		slimferenceCommit: flags.slimferenceCommit,
 		repo:              flags.repo,
 		model:             flags.model,
+		socketSeq:         flags.socketSeq,
 		abPairID:          flags.abPairID,
 		abVariant:         flags.abVariant,
 		expectedReducers:  append([]string(nil), flags.expectedReducers...),
@@ -108,7 +112,7 @@ func runWSSProofLiveRow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "append matrix row: %v\n", err)
 		return 1
 	}
-	report := wssProofLiveRowReport{MatrixPath: flags.matrixPath, FramesPath: flags.framesPath, LiveDelta: live}
+	report := wssProofLiveRowReport{MatrixPath: flags.matrixPath, FramesPath: flags.framesPath, SocketSeq: flags.socketSeq, LiveDelta: live}
 	if flags.jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -141,7 +145,7 @@ func parseWSSProofLiveRowFlags(args []string) (wssProofLiveRowFlags, error) {
 		case arg == "--matrix-row", arg == "--frames", arg == "--id", arg == "--client",
 			arg == "--workload-class", arg == "--host", arg == "--port", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo", arg == "--model",
-			arg == "--ab-pair-id", arg == "--ab-variant":
+			arg == "--socket-seq", arg == "--ab-pair-id", arg == "--ab-variant":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", arg)
 			}
@@ -202,6 +206,12 @@ func setWSSProofLiveRowFlag(flags *wssProofLiveRowFlags, name, value string) err
 		flags.repo = value
 	case "--model":
 		flags.model = value
+	case "--socket-seq":
+		n, err := parseSocketSeqFlag("--socket-seq", value)
+		if err != nil {
+			return err
+		}
+		flags.socketSeq = n
 	case "--ab-pair-id":
 		flags.abPairID = value
 	case "--ab-variant":

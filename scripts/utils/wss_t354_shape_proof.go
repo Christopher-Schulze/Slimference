@@ -15,12 +15,14 @@ import (
 
 type wssT354ShapeProofFlags struct {
 	path         string
+	socketSeq    uint64
 	outputFormat string
 	help         bool
 }
 
 type wssT354ShapeProofReport struct {
 	Path         string                  `json:"path"`
+	SocketSeq    uint64                  `json:"socket_seq,omitempty"`
 	FrameFiles   int                     `json:"frame_files"`
 	SkippedFiles int                     `json:"skipped_files"`
 	Totals       wssT354ShapeProofTotal  `json:"totals"`
@@ -64,6 +66,7 @@ type wssT354ShapeProofTotal struct {
 
 type wssT354ShapeProofRow struct {
 	Path                           string                  `json:"path"`
+	SocketSeq                      uint64                  `json:"socket_seq,omitempty"`
 	Frames                         int                     `json:"frames"`
 	RequestTurns                   int                     `json:"request_turns"`
 	RequestShapes                  replayShapeCounts       `json:"request_shapes"`
@@ -171,7 +174,7 @@ type wssT354Turn struct {
 const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
 
 Usage:
-  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json]
+  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N]
 
 The report is content-free. It reads WSS frame captures and emits only request
 shape, mutation, downstream-turn, 400/invalid_request, and lost-comprehension
@@ -219,12 +222,29 @@ func runWSST354ShapeProof(args []string, stdout, stderr io.Writer) int {
 
 func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) {
 	flags := wssT354ShapeProofFlags{outputFormat: outputText}
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case arg == "--help" || arg == "-h":
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--socket-seq":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--socket-seq requires a value")
+			}
+			i++
+			n, err := parseSocketSeqFlag("--socket-seq", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = n
+		case strings.HasPrefix(arg, "--socket-seq="):
+			n, err := parseSocketSeqFlag("--socket-seq", strings.TrimPrefix(arg, "--socket-seq="))
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = n
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -244,9 +264,9 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 	}
 	restoreLogger := silenceWSSSavingsBaselineReplayLogs()
 	defer restoreLogger()
-	report := wssT354ShapeProofReport{Path: flags.path, GatePassed: true}
+	report := wssT354ShapeProofReport{Path: flags.path, SocketSeq: flags.socketSeq, GatePassed: true}
 	for _, path := range files {
-		row, err := loadWSST354ShapeProofRow(path)
+		row, err := loadWSST354ShapeProofRow(path, flags.socketSeq)
 		if err != nil {
 			if singleFile {
 				return wssT354ShapeProofReport{}, err
@@ -275,12 +295,19 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 	return report, nil
 }
 
-func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
+func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofRow, error) {
 	frames, err := readWSSABReplayFrames(path)
 	if err != nil {
 		return wssT354ShapeProofRow{}, err
 	}
-	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path})
+	frames = filterWSSABReplayFramesBySocketSeq(frames, socketSeq)
+	if len(frames) == 0 {
+		if socketSeq > 0 {
+			return wssT354ShapeProofRow{}, fmt.Errorf("no replay frames for socket_seq=%d in %s", socketSeq, path)
+		}
+		return wssT354ShapeProofRow{}, fmt.Errorf("replay %s contained no frames", path)
+	}
+	replay, err := loadWSSABReplayReport(wssABReplayFlags{path: path, socketSeq: socketSeq})
 	if err != nil {
 		return wssT354ShapeProofRow{}, err
 	}
@@ -288,6 +315,7 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 	turns := wssT354TurnsFromFrames(frames)
 	row := wssT354ShapeProofRow{
 		Path:                   path,
+		SocketSeq:              socketSeq,
 		Frames:                 len(frames),
 		RequestTurns:           len(turns),
 		ReplayLocalSavedTokens: replay.ReducerTokensSaved,

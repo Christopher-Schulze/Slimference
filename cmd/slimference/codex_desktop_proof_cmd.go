@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ type codexDesktopProveFlags struct {
 	json       bool
 	keepOpen   bool
 	replace    bool
+	reuse      bool
 	manual     bool
 	finish     bool
 	help       bool
@@ -109,6 +111,8 @@ const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run
 
 const codexDesktopManualProofCommand = "slimference codex desktop prove --manual --json --duration=30s --keep-open"
 
+const codexDesktopReuseProofCommand = "slimference codex desktop prove --manual --reuse-running --json --duration=5s --keep-open"
+
 const codexDesktopFinishProofCommand = "slimference codex desktop prove --finish --json"
 
 const codexDesktopProofSinceFilePath = "/tmp/slimference-desktop-proof-since.txt"
@@ -181,25 +185,26 @@ func applyCodexDesktopProofCaptureCommands(out *codexDesktopProofOutput, host st
 	if out == nil || strings.TrimSpace(out.CapturePath) == "" {
 		return
 	}
-	out.SearchCapProofCommand = codexDesktopSearchCapProofCommand(out.CapturePath)
+	socketSeq := codexDesktopProofSocketSeq(out)
+	out.SearchCapProofCommand = codexDesktopSearchCapProofCommand(out.CapturePath, socketSeq)
 	if strings.TrimSpace(out.MatrixPath) == "" {
 		out.MatrixPath = codexDesktopProofMatrixPath(out.CapturePath)
 	}
 	if strings.TrimSpace(out.MatrixPath) == "" {
 		return
 	}
-	out.MatrixRowCommand = codexDesktopMatrixRowCommand(out.MatrixPath, out.CapturePath, host, port)
+	out.MatrixRowCommand = codexDesktopMatrixRowCommand(out.MatrixPath, out.CapturePath, host, port, socketSeq)
 	out.FocusedMatrixCommand = codexDesktopFocusedMatrixCommand(out.MatrixPath)
 }
 
-func codexDesktopSearchCapProofCommand(capturePath string) string {
-	return "go run ./scripts/utils search-cap-proof --frames " + capturePath + " --candidate=30:15 --candidate=25:15 --min-candidate-retained-pct=40 --min-search-outputs=2 --min-extra-reducer-tokens=1 --json"
+func codexDesktopSearchCapProofCommand(capturePath string, socketSeq uint64) string {
+	return "go run ./scripts/utils search-cap-proof --frames " + capturePath + codexDesktopSocketSeqFlag(socketSeq) + " --candidate=30:15 --candidate=25:15 --min-candidate-retained-pct=40 --min-search-outputs=2 --min-extra-reducer-tokens=1 --json"
 }
 
-func codexDesktopMatrixRowCommand(matrixPath string, capturePath string, host string, port string) string {
+func codexDesktopMatrixRowCommand(matrixPath string, capturePath string, host string, port string, socketSeq uint64) string {
 	host = firstNonEmpty(strings.TrimSpace(host), "127.0.0.1")
 	port = firstNonEmpty(strings.TrimSpace(port), "8990")
-	return "go run ./scripts/utils wss-proof-live-row --matrix-row " + matrixPath + " --frames " + capturePath + " --client desktop --workload-class search_loop --expected-reducer captured_output --host " + host + " --port " + port + " --json"
+	return "go run ./scripts/utils wss-proof-live-row --matrix-row " + matrixPath + " --frames " + capturePath + codexDesktopSocketSeqFlag(socketSeq) + " --client desktop --workload-class search_loop --expected-reducer captured_output --host " + host + " --port " + port + " --json"
 }
 
 func codexDesktopFocusedMatrixCommand(matrixPath string) string {
@@ -224,6 +229,51 @@ func normalizeCodexDesktopProofStartedAt(startedAt string) string {
 		return ""
 	}
 	return formatCodexDesktopProofStartedAt(t)
+}
+
+func codexDesktopProofSocketSeq(out *codexDesktopProofOutput) uint64 {
+	if out == nil {
+		return 0
+	}
+	if socketSeq := singleCodexDesktopProofSocketSeq(out.DeltaWSS.RecentSockets, 0); socketSeq != 0 {
+		return socketSeq
+	}
+	startedAt := normalizeCodexDesktopProofStartedAt(out.StartedAt)
+	if startedAt == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, startedAt)
+	if err != nil {
+		return 0
+	}
+	return singleCodexDesktopProofSocketSeq(out.DeltaWSS.RecentSockets, t.UnixNano())
+}
+
+func singleCodexDesktopProofSocketSeq(sockets []control.WSSSocketLifecycle, minOpenedAtUnixNano int64) uint64 {
+	var socketSeq uint64
+	for _, socket := range sockets {
+		if socket.SocketSeq == 0 {
+			continue
+		}
+		if minOpenedAtUnixNano > 0 && socket.OpenedAtUnixNano > 0 && socket.OpenedAtUnixNano < minOpenedAtUnixNano {
+			continue
+		}
+		if socket.C2SFrames == 0 && socket.S2CFrames == 0 && socket.TurnsCompleted == 0 {
+			continue
+		}
+		if socketSeq != 0 && socketSeq != socket.SocketSeq {
+			return 0
+		}
+		socketSeq = socket.SocketSeq
+	}
+	return socketSeq
+}
+
+func codexDesktopSocketSeqFlag(socketSeq uint64) string {
+	if socketSeq == 0 {
+		return ""
+	}
+	return " --socket-seq=" + strconv.FormatUint(socketSeq, 10)
 }
 
 func readCodexDesktopLegacyProofSinceFileStartedAt() string {
@@ -403,11 +453,38 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 
 	var launchOut, launchErr strings.Builder
-	launchArgs := []string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}
-	if flags.replace {
-		launchArgs = append(launchArgs, "--replace-existing")
+	launchPID := 0
+	rc := 0
+	if flags.reuse {
+		var reuseErr error
+		launchPID, reuseErr = reusableCodexDesktopProofPID()
+		if reuseErr != nil {
+			out := codexDesktopProofOutput{
+				Mode:         "reuse_running_unavailable",
+				FailureClass: "reuse_running_unavailable",
+				Duration:     flags.duration.String(),
+				StartedAt:    startedAtText,
+				Transport:    codexDesktopTransportAppServer,
+				CapturePath:  capturePath,
+				MatrixPath:   matrixPath,
+				Notes:        []string{reuseErr.Error()},
+			}
+			applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+			if daemonCaptureArmed {
+				clearCodexDesktopDaemonCapture(&out, flags.host, flags.port)
+			}
+			emitCodexDesktopProof(p, flags.json, out)
+			return 1
+		}
+		launchOut.WriteString(fmt.Sprintf("Codex.app reused (PID %d) from previous scoped Desktop proof.", launchPID))
+	} else {
+		launchArgs := []string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}
+		if flags.replace {
+			launchArgs = append(launchArgs, "--replace-existing")
+		}
+		rc = runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
+		launchPID = parseCodexDesktopLaunchPID(launchOut.String())
 	}
-	rc := runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
 		StartedAt:         startedAtText,
@@ -422,8 +499,11 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 			"full Desktop savings proof still needs a prompt-tied WSS delta if launch-time bytes do not flow",
 		},
 	}
+	if flags.reuse {
+		out.Notes = append(out.Notes, "reused the previous scoped Desktop proof app; no existing Codex.app session was replaced")
+	}
 	applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
-	out.LaunchPID = parseCodexDesktopLaunchPID(out.LaunchOutput)
+	out.LaunchPID = launchPID
 	if rc != 0 {
 		out.Mode = "launch_failed"
 		out.FailureClass = "launch_failed"
@@ -561,6 +641,9 @@ func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) 
 			f.keepOpen = true
 		case a == "--replace-existing":
 			f.replace = true
+		case a == "--reuse-running":
+			f.reuse = true
+			f.keepOpen = true
 		case a == "--manual":
 			f.manual = true
 			f.keepOpen = true
@@ -592,6 +675,12 @@ func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) 
 	}
 	if f.manual && f.finish {
 		return f, fmt.Errorf("--manual and --finish cannot be combined")
+	}
+	if f.reuse && !f.manual {
+		return f, fmt.Errorf("--reuse-running requires --manual")
+	}
+	if f.reuse && f.replace {
+		return f, fmt.Errorf("--reuse-running and --replace-existing cannot be combined")
 	}
 	return f, nil
 }
@@ -704,6 +793,27 @@ func codexDesktopLastProofOwnsRunningApp(last *codexDesktopProofOutput, runningP
 	return false
 }
 
+func reusableCodexDesktopProofPID() (int, error) {
+	last, err := readCodexDesktopProofResult(codexDesktopResultFn())
+	if err != nil {
+		return 0, fmt.Errorf("no previous Desktop proof result to reuse: %w", err)
+	}
+	if last.Transport != codexDesktopTransportAppServer {
+		return 0, fmt.Errorf("previous Desktop proof transport %q is not reusable app-server", last.Transport)
+	}
+	runningPIDs, err := currentCodexDesktopPIDs()
+	if err != nil {
+		return 0, fmt.Errorf("Codex.app running-state probe failed: %w", err)
+	}
+	if !codexDesktopLastProofOwnsRunningApp(last, runningPIDs) {
+		return 0, fmt.Errorf("running Codex.app is not owned by the previous scoped Desktop proof")
+	}
+	if !codexDesktopAppServerActiveFn() {
+		return 0, fmt.Errorf("previous scoped Desktop proof app is running but no app-server shim process is active")
+	}
+	return last.LaunchPID, nil
+}
+
 func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput) {
 	if last.Transport != "" && last.Transport != codexDesktopTransportAppServer {
 		out.Notes = append(out.Notes, "last Desktop proof used legacy "+last.Transport+" route; app-server shim proof is still required")
@@ -776,6 +886,9 @@ func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
 		"Run finish_command after the prompt completes.",
 		"Run matrix_row_command, focused_matrix_command, search_cap_proof_command, and class_distribution_command; continue guard work only when all focused proof gates pass and headroom_present=true.",
 	)
+	if out.LastProof != nil && out.LastProof.LaunchPID > 0 {
+		out.NextSteps = append(out.NextSteps, "For a fresh capture path on the same scoped proof app, run `"+codexDesktopReuseProofCommand+"` instead of replacing Codex.app.")
+	}
 	out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `"+codexDesktopFinishProofCommand+"`")
 }
 

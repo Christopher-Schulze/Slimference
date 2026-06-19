@@ -328,7 +328,7 @@ func loadWSSSavingsBaselineRow(path string, flags wssSavingsBaselineFlags) (wssS
 	if err != nil {
 		return wssSavingsBaselineRow{}, err
 	}
-	t354, err := loadWSST354ShapeProofRow(path)
+	t354, err := loadWSST354ShapeProofRow(path, 0)
 	if err != nil {
 		return wssSavingsBaselineRow{}, err
 	}
