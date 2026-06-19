@@ -1685,8 +1685,11 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "unbounded", command: "git log --oneline", payload: "a1b2c3d Tighten guards\n", want: false},
 		{name: "too many lines", command: "git log --oneline -n 1", payload: "a1b2c3d Tighten guards\nb2c3d4e Recover savings\n", want: false},
 		{name: "rich stat flag", command: "git log --stat --oneline -n 1", payload: "a1b2c3d Tighten guards\n", want: false},
+		{name: "missing max count value", command: "git log --oneline -n", payload: "a1b2c3d Tighten guards\n", want: false},
+		{name: "bad max count value", command: "git log --oneline --max-count=0", payload: "a1b2c3d Tighten guards\n", want: false},
 		{name: "non hex hash", command: "git log --oneline -n 1", payload: "zzzzzzz Tighten guards\n", want: false},
 		{name: "missing subject", command: "git log --oneline -n 1", payload: "a1b2c3d\n", want: false},
+		{name: "search shaped payload", command: "git log --oneline -n 1", payload: "internal/proxy/a.go:10:needle\n", want: false},
 	}
 	for _, tt := range gitLogCases {
 		tt := tt
@@ -1694,6 +1697,71 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeGitLogOnelineOutput(tt.command, tt.payload); got != tt.want {
 				t.Fatalf("wssSafeGitLogOnelineOutput(%q, %q)=%v want %v", tt.command, tt.payload, got, tt.want)
+			}
+		})
+	}
+
+	gitDiffStatCases := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{name: "plain stat", command: "git diff --stat", want: true},
+		{name: "staged relative diff filter", command: "git -C /repo diff --staged --stat --relative=internal --diff-filter=AM", want: true},
+		{name: "split diff filter", command: "git diff --stat --diff-filter AM -- internal", want: true},
+		{name: "missing stat", command: "git diff --cached -- internal", want: false},
+		{name: "unknown flag", command: "git diff --stat --word-diff", want: false},
+		{name: "missing split diff filter", command: "git diff --stat --diff-filter", want: false},
+	}
+	for _, tt := range gitDiffStatCases {
+		tt := tt
+		t.Run("git_diff_stat/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeGitDiffStatCommand(tt.command); got != tt.want {
+				t.Fatalf("wssSafeGitDiffStatCommand(%q)=%v want %v", tt.command, got, tt.want)
+			}
+		})
+	}
+
+	gitShowStatCases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "stat commit", args: []string{"--stat", "--no-ext-diff", "HEAD"}, want: true},
+		{name: "stat pathspec", args: []string{"--stat=80", "--diff-filter", "AM", "--", "internal/proxy"}, want: true},
+		{name: "missing stat", args: []string{"HEAD"}, want: false},
+		{name: "empty pathspec", args: []string{"--stat", "--", ""}, want: false},
+		{name: "missing diff filter value", args: []string{"--stat", "--diff-filter"}, want: false},
+		{name: "patch flag", args: []string{"--stat", "--patch"}, want: false},
+	}
+	for _, tt := range gitShowStatCases {
+		tt := tt
+		t.Run("git_show_stat_args/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeGitShowStatArgs(tt.args); got != tt.want {
+				t.Fatalf("wssSafeGitShowStatArgs(%q)=%v want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+
+	lsCases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "short safe flags", args: []string{"-1aF", "internal/proxy"}, want: true},
+		{name: "long safe flags", args: []string{"--almost-all", "--directory", "--indicator-style=slash", "--", "internal"}, want: true},
+		{name: "empty arg", args: []string{""}, want: false},
+		{name: "unknown long flag", args: []string{"--recursive"}, want: false},
+		{name: "unknown short flag", args: []string{"-lh"}, want: false},
+	}
+	for _, tt := range lsCases {
+		tt := tt
+		t.Run("ls/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafeLsArgs(tt.args); got != tt.want {
+				t.Fatalf("wssSafeLsArgs(%q)=%v want %v", tt.args, got, tt.want)
 			}
 		})
 	}

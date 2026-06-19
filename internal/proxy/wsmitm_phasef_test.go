@@ -780,6 +780,70 @@ func TestWSSRawHasPromptCachePrefix(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFSearchCapStatefulDeltaBudgetHelpers(t *testing.T) {
+	var nilAdapter *wsPhaseFAdapter
+	if nilAdapter.wssSearchCapStatefulDeltaBudgetAvailable("session") {
+		t.Fatal("nil adapter must not report budget")
+	}
+
+	adapter := (&PhaseFDispatcher{Proxy: New(config.Defaults())}).newWSPhaseFAdapter()
+	if adapter.wssSearchCapStatefulDeltaBudgetAvailable("") {
+		t.Fatal("blank session must not report budget")
+	}
+	adapter.recordWSSSearchCapStatefulDeltaMutation("")
+	if !adapter.wssSearchCapStatefulDeltaBudgetAvailable("session") {
+		t.Fatal("fresh session should have search-cap stateful delta budget")
+	}
+	for i := 0; i < wssSearchCapStatefulDeltaMaxTurns; i++ {
+		adapter.recordWSSSearchCapStatefulDeltaMutation("session")
+	}
+	if adapter.wssSearchCapStatefulDeltaBudgetAvailable("session") {
+		t.Fatal("session should exhaust search-cap stateful delta budget at max turns")
+	}
+}
+
+func TestWSSOutputReduceDisabledPredicateReasons(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	tests := []struct {
+		name     string
+		blocked  bool
+		tool     bool
+		l0Blocks int
+		facts    bool
+		meta     wssRequestMeta
+		want     string
+	}{
+		{name: "tool_and_layer0", blocked: true, tool: true, l0Blocks: 1, want: "tool_output_after_layer0_mutation"},
+		{name: "tool_only", blocked: true, tool: true, want: "tool_output_context"},
+		{name: "layer0_only", blocked: true, l0Blocks: 1, want: "layer0_mutation_context"},
+		{name: "generic_block", blocked: true, want: "tool_or_layer0_context"},
+		{name: "prompt_cache_prefix", facts: true, meta: wssRequestMeta{HasPromptCachePrefix: true, HasUserPromptInput: true}, want: "prompt_cache_prefix"},
+		{name: "no_user_prompt", facts: true, meta: wssRequestMeta{HasUserPromptInput: false}, want: "no_user_prompt"},
+		{name: "unknown_shape", want: "unknown_shape"},
+		{name: "unclassified", facts: true, meta: wssRequestMeta{HasUserPromptInput: true}, want: "unclassified_disabled"},
+	}
+	for _, tt := range tests {
+		l0Stats := proxyLayer0Stats{BlocksModified: tt.l0Blocks}
+		got := adapter.wssOutputReduceDisabledPredicate(tt.blocked, tt.tool, l0Stats, tt.facts, tt.meta)
+		if got != tt.want {
+			t.Fatalf("%s predicate=%q, want %q", tt.name, got, tt.want)
+		}
+		facts := adapter.wssOutputReduceDisabledFacts([]byte(`{"input":"hello"}`), tt.blocked, tt.tool, l0Stats, tt.facts, tt.meta)
+		if facts["wss.output_reduce_disabled_predicate"] != tt.want {
+			t.Fatalf("%s facts predicate=%q, want %q", tt.name, facts["wss.output_reduce_disabled_predicate"], tt.want)
+		}
+	}
+
+	cfg.Compression.OutputReduce.Enabled = false
+	disabled := (&PhaseFDispatcher{Proxy: New(cfg)}).newWSPhaseFAdapter()
+	if got := disabled.wssOutputReduceDisabledPredicate(false, false, proxyLayer0Stats{}, true, wssRequestMeta{HasUserPromptInput: true}); got != "operator_or_layer_disabled" {
+		t.Fatalf("disabled predicate=%q, want operator_or_layer_disabled", got)
+	}
+}
+
 func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 	raw := map[string]any{
 		"model":            "gpt-5-codex",
