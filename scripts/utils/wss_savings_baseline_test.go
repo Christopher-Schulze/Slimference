@@ -14,11 +14,18 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 	readPath := filepath.Join(dir, "repeat-read.frames.jsonl")
 	rootSearchPath := filepath.Join(dir, "root-search.frames.jsonl")
 	deltaSearchPath := filepath.Join(dir, "delta-search.frames.jsonl")
+	t354Path := filepath.Join(dir, "t354-clean.frames.jsonl")
 	invalidPath := filepath.Join(dir, "matrix.jsonl")
 
 	writeProofRepeatReadFrames(t, readPath, "baseline-read")
 	writeProofSearchFrames(t, rootSearchPath, "baseline-root-search")
 	writeBaselineDeltaSearchFrames(t, deltaSearchPath, "baseline-delta-search")
+	writeJSONLFile(t, t354Path,
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequest("resp-before", "call_mutated"), true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
 	writeJSONLFile(t, invalidPath, map[string]any{"not": "a replay frame"})
 
 	report, err := loadWSSSavingsBaselineReport(wssSavingsBaselineFlags{
@@ -30,7 +37,7 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.GatePassed || report.FrameFiles != 3 || report.SkippedFiles != 1 {
+	if !report.GatePassed || report.FrameFiles != 4 || report.SkippedFiles != 1 {
 		t.Fatalf("unexpected baseline status: %+v", report)
 	}
 	if report.Totals.ProductPositiveFiles == 0 || report.Totals.ProductReducerTokensSaved == 0 {
@@ -50,6 +57,16 @@ func TestWSSSavingsBaselineAggregatesProductSearchAndGuardGaps(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(report.Findings, "\n"), "product_guarded_delta_observe_misses=1") {
 		t.Fatalf("findings did not surface guarded delta observe-only state: %+v", report.Findings)
+	}
+	if report.Totals.T354CandidateFiles != 1 ||
+		report.Totals.T354MutatedCandidates != 1 ||
+		report.Totals.T354DeltaCandidates != 1 ||
+		report.Totals.T354CandidatesPassing != 1 ||
+		report.Totals.T354UnsafeCandidates != 0 {
+		t.Fatalf("T354 downstream proof counters missing: %+v", report.Totals)
+	}
+	if !strings.Contains(strings.Join(report.Findings, "\n"), "t354_candidates_passing=1") {
+		t.Fatalf("findings did not surface T354 passing candidate: %+v", report.Findings)
 	}
 }
 

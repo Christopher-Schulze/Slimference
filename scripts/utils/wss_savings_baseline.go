@@ -46,6 +46,7 @@ type wssSavingsBaselineRow struct {
 	SearchCapProofLatch          wssSavingsBaselineReplaySummary  `json:"search_cap_proof_latch"`
 	BroadToolOutputNonDelta      wssSavingsBaselineReplaySummary  `json:"broad_tool_output_non_delta"`
 	UnsafeDeltaLab               *wssSavingsBaselineReplaySummary `json:"unsafe_delta_lab,omitempty"`
+	T354DownstreamProof          wssT354ShapeProofRow             `json:"t354_downstream_proof"`
 	SearchCapExtraTokens         int                              `json:"search_cap_extra_tokens"`
 	SearchCapExtraBytes          int                              `json:"search_cap_extra_bytes"`
 	BroadToolOutputExtraTokens   int                              `json:"broad_tool_output_extra_tokens"`
@@ -91,30 +92,38 @@ type wssSavingsBaselineReplaySummary struct {
 }
 
 type wssSavingsBaselineTotal struct {
-	RequestTurns                      int `json:"request_turns"`
-	SearchRequestTurns                int `json:"search_request_turns"`
-	ProductPositiveFiles              int `json:"product_positive_files"`
-	ProductReducerTokensSaved         int `json:"product_reducer_tokens_saved"`
-	ProductBytesSaved                 int `json:"product_bytes_saved"`
-	ProductGuardedDeltaReadHits       int `json:"product_guarded_delta_read_delta_hits"`
-	ProductGuardedDeltaReadMisses     int `json:"product_guarded_delta_read_delta_misses"`
-	ProductGuardedDeltaRepeatedHits   int `json:"product_guarded_delta_repeated_output_hits"`
-	ProductGuardedDeltaRepeatedMisses int `json:"product_guarded_delta_repeated_output_misses"`
-	SearchCapPositiveExtraFiles       int `json:"search_cap_positive_extra_files"`
-	SearchCapExtraTokens              int `json:"search_cap_extra_tokens"`
-	SearchCapExtraBytes               int `json:"search_cap_extra_bytes"`
-	SearchDeltaGuardedFiles           int `json:"search_delta_guarded_files"`
-	FullHistorySearchCapFiles         int `json:"full_history_search_cap_files"`
-	BroadToolOutputPositiveFiles      int `json:"broad_tool_output_positive_files"`
-	BroadToolOutputExtraTokens        int `json:"broad_tool_output_extra_tokens"`
-	BroadToolOutputExtraBytes         int `json:"broad_tool_output_extra_bytes"`
-	UnsafeDeltaLabPositiveFiles       int `json:"unsafe_delta_lab_positive_files,omitempty"`
-	UnsafeDeltaLabExtraTokens         int `json:"unsafe_delta_lab_extra_tokens,omitempty"`
-	UnsafeDeltaLabExtraBytes          int `json:"unsafe_delta_lab_extra_bytes,omitempty"`
-	ProductSafetyIssueFiles           int `json:"product_safety_issue_files"`
-	SearchCapSafetyIssueFiles         int `json:"search_cap_safety_issue_files"`
-	BroadToolOutputSafetyIssueFiles   int `json:"broad_tool_output_safety_issue_files"`
-	UnsafeDeltaLabSafetyIssueFiles    int `json:"unsafe_delta_lab_safety_issue_files,omitempty"`
+	RequestTurns                       int `json:"request_turns"`
+	SearchRequestTurns                 int `json:"search_request_turns"`
+	ProductPositiveFiles               int `json:"product_positive_files"`
+	ProductReducerTokensSaved          int `json:"product_reducer_tokens_saved"`
+	ProductBytesSaved                  int `json:"product_bytes_saved"`
+	ProductGuardedDeltaReadHits        int `json:"product_guarded_delta_read_delta_hits"`
+	ProductGuardedDeltaReadMisses      int `json:"product_guarded_delta_read_delta_misses"`
+	ProductGuardedDeltaRepeatedHits    int `json:"product_guarded_delta_repeated_output_hits"`
+	ProductGuardedDeltaRepeatedMisses  int `json:"product_guarded_delta_repeated_output_misses"`
+	SearchCapPositiveExtraFiles        int `json:"search_cap_positive_extra_files"`
+	SearchCapExtraTokens               int `json:"search_cap_extra_tokens"`
+	SearchCapExtraBytes                int `json:"search_cap_extra_bytes"`
+	SearchDeltaGuardedFiles            int `json:"search_delta_guarded_files"`
+	FullHistorySearchCapFiles          int `json:"full_history_search_cap_files"`
+	BroadToolOutputPositiveFiles       int `json:"broad_tool_output_positive_files"`
+	BroadToolOutputExtraTokens         int `json:"broad_tool_output_extra_tokens"`
+	BroadToolOutputExtraBytes          int `json:"broad_tool_output_extra_bytes"`
+	UnsafeDeltaLabPositiveFiles        int `json:"unsafe_delta_lab_positive_files,omitempty"`
+	UnsafeDeltaLabExtraTokens          int `json:"unsafe_delta_lab_extra_tokens,omitempty"`
+	UnsafeDeltaLabExtraBytes           int `json:"unsafe_delta_lab_extra_bytes,omitempty"`
+	ProductSafetyIssueFiles            int `json:"product_safety_issue_files"`
+	SearchCapSafetyIssueFiles          int `json:"search_cap_safety_issue_files"`
+	BroadToolOutputSafetyIssueFiles    int `json:"broad_tool_output_safety_issue_files"`
+	UnsafeDeltaLabSafetyIssueFiles     int `json:"unsafe_delta_lab_safety_issue_files,omitempty"`
+	T354CandidateFiles                 int `json:"t354_candidate_files"`
+	T354PassingFiles                   int `json:"t354_passing_files"`
+	T354MutatedCandidates              int `json:"t354_mutated_candidates"`
+	T354DeltaCandidates                int `json:"t354_delta_candidates"`
+	T354FullHistoryCandidates          int `json:"t354_full_history_candidates"`
+	T354CandidatesPassing              int `json:"t354_candidates_passing"`
+	T354MissingFollowingTurnCandidates int `json:"t354_missing_following_turn_candidates"`
+	T354UnsafeCandidates               int `json:"t354_unsafe_candidates"`
 }
 
 type wssSavingsBaselineSkip struct {
@@ -311,6 +320,10 @@ func loadWSSSavingsBaselineRow(path string, flags wssSavingsBaselineFlags) (wssS
 	if err != nil {
 		return wssSavingsBaselineRow{}, err
 	}
+	t354, err := loadWSST354ShapeProofRow(path)
+	if err != nil {
+		return wssSavingsBaselineRow{}, err
+	}
 	row := wssSavingsBaselineRow{
 		Path:                       path,
 		Frames:                     product.Frames,
@@ -320,6 +333,7 @@ func loadWSSSavingsBaselineRow(path string, flags wssSavingsBaselineFlags) (wssS
 		Product:                    wssSavingsBaselineReplaySummaryFrom(product),
 		SearchCapProofLatch:        wssSavingsBaselineReplaySummaryFrom(searchCap),
 		BroadToolOutputNonDelta:    wssSavingsBaselineReplaySummaryFrom(broad),
+		T354DownstreamProof:        t354,
 		SearchCapExtraTokens:       positiveDelta(searchCap.ReducerTokensSaved, product.ReducerTokensSaved),
 		SearchCapExtraBytes:        positiveDelta(searchCap.BytesSaved, product.BytesSaved),
 		BroadToolOutputExtraTokens: positiveDelta(broad.ReducerTokensSaved, product.ReducerTokensSaved),
@@ -465,6 +479,29 @@ func applyWSSSavingsBaselineRow(total *wssSavingsBaselineTotal, row wssSavingsBa
 			total.UnsafeDeltaLabSafetyIssueFiles++
 		}
 	}
+	if len(row.T354DownstreamProof.Candidates) > 0 {
+		total.T354CandidateFiles++
+	}
+	if row.T354DownstreamProof.GatePassed {
+		total.T354PassingFiles++
+	}
+	for _, candidate := range row.T354DownstreamProof.Candidates {
+		total.T354MutatedCandidates++
+		switch candidate.Shape {
+		case "delta":
+			total.T354DeltaCandidates++
+		case "full_history":
+			total.T354FullHistoryCandidates++
+		}
+		if candidate.UnlockProofPassing {
+			total.T354CandidatesPassing++
+		} else {
+			total.T354UnsafeCandidates++
+		}
+		if !candidate.FollowingTurnPresent {
+			total.T354MissingFollowingTurnCandidates++
+		}
+	}
 }
 
 func wssSavingsBaselineFindings(report wssSavingsBaselineReport) []string {
@@ -495,6 +532,15 @@ func wssSavingsBaselineFindings(report wssSavingsBaselineReport) []string {
 	}
 	if report.IncludeUnsafeDeltaLab && report.Totals.UnsafeDeltaLabExtraTokens > 0 {
 		findings = append(findings, fmt.Sprintf("unsafe_delta_lab_extra_tokens=%d", report.Totals.UnsafeDeltaLabExtraTokens))
+	}
+	if report.Totals.T354MutatedCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("t354_mutated_candidates=%d", report.Totals.T354MutatedCandidates))
+	}
+	if report.Totals.T354CandidatesPassing > 0 {
+		findings = append(findings, fmt.Sprintf("t354_candidates_passing=%d", report.Totals.T354CandidatesPassing))
+	}
+	if report.Totals.T354MissingFollowingTurnCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("t354_missing_following_turn_candidates=%d", report.Totals.T354MissingFollowingTurnCandidates))
 	}
 	return findings
 }
@@ -541,6 +587,15 @@ func writeWSSSavingsBaselineText(w io.Writer, report wssSavingsBaselineReport) {
 		report.Totals.BroadToolOutputExtraTokens,
 		report.Totals.BroadToolOutputExtraBytes,
 		report.Totals.BroadToolOutputSafetyIssueFiles)
+	fmt.Fprintf(w, "  t354_proof:        candidate_files=%d passing_files=%d candidates=%d delta=%d full_history=%d passing=%d unsafe=%d missing_following=%d\n",
+		report.Totals.T354CandidateFiles,
+		report.Totals.T354PassingFiles,
+		report.Totals.T354MutatedCandidates,
+		report.Totals.T354DeltaCandidates,
+		report.Totals.T354FullHistoryCandidates,
+		report.Totals.T354CandidatesPassing,
+		report.Totals.T354UnsafeCandidates,
+		report.Totals.T354MissingFollowingTurnCandidates)
 	if report.IncludeUnsafeDeltaLab {
 		fmt.Fprintf(w, "  unsafe_delta_lab:  files=%d extra_tokens=%d extra_bytes=%d safety_issues=%d\n",
 			report.Totals.UnsafeDeltaLabPositiveFiles,
