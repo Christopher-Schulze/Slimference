@@ -202,6 +202,9 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "webpack", args: []string{"--mode", "production"}},
 		{command: "webpack-cli", args: []string{"--mode", "production"}},
 		{command: "pre-commit", args: []string{"run", "--all-files"}},
+		{command: "staticcheck", args: []string{"./..."}},
+		{command: "errcheck", args: []string{"./..."}},
+		{command: "gocyclo", args: []string{"-over", "12", "."}},
 		{command: "ruff", args: []string{"check", "."}},
 		{command: "pyright", args: []string{"--outputjson", "src"}},
 		{command: "stylelint", args: []string{"--formatter", "json", "**/*.css"}},
@@ -972,6 +975,123 @@ func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
 	}
 	if uri := commandOutputFirstArchiveURI(fmtStdout.String()); uri != "" {
 		t.Fatalf("small prettier full-pass must not archive: %q", fmtStdout.String())
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 60; i++ {
+		diagnostics.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
+	}
+	realStaticcheck := writeFakeCommand(t, "staticcheck", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=staticcheck", "--real-bin=" + realStaticcheck, "--", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"[staticcheck] FAILED (60 diagnostics)",
+		"internal/app/app.go:22:7: this value of err is never used (SA4006) (repeated 60 times)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("focused lint compact output missing %q in %q", want, got)
+		}
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand focused lint archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("SA4006")) || bytes.Count(raw, []byte("this value of err is never used")) != 60 {
+		t.Fatalf("archive did not preserve focused lint raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:staticcheck] staticcheck ./...") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroStderrFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realStaticcheck := writeFakeCommand(t, "staticcheck", `#!/bin/sh
+printf 'internal/app/app.go:22:7: this value of err is never used (SA4006)\n'
+printf 'warning: matched no packages\n' >&2
+exit 1
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=staticcheck", "--real-bin=" + realStaticcheck, "--", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if got := stdout.String(); got != "internal/app/app.go:22:7: this value of err is never used (SA4006)\n" {
+		t.Fatalf("stdout=%q", got)
+	}
+	if got := stderr.String(); got != "warning: matched no packages\n" {
+		t.Fatalf("stderr=%q", got)
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("stderr full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("stderr full-pass must not record accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroUnknownLineFullPasses(t *testing.T) {
+	realStaticcheck := writeFakeCommand(t, "staticcheck", `#!/bin/sh
+cat <<'EOF'
+warning: matched no packages
+internal/app/app.go:22:7: this value of err is never used (SA4006)
+EOF
+exit 1
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=staticcheck", "--real-bin=" + realStaticcheck, "--", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	want := "warning: matched no packages\ninternal/app/app.go:22:7: this value of err is never used (SA4006)\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout=%q want=%q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("unknown-line full-pass must not archive: %q", stdout.String())
 	}
 }
 

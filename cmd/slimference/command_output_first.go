@@ -59,6 +59,9 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "prettier", "mypy",
+		"golangci-lint", "staticcheck", "revive", "errcheck",
+		"ineffassign", "nilaway", "unparam", "misspell", "gocyclo",
+		"forbidigo", "prealloc",
 		"vitest", "jest", "mocha", "ava", "karma", "playwright", "cypress",
 		"wdio", "nx", "turbo", "deno", "phpunit", "ctest", "ginkgo",
 		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
@@ -345,6 +348,9 @@ func commandOutputFirstDirectLintAllowed(command string, args []string) bool {
 	switch command {
 	case "pre-commit":
 		return len(args) > 0 && args[0] == "run"
+	case "golangci-lint", "staticcheck", "revive", "errcheck", "ineffassign",
+		"nilaway", "unparam", "misspell", "gocyclo", "forbidigo", "prealloc":
+		return true
 	case "ruff":
 		return commandOutputFirstArgsContain(args, "check")
 	case "pyright", "basedpyright", "stylelint", "mypy":
@@ -574,10 +580,13 @@ func commandOutputFirstMillTestAllowed(args []string) bool {
 }
 
 func compactCommandOutputFirst(command, realBin string, args []string, stdout, stderr []byte, code int) ([]byte, bool) {
-	if code != 0 || len(stderr) != 0 {
+	if len(stderr) != 0 {
 		return nil, false
 	}
 	argv := append([]string{realBin}, args...)
+	if code != 0 {
+		return compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stdout)
+	}
 	switch command {
 	case "git":
 		switch commandOutputFirstGitSubcommand(args) {
@@ -707,6 +716,35 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
 		return nil, false
+	}
+}
+
+func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []string, stdout []byte) ([]byte, bool) {
+	if !commandOutputFirstFocusedLintDiagnosticAllowed(command, args) {
+		return nil, false
+	}
+	compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+	return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+}
+
+func commandOutputFirstFocusedLintDiagnosticAllowed(command string, args []string) bool {
+	if commandOutputFirstFocusedLintCommand(command) {
+		return true
+	}
+	if command != "npx" {
+		return false
+	}
+	tool, _, ok := commandOutputFirstNpxTool(args)
+	return ok && commandOutputFirstFocusedLintCommand(tool)
+}
+
+func commandOutputFirstFocusedLintCommand(command string) bool {
+	switch command {
+	case "golangci-lint", "staticcheck", "revive", "errcheck", "ineffassign",
+		"nilaway", "unparam", "misspell", "gocyclo", "forbidigo", "prealloc":
+		return true
+	default:
+		return false
 	}
 }
 
