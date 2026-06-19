@@ -2534,6 +2534,154 @@ func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0PatchContextExactRepeatUsesRepeatedOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	largeDiff := strings.Repeat("diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old stable patch context\n+new stable patch context\n", 220)
+	messagesFor := func(id string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"git diff -- a.go"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: largeDiff}}},
+		}
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:                     codexLayer0RouteWSSPhaseF,
+			Messages:                  messages,
+			SessionID:                 "patch-context-exact-repeat",
+			PolicyMode:                "max",
+			StructuredMutationBlocked: true,
+		}
+	}
+
+	seed := reduceCodexLayer0(req(messagesFor("diff-seed")))
+	if seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.TokensSaved != 0 ||
+		seed.Messages[1].Content[0].Text != largeDiff {
+		t.Fatalf("first guarded patch context must full-pass and seed only: stats=%+v text=%q", seed.Stats, seed.Messages[1].Content[0].Text)
+	}
+	repeated := reduceCodexLayer0(req(messagesFor("diff-repeat")))
+	if repeated.Stats.RepeatedOutputBlocks != 1 || repeated.Stats.TokensSaved <= 0 ||
+		!strings.Contains(repeated.Messages[1].Content[0].Text, "[context-elided kind=tool-output status=unchanged") ||
+		!strings.Contains(repeated.Messages[1].Content[0].Text, "archive=local-archive://") ||
+		strings.Contains(repeated.Messages[1].Content[0].Text, "old stable patch context") {
+		t.Fatalf("second exact patch context should use repeated-output only: stats=%+v text=%q", repeated.Stats, repeated.Messages[1].Content[0].Text)
+	}
+	if !hasEvidenceDecision(repeated.Stats.EvidenceDecisions, proxyLayer0MechanismRepeatedOut, "positive_net_savings", evidence.ActionApplied) {
+		t.Fatalf("repeated patch context should emit applied repeated evidence: %+v", repeated.Stats.EvidenceDecisions)
+	}
+	for _, decision := range repeated.Stats.EvidenceDecisions {
+		if decision.Mechanism == string(proxyLayer0MechanismRepeatedOut) &&
+			decision.Action == evidence.ActionApplied &&
+			decision.ContentClass != evidence.ContentDiff {
+			t.Fatalf("repeated patch context evidence must stay diff-classified: %+v", decision)
+		}
+	}
+}
+
+func TestReduceCodexLayer0PatchContextRiskFullPassesRepeatPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	tests := []struct {
+		name   string
+		text   string
+		reason string
+	}{
+		{
+			name:   "failed apply",
+			text:   "diff --git a/a.go b/a.go\nerror: patch failed: a.go:1\nfailed to apply patch\n",
+			reason: "wss_patch_context_failed_apply_full_pass",
+		},
+		{
+			name:   "conflict",
+			text:   "diff --git a/a.go b/a.go\n<<<<<<< ours\nold\n=======\nnew\n>>>>>>> theirs\n",
+			reason: "wss_patch_context_conflict_full_pass",
+		},
+		{
+			name:   "rejected hunk",
+			text:   "diff --git a/a.go b/a.go\npatch output saved to a.go.rej\nrejected hunk needs manual review\n",
+			reason: "wss_patch_context_rejected_hunk_full_pass",
+		},
+		{
+			name:   "binary diff",
+			text:   "diff --git a/a.png b/a.png\nBinary files a/a.png and b/a.png differ\n",
+			reason: "wss_patch_context_binary_diff_full_pass",
+		},
+		{
+			name:   "rename",
+			text:   "diff --git a/old.go b/new.go\nsimilarity index 98%\nrename from old.go\nrename to new.go\n",
+			reason: "wss_patch_context_rename_full_pass",
+		},
+	}
+	messagesFor := func(id string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"git diff -- a.go"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id}}},
+		}
+	}
+	req := func(sessionID string, messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:                     codexLayer0RouteWSSPhaseF,
+			Messages:                  messages,
+			SessionID:                 sessionID,
+			PolicyMode:                "max",
+			StructuredMutationBlocked: true,
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := strings.Repeat(tt.text, 220)
+			sessionID := "patch-context-risk-repeat-" + strings.ReplaceAll(tt.name, " ", "-")
+			seedMessages := messagesFor("risk-seed")
+			seedMessages[1].Content[0].Text = payload
+			repeatMessages := messagesFor("risk-repeat")
+			repeatMessages[1].Content[0].Text = payload
+			seed := reduceCodexLayer0(req(sessionID, seedMessages))
+			repeated := reduceCodexLayer0(req(sessionID, repeatMessages))
+			for _, result := range []codexLayer0Result{seed, repeated} {
+				if result.Stats.BlocksModified != 0 || result.Stats.TokensSaved != 0 ||
+					result.Stats.RepeatedOutputBlocks != 0 ||
+					result.Messages[1].Content[0].Text != payload {
+					t.Fatalf("%s patch context must full-pass byte-identically: stats=%+v text=%q", tt.name, result.Stats, result.Messages[1].Content[0].Text)
+				}
+				if !hasEvidenceDecision(result.Stats.EvidenceDecisions, proxyLayer0MechanismRepeatedOut, tt.reason, evidence.ActionFullPass) ||
+					!hasEvidenceDecision(result.Stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, tt.reason, evidence.ActionFullPass) {
+					t.Fatalf("%s patch full-pass evidence missing: %+v", tt.name, result.Stats.EvidenceDecisions)
+				}
+			}
+		})
+	}
+}
+
+func TestReduceCodexLayer0PatchContextNonIdenticalRepeatFullPasses(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	diffA := strings.Repeat("diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old alpha\n+new alpha\n", 240)
+	diffB := strings.Repeat("diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old beta\n+new beta\n", 240)
+	messagesFor := func(id, text string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"git diff -- a.go"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: text}}},
+		}
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:                     codexLayer0RouteWSSPhaseF,
+			Messages:                  messages,
+			SessionID:                 "patch-context-non-identical",
+			PolicyMode:                "max",
+			StructuredMutationBlocked: true,
+		}
+	}
+
+	_ = reduceCodexLayer0(req(messagesFor("diff-a", diffA)))
+	result := reduceCodexLayer0(req(messagesFor("diff-b", diffB)))
+	if result.Stats.RepeatedOutputBlocks != 0 || result.Stats.TokensSaved != 0 ||
+		result.Messages[1].Content[0].Text != diffB {
+		t.Fatalf("non-identical patch context must not reuse prior repeat: stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupFullPassesAfterRecentEditUncertainty(t *testing.T) {
 	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{MaxSessionRefPct: 100}, func(_, id string, chunk []byte) string {
 		return "local-archive://" + id

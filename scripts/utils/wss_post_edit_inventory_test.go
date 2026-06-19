@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 )
 
 func TestWSSPostEditInventoryBlocksWithoutExactState(t *testing.T) {
@@ -199,6 +200,128 @@ func TestWSSPostEditInventoryCountsMultiHashPatchContextTelemetry(t *testing.T) 
 		report.RepeatedPatchContextCandidates != 1 ||
 		report.PatchContextTokensEstimate != 1800 {
 		t.Fatalf("unexpected multi-hash patch-context report: %+v", report)
+	}
+}
+
+func TestWSSPostEditInventoryCountsAppliedRepeatedDiffEvidence(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "patch-repeat-applied",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 7800, Saved: 1200},
+		DebugFacts: map[string]string{
+			"wss.request_shape":           "full_history",
+			"wss.tool_command_classes":    "git_diff=1",
+			"wss.patch_context_candidate": "true",
+			"wss.patch_context_kind":      "git_diff",
+			"wss.patch_context_hash":      "patch-hash",
+			"wss.patch_context_bytes":     "4800",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "repeated_tool_output",
+			CommandClass:   "git_diff",
+			ContentClass:   evidence.ContentDiff,
+			SafetyClass:    evidence.SafetyExact,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 1500,
+			FinalTokens:    300,
+			SavedTokens:    1200,
+			NetTokens:      1200,
+		}},
+	})
+
+	report, err := loadWSSPostEditInventory(wssPostEditInventoryFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSPostEditInventory() error = %v", err)
+	}
+	if report.Verdict != "product_exact_repeat_active" ||
+		report.PatchContextRepeatedApplied != 1 ||
+		report.PatchContextRepeatedSavedTokens != 1200 ||
+		report.PerLog[0].PatchContextRepeatedApplied != 1 {
+		t.Fatalf("unexpected applied repeated patch report: %+v", report)
+	}
+}
+
+func TestWSSPostEditInventoryRiskBlocksAppliedRepeatedDiffEvidence(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "patch-repeat-risk",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 7800, Saved: 1200},
+		DebugFacts: map[string]string{
+			"wss.tool_command_classes":    "git_diff=1",
+			"wss.patch_context_candidate": "true",
+			"wss.patch_context_kind":      "git_diff",
+			"wss.patch_context_hash":      "patch-hash",
+			"wss.patch_context_conflict":  "true",
+		},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "repeated_tool_output",
+			CommandClass:   "git_diff",
+			ContentClass:   evidence.ContentDiff,
+			SafetyClass:    evidence.SafetyExact,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 1500,
+			FinalTokens:    300,
+			SavedTokens:    1200,
+			NetTokens:      1200,
+		}},
+	})
+
+	report, err := loadWSSPostEditInventory(wssPostEditInventoryFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSPostEditInventory() error = %v", err)
+	}
+	if report.Verdict != "promotion_blocked_patch_risk" ||
+		report.PatchContextRepeatedApplied != 0 ||
+		report.PatchContextRepeatedSavedTokens != 0 ||
+		report.PatchContextRiskRequests != 1 {
+		t.Fatalf("unexpected risk-blocked applied patch report: %+v", report)
+	}
+}
+
+func TestWSSPostEditInventoryDoesNotCountRepeatedCodeEvidenceAsPatchContext(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "code-repeat-applied",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 9000, Final: 7800, Saved: 1200},
+		EvidenceDecisions: []evidence.BlockDecision{{
+			Mechanism:      "repeated_tool_output",
+			CommandClass:   "other",
+			ContentClass:   evidence.ContentCode,
+			SafetyClass:    evidence.SafetyExact,
+			Action:         evidence.ActionApplied,
+			Reason:         "positive_net_savings",
+			OriginalTokens: 1500,
+			FinalTokens:    300,
+			SavedTokens:    1200,
+			NetTokens:      1200,
+		}},
+	})
+
+	report, err := loadWSSPostEditInventory(wssPostEditInventoryFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSPostEditInventory() error = %v", err)
+	}
+	if report.PatchContextRepeatedApplied != 0 ||
+		report.PatchContextRepeatedSavedTokens != 0 ||
+		report.Verdict != "candidate_telemetry_missing" {
+		t.Fatalf("code repeated-output must not count as patch context: %+v", report)
 	}
 }
 

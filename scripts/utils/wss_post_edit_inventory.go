@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
@@ -43,6 +44,8 @@ type wssPostEditInventoryReport struct {
 	PatchContextExactTelemetryRequests int                          `json:"patch_context_exact_telemetry_requests"`
 	MissingPatchContextTelemetry       int                          `json:"missing_patch_context_telemetry_requests"`
 	RepeatedPatchContextCandidates     int                          `json:"repeated_patch_context_candidates"`
+	PatchContextRepeatedApplied        int                          `json:"patch_context_repeated_applied"`
+	PatchContextRepeatedSavedTokens    int                          `json:"patch_context_repeated_saved_tokens"`
 	PatchContextRiskRequests           int                          `json:"patch_context_risk_requests"`
 	ToolCommandClasses                 map[string]int               `json:"tool_command_classes,omitempty"`
 	RequestShapes                      map[string]int               `json:"request_shapes,omitempty"`
@@ -67,6 +70,7 @@ type wssPostEditInventoryLogRow struct {
 	RepeatedPostEditStateCandidates int     `json:"repeated_post_edit_state_candidates"`
 	PatchContextRequests            int     `json:"patch_context_requests"`
 	RepeatedPatchContextCandidates  int     `json:"repeated_patch_context_candidates"`
+	PatchContextRepeatedApplied     int     `json:"patch_context_repeated_applied"`
 	LocalSavingsRatio               float64 `json:"local_savings_ratio"`
 }
 
@@ -291,6 +295,7 @@ func (a *wssPostEditInventoryAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	if signals.patchContext {
 		a.addPatchContext(signals, logRow)
 	}
+	a.addAppliedPatchContextRepeat(summary, signals, logRow)
 }
 
 func (a *wssPostEditInventoryAccumulator) addPostEditRead(signals wssPostEditRequestSignals, logRow *wssPostEditInventoryLogRow) {
@@ -349,6 +354,16 @@ func (a *wssPostEditInventoryAccumulator) addPatchContext(signals wssPostEditReq
 		return
 	}
 	a.report.MissingPatchContextTelemetry++
+}
+
+func (a *wssPostEditInventoryAccumulator) addAppliedPatchContextRepeat(summary dbg.RequestSummary, signals wssPostEditRequestSignals, logRow *wssPostEditInventoryLogRow) {
+	applied, savedTokens := wssPostEditAppliedRepeatedPatchContext(summary, signals)
+	if applied == 0 {
+		return
+	}
+	a.report.PatchContextRepeatedApplied += applied
+	a.report.PatchContextRepeatedSavedTokens += savedTokens
+	logRow.PatchContextRepeatedApplied += applied
 }
 
 func wssPostEditSignals(summary dbg.RequestSummary) wssPostEditRequestSignals {
@@ -489,6 +504,36 @@ func wssPostEditPatchRisk(summary dbg.RequestSummary) (bool, string) {
 	return false, ""
 }
 
+func wssPostEditAppliedRepeatedPatchContext(summary dbg.RequestSummary, signals wssPostEditRequestSignals) (int, int) {
+	if signals.patchContextRisk || wssPostEditSummaryHasPatchRisk(summary) {
+		return 0, 0
+	}
+	applied := 0
+	savedTokens := 0
+	for _, decision := range summary.EvidenceDecisions {
+		if decision.Mechanism != "repeated_tool_output" ||
+			decision.Action != evidence.ActionApplied ||
+			decision.ContentClass != evidence.ContentDiff {
+			continue
+		}
+		saved := decision.NetTokens
+		if saved <= 0 {
+			saved = decision.SavedTokens
+		}
+		if saved <= 0 {
+			continue
+		}
+		applied++
+		savedTokens += saved
+	}
+	return applied, savedTokens
+}
+
+func wssPostEditSummaryHasPatchRisk(summary dbg.RequestSummary) bool {
+	risk, _ := wssPostEditPatchRisk(summary)
+	return risk
+}
+
 func wssPostEditReasons(summary dbg.RequestSummary) []string {
 	var out []string
 	if summary.BypassReason != "" {
@@ -545,10 +590,16 @@ func wssPostEditInventoryVerdict(report wssPostEditInventoryReport) string {
 		return "no_post_edit_or_patch_surface"
 	case report.MissingExactStateRequests > 0:
 		return "post_edit_exact_state_missing"
+	case report.PatchContextRepeatedApplied > 0 && report.PatchContextRiskRequests > 0:
+		return "product_exact_repeat_active_with_risk_full_pass"
+	case report.PatchContextRepeatedApplied > 0 && report.MissingPatchContextTelemetry > 0:
+		return "product_exact_repeat_active_with_telemetry_gap"
 	case report.MissingPatchContextTelemetry > 0:
 		return "patch_context_telemetry_missing"
 	case report.PatchContextRiskRequests > 0:
 		return "promotion_blocked_patch_risk"
+	case report.PatchContextRepeatedApplied > 0:
+		return "product_exact_repeat_active"
 	case report.RepeatedPostEditStateCandidates == 0 && report.RepeatedPatchContextCandidates == 0:
 		return "shadow_measure_only_no_repeat"
 	default:
@@ -570,6 +621,12 @@ func wssPostEditInventoryNextAction(report wssPostEditInventoryReport) string {
 		return "keep patch_context_dedup shadow-only; add exact patch/diff hash, kind, byte count, and failure/conflict flags before any reducer design"
 	case "promotion_blocked_patch_risk":
 		return "full-pass patch/diff conflict, failed apply, rejected hunk, binary, and rename classes; measure only exact clean repeats"
+	case "product_exact_repeat_active_with_risk_full_pass":
+		return "keep clean exact-repeat patch/diff savings active; preserve risk full-pass guards and add fresh live rows before considering unchanged-range dedup"
+	case "product_exact_repeat_active_with_telemetry_gap":
+		return "keep applied exact-repeat patch/diff savings active; add exact patch hash/kind/byte/risk facts to remaining candidate rows before widening the design"
+	case "product_exact_repeat_active":
+		return "keep clean exact-repeat patch/diff savings active; add negative live rows before considering unchanged-context range dedup"
 	case "shadow_measure_only_no_repeat":
 		return "retain measurement only; exact-state telemetry exists but this corpus has no repeated unchanged post-edit or patch-context surface"
 	default:
@@ -585,6 +642,9 @@ func wssPostEditInventoryNotes(report wssPostEditInventoryReport) []string {
 	}
 	if report.PatchContextRequests > 0 {
 		notes = append(notes, fmt.Sprintf("Patch-context token estimates are planning estimates only: %d tokens across %d request(s).", report.PatchContextTokensEstimate, report.PatchContextRequests))
+	}
+	if report.PatchContextRepeatedApplied > 0 {
+		notes = append(notes, fmt.Sprintf("Applied exact-repeat patch/diff savings are real product savings: %d applied block(s), %d saved token(s), provider cache excluded.", report.PatchContextRepeatedApplied, report.PatchContextRepeatedSavedTokens))
 	}
 	if report.MissingExactStateRequests > 0 {
 		notes = append(notes, "Missing exact post-edit state is a hard blocker: first post-edit reads must stay full-context until file version, edit turn, changed range, path, and read range are all known.")
@@ -606,6 +666,7 @@ func writeWSSPostEditInventoryText(w io.Writer, report wssPostEditInventoryRepor
 	fmt.Fprintf(w, "Post-edit candidate est:       %d bytes / %d tokens\n", report.PostEditCandidateOutputBytes, report.PostEditCandidateTokensEstimate)
 	fmt.Fprintf(w, "Exact state:                   present=%d missing=%d repeat_candidates=%d facts=%s\n", report.ExactStateRequests, report.MissingExactStateRequests, report.RepeatedPostEditStateCandidates, formatWSSAuditCounts(report.ExactStateFacts))
 	fmt.Fprintf(w, "Patch context:                 requests=%d exact=%d missing=%d repeat_candidates=%d risk=%d\n", report.PatchContextRequests, report.PatchContextExactTelemetryRequests, report.MissingPatchContextTelemetry, report.RepeatedPatchContextCandidates, report.PatchContextRiskRequests)
+	fmt.Fprintf(w, "Patch exact-repeat applied:    blocks=%d saved_tokens=%d\n", report.PatchContextRepeatedApplied, report.PatchContextRepeatedSavedTokens)
 	fmt.Fprintf(w, "Patch candidate est:           %d bytes / %d tokens\n", report.PatchContextBytes, report.PatchContextTokensEstimate)
 	fmt.Fprintf(w, "Provider cached tokens:        %d [separate, not S_local]\n", report.ProviderCachedTokens)
 	fmt.Fprintf(w, "\nVerdict: %s\n", report.Verdict)
@@ -625,7 +686,7 @@ func writeWSSPostEditInventoryText(w io.Writer, report wssPostEditInventoryRepor
 	if len(report.PerLog) > 0 {
 		fmt.Fprintln(w, "\nPer log:")
 		for _, row := range report.PerLog {
-			fmt.Fprintf(w, "  %-48s phasef=%d saved=%d/%d %.2f%% post_edit=%d exact=%d missing=%d repeat=%d patch=%d patch_repeat=%d\n",
+			fmt.Fprintf(w, "  %-48s phasef=%d saved=%d/%d %.2f%% post_edit=%d exact=%d missing=%d repeat=%d patch=%d patch_repeat=%d patch_applied=%d\n",
 				row.Name,
 				row.PhaseFRequests,
 				row.LocalSavedTokens,
@@ -636,7 +697,8 @@ func writeWSSPostEditInventoryText(w io.Writer, report wssPostEditInventoryRepor
 				row.MissingExactStateRequests,
 				row.RepeatedPostEditStateCandidates,
 				row.PatchContextRequests,
-				row.RepeatedPatchContextCandidates)
+				row.RepeatedPatchContextCandidates,
+				row.PatchContextRepeatedApplied)
 		}
 	}
 	if len(report.Notes) > 0 {

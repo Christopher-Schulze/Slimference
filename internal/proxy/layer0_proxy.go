@@ -689,6 +689,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				before := countBeforeTokens()
 				return proxyLayer0EvidenceDecision(commandLine, block.Text, block.Text, mechanism, evidence.ActionFullPass, reason, before, before, workload, req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
 			}
+			patchContextReductionRiskReason := proxyLayer0PatchContextReductionRiskReason(commandLine, block.Text)
 			evidenceStart := len(stats.EvidenceDecisions)
 			observationMechanism := proxyLayer0Mechanism("")
 			observationReason := ""
@@ -751,6 +752,13 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 						req.ChunkStore.Observe(req.SessionID, []byte(block.Text))
 					}
 				}
+				continue
+			}
+			if patchContextReductionRiskReason != "" {
+				if policy.RepeatedOutput {
+					stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismRepeatedOut, patchContextReductionRiskReason))
+				}
+				stats.EvidenceDecisions = append(stats.EvidenceDecisions, guardedCandidateEvidenceDecision(proxyLayer0MechanismCapturedOut, patchContextReductionRiskReason))
 				continue
 			}
 			statefulDeltaOutputMutationAllowed := wssSearchProofAllowed
@@ -2198,6 +2206,28 @@ func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, 
 		return reason, true, string(decision.BlockKind)
 	}
 	return reason, true, "block"
+}
+
+func proxyLayer0PatchContextReductionRiskReason(commandLine, text string) string {
+	if wssPatchContextCommandKind(commandLine) == "" {
+		return ""
+	}
+	trace := &wssPatchContextTrace{}
+	wssPatchTraceRiskSignals(text, trace)
+	switch {
+	case trace.failed:
+		return "wss_patch_context_failed_apply_full_pass"
+	case trace.conflict:
+		return "wss_patch_context_conflict_full_pass"
+	case trace.rejected:
+		return "wss_patch_context_rejected_hunk_full_pass"
+	case trace.binary:
+		return "wss_patch_context_binary_diff_full_pass"
+	case trace.rename:
+		return "wss_patch_context_rename_full_pass"
+	default:
+		return ""
+	}
 }
 
 func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, proxyLayer0Mechanism, chunkdedup.EncodeResult) {
