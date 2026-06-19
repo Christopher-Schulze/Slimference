@@ -1037,7 +1037,69 @@ func TestCommandOutputFirstShimFocusedLintNonzeroDiagnosticsCompactWithArchive(t
 	}
 }
 
-func TestCommandOutputFirstShimFocusedLintNonzeroStderrFullPasses(t *testing.T) {
+func TestCommandOutputFirstShimFocusedLintNonzeroStderrDiagnosticsCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 70; i++ {
+		diagnostics.WriteString("internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)\n")
+	}
+	realGolangci := writeFakeCommand(t, "golangci-lint", "#!/bin/sh\ncat >&2 <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=golangci-lint", "--real-bin=" + realGolangci, "--", "run", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	got := commandOutputFirstVisibleOutput(stderr.String())
+	for _, want := range []string{
+		"[golangci-lint] FAILED (70 diagnostics)",
+		"internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive) (repeated 70 times)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("focused lint stderr compact output missing %q in %q", want, got)
+		}
+	}
+	if !strings.Contains(stderr.String(), "stream=stderr") {
+		t.Fatalf("stderr archive marker must preserve stream distinction: %q", stderr.String())
+	}
+	uri := commandOutputFirstArchiveURI(stderr.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stderr.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand focused lint stderr archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("unused-parameter")) || bytes.Count(raw, []byte("parameter ctx seems to be unused")) != 70 {
+		t.Fatalf("archive did not preserve focused lint raw stderr: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:golangci-lint] golangci-lint run ./...") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrFullPasses(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	realStaticcheck := writeFakeCommand(t, "staticcheck", `#!/bin/sh
 printf 'internal/app/app.go:22:7: this value of err is never used (SA4006)\n'
@@ -1066,7 +1128,7 @@ exit 1
 	if run, ok, err := filter.LastFilterRun(db); err != nil {
 		t.Fatal(err)
 	} else if ok {
-		t.Fatalf("stderr full-pass must not record accounting row: %+v", run)
+		t.Fatalf("mixed stdout/stderr full-pass must not record accounting row: %+v", run)
 	}
 }
 
@@ -1092,6 +1154,31 @@ exit 1
 	}
 	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
 		t.Fatalf("unknown-line full-pass must not archive: %q", stdout.String())
+	}
+}
+
+func TestCommandOutputFirstShimFocusedLintNonzeroStderrUnknownLineFullPasses(t *testing.T) {
+	realGolangci := writeFakeCommand(t, "golangci-lint", `#!/bin/sh
+cat >&2 <<'EOF'
+level=info msg="golangci-lint has version 2.1.0"
+internal/app/app.go:10:2: unused-parameter: bad (revive)
+EOF
+exit 1
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=golangci-lint", "--real-bin=" + realGolangci, "--", "run", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	want := "level=info msg=\"golangci-lint has version 2.1.0\"\ninternal/app/app.go:10:2: unused-parameter: bad (revive)\n"
+	if got := stderr.String(); got != want {
+		t.Fatalf("stderr=%q want=%q", got, want)
+	}
+	if uri := commandOutputFirstArchiveURI(stderr.String()); uri != "" {
+		t.Fatalf("unknown-line stderr full-pass must not archive: %q", stderr.String())
 	}
 }
 

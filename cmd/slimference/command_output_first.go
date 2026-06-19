@@ -172,16 +172,20 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 	code := commandExitCode(runErr)
 	rawOut := outBuf.Bytes()
 	rawErr := errBuf.Bytes()
-	compacted, ok := compactCommandOutputFirst(cfg.command, cfg.realBin, childArgs, rawOut, rawErr, code)
+	compacted, ok := compactCommandOutputFirstStreams(cfg.command, cfg.realBin, childArgs, rawOut, rawErr, code)
 	if ok {
-		recoverable, ok := archiveCommandOutputFirstCompaction(cfg.command, childArgs, rawOut, compacted)
+		recoverable, ok := archiveCommandOutputFirstCompaction(cfg.command, childArgs, compacted.stream, compacted.raw, compacted.compacted)
 		if !ok {
 			_, _ = stdout.Write(rawOut)
 			_, _ = stderr.Write(rawErr)
 			return code
 		}
-		recordCommandOutputFirstRun(cfg.command, childArgs, rawOut, recoverable)
-		_, _ = stdout.Write(recoverable)
+		recordCommandOutputFirstRun(cfg.command, childArgs, compacted.raw, recoverable)
+		if compacted.stream == "stderr" {
+			_, _ = stderr.Write(recoverable)
+		} else {
+			_, _ = stdout.Write(recoverable)
+		}
 		return code
 	}
 	_, _ = stdout.Write(rawOut)
@@ -214,6 +218,12 @@ func parseCommandOutputFirstShimArgs(args []string) (commandOutputFirstShimConfi
 		}
 	}
 	return cfg, nil, errors.New("missing -- child separator")
+}
+
+type commandOutputFirstCompaction struct {
+	stream    string
+	raw       []byte
+	compacted []byte
 }
 
 func commandOutputFirstAllowCapture(command string, args []string) bool {
@@ -719,6 +729,21 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 	}
 }
 
+func compactCommandOutputFirstStreams(command, realBin string, args []string, stdout, stderr []byte, code int) (commandOutputFirstCompaction, bool) {
+	if code != 0 && len(stdout) == 0 && len(stderr) != 0 {
+		argv := append([]string{realBin}, args...)
+		compacted, ok := compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stderr)
+		if ok {
+			return commandOutputFirstCompaction{stream: "stderr", raw: stderr, compacted: compacted}, true
+		}
+	}
+	compacted, ok := compactCommandOutputFirst(command, realBin, args, stdout, stderr, code)
+	if !ok {
+		return commandOutputFirstCompaction{}, false
+	}
+	return commandOutputFirstCompaction{stream: "stdout", raw: stdout, compacted: compacted}, true
+}
+
 func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []string, stdout []byte) ([]byte, bool) {
 	if !commandOutputFirstFocusedLintDiagnosticAllowed(command, args) {
 		return nil, false
@@ -760,8 +785,8 @@ func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte)
 	return compacted, true
 }
 
-func archiveCommandOutputFirstCompaction(command string, args []string, rawOut, compacted []byte) ([]byte, bool) {
-	if len(rawOut) == 0 || len(compacted) == 0 {
+func archiveCommandOutputFirstCompaction(command string, args []string, stream string, raw, compacted []byte) ([]byte, bool) {
+	if len(raw) == 0 || len(compacted) == 0 {
 		return nil, false
 	}
 	home, err := osUserHomeDir()
@@ -771,7 +796,7 @@ func archiveCommandOutputFirstCompaction(command string, args []string, rawOut, 
 	label := commandOutputFirstLabel(command, args)
 	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
 		SubLayer: "command_output_first",
-		Original: string(rawOut),
+		Original: string(raw),
 		Preview:  label,
 	}, contentarchive.Limits{})
 	if err != nil || entry == nil || strings.TrimSpace(entry.URI) == "" {
@@ -779,7 +804,11 @@ func archiveCommandOutputFirstCompaction(command string, args []string, rawOut, 
 	}
 	marker := "\n[context-archive kind=tool-output uri=" + entry.URI + " recover=\"slimference expand " + entry.URI + "\"]\n"
 	recoverable := []byte(strings.TrimRight(string(compacted), "\n") + marker)
-	return commandOutputFirstPositiveCompaction(recoverable, true, rawOut)
+	if stream == "stderr" {
+		marker = "\n[context-archive kind=tool-output uri=" + entry.URI + " stream=stderr recover=\"slimference expand " + entry.URI + "\"]\n"
+		recoverable = []byte(strings.TrimRight(string(compacted), "\n") + marker)
+	}
+	return commandOutputFirstPositiveCompaction(recoverable, true, raw)
 }
 
 func recordCommandOutputFirstRun(command string, args []string, rawOut, compacted []byte) {
