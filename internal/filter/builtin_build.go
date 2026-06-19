@@ -285,28 +285,164 @@ func isMesonBin(name string) bool {
 	return b == "meson" || b == "meson.exe"
 }
 
-// TryCompactMesonCompile replaces empty stdout from `meson compile` / `npx|pnpm exec|yarn … meson compile` (F07 partial).
+// TryCompactMesonCompile replaces empty stdout and strict Ninja-backed clean
+// progress from `meson compile` / `npx|pnpm exec|yarn ... meson compile`.
 func TryCompactMesonCompile(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if _, ok := mesonCompileArgvSuffix(argv); !ok {
 		return stdout, false
 	}
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b0 := strings.ToLower(filepath.Base(argv[0]))
-	if isMesonBin(argv[0]) && argv[1] == "compile" {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[meson compile] ok\n"), true
 	}
-	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isMesonBin(rest[0]) && rest[1] == "compile" {
-		return []byte("[meson compile] ok\n"), true
-	}
-	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isMesonBin(argv[2]) && argv[3] == "compile" {
-		return []byte("[meson compile] ok\n"), true
-	}
-	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isMesonBin(argv[1]) && argv[2] == "compile" {
-		return []byte("[meson compile] ok\n"), true
+	if out, ok := compactMesonCompileCleanOutput(s, len(stdout)); ok {
+		return out, true
 	}
 	return stdout, false
+}
+
+func mesonCompileArgvSuffix(argv []string) ([]string, bool) {
+	if isMesonCompileCompactArgv(argv) {
+		return argv, true
+	}
+	if len(argv) == 0 {
+		return nil, false
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isMesonCompileCompactArgv(rest) {
+		return rest, true
+	}
+	if len(argv) >= 4 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isMesonCompileCompactArgv(argv[2:]) {
+		return argv[2:], true
+	}
+	if len(argv) >= 3 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isMesonCompileCompactArgv(argv[1:]) {
+		return argv[1:], true
+	}
+	return nil, false
+}
+
+func isMesonCompileCompactArgv(argv []string) bool {
+	if len(argv) < 2 || !isMesonBin(argv[0]) || argv[1] != "compile" {
+		return false
+	}
+	return !mesonCompileArgvHasUnsafeMode(argv[2:])
+}
+
+func mesonCompileArgvHasUnsafeMode(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "-h", "--help", "--clean", "-v", "--verbose", "--ninja-args", "--vs-args", "--xcode-args":
+			return true
+		}
+		if strings.HasPrefix(a, "--ninja-args=") ||
+			strings.HasPrefix(a, "--vs-args=") ||
+			strings.HasPrefix(a, "--xcode-args=") {
+			return true
+		}
+	}
+	return false
+}
+
+func compactMesonCompileCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[meson compile] ok\n")
+	if len(out) >= originalLen || cmakeStyleBuildOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	sawProgress := false
+	sawTerminal := false
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if mesonCompileBackendInfoLine(line) {
+			continue
+		}
+		progress, terminal := mesonNinjaCleanProgressLine(line)
+		if !progress {
+			return nil, false
+		}
+		sawProgress = true
+		if terminal {
+			sawTerminal = true
+		}
+	}
+	if !sawProgress || !sawTerminal {
+		return nil, false
+	}
+	return out, true
+}
+
+func mesonCompileBackendInfoLine(line string) bool {
+	if line == "INFO: autodetecting backend as ninja" {
+		return true
+	}
+	prefix := "INFO: calculating backend command to run: "
+	if !strings.HasPrefix(line, prefix) {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	return strings.Contains(rest, "ninja") && strings.Contains(rest, " -C ")
+}
+
+func mesonNinjaCleanProgressLine(line string) (bool, bool) {
+	if strings.HasPrefix(line, "ninja: Entering directory ") {
+		return true, false
+	}
+	if line == "ninja: no work to do." {
+		return true, true
+	}
+	if !strings.HasPrefix(line, "[") {
+		return false, false
+	}
+	closeBracket := strings.IndexByte(line, ']')
+	if closeBracket <= 1 {
+		return false, false
+	}
+	inside := strings.TrimSpace(line[1:closeBracket])
+	parts := strings.Split(inside, "/")
+	if len(parts) != 2 {
+		return false, false
+	}
+	current := strings.TrimSpace(parts[0])
+	total := strings.TrimSpace(parts[1])
+	if current == "" || total == "" {
+		return false, false
+	}
+	for _, r := range current + total {
+		if r < '0' || r > '9' {
+			return false, false
+		}
+	}
+	rest := strings.TrimSpace(line[closeBracket+1:])
+	if rest == "" || !mesonNinjaProgressText(rest) {
+		return false, false
+	}
+	return true, current == total && mesonNinjaTerminalProgressText(rest)
+}
+
+func mesonNinjaProgressText(rest string) bool {
+	for _, prefix := range []string{
+		"Compiling C object ",
+		"Compiling C++ object ",
+		"Compiling CXX object ",
+		"Compiling Objective-C object ",
+		"Compiling Objective-C++ object ",
+		"Linking target ",
+	} {
+		if strings.HasPrefix(rest, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func mesonNinjaTerminalProgressText(rest string) bool {
+	return strings.HasPrefix(rest, "Linking target ")
+}
+
+func mesonCompileOutputContainsGenericSuccess(stdout string) bool {
+	return detectBuildSuccess(stdout)
 }
 
 func isMakeBin(name string) bool {
@@ -1943,6 +2079,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 			if label == "mvn" && mvnOutputContainsBuildSuccess(s) {
 				return stdout, false
 			}
+			if label == "meson compile" && mesonCompileOutputContainsGenericSuccess(s) {
+				return stdout, false
+			}
 			if label == "tsc" && !detectBuildSuccess(s) {
 				return stdout, false
 			}
@@ -1979,6 +2118,9 @@ func buildToolLabel(argv []string) string {
 	}
 	if isGradleBuildArgv(argv) {
 		return "gradle build"
+	}
+	if _, ok := mesonCompileArgvSuffix(argv); ok {
+		return "meson compile"
 	}
 	if len(argv) >= 1 {
 		b0 := strings.ToLower(filepath.Base(argv[0]))
@@ -2018,10 +2160,6 @@ func buildToolLabel(argv []string) string {
 		// KO build
 		if isKoBin(argv[0]) && len(argv) >= 2 && argv[1] == "build" {
 			return "ko build"
-		}
-		// Meson compile
-		if isMesonBin(argv[0]) && len(argv) >= 2 && argv[1] == "compile" {
-			return "meson compile"
 		}
 		// Just
 		if isJustBin(argv[0]) {

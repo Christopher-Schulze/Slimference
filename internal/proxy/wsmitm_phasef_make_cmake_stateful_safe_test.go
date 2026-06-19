@@ -39,6 +39,13 @@ func TestWSSStatefulSafeMakeCmakeCleanProgressCompactsFullHistoryTurn(t *testing
 			want:      "[ninja] ok",
 			forbidden: "object_47.cpp.o",
 		},
+		{
+			name:      "meson compile progress",
+			command:   "meson compile -C build",
+			output:    wssMakeCmakeCleanEnvelope("meson-safe", wssMesonCompileCleanProgressFixture(48)),
+			want:      "[meson compile] ok",
+			forbidden: "object_47.c.o",
+		},
 	}
 
 	for _, tt := range tests {
@@ -114,6 +121,25 @@ func TestWSSStatefulSafeMakeCmakeUnsafeProgressRejectsFalseOK(t *testing.T) {
 			mustPreserve:  "digraph ninja",
 			wantUnchanged: true,
 		},
+		{
+			name:         "meson warning",
+			command:      "meson compile -C build",
+			output:       wssMakeCmakeCleanEnvelope("meson-warning", wssMesonCompileCleanProgressFixture(12)+"warning: generated header is stale\n"),
+			mustPreserve: "warning: generated header is stale",
+		},
+		{
+			name:         "meson custom success",
+			command:      "meson compile -C build",
+			output:       wssMakeCmakeCleanEnvelope("meson-custom-success", wssMesonCompileCleanProgressFixture(8)+"Custom command says build succeeded after refreshing production config\n"),
+			mustPreserve: "Custom command says build succeeded",
+		},
+		{
+			name:          "meson verbose mode",
+			command:       "meson compile -v -C build",
+			output:        wssMakeCmakeCleanEnvelope("meson-verbose", wssMesonCompileCleanProgressFixture(8)),
+			mustPreserve:  "object_07.c.o",
+			wantUnchanged: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -135,6 +161,7 @@ func TestWSSStatefulSafeMakeCmakeUnsafeProgressRejectsFalseOK(t *testing.T) {
 			if strings.Contains(body, "[make] ok") ||
 				strings.Contains(body, "[cmake --build] ok") ||
 				strings.Contains(body, "[ninja] ok") ||
+				strings.Contains(body, "[meson compile] ok") ||
 				!strings.Contains(body, tt.mustPreserve) {
 				t.Fatalf("unsafe make/cmake progress hid a diagnostic as OK: replace=%v body=%s", replace, body)
 			}
@@ -185,5 +212,17 @@ func wssNinjaCleanProgressFixture(files int) string {
 		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)
+	return b.String()
+}
+
+func wssMesonCompileCleanProgressFixture(files int) string {
+	var b strings.Builder
+	b.WriteString("ninja: Entering directory `/repo/build'\n")
+	for i := 0; i < files; i++ {
+		fmt.Fprintf(&b, "[%d/%d] Compiling C object app.p/generated/object_%02d.c.o\n", i+1, files+1, i)
+	}
+	fmt.Fprintf(&b, "[%d/%d] Linking target app\n", files+1, files+1)
+	b.WriteString("INFO: autodetecting backend as ninja\n")
+	b.WriteString("INFO: calculating backend command to run: /opt/homebrew/bin/ninja -C /repo/build\n")
 	return b.String()
 }
