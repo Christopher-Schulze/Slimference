@@ -630,6 +630,42 @@ func TestApplyEnv_CodexSearchCapProofPath(t *testing.T) {
 	}
 }
 
+func TestApplyEnv_CodexSearchCapProofLab(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "1")
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_FILES", "20")
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES", "10")
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT", "40.5")
+
+	cfg, _, err := LoadWithOptions(LoadOptions{AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions returned error: %v", err)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.CodexSearchCapProofPath != "" ||
+		!or.CodexSearchCapProofLabEnabled ||
+		!or.CodexSearchCapDeltaMutationEnabled ||
+		or.CodexSearchCapMaxFiles != 20 ||
+		or.CodexSearchCapMaxMatchesPerFile != 10 ||
+		or.CodexSearchCapMinRetainedPct != 40.5 {
+		t.Fatalf("env search-cap proof lab was not applied narrowly: %+v", or)
+	}
+}
+
+func TestApplyEnv_CodexSearchCapProofLabRequiresPositiveCap(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "1")
+
+	_, _, err := LoadWithOptions(LoadOptions{AllowLegacyWarn: true})
+	if err == nil || !strings.Contains(err.Error(), "search-cap proof lab requires positive cap files/matches") {
+		t.Fatalf("err=%v, want positive cap rejection", err)
+	}
+}
+
 func writeCodexSearchCapProofFixture(t *testing.T, dir string, files int, matches int, retention float64, extraTokens int) string {
 	t.Helper()
 	return writeCodexSearchCapProofFixtureWithRouteHygiene(t, dir, files, matches, retention, extraTokens, true, nil)

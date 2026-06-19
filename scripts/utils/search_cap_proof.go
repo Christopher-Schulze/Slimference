@@ -86,6 +86,7 @@ type searchCapDownstreamStateProof struct {
 	CandidatesPassing              int                     `json:"candidates_passing"`
 	MissingFollowingTurnCandidates int                     `json:"missing_following_turn_candidates"`
 	UnsafeCandidates               int                     `json:"unsafe_candidates"`
+	UnprovenCandidates             int                     `json:"unproven_candidates,omitempty"`
 	UpstreamErrorFrames            int                     `json:"upstream_error_frames"`
 	InvalidRequestErrors           int                     `json:"invalid_request_errors"`
 	HTTP400Errors                  int                     `json:"http_400_errors"`
@@ -353,8 +354,7 @@ func loadSearchCapDownstreamStateProof(path string) (searchCapDownstreamStatePro
 			CurrentTurnClean:              wssT354TurnClean(turn),
 			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
 		}
-		if i+1 < len(turns) {
-			following := turns[i+1]
+		if following, ok := wssT354NextLogicalTurn(turns, i); ok {
 			followingHealth := wssT354TurnHealthFromTurn(following)
 			candidate.FollowingTurnPresent = true
 			candidate.FollowingTurnShape = following.shape
@@ -401,8 +401,10 @@ func searchCapAccumulateDownstreamCandidate(proof *searchCapDownstreamStateProof
 	}
 	if candidate.UnlockProofPassing {
 		proof.CandidatesPassing++
-	} else {
+	} else if searchCapDownstreamCandidateHasSafetyFailure(candidate) {
 		proof.UnsafeCandidates++
+	} else {
+		proof.UnprovenCandidates++
 	}
 	proof.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
 	proof.RetryOrResendExtraTokens += candidate.RetryOrResendExtraTokens
@@ -434,10 +436,42 @@ func searchCapDownstreamStateGateFailures(proof searchCapDownstreamStateProof) [
 	}
 	for _, candidate := range proof.CandidateProofs {
 		for _, reason := range candidate.BlockReasons {
+			if !searchCapDownstreamCandidateReasonIsSafetyFailure(candidate, reason, proof.CandidatesPassing) {
+				continue
+			}
 			failures = append(failures, fmt.Sprintf("candidate_%d:%s", candidate.TurnIndex, reason))
 		}
 	}
 	return failures
+}
+
+func searchCapDownstreamCandidateReasonIsSafetyFailure(candidate wssT354CandidateProof, reason string, passingCandidates int) bool {
+	if passingCandidates <= 0 {
+		return true
+	}
+	return searchCapDownstreamCandidateReasonHasSafetyFailure(candidate, reason)
+}
+
+func searchCapDownstreamCandidateHasSafetyFailure(candidate wssT354CandidateProof) bool {
+	for _, reason := range candidate.BlockReasons {
+		if searchCapDownstreamCandidateReasonHasSafetyFailure(candidate, reason) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchCapDownstreamCandidateReasonHasSafetyFailure(candidate wssT354CandidateProof, reason string) bool {
+	if !candidate.FollowingTurnPresent && reason == "missing_following_turn" {
+		return false
+	}
+	if strings.Contains(reason, "invalid_request") ||
+		strings.Contains(reason, "http_400") ||
+		strings.Contains(reason, "response_failed") ||
+		strings.Contains(reason, "error_frames") {
+		return true
+	}
+	return candidate.FollowingTurnPresent && !candidate.FollowingTurnClean
 }
 
 func searchCapMutatedSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame) ([]bool, error) {

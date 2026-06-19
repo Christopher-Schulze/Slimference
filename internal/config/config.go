@@ -328,6 +328,11 @@ type OutputReduceConfig struct {
 	// proof latch. It enables the narrow named-search WSS delta mutation path
 	// while the broad lab switch remains default-off.
 	CodexSearchCapDeltaMutationEnabled bool `toml:"-"`
+	// CodexSearchCapProofLabEnabled is intentionally env-only:
+	// SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB=1. It exists only for scoped
+	// capture runs that must live-prove the exact named-search cap before a
+	// final release-proof artifact can promote it.
+	CodexSearchCapProofLabEnabled bool `toml:"-"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
@@ -834,6 +839,21 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_PATH")); v != "" {
 		cfg.Compression.OutputReduce.CodexSearchCapProofPath = v
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexSearchCapProofLabEnabled = b
+			cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = b
+		}
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_SEARCH_CAP_FILES"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexSearchCapMaxFiles = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile = n
+	}
+	if f, ok := envFloatOK("SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT"); ok && f >= 0 {
+		cfg.Compression.OutputReduce.CodexSearchCapMinRetainedPct = f
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_CHUNK_DEDUP")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexChunkDedupEnabled = b
@@ -1226,6 +1246,9 @@ func validate(cfg *Config) error {
 	}
 	if or.CodexSearchCapMinRetainedPct < 0 || or.CodexSearchCapMinRetainedPct > 100 {
 		return fmt.Errorf("compression.output_reduce.codex_search_cap_min_retained_pct must be between 0 and 100, got %v", or.CodexSearchCapMinRetainedPct)
+	}
+	if or.CodexSearchCapProofLabEnabled && (or.CodexSearchCapMaxFiles <= 0 || or.CodexSearchCapMaxMatchesPerFile <= 0) {
+		return fmt.Errorf("compression.output_reduce search-cap proof lab requires positive cap files/matches, got %d/%d", or.CodexSearchCapMaxFiles, or.CodexSearchCapMaxMatchesPerFile)
 	}
 	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
 		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)

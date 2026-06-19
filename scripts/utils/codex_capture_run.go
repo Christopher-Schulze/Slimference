@@ -51,6 +51,10 @@ type codexCaptureRunFlags struct {
 	quietCodexOutput              bool
 	restartAfterCompletion        int
 	restartAfterMutatedCompletion int
+	searchCapProofLab             bool
+	searchCapFiles                int
+	searchCapMatches              int
+	searchCapMinRetainedPct       float64
 	expectedReducers              []string
 	expectedZeroSavings           bool
 	captureExplicit               bool
@@ -346,6 +350,15 @@ Flags:
                              response.completed frame. This forces Codex to
                              reconnect after an accepted mutation so WSS
                              full-history resend tolerance can be proven.
+  --search-cap-proof-lab F:M
+                             Lab/proof only: enable the narrow named-search cap
+                             mutation path in the managed daemon with this
+                             files:matches candidate. This does not write a
+                             config file and must not be used as product
+                             promotion proof by itself.
+  --search-cap-min-retained-pct N
+                             Minimum retained-match percentage passed to the
+                             search-cap proof lab override (default: 40).
 
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
 set, waits for /health, runs "slimference codex run --transport=<value> -- ...",
@@ -894,14 +907,15 @@ func codexCapturePayloadInstructions(payload json.RawMessage) string {
 
 func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFlags, error) {
 	flags := codexCaptureRunFlags{
-		binary:          "slimference",
-		host:            "127.0.0.1",
-		port:            "8990",
-		transport:       "auto",
-		healthTimeout:   10 * time.Second,
-		codexTimeout:    5 * time.Minute,
-		client:          "cli",
-		exitMarkerCount: 1,
+		binary:                  "slimference",
+		host:                    "127.0.0.1",
+		port:                    "8990",
+		transport:               "auto",
+		healthTimeout:           10 * time.Second,
+		codexTimeout:            5 * time.Minute,
+		client:                  "cli",
+		exitMarkerCount:         1,
+		searchCapMinRetainedPct: searchCapReleaseMinRetainedPct,
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -922,7 +936,8 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
 			arg == "--model", arg == "--ab-pair-id", arg == "--ab-variant",
 			arg == "--exit-marker", arg == "--resource-profile-proof",
-			arg == "--min-function-calls", arg == "--min-function-call-outputs":
+			arg == "--min-function-calls", arg == "--min-function-call-outputs",
+			arg == "--search-cap-proof-lab", arg == "--search-cap-min-retained-pct":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", arg)
 			}
@@ -996,6 +1011,16 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 				return flags, fmt.Errorf("--restart-after-completion must be > 0")
 			}
 			flags.restartAfterCompletion = n
+		case strings.HasPrefix(arg, "--search-cap-proof-lab="):
+			if err := setCodexCaptureSearchCapProofLab(&flags, strings.TrimPrefix(arg, "--search-cap-proof-lab=")); err != nil {
+				return flags, err
+			}
+		case strings.HasPrefix(arg, "--search-cap-min-retained-pct="):
+			pct, err := parseCodexCaptureRetentionFlag("--search-cap-min-retained-pct", strings.TrimPrefix(arg, "--search-cap-min-retained-pct="))
+			if err != nil {
+				return flags, err
+			}
+			flags.searchCapMinRetainedPct = pct
 		case strings.HasPrefix(arg, "--"):
 			name, value, ok := strings.Cut(arg, "=")
 			if !ok {
@@ -1041,6 +1066,9 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	}
 	if err := validateABProofFlags(flags.abPairID, flags.abVariant); err != nil {
 		return flags, err
+	}
+	if flags.searchCapProofLab && (flags.searchCapFiles <= 0 || flags.searchCapMatches <= 0) {
+		return flags, fmt.Errorf("--search-cap-proof-lab requires positive files:matches")
 	}
 	flags.transport = strings.ToLower(strings.TrimSpace(flags.transport))
 	if !validCodexCaptureTransport(flags.transport) {
@@ -1132,10 +1160,44 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 			return fmt.Errorf("--min-function-call-outputs must be > 0")
 		}
 		flags.minFunctionCallOutputs = n
+	case "--search-cap-proof-lab":
+		return setCodexCaptureSearchCapProofLab(flags, value)
+	case "--search-cap-min-retained-pct":
+		pct, err := parseCodexCaptureRetentionFlag("--search-cap-min-retained-pct", value)
+		if err != nil {
+			return err
+		}
+		flags.searchCapMinRetainedPct = pct
 	default:
 		return fmt.Errorf("unknown flag: %s", name)
 	}
 	return nil
+}
+
+func setCodexCaptureSearchCapProofLab(flags *codexCaptureRunFlags, value string) error {
+	var candidates searchCapProfileCandidateFlags
+	if err := candidates.Set(value); err != nil {
+		return err
+	}
+	if len(candidates) != 1 {
+		return fmt.Errorf("--search-cap-proof-lab requires one files:matches candidate")
+	}
+	candidate := candidates[0]
+	flags.searchCapProofLab = true
+	flags.searchCapFiles = candidate.Options.MaxFilesShown
+	flags.searchCapMatches = candidate.Options.MaxMatchesPerFile
+	return nil
+}
+
+func parseCodexCaptureRetentionFlag(name, value string) (float64, error) {
+	pct, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a percentage between 0 and 100", name)
+	}
+	if pct < 0 || pct > 100 {
+		return 0, fmt.Errorf("%s must be a percentage between 0 and 100", name)
+	}
+	return pct, nil
 }
 
 func validCodexCaptureTransport(transport string) bool {
@@ -1419,7 +1481,8 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 			continue
 		}
 		switch key {
-		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_DEBUG_DECISIONS_LOG", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR":
+		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_DEBUG_DECISIONS_LOG", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR",
+			"SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "SLIMFERENCE_CODEX_SEARCH_CAP_FILES", "SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES", "SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT":
 			continue
 		default:
 			env = append(env, entry)
@@ -1433,6 +1496,14 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 	)
 	if flags.decisionsPath != "" {
 		env = append(env, "SLIMFERENCE_DEBUG_DECISIONS_LOG="+flags.decisionsPath)
+	}
+	if flags.searchCapProofLab {
+		env = append(env,
+			"SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB=1",
+			"SLIMFERENCE_CODEX_SEARCH_CAP_FILES="+strconv.Itoa(flags.searchCapFiles),
+			"SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES="+strconv.Itoa(flags.searchCapMatches),
+			"SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT="+strconv.FormatFloat(flags.searchCapMinRetainedPct, 'f', -1, 64),
+		)
 	}
 	return env
 }

@@ -131,6 +131,7 @@ type wssT354Turn struct {
 	capturedLocalSavedTokens      int
 	sequence                      int64
 	mutated                       bool
+	capturedOriginalShadow        bool
 	terminal                      bool
 	errorFrames                   int
 	http400Errors                 int
@@ -290,8 +291,7 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 			CurrentTurnClean:              wssT354TurnClean(turn),
 			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
 		}
-		if i+1 < len(turns) {
-			following := turns[i+1]
+		if following, ok := wssT354NextLogicalTurn(turns, i); ok {
 			followingHealth := wssT354TurnHealthFromTurn(following)
 			candidate.FollowingTurnPresent = true
 			candidate.FollowingTurnShape = following.shape
@@ -318,11 +318,13 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 	var turns []wssT354Turn
 	current := -1
 	var lastOriginal *wssT354Turn
+	lastOriginalIndex := -1
 	for _, frame := range frames {
 		if frame.Direction == wsmitm.DirClientToServer {
 			body, root, ok := wssT354RequestBody(frame.Payload)
 			if !ok || !wssT354LooksLikeRequestBody(root) {
 				lastOriginal = nil
+				lastOriginalIndex = -1
 				continue
 			}
 			info := wssT354RequestInfo(root)
@@ -335,11 +337,16 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 				if wssT354SameCapturedSequence(lastOriginal, info) {
 					turns[current].capturedOriginalRequestTokens = lastOriginal.requestTokensEstimate
 					turns[current].capturedLocalSavedTokens = positiveDelta(lastOriginal.requestTokensEstimate, info.requestTokensEstimate)
+					if lastOriginalIndex >= 0 && lastOriginalIndex < current {
+						turns[lastOriginalIndex].capturedOriginalShadow = true
+					}
 				}
 				lastOriginal = nil
+				lastOriginalIndex = -1
 			} else {
 				copyInfo := info
 				lastOriginal = &copyInfo
+				lastOriginalIndex = current
 			}
 			continue
 		}
@@ -347,6 +354,7 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 			continue
 		}
 		lastOriginal = nil
+		lastOriginalIndex = -1
 		env, err := wsmitm.Parse(frame.Payload)
 		if err != nil {
 			continue
@@ -380,6 +388,16 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 		}
 	}
 	return turns
+}
+
+func wssT354NextLogicalTurn(turns []wssT354Turn, index int) (wssT354Turn, bool) {
+	for i := index + 1; i < len(turns); i++ {
+		if turns[i].capturedOriginalShadow {
+			continue
+		}
+		return turns[i], true
+	}
+	return wssT354Turn{}, false
 }
 
 func wssT354SameCapturedSequence(previous *wssT354Turn, current wssT354Turn) bool {

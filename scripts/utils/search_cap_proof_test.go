@@ -368,6 +368,26 @@ func TestRunSearchCapProofDefaultsUseReleaseCandidateSetAndFloors(t *testing.T) 
 	}
 }
 
+func TestRunSearchCapProofAcceptsCapturedOriginalShadowsAndFinalOpenCandidate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofCapturedShadowFrames(t, path, "search-cap-proof-shadow", 96)
+
+	proof, err := loadSearchCapDownstreamStateProof(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proof.GatePassed ||
+		proof.MutatedSearchOutputCandidates != 3 ||
+		proof.CandidatesPassing != 2 ||
+		proof.MissingFollowingTurnCandidates != 1 ||
+		proof.UnsafeCandidates != 0 ||
+		proof.UnprovenCandidates != 1 {
+		t.Fatalf("captured original shadows and final open candidate should not block proven downstream search-cap safety: %+v", proof)
+	}
+}
+
 func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session string, outputs, files, matchesPerFile int) {
 	t.Helper()
 	items := searchCapProofDistributedSearchItems(session, outputs, files, matchesPerFile)
@@ -391,6 +411,44 @@ func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session stri
 		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest(session+"-mutated-response"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
 	)
+}
+
+func writeSearchCapProofCapturedShadowFrames(t *testing.T, path, session string, lines int) {
+	t.Helper()
+	writeJSONLFile(t, path,
+		searchCapProofCapturedShadowRequest(session, "search-1", session+"-response", lines, false),
+		searchCapProofCapturedShadowRequest(session, "search-1", session+"-response", 20, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response-1"), false),
+		searchCapProofCapturedShadowRequest(session, "search-2", session+"-mutated-response-1", lines, false),
+		searchCapProofCapturedShadowRequest(session, "search-2", session+"-mutated-response-1", 20, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response-2"), false),
+		searchCapProofCapturedShadowRequest(session, "search-3", session+"-mutated-response-2", lines, false),
+		searchCapProofCapturedShadowRequest(session, "search-3", session+"-mutated-response-2", 20, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response-3"), false),
+	)
+}
+
+func searchCapProofCapturedShadowRequest(session, suffix, previousResponseID string, lines int, mutated bool) map[string]any {
+	callID := session + "-" + suffix
+	return wssT354TestFrame("client_to_server", map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": previousResponseID,
+		"prompt_cache_key":     session,
+		"input": []map[string]any{
+			{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"},
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  wssABReplaySearchOutputFixture("needle", lines),
+			},
+		},
+		"stream": true,
+	}, mutated)
 }
 
 func searchCapProofDistributedSearchItems(session string, outputs, files, matchesPerFile int) []map[string]any {
