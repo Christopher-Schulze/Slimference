@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -172,6 +173,120 @@ func TryCompactYarnInstall(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return []byte(fmt.Sprintf("[yarn %s] ok\n", argv[1])), true
+}
+
+func packageAuditJSONLabel(argv []string) (string, bool) {
+	if len(argv) < 3 {
+		return "", false
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if argv[1] != "audit" || !packageAuditHasJSONFlag(argv[2:]) {
+		return "", false
+	}
+	switch b0 {
+	case "npm", "npm.cmd":
+		return "npm audit", true
+	case "pnpm", "pnpm.cmd":
+		return "pnpm audit", true
+	default:
+		return "", false
+	}
+}
+
+func packageAuditHasJSONFlag(args []string) bool {
+	hasJSON := false
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		switch lower {
+		case "--json", "--json=true", "--json=1":
+			hasJSON = true
+		case "--json=false", "--json=0":
+			return false
+		}
+	}
+	return hasJSON
+}
+
+// TryCompactPackageAuditJSON summarizes npm/pnpm audit JSON only when every
+// standard severity count is explicitly present and zero.
+func TryCompactPackageAuditJSON(argv []string, stdout []byte) ([]byte, bool) {
+	label, ok := packageAuditJSONLabel(argv)
+	if !ok {
+		return stdout, false
+	}
+	trimmed := strings.TrimSpace(string(stdout))
+	if trimmed == "" || !packageAuditJSONZeroVulnerabilities([]byte(trimmed)) {
+		return stdout, false
+	}
+	out := []byte("[" + label + "] 0 vulnerabilities\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func packageAuditJSONZeroVulnerabilities(raw []byte) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return false
+	}
+	metadataRaw, ok := root["metadata"]
+	if !ok {
+		return false
+	}
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+		return false
+	}
+	countsRaw, ok := metadata["vulnerabilities"]
+	if !ok || !packageAuditSeverityCountsZero(countsRaw) {
+		return false
+	}
+	if vulnerabilitiesRaw, ok := root["vulnerabilities"]; ok && !jsonObjectIsEmpty(vulnerabilitiesRaw) {
+		return false
+	}
+	if advisoriesRaw, ok := root["advisories"]; ok && !jsonObjectIsEmpty(advisoriesRaw) {
+		return false
+	}
+	if actionsRaw, ok := root["actions"]; ok && !jsonArrayIsEmpty(actionsRaw) {
+		return false
+	}
+	return true
+}
+
+func packageAuditSeverityCountsZero(raw json.RawMessage) bool {
+	var counts map[string]int
+	if err := json.Unmarshal(raw, &counts); err != nil {
+		return false
+	}
+	required := map[string]struct{}{
+		"info":     {},
+		"low":      {},
+		"moderate": {},
+		"high":     {},
+		"critical": {},
+		"total":    {},
+	}
+	if len(counts) != len(required) {
+		return false
+	}
+	for severity := range required {
+		value, ok := counts[severity]
+		if !ok || value != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonObjectIsEmpty(raw json.RawMessage) bool {
+	var obj map[string]json.RawMessage
+	return json.Unmarshal(raw, &obj) == nil && len(obj) == 0
+}
+
+func jsonArrayIsEmpty(raw json.RawMessage) bool {
+	var arr []json.RawMessage
+	return json.Unmarshal(raw, &arr) == nil && len(arr) == 0
 }
 
 // TryCompactPoetryInstall summarizes empty stdout from `poetry install` / `npx|pnpm exec|yarn … poetry install` (F12 partial).
@@ -438,6 +553,9 @@ func TryCompactPackageOutput(argv []string, stdout []byte) ([]byte, bool) {
 		return out, true
 	}
 	if out, ok := TryCompactYarnInstall(argv, stdout); ok {
+		return out, true
+	}
+	if out, ok := TryCompactPackageAuditJSON(argv, stdout); ok {
 		return out, true
 	}
 	if out, ok := TryCompactPoetryInstall(argv, stdout); ok {

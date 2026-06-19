@@ -428,6 +428,145 @@ ERROR: ResolutionImpossible: for help visit https://pip.pypa.io
 	}
 }
 
+func TestTryCompactPackageAuditJSONZeroVulnerabilities(t *testing.T) {
+	t.Parallel()
+
+	npmJSON := `{
+  "auditReportVersion": 2,
+  "vulnerabilities": {},
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 140,
+      "dev": 87,
+      "optional": 3,
+      "peer": 12,
+      "peerOptional": 0,
+      "total": 242
+    }
+  }
+}`
+	out, ok := TryCompactPackageAuditJSON([]string{"npm", "audit", "--json"}, []byte(npmJSON))
+	if !ok || string(out) != "[npm audit] 0 vulnerabilities\n" {
+		t.Fatalf("npm audit --json zero vulnerabilities: ok=%v out=%q", ok, out)
+	}
+	chainOut, ok := TryCompactPackageOutput([]string{"npm", "audit", "--audit-level=high", "--json=true"}, []byte(npmJSON))
+	if !ok || string(chainOut) != "[npm audit] 0 vulnerabilities\n" {
+		t.Fatalf("npm audit chain: ok=%v out=%q", ok, chainOut)
+	}
+
+	pnpmJSON := `{
+  "advisories": {},
+  "actions": [],
+  "muted": [],
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 12,
+      "dev": 34,
+      "optional": 0,
+      "total": 46
+    }
+  }
+}`
+	pnpmOut, ok := TryCompactPackageAuditJSON([]string{"pnpm", "audit", "--json=1"}, []byte(pnpmJSON))
+	if !ok || string(pnpmOut) != "[pnpm audit] 0 vulnerabilities\n" {
+		t.Fatalf("pnpm audit --json zero vulnerabilities: ok=%v out=%q", ok, pnpmOut)
+	}
+}
+
+func TestTryCompactPackageAuditJSONRejectsUnsafeOrAmbiguousReports(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{
+			name: "text output is not enough",
+			argv: []string{"npm", "audit"},
+			stdout: strings.Repeat("auditing package tree\n", 20) +
+				"found 0 vulnerabilities\n",
+		},
+		{
+			name:   "json false flag overrides json true",
+			argv:   []string{"npm", "audit", "--json", "--json=false"},
+			stdout: `{"vulnerabilities":{},"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}}}`,
+		},
+		{
+			name:   "nonzero total",
+			argv:   []string{"npm", "audit", "--json"},
+			stdout: `{"vulnerabilities":{},"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":1}}}`,
+		},
+		{
+			name:   "nonzero high",
+			argv:   []string{"npm", "audit", "--json"},
+			stdout: `{"vulnerabilities":{},"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":1,"critical":0,"total":1}}}`,
+		},
+		{
+			name:   "missing severity key",
+			argv:   []string{"pnpm", "audit", "--json"},
+			stdout: `{"advisories":{},"actions":[],"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"total":0}}}`,
+		},
+		{
+			name:   "extra severity key",
+			argv:   []string{"pnpm", "audit", "--json"},
+			stdout: `{"advisories":{},"actions":[],"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0,"unknown":0}}}`,
+		},
+		{
+			name:   "nonempty npm vulnerabilities object",
+			argv:   []string{"npm", "audit", "--json"},
+			stdout: `{"vulnerabilities":{"lodash":{"severity":"high"}},"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}}}`,
+		},
+		{
+			name:   "nonempty pnpm advisories object",
+			argv:   []string{"pnpm", "audit", "--json"},
+			stdout: `{"advisories":{"1":{"severity":"low"}},"actions":[],"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}}}`,
+		},
+		{
+			name:   "nonempty pnpm actions array",
+			argv:   []string{"pnpm", "audit", "--json"},
+			stdout: `{"advisories":{},"actions":[{"action":"install"}],"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}}}`,
+		},
+		{
+			name:   "invalid json",
+			argv:   []string{"npm", "audit", "--json"},
+			stdout: `{"metadata":`,
+		},
+		{
+			name:   "unsupported command",
+			argv:   []string{"yarn", "audit", "--json"},
+			stdout: `{"vulnerabilities":{},"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactPackageAuditJSON(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe audit report compacted: ok=%v out=%q", ok, out)
+			}
+		})
+	}
+}
+
 // TestExtractPkgSummary exercises all branches of extractPkgSummary directly.
 func TestExtractPkgSummary(t *testing.T) {
 	t.Parallel()

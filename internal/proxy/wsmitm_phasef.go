@@ -2064,11 +2064,18 @@ func wssCompactedPackageSuccessSummary(original, compacted []byte) bool {
 		return false
 	}
 	label := strings.ToLower(strings.TrimSpace(text[1:closeBracket]))
+	status := strings.TrimSpace(text[closeBracket+1:])
+	if wssPackageAuditSummaryLabel(label) {
+		return status == "0 vulnerabilities"
+	}
 	if !wssPackageSummaryLabel(label) {
 		return false
 	}
-	status := strings.TrimSpace(text[closeBracket+1:])
 	return wssPackageSuccessStatus(status) && !wssPackageOriginalHasUnsafeMarker(string(original))
+}
+
+func wssPackageAuditSummaryLabel(label string) bool {
+	return label == "npm audit" || label == "pnpm audit"
 }
 
 func wssPackageSummaryLabel(label string) bool {
