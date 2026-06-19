@@ -493,6 +493,134 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		t.Fatal("safe npm install argv/loglevel modes were rejected")
 	}
 
+	if pnpmInstallArgvUnsafe([]string{"--reporter", "append-only", "--prod"}) ||
+		pnpmInstallArgvUnsafe([]string{"--reporter=default", "--dev"}) {
+		t.Fatal("safe pnpm install argv modes were rejected")
+	}
+	if !pnpmInstallArgvUnsafe([]string{"--reporter"}) ||
+		!pnpmInstallArgvUnsafe([]string{"--reporter", "ndjson"}) ||
+		!pnpmInstallArgvUnsafe([]string{"--stream"}) ||
+		!pnpmInstallArgvUnsafe([]string{"left-pad"}) {
+		t.Fatal("unsafe pnpm install argv modes were not rejected")
+	}
+
+	if yarnInstallArgvUnsafe([]string{"--non-interactive", "--frozen-lockfile", "--no-progress"}) {
+		t.Fatal("safe yarn install argv modes were rejected")
+	}
+	if !yarnInstallArgvUnsafe([]string{"--ignore-scripts"}) ||
+		!yarnInstallArgvUnsafe([]string{"--json"}) ||
+		!yarnInstallArgvUnsafe([]string{"left-pad"}) {
+		t.Fatal("unsafe yarn install argv modes were not rejected")
+	}
+
+	pnpmAdded, pnpmRemoved, ok := parsePnpmPackagesLine("Packages: +3 -1")
+	if !ok || pnpmAdded != 3 || pnpmRemoved != 1 {
+		t.Fatalf("pnpm packages parse failed: added=%d removed=%d ok=%v", pnpmAdded, pnpmRemoved, ok)
+	}
+	badPnpmPackages := []string{"Packages:", "Packages: +0", "Packages: +x", "Packages: 3", "Packages: +2 ~1"}
+	for _, input := range badPnpmPackages {
+		input := input
+		t.Run("bad pnpm packages "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, _, ok := parsePnpmPackagesLine(input); ok {
+				t.Fatalf("invalid pnpm packages line parsed: %q", input)
+			}
+		})
+	}
+	if !pnpmProgressLineOK("Progress: resolved 2, reused 1, downloaded 0, added 2, done") {
+		t.Fatal("valid pnpm progress line rejected")
+	}
+	badPnpmProgress := []string{
+		"Progress:",
+		"Progress: resolving 2",
+		"Progress: resolved two",
+		"Progress: resolved -1",
+		"Progress: resolved 1, done now",
+	}
+	for _, input := range badPnpmProgress {
+		input := input
+		t.Run("bad pnpm progress "+input, func(t *testing.T) {
+			t.Parallel()
+			if pnpmProgressLineOK(input) {
+				t.Fatalf("invalid pnpm progress line accepted: %q", input)
+			}
+		})
+	}
+	if !pnpmProgressGlyphLineOK("++--") || pnpmProgressGlyphLineOK("") ||
+		pnpmProgressGlyphLineOK(strings.Repeat("+", 201)) ||
+		pnpmProgressGlyphLineOK("++x") {
+		t.Fatal("pnpm glyph line validation failed")
+	}
+	if !pnpmDependencySectionLineOK("devDependencies:") || pnpmDependencySectionLineOK("scripts:") {
+		t.Fatal("pnpm dependency section validation failed")
+	}
+	if !pnpmDependencyRowOK("+ @scope/pkg 1.2.3") ||
+		pnpmDependencyRowOK("+ ") ||
+		pnpmDependencyRowOK("+ pkg 1.0.0 extra") ||
+		pnpmDependencyRowOK("+ pkg\t1.0.0") {
+		t.Fatal("pnpm dependency row validation failed")
+	}
+	if !pnpmDoneLineOK("Done in 256ms using pnpm v10.13.1") ||
+		pnpmDoneLineOK("Done after 256ms using pnpm v10.13.1") ||
+		pnpmDoneLineOK("Done in 256ms using yarn v1.22.22") {
+		t.Fatal("pnpm done line validation failed")
+	}
+
+	if !yarnClassicHeaderLineOK("yarn install v1.22.22", "install") ||
+		yarnClassicHeaderLineOK("yarn install v4.0.0", "install") ||
+		yarnClassicHeaderLineOK("yarn add v1.22.22", "install") {
+		t.Fatal("yarn classic header validation failed")
+	}
+	if !yarnClassicStepLineOK("[4/4] Rebuilding all packages...") {
+		t.Fatal("valid yarn classic step rejected")
+	}
+	badYarnSteps := []string{
+		"1/4] Resolving packages...",
+		"[5/4] Resolving packages...",
+		"[x/4] Resolving packages...",
+		"[1/4] Running custom hook...",
+	}
+	for _, input := range badYarnSteps {
+		input := input
+		t.Run("bad yarn step "+input, func(t *testing.T) {
+			t.Parallel()
+			if yarnClassicStepLineOK(input) {
+				t.Fatalf("invalid yarn step accepted: %q", input)
+			}
+		})
+	}
+	if count, ok := parseYarnClassicSavedDependencyLine("success Saved 1 new dependency."); !ok || count != 1 {
+		t.Fatalf("yarn saved dependency singular parse failed: count=%d ok=%v", count, ok)
+	}
+	if count, ok := parseYarnClassicSavedDependencyLine("success Saved 2 new dependencies."); !ok || count != 2 {
+		t.Fatalf("yarn saved dependency plural parse failed: count=%d ok=%v", count, ok)
+	}
+	badYarnSaved := []string{
+		"success Saved two new dependencies.",
+		"success Saved 1 new dependencies.",
+		"success Saved 0 new dependencies.",
+		"success Saved 1 dependency.",
+	}
+	for _, input := range badYarnSaved {
+		input := input
+		t.Run("bad yarn saved "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseYarnClassicSavedDependencyLine(input); ok {
+				t.Fatalf("invalid yarn saved dependency line parsed: %q", input)
+			}
+		})
+	}
+	if !yarnClassicDependencyRowOK("└─ @scope/pkg@1.2.3") ||
+		yarnClassicDependencyRowOK("└─ ") ||
+		yarnClassicDependencyRowOK("└─ pkg\t1.2.3") {
+		t.Fatal("yarn dependency row validation failed")
+	}
+	if !yarnClassicDoneLineOK("Done in 0.04s.") ||
+		yarnClassicDoneLineOK("Done after 0.04s.") ||
+		yarnClassicDoneLineOK("Done in .") {
+		t.Fatal("yarn done line validation failed")
+	}
+
 	if count, ok := parseNpmFundingLine("1 package are looking for funding"); !ok || count != 1 {
 		t.Fatalf("npm funding singular parse failed: count=%d ok=%v", count, ok)
 	}
@@ -693,6 +821,140 @@ func TestTryCompactNpmInstallNonEmptyGuards(t *testing.T) {
 			chainOut, chainOK := TryCompactPackageOutput(tt.argv, []byte(tt.stdout))
 			if chainOK || string(chainOut) != tt.stdout {
 				t.Fatalf("unsafe npm install chain compacted: ok=%v out=%q", chainOK, chainOut)
+			}
+		})
+	}
+}
+
+func TestTryCompactPnpmInstallNonEmptyCleanSuccess(t *testing.T) {
+	t.Parallel()
+
+	clean := pnpmInstallCleanFixture(80, true)
+	out, ok := TryCompactPnpmInstall([]string{"pnpm", "install", "--ignore-scripts"}, []byte(clean))
+	if !ok {
+		t.Fatal("expected pnpm install clean success to compact")
+	}
+	want := "[pnpm install] ok (added 80 packages)\n"
+	if string(out) != want {
+		t.Fatalf("unexpected pnpm summary: %q", out)
+	}
+	if len(out) >= len(clean) || strings.Contains(string(out), "slimference-pnpm-package-079") {
+		t.Fatalf("pnpm summary did not shrink or leaked package rows: %q", out)
+	}
+
+	chainOut, ok := TryCompactPackageOutput([]string{"pnpm", "install", "--reporter=append-only"}, []byte(clean))
+	if !ok || string(chainOut) != want {
+		t.Fatalf("package chain pnpm clean output: ok=%v out=%q", ok, chainOut)
+	}
+
+	lockfileState := "Lockfile is up to date, resolution step is skipped\n" + pnpmInstallCleanFixture(2, false)
+	lockfileOut, ok := TryCompactPnpmInstall([]string{"pnpm", "ci", "--frozen-lockfile"}, []byte(lockfileState))
+	if !ok || string(lockfileOut) != "[pnpm ci] ok (lockfile up to date; added 2 packages)\n" {
+		t.Fatalf("pnpm ci lockfile summary: ok=%v out=%q", ok, lockfileOut)
+	}
+
+	upToDate := "Already up to date\n\nDone in 192ms using pnpm v10.13.1\n"
+	upToDateOut, ok := TryCompactPnpmInstall([]string{"pnpm", "update", "--offline"}, []byte(upToDate))
+	if !ok || string(upToDateOut) != "[pnpm update] ok (up to date)\n" {
+		t.Fatalf("pnpm update up-to-date summary: ok=%v out=%q", ok, upToDateOut)
+	}
+}
+
+func TestTryCompactPnpmInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := pnpmInstallCleanFixture(3, true)
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "wrong command", argv: []string{"pnpm", "add", "x"}, stdout: clean},
+		{name: "warning", argv: []string{"pnpm", "install", "--ignore-scripts"}, stdout: " WARN  deprecated left-pad@1.3.0\n" + clean},
+		{name: "lockfile only", argv: []string{"pnpm", "install", "--lockfile-only"}, stdout: clean},
+		{name: "ndjson reporter", argv: []string{"pnpm", "install", "--reporter=ndjson"}, stdout: clean},
+		{name: "positional package", argv: []string{"pnpm", "update", "left-pad"}, stdout: clean},
+		{name: "unknown flag", argv: []string{"pnpm", "install", "--workspace-concurrency=4"}, stdout: clean},
+		{name: "bad progress", argv: []string{"pnpm", "install"}, stdout: strings.Replace(clean, "Progress: resolved", "Progress: resolving", 1)},
+		{name: "bad package delta", argv: []string{"pnpm", "install"}, stdout: strings.Replace(clean, "Packages: +3", "Packages: three", 1)},
+		{name: "update notifier", argv: []string{"pnpm", "install"}, stdout: clean + "╭────────────────╮\n│ Update available │\n╰────────────────╯\n"},
+		{name: "missing done", argv: []string{"pnpm", "install"}, stdout: strings.Replace(clean, "Done in 256ms using pnpm v10.13.1\n", "", 1)},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactPnpmInstall(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe pnpm install output compacted: ok=%v out=%q", ok, out)
+			}
+			chainOut, chainOK := TryCompactPackageOutput(tt.argv, []byte(tt.stdout))
+			if chainOK || string(chainOut) != tt.stdout {
+				t.Fatalf("unsafe pnpm install chain compacted: ok=%v out=%q", chainOK, chainOut)
+			}
+		})
+	}
+}
+
+func TestTryCompactYarnInstallNonEmptyCleanSuccess(t *testing.T) {
+	t.Parallel()
+
+	clean := yarnClassicInstallCleanFixture()
+	out, ok := TryCompactYarnInstall([]string{"yarn", "install", "--non-interactive"}, []byte(clean))
+	if !ok {
+		t.Fatal("expected yarn install clean success to compact")
+	}
+	want := "[yarn install] ok (lockfile saved)\n"
+	if string(out) != want {
+		t.Fatalf("unexpected yarn summary: %q", out)
+	}
+	if len(out) >= len(clean) || strings.Contains(string(out), "Resolving packages") {
+		t.Fatalf("yarn summary did not shrink or leaked step rows: %q", out)
+	}
+
+	upToDate := "yarn install v1.22.22\n[1/4] Resolving packages...\nsuccess Already up-to-date.\nDone in 0.03s.\n"
+	upToDateOut, ok := TryCompactYarnInstall([]string{"yarn", "install", "--frozen-lockfile"}, []byte(upToDate))
+	if !ok || string(upToDateOut) != "[yarn install] ok (up to date)\n" {
+		t.Fatalf("yarn up-to-date summary: ok=%v out=%q", ok, upToDateOut)
+	}
+
+	upgrade := yarnClassicUpgradeCleanFixture(3)
+	upgradeOut, ok := TryCompactPackageOutput([]string{"yarn", "upgrade", "--non-interactive"}, []byte(upgrade))
+	if !ok || string(upgradeOut) != "[yarn upgrade] ok (saved 3 dependencies; lockfile saved)\n" {
+		t.Fatalf("yarn upgrade summary: ok=%v out=%q", ok, upgradeOut)
+	}
+}
+
+func TestTryCompactYarnInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := yarnClassicInstallCleanFixture()
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "wrong command", argv: []string{"yarn", "add", "left-pad"}, stdout: clean},
+		{name: "ignore scripts warning", argv: []string{"yarn", "install", "--ignore-scripts"}, stdout: strings.Replace(clean, "success Saved lockfile.", "warning Ignored scripts due to flag.\nsuccess Saved lockfile.", 1)},
+		{name: "json mode", argv: []string{"yarn", "install", "--json"}, stdout: clean},
+		{name: "silent mode", argv: []string{"yarn", "install", "--silent"}, stdout: clean},
+		{name: "positional package", argv: []string{"yarn", "upgrade", "left-pad"}, stdout: yarnClassicUpgradeCleanFixture(1)},
+		{name: "berry output", argv: []string{"yarn", "install"}, stdout: "➤ YN0000: · Yarn 4.9.2\n➤ YN0000: ┌ Resolution step\n➤ YN0000: └ Completed\n"},
+		{name: "missing header", argv: []string{"yarn", "install"}, stdout: strings.TrimPrefix(clean, "yarn install v1.22.22\n")},
+		{name: "bad step", argv: []string{"yarn", "install"}, stdout: strings.Replace(clean, "[1/4] Resolving packages...", "[1/4] Running custom hook...", 1)},
+		{name: "missing done", argv: []string{"yarn", "install"}, stdout: strings.Replace(clean, "Done in 0.04s.\n", "", 1)},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactYarnInstall(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe yarn install output compacted: ok=%v out=%q", ok, out)
+			}
+			chainOut, chainOK := TryCompactPackageOutput(tt.argv, []byte(tt.stdout))
+			if chainOK || string(chainOut) != tt.stdout {
+				t.Fatalf("unsafe yarn install chain compacted: ok=%v out=%q", chainOK, chainOut)
 			}
 		})
 	}
@@ -1062,6 +1324,67 @@ func npmInstallCleanFixture(packages int) string {
 	out.WriteString("45 packages are looking for funding\n")
 	out.WriteString("  run `npm fund` for details\n\n")
 	out.WriteString("found 0 vulnerabilities\n")
+	return out.String()
+}
+
+func pnpmInstallCleanFixture(packages int, includeDependencies bool) string {
+	var out strings.Builder
+	out.WriteString("Progress: resolved 1, reused 0, downloaded 0, added 0\n")
+	fmt.Fprintf(&out, "Packages: +%d\n", packages)
+	out.WriteString(strings.Repeat("+", packages))
+	out.WriteString("\n")
+	fmt.Fprintf(&out, "Progress: resolved %d, reused %d, downloaded 0, added %d, done\n\n", packages, packages, packages)
+	if includeDependencies {
+		out.WriteString("dependencies:\n")
+		for i := 0; i < packages; i++ {
+			fmt.Fprintf(&out, "+ slimference-pnpm-package-%03d 1.0.%d\n", i, i)
+		}
+		out.WriteString("\n")
+	}
+	out.WriteString("Done in 256ms using pnpm v10.13.1\n")
+	return out.String()
+}
+
+func yarnClassicInstallCleanFixture() string {
+	return strings.Join([]string{
+		"yarn install v1.22.22",
+		"info No lockfile found.",
+		"[1/4] Resolving packages...",
+		"[2/4] Fetching packages...",
+		"[3/4] Linking dependencies...",
+		"[4/4] Building fresh packages...",
+		"success Saved lockfile.",
+		"Done in 0.04s.",
+		"",
+	}, "\n")
+}
+
+func yarnClassicUpgradeCleanFixture(packages int) string {
+	var out strings.Builder
+	out.WriteString("yarn upgrade v1.22.22\n")
+	out.WriteString("[1/4] Resolving packages...\n")
+	out.WriteString("[2/4] Fetching packages...\n")
+	out.WriteString("[3/4] Linking dependencies...\n")
+	out.WriteString("[4/4] Rebuilding all packages...\n")
+	out.WriteString("success Saved lockfile.\n")
+	fmt.Fprintf(&out, "success Saved %d new %s.\n", packages, pluralWord(packages, "dependency", "dependencies"))
+	out.WriteString("info Direct dependencies\n")
+	for i := 0; i < packages; i++ {
+		prefix := "├─"
+		if i == packages-1 {
+			prefix = "└─"
+		}
+		fmt.Fprintf(&out, "%s slimference-yarn-package-%03d@1.0.%d\n", prefix, i, i)
+	}
+	out.WriteString("info All dependencies\n")
+	for i := 0; i < packages; i++ {
+		prefix := "├─"
+		if i == packages-1 {
+			prefix = "└─"
+		}
+		fmt.Fprintf(&out, "%s slimference-yarn-package-%03d@1.0.%d\n", prefix, i, i)
+	}
+	out.WriteString("Done in 0.04s.\n")
 	return out.String()
 }
 

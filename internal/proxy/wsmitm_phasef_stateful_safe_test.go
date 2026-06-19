@@ -111,6 +111,10 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	npmInstallClean := wssNpmInstallCleanFixture(70)
 	npmInstallWarning := "npm warn deprecated left-pad@1.3.0: use String.prototype.padStart()\n" + npmInstallClean
 	npmInstallVulnerability := strings.Replace(npmInstallClean, "found 0 vulnerabilities", "3 vulnerabilities (1 moderate, 2 high)", 1)
+	pnpmInstallClean := wssPnpmInstallCleanFixture(70)
+	pnpmInstallWarning := " WARN  deprecated left-pad@1.3.0\n" + pnpmInstallClean
+	yarnInstallClean := wssYarnClassicInstallCleanFixture()
+	yarnInstallWarning := strings.Replace(yarnInstallClean, "success Saved lockfile.", "warning Ignored scripts due to flag.\nsuccess Saved lockfile.", 1)
 	pipInstallClean := wssPipInstallCleanFixture(70)
 	poetryInstallClean := wssPoetryInstallCleanFixture(70)
 	poetryInstallWarning := "Warning: lock file is not consistent\n" + poetryInstallClean
@@ -179,6 +183,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "docker logs duplicate runs", command: "docker logs app", output: logDuplicateRuns, wantSafe: true},
 		{name: "terraform validate success summary", command: "terraform validate", output: terraformValidateSuccess, wantSafe: true},
 		{name: "npm install clean success", command: "npm install", output: npmInstallClean, wantSafe: true},
+		{name: "pnpm install clean success", command: "pnpm install", output: pnpmInstallClean, wantSafe: true},
+		{name: "yarn install clean success", command: "yarn install", output: yarnInstallClean, wantSafe: true},
 		{name: "pip install clean success", command: "pip install -r requirements.txt", output: pipInstallClean, wantSafe: true},
 		{name: "poetry install clean success", command: "poetry install", output: poetryInstallClean, wantSafe: true},
 		{name: "uv sync clean success", command: "uv sync", output: uvSyncClean, wantSafe: true},
@@ -250,6 +256,8 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 		{name: "terraform validate failure", command: "terraform validate", output: terraformValidateFailure, wantGuard: "terraform validate diagnostics stay guarded"},
 		{name: "npm install warning", command: "npm install", output: npmInstallWarning, wantGuard: "package install warnings stay guarded"},
 		{name: "npm install vulnerability", command: "npm install", output: npmInstallVulnerability, wantGuard: "package install vulnerability findings stay guarded"},
+		{name: "pnpm install warning", command: "pnpm install", output: pnpmInstallWarning, wantGuard: "pnpm install warnings stay guarded"},
+		{name: "yarn install warning", command: "yarn install --ignore-scripts", output: yarnInstallWarning, wantGuard: "yarn install warnings stay guarded"},
 		{name: "poetry install warning", command: "poetry install", output: poetryInstallWarning, wantGuard: "poetry install warnings stay guarded"},
 		{name: "uv sync error", command: "uv sync", output: uvSyncError, wantGuard: "uv sync errors stay guarded"},
 		{name: "empty build envelope", command: "go build ./...", output: emptyBuildEnvelope, wantGuard: "empty success envelopes stay guarded because they do not save bytes"},
@@ -533,6 +541,8 @@ func TestWSSStatefulSafePackageInstallCleanSuccessCompactsFullHistoryTurn(t *tes
 		forbidden string
 	}{
 		{name: "npm", command: "npm install", output: wssNpmInstallCleanFixture(160), want: "[npm install] added 160 packages", forbidden: "package_159"},
+		{name: "pnpm", command: "pnpm install", output: wssPnpmInstallCleanFixture(160), want: "[pnpm install] ok (added 160 packages)", forbidden: "slimference-pnpm-package-159"},
+		{name: "yarn", command: "yarn install", output: wssYarnClassicInstallCleanFixture(), want: "[yarn install] ok (lockfile saved)", forbidden: "Fetching packages"},
 		{name: "poetry", command: "poetry install", output: wssPoetryInstallCleanFixture(160), want: "[poetry install] ok (160 installs, 0 updates, 0 removals", forbidden: "package-159"},
 		{name: "uv sync", command: "uv sync", output: wssUvSyncCleanFixture(160), want: "[uv sync] ok (resolved 160 packages", forbidden: "uv-package-159"},
 		{name: "uv pip install", command: "uv pip install requests", output: wssUvPipInstallCleanFixture(160), want: "[uv pip install] ok (resolved 160 packages", forbidden: "uv-package-159"},
@@ -2740,6 +2750,35 @@ func wssNpmInstallCleanFixture(packages int) string {
 	out.WriteString("  run `npm fund` for details\n\n")
 	out.WriteString("found 0 vulnerabilities\n")
 	return out.String()
+}
+
+func wssPnpmInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	out.WriteString("Progress: resolved 1, reused 0, downloaded 0, added 0\n")
+	fmt.Fprintf(&out, "Packages: +%d\n", packages)
+	out.WriteString(strings.Repeat("+", packages))
+	out.WriteString("\n")
+	fmt.Fprintf(&out, "Progress: resolved %d, reused %d, downloaded 0, added %d, done\n\n", packages, packages, packages)
+	out.WriteString("dependencies:\n")
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "+ slimference-pnpm-package-%03d 1.0.%d\n", i, i)
+	}
+	out.WriteString("\nDone in 256ms using pnpm v10.13.1\n")
+	return out.String()
+}
+
+func wssYarnClassicInstallCleanFixture() string {
+	return strings.Join([]string{
+		"yarn install v1.22.22",
+		"info No lockfile found.",
+		"[1/4] Resolving packages...",
+		"[2/4] Fetching packages...",
+		"[3/4] Linking dependencies...",
+		"[4/4] Building fresh packages...",
+		"success Saved lockfile.",
+		"Done in 0.04s.",
+		"",
+	}, "\n")
 }
 
 func wssPoetryInstallCleanFixture(packages int) string {

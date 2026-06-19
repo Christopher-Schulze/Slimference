@@ -153,12 +153,13 @@ func TryCompactNpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte(fmt.Sprintf("[npm %s] ok\n", argv[1])), true
 }
 
-// TryCompactPnpmInstall summarizes empty stdout from `pnpm install` / `pnpm ci` (F12 partial).
+// TryCompactPnpmInstall summarizes empty stdout or strict clean success from `pnpm install` / `pnpm ci` / `pnpm update` (F12 partial).
 func TryCompactPnpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 2 {
 		return stdout, false
 	}
-	if filepath.Base(argv[0]) != "pnpm" {
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "pnpm" && b != "pnpm.cmd" {
 		return stdout, false
 	}
 	switch argv[1] {
@@ -166,22 +167,29 @@ func TryCompactPnpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	default:
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if pnpmInstallArgvUnsafe(argv[2:]) {
 		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) != "" {
+		return compactPnpmInstallCleanSuccess(stdout, "pnpm "+argv[1])
 	}
 	return []byte(fmt.Sprintf("[pnpm %s] ok\n", argv[1])), true
 }
 
-// TryCompactYarnInstall summarizes empty stdout from `yarn install` (F12 partial).
+// TryCompactYarnInstall summarizes empty stdout or strict Yarn Classic clean success from `yarn install` / `yarn upgrade` (F12 partial).
 func TryCompactYarnInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 2 {
 		return stdout, false
 	}
-	if filepath.Base(argv[0]) != "yarn" || (argv[1] != "install" && argv[1] != "upgrade") {
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if (b != "yarn" && b != "yarn.cmd" && b != "yarnpkg") || (argv[1] != "install" && argv[1] != "upgrade") {
+		return stdout, false
+	}
+	if yarnInstallArgvUnsafe(argv[2:]) {
 		return stdout, false
 	}
 	if strings.TrimSpace(string(stdout)) != "" {
-		return stdout, false
+		return compactYarnClassicInstallCleanSuccess(stdout, "yarn "+argv[1], argv[1])
 	}
 	return []byte(fmt.Sprintf("[yarn %s] ok\n", argv[1])), true
 }
@@ -623,6 +631,47 @@ func npmInstallArgvUnsafe(args []string) bool {
 	return false
 }
 
+func pnpmInstallArgvUnsafe(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		lower := strings.ToLower(strings.TrimSpace(args[i]))
+		switch lower {
+		case "--ignore-scripts", "--frozen-lockfile", "--prefer-frozen-lockfile",
+			"--prod", "--production", "-p", "--dev", "-d", "--no-optional",
+			"--offline", "--prefer-offline", "--ignore-workspace", "--no-color",
+			"--color=false", "--reporter=append-only", "--reporter=default":
+			continue
+		case "--reporter":
+			if i+1 >= len(args) {
+				return true
+			}
+			next := strings.ToLower(strings.TrimSpace(args[i+1]))
+			if next != "append-only" && next != "default" {
+				return true
+			}
+			i++
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func yarnInstallArgvUnsafe(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		switch lower {
+		case "--non-interactive", "--no-progress", "--frozen-lockfile",
+			"--pure-lockfile", "--prefer-offline", "--offline", "--production",
+			"--prod", "--ignore-optional", "--ignore-engines", "--no-bin-links",
+			"--check-files", "--no-default-rc", "--no-node-version-check":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func bunInstallArgvSuffix(argv []string) ([]string, bool) {
 	if isBunInstallArgv(argv) {
 		return argv, true
@@ -665,6 +714,325 @@ func npmInstallLogLevelUnsafe(value string) bool {
 	default:
 		return false
 	}
+}
+
+func compactPnpmInstallCleanSuccess(stdout []byte, label string) ([]byte, bool) {
+	text := string(stdout)
+	var sawDone bool
+	var sawUpToDate bool
+	var sawLockfileUpToDate bool
+	var sawProgress bool
+	var sawPackageDelta bool
+	var added, removed int
+	var dependencyRows int
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case trimmed == "Already up to date":
+			sawUpToDate = true
+		case trimmed == "Lockfile is up to date, resolution step is skipped":
+			sawLockfileUpToDate = true
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case strings.HasPrefix(trimmed, "Progress: "):
+			if !pnpmProgressLineOK(trimmed) {
+				return stdout, false
+			}
+			sawProgress = true
+		case strings.HasPrefix(trimmed, "Packages: "):
+			parsedAdded, parsedRemoved, ok := parsePnpmPackagesLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			added += parsedAdded
+			removed += parsedRemoved
+			sawPackageDelta = true
+		case pnpmProgressGlyphLineOK(trimmed):
+			continue
+		case pnpmDependencySectionLineOK(trimmed):
+			continue
+		case strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- "):
+			if !pnpmDependencyRowOK(trimmed) {
+				return stdout, false
+			}
+			dependencyRows++
+		default:
+			if pnpmDoneLineOK(trimmed) {
+				sawDone = true
+				continue
+			}
+			return stdout, false
+		}
+	}
+	if !sawDone {
+		return stdout, false
+	}
+	parts := make([]string, 0, 3)
+	if sawUpToDate {
+		parts = append(parts, "up to date")
+	}
+	if sawLockfileUpToDate {
+		parts = append(parts, "lockfile up to date")
+	}
+	if sawPackageDelta {
+		if added == 0 && removed == 0 {
+			return stdout, false
+		}
+		if dependencyRows > added+removed {
+			return stdout, false
+		}
+		if added > 0 {
+			parts = append(parts, fmt.Sprintf("added %d %s", added, pluralWord(added, "package", "packages")))
+		}
+		if removed > 0 {
+			parts = append(parts, fmt.Sprintf("removed %d %s", removed, pluralWord(removed, "package", "packages")))
+		}
+	}
+	if len(parts) == 0 || (!sawUpToDate && !sawProgress && !sawPackageDelta) {
+		return stdout, false
+	}
+	out := []byte("[" + label + "] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func pnpmProgressLineOK(line string) bool {
+	rest := strings.TrimPrefix(line, "Progress: ")
+	parts := strings.Split(rest, ", ")
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "done" {
+			continue
+		}
+		fields := strings.Fields(part)
+		if len(fields) != 2 {
+			return false
+		}
+		switch fields[0] {
+		case "resolved", "reused", "downloaded", "added":
+		default:
+			return false
+		}
+		count, err := strconv.Atoi(fields[1])
+		if err != nil || count < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func parsePnpmPackagesLine(line string) (int, int, bool) {
+	fields := strings.Fields(strings.TrimPrefix(line, "Packages: "))
+	if len(fields) == 0 {
+		return 0, 0, false
+	}
+	var added, removed int
+	for _, field := range fields {
+		if len(field) < 2 {
+			return 0, 0, false
+		}
+		sign := field[0]
+		if sign != '+' && sign != '-' {
+			return 0, 0, false
+		}
+		count, err := strconv.Atoi(field[1:])
+		if err != nil || count <= 0 {
+			return 0, 0, false
+		}
+		if sign == '+' {
+			added += count
+		} else {
+			removed += count
+		}
+	}
+	return added, removed, true
+}
+
+func pnpmProgressGlyphLineOK(line string) bool {
+	if line == "" || len(line) > 200 {
+		return false
+	}
+	for _, r := range line {
+		if r != '+' && r != '-' {
+			return false
+		}
+	}
+	return strings.Contains(line, "+") || strings.Contains(line, "-")
+}
+
+func pnpmDependencySectionLineOK(line string) bool {
+	switch line {
+	case "dependencies:", "devDependencies:", "optionalDependencies:", "peerDependencies:":
+		return true
+	default:
+		return false
+	}
+}
+
+func pnpmDependencyRowOK(line string) bool {
+	detail := strings.TrimSpace(line[2:])
+	if detail == "" || strings.ContainsAny(detail, "\t") {
+		return false
+	}
+	fields := strings.Fields(detail)
+	return len(fields) == 1 || len(fields) == 2
+}
+
+func pnpmDoneLineOK(line string) bool {
+	fields := strings.Fields(line)
+	return len(fields) == 6 &&
+		fields[0] == "Done" &&
+		fields[1] == "in" &&
+		fields[2] != "" &&
+		fields[3] == "using" &&
+		fields[4] == "pnpm" &&
+		strings.HasPrefix(fields[5], "v")
+}
+
+func compactYarnClassicInstallCleanSuccess(stdout []byte, label, command string) ([]byte, bool) {
+	text := string(stdout)
+	var sawHeader bool
+	var sawDone bool
+	var sawStep bool
+	var sawSavedLockfile bool
+	var sawUpToDate bool
+	var sawDependencySection bool
+	var dependencyRows int
+	var savedDependencies *int
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case yarnClassicHeaderLineOK(trimmed, command):
+			sawHeader = true
+		case trimmed == "info No lockfile found.":
+			continue
+		case yarnClassicStepLineOK(trimmed):
+			sawStep = true
+		case trimmed == "success Saved lockfile.":
+			sawSavedLockfile = true
+		case trimmed == "success Already up-to-date.":
+			sawUpToDate = true
+		case strings.HasPrefix(trimmed, "success Saved ") &&
+			(strings.HasSuffix(trimmed, " new dependency.") || strings.HasSuffix(trimmed, " new dependencies.")):
+			count, ok := parseYarnClassicSavedDependencyLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			savedDependencies = &count
+		case trimmed == "info Direct dependencies" || trimmed == "info All dependencies":
+			sawDependencySection = true
+		case strings.HasPrefix(trimmed, "└─ ") || strings.HasPrefix(trimmed, "├─ "):
+			if !yarnClassicDependencyRowOK(trimmed) {
+				return stdout, false
+			}
+			dependencyRows++
+		default:
+			if yarnClassicDoneLineOK(trimmed) {
+				sawDone = true
+				continue
+			}
+			return stdout, false
+		}
+	}
+	if !sawHeader || !sawDone || !sawStep {
+		return stdout, false
+	}
+	parts := make([]string, 0, 3)
+	if sawUpToDate {
+		parts = append(parts, "up to date")
+	}
+	if savedDependencies != nil {
+		if dependencyRows > 0 && dependencyRows < *savedDependencies {
+			return stdout, false
+		}
+		parts = append(parts, fmt.Sprintf("saved %d %s", *savedDependencies, pluralWord(*savedDependencies, "dependency", "dependencies")))
+	}
+	if sawSavedLockfile {
+		parts = append(parts, "lockfile saved")
+	}
+	if len(parts) == 0 || (dependencyRows > 0 && !sawDependencySection) {
+		return stdout, false
+	}
+	out := []byte("[" + label + "] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func yarnClassicHeaderLineOK(line, command string) bool {
+	fields := strings.Fields(line)
+	return len(fields) == 3 &&
+		fields[0] == "yarn" &&
+		fields[1] == command &&
+		strings.HasPrefix(fields[2], "v1.")
+}
+
+func yarnClassicStepLineOK(line string) bool {
+	closeBracket := strings.IndexByte(line, ']')
+	if closeBracket <= 1 || closeBracket+2 >= len(line) || line[closeBracket+1] != ' ' {
+		return false
+	}
+	bracket := line[1:closeBracket]
+	counts := strings.Split(bracket, "/")
+	if len(counts) != 2 {
+		return false
+	}
+	current, errCurrent := strconv.Atoi(counts[0])
+	total, errTotal := strconv.Atoi(counts[1])
+	if errCurrent != nil || errTotal != nil || current <= 0 || total <= 0 || current > total {
+		return false
+	}
+	switch line[closeBracket+2:] {
+	case "Resolving packages...", "Fetching packages...", "Linking dependencies...",
+		"Building fresh packages...", "Rebuilding all packages...":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseYarnClassicSavedDependencyLine(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 5 || fields[0] != "success" || fields[1] != "Saved" || fields[3] != "new" {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[2])
+	if err != nil || count <= 0 {
+		return 0, false
+	}
+	if fields[4] != pluralWord(count, "dependency.", "dependencies.") {
+		return 0, false
+	}
+	return count, true
+}
+
+func yarnClassicDependencyRowOK(line string) bool {
+	detail := strings.TrimSpace(line[2:])
+	return detail != "" && strings.Contains(detail, "@") && !strings.ContainsAny(detail, "\t")
+}
+
+func yarnClassicDoneLineOK(line string) bool {
+	fields := strings.Fields(line)
+	return len(fields) == 3 &&
+		fields[0] == "Done" &&
+		fields[1] == "in" &&
+		strings.HasSuffix(fields[2], ".") &&
+		len(fields[2]) > 1
 }
 
 func compactBunInstallCleanSuccess(stdout []byte) ([]byte, bool) {
@@ -1173,7 +1541,8 @@ func TryCompactPackageOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if label := pkgToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
 		if s != "" {
-			if strings.HasPrefix(label, "npm ") && !packageOutputHasErrorSummaryLine(s) {
+			if (strings.HasPrefix(label, "npm ") || strings.HasPrefix(label, "pnpm ") || strings.HasPrefix(label, "yarn ")) &&
+				!packageOutputHasErrorSummaryLine(s) {
 				return stdout, false
 			}
 			if out, ok := extractPkgSummary(s, label); ok {
