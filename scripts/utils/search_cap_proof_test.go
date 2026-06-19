@@ -365,6 +365,43 @@ func TestRunSearchCapProofIgnoresCapturedOriginalShadowsForCurrentProof(t *testi
 	}
 }
 
+func TestRunSearchCapProofAllowsCurrentProofSubsetOfReplayMutations(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofFullHistoryFrames(t, path, "search-cap-proof-subset", 96)
+
+	proof, err := loadSearchCapDownstreamStateProof(path, 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proof.GatePassed ||
+		proof.MutatedSearchOutputCandidates != 1 ||
+		proof.CandidatesPassing != 1 ||
+		strings.Contains(strings.Join(proof.GateFailures, "\n"), "marker mismatch") {
+		t.Fatalf("clean current downstream subset should not require marker/replay count equality: %+v", proof)
+	}
+}
+
+func TestRunSearchCapProofRejectsReplayMutationsWithoutCurrentMarkers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("search-cap-proof-no-marker-response"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("search-cap-proof-no-marker-following"), false),
+	)
+
+	proof, err := loadSearchCapDownstreamStateProof(path, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.GatePassed ||
+		!strings.Contains(strings.Join(proof.GateFailures, "\n"), "no current search mutation markers observed for replay_mutations=1") {
+		t.Fatalf("replay mutations without live current markers must fail closed: %+v", proof)
+	}
+}
+
 func TestRunSearchCapProofDoesNotUseCapturedDownstreamEconomicsAsProductGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

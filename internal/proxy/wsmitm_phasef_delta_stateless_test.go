@@ -349,6 +349,79 @@ func TestWSPhaseFSearchCapMixedDeltaFullPasses(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFSearchCapStatefulDeltaDepthLimit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	ctx := context.Background()
+
+	root := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "search-cap-depth-limit",
+		"client_metadata": map[string]any{
+			"x-codex-turn-metadata": `{"thread_id":"thread-search-cap-depth-limit","source":"desktop"}`,
+		},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "run sequential searches",
+		}},
+		"stream": true,
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &root); err != nil || replace {
+		t.Fatalf("root request should seed recovery only, replace=%v err=%v raw=%s", replace, err, root.Raw)
+	}
+
+	for i := 0; i < wssSearchCapStatefulDeltaMaxTurns+1; i++ {
+		callID := fmt.Sprintf("search-depth-%d", i)
+		parentID := fmt.Sprintf("resp-search-depth-%d", i)
+		seedWSSDeltaStatelessToolCall(t, ctx, adapter, callID, "exec_command", map[string]any{"cmd": fmt.Sprintf("cd /repo/search && rg -n needle%d src", i)})
+		completeWSSDeltaStatelessResponse(t, ctx, adapter, parentID)
+
+		delta := parseWSJSON(t, map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": parentID,
+			"prompt_cache_key":     "search-cap-depth-limit",
+			"client_metadata": map[string]any{
+				"x-codex-turn-metadata": `{"thread_id":"thread-search-cap-depth-limit","source":"desktop"}`,
+			},
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  proxyWSSSearchOutputFixture(fmt.Sprintf("needle%d", i), 90),
+			}},
+			"stream": true,
+		})
+		original := append([]byte(nil), delta.Raw...)
+		replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta)
+		if err != nil {
+			t.Fatalf("delta %d handle: %v", i, err)
+		}
+		summary := p.DebugRecorder().Last(1, false)[0]
+		if i < wssSearchCapStatefulDeltaMaxTurns {
+			if !replace || bytes.Equal(delta.Raw, original) || summary.Tokens.Saved <= 0 ||
+				summary.DebugFacts["wss.search_cap_stateful_followup"] != "true" ||
+				summary.DebugFacts["wss.search_cap_stateful_followup_guard"] != "" {
+				t.Fatalf("delta %d should compact before depth limit: replace=%v summary=%+v original=%s mutated=%s", i, replace, summary, original, delta.Raw)
+			}
+			continue
+		}
+		if replace || !bytes.Equal(delta.Raw, original) || summary.Tokens.Saved != 0 ||
+			summary.DebugFacts["wss.search_cap_stateful_followup"] == "true" ||
+			summary.DebugFacts["wss.search_cap_stateful_followup_guard"] != "stateful_delta_depth_limit" {
+			t.Fatalf("delta %d should full-pass at depth limit: replace=%v summary=%+v original=%s mutated=%s", i, replace, summary, original, delta.Raw)
+		}
+	}
+}
+
 func seedWSSDeltaStatelessToolCall(t *testing.T, ctx context.Context, adapter *wsPhaseFAdapter, callID, name string, arguments any) {
 	t.Helper()
 	itemDone := parseWSJSON(t, map[string]any{

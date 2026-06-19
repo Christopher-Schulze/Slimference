@@ -357,7 +357,10 @@ func loadSearchCapDownstreamStateProof(path string, socketSeq uint64, currentSea
 	if len(mutatedSearchOutputTurns) != len(turns) {
 		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("turn marker mismatch: search_markers=%d request_turns=%d", len(mutatedSearchOutputTurns), len(turns)))
 	}
-	if currentSearchMutations > 0 && mutatedSearchOutputTurnCount != currentSearchMutations {
+	if currentSearchMutations > 0 && mutatedSearchOutputTurnCount == 0 {
+		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("no current search mutation markers observed for replay_mutations=%d", currentSearchMutations))
+	}
+	if currentSearchMutations > 0 && mutatedSearchOutputTurnCount > currentSearchMutations {
 		proof.GateFailures = append(proof.GateFailures, fmt.Sprintf("current search mutation marker mismatch: markers=%d replay_mutations=%d", mutatedSearchOutputTurnCount, currentSearchMutations))
 	}
 	for i, turn := range turns {

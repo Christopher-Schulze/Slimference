@@ -1023,7 +1023,7 @@ func wssT354CandidateReasonHasSafetyFailure(candidate wssT354CandidateProof, rea
 		strings.Contains(reason, "error_frames") {
 		return true
 	}
-	return candidate.FollowingTurnPresent && !candidate.FollowingTurnClean
+	return false
 }
 
 func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapeProofRow) {

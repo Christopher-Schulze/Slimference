@@ -73,6 +73,7 @@ type wsPhaseFAdapter struct {
 	cacheBustSessions          map[string]*wssProviderCacheBustSession
 	statefulPrefixElision      wssStatefulPrefixElisionState
 	sessionTurnSeq             map[string]int
+	searchCapStatefulDeltaSeq  map[string]int
 	counters                   wsPhaseFCounters
 	socketSeq                  atomic.Uint64
 	socketDecisionRequestID    string
@@ -83,6 +84,7 @@ const (
 	wssProviderCacheBustWarmupTurns   = 3
 	wssProviderCacheBustDropThreshold = 0.30
 	wssProviderCacheBustMinPrevShare  = 0.50
+	wssSearchCapStatefulDeltaMaxTurns = 4
 )
 
 type wssProviderCacheBustSample struct {
@@ -378,6 +380,27 @@ func (a *wsPhaseFAdapter) observeWSSRequestTurnSeq(sessionID string) int {
 	}
 	a.sessionTurnSeq[sessionID]++
 	return a.sessionTurnSeq[sessionID]
+}
+
+func (a *wsPhaseFAdapter) wssSearchCapStatefulDeltaBudgetAvailable(sessionID string) bool {
+	if a == nil || strings.TrimSpace(sessionID) == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.searchCapStatefulDeltaSeq[sessionID] < wssSearchCapStatefulDeltaMaxTurns
+}
+
+func (a *wsPhaseFAdapter) recordWSSSearchCapStatefulDeltaMutation(sessionID string) {
+	if a == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.searchCapStatefulDeltaSeq == nil {
+		a.searchCapStatefulDeltaSeq = make(map[string]int)
+	}
+	a.searchCapStatefulDeltaSeq[sessionID]++
 }
 
 func (a *wsPhaseFAdapter) handle(_ context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
@@ -841,16 +864,30 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		}
 		searchCapProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
-		searchCapStatefulDeltaAllowed := requestShape == "delta" &&
+		searchCapStatefulDeltaCandidate := requestShape == "delta" &&
 			meta.PreviousResponseID != "" &&
 			searchCapProofed &&
 			(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
 				a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled)
+		searchCapStatefulDeltaBudgetOK := !searchCapStatefulDeltaCandidate ||
+			a.wssSearchCapStatefulDeltaBudgetAvailable(sessionID)
+		searchCapStatefulDeltaAllowed := requestShape == "delta" &&
+			meta.PreviousResponseID != "" &&
+			searchCapProofed &&
+			(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
+				a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled) &&
+			searchCapStatefulDeltaBudgetOK
 		searchMutationAllowed := (requestShape == "full_history" ||
 			a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled ||
 			searchCapStatefulDeltaAllowed) &&
 			((structuredMutationAllowed && !statefulDeltaMutationBlocked) || searchCapProofed) &&
 			(a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled || structuredMutationRecoverable || searchCapProofed)
+		if searchCapStatefulDeltaCandidate && !searchCapStatefulDeltaBudgetOK {
+			if meta.DebugFacts == nil {
+				meta.DebugFacts = make(map[string]string)
+			}
+			meta.DebugFacts["wss.search_cap_stateful_followup_guard"] = "stateful_delta_depth_limit"
+		}
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                   codexLayer0RouteWSSPhaseF,
 			Messages:                stagedMessages,
@@ -942,6 +979,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 						searchCapStatefulFollowupSafe &&
 						(stats.CapturedOutputBlocks > 0 || stats.CodexExecEnvelopeBlocks > 0)
 					if searchCapStatefulFollowupApplied {
+						a.recordWSSSearchCapStatefulDeltaMutation(sessionID)
 						if meta.DebugFacts == nil {
 							meta.DebugFacts = make(map[string]string)
 						}
