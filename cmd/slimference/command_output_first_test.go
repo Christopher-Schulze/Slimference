@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
@@ -428,14 +429,36 @@ func TestCommandOutputFirstShimFindAndWcCompact(t *testing.T) {
 		t.Fatalf("unexpected compacted find stdout=%q", findOut)
 	}
 
-	realWc := writeFakeCommand(t, "wc", "#!/bin/sh\ncat <<'EOF'\n      30      96 src/main.go\n      50     120 src/lib.go\n      80     216 total\nEOF\n")
+	var wcRows strings.Builder
+	totalLines := 0
+	totalWords := 0
+	for i := 0; i < 40; i++ {
+		lines := 30 + i
+		words := 90 + i
+		totalLines += lines
+		totalWords += words
+		wcRows.WriteString("      ")
+		wcRows.WriteString(strconv.Itoa(lines))
+		wcRows.WriteString("      ")
+		wcRows.WriteString(strconv.Itoa(words))
+		wcRows.WriteString(" src/file")
+		wcRows.WriteString(strconv.Itoa(i))
+		wcRows.WriteString(".go\n")
+	}
+	wcRows.WriteString("      ")
+	wcRows.WriteString(strconv.Itoa(totalLines))
+	wcRows.WriteString("      ")
+	wcRows.WriteString(strconv.Itoa(totalWords))
+	wcRows.WriteString(" total\n")
+	realWc := writeFakeCommand(t, "wc", "#!/bin/sh\ncat <<'EOF'\n"+wcRows.String()+"EOF\n")
 	var wcStdout, wcStderr bytes.Buffer
 	rc = runCommandOutputFirstShim([]string{"--command=wc", "--real-bin=" + realWc, "--", "-lw", "src/main.go", "src/lib.go"}, &bytes.Buffer{}, &wcStdout, &wcStderr)
 	if rc != 0 {
 		t.Fatalf("wc rc=%d stderr=%q", rc, wcStderr.String())
 	}
-	if got := wcStdout.String(); got != "[wc prefix=src/]\nmain.go: 30L 96W\nlib.go: 50L 120W\ntotal: 80L 216W\n" {
-		t.Fatalf("unexpected compacted wc stdout=%q", got)
+	gotWc := commandOutputFirstVisibleOutput(wcStdout.String())
+	if !strings.Contains(gotWc, "[wc prefix=src/]") || !strings.Contains(gotWc, "file39.go: 69L 129W") || !strings.Contains(gotWc, "total: ") {
+		t.Fatalf("unexpected compacted wc stdout=%q", gotWc)
 	}
 }
 
@@ -618,7 +641,7 @@ func TestCommandOutputFirstShimNpxNextBuildCompactsWithAccounting(t *testing.T) 
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
-	if got := stdout.String(); got != "[next build] ok\n" {
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[next build] ok\n" {
 		t.Fatalf("unexpected compacted npx next stdout=%q", got)
 	}
 	db, err := filter.OpenDB(dbPath)
@@ -681,8 +704,23 @@ func TestCommandOutputFirstShimMavenBuildCompactsWithAccounting(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
-	if got := stdout.String(); got != "[mvn] ok (Tests run: 42, Failures: 0, Errors: 0, Skipped: 0)\n" {
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[mvn] ok (Tests run: 42, Failures: 0, Errors: 0, Skipped: 0)\n" {
 		t.Fatalf("unexpected compacted maven stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("[INFO] BUILD SUCCESS")) || !bytes.Contains(raw, []byte("Tests run: 42")) {
+		t.Fatalf("archive did not preserve Maven raw output: %q", raw)
 	}
 	db, err := filter.OpenDB(dbPath)
 	if err != nil {
@@ -704,6 +742,34 @@ func TestCommandOutputFirstShimMavenBuildCompactsWithAccounting(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimArchiveUnavailableFullPasses(t *testing.T) {
+	oldHome := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
+	t.Cleanup(func() { osUserHomeDir = oldHome })
+
+	dir := filepath.Join(t.TempDir(), "real")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	realMvn := filepath.Join(dir, "mvn")
+	raw := commandOutputFirstMavenFixture(24)
+	if err := os.WriteFile(realMvn, []byte("#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=mvn", "--real-bin=" + realMvn, "--", "test"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("archive-unavailable path must full-pass raw stdout\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
 func TestCommandOutputFirstShimGradleBuildCompacts(t *testing.T) {
 	realGradle := writeFakeCommand(t, "gradle", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstGradleBuildFixture(18)+"EOF\n")
 	var stdout, stderr bytes.Buffer
@@ -711,19 +777,26 @@ func TestCommandOutputFirstShimGradleBuildCompacts(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
-	if got := stdout.String(); got != "[gradle build] ok (18 actionable tasks: 18 executed)\n" {
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[gradle build] ok (18 actionable tasks: 18 executed)\n" {
 		t.Fatalf("unexpected compacted gradle stdout=%q", got)
 	}
 }
 
 func TestCommandOutputFirstShimNpxEsbuildCompacts(t *testing.T) {
-	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\ndist/index.js 12.3 kb\nDone in 10ms\nEOF\n")
+	var build strings.Builder
+	for i := 0; i < 40; i++ {
+		build.WriteString("dist/chunk")
+		build.WriteString(strconv.Itoa(i))
+		build.WriteString(".js 12.3 kb\n")
+	}
+	build.WriteString("Done in 10ms\n")
+	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\n"+build.String()+"EOF\n")
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=npx", "--real-bin=" + realNpx, "--", "-y", "esbuild", "src/index.ts", "--bundle"}, &bytes.Buffer{}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
-	if got := stdout.String(); got != "[esbuild] ok\n" {
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[esbuild] ok\n" {
 		t.Fatalf("unexpected compacted esbuild stdout=%q", got)
 	}
 }
@@ -776,7 +849,7 @@ func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("make rc=%d stderr=%q", rc, stderr.String())
 	}
-	if got := stdout.String(); got != "[make] ok\n" {
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[make] ok\n" {
 		t.Fatalf("unexpected make compacted stdout=%q", got)
 	}
 }
@@ -884,7 +957,7 @@ func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("pre-commit rc=%d stderr=%q", rc, lintStderr.String())
 	}
-	if got := lintStdout.String(); got != "[pre-commit] ok (20 hooks passed)\n" {
+	if got := commandOutputFirstVisibleOutput(lintStdout.String()); got != "[pre-commit] ok (20 hooks passed)\n" {
 		t.Fatalf("unexpected pre-commit compacted stdout=%q", got)
 	}
 
@@ -894,8 +967,11 @@ func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("prettier rc=%d stderr=%q", rc, fmtStderr.String())
 	}
-	if got := fmtStdout.String(); got != "[prettier] ok\n" {
-		t.Fatalf("unexpected prettier compacted stdout=%q", got)
+	if got := fmtStdout.String(); got != "Checking formatting...\nAll matched files use Prettier code style!\n" {
+		t.Fatalf("small prettier output should full-pass after archive overhead, got %q", got)
+	}
+	if uri := commandOutputFirstArchiveURI(fmtStdout.String()); uri != "" {
+		t.Fatalf("small prettier full-pass must not archive: %q", fmtStdout.String())
 	}
 }
 
@@ -906,7 +982,7 @@ func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("npm lint rc=%d stderr=%q", rc, lintStderr.String())
 	}
-	if got := lintStdout.String(); got != "[pre-commit] ok (12 hooks passed)\n" {
+	if got := commandOutputFirstVisibleOutput(lintStdout.String()); got != "[pre-commit] ok (12 hooks passed)\n" {
 		t.Fatalf("unexpected npm lint compacted stdout=%q", got)
 	}
 
@@ -916,8 +992,11 @@ func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("yarn format rc=%d stderr=%q", rc, fmtStderr.String())
 	}
-	if got := fmtStdout.String(); got != "[prettier] ok\n" {
-		t.Fatalf("unexpected yarn format compacted stdout=%q", got)
+	if got := fmtStdout.String(); got != "> app@1.0.0 format:check /repo\n> prettier --check .\nChecking formatting...\nAll matched files use Prettier code style!\n" {
+		t.Fatalf("small yarn format output should full-pass after archive overhead, got %q", got)
+	}
+	if uri := commandOutputFirstArchiveURI(fmtStdout.String()); uri != "" {
+		t.Fatalf("small yarn format full-pass must not archive: %q", fmtStdout.String())
 	}
 }
 
@@ -999,7 +1078,7 @@ func TestCommandOutputFirstShimCargoBuildAndClippyCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("cargo build rc=%d stderr=%q", rc, buildStderr.String())
 	}
-	if got := buildStdout.String(); got != "[cargo build] ok\n" {
+	if got := commandOutputFirstVisibleOutput(buildStdout.String()); got != "[cargo build] ok\n" {
 		t.Fatalf("cargo build compacted stdout=%q", got)
 	}
 
@@ -1014,7 +1093,7 @@ func TestCommandOutputFirstShimCargoBuildAndClippyCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("cargo clippy rc=%d stderr=%q", rc, clippyStderr.String())
 	}
-	if got := clippyStdout.String(); got != "[cargo clippy] ok\n" {
+	if got := commandOutputFirstVisibleOutput(clippyStdout.String()); got != "[cargo clippy] ok\n" {
 		t.Fatalf("cargo clippy compacted stdout=%q", got)
 	}
 }
@@ -1037,14 +1116,14 @@ func TestCommandOutputFirstShimCargoStderrFullPasses(t *testing.T) {
 func TestCommandOutputFirstShimPythonUnittestCompactsWithAccounting(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 1; i <= 80; i++ {
+	for i := 1; i <= 400; i++ {
 		b.WriteByte('.')
 		if i%40 == 0 {
 			b.WriteByte('\n')
 		}
 	}
 	b.WriteString("\n----------------------------------------------------------------------\n")
-	b.WriteString("Ran 80 tests in 0.321s\n\nOK\n")
+	b.WriteString("Ran 400 tests in 0.321s\n\nOK\n")
 	realPython := writeFakeCommand(t, "python3", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=python3", "--real-bin=" + realPython, "--", "-u", "-m", "unittest"}, &bytes.Buffer{}, &stdout, &stderr)
@@ -1052,7 +1131,7 @@ func TestCommandOutputFirstShimPythonUnittestCompactsWithAccounting(t *testing.T
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
 	got := stdout.String()
-	if got != "[python -m unittest] ok (Ran 80 tests in 0.321s; OK)\n" {
+	if got = commandOutputFirstVisibleOutput(got); got != "[python -m unittest] ok (Ran 400 tests in 0.321s; OK)\n" {
 		t.Fatalf("unexpected compacted unittest stdout=%q", got)
 	}
 	db, err := filter.OpenDB(dbPath)
@@ -1261,6 +1340,7 @@ func writeFakeGit(t *testing.T, script string) string {
 
 func writeFakeCommand(t *testing.T, name string, script string) string {
 	t.Helper()
+	withCommandOutputFirstArchiveHome(t)
 	dir := filepath.Join(t.TempDir(), "real")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
@@ -1766,6 +1846,7 @@ func TestCommandOutputFirstPassthroughMissingBinaryReturns127(t *testing.T) {
 
 func withCommandOutputFirstRecordingDB(t *testing.T) string {
 	t.Helper()
+	withCommandOutputFirstArchiveHome(t)
 	oldPath := resolveFilterDBPathFn
 	oldGetwd := osGetwd
 	dbPath := filepath.Join(t.TempDir(), "filter.db")
@@ -1776,4 +1857,35 @@ func withCommandOutputFirstRecordingDB(t *testing.T) string {
 		osGetwd = oldGetwd
 	})
 	return dbPath
+}
+
+func withCommandOutputFirstArchiveHome(t *testing.T) string {
+	t.Helper()
+	oldHome := osUserHomeDir
+	home := filepath.Join(t.TempDir(), "home")
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = oldHome })
+	return home
+}
+
+func commandOutputFirstVisibleOutput(output string) string {
+	idx := strings.Index(output, "\n[context-archive kind=tool-output uri=local-archive://")
+	if idx < 0 {
+		return output
+	}
+	return strings.TrimRight(output[:idx], "\n") + "\n"
+}
+
+func commandOutputFirstArchiveURI(output string) string {
+	marker := "uri="
+	idx := strings.Index(output, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := output[idx+len(marker):]
+	end := strings.IndexAny(rest, " ]")
+	if end < 0 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:end])
 }

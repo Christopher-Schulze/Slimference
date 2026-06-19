@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
@@ -170,8 +171,14 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 	rawErr := errBuf.Bytes()
 	compacted, ok := compactCommandOutputFirst(cfg.command, cfg.realBin, childArgs, rawOut, rawErr, code)
 	if ok {
-		recordCommandOutputFirstRun(cfg.command, childArgs, rawOut, compacted)
-		_, _ = stdout.Write(compacted)
+		recoverable, ok := archiveCommandOutputFirstCompaction(cfg.command, childArgs, rawOut, compacted)
+		if !ok {
+			_, _ = stdout.Write(rawOut)
+			_, _ = stderr.Write(rawErr)
+			return code
+		}
+		recordCommandOutputFirstRun(cfg.command, childArgs, rawOut, recoverable)
+		_, _ = stdout.Write(recoverable)
 		return code
 	}
 	_, _ = stdout.Write(rawOut)
@@ -715,6 +722,28 @@ func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte)
 	return compacted, true
 }
 
+func archiveCommandOutputFirstCompaction(command string, args []string, rawOut, compacted []byte) ([]byte, bool) {
+	if len(rawOut) == 0 || len(compacted) == 0 {
+		return nil, false
+	}
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return nil, false
+	}
+	label := commandOutputFirstLabel(command, args)
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SubLayer: "command_output_first",
+		Original: string(rawOut),
+		Preview:  label,
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil || strings.TrimSpace(entry.URI) == "" {
+		return nil, false
+	}
+	marker := "\n[context-archive kind=tool-output uri=" + entry.URI + " recover=\"slimference expand " + entry.URI + "\"]\n"
+	recoverable := []byte(strings.TrimRight(string(compacted), "\n") + marker)
+	return commandOutputFirstPositiveCompaction(recoverable, true, rawOut)
+}
+
 func recordCommandOutputFirstRun(command string, args []string, rawOut, compacted []byte) {
 	dbPath, err := resolveFilterDBPathFn()
 	if err != nil || strings.TrimSpace(dbPath) == "" {
@@ -738,11 +767,15 @@ func recordCommandOutputFirstRun(command string, args []string, rawOut, compacte
 		return
 	}
 	savingsPct := float64(inputTokens-outputTokens) * 100 / float64(inputTokens)
+	_ = filter.RecordFilterRun(db, commandOutputFirstLabel(command, args), wd, inputTokens, outputTokens, savingsPct, time.Now())
+}
+
+func commandOutputFirstLabel(command string, args []string) string {
 	label := "[command-output-first:" + command + "] " + command
 	if len(args) > 0 {
 		label += " " + strings.Join(args, " ")
 	}
-	_ = filter.RecordFilterRun(db, label, wd, inputTokens, outputTokens, savingsPct, time.Now())
+	return label
 }
 
 func commandOutputFirstGitSubcommand(args []string) string {
