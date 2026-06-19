@@ -163,6 +163,38 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	if commandOutputFirstAllowCapture("go", []string{"env"}) {
 		t.Fatal("go env must not be captured by the command-output-first shim")
 	}
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{command: "npm", args: []string{"test", "--", "--runInBand"}},
+		{command: "npm", args: []string{"run", "test"}},
+		{command: "pnpm", args: []string{"run", "test"}},
+		{command: "yarn", args: []string{"run", "test"}},
+		{command: "bun", args: []string{"test"}},
+		{command: "npm", args: []string{"run", "build"}},
+		{command: "pnpm", args: []string{"run", "build"}},
+		{command: "yarn", args: []string{"run", "build"}},
+	} {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v should be captured", tc.command, tc.args)
+		}
+	}
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{command: "npm", args: []string{"install"}},
+		{command: "npm", args: []string{"run", "dev"}},
+		{command: "pnpm", args: []string{"exec", "vitest"}},
+		{command: "yarn", args: []string{"start"}},
+		{command: "bun", args: []string{"run", "build"}},
+		{command: "bun", args: []string{"install"}},
+	} {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
+		}
+	}
 }
 
 func TestCommandOutputFirstShimRgCompactsWithFullRetentionAndAccounting(t *testing.T) {
@@ -321,6 +353,67 @@ func TestCommandOutputFirstShimGoBuildEmptyFullPasses(t *testing.T) {
 	realGo := writeFakeCommand(t, "go", "#!/bin/sh\nexit 0\n")
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=go", "--real-bin=" + realGo, "--", "build", "./cmd/slimference"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimNpmRunTestCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	b.WriteString("bun test v1.3.14 (0d9b296a)\n\nsession.test.ts:\n")
+	for i := 1; i <= 42; i++ {
+		b.WriteString("(pass) sample_session.jsonl > case ")
+		if i < 10 {
+			b.WriteString("00")
+		} else if i < 100 {
+			b.WriteString("0")
+		}
+		b.WriteString(strings.TrimSpace(string(rune('0' + i/10))))
+		b.WriteString(strings.TrimSpace(string(rune('0' + i%10))))
+		b.WriteString(" [0.01ms]\n")
+	}
+	b.WriteString("\n 42 pass\n 0 fail\n 50 expect() calls\nRan 42 tests across 2 files. [3.01s]\n")
+	realNpm := writeFakeCommand(t, "npm", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npm", "--real-bin=" + realNpm, "--", "--silent", "run", "test"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[bun test] ok - 42 passed") || !strings.Contains(got, "Ran 42 tests across 2 files.") {
+		t.Fatalf("unexpected compacted npm test stdout=%q", got)
+	}
+	if strings.Contains(got, "case 001") {
+		t.Fatalf("npm test command-output-first should elide redundant pass roll-call: %q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:npm] npm --silent run test") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimPackageBuildEmptyFullPasses(t *testing.T) {
+	realPnpm := writeFakeCommand(t, "pnpm", "#!/bin/sh\nexit 0\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=pnpm", "--real-bin=" + realPnpm, "--", "run", "build"}, &bytes.Buffer{}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
@@ -569,6 +662,9 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "HEAD"}, []byte("commit x\n"), nil, 0); ok || out != nil {
 		t.Fatalf("git show compacted: out=%q ok=%v", out, ok)
 	}
+	if out, ok := compactCommandOutputFirst("npm", "/usr/bin/npm", []string{"run", "dev"}, []byte("ready\n"), nil, 0); ok || out != nil {
+		t.Fatalf("npm run dev compacted: out=%q ok=%v", out, ok)
+	}
 }
 
 func TestCommandOutputFirstGitSubcommandGlobalOptionEdges(t *testing.T) {
@@ -608,6 +704,114 @@ func TestCommandOutputFirstGoSubcommandGlobalOptionEdges(t *testing.T) {
 	for _, tc := range cases {
 		if got := commandOutputFirstGoSubcommand(tc.args); got != tc.want {
 			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestCommandOutputFirstPackageScriptEdges(t *testing.T) {
+	allowed := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "npm global flag test", command: "npm", args: []string{"--silent", "test"}},
+		{name: "pnpm cwd run test", command: "pnpm", args: []string{"--dir", "app", "run", "test"}},
+		{name: "yarn run option build", command: "yarn", args: []string{"run", "--silent", "build"}},
+		{name: "npm inline prefix test", command: "npm", args: []string{"--prefix=app", "test"}},
+		{name: "bun direct test", command: "bun", args: []string{"--cwd", "app", "test"}},
+	}
+	for _, tc := range allowed {
+		t.Run("allow "+tc.name, func(t *testing.T) {
+			if !commandOutputFirstPackageScriptAllowed(tc.command, tc.args) {
+				t.Fatalf("%s %v should be allowed", tc.command, tc.args)
+			}
+		})
+	}
+
+	denied := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "unknown command", command: "deno", args: []string{"test"}},
+		{name: "npm run without script", command: "npm", args: []string{"run"}},
+		{name: "npm empty args", command: "npm", args: []string{""}},
+		{name: "pnpm missing option value", command: "pnpm", args: []string{"--dir"}},
+		{name: "bun run test", command: "bun", args: []string{"run", "test"}},
+		{name: "bun run build", command: "bun", args: []string{"run", "build"}},
+	}
+	for _, tc := range denied {
+		t.Run("deny "+tc.name, func(t *testing.T) {
+			if commandOutputFirstPackageScriptAllowed(tc.command, tc.args) {
+				t.Fatalf("%s %v must not be allowed", tc.command, tc.args)
+			}
+		})
+	}
+	if commandOutputFirstPackageScriptIsBuild("npm", []string{"test"}) {
+		t.Fatal("npm test must not be classified as build")
+	}
+	if commandOutputFirstPackageScriptIsBuild("deno", []string{"run", "build"}) {
+		t.Fatal("unknown package manager must not be classified as build")
+	}
+	if commandOutputFirstPackageScriptIsTest("bun", []string{"run", "test"}) {
+		t.Fatal("bun run test must stay out until package-script semantics are explicitly supported")
+	}
+}
+
+func TestCommandOutputFirstPackageScriptFilterArgs(t *testing.T) {
+	cases := []struct {
+		command string
+		args    []string
+		want    []string
+	}{
+		{command: "npm", args: []string{"--silent", "run", "test"}, want: []string{"run", "test"}},
+		{command: "pnpm", args: []string{"--dir", "app", "run", "test"}, want: []string{"run", "test"}},
+		{command: "yarn", args: []string{"run", "--silent", "build"}, want: []string{"run", "build"}},
+		{command: "bun", args: []string{"--cwd", "app", "test"}, want: []string{"test"}},
+		{command: "deno", args: []string{"--quiet", "test"}, want: []string{"--quiet", "test"}},
+		{command: "npm", args: []string{"--dir"}, want: []string{"--dir"}},
+	}
+	for _, tc := range cases {
+		got := commandOutputFirstPackageScriptFilterArgs(tc.command, tc.args)
+		if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+			t.Fatalf("%s %v got %v want %v", tc.command, tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestPackageScriptParserEdges(t *testing.T) {
+	firstCommandCases := []struct {
+		args      []string
+		wantVerb  string
+		wantIndex int
+	}{
+		{args: []string{"--"}, wantVerb: "", wantIndex: -1},
+		{args: []string{"--", ""}, wantVerb: "", wantIndex: -1},
+		{args: []string{"--", "test"}, wantVerb: "test", wantIndex: 1},
+		{args: []string{"--dir"}, wantVerb: "", wantIndex: -1},
+		{args: []string{"--dir", ""}, wantVerb: "", wantIndex: -1},
+		{args: []string{""}, wantVerb: "", wantIndex: -1},
+		{args: []string{"--prefix=app", "test"}, wantVerb: "test", wantIndex: 1},
+	}
+	for _, tc := range firstCommandCases {
+		gotVerb, gotIndex := packageScriptFirstCommand(tc.args)
+		if gotVerb != tc.wantVerb || gotIndex != tc.wantIndex {
+			t.Fatalf("first command args=%v got=(%q,%d) want=(%q,%d)", tc.args, gotVerb, gotIndex, tc.wantVerb, tc.wantIndex)
+		}
+	}
+
+	runNameCases := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"test"}, want: ""},
+		{args: []string{"run", "", "test"}, want: ""},
+		{args: []string{"run", "--silent", "build"}, want: "build"},
+		{args: []string{"run", "--if-present", "test"}, want: "test"},
+	}
+	for _, tc := range runNameCases {
+		if got := packageRunScriptName(tc.args); got != tc.want {
+			t.Fatalf("run script args=%v got=%q want=%q", tc.args, got, tc.want)
 		}
 	}
 }

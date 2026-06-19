@@ -51,7 +51,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
-	for _, command := range []string{"git", "rg", "go"} {
+	for _, command := range []string{"git", "rg", "go", "npm", "pnpm", "yarn", "bun"} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
@@ -215,6 +215,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		default:
 			return false
 		}
+	case "npm", "pnpm", "yarn", "bun":
+		return commandOutputFirstPackageScriptAllowed(command, args)
 	default:
 		return false
 	}
@@ -267,6 +269,18 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 		default:
 			return nil, false
 		}
+	case "npm", "pnpm", "yarn", "bun":
+		packageArgs := commandOutputFirstPackageScriptFilterArgs(command, args)
+		packageArgv := append([]string{realBin}, packageArgs...)
+		if commandOutputFirstPackageScriptIsTest(command, args) {
+			compacted, ok := filter.TryCompactTestOutput(packageArgv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		if commandOutputFirstPackageScriptIsBuild(command, args) {
+			compacted, ok := filter.TryCompactBuildOutput(packageArgv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		return nil, false
 	default:
 		return nil, false
 	}
@@ -369,6 +383,117 @@ func commandOutputFirstGoSubcommand(args []string) string {
 		}
 	}
 	return ""
+}
+
+func commandOutputFirstPackageScriptAllowed(command string, args []string) bool {
+	return commandOutputFirstPackageScriptIsTest(command, args) ||
+		commandOutputFirstPackageScriptIsBuild(command, args)
+}
+
+func commandOutputFirstPackageScriptIsTest(command string, args []string) bool {
+	switch command {
+	case "npm", "pnpm", "yarn":
+		return packageScriptVerb(args) == "test" || packageRunScriptName(args) == "test"
+	case "bun":
+		return packageScriptVerb(args) == "test"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPackageScriptIsBuild(command string, args []string) bool {
+	switch command {
+	case "npm", "pnpm", "yarn":
+		return packageRunScriptName(args) == "build"
+	case "bun":
+		return false
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPackageScriptFilterArgs(command string, args []string) []string {
+	verb, idx := packageScriptFirstCommand(args)
+	if idx < 0 {
+		return append([]string(nil), args...)
+	}
+	switch command {
+	case "npm", "pnpm", "yarn":
+		if verb == "run" {
+			if script := packageRunScriptName(args); script != "" {
+				return []string{"run", script}
+			}
+		}
+	case "bun":
+	default:
+		return append([]string(nil), args...)
+	}
+	out := make([]string, 0, len(args)-idx)
+	out = append(out, verb)
+	out = append(out, args[idx+1:]...)
+	return out
+}
+
+func packageScriptVerb(args []string) string {
+	verb, _ := packageScriptFirstCommand(args)
+	return verb
+}
+
+func packageRunScriptName(args []string) string {
+	verb, idx := packageScriptFirstCommand(args)
+	if verb != "run" {
+		return ""
+	}
+	for j := idx + 1; j < len(args); j++ {
+		name := strings.TrimSpace(args[j])
+		if name == "" {
+			return ""
+		}
+		if strings.HasPrefix(name, "-") {
+			continue
+		}
+		return name
+	}
+	return ""
+}
+
+func packageScriptFirstCommand(args []string) (string, int) {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return "", -1
+		}
+		if arg == "--" {
+			if i+1 < len(args) {
+				next := strings.TrimSpace(args[i+1])
+				if next != "" {
+					return next, i + 1
+				}
+			}
+			return "", -1
+		}
+		if packageScriptOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return "", -1
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg, i
+	}
+	return "", -1
+}
+
+func packageScriptOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-C", "--prefix", "--workspace", "--dir", "--cwd", "--filter", "-F":
+		return true
+	default:
+		return false
+	}
 }
 
 func commandExitCode(err error) int {
