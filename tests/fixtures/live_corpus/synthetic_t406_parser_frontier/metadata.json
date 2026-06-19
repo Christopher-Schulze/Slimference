@@ -1,0 +1,23 @@
+{
+  "category": "synthetic_t406_parser_frontier",
+  "description": "Synthetic content-free regression rows for T406 parser-frontier classes. This is not live-operator proof and does not count toward real-current S_local; it keeps CI sensitive to parser-family savings accounting while real captures are pending.",
+  "synthetic": true,
+  "current_product_path": false,
+  "evidence_level": "synthetic",
+  "client_family": "codex_cli",
+  "workload_class": "large_tool_output",
+  "language": "mixed",
+  "tool_mix": "tsup build, package test wrapper, strict lint/typecheck diagnostics",
+  "expected_savings_min": 0.55,
+  "expected_savings_max": 0.95,
+  "expected_saved_tokens_min": 14700,
+  "expected_request_count": 3,
+  "expected_max_errors": 0,
+  "expected_latency_p95_max_ms": 100,
+  "expected_reread_count_max": 0,
+  "scenario_validators": [
+    "websocket",
+    "low_error"
+  ],
+  "notes": "Rows are hand-authored RequestSummary counters for parser-family regression only: clean tsup build, package-manager test wrapper, and strict diagnostics. They intentionally contain no command output, prompts, file paths, auth material, or live-session claims."
+}
