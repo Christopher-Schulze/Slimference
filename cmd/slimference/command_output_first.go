@@ -51,7 +51,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
-	for _, command := range []string{"git", "rg"} {
+	for _, command := range []string{"git", "rg", "go"} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
@@ -206,6 +206,13 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		}
 	case "rg":
 		return true
+	case "go":
+		switch commandOutputFirstGoSubcommand(args) {
+		case "test", "build":
+			return true
+		default:
+			return false
+		}
 	default:
 		return false
 	}
@@ -242,6 +249,17 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 			MinRetainedPct: 100,
 		})
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "go":
+		switch commandOutputFirstGoSubcommand(args) {
+		case "test":
+			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "build":
+			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		default:
+			return nil, false
+		}
 	default:
 		return nil, false
 	}
@@ -323,6 +341,27 @@ func commandOutputFirstGitDiffMetadataOnly(args []string) bool {
 		}
 	}
 	return false
+}
+
+func commandOutputFirstGoSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return ""
+		}
+		switch {
+		case arg == "-C":
+			i++
+			if i >= len(args) {
+				return ""
+			}
+		case strings.HasPrefix(arg, "-C="), strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return arg
+		}
+	}
+	return ""
 }
 
 func commandExitCode(err error) int {

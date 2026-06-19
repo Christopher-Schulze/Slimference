@@ -151,6 +151,15 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	if commandOutputFirstAllowCapture("grep", []string{"TODO"}) {
 		t.Fatal("grep is not part of the first command-output-first command set")
 	}
+	if !commandOutputFirstAllowCapture("go", []string{"test", "-v", "./..."}) {
+		t.Fatal("go test should be captured by the command-output-first shim")
+	}
+	if !commandOutputFirstAllowCapture("go", []string{"-C", "/repo", "build", "./cmd/slimference"}) {
+		t.Fatal("go -C repo build should be captured by the command-output-first shim")
+	}
+	if commandOutputFirstAllowCapture("go", []string{"env"}) {
+		t.Fatal("go env must not be captured by the command-output-first shim")
+	}
 }
 
 func TestCommandOutputFirstShimRgCompactsWithFullRetentionAndAccounting(t *testing.T) {
@@ -199,6 +208,63 @@ func TestCommandOutputFirstShimRgEmptyFullPasses(t *testing.T) {
 	realRg := writeFakeCommand(t, "rg", "#!/bin/sh\nexit 0\n")
 	var stdout, stderr bytes.Buffer
 	rc := runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRg, "--", "missing"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimGoTestCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 1; i <= 60; i++ {
+		b.WriteString("=== RUN   TestFeature")
+		b.WriteString(strings.Repeat("0", len("60")-len("1")))
+		b.WriteString("1\n")
+		b.WriteString("--- PASS: TestFeature")
+		b.WriteString(strings.Repeat("0", len("60")-len("1")))
+		b.WriteString("1 (0.00s)\n")
+	}
+	b.WriteString("PASS\nok  \tgithub.com/example/project/internal/feature\t0.123s\n")
+	realGo := writeFakeCommand(t, "go", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=go", "--real-bin=" + realGo, "--", "test", "-v", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[go test] ok - 60 passed") || !strings.Contains(got, "github.com/example/project/internal/feature") {
+		t.Fatalf("unexpected compacted go test stdout=%q", got)
+	}
+	if strings.Contains(got, "=== RUN") || strings.Contains(got, "--- PASS:") {
+		t.Fatalf("go test command-output-first should elide redundant pass roll-call: %q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:go] go test -v ./...") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGoBuildEmptyFullPasses(t *testing.T) {
+	realGo := writeFakeCommand(t, "go", "#!/bin/sh\nexit 0\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=go", "--real-bin=" + realGo, "--", "build", "./cmd/slimference"}, &bytes.Buffer{}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
 	}
@@ -465,6 +531,26 @@ func TestCommandOutputFirstGitSubcommandGlobalOptionEdges(t *testing.T) {
 	}
 	for _, tc := range cases {
 		if got := commandOutputFirstGitSubcommand(tc.args); got != tc.want {
+			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestCommandOutputFirstGoSubcommandGlobalOptionEdges(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"test", "./..."}, want: "test"},
+		{args: []string{"-C", "/repo", "build", "./cmd/slimference"}, want: "build"},
+		{args: []string{"-C"}, want: ""},
+		{args: []string{"-C=/repo", "test"}, want: "test"},
+		{args: []string{"-mod=mod", "test"}, want: "test"},
+		{args: []string{"env"}, want: "env"},
+		{args: []string{""}, want: ""},
+	}
+	for _, tc := range cases {
+		if got := commandOutputFirstGoSubcommand(tc.args); got != tc.want {
 			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
 		}
 	}
