@@ -109,6 +109,39 @@ func TestWSSStatefulSafeWebBuildCleanOutputCompactsFullHistoryTurn(t *testing.T)
 	}
 }
 
+func TestWSSStatefulUnsafeGenericBuildSuccessSourceContextStaysGuarded(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	payload := strings.Repeat("BUILD SUCCESSFUL in 1s\n", 120) +
+		"src/main.go:12: func main() {}\n" +
+		"13 | return nil\n"
+	env := parseWSJSON(t, wssCommandOutputRequestBody(
+		"resp-gradle-source-context",
+		"call_gradle_source_context",
+		"gradle build",
+		webBuildCleanEnvelope("gradle-source-context", payload),
+		"stateful-web-build-source-context-session",
+	))
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle generic build source-context request: %v", err)
+	}
+	body := string(env.Body)
+	if replace ||
+		strings.Contains(body, "[gradle build] ok") ||
+		strings.Contains(body, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(body, "func main() {}") ||
+		!strings.Contains(body, "13 | return nil") {
+		t.Fatalf("generic build success with source context should stay byte-identical: replace=%v body=%s", replace, body)
+	}
+}
+
 func webBuildCleanEnvelope(id, output string) string {
 	return "Chunk ID: " + id + "\n" +
 		"Wall time: 0.0010 seconds\n" +

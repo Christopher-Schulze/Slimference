@@ -204,6 +204,9 @@ func TestOutputHasUnsafeSuccessSignal(t *testing.T) {
 		{name: "todo", text: "119 passed, 1 todo", want: true},
 		{name: "incomplete", text: "119 passed, 1 incomplete", want: true},
 		{name: "risky", text: "119 passed, 1 risky", want: true},
+		{name: "source location", text: "Build successful.\nsrc/main.go:12: func main() {}\n", want: true},
+		{name: "pretty source context", text: "Build successful.\n12 | const value = compute()\n", want: true},
+		{name: "source keyword", text: "Build successful.\nfunc main() {}\n", want: true},
 	}
 	for _, tt := range tests {
 		got := outputHasUnsafeSuccessSignal(tt.text)
@@ -274,6 +277,14 @@ func TestExtractBuildErrors(t *testing.T) {
 	deprecatedSuccess := "BUILD SUCCESSFUL in 1s\nDeprecated Gradle features were used in this build.\n"
 	if out, ok := extractBuildErrors(deprecatedSuccess, "ecosystem"); ok {
 		t.Fatalf("success-with-deprecation should fail open, got %q", out)
+	}
+
+	// Success with source context must fail open instead of hiding fresh code.
+	sourceContextSuccess := strings.Repeat("BUILD SUCCESSFUL in 1s\n", 8) +
+		"src/main.go:12: func main() {}\n" +
+		"13 | return nil\n"
+	if out, ok := extractBuildErrors(sourceContextSuccess, "gradle build"); ok {
+		t.Fatalf("success-with-source-context should fail open, got %q", out)
 	}
 
 	// No error lines found → false

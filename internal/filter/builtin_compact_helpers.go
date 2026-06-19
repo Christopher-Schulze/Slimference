@@ -57,8 +57,8 @@ func detectBuildSuccess(s string) bool {
 }
 
 // extractBuildErrors compacts non-empty build output.
-// On warning/deprecation-free success: returns "[label] ok\n"; success with
-// warnings/deprecations fails open.
+// On success without warnings, deprecations, or source context: returns "[label] ok\n".
+// Success with warnings, deprecations, or source context fails open.
 // On failure: returns "[label] FAILED\n<error lines>\n" if shorter than input.
 func extractBuildErrors(s, label string) (string, bool) {
 	if detectBuildSuccess(s) {
@@ -118,6 +118,66 @@ func outputHasUnsafeSuccessSignal(s string) bool {
 			if strings.Contains(tl, "0 "+marker) {
 				continue
 			}
+			return true
+		}
+		if outputLineLooksLikeSourceContext(t) {
+			return true
+		}
+	}
+	return false
+}
+
+func outputLineLooksLikeSourceContext(line string) bool {
+	if buildOutputLineHasSourceLocationPrefix(line) {
+		return true
+	}
+	if strings.Contains(line, " | ") {
+		before, after, ok := strings.Cut(line, "|")
+		if ok && allDigits(strings.TrimSpace(before)) && sourceKeywordLine(strings.TrimSpace(after)) {
+			return true
+		}
+	}
+	return sourceKeywordLine(line)
+}
+
+func buildOutputLineHasSourceLocationPrefix(line string) bool {
+	first, rest, ok := strings.Cut(line, ":")
+	if !ok || !looksLikeSourceFilePath(first) {
+		return false
+	}
+	lineNo, _, ok := strings.Cut(rest, ":")
+	if !ok {
+		return false
+	}
+	return allDigits(strings.TrimSpace(lineNo))
+}
+
+func looksLikeSourceFilePath(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	for _, ext := range []string{".go", ".rs", ".py", ".pyi", ".rb", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".cs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".swift", ".php"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceKeywordLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "#include ") {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{
+		"func ", "def ", "class ", "interface ", "type ", "const ", "let ", "var ",
+		"return ", "if ", "for ", "while ", "switch ", "package ", "import ", "export ",
+		"using ", "public class ", "private class ", "protected class ", "public func ",
+		"private func ", "protected func ", "public static ", "private static ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
 	}
