@@ -65,8 +65,31 @@ func TestWSST354ShapeProofBlocksMissingFollowingTurn(t *testing.T) {
 	}
 	if report.GatePassed ||
 		report.Totals.MissingFollowingTurnCandidates != 1 ||
+		report.Totals.UnprovenCandidates != 1 ||
 		!strings.Contains(strings.Join(report.GateFailures, "\n"), "missing_following_turn") {
 		t.Fatalf("missing following turn must block T354 unlock proof: %+v", report)
+	}
+}
+
+func TestWSST354ShapeProofAcceptsFinalOpenCandidateWhenDownstreamProven(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-shadow-final-open.frames.jsonl")
+	writeSearchCapProofCapturedShadowFrames(t, path, "t354-shape-shadow", 96)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.Totals.MutatedToolOutputCandidates != 3 ||
+		report.Totals.CandidatesPassing != 2 ||
+		report.Totals.MissingFollowingTurnCandidates != 1 ||
+		report.Totals.UnsafeCandidates != 0 ||
+		report.Totals.UnprovenCandidates != 1 {
+		t.Fatalf("final open candidate must be unproven, not unsafe, after clean downstream proof: %+v", report)
+	}
+	if strings.Contains(strings.Join(report.GateFailures, "\n"), "missing_following_turn") {
+		t.Fatalf("final open candidate must not block a proven downstream row: %+v", report)
 	}
 }
 
@@ -148,6 +171,35 @@ func TestWSST354ShapeProofBlocksReferenceMetadataMismatch(t *testing.T) {
 		report.Totals.CandidatesPassing != 0 ||
 		!strings.Contains(strings.Join(report.GateFailures, "\n"), "metadata_reference_mismatch") {
 		t.Fatalf("reference metadata mismatch must block T354 unlock proof: %+v", report)
+	}
+}
+
+func TestWSST354ShapeProofBlocksReferenceMetadataMismatchEvenWithCleanCandidate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-mixed-metadata-mismatch.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_clean", 180), false, 61),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_clean", 40), true, 61),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-clean"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-clean"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-clean-follow"), false),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-clean-follow", "call_original", 180), false, 62),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-clean-follow", "call_changed", 40), true, 62),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mismatch"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mismatch"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mismatch-follow"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed ||
+		report.Totals.CandidatesPassing != 1 ||
+		report.Totals.UnsafeCandidates != 1 ||
+		report.Totals.MetadataMismatches != 1 ||
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "metadata_reference_mismatch") {
+		t.Fatalf("metadata mismatch must remain a hard safety failure even with another clean candidate: %+v", report)
 	}
 }
 

@@ -446,32 +446,15 @@ func searchCapDownstreamStateGateFailures(proof searchCapDownstreamStateProof) [
 }
 
 func searchCapDownstreamCandidateReasonIsSafetyFailure(candidate wssT354CandidateProof, reason string, passingCandidates int) bool {
-	if passingCandidates <= 0 {
-		return true
-	}
-	return searchCapDownstreamCandidateReasonHasSafetyFailure(candidate, reason)
+	return wssT354CandidateReasonIsSafetyFailure(candidate, reason, passingCandidates)
 }
 
 func searchCapDownstreamCandidateHasSafetyFailure(candidate wssT354CandidateProof) bool {
-	for _, reason := range candidate.BlockReasons {
-		if searchCapDownstreamCandidateReasonHasSafetyFailure(candidate, reason) {
-			return true
-		}
-	}
-	return false
+	return wssT354CandidateHasSafetyFailure(candidate)
 }
 
 func searchCapDownstreamCandidateReasonHasSafetyFailure(candidate wssT354CandidateProof, reason string) bool {
-	if !candidate.FollowingTurnPresent && reason == "missing_following_turn" {
-		return false
-	}
-	if strings.Contains(reason, "invalid_request") ||
-		strings.Contains(reason, "http_400") ||
-		strings.Contains(reason, "response_failed") ||
-		strings.Contains(reason, "error_frames") {
-		return true
-	}
-	return candidate.FollowingTurnPresent && !candidate.FollowingTurnClean
+	return wssT354CandidateReasonHasSafetyFailure(candidate, reason)
 }
 
 func searchCapMutatedSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame) ([]bool, error) {

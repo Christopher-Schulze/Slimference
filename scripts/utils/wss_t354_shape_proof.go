@@ -55,6 +55,7 @@ type wssT354ShapeProofTotal struct {
 	ProviderUsage                  wssT354ProviderUsage `json:"provider_usage"`
 	MissingFollowingTurnCandidates int                  `json:"missing_following_turn_candidates"`
 	UnsafeCandidates               int                  `json:"unsafe_candidates"`
+	UnprovenCandidates             int                  `json:"unproven_candidates,omitempty"`
 	MetadataComparisons            int                  `json:"metadata_comparisons,omitempty"`
 	MetadataMismatches             int                  `json:"metadata_mismatches,omitempty"`
 	CandidatesWithServerOutputItem int                  `json:"candidates_with_server_output_item,omitempty"`
@@ -912,10 +913,45 @@ func wssT354RowGateFailures(row wssT354ShapeProofRow) []string {
 	}
 	for _, candidate := range row.Candidates {
 		for _, reason := range candidate.BlockReasons {
+			if !wssT354CandidateReasonIsSafetyFailure(candidate, reason, passing) {
+				continue
+			}
 			failures = append(failures, fmt.Sprintf("candidate_%d:%s", candidate.TurnIndex, reason))
 		}
 	}
 	return compactStringList(failures)
+}
+
+func wssT354CandidateReasonIsSafetyFailure(candidate wssT354CandidateProof, reason string, passingCandidates int) bool {
+	if passingCandidates <= 0 {
+		return true
+	}
+	return wssT354CandidateReasonHasSafetyFailure(candidate, reason)
+}
+
+func wssT354CandidateHasSafetyFailure(candidate wssT354CandidateProof) bool {
+	for _, reason := range candidate.BlockReasons {
+		if wssT354CandidateReasonHasSafetyFailure(candidate, reason) {
+			return true
+		}
+	}
+	return false
+}
+
+func wssT354CandidateReasonHasSafetyFailure(candidate wssT354CandidateProof, reason string) bool {
+	if !candidate.FollowingTurnPresent && reason == "missing_following_turn" {
+		return false
+	}
+	if reason == "metadata_reference_mismatch" {
+		return true
+	}
+	if strings.Contains(reason, "invalid_request") ||
+		strings.Contains(reason, "http_400") ||
+		strings.Contains(reason, "response_failed") ||
+		strings.Contains(reason, "error_frames") {
+		return true
+	}
+	return candidate.FollowingTurnPresent && !candidate.FollowingTurnClean
 }
 
 func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapeProofRow) {
@@ -957,8 +993,10 @@ func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapePr
 		}
 		if candidate.UnlockProofPassing {
 			total.CandidatesPassing++
-		} else {
+		} else if wssT354CandidateHasSafetyFailure(candidate) {
 			total.UnsafeCandidates++
+		} else {
+			total.UnprovenCandidates++
 		}
 	}
 	total.MutatedRequests += len(row.Candidates)
@@ -995,6 +1033,9 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.MissingFollowingTurnCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("missing_following_turn_candidates=%d", report.Totals.MissingFollowingTurnCandidates))
 	}
+	if report.Totals.UnprovenCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("unproven_candidates=%d", report.Totals.UnprovenCandidates))
+	}
 	if report.Totals.CapturedLocalSavedTokens > 0 {
 		findings = append(findings, fmt.Sprintf("captured_local_saved_tokens_estimate=%d", report.Totals.CapturedLocalSavedTokens))
 	}
@@ -1029,12 +1070,13 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.RequestShapes.Root,
 		report.Totals.RequestShapes.Delta,
 		report.Totals.RequestShapes.FullHistory)
-	fmt.Fprintf(w, "  candidates:        total=%d delta=%d full_history=%d passing=%d unsafe=%d missing_following=%d\n",
+	fmt.Fprintf(w, "  candidates:        total=%d delta=%d full_history=%d passing=%d unsafe=%d unproven=%d missing_following=%d\n",
 		report.Totals.MutatedToolOutputCandidates,
 		report.Totals.MutatedDeltaCandidates,
 		report.Totals.MutatedFullHistoryCandidates,
 		report.Totals.CandidatesPassing,
 		report.Totals.UnsafeCandidates,
+		report.Totals.UnprovenCandidates,
 		report.Totals.MissingFollowingTurnCandidates)
 	fmt.Fprintf(w, "  upstream:          errors=%d invalid_request=%d http_400=%d response_failed=%d lost=%d\n",
 		report.Totals.UpstreamErrorFrames,

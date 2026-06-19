@@ -103,6 +103,33 @@ func TestRunWSSSavingsBaselineJSON(t *testing.T) {
 	}
 }
 
+func TestWSSSavingsBaselineCountsFinalOpenT354CandidateAsUnproven(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-shadow-final-open.frames.jsonl")
+	writeSearchCapProofCapturedShadowFrames(t, path, "baseline-t354-shadow", 96)
+
+	report, err := loadWSSSavingsBaselineReport(wssSavingsBaselineFlags{
+		path:             path,
+		outputFormat:     outputJSON,
+		searchCapFiles:   25,
+		searchCapMatches: 15,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.Totals.T354MutatedCandidates != 3 ||
+		report.Totals.T354CandidatesPassing != 2 ||
+		report.Totals.T354MissingFollowingTurnCandidates != 1 ||
+		report.Totals.T354UnsafeCandidates != 0 ||
+		report.Totals.T354UnprovenCandidates != 1 {
+		t.Fatalf("baseline must mirror T354 safety vs unproven classification: %+v", report.Totals)
+	}
+	if !strings.Contains(strings.Join(report.Findings, "\n"), "t354_unproven_candidates=1") {
+		t.Fatalf("baseline findings must surface unproven T354 candidates: %+v", report.Findings)
+	}
+}
+
 func TestRunWSSSavingsBaselineSuppressesReplayWarningLogs(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

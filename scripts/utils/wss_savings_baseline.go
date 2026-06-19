@@ -124,6 +124,7 @@ type wssSavingsBaselineTotal struct {
 	T354CandidatesPassing              int `json:"t354_candidates_passing"`
 	T354MissingFollowingTurnCandidates int `json:"t354_missing_following_turn_candidates"`
 	T354UnsafeCandidates               int `json:"t354_unsafe_candidates"`
+	T354UnprovenCandidates             int `json:"t354_unproven_candidates,omitempty"`
 	T354ReplayLocalSavedTokens         int `json:"t354_replay_local_saved_tokens"`
 	T354CapturedLocalSavedTokens       int `json:"t354_captured_local_saved_tokens_estimate"`
 	T354RetryOrResendExtraTokens       int `json:"t354_retry_or_resend_extra_tokens_estimate"`
@@ -509,8 +510,10 @@ func applyWSSSavingsBaselineRow(total *wssSavingsBaselineTotal, row wssSavingsBa
 		}
 		if candidate.UnlockProofPassing {
 			total.T354CandidatesPassing++
-		} else {
+		} else if wssT354CandidateHasSafetyFailure(candidate) {
 			total.T354UnsafeCandidates++
+		} else {
+			total.T354UnprovenCandidates++
 		}
 		if !candidate.FollowingTurnPresent {
 			total.T354MissingFollowingTurnCandidates++
@@ -555,6 +558,9 @@ func wssSavingsBaselineFindings(report wssSavingsBaselineReport) []string {
 	}
 	if report.Totals.T354MissingFollowingTurnCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("t354_missing_following_turn_candidates=%d", report.Totals.T354MissingFollowingTurnCandidates))
+	}
+	if report.Totals.T354UnprovenCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("t354_unproven_candidates=%d", report.Totals.T354UnprovenCandidates))
 	}
 	if report.Totals.T354CapturedLocalSavedTokens > 0 {
 		findings = append(findings, fmt.Sprintf("t354_captured_local_saved_tokens_estimate=%d", report.Totals.T354CapturedLocalSavedTokens))
@@ -610,7 +616,7 @@ func writeWSSSavingsBaselineText(w io.Writer, report wssSavingsBaselineReport) {
 		report.Totals.BroadToolOutputExtraTokens,
 		report.Totals.BroadToolOutputExtraBytes,
 		report.Totals.BroadToolOutputSafetyIssueFiles)
-	fmt.Fprintf(w, "  t354_proof:        candidate_files=%d passing_files=%d candidates=%d delta=%d full_history=%d passing=%d unsafe=%d missing_following=%d\n",
+	fmt.Fprintf(w, "  t354_proof:        candidate_files=%d passing_files=%d candidates=%d delta=%d full_history=%d passing=%d unsafe=%d unproven=%d missing_following=%d\n",
 		report.Totals.T354CandidateFiles,
 		report.Totals.T354PassingFiles,
 		report.Totals.T354MutatedCandidates,
@@ -618,6 +624,7 @@ func writeWSSSavingsBaselineText(w io.Writer, report wssSavingsBaselineReport) {
 		report.Totals.T354FullHistoryCandidates,
 		report.Totals.T354CandidatesPassing,
 		report.Totals.T354UnsafeCandidates,
+		report.Totals.T354UnprovenCandidates,
 		report.Totals.T354MissingFollowingTurnCandidates)
 	fmt.Fprintf(w, "  t354_economics:    replay_local_saved=%d captured_local_saved_est=%d retry_or_resend_extra_est=%d net_captured_local_saved_est=%d provider_input=%d provider_cached=%d provider_output=%d\n",
 		report.Totals.T354ReplayLocalSavedTokens,
