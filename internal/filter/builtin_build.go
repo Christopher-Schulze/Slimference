@@ -382,28 +382,40 @@ func isNinjaBin(name string) bool {
 	return b == "ninja" || b == "ninja.exe"
 }
 
-// TryCompactNinja replaces empty stdout from `ninja` / `npx|pnpm exec|yarn … ninja …` (F07 partial).
+// TryCompactNinja replaces empty stdout and strict clean Ninja build progress
+// from `ninja` / `npx|pnpm exec|yarn ... ninja ...` (F07 partial).
 func TryCompactNinja(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if _, ok := ninjaCompactArgvSuffix(argv); !ok {
 		return stdout, false
 	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[ninja] ok\n"), true
+	}
+	if out, ok := compactCmakeStyleCleanBuildOutput(s, len(stdout), "ninja"); ok {
+		return out, true
+	}
+	return stdout, false
+}
+
+func ninjaCompactArgvSuffix(argv []string) ([]string, bool) {
 	if len(argv) < 1 {
-		return stdout, false
+		return nil, false
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if isNinjaBin(argv[0]) {
-		return []byte("[ninja] ok\n"), true
+		return argv, true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 1 && isNinjaBin(rest[0]) {
-		return []byte("[ninja] ok\n"), true
+		return rest, true
 	}
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isNinjaBin(argv[2]) {
-		return []byte("[ninja] ok\n"), true
+		return argv[2:], true
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isNinjaBin(argv[1]) {
-		return []byte("[ninja] ok\n"), true
+		return argv[1:], true
 	}
-	return stdout, false
+	return nil, false
 }
 
 func isCmakeBuildArgv(argv []string) bool {
@@ -528,6 +540,9 @@ func cmakeStyleCleanBuildProgressLine(line string) (bool, bool) {
 	}
 	if strings.HasPrefix(line, "Built target ") {
 		return true, true
+	}
+	if strings.HasPrefix(line, "ninja: Entering directory ") {
+		return true, false
 	}
 	if line == "ninja: no work to do." {
 		return true, true

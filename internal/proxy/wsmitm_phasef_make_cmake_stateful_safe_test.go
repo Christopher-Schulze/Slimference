@@ -32,6 +32,13 @@ func TestWSSStatefulSafeMakeCmakeCleanProgressCompactsFullHistoryTurn(t *testing
 			want:      "[cmake --build] ok",
 			forbidden: "object_47.c.o",
 		},
+		{
+			name:      "ninja progress",
+			command:   "ninja -C build",
+			output:    wssMakeCmakeCleanEnvelope("ninja-safe", wssNinjaCleanProgressFixture(48)),
+			want:      "[ninja] ok",
+			forbidden: "object_47.cpp.o",
+		},
 	}
 
 	for _, tt := range tests {
@@ -94,6 +101,19 @@ func TestWSSStatefulSafeMakeCmakeUnsafeProgressRejectsFalseOK(t *testing.T) {
 			output:       wssMakeCmakeCleanEnvelope("cmake-error", "[ 50%] Building CXX object src/CMakeFiles/app.dir/main.cpp.o\nerror: missing semicolon\n"),
 			mustPreserve: "error: missing semicolon",
 		},
+		{
+			name:         "ninja warning",
+			command:      "ninja -C build",
+			output:       wssMakeCmakeCleanEnvelope("ninja-warning", wssNinjaCleanProgressFixture(12)+"warning: generated header is stale\n"),
+			mustPreserve: "warning: generated header is stale",
+		},
+		{
+			name:          "ninja arbitrary tool mode",
+			command:       "ninja -t graph",
+			output:        wssMakeCmakeCleanEnvelope("ninja-graph", "digraph ninja {\n  \"app\" -> \"main.o\"\n}\n"),
+			mustPreserve:  "digraph ninja",
+			wantUnchanged: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -114,6 +134,7 @@ func TestWSSStatefulSafeMakeCmakeUnsafeProgressRejectsFalseOK(t *testing.T) {
 			body := string(env.Body)
 			if strings.Contains(body, "[make] ok") ||
 				strings.Contains(body, "[cmake --build] ok") ||
+				strings.Contains(body, "[ninja] ok") ||
 				!strings.Contains(body, tt.mustPreserve) {
 				t.Fatalf("unsafe make/cmake progress hid a diagnostic as OK: replace=%v body=%s", replace, body)
 			}
@@ -154,5 +175,15 @@ func wssCmakeBuildCleanProgressFixture(files int) string {
 	}
 	b.WriteString("[100%] Linking C executable slimference\n")
 	b.WriteString("[100%] Built target slimference\n")
+	return b.String()
+}
+
+func wssNinjaCleanProgressFixture(files int) string {
+	var b strings.Builder
+	b.WriteString("ninja: Entering directory `build'\n")
+	for i := 0; i < files; i++ {
+		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, files+1, i)
+	}
+	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)
 	return b.String()
 }
