@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/sniroute"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 	"github.com/Christopher-Schulze/Slimference/internal/wscompact"
@@ -83,6 +87,53 @@ func TestMITMConversationRoutesThroughWSMITMSession(t *testing.T) {
 	}
 	if snap.WSMITMC2SFrames < 1 {
 		t.Errorf("WSMITMC2SFrames=%d, want >= 1", snap.WSMITMC2SFrames)
+	}
+}
+
+func TestMITMConversationUsesRuntimeWSSCapture(t *testing.T) {
+	upstreamRemote, upstreamLocal := newPipe()
+	p := New(config.Defaults())
+	capturePath := filepath.Join(t.TempDir(), "frames.jsonl")
+	if _, err := p.SetWSSABCapture(capturePath, time.Hour); err != nil {
+		t.Fatalf("set runtime capture: %v", err)
+	}
+	d := &PhaseFDispatcher{
+		Proxy: p,
+		UpstreamDial: func(_ context.Context, _ string) (net.Conn, error) {
+			return upstreamLocal, nil
+		},
+	}
+	clientRemote, clientLocal := newPipe()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = d.Handle(context.Background(), sniroute.MITMConversation,
+			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
+	}()
+
+	frameBytes := wsFrameBytes(t, mustMarshal(map[string]string{"type": string(wsmitm.FrameKindRequest)}))
+	go func() { _, _ = clientRemote.Write(frameBytes) }()
+	if err := upstreamRemote.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	buf := make([]byte, len(frameBytes))
+	if _, err := io.ReadFull(upstreamRemote, buf); err != nil {
+		t.Fatalf("upstream read: %v", err)
+	}
+
+	_ = upstreamRemote.Close()
+	_ = clientRemote.Close()
+	_ = clientLocal.Close()
+	wg.Wait()
+
+	data, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("runtime capture file missing: %v", err)
+	}
+	if !strings.Contains(string(data), `"direction":"c2s"`) || !strings.Contains(string(data), `"type":"request"`) {
+		t.Fatalf("runtime capture did not record the WSS frame: %s", data)
 	}
 }
 

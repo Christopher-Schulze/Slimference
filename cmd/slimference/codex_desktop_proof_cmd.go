@@ -121,8 +121,6 @@ var codexDesktopProofSinceFilePathFn = func() string { return codexDesktopProofS
 
 var codexDesktopProofCapturePathFn = codexDesktopDefaultProofCapturePath
 
-const codexDesktopProofCaptureEnv = "SLIMFERENCE_WSS_AB_CAPTURE"
-
 func formatCodexDesktopProofStartedAt(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -385,14 +383,29 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
+	daemonCaptureArmed := false
+	if capturePath != "" {
+		if err := codexDesktopWSSCaptureFn(flags.host, flags.port, capturePath, true, 2*time.Second); err != nil {
+			out := codexDesktopProofOutput{
+				Mode:         "capture_enable_failed",
+				FailureClass: "capture_enable_failed",
+				Duration:     flags.duration.String(),
+				StartedAt:    startedAtText,
+				CapturePath:  capturePath,
+				MatrixPath:   matrixPath,
+				Notes:        []string{"daemon-side Desktop proof WSS capture could not be enabled: " + err.Error()},
+			}
+			applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+			emitCodexDesktopProof(p, flags.json, out)
+			return 1
+		}
+		daemonCaptureArmed = true
+	}
 
 	var launchOut, launchErr strings.Builder
 	launchArgs := []string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}
 	if flags.replace {
 		launchArgs = append(launchArgs, "--replace-existing")
-	}
-	if capturePath != "" {
-		launchArgs = append(launchArgs, "--env="+codexDesktopProofCaptureEnv+"="+capturePath)
 	}
 	rc := runCodexLaunchDesktopCmd(launchArgs, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
@@ -405,7 +418,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		ManualPromptStill: true,
 		Notes: []string{
 			"automated proof covers launch-time app-server shim routing",
-			"proof captures WSS frames through SLIMFERENCE_WSS_AB_CAPTURE when capture_path is set and a prompt is run",
+			"proof arms daemon-side WSS A/B capture when capture_path is set and a prompt is run",
 			"full Desktop savings proof still needs a prompt-tied WSS delta if launch-time bytes do not flow",
 		},
 	}
@@ -425,6 +438,9 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		if msg != "" {
 			out.Notes = append(out.Notes, msg)
 		}
+		if daemonCaptureArmed {
+			clearCodexDesktopDaemonCapture(&out, flags.host, flags.port)
+		}
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -436,6 +452,9 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		out.FailureClass = "post_probe_failed"
 		out.Notes = append(out.Notes, err.Error())
 		cleanupCodexDesktopProof(&out, false)
+		if daemonCaptureArmed {
+			clearCodexDesktopDaemonCapture(&out, flags.host, flags.port)
+		}
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -455,6 +474,9 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 	keepOpen := flags.keepOpen || (flags.manual && (out.LaunchReady || out.DesktopSavings))
 	cleanupCodexDesktopProof(&out, keepOpen)
+	if daemonCaptureArmed && !(flags.manual && (out.LaunchReady || out.DesktopSavings)) {
+		clearCodexDesktopDaemonCapture(&out, flags.host, flags.port)
+	}
 	writeCodexDesktopProofResult(&out)
 	emitCodexDesktopProof(p, flags.json, out)
 	if out.DesktopSavings || (flags.manual && out.LaunchReady) {
@@ -493,6 +515,9 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 			Notes:                    []string{err.Error()},
 		}
 		applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
+		if session.CapturePath != "" {
+			clearCodexDesktopDaemonCapture(&out, session.Host, session.Port)
+		}
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -513,6 +538,9 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 	}
 	applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
 	classifyCodexDesktopProof(&out, false)
+	if session.CapturePath != "" {
+		clearCodexDesktopDaemonCapture(&out, session.Host, session.Port)
+	}
 	writeCodexDesktopProofResult(&out)
 	emitCodexDesktopProof(p, flags.json, out)
 	if out.DesktopSavings {
@@ -886,6 +914,14 @@ func cleanupCodexDesktopProof(out *codexDesktopProofOutput, keepOpen bool) {
 	if err := codexDesktopCleanupFn(out.LaunchPID); err != nil {
 		out.CleanupError = err.Error()
 	}
+}
+
+func clearCodexDesktopDaemonCapture(out *codexDesktopProofOutput, host string, port string) {
+	if err := codexDesktopWSSCaptureFn(host, port, "", false, 2*time.Second); err != nil {
+		out.Notes = append(out.Notes, "daemon-side WSS capture disarm failed: "+err.Error())
+		return
+	}
+	out.Notes = append(out.Notes, "daemon-side WSS capture disarmed")
 }
 
 func cleanupCodexDesktopProcess(pid int) error {

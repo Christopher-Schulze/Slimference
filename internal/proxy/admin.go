@@ -42,12 +42,18 @@ const (
 	AdminFlushPath           = AdminBasePath + "/flush"
 	AdminSecuritySuspendPath = AdminBasePath + "/security/suspend"
 	AdminBypassPath          = AdminBasePath + "/bypass"
+	AdminWSSCapturePath      = AdminBasePath + "/wss-capture"
 	// AdminStatePath (T199) returns the aggregated control.SetupState
 	// snapshot used by the TUI install dashboard and external auditors.
 	AdminStatePath = AdminBasePath + "/state"
 	// AdminAppsPath (T199) accepts POST {id, enabled} to toggle the
 	// per-app routing policy. GET returns the current Policy.
 	AdminAppsPath = AdminBasePath + "/apps"
+)
+
+const (
+	defaultAdminWSSCaptureDuration = 6 * time.Hour
+	maxAdminWSSCaptureDuration     = 24 * time.Hour
 )
 
 // AdminBypassRequest is the POST body for toggling the master bypass
@@ -67,6 +73,18 @@ type AdminBypassResponse struct {
 	Enabled           bool  `json:"enabled"`
 	ExpiresAtUnix     int64 `json:"expires_at_unix,omitempty"`
 	NextRequestBudget int64 `json:"next_request_budget,omitempty"`
+}
+
+type AdminWSSCaptureRequest struct {
+	Enabled         bool   `json:"enabled"`
+	Path            string `json:"path,omitempty"`
+	DurationSeconds int    `json:"duration_seconds,omitempty"`
+}
+
+type AdminWSSCaptureResponse struct {
+	Enabled       bool   `json:"enabled"`
+	Path          string `json:"path,omitempty"`
+	ExpiresAtUnix int64  `json:"expires_at_unix,omitempty"`
 }
 
 // AdminSecuritySuspendRequest is the JSON payload for the suspend endpoint
@@ -494,6 +512,53 @@ func (p *Proxy) adminBypassHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeAdminJSON(w, http.StatusMethodNotAllowed, adminActionResponse{OK: false})
 	}
+}
+
+func (p *Proxy) adminWSSCaptureHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeAdminJSON(w, http.StatusOK, adminWSSCaptureResponse(p.WSSABCaptureStatus()))
+	case http.MethodPost:
+		var req AdminWSSCaptureRequest
+		if !decodeAdminJSON(r, &req) {
+			writeAdminJSON(w, http.StatusBadRequest, adminActionResponse{
+				OK: false, Error: "invalid JSON payload",
+			})
+			return
+		}
+		if !req.Enabled {
+			writeAdminJSON(w, http.StatusOK, adminWSSCaptureResponse(p.ClearWSSABCapture()))
+			return
+		}
+		duration := defaultAdminWSSCaptureDuration
+		if req.DurationSeconds > 0 {
+			duration = time.Duration(req.DurationSeconds) * time.Second
+			if duration > maxAdminWSSCaptureDuration {
+				duration = maxAdminWSSCaptureDuration
+			}
+		}
+		status, err := p.SetWSSABCapture(req.Path, duration)
+		if err != nil {
+			writeAdminJSON(w, http.StatusBadRequest, adminActionResponse{
+				OK: false, Error: "capture enable failed: " + err.Error(),
+			})
+			return
+		}
+		writeAdminJSON(w, http.StatusOK, adminWSSCaptureResponse(status))
+	default:
+		writeAdminJSON(w, http.StatusMethodNotAllowed, adminActionResponse{OK: false})
+	}
+}
+
+func adminWSSCaptureResponse(status WSSABCaptureStatus) AdminWSSCaptureResponse {
+	resp := AdminWSSCaptureResponse{
+		Enabled: status.Enabled,
+		Path:    status.Path,
+	}
+	if !status.ExpiresAt.IsZero() {
+		resp.ExpiresAtUnix = status.ExpiresAt.Unix()
+	}
+	return resp
 }
 
 func (p *Proxy) AdminStatusSnapshot() AdminStatus {

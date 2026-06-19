@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
@@ -124,6 +125,54 @@ func TestWSSABReplayCaptureFromEnvDisabledAndCreatesParent(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("capture file missing: %v", err)
+	}
+}
+
+func TestWSSABReplayRuntimeCaptureArmsDisarmsAndExpires(t *testing.T) {
+	runtimeCapture := newWSSABReplayRuntimeCapture()
+	path := filepath.Join(t.TempDir(), "runtime", "frames.jsonl")
+	status, err := runtimeCapture.Set(path, time.Hour)
+	if err != nil {
+		t.Fatalf("set runtime capture: %v", err)
+	}
+	if !status.Enabled || status.Path != path || status.ExpiresAt.IsZero() {
+		t.Fatalf("status=%+v", status)
+	}
+	env := parseWSJSON(t, map[string]any{"type": string(wsmitm.FrameKindRequest), "body": map[string]any{"input": []any{}}})
+	handler := runtimeCapture.Wrap(func(_ context.Context, _ wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
+		env.Body = json.RawMessage(`{"input":[{"type":"message","role":"user","content":"runtime-mutated"}]}`)
+		return true, nil
+	})
+	if replaced, err := handler(context.Background(), wsmitm.DirClientToServer, &env); err != nil || !replaced {
+		t.Fatalf("handler replaced=%v err=%v", replaced, err)
+	}
+	runtimeCapture.Clear()
+	if replaced, err := handler(context.Background(), wsmitm.DirClientToServer, &env); err != nil || !replaced {
+		t.Fatalf("handler after clear replaced=%v err=%v", replaced, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[1], "runtime-mutated") {
+		t.Fatalf("runtime capture should write one original+mutated pair before clear, got %s", data)
+	}
+
+	expiredPath := filepath.Join(t.TempDir(), "expired.jsonl")
+	if _, err := runtimeCapture.Set(expiredPath, time.Nanosecond); err != nil {
+		t.Fatalf("set expiring runtime capture: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if replaced, err := handler(context.Background(), wsmitm.DirClientToServer, &env); err != nil || !replaced {
+		t.Fatalf("handler after expire replaced=%v err=%v", replaced, err)
+	}
+	info, err := os.Stat(expiredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 0 || runtimeCapture.Status().Enabled {
+		t.Fatalf("expired capture wrote bytes or stayed enabled: size=%d status=%+v", info.Size(), runtimeCapture.Status())
 	}
 }
 

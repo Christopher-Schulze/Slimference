@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
@@ -104,6 +105,54 @@ func TestAdminFlushHandler(t *testing.T) {
 	}
 }
 
+func TestAdminWSSCaptureHandler(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	path := filepath.Join(t.TempDir(), "frames.jsonl")
+
+	enableBody := []byte(`{"enabled":true,"path":"` + path + `","duration_seconds":60}`)
+	req := httptest.NewRequest(http.MethodPost, AdminWSSCapturePath, bytes.NewReader(enableBody))
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable status code: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var enabled AdminWSSCaptureResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &enabled); err != nil {
+		t.Fatalf("decode enable response: %v", err)
+	}
+	if !enabled.Enabled || enabled.Path != path || enabled.ExpiresAtUnix == 0 {
+		t.Fatalf("enable response=%+v", enabled)
+	}
+	if status := p.WSSABCaptureStatus(); !status.Enabled || status.Path != path {
+		t.Fatalf("proxy capture status=%+v", status)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, AdminWSSCapturePath, nil)
+	p.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status code: %d", rec.Code)
+	}
+	var got AdminWSSCaptureResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if !got.Enabled || got.Path != path {
+		t.Fatalf("get response=%+v", got)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, AdminWSSCapturePath, bytes.NewReader([]byte(`{"enabled":false}`)))
+	p.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable status code: %d", rec.Code)
+	}
+	if status := p.WSSABCaptureStatus(); status.Enabled {
+		t.Fatalf("capture should be disabled: %+v", status)
+	}
+}
+
 func TestAdminHandlers_BadRequests(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)
@@ -136,6 +185,21 @@ func TestAdminHandlers_BadRequests(t *testing.T) {
 		{
 			name: "flush wrong method",
 			req:  httptest.NewRequest(http.MethodGet, AdminFlushPath, nil),
+			want: http.StatusMethodNotAllowed,
+		},
+		{
+			name: "wss capture bad json",
+			req:  httptest.NewRequest(http.MethodPost, AdminWSSCapturePath, bytes.NewReader([]byte(`{`))),
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "wss capture missing path",
+			req:  httptest.NewRequest(http.MethodPost, AdminWSSCapturePath, bytes.NewReader([]byte(`{"enabled":true}`))),
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "wss capture wrong method",
+			req:  httptest.NewRequest(http.MethodPut, AdminWSSCapturePath, nil),
 			want: http.StatusMethodNotAllowed,
 		},
 	}

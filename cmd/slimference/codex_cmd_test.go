@@ -57,6 +57,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopResult := codexDesktopResultFn
 	oldDesktopSinceFile := codexDesktopProofSinceFilePathFn
 	oldDesktopCapturePath := codexDesktopProofCapturePathFn
+	oldDesktopWSSCapture := codexDesktopWSSCaptureFn
 	oldDesktopDirect := tuiCodexDesktopDirectFn
 	oldTerminalTitle := terminalTitleWriteFn
 	codexVersionFn = func() string { return "codex-test" }
@@ -113,6 +114,7 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopProofSinceFilePathFn = func() string { return sincePath }
 	capturePath := filepath.Join(t.TempDir(), "desktop-proof.frames.jsonl")
 	codexDesktopProofCapturePathFn = func(startedAt time.Time) string { return capturePath }
+	codexDesktopWSSCaptureFn = func(string, string, string, bool, time.Duration) error { return nil }
 	tuiCodexDesktopDirectFn = func(string) error { return nil }
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
@@ -150,6 +152,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopResultFn = oldDesktopResult
 		codexDesktopProofSinceFilePathFn = oldDesktopSinceFile
 		codexDesktopProofCapturePathFn = oldDesktopCapturePath
+		codexDesktopWSSCaptureFn = oldDesktopWSSCapture
 		tuiCodexDesktopDirectFn = oldDesktopDirect
 		terminalTitleWriteFn = oldTerminalTitle
 	})
@@ -1596,6 +1599,15 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 4242) with scoped Slimference env.")
 		return 0
 	}
+	type captureCall struct {
+		path    string
+		enabled bool
+	}
+	var captureCalls []captureCall
+	codexDesktopWSSCaptureFn = func(_ string, _ string, path string, enabled bool, _ time.Duration) error {
+		captureCalls = append(captureCalls, captureCall{path: path, enabled: enabled})
+		return nil
+	}
 
 	p, out, errBuf := newTestPrinter()
 	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns", "--capture=" + capturePath, "--matrix-row=" + matrixPath}, p)
@@ -1613,8 +1625,11 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		t.Fatalf("manual proof lost capture/matrix paths: %+v", started)
 	}
 	joinedEnv := strings.Join(launchedEnv, "\n")
-	if !strings.Contains(joinedEnv, codexDesktopProofCaptureEnv+"="+capturePath) {
-		t.Fatalf("manual proof launch env missing capture path %q in %v", capturePath, launchedEnv)
+	if strings.Contains(joinedEnv, "SLIMFERENCE_WSS_AB_CAPTURE=") {
+		t.Fatalf("manual proof must not put daemon capture path in Codex.app env: %v", launchedEnv)
+	}
+	if len(captureCalls) != 1 || !captureCalls[0].enabled || captureCalls[0].path != capturePath {
+		t.Fatalf("manual proof did not arm daemon capture exactly once: %+v", captureCalls)
 	}
 	for _, want := range []string{
 		"search-cap-proof --frames " + capturePath,
@@ -1644,6 +1659,9 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		!strings.Contains(finished.FocusedMatrixCommand, "wss-proof-matrix "+matrixPath) {
 		t.Fatalf("finish proof lost capture handoff: %+v", finished)
 	}
+	if len(captureCalls) != 2 || captureCalls[1].enabled || captureCalls[1].path != "" {
+		t.Fatalf("finish proof did not disarm daemon capture: %+v", captureCalls)
+	}
 }
 
 func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) {
@@ -1658,11 +1676,14 @@ func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) 
 		postProbeTimeout = timeout
 		return control.SetupState{}, errors.New("admin state timeout")
 	}
-	var launchedEnv []string
 	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
-		launchedEnv = append([]string(nil), env...)
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 5151) with scoped Slimference env.")
 		return 0
+	}
+	var captureCalls []bool
+	codexDesktopWSSCaptureFn = func(_ string, _ string, _ string, enabled bool, _ time.Duration) error {
+		captureCalls = append(captureCalls, enabled)
+		return nil
 	}
 	cleanupPID := 0
 	codexDesktopCleanupFn = func(pid int) error {
@@ -1685,8 +1706,8 @@ func TestCodexDesktopProveManualPostProbeFailureCleansLaunchedApp(t *testing.T) 
 	if !proof.CleanupAttempted || cleanupPID != 5151 {
 		t.Fatalf("manual post-probe must clean launched app: cleanup=%v pid=%d proof=%+v", proof.CleanupAttempted, cleanupPID, proof)
 	}
-	if proof.CapturePath == "" || !strings.Contains(strings.Join(launchedEnv, "\n"), codexDesktopProofCaptureEnv+"="+proof.CapturePath) {
-		t.Fatalf("manual default capture env missing: capture=%q env=%v", proof.CapturePath, launchedEnv)
+	if proof.CapturePath == "" || len(captureCalls) != 2 || !captureCalls[0] || captureCalls[1] {
+		t.Fatalf("manual default capture was not armed then disarmed: capture=%q calls=%v", proof.CapturePath, captureCalls)
 	}
 	if postProbeTimeout < 10*time.Second {
 		t.Fatalf("post-probe timeout too short: %s", postProbeTimeout)
@@ -1891,6 +1912,54 @@ func TestCodexProxyEnvCarriesPrinter(t *testing.T) {
 	}
 	if !strings.HasSuffix(env.CADirFn(), ".slimference") {
 		t.Fatalf("bad CA dir: %q", env.CADirFn())
+	}
+}
+
+func TestSetCodexDesktopWSSCapturePostsAdminPayload(t *testing.T) {
+	var got proxy.AdminWSSCaptureRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != proxy.AdminWSSCapturePath {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"enabled":true}`))
+	}))
+	defer server.Close()
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("server addr: %v", err)
+	}
+	if err := setCodexDesktopWSSCapture(host, port, "/tmp/frames.jsonl", true, time.Second); err != nil {
+		t.Fatalf("set capture: %v", err)
+	}
+	if !got.Enabled || got.Path != "/tmp/frames.jsonl" || got.DurationSeconds != 21600 {
+		t.Fatalf("request payload=%+v", got)
+	}
+
+	got = proxy.AdminWSSCaptureRequest{}
+	if err := setCodexDesktopWSSCapture(host, port, "", false, time.Second); err != nil {
+		t.Fatalf("clear capture: %v", err)
+	}
+	if got.Enabled || got.Path != "" || got.DurationSeconds != 0 {
+		t.Fatalf("clear payload=%+v", got)
+	}
+}
+
+func TestSetCodexDesktopWSSCaptureReportsAdminFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusTeapot)
+	}))
+	defer server.Close()
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("server addr: %v", err)
+	}
+	err = setCodexDesktopWSSCapture(host, port, "/tmp/frames.jsonl", true, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "admin returned 418") {
+		t.Fatalf("expected admin status error, got %v", err)
 	}
 }
 

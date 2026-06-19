@@ -426,11 +426,17 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 	})
 	capture := newWSSABReplayCaptureFromEnv()
 	defer capture.Close()
+	clientHandler := capture.Wrap(adapter.handle)
+	upstreamHandler := capture.Wrap(adapter.handle)
+	if d.Proxy != nil && d.Proxy.wssABCapture != nil {
+		clientHandler = d.Proxy.wssABCapture.Wrap(clientHandler)
+		upstreamHandler = d.Proxy.wssABCapture.Wrap(upstreamHandler)
+	}
 	sess := &wsmitm.Session{
 		Client:          client,
 		Upstream:        upstream,
-		ClientHandler:   capture.Wrap(adapter.handle),
-		UpstreamHandler: capture.Wrap(adapter.handle),
+		ClientHandler:   clientHandler,
+		UpstreamHandler: upstreamHandler,
 		Extensions:      opts.Extensions,
 	}
 	activeID := d.registerActiveWSMITMSession(sess, adapter)

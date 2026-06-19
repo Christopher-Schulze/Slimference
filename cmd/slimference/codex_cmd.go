@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,26 +22,27 @@ import (
 )
 
 var (
-	codexRouteHomeFn      = os.UserHomeDir
-	codexRouteEnableFn    = codexroute.EnableWithOptions
-	codexRouteDisableFn   = codexroute.Disable
-	codexRouteInspectFn   = codexroute.InspectWithOptions
-	codexRouteHealthFn    = defaultProxyHealthCheck
-	codexProxyRunFn       = proxyRun
-	codexVersionFn        = currentCodexVersion
-	codexAutoFn           = resolveCodexAutoTransport
-	codexCertSaveFn       = codexroute.SaveCertification
-	codexBridgeSaveFn     = codexroute.SaveBridgeProof
-	codexRecertSaveFn     = codexroute.SaveRecertState
-	codexAutoRecertFn     = startCodexAutoRecert
-	codexRecertTriggerFn  = defaultCodexRecertTrigger
-	codexRecertLogFn      = appendCodexRecertLog
-	codexSetupStateFn     = fetchCodexSetupState
-	codexVersionOutFn     = defaultCodexCLIVersionOutput
-	codexNowFn            = time.Now
-	codexDesktopCleanupFn = cleanupCodexDesktopProcess
-	codexDesktopSessionFn = codexDesktopProofSessionPath
-	codexDesktopResultFn  = codexDesktopProofResultPath
+	codexRouteHomeFn         = os.UserHomeDir
+	codexRouteEnableFn       = codexroute.EnableWithOptions
+	codexRouteDisableFn      = codexroute.Disable
+	codexRouteInspectFn      = codexroute.InspectWithOptions
+	codexRouteHealthFn       = defaultProxyHealthCheck
+	codexProxyRunFn          = proxyRun
+	codexVersionFn           = currentCodexVersion
+	codexAutoFn              = resolveCodexAutoTransport
+	codexCertSaveFn          = codexroute.SaveCertification
+	codexBridgeSaveFn        = codexroute.SaveBridgeProof
+	codexRecertSaveFn        = codexroute.SaveRecertState
+	codexAutoRecertFn        = startCodexAutoRecert
+	codexRecertTriggerFn     = defaultCodexRecertTrigger
+	codexRecertLogFn         = appendCodexRecertLog
+	codexSetupStateFn        = fetchCodexSetupState
+	codexVersionOutFn        = defaultCodexCLIVersionOutput
+	codexNowFn               = time.Now
+	codexDesktopCleanupFn    = cleanupCodexDesktopProcess
+	codexDesktopSessionFn    = codexDesktopProofSessionPath
+	codexDesktopResultFn     = codexDesktopProofResultPath
+	codexDesktopWSSCaptureFn = setCodexDesktopWSSCapture
 )
 
 type codexRouteFlags struct {
@@ -539,6 +541,38 @@ func fetchCodexSetupState(host, port string, timeout time.Duration) (control.Set
 	return state, nil
 }
 
+func setCodexDesktopWSSCapture(host, port, path string, enabled bool, timeout time.Duration) error {
+	addr := net.JoinHostPort(host, port)
+	payload := proxy.AdminWSSCaptureRequest{
+		Enabled: enabled,
+		Path:    path,
+	}
+	if enabled {
+		payload.DurationSeconds = int((6 * time.Hour).Seconds())
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+proxy.AdminWSSCapturePath, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("admin returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
 func codexWSSCertificationFailures(state control.SetupState) []codexCertCriterion {
 	criteria := []codexCertCriterion{
 		{name: "wss.parse_failures", got: fmt.Sprint(state.WSS.ParseFailures), want: "0", pass: state.WSS.ParseFailures == 0},
@@ -735,8 +769,8 @@ Use --manual to start a prompt-driven proof session and keep the launched app
 open when it is ready. Send a prompt in that app, then run --finish to compare
 the current daemon WSS state against the saved session baseline.
 
-Manual proof auto-sets SLIMFERENCE_WSS_AB_CAPTURE to a timestamped local
-capture path unless --capture is passed. --matrix-row overrides the derived
+Manual proof arms daemon-side WSS A/B capture at a timestamped local capture
+path unless --capture is passed. --matrix-row overrides the derived
 wss-proof-matrix row path printed by the proof handoff.
 `
 

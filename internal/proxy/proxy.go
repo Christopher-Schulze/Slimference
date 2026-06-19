@@ -262,6 +262,10 @@ type Proxy struct {
 	// scoped Codex route and, when enabled, transparent SNI mode.
 	// /admin/state reads it for WSS bridge and mutation telemetry.
 	wssDispatcherPtr atomic.Pointer[PhaseFDispatcher]
+	// wssABCapture is a runtime-scoped local proof recorder. It is controlled
+	// by the admin capture endpoint so Desktop proofs can arm the daemon that
+	// actually processes WSS frames without setting persistent or app-global env.
+	wssABCapture *wssABReplayRuntimeCapture
 
 	// adminState holds the probe set used by the /admin/state
 	// endpoint. Wired by cmd/slimference at startup; nil before
@@ -316,6 +320,7 @@ func New(cfg *config.Config) *Proxy {
 		archiveRecoveryNote:    make(map[string]struct{}),
 		codexFootprintByFamily: make(map[string]codexFootprintEstimate),
 		wssStatelessChains:     newWSSStatelessChainStore(wssRecoveryMaxChains),
+		wssABCapture:           newWSSABReplayRuntimeCapture(),
 		qualityAB:              qualityab.New(qualityab.Options{}),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
@@ -495,6 +500,7 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
 	mux.HandleFunc(AdminStatePath, p.adminStateHandler)
 	mux.HandleFunc(AdminAppsPath, p.adminAppsHandler)
+	mux.HandleFunc(AdminWSSCapturePath, p.adminWSSCaptureHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
 	var handler http.Handler = mux
