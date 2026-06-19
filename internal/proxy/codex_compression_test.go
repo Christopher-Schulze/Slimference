@@ -829,14 +829,12 @@ func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
 }
 
 func TestServeHTTP_CodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T) {
-	t.Parallel()
 	runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t, func(cfg *config.Config) {
 		cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	})
 }
 
 func TestServeHTTP_CodexResponsesHTTPChunkDedupAutoPolicyInjectsRecoveryNote(t *testing.T) {
-	t.Parallel()
 	runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t, func(cfg *config.Config) {
 		cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
 		cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "auto"
@@ -956,6 +954,9 @@ func runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T, c
 		secondSummary.Tokens.AfterLayer0 >= secondSummary.Tokens.Original ||
 		secondSummary.Tokens.Saved <= 0 {
 		t.Fatalf("second summary missing positive HTTP chunk savings: %#v", secondSummary)
+	}
+	if secondSummary.ProviderInputTokens != 100 || secondSummary.ProviderCachedTokens != 0 || secondSummary.CacheReadTokens != 0 {
+		t.Fatalf("HTTP chunk proof must separate local savings from provider cache: %#v", secondSummary)
 	}
 }
 

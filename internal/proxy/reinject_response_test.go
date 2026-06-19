@@ -1,10 +1,15 @@
 package proxy
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,11 +17,13 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 )
 
+const archiveReinjectTestSession = "anthropic:org-reinject"
+
 func TestServeHTTP_ReinjectsArchiveBeforeUpstream(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	original := strings.Repeat("exact archived body before upstream\n", 4)
-	id := writeArchiveEntry(t, home, original)
+	id := writeArchiveEntryForSession(t, home, archiveReinjectTestSession, original)
 
 	seenBody := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,6 +48,7 @@ func TestServeHTTP_ReinjectsArchiveBeforeUpstream(t *testing.T) {
 	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"need local-archive://` + id + `"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-organization-id", "org-reinject")
 	rec := httptest.NewRecorder()
 	p.ServeHTTP(rec, req)
 
@@ -114,6 +122,7 @@ func TestServeHTTP_MissingArchiveFailsOpenBeforeUpstream(t *testing.T) {
 	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"need local-archive://missing-id"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-organization-id", "org-reinject")
 	rec := httptest.NewRecorder()
 	p.ServeHTTP(rec, req)
 
@@ -136,6 +145,135 @@ func TestServeHTTP_MissingArchiveFailsOpenBeforeUpstream(t *testing.T) {
 	if stats.ReInjectCount != 0 || stats.Expanded != 0 {
 		t.Fatalf("missing archive must not count expansion/reinject: %+v", stats)
 	}
+}
+
+func TestServeHTTP_StaleArchiveSessionFailsOpenBeforeUpstream(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	original := strings.Repeat("stale archived body must not cross sessions\n", 4)
+	id := writeArchiveEntryForSession(t, home, "anthropic:other-org", original)
+
+	upstreamBody := serveAnthropicArchiveRequest(t, "need local-archive://"+id)
+	if !strings.Contains(upstreamBody, "local-archive://"+id) {
+		t.Fatalf("stale archive marker must remain visible: %s", upstreamBody)
+	}
+	if strings.Contains(upstreamBody, "[reinjected from") || strings.Contains(upstreamBody, original) {
+		t.Fatalf("stale archive must not be rehydrated before upstream: %s", upstreamBody)
+	}
+	stats, err := contentarchive.LoadStats(contentarchive.DefaultDir(home))
+	if err != nil {
+		t.Fatalf("load stats: %v", err)
+	}
+	if stats.ReInjectCount != 0 || stats.Expanded != 0 {
+		t.Fatalf("stale archive must not count expansion/reinject: %+v", stats)
+	}
+}
+
+func TestServeHTTP_CorruptArchiveFailsOpenBeforeUpstream(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	original := strings.Repeat("corrupt archived body must not be invented\n", 4)
+	id := writeArchiveEntryForSession(t, home, archiveReinjectTestSession, original)
+	if err := os.WriteFile(archivePayloadPath(home, id), []byte("not-gzip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	upstreamBody := serveAnthropicArchiveRequest(t, "need local-archive://"+id)
+	if !strings.Contains(upstreamBody, "local-archive://"+id) {
+		t.Fatalf("corrupt archive marker must remain visible: %s", upstreamBody)
+	}
+	if strings.Contains(upstreamBody, "[reinjected from") || strings.Contains(upstreamBody, original) {
+		t.Fatalf("corrupt archive must not be rehydrated before upstream: %s", upstreamBody)
+	}
+	stats, err := contentarchive.LoadStats(contentarchive.DefaultDir(home))
+	if err != nil {
+		t.Fatalf("load stats: %v", err)
+	}
+	if stats.ReInjectCount != 0 || stats.Expanded != 0 {
+		t.Fatalf("corrupt archive must not count expansion/reinject: %+v", stats)
+	}
+}
+
+func TestServeHTTP_HashMismatchedArchiveFailsOpenBeforeUpstream(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	original := strings.Repeat("original archived body must stay authoritative\n", 4)
+	id := writeArchiveEntryForSession(t, home, archiveReinjectTestSession, original)
+	swapped := strings.Repeat("swapped valid gzip body must be rejected\n", 4)
+	if err := os.WriteFile(archivePayloadPath(home, id), gzipString(t, swapped), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	upstreamBody := serveAnthropicArchiveRequest(t, "need local-archive://"+id)
+	if !strings.Contains(upstreamBody, "local-archive://"+id) {
+		t.Fatalf("mismatched archive marker must remain visible: %s", upstreamBody)
+	}
+	if strings.Contains(upstreamBody, "[reinjected from") ||
+		strings.Contains(upstreamBody, original) ||
+		strings.Contains(upstreamBody, swapped) {
+		t.Fatalf("mismatched archive must not be rehydrated before upstream: %s", upstreamBody)
+	}
+	stats, err := contentarchive.LoadStats(contentarchive.DefaultDir(home))
+	if err != nil {
+		t.Fatalf("load stats: %v", err)
+	}
+	if stats.ReInjectCount != 0 || stats.Expanded != 0 {
+		t.Fatalf("mismatched archive must not count expansion/reinject: %+v", stats)
+	}
+}
+
+func serveAnthropicArchiveRequest(t *testing.T, userText string) string {
+	t.Helper()
+	seenBody := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read upstream body: %v", err)
+		}
+		seenBody <- string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":` + strconv.Quote(userText) + `}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-organization-id", "org-reinject")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	return <-seenBody
+}
+
+func archivePayloadPath(home, id string) string {
+	return filepath.Join(contentarchive.DefaultDir(home), "entries", id+".txt.gz")
+}
+
+func gzipString(t *testing.T, text string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 // TestServeHTTP_T76c_RecordsReInjectOnUpstreamEcho verifies that the

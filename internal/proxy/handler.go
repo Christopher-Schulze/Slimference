@@ -240,7 +240,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// message before further processing. Best-effort: a missing or
 	// unreadable archive entry leaves the marker in place so the model
 	// still sees a stable reference rather than silently failing.
-	messages = p.reinjectArchivedContent(messages)
+	messages = p.reinjectArchivedContentForSession(sessionID, messages)
 
 	// T77: observe tool-use blocks for the re-read detector.
 	reReadCount := 0

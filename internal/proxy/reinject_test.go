@@ -12,8 +12,13 @@ import (
 
 func writeArchiveEntry(t *testing.T, home, original string) string {
 	t.Helper()
+	return writeArchiveEntryForSession(t, home, "sess", original)
+}
+
+func writeArchiveEntryForSession(t *testing.T, home, sessionID, original string) string {
+	t.Helper()
 	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
-		SessionID:    "sess",
+		SessionID:    sessionID,
 		MessageIndex: 1,
 		BlockIndex:   0,
 		SubLayer:     "test",
@@ -129,6 +134,60 @@ func TestReinjectArchivedContent_MissingEntryLeavesMarker(t *testing.T) {
 	}
 	if !strings.Contains(out[0].Content[0].Text, "local-archive://missing-id") {
 		t.Fatal("original marker must remain on miss")
+	}
+}
+
+func TestReinjectArchivedContentForSession_StaleSessionFailsOpen(t *testing.T) {
+	home := t.TempDir()
+	withArchiveHome(t, home)
+	id := writeArchiveEntryForSession(t, home, "sess-live", strings.Repeat("same-session body\n", 5))
+	p := New(config.Defaults())
+	msgs := []types.Message{{
+		Role: "user",
+		Content: []types.ContentBlock{
+			{Type: "text", Text: "need local-archive://" + id},
+		},
+	}}
+	out := p.reinjectArchivedContentForSession("sess-other", msgs)
+	if len(out[0].Content) != 1 {
+		t.Fatalf("stale session archive must not append expansion: %d blocks", len(out[0].Content))
+	}
+	if !strings.Contains(out[0].Content[0].Text, "local-archive://"+id) {
+		t.Fatal("stale session marker must remain visible")
+	}
+	stats, err := contentarchive.LoadStats(contentarchive.DefaultDir(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Expanded != 0 || stats.ReInjectCount != 0 {
+		t.Fatalf("stale session must not count expansion/reinject: %+v", stats)
+	}
+}
+
+func TestReinjectArchivedContent_DoesNotRecursivelyExpandArchiveReferences(t *testing.T) {
+	home := t.TempDir()
+	withArchiveHome(t, home)
+	nestedBody := strings.Repeat("nested archive body\n", 5)
+	nestedID := writeArchiveEntry(t, home, nestedBody)
+	outerBody := "outer archived body refers to local-archive://" + nestedID + "\n" + strings.Repeat("outer body line\n", 5)
+	outerID := writeArchiveEntry(t, home, outerBody)
+	p := New(config.Defaults())
+	msgs := []types.Message{{
+		Role: "user",
+		Content: []types.ContentBlock{
+			{Type: "text", Text: "need local-archive://" + outerID},
+		},
+	}}
+	out := p.reinjectArchivedContent(msgs)
+	if len(out[0].Content) != 2 {
+		t.Fatalf("only the directly requested archive should expand, got %d blocks", len(out[0].Content))
+	}
+	if !strings.Contains(out[0].Content[1].Text, "outer archived body") ||
+		!strings.Contains(out[0].Content[1].Text, "local-archive://"+nestedID) {
+		t.Fatalf("outer expansion missing expected body/reference: %s", out[0].Content[1].Text)
+	}
+	if strings.Contains(out[0].Content[1].Text, nestedBody) {
+		t.Fatalf("nested archive must not recursively expand in the same request: %s", out[0].Content[1].Text)
 	}
 }
 

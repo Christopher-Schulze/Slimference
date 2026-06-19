@@ -71,9 +71,14 @@ func (p *Proxy) forgetArchiveRecoveryNote(sessionID string) {
 // Counters are bumped per successful expansion so
 // /admin/status.content_archive.re_inject_count reflects the activity.
 func (p *Proxy) reinjectArchivedContent(messages []types.Message) []types.Message {
+	return p.reinjectArchivedContentForSession("", messages)
+}
+
+func (p *Proxy) reinjectArchivedContentForSession(sessionID string, messages []types.Message) []types.Message {
 	if len(messages) == 0 {
 		return messages
 	}
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return messages
@@ -102,6 +107,13 @@ func (p *Proxy) reinjectArchivedContent(messages []types.Message) []types.Messag
 					continue
 				}
 				seen[id] = struct{}{}
+				entry, _, err := contentarchive.Peek(archiveDir, id)
+				if err != nil {
+					continue
+				}
+				if !archiveEntryMatchesSession(entry, sessionID) {
+					continue
+				}
 				_, body, err := contentarchive.Get(archiveDir, id)
 				if err != nil {
 					continue
@@ -122,6 +134,17 @@ func (p *Proxy) reinjectArchivedContent(messages []types.Message) []types.Messag
 		}
 	}
 	return messages
+}
+
+func archiveEntryMatchesSession(entry *contentarchive.Entry, sessionID string) bool {
+	if entry == nil {
+		return false
+	}
+	archiveSessionID := sessions.SafeOptionalSessionID(entry.SessionID)
+	if archiveSessionID == "" || sessionID == "" {
+		return true
+	}
+	return archiveSessionID == sessionID
 }
 
 // hasArchiveReference reports whether s contains any local-archive URI.

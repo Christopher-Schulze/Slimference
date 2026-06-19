@@ -268,6 +268,9 @@ func Peek(dir string, rawID string) (*Entry, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := verifyEntryPayload(meta, id, body); err != nil {
+		return nil, nil, err
+	}
 	return meta, body, nil
 }
 
@@ -423,6 +426,36 @@ func buildID(input Input) string {
 		input.Original,
 	}, "\x00")))
 	return hex.EncodeToString(sum[:16])
+}
+
+func verifyEntryPayload(entry *Entry, requestedID string, body []byte) error {
+	if entry == nil {
+		return fmt.Errorf("missing archive metadata")
+	}
+	entryID := sanitizeID(entry.ID)
+	if entryID == "" {
+		return fmt.Errorf("empty archive metadata id")
+	}
+	if requestedID != "" && entryID != requestedID {
+		return fmt.Errorf("archive id mismatch")
+	}
+	if uriID := normalizeID(entry.URI); uriID != "" && uriID != entryID {
+		return fmt.Errorf("archive uri mismatch")
+	}
+	if entry.OriginalSize != len(body) {
+		return fmt.Errorf("archive size mismatch")
+	}
+	expectedID := buildID(Input{
+		SessionID:    entry.SessionID,
+		MessageIndex: entry.MessageIndex,
+		BlockIndex:   entry.BlockIndex,
+		SubLayer:     entry.SubLayer,
+		Original:     string(body),
+	})
+	if expectedID != entryID {
+		return fmt.Errorf("archive payload hash mismatch")
+	}
+	return nil
 }
 
 func previewText(input Input) string {

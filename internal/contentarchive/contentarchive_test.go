@@ -216,6 +216,27 @@ func TestGet_HeaderOnlyGzip(t *testing.T) {
 	}
 }
 
+func TestGet_PayloadHashMismatch(t *testing.T) {
+
+	dir := t.TempDir()
+	entry, err := Put(dir, sampleInput(), Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	swapped := sampleInput()
+	swapped.Original = strings.Repeat("different valid gzip payload with same metadata slot\n", 5)
+	payload, err := compressBytes(swapped.Original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(entriesDir(dir), entry.ID+".txt.gz"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Get(dir, entry.ID); err == nil || !strings.Contains(err.Error(), "archive size mismatch") && !strings.Contains(err.Error(), "archive payload hash mismatch") {
+		t.Fatalf("expected archive integrity error, got %v", err)
+	}
+}
+
 func TestPut_MkdirError(t *testing.T) {
 
 	saved := mkdirAll
