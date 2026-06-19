@@ -131,7 +131,7 @@ func isBunInstallArgv(argv []string) bool {
 	return argv[1] == "install"
 }
 
-// TryCompactNpmInstall summarizes empty stdout from `npm install` / `npm ci` (F12 partial).
+// TryCompactNpmInstall summarizes empty stdout or strict clean success from `npm install` / `npm ci` (F12 partial).
 func TryCompactNpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 2 {
 		return stdout, false
@@ -144,8 +144,11 @@ func TryCompactNpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	default:
 		return stdout, false
 	}
-	if strings.TrimSpace(string(stdout)) != "" {
+	if npmInstallArgvUnsafe(argv[2:]) {
 		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) != "" {
+		return compactNpmInstallCleanSuccess(stdout, "npm "+argv[1])
 	}
 	return []byte(fmt.Sprintf("[npm %s] ok\n", argv[1])), true
 }
@@ -590,6 +593,189 @@ func compactUvPackageSuccess(stdout []byte, label string) ([]byte, bool) {
 	return out, true
 }
 
+func npmInstallArgvUnsafe(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		lower := strings.ToLower(strings.TrimSpace(args[i]))
+		switch lower {
+		case "--dry-run", "--package-lock-only", "--json", "--parseable", "--porcelain", "--verbose", "-d", "-dd", "-ddd":
+			return true
+		case "--loglevel":
+			if i+1 >= len(args) || npmInstallLogLevelUnsafe(args[i+1]) {
+				return true
+			}
+			i++
+		default:
+			if strings.HasPrefix(lower, "--loglevel=") && npmInstallLogLevelUnsafe(strings.TrimPrefix(lower, "--loglevel=")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func npmInstallLogLevelUnsafe(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "verbose", "silly":
+		return true
+	default:
+		return false
+	}
+}
+
+func compactNpmInstallCleanSuccess(stdout []byte, label string) ([]byte, bool) {
+	text := string(stdout)
+	var summaryParts []string
+	var funding *int
+	var sawAuditSummary bool
+	var sawZeroVulnerabilities bool
+	var awaitingFundingPrompt bool
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if awaitingFundingPrompt {
+			if !npmFundingPromptLineOK(trimmed) {
+				return stdout, false
+			}
+			awaitingFundingPrompt = false
+			continue
+		}
+		switch {
+		case lower == "found 0 vulnerabilities":
+			sawZeroVulnerabilities = true
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case npmInstallNoiseLineOK(lower):
+			continue
+		case strings.HasSuffix(lower, " for funding") || strings.Contains(lower, " looking for funding"):
+			count, ok := parseNpmFundingLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			funding = &count
+			awaitingFundingPrompt = true
+		default:
+			parts, ok := parseNpmInstallAuditSummaryLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			summaryParts = parts
+			sawAuditSummary = true
+		}
+	}
+	if awaitingFundingPrompt || !sawAuditSummary || !sawZeroVulnerabilities || len(summaryParts) == 0 {
+		return stdout, false
+	}
+	if funding != nil {
+		summaryParts = append(summaryParts, fmt.Sprintf("funding %d %s", *funding, pluralWord(*funding, "package", "packages")))
+	}
+	summaryParts = append(summaryParts, "0 vulnerabilities")
+	out := []byte("[" + label + "] " + strings.Join(summaryParts, "; ") + "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func npmInstallNoiseLineOK(lower string) bool {
+	if strings.HasPrefix(lower, "npm http fetch ") ||
+		strings.HasPrefix(lower, "npm timing ") {
+		return true
+	}
+	return strings.HasPrefix(lower, "npm verb lock using:")
+}
+
+func parseNpmFundingLine(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 6 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	if fields[1] != pluralWord(count, "package", "packages") ||
+		fields[2] != "are" ||
+		fields[3] != "looking" ||
+		fields[4] != "for" ||
+		fields[5] != "funding" {
+		return 0, false
+	}
+	return count, true
+}
+
+func npmFundingPromptLineOK(line string) bool {
+	return line == "run `npm fund` for details" || line == "run 'npm fund' for details"
+}
+
+func parseNpmInstallAuditSummaryLine(line string) ([]string, bool) {
+	const auditMarker = ", and audited "
+	if strings.HasPrefix(line, "up to date, audited ") {
+		audited, ok := parseNpmAuditedTail(strings.TrimPrefix(line, "up to date, audited "))
+		if !ok {
+			return nil, false
+		}
+		return []string{"up to date", fmt.Sprintf("audited %d %s", audited, pluralWord(audited, "package", "packages"))}, true
+	}
+	prefix, auditTail, ok := strings.Cut(line, auditMarker)
+	if !ok {
+		return nil, false
+	}
+	audited, ok := parseNpmAuditedTail(auditTail)
+	if !ok {
+		return nil, false
+	}
+	operationParts := strings.Split(prefix, ", ")
+	parts := make([]string, 0, len(operationParts)+1)
+	for _, part := range operationParts {
+		summary, ok := parseNpmInstallOperationPart(part)
+		if !ok {
+			return nil, false
+		}
+		parts = append(parts, summary)
+	}
+	parts = append(parts, fmt.Sprintf("audited %d %s", audited, pluralWord(audited, "package", "packages")))
+	return parts, true
+}
+
+func parseNpmAuditedTail(tail string) (int, bool) {
+	fields := strings.Fields(tail)
+	if len(fields) != 4 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	if fields[1] != pluralWord(count, "package", "packages") || fields[2] != "in" {
+		return 0, false
+	}
+	return count, true
+}
+
+func parseNpmInstallOperationPart(part string) (string, bool) {
+	fields := strings.Fields(part)
+	if len(fields) != 3 {
+		return "", false
+	}
+	verb := fields[0]
+	switch verb {
+	case "added", "removed", "changed":
+	default:
+		return "", false
+	}
+	count, err := strconv.Atoi(fields[1])
+	if err != nil || count < 0 {
+		return "", false
+	}
+	if fields[2] != pluralWord(count, "package", "packages") {
+		return "", false
+	}
+	return fmt.Sprintf("%s %d %s", verb, count, pluralWord(count, "package", "packages")), true
+}
+
 func parseUvPackageCountLine(line, verb string) (int, bool) {
 	if !strings.HasPrefix(line, verb+" ") {
 		return 0, false
@@ -835,6 +1021,9 @@ func TryCompactPackageOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if label := pkgToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
 		if s != "" {
+			if strings.HasPrefix(label, "npm ") && !packageOutputHasErrorSummaryLine(s) {
+				return stdout, false
+			}
 			if out, ok := extractPkgSummary(s, label); ok {
 				return []byte(out), true
 			}
@@ -874,6 +1063,10 @@ func pkgToolLabel(argv []string) string {
 func extractPkgSummary(s, label string) (string, bool) {
 	lines := strings.Split(s, "\n")
 	var summaryLines []string
+	var sawErrorSummary bool
+	if packageOutputHasUnsafeSuccessMarker(s) && !packageOutputHasErrorSummaryLine(s) {
+		return "", false
+	}
 	for _, line := range lines {
 		t := strings.TrimSpace(line)
 		if t == "" {
@@ -881,10 +1074,14 @@ func extractPkgSummary(s, label string) (string, bool) {
 		}
 		tl := strings.ToLower(t)
 		if isPackageErrorSummaryLine(t, tl) {
+			sawErrorSummary = true
 			summaryLines = append(summaryLines, t)
 			if len(summaryLines) >= 12 {
 				break
 			}
+			continue
+		}
+		if sawErrorSummary {
 			continue
 		}
 		// npm/pnpm: "added N packages", "removed N packages", "changed N packages"
@@ -919,6 +1116,36 @@ func extractPkgSummary(s, label string) (string, bool) {
 		return "", false
 	}
 	return out, true
+}
+
+func packageOutputHasErrorSummaryLine(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if isPackageErrorSummaryLine(trimmed, strings.ToLower(trimmed)) {
+			return true
+		}
+	}
+	return false
+}
+
+func packageOutputHasUnsafeSuccessMarker(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if lower == "found 0 vulnerabilities" || isPackageErrorSummaryLine(trimmed, lower) {
+			continue
+		}
+		if packageOutputLineUnsafe(trimmed, lower) {
+			return true
+		}
+	}
+	return false
 }
 
 func isPackageErrorSummaryLine(trimmed, lower string) bool {

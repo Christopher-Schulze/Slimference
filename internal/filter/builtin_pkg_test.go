@@ -481,6 +481,94 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 			}
 		})
 	}
+
+	if !npmInstallArgvUnsafe([]string{"--loglevel", "verbose"}) ||
+		!npmInstallArgvUnsafe([]string{"--loglevel=silly"}) ||
+		!npmInstallArgvUnsafe([]string{"--loglevel"}) ||
+		!npmInstallArgvUnsafe([]string{"--package-lock-only"}) {
+		t.Fatal("unsafe npm install argv modes were not rejected")
+	}
+	if npmInstallArgvUnsafe([]string{"--ignore-scripts", "--loglevel", "notice"}) ||
+		npmInstallLogLevelUnsafe("http") {
+		t.Fatal("safe npm install argv/loglevel modes were rejected")
+	}
+
+	if count, ok := parseNpmFundingLine("1 package are looking for funding"); !ok || count != 1 {
+		t.Fatalf("npm funding singular parse failed: count=%d ok=%v", count, ok)
+	}
+	badFunding := []string{
+		"1 package is looking for funding",
+		"two packages are looking for funding",
+		"-1 packages are looking for funding",
+		"2 package are looking for funding",
+		"2 packages are looking for funding now",
+	}
+	for _, input := range badFunding {
+		input := input
+		t.Run("bad npm funding "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseNpmFundingLine(input); ok {
+				t.Fatalf("invalid npm funding line parsed: %q", input)
+			}
+		})
+	}
+
+	if count, ok := parseNpmAuditedTail("2 packages in 4s"); !ok || count != 2 {
+		t.Fatalf("npm audited tail parse failed: count=%d ok=%v", count, ok)
+	}
+	badAudited := []string{
+		"2 packages",
+		"two packages in 4s",
+		"-1 packages in 4s",
+		"1 packages in 4s",
+		"2 packages after 4s",
+		"2 packages in 4s extra",
+	}
+	for _, input := range badAudited {
+		input := input
+		t.Run("bad npm audited "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseNpmAuditedTail(input); ok {
+				t.Fatalf("invalid npm audited tail parsed: %q", input)
+			}
+		})
+	}
+
+	if part, ok := parseNpmInstallOperationPart("removed 1 package"); !ok || part != "removed 1 package" {
+		t.Fatalf("npm operation parse failed: part=%q ok=%v", part, ok)
+	}
+	badOperations := []string{
+		"installed 1 package",
+		"added one package",
+		"added -1 packages",
+		"added 1 packages",
+		"added 1 package quickly",
+	}
+	for _, input := range badOperations {
+		input := input
+		t.Run("bad npm operation "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseNpmInstallOperationPart(input); ok {
+				t.Fatalf("invalid npm operation parsed: %q", input)
+			}
+		})
+	}
+
+	badSummaries := []string{
+		"added 1 package in 1s",
+		"added 1 package, and audited one package in 1s",
+		"installed 1 package, and audited 2 packages in 1s",
+		"up to date, audited 1 packages in 1s",
+	}
+	for _, input := range badSummaries {
+		input := input
+		t.Run("bad npm summary "+input, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseNpmInstallAuditSummaryLine(input); ok {
+				t.Fatalf("invalid npm install summary parsed: %q", input)
+			}
+		})
+	}
 }
 
 func TestTryCompactPackageInstallNonEmptyEdgeCases(t *testing.T) {
@@ -524,9 +612,9 @@ Updated 2 packages in 1ms
 	}
 }
 
-func TestTryCompactPackageOutput_npmProgress(t *testing.T) {
+func TestTryCompactNpmInstallNonEmptyCleanSuccess(t *testing.T) {
 	t.Parallel()
-	// Typical npm install output with progress noise and a summary line
+
 	input := `npm warn deprecated lodash@3.10.1: maintenance mode
 npm warn deprecated uuid@3.4.0: Please upgrade  to v9
 npm verb lock using: npm@10.2.4
@@ -541,15 +629,72 @@ added 342 packages, and audited 343 packages in 12s
 found 0 vulnerabilities
 `
 	out, ok := TryCompactPackageOutput([]string{"npm", "install"}, []byte(input))
+	if ok || string(out) != input {
+		t.Fatalf("npm install warning output must fail open: ok=%v out=%q", ok, out)
+	}
+
+	clean := npmInstallCleanFixture(342)
+	cleanOut, ok := TryCompactNpmInstall([]string{"npm", "install"}, []byte(clean))
 	if !ok {
-		t.Fatalf("expected compact npm install output, got pass-through")
+		t.Fatalf("expected compact npm install clean output, got pass-through")
 	}
-	s := string(out)
-	if !strings.Contains(s, "added 342 packages") {
-		t.Errorf("want summary, got: %q", s)
+	want := "[npm install] added 342 packages; audited 343 packages; funding 45 packages; 0 vulnerabilities\n"
+	if string(cleanOut) != want {
+		t.Fatalf("unexpected npm clean summary: %q", cleanOut)
 	}
-	if len(s) >= len(input) {
-		t.Errorf("compact should be shorter: %d vs %d", len(s), len(input))
+	if len(cleanOut) >= len(clean) || strings.Contains(string(cleanOut), "package_341") {
+		t.Fatalf("npm clean summary did not shrink or leaked package rows: %q", cleanOut)
+	}
+
+	chainOut, ok := TryCompactPackageOutput([]string{"npm", "install"}, []byte(clean))
+	if !ok || string(chainOut) != want {
+		t.Fatalf("package chain npm clean output: ok=%v out=%q", ok, chainOut)
+	}
+
+	upToDate := "\nup to date, audited 1 package in 292ms\n\nfound 0 vulnerabilities\n"
+	upToDateOut, ok := TryCompactNpmInstall([]string{"npm", "ci"}, []byte(upToDate))
+	if !ok || string(upToDateOut) != "[npm ci] up to date; audited 1 package; 0 vulnerabilities\n" {
+		t.Fatalf("npm ci up-to-date summary: ok=%v out=%q", ok, upToDateOut)
+	}
+
+	updated := "\nchanged 2 packages, and audited 9 packages in 1s\n\nfound 0 vulnerabilities\n"
+	updatedOut, ok := TryCompactNpmInstall([]string{"npm", "update"}, []byte(updated))
+	if !ok || string(updatedOut) != "[npm update] changed 2 packages; audited 9 packages; 0 vulnerabilities\n" {
+		t.Fatalf("npm update summary: ok=%v out=%q", ok, updatedOut)
+	}
+}
+
+func TestTryCompactNpmInstallNonEmptyGuards(t *testing.T) {
+	t.Parallel()
+
+	clean := npmInstallCleanFixture(3)
+	tests := []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "warning", argv: []string{"npm", "install"}, stdout: "npm warn deprecated left-pad@1.3.0: use String.prototype.padStart()\n" + clean},
+		{name: "nonzero vulnerabilities", argv: []string{"npm", "install"}, stdout: strings.Replace(clean, "found 0 vulnerabilities", "3 vulnerabilities (1 moderate, 2 high)", 1)},
+		{name: "unknown lifecycle line", argv: []string{"npm", "install"}, stdout: "postinstall generated src/config.ts\n" + clean},
+		{name: "missing funding prompt", argv: []string{"npm", "install"}, stdout: strings.Replace(clean, "  run `npm fund` for details\n", "", 1)},
+		{name: "dry run", argv: []string{"npm", "install", "--dry-run"}, stdout: clean},
+		{name: "json mode", argv: []string{"npm", "ci", "--json"}, stdout: clean},
+		{name: "bad plural", argv: []string{"npm", "install"}, stdout: "added 1 packages, and audited 2 packages in 1s\nfound 0 vulnerabilities\n"},
+		{name: "non-shrinking", argv: []string{"npm", "install"}, stdout: "up to date, audited 1 package in 1s\nfound 0 vulnerabilities\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, ok := TryCompactNpmInstall(tt.argv, []byte(tt.stdout))
+			if ok || string(out) != tt.stdout {
+				t.Fatalf("unsafe npm install output compacted: ok=%v out=%q", ok, out)
+			}
+			chainOut, chainOK := TryCompactPackageOutput(tt.argv, []byte(tt.stdout))
+			if chainOK || string(chainOut) != tt.stdout {
+				t.Fatalf("unsafe npm install chain compacted: ok=%v out=%q", chainOK, chainOut)
+			}
+		})
 	}
 }
 
@@ -836,6 +981,24 @@ func TestExtractPkgSummary(t *testing.T) {
 	if strings.Count(out5, "npm ERR!") != 12 {
 		t.Fatalf("expected 12 capped error lines, got %q", out5)
 	}
+
+	warningSuccess := "npm warn deprecated left-pad@1.3.0\nadded 1 package, and audited 2 packages in 1s\nfound 0 vulnerabilities\n"
+	if out6, ok6 := extractPkgSummary(warningSuccess, "npm install"); ok6 {
+		t.Fatalf("warning success fallback compacted: %q", out6)
+	}
+}
+
+func npmInstallCleanFixture(packages int) string {
+	var out strings.Builder
+	for i := 0; i < packages; i++ {
+		fmt.Fprintf(&out, "npm http fetch GET 200 https://registry.npmjs.org/package_%03d 12%dms\n", i, i%10)
+		fmt.Fprintf(&out, "npm timing idealTree:node_modules/package_%03d Completed in %dms\n", i, i%20+1)
+	}
+	fmt.Fprintf(&out, "\nadded %d %s, and audited %d %s in 12s\n\n", packages, pluralWord(packages, "package", "packages"), packages+1, pluralWord(packages+1, "package", "packages"))
+	out.WriteString("45 packages are looking for funding\n")
+	out.WriteString("  run `npm fund` for details\n\n")
+	out.WriteString("found 0 vulnerabilities\n")
+	return out.String()
 }
 
 func poetryInstallCleanFixture(packages int) string {
