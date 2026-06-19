@@ -342,11 +342,12 @@ func loadSearchCapDownstreamStateProof(path string, socketSeq uint64) (searchCap
 		return searchCapDownstreamStateProof{}, err
 	}
 	upstream := wssABReplayUpstreamDiagnostics(frames)
-	mutatedSearchOutputTurns, err := searchCapMutatedSearchOutputTurnMarkers(frames)
+	turnFrames := wssT354CanonicalTurnFrames(frames)
+	mutatedSearchOutputTurns, err := searchCapMutatedSearchOutputTurnMarkers(turnFrames)
 	if err != nil {
 		return searchCapDownstreamStateProof{}, err
 	}
-	turns := wssT354TurnsFromFrames(frames)
+	turns := wssT354TurnsFromFrames(turnFrames)
 	proof := searchCapDownstreamStateProof{
 		UpstreamErrorFrames:  upstream.ErrorFrames,
 		InvalidRequestErrors: upstream.InvalidRequestErrors,

@@ -241,6 +241,114 @@ func TestWSPhaseFSearchCapFinalProofKeepsProofedDeltaStateful(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFSearchCapMixedDeltaArmsStatelessFollowup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	ctx := context.Background()
+
+	root := parseWSJSON(t, map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "search-cap-mixed-delta-followup",
+		"client_metadata": map[string]any{
+			"x-codex-turn-metadata": `{"thread_id":"thread-search-cap-mixed-delta-followup","source":"desktop"}`,
+		},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "search for needle",
+		}},
+		"stream": true,
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &root); err != nil || replace {
+		t.Fatalf("root request should seed recovery only, replace=%v err=%v raw=%s", replace, err, root.Raw)
+	}
+
+	seedWSSDeltaStatelessToolCall(t, ctx, adapter, "search-proofed", "exec_command", map[string]any{"cmd": "cd /repo/search && rg -n needle src"})
+	seedWSSDeltaStatelessToolCall(t, ctx, adapter, "unsafe-search-like", "exec_command", map[string]any{"cmd": "cd /repo/search && rg -n needle src | sed -n '1,20p'"})
+	completeWSSDeltaStatelessResponse(t, ctx, adapter, "resp-search-cap-mixed-parent")
+
+	delta := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-cap-mixed-parent",
+		"prompt_cache_key":     "search-cap-mixed-delta-followup",
+		"client_metadata": map[string]any{
+			"x-codex-turn-metadata": `{"thread_id":"thread-search-cap-mixed-delta-followup","source":"desktop"}`,
+		},
+		"input": []map[string]any{
+			{
+				"type":    "function_call_output",
+				"call_id": "search-proofed",
+				"output":  proxyWSSSearchOutputFixture("needle", 90),
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": "unsafe-search-like",
+				"output":  proxyWSSSearchOutputFixture("unsafe", 30),
+			},
+		},
+		"stream": true,
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &delta); err != nil || !replace {
+		t.Fatalf("mixed search delta should compact allowed block, replace=%v err=%v raw=%s", replace, err, delta.Raw)
+	}
+	mutated := string(delta.Raw)
+	if !strings.Contains(mutated, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(mutated, "[rg]") ||
+		!strings.Contains(mutated, "src/file_029.go:30:unsafe") {
+		t.Fatalf("mixed delta should compact only the proofed search output: %s", mutated)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_cap_stateful_followup"] == "true" ||
+		summary.DebugFacts["wss.search_cap_stateful_followup_guard"] != "mixed_search_delta_proof" ||
+		summary.DebugFacts["wss.stateful_mutation_stateless_followup"] != "true" {
+		t.Fatalf("mixed search delta should save but arm stateless follow-up: %+v", summary)
+	}
+
+	seedWSSDeltaStatelessToolCall(t, ctx, adapter, "after-mixed", "exec_command", map[string]any{"cmd": "printf ok"})
+	completeWSSDeltaStatelessResponse(t, ctx, adapter, "resp-search-cap-mixed-child")
+	followup := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-cap-mixed-child",
+		"prompt_cache_key":     "search-cap-mixed-delta-followup",
+		"client_metadata": map[string]any{
+			"x-codex-turn-metadata": `{"thread_id":"thread-search-cap-mixed-delta-followup","source":"desktop"}`,
+		},
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "after-mixed",
+			"output":  "ok",
+		}},
+		"stream": true,
+	})
+	if replace, err := adapter.handle(ctx, wsmitm.DirClientToServer, &followup); err != nil || !replace {
+		t.Fatalf("following delta should rewrite to stateless continuation, replace=%v err=%v raw=%s", replace, err, followup.Raw)
+	}
+	followupBody, _, ok := wsRequestBody(&followup)
+	if !ok {
+		t.Fatal("following delta body missing")
+	}
+	if bytes.Contains(followupBody, []byte("previous_response_id")) {
+		t.Fatalf("following delta must detach previous_response_id: %s", followupBody)
+	}
+	followupSummary := p.DebugRecorder().Last(1, false)[0]
+	if followupSummary.DebugFacts["wss.stateless_history_continuation"] != "true" ||
+		followupSummary.DebugFacts["wss.previous_response_id"] != "false" {
+		t.Fatalf("following delta should be stateless after mixed search cap: %+v", followupSummary)
+	}
+}
+
 func seedWSSDeltaStatelessToolCall(t *testing.T, ctx context.Context, adapter *wsPhaseFAdapter, callID, name string, arguments any) {
 	t.Helper()
 	itemDone := parseWSJSON(t, map[string]any{

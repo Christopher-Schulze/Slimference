@@ -51,6 +51,35 @@ func TestWSST354ShapeProofPassesCleanMutatedDeltaAndFollowingTurn(t *testing.T) 
 	}
 }
 
+func TestWSST354ShapeProofCollapsesAdjacentDuplicateRequestFrames(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-duplicate-adjacent.frames.jsonl")
+	original := wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 180)
+	mutated := wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 40)
+	writeJSONLFile(t, path,
+		wssT354TestFrame("client_to_server", original, false),
+		wssT354TestFrame("client_to_server", original, false),
+		wssT354TestFrame("client_to_server", mutated, true),
+		wssT354TestFrame("client_to_server", mutated, true),
+		wssT354TestFrame("server_to_client", wssT354TestOutputItemDone("item-mutated", "call_mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.Totals.RequestTurns != 3 ||
+		report.Totals.MutatedToolOutputCandidates != 1 ||
+		report.Totals.CandidatesPassing != 1 ||
+		report.Totals.CapturedLocalSavedTokens <= 0 {
+		t.Fatalf("adjacent duplicate C2S capture records should collapse to one logical mutated turn: %+v", report)
+	}
+}
+
 func TestWSST354ShapeProofBlocksMissingFollowingTurn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "t354-missing-follow.frames.jsonl")

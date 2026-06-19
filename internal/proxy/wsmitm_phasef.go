@@ -923,12 +923,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				a.p.recordCodexLayer0Stats(stats)
 				if stats.TokensSaved > 0 {
 					a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
+					searchCapStatefulFollowupSafe := wssSearchCapStatefulFollowupSafe(stats)
 					searchCapStatefulFollowupApplied := requestShape == "delta" &&
 						meta.PreviousResponseID != "" &&
 						(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
 							a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled) &&
 						searchCapProofed &&
-						stats.WSSSearchProofAllowed > 0 &&
+						searchCapStatefulFollowupSafe &&
 						(stats.CapturedOutputBlocks > 0 || stats.CodexExecEnvelopeBlocks > 0)
 					if searchCapStatefulFollowupApplied {
 						if meta.DebugFacts == nil {
@@ -941,6 +942,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 						if a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled {
 							meta.DebugFacts["wss.search_cap_stateful_followup_lab"] = "true"
 						}
+					} else if requestShape == "delta" && meta.PreviousResponseID != "" && stats.WSSSearchProofAllowed > 0 && !searchCapStatefulFollowupSafe {
+						if meta.DebugFacts == nil {
+							meta.DebugFacts = make(map[string]string)
+						}
+						meta.DebugFacts["wss.search_cap_stateful_followup_guard"] = "mixed_search_delta_proof"
 					}
 					if requestShape == "full_history" || (meta.PreviousResponseID != "" && !statefulDeltaMutationBlocked && !searchCapStatefulFollowupApplied) {
 						a.markWSSHistoryStatelessMode()
@@ -1403,6 +1409,12 @@ func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte, blockedByToolOutput 
 	// experimental non-product path; keep deterministic input reducers, but do
 	// not inject behavioral output directives into this websocket route.
 	return body, outputreduce.Stats{Profile: "wss_phasef", Reason: "codex_wss_directive_disabled", TaskShape: taskShape}
+}
+
+func wssSearchCapStatefulFollowupSafe(stats proxyLayer0Stats) bool {
+	return stats.WSSSearchProofAllowed > 0 &&
+		stats.WSSSearchProofBlocked == 0 &&
+		stats.WSSSearchRiskBlocks == stats.WSSSearchProofAllowed
 }
 
 func wssBodyContainsToolOutput(body []byte) bool {

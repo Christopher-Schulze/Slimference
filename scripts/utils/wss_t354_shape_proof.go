@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -312,7 +313,8 @@ func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofR
 		return wssT354ShapeProofRow{}, err
 	}
 	upstream := wssABReplayUpstreamDiagnostics(frames)
-	turns := wssT354TurnsFromFrames(frames)
+	turnFrames := wssT354CanonicalTurnFrames(frames)
+	turns := wssT354TurnsFromFrames(turnFrames)
 	row := wssT354ShapeProofRow{
 		Path:                   path,
 		SocketSeq:              socketSeq,
@@ -475,6 +477,33 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 		}
 	}
 	return turns
+}
+
+func wssT354CanonicalTurnFrames(frames []proxy.WSSABReplayFrame) []proxy.WSSABReplayFrame {
+	if len(frames) < 2 {
+		return frames
+	}
+	out := make([]proxy.WSSABReplayFrame, 0, len(frames))
+	for _, frame := range frames {
+		if len(out) > 0 && wssT354DuplicateAdjacentRequestFrame(out[len(out)-1], frame) {
+			continue
+		}
+		out = append(out, frame)
+	}
+	return out
+}
+
+func wssT354DuplicateAdjacentRequestFrame(previous, current proxy.WSSABReplayFrame) bool {
+	if previous.Direction != wsmitm.DirClientToServer ||
+		current.Direction != wsmitm.DirClientToServer ||
+		previous.Mutated != current.Mutated ||
+		previous.SocketSeq != current.SocketSeq ||
+		previous.Sequence != current.Sequence ||
+		!bytes.Equal(previous.Payload, current.Payload) {
+		return false
+	}
+	_, root, ok := wssT354RequestBody(current.Payload)
+	return ok && wssT354LooksLikeRequestBody(root)
 }
 
 func wssT354NextLogicalTurn(turns []wssT354Turn, index int) (wssT354Turn, bool) {
