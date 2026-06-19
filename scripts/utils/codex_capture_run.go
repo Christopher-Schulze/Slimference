@@ -52,6 +52,7 @@ type codexCaptureRunFlags struct {
 	restartAfterCompletion        int
 	restartAfterMutatedCompletion int
 	searchCapProofLab             bool
+	searchCapStatefulFollowupLab  bool
 	searchCapFiles                int
 	searchCapMatches              int
 	searchCapMinRetainedPct       float64
@@ -356,6 +357,13 @@ Flags:
                              files:matches candidate. This does not write a
                              config file and must not be used as product
                              promotion proof by itself.
+  --search-cap-stateful-followup-lab
+                             Lab/proof only: with --search-cap-proof-lab, keep
+                             the following previous_response_id continuation
+                             stateful instead of forcing the current safe
+                             stateless full-history rebuild. This is only for
+                             T354 400-rule proof and must never be used as
+                             product promotion proof by itself.
   --search-cap-min-retained-pct N
                              Minimum retained-match percentage passed to the
                              search-cap proof lab override (default: 40).
@@ -930,6 +938,8 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			flags.expectedZeroSavings = true
 		case arg == "--quiet-codex-output":
 			flags.quietCodexOutput = true
+		case arg == "--search-cap-stateful-followup-lab":
+			flags.searchCapStatefulFollowupLab = true
 		case arg == "--binary", arg == "--capture", arg == "--decisions-log", arg == "--host", arg == "--port", arg == "--transport",
 			arg == "--health-timeout", arg == "--codex-timeout", arg == "--matrix-row", arg == "--id",
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
@@ -1069,6 +1079,9 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	}
 	if flags.searchCapProofLab && (flags.searchCapFiles <= 0 || flags.searchCapMatches <= 0) {
 		return flags, fmt.Errorf("--search-cap-proof-lab requires positive files:matches")
+	}
+	if flags.searchCapStatefulFollowupLab && !flags.searchCapProofLab {
+		return flags, fmt.Errorf("--search-cap-stateful-followup-lab requires --search-cap-proof-lab")
 	}
 	flags.transport = strings.ToLower(strings.TrimSpace(flags.transport))
 	if !validCodexCaptureTransport(flags.transport) {
@@ -1482,7 +1495,8 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 		}
 		switch key {
 		case "SLIMFERENCE_WSS_AB_CAPTURE", "SLIMFERENCE_DEBUG_DECISIONS_LOG", "SLIMFERENCE_LISTEN_ADDRESS", "SLIMFERENCE_LISTEN_PORT", "SLIMFERENCE_DAEMON_STATE_DIR",
-			"SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "SLIMFERENCE_CODEX_SEARCH_CAP_FILES", "SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES", "SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT":
+			"SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "SLIMFERENCE_CODEX_SEARCH_CAP_FILES", "SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES", "SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT",
+			"SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB":
 			continue
 		default:
 			env = append(env, entry)
@@ -1504,6 +1518,9 @@ func codexCaptureDaemonEnv(base []string, flags codexCaptureRunFlags, stateDir s
 			"SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES="+strconv.Itoa(flags.searchCapMatches),
 			"SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT="+strconv.FormatFloat(flags.searchCapMinRetainedPct, 'f', -1, 64),
 		)
+	}
+	if flags.searchCapStatefulFollowupLab {
+		env = append(env, "SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB=1")
 	}
 	return env
 }

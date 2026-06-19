@@ -874,7 +874,26 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				a.p.recordCodexLayer0Stats(stats)
 				if stats.TokensSaved > 0 {
 					a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
-					if requestShape == "full_history" || (meta.PreviousResponseID != "" && !statefulDeltaMutationBlocked) {
+					searchCapStatefulFollowupApplied := requestShape == "delta" &&
+						meta.PreviousResponseID != "" &&
+						(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
+							a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled) &&
+						searchCapProofed &&
+						stats.WSSSearchProofAllowed > 0 &&
+						(stats.CapturedOutputBlocks > 0 || stats.CodexExecEnvelopeBlocks > 0)
+					if searchCapStatefulFollowupApplied {
+						if meta.DebugFacts == nil {
+							meta.DebugFacts = make(map[string]string)
+						}
+						meta.DebugFacts["wss.search_cap_stateful_followup"] = "true"
+						if a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled {
+							meta.DebugFacts["wss.search_cap_stateful_followup_proof"] = "true"
+						}
+						if a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled {
+							meta.DebugFacts["wss.search_cap_stateful_followup_lab"] = "true"
+						}
+					}
+					if requestShape == "full_history" || (meta.PreviousResponseID != "" && !statefulDeltaMutationBlocked && !searchCapStatefulFollowupApplied) {
 						a.markWSSHistoryStatelessMode()
 						if meta.DebugFacts == nil {
 							meta.DebugFacts = make(map[string]string)

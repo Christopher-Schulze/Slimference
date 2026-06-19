@@ -234,7 +234,9 @@ codex_search_cap_proof_path = %q
 	if or.CodexSearchCapProofPath != proofPath ||
 		or.CodexSearchCapMaxFiles != 25 ||
 		or.CodexSearchCapMaxMatchesPerFile != 15 ||
-		or.CodexSearchCapMinRetainedPct != 41.25 {
+		or.CodexSearchCapMinRetainedPct != 41.25 ||
+		!or.CodexSearchCapDeltaMutationEnabled ||
+		!or.CodexSearchCapStatefulFollowupEnabled {
 		t.Fatalf("search-cap proof was not promoted into runtime caps: %+v", or)
 	}
 }
@@ -273,7 +275,8 @@ codex_search_cap_proof_path = %q
 	}
 	if or.CodexSearchCapMaxFiles != 0 ||
 		or.CodexSearchCapMaxMatchesPerFile != 0 ||
-		or.CodexSearchCapDeltaMutationEnabled {
+		or.CodexSearchCapDeltaMutationEnabled ||
+		or.CodexSearchCapStatefulFollowupEnabled {
 		t.Fatalf("stale unversioned final proof must fail closed without promotion: %+v", or)
 	}
 }
@@ -312,7 +315,8 @@ codex_search_cap_proof_path = %q
 	}
 	if or.CodexSearchCapMaxFiles != 0 ||
 		or.CodexSearchCapMaxMatchesPerFile != 0 ||
-		or.CodexSearchCapDeltaMutationEnabled {
+		or.CodexSearchCapDeltaMutationEnabled ||
+		or.CodexSearchCapStatefulFollowupEnabled {
 		t.Fatalf("stale v1 final proof must fail closed without promotion: %+v", or)
 	}
 }
@@ -659,7 +663,9 @@ func TestApplyEnv_CodexSearchCapProofPath(t *testing.T) {
 	if or.CodexSearchCapProofPath != proofPath ||
 		or.CodexSearchCapMaxFiles != 30 ||
 		or.CodexSearchCapMaxMatchesPerFile != 15 ||
-		or.CodexSearchCapMinRetainedPct != 45 {
+		or.CodexSearchCapMinRetainedPct != 45 ||
+		!or.CodexSearchCapDeltaMutationEnabled ||
+		!or.CodexSearchCapStatefulFollowupEnabled {
 		t.Fatalf("env search-cap proof was not applied: %+v", or)
 	}
 }
@@ -669,6 +675,7 @@ func TestApplyEnv_CodexSearchCapProofLab(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
 	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB", "1")
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB", "1")
 	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_FILES", "20")
 	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES", "10")
 	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT", "40.5")
@@ -681,6 +688,7 @@ func TestApplyEnv_CodexSearchCapProofLab(t *testing.T) {
 	if or.CodexSearchCapProofPath != "" ||
 		!or.CodexSearchCapProofLabEnabled ||
 		!or.CodexSearchCapDeltaMutationEnabled ||
+		!or.CodexSearchCapStatefulFollowupLabEnabled ||
 		or.CodexSearchCapMaxFiles != 20 ||
 		or.CodexSearchCapMaxMatchesPerFile != 10 ||
 		or.CodexSearchCapMinRetainedPct != 40.5 {
@@ -697,6 +705,18 @@ func TestApplyEnv_CodexSearchCapProofLabRequiresPositiveCap(t *testing.T) {
 	_, _, err := LoadWithOptions(LoadOptions{AllowLegacyWarn: true})
 	if err == nil || !strings.Contains(err.Error(), "search-cap proof lab requires positive cap files/matches") {
 		t.Fatalf("err=%v, want positive cap rejection", err)
+	}
+}
+
+func TestApplyEnv_CodexSearchCapStatefulFollowupLabRequiresProofLab(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB", "1")
+
+	_, _, err := LoadWithOptions(LoadOptions{AllowLegacyWarn: true})
+	if err == nil || !strings.Contains(err.Error(), "search-cap stateful-followup lab requires search-cap proof lab") {
+		t.Fatalf("err=%v, want proof-lab requirement", err)
 	}
 }
 

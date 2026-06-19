@@ -328,11 +328,22 @@ type OutputReduceConfig struct {
 	// proof latch. It enables the narrow named-search WSS delta mutation path
 	// while the broad lab switch remains default-off.
 	CodexSearchCapDeltaMutationEnabled bool `toml:"-"`
+	// CodexSearchCapStatefulFollowupEnabled is resolved only from the final
+	// proof latch after that artifact proves positive downstream-state
+	// economics. It prevents the old safe-but-expensive stateless full-history
+	// follow-up rebuild for the exact proofed search-cap path.
+	CodexSearchCapStatefulFollowupEnabled bool `toml:"-"`
 	// CodexSearchCapProofLabEnabled is intentionally env-only:
 	// SLIMFERENCE_CODEX_SEARCH_CAP_PROOF_LAB=1. It exists only for scoped
 	// capture runs that must live-prove the exact named-search cap before a
 	// final release-proof artifact can promote it.
 	CodexSearchCapProofLabEnabled bool `toml:"-"`
+	// CodexSearchCapStatefulFollowupLabEnabled is intentionally env-only:
+	// SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB=1. It exists only for
+	// T354 live proofs that test whether metadata-consistent search-cap delta
+	// mutation can keep the normal previous_response_id continuation without a
+	// stateless full-history rebuild. It must never be persisted or promoted.
+	CodexSearchCapStatefulFollowupLabEnabled bool `toml:"-"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
 	// Codex tool outputs/file reads. This is the legacy explicit override;
 	// the auto policy can enable chunk dedup without setting this field.
@@ -845,6 +856,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = b
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled = b
+		}
+	}
 	if n, ok := envIntOK("SLIMFERENCE_CODEX_SEARCH_CAP_FILES"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.CodexSearchCapMaxFiles = n
 	}
@@ -999,6 +1015,7 @@ func applyCodexSearchCapProof(cfg *Config) error {
 	or.CodexSearchCapMaxMatchesPerFile = matches
 	or.CodexSearchCapMinRetainedPct = minRetainedPct
 	or.CodexSearchCapDeltaMutationEnabled = true
+	or.CodexSearchCapStatefulFollowupEnabled = true
 	return nil
 }
 
@@ -1253,6 +1270,9 @@ func validate(cfg *Config) error {
 	}
 	if or.CodexSearchCapProofLabEnabled && (or.CodexSearchCapMaxFiles <= 0 || or.CodexSearchCapMaxMatchesPerFile <= 0) {
 		return fmt.Errorf("compression.output_reduce search-cap proof lab requires positive cap files/matches, got %d/%d", or.CodexSearchCapMaxFiles, or.CodexSearchCapMaxMatchesPerFile)
+	}
+	if or.CodexSearchCapStatefulFollowupLabEnabled && !or.CodexSearchCapProofLabEnabled {
+		return fmt.Errorf("compression.output_reduce search-cap stateful-followup lab requires search-cap proof lab")
 	}
 	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
 		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)

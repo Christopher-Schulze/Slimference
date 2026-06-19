@@ -50,6 +50,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--restart-after-completion=2",
 		"--restart-after-mutated-completion=1",
 		"--search-cap-proof-lab=20:10",
+		"--search-cap-stateful-followup-lab",
 		"--search-cap-min-retained-pct", "40.5",
 		"--quiet-codex-output",
 		"--", "Run", "git status",
@@ -99,7 +100,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	if flags.restartAfterMutatedCompletion != 1 {
 		t.Fatalf("restartAfterMutatedCompletion = %d", flags.restartAfterMutatedCompletion)
 	}
-	if !flags.searchCapProofLab || flags.searchCapFiles != 20 || flags.searchCapMatches != 10 || flags.searchCapMinRetainedPct != 40.5 {
+	if !flags.searchCapProofLab || !flags.searchCapStatefulFollowupLab || flags.searchCapFiles != 20 || flags.searchCapMatches != 10 || flags.searchCapMinRetainedPct != 40.5 {
 		t.Fatalf("bad search cap proof lab flags: %+v", flags)
 	}
 	if !flags.quietCodexOutput {
@@ -148,16 +149,18 @@ func TestCodexCaptureDaemonEnvSetsCaptureAndListenRoute(t *testing.T) {
 		"SLIMFERENCE_CODEX_SEARCH_CAP_FILES=99",
 		"SLIMFERENCE_CODEX_SEARCH_CAP_MATCHES=99",
 		"SLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT=99",
+		"SLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB=1",
 		"OTHER=value",
 	}, codexCaptureRunFlags{
-		capturePath:             "/tmp/capture.jsonl",
-		decisionsPath:           "/tmp/decisions.jsonl",
-		host:                    "127.0.0.2",
-		port:                    "8991",
-		searchCapProofLab:       true,
-		searchCapFiles:          20,
-		searchCapMatches:        10,
-		searchCapMinRetainedPct: 40.5,
+		capturePath:                  "/tmp/capture.jsonl",
+		decisionsPath:                "/tmp/decisions.jsonl",
+		host:                         "127.0.0.2",
+		port:                         "8991",
+		searchCapProofLab:            true,
+		searchCapStatefulFollowupLab: true,
+		searchCapFiles:               20,
+		searchCapMatches:             10,
+		searchCapMinRetainedPct:      40.5,
 	}, stateDir)
 	joined := "\n" + strings.Join(env, "\n") + "\n"
 	for _, want := range []string{
@@ -172,6 +175,7 @@ func TestCodexCaptureDaemonEnvSetsCaptureAndListenRoute(t *testing.T) {
 		"\nSLIMFERENCE_CODEX_SEARCH_CAP_FILES=20\n",
 		"\nSLIMFERENCE_CODEX_SEARCH_CAP_MATCHES=10\n",
 		"\nSLIMFERENCE_CODEX_SEARCH_CAP_MIN_RETAINED_PCT=40.5\n",
+		"\nSLIMFERENCE_CODEX_SEARCH_CAP_STATEFUL_FOLLOWUP_LAB=1\n",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("env missing %q in %q", want, joined)
@@ -235,6 +239,11 @@ func TestParseCodexCaptureRunFlagsRejectsBadRoute(t *testing.T) {
 			name: "bad search cap retention",
 			args: []string{"--search-cap-min-retained-pct=101", "--", "prompt"},
 			want: "--search-cap-min-retained-pct must be a percentage between 0 and 100",
+		},
+		{
+			name: "stateful followup lab without search cap proof lab",
+			args: []string{"--search-cap-stateful-followup-lab", "--", "prompt"},
+			want: "--search-cap-stateful-followup-lab requires --search-cap-proof-lab",
 		},
 	}
 	for _, tt := range tests {

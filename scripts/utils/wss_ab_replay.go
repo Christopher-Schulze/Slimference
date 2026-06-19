@@ -375,6 +375,7 @@ func wssABReplayConfig(flags wssABReplayFlags) *config.Config {
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = toolOutputMutation
 	cfg.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled = flags.deltaToolOutputMutationLab
 	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = flags.searchCapProofLatch
+	cfg.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled = flags.searchCapProofLatch
 	if flags.codexChunkDedup {
 		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 		if flags.chunkDedupMinBytes >= 0 {
