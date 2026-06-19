@@ -406,6 +406,40 @@ codex_search_cap_proof_path = %q
 	}
 }
 
+func TestLoadWithOptions_CodexSearchCapProofRejectsNegativeDownstreamEconomics(t *testing.T) {
+	dir := t.TempDir()
+	proofPath := writeCodexSearchCapProofFixtureWithOptions(t, dir, codexSearchCapProofFixtureOptions{
+		files:                         25,
+		matches:                       15,
+		retention:                     41.25,
+		extraTokens:                   120,
+		routeOK:                       true,
+		resourceOK:                    true,
+		matrixPath:                    "clean-release-matrix.jsonl",
+		matrixFiles:                   1,
+		rows:                          12,
+		positiveRows:                  9,
+		clients:                       []string{"cli", "desktop"},
+		downstreamNetSavedTokens:      -1,
+		downstreamNetSavedTokensFixed: true,
+	})
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil {
+		t.Fatal("expected negative downstream-state economics to reject config")
+	}
+	if !strings.Contains(err.Error(), "final release search-cap downstream-state net saved tokens must be positive, got -1") {
+		t.Fatalf("rejection did not explain negative downstream economics: %v", err)
+	}
+}
+
 func TestLoadWithOptions_CodexSearchCapProofRejectsFocusedMatrixReport(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := filepath.Join(dir, "focused-search-cap-proof.json")
@@ -690,31 +724,33 @@ func writeCodexSearchCapProofFixtureWithRouteHygiene(t *testing.T, dir string, f
 }
 
 type codexSearchCapProofFixtureOptions struct {
-	files                   int
-	matches                 int
-	retention               float64
-	extraTokens             int
-	selectedCandidate       string
-	selectedExplicit        bool
-	routeOK                 bool
-	routeBefore             string
-	routeAfter              string
-	routeExplicit           bool
-	routeIssues             []string
-	resourceOK              bool
-	resourceIssues          []string
-	searchCapIssues         []string
-	reportGateFailures      []string
-	matrixPath              string
-	matrixFiles             int
-	rows                    int
-	positiveRows            int
-	clients                 []string
-	requiredReducerHits     map[string]int64
-	omitProofSchemaVersion  bool
-	downstreamStateProof    bool
-	downstreamStateExplicit bool
-	proofSchemaVersion      int
+	files                         int
+	matches                       int
+	retention                     float64
+	extraTokens                   int
+	selectedCandidate             string
+	selectedExplicit              bool
+	routeOK                       bool
+	routeBefore                   string
+	routeAfter                    string
+	routeExplicit                 bool
+	routeIssues                   []string
+	resourceOK                    bool
+	resourceIssues                []string
+	searchCapIssues               []string
+	reportGateFailures            []string
+	matrixPath                    string
+	matrixFiles                   int
+	rows                          int
+	positiveRows                  int
+	clients                       []string
+	requiredReducerHits           map[string]int64
+	omitProofSchemaVersion        bool
+	downstreamStateProof          bool
+	downstreamStateExplicit       bool
+	downstreamNetSavedTokens      int
+	downstreamNetSavedTokensFixed bool
+	proofSchemaVersion            int
 }
 
 func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts codexSearchCapProofFixtureOptions) string {
@@ -739,6 +775,10 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 	if !opts.downstreamStateExplicit {
 		downstreamStateProof = true
 	}
+	downstreamNetSavedTokens := opts.downstreamNetSavedTokens
+	if !opts.downstreamNetSavedTokensFixed {
+		downstreamNetSavedTokens = opts.extraTokens
+	}
 	path := filepath.Join(dir, "release-proof-report.json")
 	proofSchemaVersion := codexSearchCapRequiredProofSchemaVersion
 	if opts.proofSchemaVersion != 0 {
@@ -762,21 +802,22 @@ func writeCodexSearchCapProofFixtureWithOptions(t *testing.T, dir string, opts c
 		"gate_passed":                    true,
 		"gate_failures":                  opts.reportGateFailures,
 		"search_cap_proof": map[string]any{
-			"path":                             "focused-search-cap-proof.json",
-			"ok":                               true,
-			"issues":                           opts.searchCapIssues,
-			"captures":                         2,
-			"cli":                              1,
-			"desktop":                          1,
-			"positive_savings_captures":        2,
-			"selected_candidate":               selectedCandidate,
-			"max_files_shown":                  opts.files,
-			"max_matches_per_file":             opts.matches,
-			"total_extra_reducer_tokens":       opts.extraTokens,
-			"min_match_retention_pct":          opts.retention,
-			"delta_tool_output_mutation_proof": true,
-			"downstream_state_proof":           downstreamStateProof,
-			"required_reducer_hits":            requiredReducerHits,
+			"path":                              "focused-search-cap-proof.json",
+			"ok":                                true,
+			"issues":                            opts.searchCapIssues,
+			"captures":                          2,
+			"cli":                               1,
+			"desktop":                           1,
+			"positive_savings_captures":         2,
+			"selected_candidate":                selectedCandidate,
+			"max_files_shown":                   opts.files,
+			"max_matches_per_file":              opts.matches,
+			"total_extra_reducer_tokens":        opts.extraTokens,
+			"min_match_retention_pct":           opts.retention,
+			"delta_tool_output_mutation_proof":  true,
+			"downstream_state_proof":            downstreamStateProof,
+			"downstream_state_net_saved_tokens": downstreamNetSavedTokens,
+			"required_reducer_hits":             requiredReducerHits,
 		},
 		"codex_route_hygiene": map[string]any{
 			"before": routeBefore,

@@ -388,6 +388,97 @@ func TestRunSearchCapProofAcceptsCapturedOriginalShadowsAndFinalOpenCandidate(t 
 	}
 }
 
+func TestRunSearchCapProofRejectsNegativeDownstreamEconomics(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofNegativeDownstreamEconomicsFrames(t, path, "search-cap-proof-negative-economics", 96)
+
+	var stdout, stderr bytes.Buffer
+	code := runSearchCapProof([]string{
+		"--frames", path,
+		"--candidate", "20:10",
+		"--min-search-outputs", "1",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("negative downstream economics should fail search-cap proof code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report searchCapProofReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if report.GatePassed ||
+		report.DownstreamStateProof.NetCapturedLocalSavedTokens >= 0 ||
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "downstream_state_proof: net captured local saved tokens must be positive") {
+		t.Fatalf("negative downstream economics must fail promotion explicitly: %+v", report)
+	}
+}
+
+func writeSearchCapProofNegativeDownstreamEconomicsFrames(t *testing.T, path, session string, lines int) {
+	t.Helper()
+	callID := session + "-search-1"
+	original := map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": session + "-response",
+		"prompt_cache_key":     session,
+		"input": []map[string]any{
+			{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  wssABReplaySearchOutputFixture("needle", lines),
+			},
+		},
+		"stream": true,
+	}
+	mutated := map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": session + "-response",
+		"prompt_cache_key":     session,
+		"input": []map[string]any{
+			{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  wssABReplaySearchOutputFixture("needle", 16),
+			},
+		},
+		"stream": true,
+	}
+	followingFullHistory := map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": session,
+		"input": []map[string]any{
+			{
+				"type":    "message",
+				"role":    "assistant",
+				"content": "prior assistant context makes this request full-history",
+			},
+			{
+				"type":    "message",
+				"role":    "user",
+				"content": strings.Repeat("large unpaired full-history resend context\n", 1200),
+			},
+		},
+		"stream": true,
+	}
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": `{"cmd":"cd /repo/search && rg -n needle src"}`,
+			},
+		}),
+		wssT354TestFrame("client_to_server", original, false),
+		wssT354TestFrame("client_to_server", mutated, true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-mutated-response"), false),
+		wssT354TestFrame("client_to_server", followingFullHistory, false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted(session+"-following-response"), false),
+	)
+}
+
 func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session string, outputs, files, matchesPerFile int) {
 	t.Helper()
 	items := searchCapProofDistributedSearchItems(session, outputs, files, matchesPerFile)

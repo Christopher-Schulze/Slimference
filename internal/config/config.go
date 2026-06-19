@@ -939,21 +939,22 @@ type codexSearchCapReleaseProofReport struct {
 }
 
 type codexSearchCapProofReport struct {
-	Path                    string           `json:"path"`
-	OK                      bool             `json:"ok"`
-	Issues                  []string         `json:"issues"`
-	Captures                int              `json:"captures"`
-	CLI                     int              `json:"cli"`
-	Desktop                 int              `json:"desktop"`
-	PositiveSavings         int              `json:"positive_savings_captures"`
-	SelectedCandidate       string           `json:"selected_candidate"`
-	MaxFilesShown           int              `json:"max_files_shown"`
-	MaxMatchesPerFile       int              `json:"max_matches_per_file"`
-	TotalExtraReducerTokens int              `json:"total_extra_reducer_tokens"`
-	MinMatchRetentionPct    float64          `json:"min_match_retention_pct"`
-	DeltaToolOutputProof    bool             `json:"delta_tool_output_mutation_proof"`
-	DownstreamStateProof    bool             `json:"downstream_state_proof"`
-	RequiredReducerHits     map[string]int64 `json:"required_reducer_hits"`
+	Path                     string           `json:"path"`
+	OK                       bool             `json:"ok"`
+	Issues                   []string         `json:"issues"`
+	Captures                 int              `json:"captures"`
+	CLI                      int              `json:"cli"`
+	Desktop                  int              `json:"desktop"`
+	PositiveSavings          int              `json:"positive_savings_captures"`
+	SelectedCandidate        string           `json:"selected_candidate"`
+	MaxFilesShown            int              `json:"max_files_shown"`
+	MaxMatchesPerFile        int              `json:"max_matches_per_file"`
+	TotalExtraReducerTokens  int              `json:"total_extra_reducer_tokens"`
+	MinMatchRetentionPct     float64          `json:"min_match_retention_pct"`
+	DeltaToolOutputProof     bool             `json:"delta_tool_output_mutation_proof"`
+	DownstreamStateProof     bool             `json:"downstream_state_proof"`
+	DownstreamNetSavedTokens int              `json:"downstream_state_net_saved_tokens"`
+	RequiredReducerHits      map[string]int64 `json:"required_reducer_hits"`
 }
 
 type codexSearchCapRouteHygiene struct {
@@ -1112,6 +1113,9 @@ func validateCodexSearchCapProof(proof codexSearchCapReleaseProofReport) (int, i
 	}
 	if !searchProof.DownstreamStateProof {
 		issues = append(issues, "missing final release live mutated search-cap downstream-state proof")
+	}
+	if searchProof.DownstreamNetSavedTokens <= 0 {
+		issues = append(issues, fmt.Sprintf("final release search-cap downstream-state net saved tokens must be positive, got %+d", searchProof.DownstreamNetSavedTokens))
 	}
 	if searchProof.RequiredReducerHits["captured_output"] <= 0 {
 		issues = append(issues, "missing final release captured_output reducer proof for selected search cap")

@@ -240,6 +240,9 @@ func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, 
 	if !downstreamProof.GatePassed {
 		report.GateFailures = append(report.GateFailures, prefixedSearchCapProofFailures("downstream_state_proof", downstreamProof.GateFailures)...)
 	}
+	if downstreamProof.NetCapturedLocalSavedTokens <= 0 {
+		report.GateFailures = append(report.GateFailures, fmt.Sprintf("downstream_state_proof: net captured local saved tokens must be positive, got %+d", downstreamProof.NetCapturedLocalSavedTokens))
+	}
 	var selected *searchCapProofSelection
 	for _, row := range profile.Profiles[1:] {
 		candidate := searchCapProofCandidateRow{

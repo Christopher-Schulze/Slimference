@@ -199,6 +199,7 @@ func TestReleaseProofReportAcceptsFocusedSearchCapProofArtifact(t *testing.T) {
 		!report.SearchCapProof.DownstreamStateProof ||
 		report.SearchCapProof.DownstreamCandidates != 2 ||
 		report.SearchCapProof.DownstreamPassing != 2 ||
+		report.SearchCapProof.DownstreamNetSavedTokens != 14 ||
 		report.SearchCapProof.RequiredReducerHits["captured_output"] != 2 {
 		t.Fatalf("unexpected search-cap summary: %+v", report.SearchCapProof)
 	}
@@ -207,7 +208,7 @@ func TestReleaseProofReportAcceptsFocusedSearchCapProofArtifact(t *testing.T) {
 	writeReleaseProofReportText(&text, report)
 	if !strings.Contains(text.String(), "Search-cap proof: ok=true") ||
 		!strings.Contains(text.String(), "selected=candidate_25x15 25/15") ||
-		!strings.Contains(text.String(), "downstream=true downstream_candidates=2 passing=2") ||
+		!strings.Contains(text.String(), "downstream=true downstream_candidates=2 passing=2 downstream_net=14") ||
 		!strings.Contains(text.String(), "Codex route hygiene: ok=true") {
 		t.Fatalf("text report missing search-cap summary:\n%s", text.String())
 	}
@@ -409,6 +410,24 @@ func TestReleaseProofReportRejectsBadSearchCapProofArtifact(t *testing.T) {
 		!strings.Contains(joined, "search_cap_proof downstream_state_proof failed") ||
 		!strings.Contains(joined, "expected live downstream-state proof for every positive search-cap capture") {
 		t.Fatalf("missing downstream search-cap proof must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
+	}
+
+	negativeDownstreamPath := filepath.Join(dir, "search-cap-proof-negative-downstream.json")
+	writeReleaseSearchCapNegativeDownstreamProofReport(t, negativeDownstreamPath)
+	report, err = loadReleaseProofReport(releaseProofReportFlags{
+		matrixPath:               matrixPath,
+		resourceProfileProofs:    []string{writeReleaseResourceProofBundle(t, dir, "cli"), writeReleaseResourceProofBundle(t, dir, "desktop")},
+		searchCapProofReportPath: negativeDownstreamPath,
+		codexStatusBeforePath:    codexBefore,
+		codexStatusAfterPath:     codexAfter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(report.GateFailures, "\n")
+	if report.GatePassed || report.SearchCapProof == nil || report.SearchCapProof.OK ||
+		!strings.Contains(joined, "desktop-search-cap: search_cap_proof downstream_state_proof net saved tokens must be positive, got -1") {
+		t.Fatalf("negative downstream economics must fail: passed=%v proof=%+v failures=%v", report.GatePassed, report.SearchCapProof, report.GateFailures)
 	}
 
 	badJSONPath := filepath.Join(dir, "not-json.json")
@@ -1022,6 +1041,33 @@ func writeReleaseSearchCapMissingDownstreamProofReport(t *testing.T, path string
 	desktop.SearchCapProof.DownstreamStateProof = searchCapDownstreamStateProof{
 		GateFailures: []string{"no live mutated search-output downstream candidate observed"},
 	}
+	report := wssProofMatrixReport{
+		Path:            "focused-search-cap.jsonl",
+		Captures:        2,
+		CLI:             1,
+		Desktop:         1,
+		PositiveSavings: 2,
+		WorkloadClasses: map[string]int{"search_loop": 2},
+		RequiredReducerHits: map[string]int64{
+			"captured_output": 2,
+		},
+		GatePassed:     true,
+		CaptureReports: []wssProofMatrixCapture{cli, desktop},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeReleaseSearchCapNegativeDownstreamProofReport(t *testing.T, path string) {
+	t.Helper()
+	cli := releaseSearchCapCapture("cli-search-cap", "cli", "candidate_25x15", 7, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.25)
+	desktop := releaseSearchCapCapture("desktop-search-cap", "desktop", "candidate_25x15", 8, releaseSearchCapMinRetainedPct, releaseSearchCapMinSearchOutputs, releaseSearchCapMinExtraReducerTokens, 41.5)
+	desktop.SearchCapProof.DownstreamStateProof.NetCapturedLocalSavedTokens = -1
 	report := wssProofMatrixReport{
 		Path:            "focused-search-cap.jsonl",
 		Captures:        2,
