@@ -58,6 +58,10 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "prettier", "mypy",
+		"vitest", "jest", "mocha", "ava", "karma", "playwright", "cypress",
+		"wdio", "nx", "turbo", "deno", "phpunit", "ctest", "ginkgo",
+		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
+		"gradle", "sbt", "mill",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -236,6 +240,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return commandOutputFirstPythonTestAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
+			commandOutputFirstDirectTestAllowed(command, args) ||
 			commandOutputFirstDirectLintAllowed(command, args) ||
 			commandOutputFirstDirectFormatAllowed(command, args)
 	}
@@ -247,6 +252,40 @@ func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 		return !commandOutputFirstArgsContain(args, "-n", "--just-print", "--dry-run")
 	case "cmake":
 		return len(args) > 0 && args[0] == "--build"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstDirectTestAllowed(command string, args []string) bool {
+	switch command {
+	case "vitest", "jest", "mocha", "ava", "phpunit", "ctest", "ginkgo", "rspec":
+		return true
+	case "karma":
+		return commandOutputFirstFirstNonOption(args) == "start"
+	case "playwright":
+		return commandOutputFirstFirstNonOption(args) == "test"
+	case "cypress", "wdio":
+		return commandOutputFirstFirstNonOption(args) == "run"
+	case "nx":
+		return commandOutputFirstFirstNonOption(args) == "test"
+	case "turbo":
+		return commandOutputFirstTurboTestAllowed(args)
+	case "deno", "dart", "flutter", "hatch":
+		return commandOutputFirstFirstNonOption(args) == "test"
+	case "nox":
+		return commandOutputFirstNoxTestAllowed(args)
+	case "tox":
+		return commandOutputFirstToxTestAllowed(args)
+	case "rake":
+		sub := commandOutputFirstFirstNonOption(args)
+		return sub == "test" || sub == "spec"
+	case "rails":
+		return commandOutputFirstFirstNonOption(args) == "test"
+	case "gradle", "sbt":
+		return commandOutputFirstArgsContain(args, "test")
+	case "mill":
+		return commandOutputFirstMillTestAllowed(args)
 	default:
 		return false
 	}
@@ -283,6 +322,7 @@ func commandOutputFirstNpxAllowed(args []string) bool {
 		return false
 	}
 	return commandOutputFirstDirectBuildAllowed(tool, toolArgs) ||
+		commandOutputFirstDirectTestAllowed(tool, toolArgs) ||
 		commandOutputFirstDirectLintAllowed(tool, toolArgs) ||
 		commandOutputFirstDirectFormatAllowed(tool, toolArgs)
 }
@@ -336,6 +376,92 @@ func commandOutputFirstArgsContain(args []string, wants ...string) bool {
 			if arg == want {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func commandOutputFirstFirstNonOption(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return ""
+		}
+		if arg == "--" {
+			if i+1 < len(args) {
+				return strings.TrimSpace(args[i+1])
+			}
+			return ""
+		}
+		if commandOutputFirstGenericOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return ""
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func commandOutputFirstGenericOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-c", "--config", "-C", "--cwd", "--project", "-p", "--project-name",
+		"--grep", "-g", "--filter", "--browser", "--reporter":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstTurboTestAllowed(args []string) bool {
+	first := commandOutputFirstFirstNonOption(args)
+	if first == "test" {
+		return true
+	}
+	if first != "run" {
+		return false
+	}
+	return commandOutputFirstArgsContain(args, "test")
+}
+
+func commandOutputFirstNoxTestAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch {
+		case arg == "-s" || arg == "--session":
+			return i+1 < len(args) && strings.TrimSpace(args[i+1]) == "test"
+		case strings.HasPrefix(arg, "--session="):
+			return strings.TrimPrefix(arg, "--session=") == "test"
+		}
+	}
+	return false
+}
+
+func commandOutputFirstToxTestAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch {
+		case arg == "-e" || arg == "--env":
+			return i+1 < len(args) && strings.TrimSpace(args[i+1]) == "test"
+		case strings.HasPrefix(arg, "-e="):
+			return strings.TrimPrefix(arg, "-e=") == "test"
+		case strings.HasPrefix(arg, "--env="):
+			return strings.TrimPrefix(arg, "--env=") == "test"
+		}
+	}
+	return false
+}
+
+func commandOutputFirstMillTestAllowed(args []string) bool {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "test" || strings.HasSuffix(arg, ".test") {
+			return true
 		}
 	}
 	return false
@@ -423,6 +549,10 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 		if !ok {
 			return nil, false
 		}
+		if commandOutputFirstDirectTestAllowed(tool, toolArgs) {
+			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstDirectBuildAllowed(tool, toolArgs) {
 			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
@@ -454,6 +584,10 @@ func compactCommandOutputFirst(command, realBin string, args []string, stdout, s
 		compacted, ok := filter.TryCompactTestOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
+		if commandOutputFirstDirectTestAllowed(command, args) {
+			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstDirectBuildAllowed(command, args) {
 			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)

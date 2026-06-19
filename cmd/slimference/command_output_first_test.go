@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -204,6 +205,23 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "pnpm", args: []string{"run", "typecheck"}},
 		{command: "yarn", args: []string{"run", "format:check"}},
 		{command: "bun", args: []string{"run", "build"}},
+		{command: "vitest", args: []string{"run"}},
+		{command: "jest", args: []string{"--runInBand"}},
+		{command: "mocha", args: []string{"test/**/*.spec.js"}},
+		{command: "playwright", args: []string{"test"}},
+		{command: "cypress", args: []string{"run", "--headless"}},
+		{command: "wdio", args: []string{"run", "wdio.conf.ts"}},
+		{command: "nx", args: []string{"test", "web"}},
+		{command: "turbo", args: []string{"run", "test"}},
+		{command: "deno", args: []string{"test", "--allow-all"}},
+		{command: "npx", args: []string{"-y", "vitest", "run"}},
+		{command: "nox", args: []string{"-s", "test"}},
+		{command: "tox", args: []string{"-e", "test"}},
+		{command: "rake", args: []string{"spec"}},
+		{command: "rails", args: []string{"test"}},
+		{command: "gradle", args: []string{"test"}},
+		{command: "sbt", args: []string{"test"}},
+		{command: "mill", args: []string{"foo.test"}},
 	} {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v should be captured", tc.command, tc.args)
@@ -237,6 +255,18 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "ruff", args: []string{"format", "."}},
 		{command: "npm", args: []string{"run", "dev"}},
 		{command: "yarn", args: []string{"run", "format"}},
+		{command: "playwright", args: []string{"codegen"}},
+		{command: "cypress", args: []string{"open"}},
+		{command: "nx", args: []string{"build", "web"}},
+		{command: "turbo", args: []string{"run", "build"}},
+		{command: "deno", args: []string{"run", "script.ts"}},
+		{command: "nox", args: []string{"-s", "lint"}},
+		{command: "tox", args: []string{"-e", "lint"}},
+		{command: "rake", args: []string{"db:migrate"}},
+		{command: "rails", args: []string{"server"}},
+		{command: "gradle", args: []string{"assemble"}},
+		{command: "sbt", args: []string{"compile"}},
+		{command: "mill", args: []string{"foo.compile"}},
 	} {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
@@ -575,6 +605,70 @@ func TestCommandOutputFirstShimNpxNextBuildCompactsWithAccounting(t *testing.T) 
 	}
 }
 
+func TestCommandOutputFirstShimDirectVitestCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realVitest := writeFakeCommand(t, "vitest", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstJSTestFixture(36)+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=vitest", "--real-bin=" + realVitest, "--", "run"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[vitest] ok - 36 passed") || strings.Contains(got, "renders op 035") {
+		t.Fatalf("unexpected compacted vitest stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:vitest] vitest run") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimNpxVitestCompacts(t *testing.T) {
+	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstJSTestFixture(24)+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npx", "--real-bin=" + realNpx, "--", "-y", "vitest", "run"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "[vitest] ok - 24 passed") || strings.Contains(got, "renders op 023") {
+		t.Fatalf("unexpected compacted npx vitest stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimDirectTestRunnerNonzeroFullPasses(t *testing.T) {
+	realJest := writeFakeCommand(t, "jest", `#!/bin/sh
+printf 'FAIL src/app.test.ts\nTests: 1 failed, 1 total\n'
+printf 'runner diagnostic\n' >&2
+exit 1
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=jest", "--real-bin=" + realJest, "--", "--runInBand"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if got := stdout.String(); got != "FAIL src/app.test.ts\nTests: 1 failed, 1 total\n" {
+		t.Fatalf("stdout=%q", got)
+	}
+	if got := stderr.String(); got != "runner diagnostic\n" {
+		t.Fatalf("stderr=%q", got)
+	}
+}
+
 func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
 	var build strings.Builder
 	build.WriteString("make[1]: Entering directory '/repo/build'\n")
@@ -594,6 +688,26 @@ func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
 	if got := stdout.String(); got != "[make] ok\n" {
 		t.Fatalf("unexpected make compacted stdout=%q", got)
 	}
+}
+
+func commandOutputFirstJSTestFixture(count int) string {
+	var out strings.Builder
+	out.WriteString("PASS src/app.test.ts\n")
+	for i := 0; i < count; i++ {
+		out.WriteString("  \u2713 renders op ")
+		out.WriteString(strings.Repeat("x", 3))
+		out.WriteString(" (2 ms)\n")
+	}
+	out.WriteString("\nTests: ")
+	for _, ch := range strconv.Itoa(count) {
+		out.WriteRune(ch)
+	}
+	out.WriteString(" passed, ")
+	for _, ch := range strconv.Itoa(count) {
+		out.WriteRune(ch)
+	}
+	out.WriteString(" total\nTime: 1.2 s\n")
+	return out.String()
 }
 
 func TestCommandOutputFirstNpxToolEdges(t *testing.T) {
@@ -1245,6 +1359,78 @@ func TestCommandOutputFirstPythonTestEdges(t *testing.T) {
 	}
 	if got := commandOutputFirstPythonModule([]string{"-u", "-m", "pytest"}); got != "pytest" {
 		t.Fatalf("python module=%q", got)
+	}
+}
+
+func TestCommandOutputFirstDirectTestEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "karma", args: []string{"--config", "karma.conf.js", "start"}},
+		{command: "playwright", args: []string{"--config", "playwright.config.ts", "test"}},
+		{command: "cypress", args: []string{"--config", "video=false", "run"}},
+		{command: "wdio", args: []string{"--config", "wdio.conf.ts", "run"}},
+		{command: "turbo", args: []string{"test"}},
+		{command: "turbo", args: []string{"run", "test", "--filter", "web"}},
+		{command: "nox", args: []string{"--session=test"}},
+		{command: "tox", args: []string{"--env=test"}},
+		{command: "tox", args: []string{"-e=test"}},
+		{command: "mill", args: []string{"test"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstDirectTestAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v should be allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "karma", args: []string{"--config"}},
+		{command: "playwright", args: []string{"--project", "", "test"}},
+		{command: "cypress", args: []string{"--", "open"}},
+		{command: "wdio", args: []string{"config"}},
+		{command: "turbo", args: []string{"run", "--filter", "web", "build"}},
+		{command: "turbo", args: []string{"prune"}},
+		{command: "nox", args: []string{"--session"}},
+		{command: "nox", args: []string{"--session=lint"}},
+		{command: "tox", args: []string{"--env"}},
+		{command: "tox", args: []string{"--env=lint"}},
+		{command: "mill", args: []string{""}},
+		{command: "mill", args: []string{"foo.compile"}},
+		{command: "unknown", args: []string{"test"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstDirectTestAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be allowed", tc.command, tc.args)
+		}
+	}
+
+	if got := commandOutputFirstFirstNonOption([]string{"--config", "cfg", "--", "test"}); got != "test" {
+		t.Fatalf("first non-option=%q", got)
+	}
+	if got := commandOutputFirstFirstNonOption(nil); got != "" {
+		t.Fatalf("empty args first command=%q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{""}); got != "" {
+		t.Fatalf("blank arg first command=%q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{"--"}); got != "" {
+		t.Fatalf("bare separator first command=%q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{"--", "test"}); got != "test" {
+		t.Fatalf("separator first command=%q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{"--config"}); got != "" {
+		t.Fatalf("missing option value should return empty first command, got %q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{"--config", "", "test"}); got != "" {
+		t.Fatalf("blank option value should return empty first command, got %q", got)
+	}
+	if got := commandOutputFirstFirstNonOption([]string{"--verbose", "test"}); got != "test" {
+		t.Fatalf("flag before test first command=%q", got)
 	}
 }
 
