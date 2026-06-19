@@ -38,6 +38,7 @@ type wsPhaseFAdapter struct {
 	p *Proxy
 
 	mu                                sync.Mutex
+	bridgeClientFamily                string
 	handshakeUserAgent                string
 	messages                          []types.Message
 	repdetIndex                       *repdet.Index
@@ -320,22 +321,49 @@ func (a *wsPhaseFAdapter) setHandshakeUserAgent(userAgent string) {
 	}
 }
 
+func (a *wsPhaseFAdapter) setBridgeClientFamily(clientFamily string) {
+	if a != nil {
+		a.bridgeClientFamily = normalizeCodexClientFamily(clientFamily)
+	}
+}
+
 func (a *wsPhaseFAdapter) setSocketSeq(seq uint64) {
 	if a != nil && seq > 0 {
 		a.socketSeq.Store(seq)
 	}
 }
 
-func (a *wsPhaseFAdapter) applyHandshakeClientFamilyFallback(meta *wssRequestMeta) {
+func (a *wsPhaseFAdapter) bridgeClientFamilyFallback() (string, string) {
+	if a == nil {
+		return "", ""
+	}
+	if family := normalizeCodexClientFamily(a.bridgeClientFamily); family != "" {
+		return family, "bridge_client_family"
+	}
+	if family := normalizeCodexClientFamily(a.handshakeUserAgent); family != "" {
+		return family, "upgrade_user_agent"
+	}
+	return "", ""
+}
+
+func (a *wsPhaseFAdapter) summaryClientFamily() string {
+	family, _ := a.bridgeClientFamilyFallback()
+	if family != "" {
+		return family
+	}
+	return "codex"
+}
+
+func (a *wsPhaseFAdapter) applyBridgeClientFamilyFallback(meta *wssRequestMeta) {
 	if a == nil || meta == nil || meta.ClientFamily != "codex" {
 		return
 	}
-	if family := normalizeCodexClientFamily(a.handshakeUserAgent); family != "" {
+	if family, source := a.bridgeClientFamilyFallback(); family != "" {
 		meta.ClientFamily = family
 		if meta.DebugFacts == nil {
 			meta.DebugFacts = make(map[string]string)
 		}
-		meta.DebugFacts["wss.client_family_source"] = "upgrade_user_agent"
+		meta.DebugFacts["wss.client_family_source"] = source
 	}
 }
 
@@ -545,7 +573,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
-		a.applyHandshakeClientFamilyFallback(&meta)
+		a.applyBridgeClientFamilyFallback(&meta)
 		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
 		if statelessHistoryContinuation {
@@ -4413,7 +4441,7 @@ func (a *wsPhaseFAdapter) recordWSSUpstreamError(env *wsmitm.Envelope) bool {
 		Source:       "proxy",
 		Provider:     types.CodexChatGPT.String(),
 		Path:         "/backend-api/codex/responses",
-		ClientFamily: "codex",
+		ClientFamily: a.summaryClientFamily(),
 		RouteMode:    "websocket_phasef",
 		BypassReason: "upstream_error",
 		Errors:       []string{errSummary},

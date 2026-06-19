@@ -1532,6 +1532,7 @@ func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setBridgeClientFamily("codex_cli")
 	adapter.mu.Lock()
 	adapter.sessionID = "codex-wss:error-session"
 	adapter.mu.Unlock()
@@ -1560,6 +1561,9 @@ func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
 	if summary.SessionID != "codex-wss:error-session" || summary.RouteMode != "websocket_phasef" || summary.BypassReason != "upstream_error" {
 		t.Fatalf("bad upstream-error summary identity: %+v", summary)
 	}
+	if summary.ClientFamily != "codex_cli" {
+		t.Fatalf("upstream-error client family=%q, want codex_cli", summary.ClientFamily)
+	}
 	if len(summary.Errors) != 1 ||
 		!strings.Contains(summary.Errors[0], "status=400") ||
 		!strings.Contains(summary.Errors[0], "type=invalid_request_error") ||
@@ -1576,6 +1580,7 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setBridgeClientFamily("codex_desktop_app")
 
 	var retryPayloads [][]byte
 	adapter.setRecoveryWriter(func(payload []byte) error {
@@ -1681,6 +1686,9 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 		summaries[0].DebugFacts["wss.recovery.current_input_items"] != "1" {
 		t.Fatalf("bad recovery facts: %+v", summaries[0].DebugFacts)
 	}
+	if summaries[0].ClientFamily != "codex_desktop_app" {
+		t.Fatalf("recovery retry client family=%q, want codex_desktop_app", summaries[0].ClientFamily)
+	}
 	recoveryID := summaries[0].DebugFacts["wss.recovery.id"]
 	if recoveryID == "" || summaries[0].DebugFacts["wss.recovery.phase"] != "retry_sent" {
 		t.Fatalf("retry summary should carry recovery id and phase: %+v", summaries[0].DebugFacts)
@@ -1706,6 +1714,9 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" {
 		t.Fatalf("bad accepted facts: %+v", summaries[0].DebugFacts)
 	}
+	if summaries[0].ClientFamily != "codex_desktop_app" {
+		t.Fatalf("recovery accepted client family=%q, want codex_desktop_app", summaries[0].ClientFamily)
+	}
 
 	secondDone := parseWSJSON(t, map[string]any{
 		"type":     string(wsmitm.FrameKindResponseCompleted),
@@ -1724,6 +1735,9 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 		summaries[0].DebugFacts["wss.recovery.response_id"] != "resp-recovery-2" ||
 		summaries[0].DebugFacts["wss.recovery.stateless_history_continuation"] != "true" {
 		t.Fatalf("bad recovery success facts: %+v", summaries[0].DebugFacts)
+	}
+	if summaries[0].ClientFamily != "codex_desktop_app" {
+		t.Fatalf("recovery success client family=%q, want codex_desktop_app", summaries[0].ClientFamily)
 	}
 	if !adapter.wssHistoryStatelessMode() {
 		t.Fatal("successful recovery must switch following continuations to stateless history")
@@ -7530,6 +7544,25 @@ func TestWSPhaseFHandshakeUserAgentFillsGenericClientFamily(t *testing.T) {
 	}
 	if meta.DebugFacts["wss.client_family_source"] != "upgrade_user_agent" {
 		t.Fatalf("missing handshake client-family source fact: %+v", meta.DebugFacts)
+	}
+}
+
+func TestWSPhaseFBridgeClientFamilyFillsGenericClientFamily(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setBridgeClientFamily("codex_desktop_app")
+	adapter.setHandshakeUserAgent("codex_cli_rs/0.141.0")
+
+	body := []byte(`{"model":"gpt-5.5","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-bridge\"}"},"input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`)
+	_, _, _, _, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if meta.ClientFamily != "codex_desktop_app" {
+		t.Fatalf("client family from bridge = %q, want codex_desktop_app", meta.ClientFamily)
+	}
+	if meta.DebugFacts["wss.client_family_source"] != "bridge_client_family" {
+		t.Fatalf("missing bridge client-family source fact: %+v", meta.DebugFacts)
 	}
 }
 

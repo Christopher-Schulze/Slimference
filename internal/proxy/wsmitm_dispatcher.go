@@ -327,7 +327,8 @@ func (d *PhaseFDispatcher) routeInitialHTTP(ctx context.Context, initial snirout
 			return err
 		}
 		opts := WebSocketBridgeOptions{
-			UserAgent: parsed.userAgent,
+			UserAgent:    parsed.userAgent,
+			ClientFamily: normalizeCodexClientFamily(parsed.userAgent),
 			Extensions: wscompact.NegotiatePermessageDeflate(
 				strings.Join(rawHTTPHeaderValues(header, "Sec-WebSocket-Extensions"), ", "),
 				strings.Join(rawHTTPHeaderValues(respHeader, "Sec-WebSocket-Extensions"), ", "),
@@ -417,6 +418,7 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 		_ = upstream.SetDeadline(dl)
 	}
 	adapter := d.newWSPhaseFAdapter()
+	adapter.setBridgeClientFamily(opts.ClientFamily)
 	adapter.setHandshakeUserAgent(opts.UserAgent)
 	upstream = newLockedWriteConn(upstream)
 	adapter.setRecoveryWriter(func(payload []byte) error {

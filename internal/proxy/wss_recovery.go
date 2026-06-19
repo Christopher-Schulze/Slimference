@@ -28,6 +28,7 @@ type wssRecoveryCandidate struct {
 	SessionID          string
 	PreviousResponseID string
 	Model              string
+	ClientFamily       string
 	RetryPayload       []byte
 	RetryBody          []byte
 	ChainItems         int
@@ -222,6 +223,7 @@ func wssRecoveryCandidateFromBody(env *wsmitm.Envelope, body []byte, meta wssReq
 		SessionID:          meta.SessionID,
 		PreviousResponseID: meta.PreviousResponseID,
 		Model:              meta.Model,
+		ClientFamily:       firstNonEmpty(meta.ClientFamily, "codex"),
 		RetryPayload:       payload,
 		RetryBody:          retryBody,
 		ChainItems:         chainItems,
@@ -685,7 +687,7 @@ func (a *wsPhaseFAdapter) recordWSSRecoveryEvent(reason string, candidate *wssRe
 		Source:       "proxy",
 		Provider:     types.CodexChatGPT.String(),
 		Path:         "/backend-api/codex/responses",
-		ClientFamily: "codex",
+		ClientFamily: firstNonEmpty(candidate.ClientFamily, a.summaryClientFamily(), "codex"),
 		RouteMode:    "websocket_phasef",
 		BypassReason: reason,
 		Model:        candidate.Model,

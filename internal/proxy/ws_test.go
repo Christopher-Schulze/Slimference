@@ -758,6 +758,7 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 	phaseFCalled := make(chan struct{}, 1)
 	byteBridgeSeen := make(chan string, 1)
 	byteBridgeUA := make(chan string, 1)
+	byteBridgeClientFamily := make(chan string, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
 		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
@@ -770,6 +771,7 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 				return err
 			}
 			byteBridgeUA <- opts.UserAgent
+			byteBridgeClientFamily <- opts.ClientFamily
 			byteBridgeSeen <- string(buf)
 			return nil
 		},
@@ -813,6 +815,14 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 		t.Fatal("byte bridge did not receive user agent")
 	}
 	select {
+	case got := <-byteBridgeClientFamily:
+		if got != "codex_cli" {
+			t.Fatalf("byte bridge client family=%q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("byte bridge did not receive client family")
+	}
+	select {
 	case <-phaseFCalled:
 		t.Fatal("phase-f bridge must not run for raw bridge path")
 	default:
@@ -838,6 +848,7 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 	}()
 	phaseFCalled := make(chan struct{}, 1)
 	byteBridgeUA := make(chan string, 1)
+	byteBridgeClientFamily := make(chan string, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
 		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
@@ -846,6 +857,7 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 		},
 		ByteBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
 			byteBridgeUA <- opts.UserAgent
+			byteBridgeClientFamily <- opts.ClientFamily
 			return nil
 		},
 	}
@@ -877,6 +889,14 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("byte bridge did not run")
+	}
+	select {
+	case got := <-byteBridgeClientFamily:
+		if got != "codex_desktop_app" {
+			t.Fatalf("byte bridge client family=%q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("byte bridge did not receive client family")
 	}
 	select {
 	case <-phaseFCalled:

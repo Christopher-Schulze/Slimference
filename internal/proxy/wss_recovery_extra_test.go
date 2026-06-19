@@ -71,6 +71,7 @@ func TestWSSRecoveryCandidateFromBodyToolPruneMetadataAndFailures(t *testing.T) 
 		SessionID:          "codex-wss:tool-prune-candidate",
 		PreviousResponseID: "resp_old",
 		Model:              "gpt-5.5",
+		ClientFamily:       "codex_cli",
 		ToolPrune: dbg.ToolPruneSummary{
 			Applied:     true,
 			PrunedTools: 2,
@@ -87,6 +88,9 @@ func TestWSSRecoveryCandidateFromBodyToolPruneMetadataAndFailures(t *testing.T) 
 	}
 	if !candidate.ToolPruneApplied || candidate.ToolPrunePruned != 2 || candidate.ToolPruneSaved != 123 {
 		t.Fatalf("tool-prune metadata missing: %+v", candidate)
+	}
+	if candidate.ClientFamily != "codex_cli" {
+		t.Fatalf("candidate client family=%q, want codex_cli", candidate.ClientFamily)
 	}
 	if candidate.ChainItems != 1 || candidate.CurrentInputItems != 1 || candidate.OriginalBytes != len(body) || candidate.RetryBytes != len(candidate.RetryBody) {
 		t.Fatalf("candidate sizing mismatch: %+v", candidate)

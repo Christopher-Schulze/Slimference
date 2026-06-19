@@ -28,8 +28,9 @@ type WebSocketFrameBridge func(ctx context.Context, client, upstream net.Conn, o
 // WebSocketBridgeOptions carries handshake metadata into the post-101
 // frame bridge.
 type WebSocketBridgeOptions struct {
-	Extensions wscompact.WSExtensionProfile
-	UserAgent  string
+	Extensions   wscompact.WSExtensionProfile
+	UserAgent    string
+	ClientFamily string
 }
 
 // WebSocketTunnel handles `Upgrade: websocket` requests intercepted
@@ -161,8 +162,10 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
+		userAgent := r.UserAgent()
 		opts := WebSocketBridgeOptions{
-			UserAgent: r.UserAgent(),
+			UserAgent:    userAgent,
+			ClientFamily: normalizeCodexClientFamily(userAgent),
 			Extensions: wscompact.NegotiatePermessageDeflate(
 				strings.Join(r.Header.Values("Sec-WebSocket-Extensions"), ", "),
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
@@ -234,8 +237,10 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
+		userAgent := strings.Join(rawHTTPHeaderValues(rawHeader, "User-Agent"), ", ")
 		opts := WebSocketBridgeOptions{
-			UserAgent: strings.Join(rawHTTPHeaderValues(rawHeader, "User-Agent"), ", "),
+			UserAgent:    userAgent,
+			ClientFamily: normalizeCodexClientFamily(userAgent),
 			Extensions: wscompact.NegotiatePermessageDeflate(
 				strings.Join(rawHTTPHeaderValues(rawHeader, "Sec-WebSocket-Extensions"), ", "),
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
