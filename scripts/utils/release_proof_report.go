@@ -103,9 +103,9 @@ type releaseCodexStatusSnapshot struct {
 
 const (
 	releaseProofReportSchemaVersion       = 1
-	releaseSearchCapMinRetainedPct        = 40.0
-	releaseSearchCapMinSearchOutputs      = 2
-	releaseSearchCapMinExtraReducerTokens = 1
+	releaseSearchCapMinRetainedPct        = searchCapReleaseMinRetainedPct
+	releaseSearchCapMinSearchOutputs      = searchCapReleaseMinSearchOutputs
+	releaseSearchCapMinExtraReducerTokens = searchCapReleaseMinExtraReducerTokens
 )
 
 const releaseProofReportHelpText = `release-proof-report: produce a content-free release proof summary

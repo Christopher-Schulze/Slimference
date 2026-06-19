@@ -84,15 +84,15 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var framesPath string
 	var candidates searchCapProfileCandidateFlags
-	var minCandidateRetainedPct float64
-	var minSearchOutputs int
-	var minExtraReducerTokens int
+	minCandidateRetainedPct := searchCapReleaseMinRetainedPct
+	minSearchOutputs := searchCapReleaseMinSearchOutputs
+	minExtraReducerTokens := searchCapReleaseMinExtraReducerTokens
 	var jsonOut bool
 	fs.StringVar(&framesPath, "frames", "", "Path to WSS frame capture JSONL")
-	fs.Var(&candidates, "candidate", "Candidate cap as files:matches; repeatable")
-	fs.Float64Var(&minCandidateRetainedPct, "min-candidate-retained-pct", 0, "Reject candidates below this match-retention percentage")
-	fs.IntVar(&minSearchOutputs, "min-search-outputs", 0, "Reject captures with fewer resolved search outputs")
-	fs.IntVar(&minExtraReducerTokens, "min-extra-reducer-tokens", 1, "Reject candidates with fewer extra reducer tokens than this")
+	fs.Var(&candidates, "candidate", "Candidate cap as files:matches; repeatable; defaults to release ladder 30:15,25:15,20:10")
+	fs.Float64Var(&minCandidateRetainedPct, "min-candidate-retained-pct", searchCapReleaseMinRetainedPct, "Reject candidates below this match-retention percentage")
+	fs.IntVar(&minSearchOutputs, "min-search-outputs", searchCapReleaseMinSearchOutputs, "Reject captures with fewer resolved search outputs")
+	fs.IntVar(&minExtraReducerTokens, "min-extra-reducer-tokens", searchCapReleaseMinExtraReducerTokens, "Reject candidates with fewer extra reducer tokens than this")
 	fs.BoolVar(&jsonOut, "json", false, "Output JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -113,8 +113,8 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--min-extra-reducer-tokens must be >= 0")
 		return 2
 	}
-	if fs.NArg() != 0 || strings.TrimSpace(framesPath) == "" || len(candidates) == 0 {
-		fmt.Fprintln(stderr, "Usage: search-cap-proof --frames <frames.jsonl> --candidate <files:matches> [--candidate <files:matches>...] [--json]")
+	if fs.NArg() != 0 || strings.TrimSpace(framesPath) == "" {
+		fmt.Fprintln(stderr, "Usage: search-cap-proof --frames <frames.jsonl> [--candidate <files:matches>...] [--json]")
 		return 2
 	}
 	report, err := loadSearchCapProofReport(searchCapProofFlags{
@@ -148,6 +148,9 @@ func runSearchCapProof(args []string, stdout, stderr io.Writer) int {
 }
 
 func loadSearchCapProofReport(flags searchCapProofFlags) (searchCapProofReport, error) {
+	if len(flags.candidates) == 0 {
+		flags.candidates = searchCapReleaseCandidates(flags.minCandidateRetainedPct)
+	}
 	profile, err := loadSearchCapProfileReport(searchCapProfileFlags{
 		framesPath:              flags.framesPath,
 		candidates:              flags.candidates,

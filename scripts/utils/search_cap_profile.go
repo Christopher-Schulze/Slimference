@@ -63,6 +63,22 @@ type searchCapProfileCandidate struct {
 	Options filter.SearchCompactOptions
 }
 
+const (
+	searchCapReleaseMinRetainedPct        = 40.0
+	searchCapReleaseMinSearchOutputs      = 2
+	searchCapReleaseMinExtraReducerTokens = 1
+)
+
+var searchCapReleaseCandidateSpecs = []struct {
+	name    string
+	files   int
+	matches int
+}{
+	{name: "candidate_30x15", files: 30, matches: 15},
+	{name: "candidate_25x15", files: 25, matches: 15},
+	{name: "candidate_20x10", files: 20, matches: 10},
+}
+
 type searchCapProfileCandidateFlags []searchCapProfileCandidate
 
 func (f *searchCapProfileCandidateFlags) String() string {
@@ -506,6 +522,9 @@ func searchCapProfileCandidates(flags searchCapProfileFlags) []searchCapProfileC
 		}
 		return out
 	}
+	if minRetention > 0 {
+		return searchCapReleaseCandidates(minRetention)
+	}
 	return []searchCapProfileCandidate{{
 		Name: "aggressive",
 		Options: filter.SearchCompactOptions{
@@ -514,6 +533,21 @@ func searchCapProfileCandidates(flags searchCapProfileFlags) []searchCapProfileC
 			MinRetainedPct:    minRetention,
 		},
 	}}
+}
+
+func searchCapReleaseCandidates(minRetention float64) []searchCapProfileCandidate {
+	out := make([]searchCapProfileCandidate, 0, len(searchCapReleaseCandidateSpecs))
+	for _, spec := range searchCapReleaseCandidateSpecs {
+		out = append(out, searchCapProfileCandidate{
+			Name: spec.name,
+			Options: filter.SearchCompactOptions{
+				MaxFilesShown:     spec.files,
+				MaxMatchesPerFile: spec.matches,
+				MinRetainedPct:    minRetention,
+			},
+		})
+	}
+	return out
 }
 
 func searchCapProfileDefaultOptions(flags searchCapProfileFlags) filter.SearchCompactOptions {

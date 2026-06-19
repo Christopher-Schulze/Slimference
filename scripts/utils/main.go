@@ -25,7 +25,7 @@
 //	go run ./scripts/utils wss-savings-baseline <frames.jsonl-or-dir> [--json]
 //	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
 //	go run ./scripts/utils search-cap-profile (--command CMD --input stdout.txt | --frames frames.jsonl) [--candidate files:matches...] [--json]
-//	go run ./scripts/utils search-cap-proof --frames frames.jsonl --candidate files:matches... [--json]
+//	go run ./scripts/utils search-cap-proof --frames frames.jsonl [--candidate files:matches...] [--json]
 //	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
 //	go run ./scripts/utils local-artifact-hygiene [--json|--clean]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]

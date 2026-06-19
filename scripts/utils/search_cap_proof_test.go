@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 		"--candidate", "8:6",
 		"--candidate", "4:4",
 		"--min-candidate-retained-pct", "40",
+		"--min-search-outputs", "1",
 		"--json",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -67,6 +69,7 @@ func TestRunSearchCapProofSelectsReplaySafeCandidate(t *testing.T) {
 		"--frames=" + path,
 		"--candidate=4:4",
 		"--min-candidate-retained-pct=40",
+		"--min-search-outputs=1",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("runSearchCapProof text code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
@@ -176,6 +179,7 @@ func TestRunSearchCapProofRejectsWeakCaptureAndWeakSavings(t *testing.T) {
 	code = runSearchCapProof([]string{
 		"--frames", path,
 		"--candidate", "8:6",
+		"--min-search-outputs", "1",
 		"--min-extra-reducer-tokens", "999999",
 		"--json",
 	}, &stdout, &stderr)
@@ -216,6 +220,103 @@ func writeSearchCapProofFullHistoryFrames(t *testing.T, path, session string, li
 	}))
 }
 
+func TestRunSearchCapProofDefaultsUseReleaseCandidateSetAndFloors(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeSearchCapProofDistributedSearchFrames(t, path, "search-cap-proof-defaults", 2, 50, 2)
+
+	var stdout, stderr bytes.Buffer
+	code := runSearchCapProof([]string{
+		"--frames", path,
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runSearchCapProof default candidates code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report searchCapProofReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if !report.GatePassed || report.SelectedCandidate == nil {
+		t.Fatalf("expected release-default proof candidate: %+v", report)
+	}
+	if report.MinCandidateRetainedPct != searchCapReleaseMinRetainedPct ||
+		report.MinSearchOutputs != searchCapReleaseMinSearchOutputs ||
+		report.MinExtraReducerTokens != searchCapReleaseMinExtraReducerTokens {
+		t.Fatalf("release floors not reflected in report: %+v", report)
+	}
+	wantNames := []string{"candidate_30x15", "candidate_25x15", "candidate_20x10"}
+	if len(report.Candidates) != len(wantNames) {
+		t.Fatalf("candidate count=%d want %d: %+v", len(report.Candidates), len(wantNames), report.Candidates)
+	}
+	passing := 0
+	for i, name := range wantNames {
+		candidate := report.Candidates[i]
+		if candidate.Name != name || candidate.MinRetainedPct != searchCapReleaseMinRetainedPct {
+			t.Fatalf("candidate[%d]=%+v want name=%s min=%.2f", i, candidate, name, searchCapReleaseMinRetainedPct)
+		}
+		if !candidate.GatePassed {
+			continue
+		}
+		passing++
+		if candidate.Replay == nil ||
+			!candidate.Replay.SearchCapProofLatch ||
+			candidate.Replay.ToolOutputMutation ||
+			candidate.Replay.DeltaToolOutputMutation ||
+			candidate.ExtraReducerTokens <= 0 {
+			t.Fatalf("passing release-default candidate must prove safe positive search-cap latch: %+v", candidate)
+		}
+	}
+	if passing == 0 {
+		t.Fatalf("expected at least one positive release-default candidate: %+v", report.Candidates)
+	}
+	if report.SelectedCandidate.Name != "candidate_20x10" {
+		t.Fatalf("expected most saving release candidate selected, got %+v", report.SelectedCandidate)
+	}
+	if strings.Contains(stdout.String(), "needle match") {
+		t.Fatalf("proof report must stay content-free, got raw match text:\n%s", stdout.String())
+	}
+}
+
+func writeSearchCapProofDistributedSearchFrames(t *testing.T, path, session string, outputs, files, matchesPerFile int) {
+	t.Helper()
+	items := make([]map[string]any, 0, outputs*2)
+	for outputIndex := 0; outputIndex < outputs; outputIndex++ {
+		callID := fmt.Sprintf("%s-search-%d", session, outputIndex+1)
+		items = append(items,
+			map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": fmt.Sprintf("cd /repo/search && rg -n needle src/pkg%d", outputIndex+1)},
+			},
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  searchCapProofDistributedSearchOutput("needle", files, matchesPerFile),
+			},
+		)
+	}
+	writeJSONLFile(t, path, wssABReplayTestRecord("client_to_server", map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": session + "-response",
+		"prompt_cache_key":     session,
+		"input":                items,
+		"stream":               true,
+	}))
+}
+
+func searchCapProofDistributedSearchOutput(needle string, files, matchesPerFile int) string {
+	var out strings.Builder
+	for fileIndex := 0; fileIndex < files; fileIndex++ {
+		for matchIndex := 0; matchIndex < matchesPerFile; matchIndex++ {
+			fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", fileIndex, matchIndex+10, needle)
+		}
+	}
+	return out.String()
+}
+
 func writeSearchCapProofBroadDeltaFrames(t *testing.T, path, session string, lines int) {
 	t.Helper()
 	callID := session + "-search-1"
@@ -238,10 +339,10 @@ func writeSearchCapProofBroadDeltaFrames(t *testing.T, path, session string, lin
 	)
 }
 
-func TestRunSearchCapProofRejectsMissingCandidate(t *testing.T) {
+func TestRunSearchCapProofRejectsBadArgs(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	for _, args := range [][]string{
-		{"--frames", "frames.jsonl"},
+		{"--frames", "frames.jsonl", "--candidate", "bad"},
 		{"--frames", "frames.jsonl", "--candidate", "8:6", "--min-candidate-retained-pct", "-0.1"},
 		{"--frames", "frames.jsonl", "--candidate", "8:6", "--min-search-outputs", "-1"},
 		{"--frames", "frames.jsonl", "--candidate", "8:6", "--min-extra-reducer-tokens", "-1"},
