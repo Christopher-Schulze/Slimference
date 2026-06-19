@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,12 +29,16 @@ import (
 // original: the most optimistic S_local achievable if every tool output were
 // compacted to zero. When that ceiling is below the owner target the report
 // emits corpus-ceiling evidence; otherwise it reports un-captured headroom so
-// the next move is a guard/shape investigation, not a structural claim.
+// the next move is a guard/shape investigation, not a structural claim. Frame
+// mode reuses the report shape for observed paired request savings only and
+// does not claim a full ceiling without decision-log facts.
 
 type wssClassDistributionFlags struct {
 	path            string
+	framesPath      string
 	outputFormat    string
 	since           time.Time
+	socketSeq       uint64
 	minLocalRatio   float64
 	requireHeadroom bool
 	help            bool
@@ -41,6 +46,7 @@ type wssClassDistributionFlags struct {
 
 type wssClassDistributionReport struct {
 	Path                            string                         `json:"path"`
+	Source                          string                         `json:"source,omitempty"`
 	TargetRatio                     float64                        `json:"target_ratio"`
 	Logs                            int                            `json:"logs"`
 	PhaseFRequests                  int                            `json:"phasef_requests"`
@@ -259,12 +265,16 @@ const wssClassDistributionHelpText = `wss-class-distribution: decompose WSS Phas
 
 Usage:
   go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [flags]
+  go run ./scripts/utils wss-class-distribution --frames <frames.jsonl> [flags]
 
 Flags:
+	--frames=<path>            Read a WSS frame capture instead of decision logs
+	--socket-seq=<n>           In --frames mode, analyze only one WSS socket_seq
 	--since=<rfc3339>          Ignore records before this timestamp
 	--since-file=<path>        Read RFC3339 --since value from file
 	--min-local-ratio=<ratio>  Owner S_local target for the verdict, default 0.48
-	--require-headroom         Exit 1 unless verdict=headroom_present
+	--require-headroom         Exit 1 unless decision mode has headroom or
+	                           frame mode observes target-level S_local
 	--json                     Output JSON
 
 Directory mode scans recursively for decisions.jsonl and *.decisions.jsonl, the
@@ -282,7 +292,12 @@ default-keep and unnamed schemas stay excluded from the candidate estimate.
 reducible_ceiling_ratio is the most optimistic S_local achievable if every tool
 output were compacted to zero; when it is below the target the report records
 corpus-ceiling evidence, otherwise it reports un-captured reducible headroom.
-Provider-cache tokens are reported separately and never counted as S_local.`
+Provider-cache tokens are reported separately and never counted as S_local.
+
+Frame mode reports observed paired original-vs-mutated request savings by
+class from a replay capture. It is intentionally conservative: without
+decision-log prefix/tool-output facts it does not claim a full reducible
+ceiling for unmutated residual output.`
 
 func runWSSClassDistribution(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSClassDistributionFlags(args)
@@ -294,8 +309,8 @@ func runWSSClassDistribution(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, wssClassDistributionHelpText)
 		return 0
 	}
-	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-class-distribution <dir-or-decisions.jsonl> [--json]")
+	if flags.path == "" && flags.framesPath == "" {
+		fmt.Fprintln(stderr, "Usage: wss-class-distribution (<dir-or-decisions.jsonl> | --frames <frames.jsonl>) [--json]")
 		return 2
 	}
 	report, err := loadWSSClassDistribution(flags)
@@ -331,6 +346,30 @@ func parseWSSClassDistributionFlags(args []string) (wssClassDistributionFlags, e
 			flags.outputFormat = outputJSON
 		case arg == "--require-headroom":
 			flags.requireHeadroom = true
+		case arg == "--frames":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			flags.framesPath = value
+		case strings.HasPrefix(arg, "--frames="):
+			flags.framesPath = strings.TrimPrefix(arg, "--frames=")
+		case arg == "--socket-seq":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			seq, err := parseSocketSeqFlag("--socket-seq", value)
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = seq
+		case strings.HasPrefix(arg, "--socket-seq="):
+			seq, err := parseSocketSeqFlag("--socket-seq", strings.TrimPrefix(arg, "--socket-seq="))
+			if err != nil {
+				return flags, err
+			}
+			flags.socketSeq = seq
 		case arg == "--since":
 			value, err := aggregateFlagValue(args, &i, arg)
 			if err != nil {
@@ -388,6 +427,15 @@ func parseWSSClassDistributionFlags(args []string) (wssClassDistributionFlags, e
 			flags.path = arg
 		}
 	}
+	if flags.path != "" && flags.framesPath != "" {
+		return flags, fmt.Errorf("provide either a decision-log path or --frames, not both")
+	}
+	if flags.socketSeq > 0 && flags.framesPath == "" {
+		return flags, fmt.Errorf("--socket-seq requires --frames")
+	}
+	if flags.framesPath != "" && !flags.since.IsZero() {
+		return flags, fmt.Errorf("--since is only supported for decision-log mode")
+	}
 	return flags, nil
 }
 
@@ -398,6 +446,9 @@ type wssClassDistributionAccumulator struct {
 }
 
 func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistributionReport, error) {
+	if flags.framesPath != "" {
+		return loadWSSClassDistributionFrames(flags)
+	}
 	paths, err := wssLocalGapInventoryPaths(flags.path)
 	if err != nil {
 		return wssClassDistributionReport{}, err
@@ -412,6 +463,7 @@ func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistribu
 	acc := wssClassDistributionAccumulator{
 		report: wssClassDistributionReport{
 			Path:        flags.path,
+			Source:      "decisions",
 			TargetRatio: targetRatio,
 		},
 		rows:     make(map[string]*wssClassDistributionClassRow),
@@ -442,6 +494,48 @@ func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistribu
 			acc.report.PerLog = append(acc.report.PerLog, logRow)
 			acc.report.Logs++
 		}
+	}
+	acc.finalize(targetRatio)
+	return acc.report, nil
+}
+
+func loadWSSClassDistributionFrames(flags wssClassDistributionFlags) (wssClassDistributionReport, error) {
+	frames, err := readWSSABReplayFrames(flags.framesPath)
+	if err != nil {
+		return wssClassDistributionReport{}, err
+	}
+	frames = filterWSSABReplayFramesBySocketSeq(frames, flags.socketSeq)
+	if len(frames) == 0 {
+		if flags.socketSeq > 0 {
+			return wssClassDistributionReport{}, fmt.Errorf("no replay frames for socket_seq=%d in %s", flags.socketSeq, flags.framesPath)
+		}
+		return wssClassDistributionReport{}, fmt.Errorf("replay %s contained no frames", flags.framesPath)
+	}
+	targetRatio := flags.minLocalRatio
+	if targetRatio == 0 {
+		targetRatio = 0.48
+	}
+	acc := wssClassDistributionAccumulator{
+		report: wssClassDistributionReport{
+			Path:        flags.framesPath,
+			Source:      "frames",
+			TargetRatio: targetRatio,
+		},
+		rows:     make(map[string]*wssClassDistributionClassRow),
+		t354Rows: make(map[string]*wssClassDistributionT354Row),
+	}
+	logRow := wssClassDistributionLogRow{Name: filepath.Base(flags.framesPath), Path: flags.framesPath}
+	turns := wssT354TurnsFromFrames(wssT354CanonicalTurnFrames(frames))
+	for _, turn := range turns {
+		if turn.capturedOriginalShadow {
+			continue
+		}
+		acc.addFrameTurn(turn, &logRow)
+	}
+	if logRow.PhaseFRequests > 0 {
+		finalizeWSSClassDistributionLogRow(&logRow)
+		acc.report.PerLog = append(acc.report.PerLog, logRow)
+		acc.report.Logs = 1
 	}
 	acc.finalize(targetRatio)
 	return acc.report, nil
@@ -498,6 +592,103 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	logRow.addPrefixSurface(prefixSurface)
 	logRow.addToolPruneSurface(toolPruneSurface)
 	logRow.ReducibleToolOutputTokens += reducibleTokens
+}
+
+func (a *wssClassDistributionAccumulator) addFrameTurn(turn wssT354Turn, logRow *wssClassDistributionLogRow) {
+	original := maxInt(0, turn.requestTokensEstimate)
+	if turn.capturedOriginalRequestTokens > 0 {
+		original = turn.capturedOriginalRequestTokens
+	}
+	saved := maxInt(0, turn.capturedLocalSavedTokens)
+	if saved > original {
+		saved = original
+	}
+	reducibleTokens := saved
+	otherTokens := maxInt(0, original-reducibleTokens)
+
+	a.report.PhaseFRequests++
+	a.report.RequestsWithoutFacts++
+	a.report.OriginalTokens += original
+	a.report.LocalSavedTokens += saved
+	a.report.ReducibleToolOutputTokens += reducibleTokens
+	a.report.OtherContextTokens += otherTokens
+
+	class := wssClassDistributionClassForShape(turn.shape)
+	row := a.classRow(class)
+	row.Requests++
+	row.OriginalTokens += original
+	row.LocalSavedTokens += saved
+	row.ReducibleToolOutputTokens += reducibleTokens
+	row.OtherContextTokens += otherTokens
+	addWSSAuditCount(&row.ShapeSources, "frames")
+	a.addFrameT354Shape(turn, original, saved, reducibleTokens)
+
+	logRow.PhaseFRequests++
+	logRow.OriginalTokens += original
+	logRow.LocalSavedTokens += saved
+	logRow.ReducibleToolOutputTokens += reducibleTokens
+}
+
+func (a *wssClassDistributionAccumulator) addFrameT354Shape(turn wssT354Turn, original, saved, reducibleTokens int) {
+	if a == nil {
+		return
+	}
+	shape := strings.TrimSpace(turn.shape)
+	if shape == "" {
+		shape = "unknown"
+	}
+	prev := "absent"
+	if turn.previousResponseID {
+		prev = "present"
+	}
+	socketSeq := "(missing)"
+	if turn.socketSeq > 0 {
+		socketSeq = wssClassDistributionSocketSeqBucket(strconv.FormatUint(turn.socketSeq, 10))
+	}
+	toolResolution := "none"
+	if turn.toolOutputs > 0 {
+		toolResolution = "captured_frame"
+	}
+	continuation := wssClassDistributionContinuationMode(shape, nil)
+	guard := "none"
+	key := strings.Join([]string{
+		shape,
+		"frames",
+		prev,
+		socketSeq,
+		toolResolution,
+		continuation,
+		guard,
+	}, "\x00")
+	row := a.t354Rows[key]
+	if row == nil {
+		row = &wssClassDistributionT354Row{
+			RequestShape:         shape,
+			ShapeSource:          "frames",
+			PreviousResponseID:   prev,
+			SocketSeq:            socketSeq,
+			ToolOutputResolution: toolResolution,
+			ContinuationMode:     continuation,
+			GuardReason:          guard,
+		}
+		a.t354Rows[key] = row
+	}
+	row.Requests++
+	row.OriginalTokens += original
+	row.LocalSavedTokens += saved
+	row.ReducibleToolOutputTokens += reducibleTokens
+	if turn.errorFrames > 0 || turn.http400Errors > 0 || turn.invalidRequests > 0 || turn.responseFailures > 0 {
+		row.ErrorRequests++
+	}
+	if turn.errorFrames > 0 || turn.responseFailures > 0 {
+		row.UpstreamErrorRequests++
+	}
+	if turn.http400Errors > 0 {
+		row.HTTP400ErrorRequests++
+	}
+	if saved > 0 {
+		row.AppliedRequests++
+	}
 }
 
 func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution, original, saved, reducibleTokens int, prefixSurface wssClassDistributionPrefixSurface) {
@@ -1071,6 +1262,24 @@ func wssClassDistributionVerdict(report wssClassDistributionReport, targetRatio 
 	if report.OriginalTokens == 0 {
 		return "no_data", "No WSS Phase-F mass found; cannot evaluate the S_local ceiling."
 	}
+	if report.Source == "frames" {
+		if report.LocalSavingsRatio+wssClassDistributionEpsilon >= targetRatio {
+			return "target_met_observed", fmt.Sprintf(
+				"Frame capture proves observed paired request mutations saved %.2f%% S_local (%d/%d tokens), meeting the %.2f%% target. This is observed capture economics, not provider-cache credit.",
+				report.LocalSavingsRatio*100,
+				report.LocalSavedTokens,
+				report.OriginalTokens,
+				targetRatio*100,
+			)
+		}
+		return "frame_observed_below_target", fmt.Sprintf(
+			"Frame capture observed %.2f%% paired-mutation S_local (%d/%d tokens), below the %.2f%% target. Frame mode cannot reconstruct unmutated residual tool-output ceiling or prefix split; use decision-log mode or a richer live capture to decide whether this is workload physics or a guard blocker.",
+			report.LocalSavingsRatio*100,
+			report.LocalSavedTokens,
+			report.OriginalTokens,
+			targetRatio*100,
+		)
+	}
 	if report.ReducibleCeilingRatio+wssClassDistributionEpsilon < targetRatio {
 		return "corpus_ceiling_evidence", fmt.Sprintf(
 			"Realistic max S_local for this corpus (every reducible tool output compacted to zero) is %.2f%%, below the %.2f%% target. Protected prefix is %.2f%% and other context (messages plus Class-D reasoning) is %.2f%%; even the absolute non-prefix upper bound (if messages and reasoning were also reducible, which they are not) is only %.2f%%. Reaching the target on this corpus would require reducing prefix, message, or reasoning mass, which the zero-drawdown policy forbids. Treat this as corpus/session-class ceiling evidence unless a fresh long capture shows materially higher Class-B (full_history) mass.",
@@ -1091,11 +1300,18 @@ func wssClassDistributionVerdict(report wssClassDistributionReport, targetRatio 
 }
 
 func wssClassDistributionHeadroomPresent(report wssClassDistributionReport, targetRatio float64) bool {
+	if report.Source == "frames" {
+		return report.OriginalTokens > 0 && report.LocalSavingsRatio+wssClassDistributionEpsilon >= targetRatio
+	}
 	return report.OriginalTokens > 0 && report.ReducibleCeilingRatio+wssClassDistributionEpsilon >= targetRatio
 }
 
 func wssClassDistributionNextAction(report wssClassDistributionReport) string {
 	switch report.Verdict {
+	case "target_met_observed":
+		return "preserve current guards, expand capture breadth, and keep provider-cache separate from S_local"
+	case "frame_observed_below_target":
+		return "rank classes from this frame capture, then gather decision-log facts or patch the largest exact zero-drawdown blocker only if richer data shows reducible headroom"
 	case "headroom_present":
 		return "run wss-local-gap-inventory on the same capture and patch only the largest exact zero-drawdown blocker"
 	case "corpus_ceiling_evidence":
@@ -1113,7 +1329,11 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 		notes = append(notes, "No WSS Phase-F rows found; cannot evaluate S_local class distribution for the product WSS path.")
 		return notes
 	}
-	notes = append(notes, "reducible_ceiling_ratio is optimistic: it assumes every tool output is safely compactable. Real guards (first reads, source output, delta/full-history safety) reduce it further, so actual S_local cannot exceed it.")
+	if report.Source == "frames" {
+		notes = append(notes, "Frame-capture mode reports observed paired original-vs-mutated request savings by class. It deliberately does not invent a full reducible ceiling for unmutated residual tool output or prefix mass without decision-log facts.")
+	} else {
+		notes = append(notes, "reducible_ceiling_ratio is optimistic: it assumes every tool output is safely compactable. Real guards (first reads, source output, delta/full-history safety) reduce it further, so actual S_local cannot exceed it.")
+	}
 	if report.ProviderCacheReadTokens > 0 || report.ProviderCachedTokens > 0 {
 		notes = append(notes, "Provider-cache tokens are present but excluded from S_local by AGENTS.md 3.2.")
 	}
@@ -1179,7 +1399,11 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 		))
 	}
 	if report.RequestsWithoutFacts > 0 {
-		notes = append(notes, fmt.Sprintf("%d of %d Phase-F rows lack content-free prefix/shape facts (stale pre-instrumentation captures); their reducible split defaults to other-context and understates nothing but cannot confirm prefix mass.", report.RequestsWithoutFacts, report.PhaseFRequests))
+		if report.Source == "frames" {
+			notes = append(notes, fmt.Sprintf("%d of %d Phase-F rows came from frames without decision-log prefix/tool-output facts; prefix mass and residual unmutated output stay unclaimed instead of being guessed.", report.RequestsWithoutFacts, report.PhaseFRequests))
+		} else {
+			notes = append(notes, fmt.Sprintf("%d of %d Phase-F rows lack content-free prefix/shape facts (stale pre-instrumentation captures); their reducible split defaults to other-context and understates nothing but cannot confirm prefix mass.", report.RequestsWithoutFacts, report.PhaseFRequests))
+		}
 	}
 	if report.Verdict == "corpus_ceiling_evidence" {
 		notes = append(notes, "Corpus-ceiling evidence: do not widen guards to chase the target on this corpus; the binding next step is a fresh long real-session capture to confirm the Class-B mass share, T354/L9 proof work, or an owner decision on the S_local target physics.")
@@ -1200,6 +1424,9 @@ func wssClassDistributionFindClass(rows []wssClassDistributionClassRow, class st
 
 func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionReport) {
 	fmt.Fprintf(w, "=== WSS Class Distribution: %s ===\n", report.Path)
+	if report.Source != "" {
+		fmt.Fprintf(w, "Source:                    %s\n", report.Source)
+	}
 	fmt.Fprintf(w, "Logs / Phase-F requests:   %d / %d\n", report.Logs, report.PhaseFRequests)
 	fmt.Fprintf(w, "S_local saved/ratio:       %d/%d / %.2f%%\n", report.LocalSavedTokens, report.OriginalTokens, report.LocalSavingsRatio*100)
 	fmt.Fprintln(w, "Token composition (estimated):")
@@ -1251,10 +1478,17 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if report.PrefixMutationSavedTokens > 0 {
 		fmt.Fprintf(w, "  (prefix-mutation lab savings excluded from reducible: %d tokens)\n", report.PrefixMutationSavedTokens)
 	}
-	fmt.Fprintf(w, "Reducible ceiling ratio:   %.2f%%  (realistic max S_local if every reducible tool-output -> 0)\n", report.ReducibleCeilingRatio*100)
-	fmt.Fprintf(w, "Non-prefix upper bound:    %.2f%%  (absolute ceiling if even msgs/reasoning were reducible)\n", report.NonPrefixRatio*100)
-	fmt.Fprintf(w, "Reducible ceiling deficit: %d  (target %.2f%% minus reducible mass)\n", report.ReducibleCeilingDeficit, report.TargetRatio*100)
-	fmt.Fprintf(w, "Reducible headroom:        %d  (reducible minus already-saved)\n", report.ReducibleHeadroomTokens)
+	if report.Source == "frames" {
+		fmt.Fprintf(w, "Observed paired-mutation ratio: %.2f%%  (captured original-vs-mutated request savings only)\n", report.LocalSavingsRatio*100)
+		fmt.Fprintf(w, "Frame residual ceiling:     unavailable without decision-log prefix/tool-output facts\n")
+		fmt.Fprintf(w, "Observed target deficit:    %d  (target %.2f%% minus observed paired savings)\n", report.ReducibleCeilingDeficit, report.TargetRatio*100)
+		fmt.Fprintf(w, "Observed saved headroom:    %d  (always zero in conservative frame mode)\n", report.ReducibleHeadroomTokens)
+	} else {
+		fmt.Fprintf(w, "Reducible ceiling ratio:   %.2f%%  (realistic max S_local if every reducible tool-output -> 0)\n", report.ReducibleCeilingRatio*100)
+		fmt.Fprintf(w, "Non-prefix upper bound:    %.2f%%  (absolute ceiling if even msgs/reasoning were reducible)\n", report.NonPrefixRatio*100)
+		fmt.Fprintf(w, "Reducible ceiling deficit: %d  (target %.2f%% minus reducible mass)\n", report.ReducibleCeilingDeficit, report.TargetRatio*100)
+		fmt.Fprintf(w, "Reducible headroom:        %d  (reducible minus already-saved)\n", report.ReducibleHeadroomTokens)
+	}
 	fmt.Fprintf(w, "Provider cache read/cached: %d / %d  [separate, not S_local]\n", report.ProviderCacheReadTokens, report.ProviderCachedTokens)
 	fmt.Fprintf(w, "Reasoning items (Class D):  %d\n", report.ReasoningItems)
 	fmt.Fprintf(w, "\nVerdict: %s\n  %s\n", report.Verdict, report.VerdictDetail)

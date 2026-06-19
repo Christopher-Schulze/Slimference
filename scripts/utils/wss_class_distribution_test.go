@@ -382,6 +382,90 @@ func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
 	}
 }
 
+func TestWSSClassDistributionFrameCaptureMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	withSocketSeq := func(rec map[string]any, seq uint64) map[string]any {
+		rec["socket_seq"] = seq
+		return rec
+	}
+	writeJSONLFile(t, path,
+		withSocketSeq(wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_delta", 180), false, 41), 2),
+		withSocketSeq(wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_delta", 40), true, 41), 2),
+		withSocketSeq(wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false), 2),
+		withSocketSeq(wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_full", 500), false, 42), 2),
+		withSocketSeq(wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-full"), false), 2),
+		withSocketSeq(wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-other", "call_other", 80), false, 43), 3),
+	)
+
+	report, err := loadWSSClassDistribution(wssClassDistributionFlags{framesPath: path, socketSeq: 2})
+	if err != nil {
+		t.Fatalf("loadWSSClassDistribution frames error = %v", err)
+	}
+	if report.Source != "frames" || report.Path != path || report.Logs != 1 || report.PhaseFRequests != 2 {
+		t.Fatalf("bad frame report identity/counts: %+v", report)
+	}
+	if report.RequestsWithoutFacts != 2 || report.PrefixProtectedTokens != 0 ||
+		report.LocalSavedTokens <= 0 || report.ReducibleToolOutputTokens != report.LocalSavedTokens ||
+		report.OtherContextTokens != report.OriginalTokens-report.LocalSavedTokens {
+		t.Fatalf("bad frame composition: %+v", report)
+	}
+	if report.Verdict != "frame_observed_below_target" || report.HeadroomPresent {
+		t.Fatalf("frame mode should report observed-below-target without claiming ceiling headroom: %+v", report)
+	}
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "does not invent a full reducible ceiling") {
+		t.Fatalf("missing frame-mode caution note: %+v", report.Notes)
+	}
+
+	delta := wssClassDistributionFindClass(report.Classes, "delta")
+	fullHistory := wssClassDistributionFindClass(report.Classes, "full_history")
+	if delta == nil || fullHistory == nil {
+		t.Fatalf("missing frame class rows: %+v", report.Classes)
+	}
+	if delta.Requests != 1 || delta.LocalSavedTokens <= 0 || delta.ReducibleToolOutputTokens != delta.LocalSavedTokens ||
+		delta.ShapeSources["frames"] != 1 {
+		t.Fatalf("bad delta frame row: %+v", delta)
+	}
+	if fullHistory.Requests != 1 || fullHistory.LocalSavedTokens != 0 || fullHistory.ShapeSources["frames"] != 1 {
+		t.Fatalf("bad full-history frame row: %+v", fullHistory)
+	}
+	deltaRow := findT354ShapeRow(report.T354ShapeTable, "delta")
+	if deltaRow == nil ||
+		deltaRow.ShapeSource != "frames" ||
+		deltaRow.PreviousResponseID != "present" ||
+		deltaRow.SocketSeq != "gt1" ||
+		deltaRow.ToolOutputResolution != "captured_frame" ||
+		deltaRow.ContinuationMode != "direct_delta" ||
+		deltaRow.GuardReason != "none" ||
+		deltaRow.AppliedRequests != 1 ||
+		deltaRow.ErrorRequests != 0 {
+		t.Fatalf("bad frame T354 delta row: %+v", deltaRow)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSClassDistribution([]string{"--frames", path, "--socket-seq=2", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution frames json code=%d stderr=%s", code, stderr.String())
+	}
+	var decoded wssClassDistributionReport
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("parse frame json: %v\n%s", err, stdout.String())
+	}
+	if decoded.Source != "frames" || decoded.PhaseFRequests != 2 {
+		t.Fatalf("bad decoded frame report: %+v", decoded)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSClassDistribution([]string{"--frames", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution frames text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Source:") ||
+		!strings.Contains(stdout.String(), "Observed paired-mutation ratio:") ||
+		!strings.Contains(stdout.String(), "Frame residual ceiling:") ||
+		!strings.Contains(stdout.String(), "Observed target deficit:") {
+		t.Fatalf("frame text missing source/economics:\n%s", stdout.String())
+	}
+}
+
 func findT354ShapeRow(rows []wssClassDistributionT354Row, shape string) *wssClassDistributionT354Row {
 	for i := range rows {
 		if rows[i].RequestShape == shape {

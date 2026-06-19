@@ -163,6 +163,7 @@ type wssT354Turn struct {
 	serverOutputItems             int
 	serverOutputItemIDs           int
 	sequence                      int64
+	socketSeq                     uint64
 	mutated                       bool
 	capturedOriginalShadow        bool
 	terminal                      bool
@@ -411,6 +412,7 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 			info.metadataFootprint = wssT354MetadataFootprintFromRoot(root)
 			info.requestTokensEstimate = tokens.Estimate(len(body))
 			info.sequence = frame.Sequence
+			info.socketSeq = frame.SocketSeq
 			turns = append(turns, info)
 			current = len(turns) - 1
 			if frame.Mutated {
