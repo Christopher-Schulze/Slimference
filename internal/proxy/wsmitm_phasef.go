@@ -38,6 +38,7 @@ type wsPhaseFAdapter struct {
 	p *Proxy
 
 	mu                                sync.Mutex
+	handshakeUserAgent                string
 	messages                          []types.Message
 	repdetIndex                       *repdet.Index
 	toolUses                          map[string]types.ContentBlock
@@ -313,9 +314,28 @@ func (d *PhaseFDispatcher) newWSPhaseFAdapter() *wsPhaseFAdapter {
 	return &wsPhaseFAdapter{p: d.Proxy}
 }
 
+func (a *wsPhaseFAdapter) setHandshakeUserAgent(userAgent string) {
+	if a != nil {
+		a.handshakeUserAgent = strings.TrimSpace(userAgent)
+	}
+}
+
 func (a *wsPhaseFAdapter) setSocketSeq(seq uint64) {
 	if a != nil && seq > 0 {
 		a.socketSeq.Store(seq)
+	}
+}
+
+func (a *wsPhaseFAdapter) applyHandshakeClientFamilyFallback(meta *wssRequestMeta) {
+	if a == nil || meta == nil || meta.ClientFamily != "codex" {
+		return
+	}
+	if family := normalizeCodexClientFamily(a.handshakeUserAgent); family != "" {
+		meta.ClientFamily = family
+		if meta.DebugFacts == nil {
+			meta.DebugFacts = make(map[string]string)
+		}
+		meta.DebugFacts["wss.client_family_source"] = "upgrade_user_agent"
 	}
 }
 
@@ -525,6 +545,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
 		meta = wssRequestMetaFromRaw(raw)
+		a.applyHandshakeClientFamilyFallback(&meta)
 		meta.SocketSeq = a.socketSeq.Load()
 		meta.OriginalMessages = messages
 		if statelessHistoryContinuation {

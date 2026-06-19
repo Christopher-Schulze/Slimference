@@ -757,17 +757,19 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 	}()
 	phaseFCalled := make(chan struct{}, 1)
 	byteBridgeSeen := make(chan string, 1)
+	byteBridgeUA := make(chan string, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
 		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
 			phaseFCalled <- struct{}{}
 			return nil
 		},
-		ByteBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
+		ByteBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
 			buf := make([]byte, 3)
 			if _, err := io.ReadFull(upstream, buf); err != nil {
 				return err
 			}
+			byteBridgeUA <- opts.UserAgent
 			byteBridgeSeen <- string(buf)
 			return nil
 		},
@@ -777,6 +779,7 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 	defer clientB.Close()
 	raw := []byte("GET /backend-api/codex-bridge/responses HTTP/1.1\r\n" +
 		"Host: 127.0.0.1:8990\r\n" +
+		"User-Agent: codex_cli_rs/0.141.0\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n\r\n")
 	go wt.ServeRawUpgrade(context.Background(), clientB, raw, "chatgpt.com", "/backend-api/codex-bridge/responses")
@@ -800,6 +803,14 @@ func TestWebSocketTunnel_ServeRawUpgradeBridgePathUsesByteBridge(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("byte bridge did not receive buffered bytes")
+	}
+	select {
+	case got := <-byteBridgeUA:
+		if got != "codex_cli_rs/0.141.0" {
+			t.Fatalf("byte bridge user agent=%q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("byte bridge did not receive user agent")
 	}
 	select {
 	case <-phaseFCalled:
@@ -826,15 +837,15 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 				"Connection: Upgrade\r\n\r\n"))
 	}()
 	phaseFCalled := make(chan struct{}, 1)
-	byteBridgeCalled := make(chan struct{}, 1)
+	byteBridgeUA := make(chan string, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
 		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
 			phaseFCalled <- struct{}{}
 			return nil
 		},
-		ByteBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
-			byteBridgeCalled <- struct{}{}
+		ByteBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
+			byteBridgeUA <- opts.UserAgent
 			return nil
 		},
 	}
@@ -844,6 +855,7 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 	r := httptest.NewRequest("GET", "/backend-api/codex-bridge/responses", nil)
 	r.Header.Set("Upgrade", "websocket")
 	r.Header.Set("Connection", "Upgrade")
+	r.Header.Set("User-Agent", "OpenAI-Codex-Desktop/1.0")
 	go wt.ServeUpgrade(clientB, r, "chatgpt.com")
 	resp, err := http.ReadResponse(bufio.NewReader(clientA), r)
 	if err != nil {
@@ -859,7 +871,10 @@ func TestWebSocketTunnel_BridgePathUsesByteBridgeAndCanonicalUpstream(t *testing
 		t.Fatal("upstream request not observed")
 	}
 	select {
-	case <-byteBridgeCalled:
+	case got := <-byteBridgeUA:
+		if got != "OpenAI-Codex-Desktop/1.0" {
+			t.Fatalf("byte bridge user agent=%q", got)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("byte bridge did not run")
 	}

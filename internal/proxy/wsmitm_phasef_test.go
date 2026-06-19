@@ -7515,6 +7515,24 @@ func TestWSSRequestMetaFromRawMatchesBodyHelpers(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFHandshakeUserAgentFillsGenericClientFamily(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setHandshakeUserAgent("codex_cli_rs/0.141.0")
+
+	body := []byte(`{"model":"gpt-5.5","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-ua\"}"},"input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`)
+	_, _, _, _, _, meta, _ := adapter.applyInputPipelineDetailed(body)
+	if meta.ClientFamily != "codex_cli" {
+		t.Fatalf("client family from handshake user agent = %q, want codex_cli", meta.ClientFamily)
+	}
+	if meta.DebugFacts["wss.client_family_source"] != "upgrade_user_agent" {
+		t.Fatalf("missing handshake client-family source fact: %+v", meta.DebugFacts)
+	}
+}
+
 func TestWSPhaseFBeTerseRecordsQualityOutcomeOnTerminalFrame(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true

@@ -29,6 +29,7 @@ type WebSocketFrameBridge func(ctx context.Context, client, upstream net.Conn, o
 // frame bridge.
 type WebSocketBridgeOptions struct {
 	Extensions wscompact.WSExtensionProfile
+	UserAgent  string
 }
 
 // WebSocketTunnel handles `Upgrade: websocket` requests intercepted
@@ -161,6 +162,7 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
 		opts := WebSocketBridgeOptions{
+			UserAgent: r.UserAgent(),
 			Extensions: wscompact.NegotiatePermessageDeflate(
 				strings.Join(r.Header.Values("Sec-WebSocket-Extensions"), ", "),
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
@@ -233,6 +235,7 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
 		opts := WebSocketBridgeOptions{
+			UserAgent: strings.Join(rawHTTPHeaderValues(rawHeader, "User-Agent"), ", "),
 			Extensions: wscompact.NegotiatePermessageDeflate(
 				strings.Join(rawHTTPHeaderValues(rawHeader, "Sec-WebSocket-Extensions"), ", "),
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
