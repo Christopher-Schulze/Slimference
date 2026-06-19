@@ -156,8 +156,20 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	if !commandOutputFirstAllowCapture("rg", []string{"--files", "internal"}) {
 		t.Fatal("rg --files should be captured by the command-output-first shim")
 	}
-	if commandOutputFirstAllowCapture("grep", []string{"TODO"}) {
-		t.Fatal("grep is not part of the first command-output-first command set")
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{command: "grep", args: []string{"-R", "-n", "TODO", "internal"}},
+		{command: "ggrep", args: []string{"-R", "-n", "TODO", "internal"}},
+		{command: "ag", args: []string{"-n", "TODO", "internal"}},
+		{command: "ack", args: []string{"-n", "TODO", "internal"}},
+		{command: "ugrep", args: []string{"-n", "TODO", "internal"}},
+		{command: "sift", args: []string{"-n", "TODO", "internal"}},
+	} {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v should be captured by the command-output-first shim", tc.command, tc.args)
+		}
 	}
 	if !commandOutputFirstAllowCapture("go", []string{"test", "-v", "./..."}) {
 		t.Fatal("go test should be captured by the command-output-first shim")
@@ -388,6 +400,96 @@ func TestCommandOutputFirstShimRgEmptyFullPasses(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimGrepStyleSearchCompactsWithFullRetentionAndAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 1; i <= 45; i++ {
+		b.WriteString("internal/proxy/long/path/handler.go:")
+		b.WriteString(strconv.Itoa(100 + i))
+		b.WriteString(":func handleGrepStyleResult() { return nil } // repeated grep payload ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('\n')
+	}
+	realGrep := writeFakeCommand(t, "grep", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=grep", "--real-bin=" + realGrep, "--", "-R", "-n", "handleGrepStyleResult", "internal/proxy"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[grep] 45 match(es) in 1 file(s)") ||
+		!strings.Contains(got, "internal/proxy/long/path/handler.go") ||
+		!strings.Contains(got, "145: func handleGrepStyleResult() { return nil } // repeated grep payload 45") {
+		t.Fatalf("unexpected compacted grep stdout=%q", got)
+	}
+	if strings.Contains(got, "[+") {
+		t.Fatalf("grep command-output-first must retain every match in product slice: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing grep archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand grep archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("handleGrepStyleResult")) != 45 {
+		t.Fatalf("archive did not preserve grep raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:grep] grep -R -n handleGrepStyleResult internal/proxy") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGrepStyleContextModeFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "internal/app/app.go-10-before\ninternal/app/app.go:11:match\ninternal/app/app.go-12-after\n"
+	realGrep := writeFakeCommand(t, "grep", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=grep", "--real-bin=" + realGrep, "--", "-R", "-n", "-C2", "match", "internal/app"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("context-mode grep must full-pass raw stdout\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("context-mode full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("context-mode full-pass must not record accounting row: %+v", run)
 	}
 }
 

@@ -53,7 +53,8 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
 	for _, command := range []string{
-		"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo",
+		"git", "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift",
+		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
 		"pip", "pip3",
 		"fd", "fdfind", "find", "wc",
@@ -254,6 +255,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return false
 		}
 	case "rg":
+		return true
+	case "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
 		return true
 	case "fd", "fdfind", "find":
 		return commandOutputFirstPathListAllowed(command, args)
@@ -650,6 +653,11 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			return out, true
 		}
 		compacted, ok = filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
+			MinRetainedPct: 100,
+		})
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
+		compacted, ok := filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
 			MinRetainedPct: 100,
 		})
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
