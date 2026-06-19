@@ -556,6 +556,61 @@ func TestTryCompactMakeCmakeCleanProgressWrapperAndNoWorkBranches(t *testing.T) 
 	}
 }
 
+func TestTryCompactMvnCleanSuccessOutput(t *testing.T) {
+	t.Parallel()
+
+	input := mavenCleanSuccessFixture(32)
+	out, ok := TryCompactMvn([]string{"mvn", "test"}, []byte(input))
+	if !ok || string(out) != "[mvn] ok (Tests run: 42, Failures: 0, Errors: 0, Skipped: 0)\n" {
+		t.Fatalf("maven clean success: ok=%v out=%q", ok, out)
+	}
+	if len(out) >= len(input) {
+		t.Fatal("maven clean success summary must be shorter than original output")
+	}
+
+	wrapped, ok := TryCompactBuildOutput([]string{"pnpm", "exec", "mvnw", "-q", "verify"}, []byte(input))
+	if !ok || string(wrapped) != "[mvn] ok (Tests run: 42, Failures: 0, Errors: 0, Skipped: 0)\n" {
+		t.Fatalf("wrapped maven clean success through build chain: ok=%v out=%q", ok, wrapped)
+	}
+}
+
+func TestTryCompactMvnCleanSuccessFailOpen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "warning", input: mavenCleanSuccessFixture(4) + "[WARNING] Using platform encoding UTF-8 to copy filtered resources.\n"},
+		{name: "build failure", input: strings.Replace(mavenCleanSuccessFixture(4), "[INFO] BUILD SUCCESS", "[INFO] BUILD FAILURE", 1)},
+		{name: "test failure", input: strings.Replace(mavenCleanSuccessFixture(4), "Failures: 0", "Failures: 1", 1)},
+		{name: "skipped tests", input: strings.Replace(mavenCleanSuccessFixture(4), "Skipped: 0", "Skipped: 2", 1)},
+		{name: "source context", input: mavenCleanSuccessFixture(4) + "[INFO] public class App {}\n"},
+		{name: "arbitrary info log", input: mavenCleanSuccessFixture(4) + "[INFO] application bootstrap token refreshed\n"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if out, ok := TryCompactMvn([]string{"mvn", "test"}, []byte(tt.input)); ok {
+				t.Fatalf("unsafe maven output compacted: %q", out)
+			}
+			if strings.Contains(tt.input, "[INFO] BUILD SUCCESS") {
+				if out, ok := TryCompactBuildOutput([]string{"mvn", "test"}, []byte(tt.input)); ok {
+					t.Fatalf("unsafe maven success compacted by build chain: %q", out)
+				}
+				return
+			}
+			if out, ok := TryCompactBuildOutput([]string{"mvn", "test"}, []byte(tt.input)); ok && strings.Contains(string(out), "[mvn] ok") {
+				t.Fatalf("unsafe maven success compacted by build chain: %q", out)
+			}
+		})
+	}
+	if out, ok := compactMvnCleanSuccessOutput("[INFO] BUILD SUCCESS\n[INFO] Total time: 1 s\n", len("[mvn] ok\n")); ok || out != nil {
+		t.Fatalf("non-shrinking maven summary must fail closed: ok=%v out=%q", ok, out)
+	}
+}
+
 func TestCmakeStyleCleanBuildProgressLineBranches(t *testing.T) {
 	t.Parallel()
 
@@ -696,6 +751,34 @@ func cmakeNinjaCleanFixture(files int) string {
 		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)
+	return b.String()
+}
+
+func mavenCleanSuccessFixture(modules int) string {
+	var b strings.Builder
+	b.WriteString("[INFO] Scanning for projects...\n")
+	b.WriteString("[INFO] \n")
+	b.WriteString("[INFO] -----------------------< com.example:demo >------------------------\n")
+	b.WriteString("[INFO] Building demo 1.0.0\n")
+	b.WriteString("[INFO] --------------------------------[ jar ]---------------------------------\n")
+	for i := 0; i < modules; i++ {
+		fmt.Fprintf(&b, "[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources-%02d) @ demo ---\n", i)
+		fmt.Fprintf(&b, "[INFO] Copying %d resources from src/main/resources to target/classes\n", i+1)
+	}
+	b.WriteString("[INFO] --- maven-compiler-plugin:3.13.0:compile (default-compile) @ demo ---\n")
+	b.WriteString("[INFO] Changes detected - recompiling the module!\n")
+	b.WriteString("[INFO] Compiling 3 source files with javac [debug target 21] to target/classes\n")
+	b.WriteString("[INFO] --- maven-surefire-plugin:3.2.5:test (default-test) @ demo ---\n")
+	b.WriteString("[INFO] Running com.example.DemoTest\n")
+	b.WriteString("[INFO] Tests run: 42, Failures: 0, Errors: 0, Skipped: 0\n")
+	b.WriteString("[INFO] --- maven-jar-plugin:3.4.1:jar (default-jar) @ demo ---\n")
+	b.WriteString("[INFO] Building jar: /repo/target/demo.jar\n")
+	b.WriteString("[INFO] ------------------------------------------------------------------------\n")
+	b.WriteString("[INFO] BUILD SUCCESS\n")
+	b.WriteString("[INFO] ------------------------------------------------------------------------\n")
+	b.WriteString("[INFO] Total time:  4.123 s\n")
+	b.WriteString("[INFO] Finished at: 2026-06-19T01:02:03Z\n")
+	b.WriteString("[INFO] ------------------------------------------------------------------------\n")
 	return b.String()
 }
 

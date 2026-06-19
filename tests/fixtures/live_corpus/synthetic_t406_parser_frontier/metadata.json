@@ -7,11 +7,11 @@
   "client_family": "codex_cli",
   "workload_class": "large_tool_output",
   "language": "mixed",
-  "tool_mix": "tsup build, package test wrapper, strict lint/typecheck diagnostics, make/cmake clean build progress, package audit zero-vulnerability JSON",
+  "tool_mix": "tsup build, package test wrapper, strict lint/typecheck diagnostics, make/cmake clean build progress, package audit zero-vulnerability JSON, strict Maven clean success",
   "expected_savings_min": 0.55,
   "expected_savings_max": 0.95,
-  "expected_saved_tokens_min": 23800,
-  "expected_request_count": 5,
+  "expected_saved_tokens_min": 31500,
+  "expected_request_count": 6,
   "expected_max_errors": 0,
   "expected_latency_p95_max_ms": 100,
   "expected_reread_count_max": 0,
@@ -19,5 +19,5 @@
     "websocket",
     "low_error"
   ],
-  "notes": "Rows are hand-authored RequestSummary counters for parser-family regression only: clean tsup build, package-manager test wrapper, strict diagnostics, strict Make/CMake clean progress, and package audit zero-vulnerability JSON. They intentionally contain no command output, prompts, file paths, auth material, or live-session claims."
+  "notes": "Rows are hand-authored RequestSummary counters for parser-family regression only: clean tsup build, package-manager test wrapper, strict diagnostics, strict Make/CMake clean progress, package audit zero-vulnerability JSON, and strict Maven clean success. They intentionally contain no command output, prompts, file paths, auth material, or live-session claims."
 }

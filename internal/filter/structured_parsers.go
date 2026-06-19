@@ -28,6 +28,9 @@ var structuredParsers = []structuredParser{
 }
 
 func ParseFailures(argv []string, stdout string) (string, bool) {
+	if _, ok := mvnCompactArgvSuffix(argv); ok && mvnOutputContainsBuildSuccess(stdout) {
+		return "", false
+	}
 	for _, p := range structuredParsers {
 		if p.matches(argv) {
 			compact, hadFailures, ok := p.parse(argv, stdout)

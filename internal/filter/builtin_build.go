@@ -1192,25 +1192,246 @@ func isMvnCompactArgv(argv []string) bool {
 	return hasNonFlag
 }
 
-// TryCompactMvn replaces empty stdout from Maven wrapper / mvn / `npx|pnpm exec|yarn … mvn|mvnw …` (F07 partial).
+// TryCompactMvn replaces empty and parser-proven clean stdout from Maven
+// wrapper / mvn / `npx|pnpm exec|yarn ... mvn|mvnw ...`.
 func TryCompactMvn(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if _, ok := mvnCompactArgvSuffix(argv); !ok {
 		return stdout, false
 	}
-	if isMvnCompactArgv(argv) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[mvn] ok\n"), true
 	}
+	if out, ok := compactMvnCleanSuccessOutput(s, len(stdout)); ok {
+		return out, true
+	}
+	return stdout, false
+}
+
+func mvnCompactArgvSuffix(argv []string) ([]string, bool) {
+	if isMvnCompactArgv(argv) {
+		return argv, true
+	}
+	if len(argv) == 0 {
+		return nil, false
+	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isMvnCompactArgv(rest) {
-		return []byte("[mvn] ok\n"), true
+		return rest, true
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isMvnCompactArgv(argv[2:]) {
-		return []byte("[mvn] ok\n"), true
+		return argv[2:], true
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isMvnCompactArgv(argv[1:]) {
-		return []byte("[mvn] ok\n"), true
+		return argv[1:], true
 	}
-	return stdout, false
+	return nil, false
+}
+
+func compactMvnCleanSuccessOutput(stdout string, originalLen int) ([]byte, bool) {
+	if mvnOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	sawBuildSuccess := false
+	sawTotalTime := false
+	sawRecognized := false
+	testSummary := ""
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		payload, ok := mvnInfoPayload(line)
+		if !ok || !mvnCleanSuccessPayloadAllowed(payload) {
+			return nil, false
+		}
+		payload = strings.TrimSpace(payload)
+		if payload == "BUILD SUCCESS" {
+			sawBuildSuccess = true
+		}
+		if strings.HasPrefix(payload, "Total time:") {
+			sawTotalTime = true
+		}
+		if mvnZeroTestSummary(payload) {
+			testSummary = payload
+		}
+		sawRecognized = true
+	}
+	if !sawRecognized || !sawBuildSuccess || !sawTotalTime {
+		return nil, false
+	}
+	text := "[mvn] ok\n"
+	if testSummary != "" {
+		text = "[mvn] ok (" + testSummary + ")\n"
+	}
+	out := []byte(text)
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
+}
+
+func mvnOutputHasUnsafeSignal(stdout string) bool {
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		payload, ok := mvnInfoPayload(line)
+		if !ok {
+			return true
+		}
+		if mvnCleanSuccessPayloadUnsafe(payload) {
+			return true
+		}
+		if outputLineLooksLikeSourceContext(line) || outputLineLooksLikeSourceContext(payload) {
+			return true
+		}
+	}
+	return false
+}
+
+func mvnOutputContainsBuildSuccess(stdout string) bool {
+	for _, raw := range strings.Split(stdout, "\n") {
+		payload, ok := mvnInfoPayload(strings.TrimSpace(raw))
+		if ok && strings.TrimSpace(payload) == "BUILD SUCCESS" {
+			return true
+		}
+	}
+	return false
+}
+
+func mvnInfoPayload(line string) (string, bool) {
+	if !strings.HasPrefix(line, "[INFO]") {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, "[INFO]")), true
+}
+
+func mvnCleanSuccessPayloadUnsafe(payload string) bool {
+	payload = strings.TrimSpace(payload)
+	lower := strings.ToLower(payload)
+	if strings.Contains(lower, "warning") ||
+		strings.Contains(lower, "deprecated") ||
+		strings.Contains(lower, "deprecation") ||
+		strings.Contains(lower, "build failure") ||
+		strings.Contains(lower, "compilation failure") ||
+		strings.Contains(lower, "there are test failures") ||
+		strings.Contains(lower, "failed to") ||
+		strings.Contains(lower, "cannot ") ||
+		strings.Contains(lower, "could not") ||
+		strings.Contains(lower, "unresolved") ||
+		strings.Contains(lower, "exception") ||
+		strings.Contains(lower, "traceback") ||
+		strings.Contains(lower, "panic") {
+		return true
+	}
+	if strings.Contains(lower, "error") && !strings.Contains(lower, "errors: 0") {
+		return true
+	}
+	if strings.Contains(lower, "failure") && !strings.Contains(lower, "failures: 0") {
+		return true
+	}
+	if strings.Contains(lower, "skipped") && !strings.Contains(lower, "skipped: 0") {
+		return true
+	}
+	return false
+}
+
+func mvnCleanSuccessPayloadAllowed(payload string) bool {
+	payload = strings.TrimSpace(payload)
+	if payload == "" ||
+		mvnDashedSeparator(payload) ||
+		mvnCoordinateBanner(payload) ||
+		mvnPackagingBanner(payload) ||
+		mvnPluginExecutionLine(payload) ||
+		mvnReactorSuccessLine(payload) ||
+		mvnZeroTestSummary(payload) {
+		return true
+	}
+	for _, exact := range []string{
+		"BUILD SUCCESS",
+		"No tests to run.",
+		"No sources to compile",
+		"No resources to copy",
+		"Results:",
+	} {
+		if payload == exact {
+			return true
+		}
+	}
+	for _, prefix := range []string{
+		"Scanning for projects",
+		"Reactor Build Order:",
+		"Reactor Summary for ",
+		"Building ",
+		"Total time:",
+		"Finished at:",
+		"Using ",
+		"Copying ",
+		"skip non existing resourceDirectory",
+		"Nothing to compile",
+		"Changes detected - recompiling",
+		"Compiling ",
+		"Installing ",
+	} {
+		if strings.HasPrefix(payload, prefix) {
+			return true
+		}
+	}
+	return mvnRunningTestClassLine(payload)
+}
+
+func mvnDashedSeparator(payload string) bool {
+	if payload == "" {
+		return false
+	}
+	for _, r := range payload {
+		if r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func mvnCoordinateBanner(payload string) bool {
+	return strings.HasPrefix(payload, "---") &&
+		strings.Contains(payload, "<") &&
+		strings.Contains(payload, ">") &&
+		strings.HasSuffix(payload, "---")
+}
+
+func mvnPackagingBanner(payload string) bool {
+	return strings.HasPrefix(payload, "---") &&
+		strings.Contains(payload, "[") &&
+		strings.Contains(payload, "]") &&
+		strings.HasSuffix(payload, "---")
+}
+
+func mvnPluginExecutionLine(payload string) bool {
+	return strings.HasPrefix(payload, "--- ") &&
+		strings.Contains(payload, " @ ") &&
+		strings.HasSuffix(payload, " ---")
+}
+
+func mvnReactorSuccessLine(payload string) bool {
+	return strings.Contains(payload, " SUCCESS [") && strings.HasSuffix(payload, "]")
+}
+
+func mvnRunningTestClassLine(payload string) bool {
+	if !strings.HasPrefix(payload, "Running ") {
+		return false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(payload, "Running "))
+	return name != "" && strings.Contains(name, ".") && !strings.ContainsAny(name, " \t/")
+}
+
+func mvnZeroTestSummary(payload string) bool {
+	lower := strings.ToLower(strings.TrimSpace(payload))
+	return strings.HasPrefix(lower, "tests run:") &&
+		strings.Contains(lower, "failures: 0") &&
+		strings.Contains(lower, "errors: 0") &&
+		strings.Contains(lower, "skipped: 0")
 }
 
 func isGradleBuildArgv(argv []string) bool {
@@ -1575,6 +1796,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := compactPackageManagerBuildScriptOutput(argv, stdout); ok {
 		return out, true
 	}
+	if _, ok := mvnCompactArgvSuffix(argv); ok && mvnOutputContainsBuildSuccess(string(stdout)) {
+		return stdout, false
+	}
 	// Structured parsers: tool-specific failure extraction before fallback.
 	if compact, ok := ParseFailures(argv, string(stdout)); ok {
 		return []byte(compact), true
@@ -1583,6 +1807,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if label := buildToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
 		if s != "" {
+			if label == "mvn" && mvnOutputContainsBuildSuccess(s) {
+				return stdout, false
+			}
 			if label == "tsc" && !detectBuildSuccess(s) {
 				return stdout, false
 			}
