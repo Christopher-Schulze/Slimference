@@ -157,6 +157,95 @@ func TestWSSClassDistributionCorpusCeilingVerdict(t *testing.T) {
 	}
 }
 
+func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	delta := wssClassDistributionTestSummary("d1", "delta", 10000, 500, 8000, 4000, 7000, 2)
+	delta.PreviousResponseIDUsed = true
+	delta.ProviderInputTokens = 10000
+	delta.ProviderCachedTokens = 7000
+	delta.CacheReadTokens = 111
+	delta.CacheCreateTokens = 22
+	delta.Errors = []string{"upstream_error 400 invalid_request"}
+	delta.DebugFacts["wss.socket_seq"] = "2"
+	delta.DebugFacts["wss.tool_results_total"] = "1"
+	delta.DebugFacts["wss.tool_results_inferred"] = "1"
+	delta.DebugFacts["wss.effective_mutation_guard"] = "wss_stateful_delta_mutation_proof_gate"
+
+	fullHistory := wssClassDistributionTestSummary("f1", "full_history", 20000, 8000, 2000, 24000, 1000, 1)
+	fullHistory.ProviderInputTokens = 20000
+	fullHistory.ProviderCachedTokens = 1000
+	fullHistory.DebugFacts["wss.previous_response_id"] = "true"
+	fullHistory.DebugFacts["wss.socket_seq"] = "1"
+	fullHistory.DebugFacts["wss.tool_results_total"] = "1"
+	fullHistory.DebugFacts["wss.tool_results_resolved"] = "1"
+	fullHistory.DebugFacts["wss.full_history_stateless_followup"] = "true"
+	fullHistory.DebugFacts["wss.full_history_detached_previous_response"] = "true"
+
+	writeJSONLFile(t, path, delta, fullHistory)
+
+	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSClassDistribution() error = %v", err)
+	}
+	if len(report.T354ShapeTable) != 2 {
+		t.Fatalf("T354 shape rows = %d, want 2: %+v", len(report.T354ShapeTable), report.T354ShapeTable)
+	}
+	deltaRow := findT354ShapeRow(report.T354ShapeTable, "delta")
+	if deltaRow == nil {
+		t.Fatalf("missing delta row: %+v", report.T354ShapeTable)
+	}
+	if deltaRow.PreviousResponseID != "present" ||
+		deltaRow.SocketSeq != "gt1" ||
+		deltaRow.ToolOutputResolution != "inferred" ||
+		deltaRow.ContinuationMode != "direct_delta" ||
+		deltaRow.GuardReason != "wss.effective_mutation_guard=wss_stateful_delta_mutation_proof_gate" ||
+		deltaRow.GuardedRequests != 1 ||
+		deltaRow.AppliedRequests != 1 ||
+		deltaRow.ErrorRequests != 1 ||
+		deltaRow.UpstreamErrorRequests != 1 ||
+		deltaRow.HTTP400ErrorRequests != 1 ||
+		deltaRow.CacheReadTokens != 111 ||
+		deltaRow.CacheCreateTokens != 22 {
+		t.Fatalf("bad delta T354 row: %+v", deltaRow)
+	}
+	floatNearTest(t, deltaRow.ProviderCachedPct, 0.7)
+	fullRow := findT354ShapeRow(report.T354ShapeTable, "full_history")
+	if fullRow == nil {
+		t.Fatalf("missing full-history row: %+v", report.T354ShapeTable)
+	}
+	if fullRow.PreviousResponseID != "present" ||
+		fullRow.SocketSeq != "1" ||
+		fullRow.ToolOutputResolution != "resolved" ||
+		fullRow.ContinuationMode != "stateless_followup_detached" ||
+		fullRow.GuardReason != "none" ||
+		fullRow.GuardedRequests != 0 ||
+		fullRow.AppliedRequests != 1 {
+		t.Fatalf("bad full-history T354 row: %+v", fullRow)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSClassDistribution([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "T354 shape table:") ||
+		!strings.Contains(stdout.String(), "guard=wss.effective_mutation_guard=wss_stateful_delta_mutation_proof_gate") ||
+		!strings.Contains(stdout.String(), "continuation=stateless_followup_detached") {
+		t.Fatalf("text output missing T354 table details:\n%s", stdout.String())
+	}
+}
+
+func findT354ShapeRow(rows []wssClassDistributionT354Row, shape string) *wssClassDistributionT354Row {
+	for i := range rows {
+		if rows[i].RequestShape == shape {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
 func TestWSSClassDistributionSplitProtectsSavedUnderEstimateOverlap(t *testing.T) {
 	t.Parallel()
 

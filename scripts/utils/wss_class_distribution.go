@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +69,7 @@ type wssClassDistributionReport struct {
 	GapInventoryRecommended   bool                           `json:"gap_inventory_recommended"`
 	NextAction                string                         `json:"next_action"`
 	Classes                   []wssClassDistributionClassRow `json:"classes"`
+	T354ShapeTable            []wssClassDistributionT354Row  `json:"t354_shape_table,omitempty"`
 	PerLog                    []wssClassDistributionLogRow   `json:"per_log,omitempty"`
 	Notes                     []string                       `json:"notes,omitempty"`
 }
@@ -99,6 +101,32 @@ type wssClassDistributionLogRow struct {
 	PrefixProtectedTokens     int     `json:"prefix_protected_tokens"`
 	ReducibleToolOutputTokens int     `json:"reducible_tool_output_tokens"`
 	ReducibleCeilingRatio     float64 `json:"reducible_ceiling_ratio"`
+}
+
+type wssClassDistributionT354Row struct {
+	RequestShape              string  `json:"request_shape"`
+	ShapeSource               string  `json:"shape_source"`
+	PreviousResponseID        string  `json:"previous_response_id"`
+	SocketSeq                 string  `json:"socket_seq"`
+	ToolOutputResolution      string  `json:"tool_output_resolution"`
+	ContinuationMode          string  `json:"continuation_mode"`
+	GuardReason               string  `json:"guard_reason"`
+	Requests                  int     `json:"requests"`
+	OriginalTokens            int     `json:"original_tokens"`
+	LocalSavedTokens          int     `json:"local_saved_tokens"`
+	LocalSavingsRatio         float64 `json:"local_savings_ratio"`
+	ReducibleToolOutputTokens int     `json:"reducible_tool_output_tokens"`
+	ReducibleCeilingRatio     float64 `json:"reducible_ceiling_ratio"`
+	ProviderInputTokens       int     `json:"provider_input_tokens"`
+	ProviderCachedTokens      int     `json:"provider_cached_tokens"`
+	ProviderCachedPct         float64 `json:"provider_cached_pct"`
+	CacheReadTokens           int     `json:"cache_read_tokens"`
+	CacheCreateTokens         int     `json:"cache_create_tokens"`
+	ErrorRequests             int     `json:"error_requests"`
+	UpstreamErrorRequests     int     `json:"upstream_error_requests"`
+	HTTP400ErrorRequests      int     `json:"http_400_error_requests"`
+	GuardedRequests           int     `json:"guarded_requests"`
+	AppliedRequests           int     `json:"applied_requests"`
 }
 
 // wssClassDistributionClass maps a resolved request shape to a billing-class
@@ -245,8 +273,9 @@ func parseWSSClassDistributionFlags(args []string) (wssClassDistributionFlags, e
 }
 
 type wssClassDistributionAccumulator struct {
-	report wssClassDistributionReport
-	rows   map[string]*wssClassDistributionClassRow
+	report   wssClassDistributionReport
+	rows     map[string]*wssClassDistributionClassRow
+	t354Rows map[string]*wssClassDistributionT354Row
 }
 
 func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistributionReport, error) {
@@ -266,7 +295,8 @@ func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistribu
 			Path:        flags.path,
 			TargetRatio: targetRatio,
 		},
-		rows: make(map[string]*wssClassDistributionClassRow),
+		rows:     make(map[string]*wssClassDistributionClassRow),
+		t354Rows: make(map[string]*wssClassDistributionT354Row),
 	}
 	for _, path := range paths {
 		summaries, err := dbg.ReplaySession(path)
@@ -328,12 +358,183 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	row.OtherContextTokens += otherTokens
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
 	addWSSAuditCount(&row.ShapeSources, resolution.Source)
+	a.addT354Shape(summary, resolution, original, saved, reducibleTokens)
 
 	logRow.PhaseFRequests++
 	logRow.OriginalTokens += original
 	logRow.LocalSavedTokens += saved
 	logRow.PrefixProtectedTokens += prefixTokens
 	logRow.ReducibleToolOutputTokens += reducibleTokens
+}
+
+func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution, original, saved, reducibleTokens int) {
+	if a == nil {
+		return
+	}
+	shape := strings.TrimSpace(resolution.Shape)
+	if shape == "" {
+		shape = "unknown"
+	}
+	shapeSource := strings.TrimSpace(resolution.Source)
+	if shapeSource == "" {
+		shapeSource = "unknown"
+	}
+	prev := wssClassDistributionPreviousResponseID(summary)
+	socketSeq := wssClassDistributionSocketSeqBucket(summary.DebugFacts["wss.socket_seq"])
+	toolResolution := wssClassDistributionToolOutputResolution(summary.DebugFacts)
+	continuation := wssClassDistributionContinuationMode(shape, summary.DebugFacts)
+	guard := wssClassDistributionGuardReason(summary)
+	key := strings.Join([]string{
+		shape,
+		shapeSource,
+		prev,
+		socketSeq,
+		toolResolution,
+		continuation,
+		guard,
+	}, "\x00")
+	row := a.t354Rows[key]
+	if row == nil {
+		row = &wssClassDistributionT354Row{
+			RequestShape:         shape,
+			ShapeSource:          shapeSource,
+			PreviousResponseID:   prev,
+			SocketSeq:            socketSeq,
+			ToolOutputResolution: toolResolution,
+			ContinuationMode:     continuation,
+			GuardReason:          guard,
+		}
+		a.t354Rows[key] = row
+	}
+	row.Requests++
+	row.OriginalTokens += original
+	row.LocalSavedTokens += saved
+	row.ReducibleToolOutputTokens += reducibleTokens
+	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
+	row.CacheReadTokens += maxInt(0, summary.CacheReadTokens)
+	row.CacheCreateTokens += maxInt(0, summary.CacheCreateTokens)
+	if len(summary.Errors) > 0 {
+		row.ErrorRequests++
+	}
+	if wssAuditHasUpstreamError(summary) {
+		row.UpstreamErrorRequests++
+	}
+	if wssAuditHasHTTP400Error(summary) {
+		row.HTTP400ErrorRequests++
+	}
+	if guard != "none" {
+		row.GuardedRequests++
+	}
+	if wssClassDistributionHasAppliedDecision(summary) {
+		row.AppliedRequests++
+	}
+}
+
+func wssClassDistributionPreviousResponseID(summary dbg.RequestSummary) string {
+	if summary.PreviousResponseIDUsed || parseBoolFact(summary.DebugFacts["wss.previous_response_id"]) {
+		return "present"
+	}
+	return "absent"
+}
+
+func wssClassDistributionSocketSeqBucket(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "(missing)"
+	}
+	seq, err := strconv.Atoi(trimmed)
+	if err != nil || seq <= 0 {
+		return "unknown"
+	}
+	if seq == 1 {
+		return "1"
+	}
+	return "gt1"
+}
+
+func wssClassDistributionToolOutputResolution(facts map[string]string) string {
+	if facts == nil {
+		return "missing"
+	}
+	total := wssLocalGapFactInt(facts, "wss.tool_results_total")
+	if total == 0 {
+		total = wssLocalGapFactInt(facts, "wss.tool_results")
+	}
+	if total == 0 {
+		return "none"
+	}
+	resolved := wssLocalGapFactInt(facts, "wss.tool_results_resolved")
+	inferred := wssLocalGapFactInt(facts, "wss.tool_results_inferred")
+	switch {
+	case resolved >= total:
+		return "resolved"
+	case inferred >= total:
+		return "inferred"
+	case resolved+inferred >= total:
+		return "mixed"
+	case resolved+inferred > 0:
+		return "partial"
+	default:
+		return "unresolved"
+	}
+}
+
+func wssClassDistributionContinuationMode(shape string, facts map[string]string) string {
+	if parseBoolFact(facts["wss.stateless_history_continuation"]) {
+		return "stateless_history_continuation"
+	}
+	if parseBoolFact(facts["wss.full_history_stateless_followup"]) {
+		if parseBoolFact(facts["wss.full_history_detached_previous_response"]) {
+			return "stateless_followup_detached"
+		}
+		return "stateless_followup_armed"
+	}
+	if parseBoolFact(facts["wss.full_history_detached_previous_response"]) {
+		return "stateless_detached"
+	}
+	if shape == "delta" {
+		return "direct_delta"
+	}
+	return "stateful"
+}
+
+func wssClassDistributionGuardReason(summary dbg.RequestSummary) string {
+	for _, key := range []string{
+		"wss.downstream_state_mutation_guard",
+		"wss.effective_mutation_guard",
+		"wss.structured_mutation_guard",
+		"wss.history_mutation_guard",
+		"wss.tool_prune_guard",
+	} {
+		value := strings.TrimSpace(summary.DebugFacts[key])
+		if value != "" {
+			return key + "=" + value
+		}
+	}
+	for _, decision := range summary.EvidenceDecisions {
+		reason := strings.TrimSpace(decision.Reason)
+		if reason == "" || !strings.HasPrefix(reason, "wss_") {
+			continue
+		}
+		switch decision.Action {
+		case "full_pass", "failed_open":
+			return "evidence:" + reason
+		}
+	}
+	return "none"
+}
+
+func wssClassDistributionHasAppliedDecision(summary dbg.RequestSummary) bool {
+	if maxInt(0, summary.Tokens.Saved) > 0 {
+		return true
+	}
+	for _, decision := range summary.EvidenceDecisions {
+		if decision.Action == "applied" && decision.SavedTokens > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // wssClassDistributionSplit decomposes one request's original tokens into
@@ -448,6 +649,26 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 			return a.report.Classes[i].OriginalTokens > a.report.Classes[j].OriginalTokens
 		}
 		return a.report.Classes[i].Class < a.report.Classes[j].Class
+	})
+
+	a.report.T354ShapeTable = make([]wssClassDistributionT354Row, 0, len(a.t354Rows))
+	for _, row := range a.t354Rows {
+		copy := *row
+		copy.LocalSavingsRatio = wssLocalGapRatio(copy.LocalSavedTokens, copy.OriginalTokens)
+		copy.ReducibleCeilingRatio = wssLocalGapRatio(copy.ReducibleToolOutputTokens, copy.OriginalTokens)
+		copy.ProviderCachedPct = wssLocalGapRatio(copy.ProviderCachedTokens, copy.ProviderInputTokens)
+		a.report.T354ShapeTable = append(a.report.T354ShapeTable, copy)
+	}
+	sort.Slice(a.report.T354ShapeTable, func(i, j int) bool {
+		left, right := a.report.T354ShapeTable[i], a.report.T354ShapeTable[j]
+		if left.OriginalTokens != right.OriginalTokens {
+			return left.OriginalTokens > right.OriginalTokens
+		}
+		if left.Requests != right.Requests {
+			return left.Requests > right.Requests
+		}
+		return strings.Join([]string{left.RequestShape, left.PreviousResponseID, left.SocketSeq, left.ToolOutputResolution, left.ContinuationMode, left.GuardReason}, "|") <
+			strings.Join([]string{right.RequestShape, right.PreviousResponseID, right.SocketSeq, right.ToolOutputResolution, right.ContinuationMode, right.GuardReason}, "|")
 	})
 
 	sort.Slice(a.report.PerLog, func(i, j int) bool {
@@ -591,6 +812,36 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.ReducibleCeilingRatio*100,
 				row.ProviderCachedTokens,
 				formatWSSAuditCounts(row.ShapeSources))
+		}
+	}
+
+	if len(report.T354ShapeTable) > 0 {
+		fmt.Fprintln(w, "\nT354 shape table:")
+		for _, row := range report.T354ShapeTable {
+			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
+				row.RequestShape,
+				row.ShapeSource,
+				row.PreviousResponseID,
+				row.SocketSeq,
+				row.ToolOutputResolution,
+				row.ContinuationMode,
+				row.GuardReason,
+				row.Requests,
+				row.OriginalTokens,
+				row.LocalSavedTokens,
+				row.LocalSavingsRatio*100,
+				row.ReducibleToolOutputTokens,
+				row.ReducibleCeilingRatio*100,
+				row.ProviderCachedTokens,
+				row.ProviderInputTokens,
+				row.ProviderCachedPct*100,
+				row.CacheReadTokens,
+				row.CacheCreateTokens,
+				row.ErrorRequests,
+				row.UpstreamErrorRequests,
+				row.HTTP400ErrorRequests,
+				row.AppliedRequests,
+				row.GuardedRequests)
 		}
 	}
 
