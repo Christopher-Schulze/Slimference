@@ -276,7 +276,11 @@ interception, record the exact blocked control point and the next route to test.
 Agents must not spend the main engineering loop on low-impact micro-polish while
 large local-savings blockers remain open. Small wins are valid when they are
 cheap, unblock a gate, expand a high-frequency parser class, or can be shipped
-while waiting for live owner input. Otherwise, prioritize structural moves that
+while waiting for live owner input. Small policy-safe wins should compound, but
+they must be bundled efficiently with nearby high-leverage work instead of
+becoming their own optimization rabbit hole. Until all materially sensible
+savings lanes have been harvested or proven blocked, micro-optimizations are a
+deferred phase, not the main task. Otherwise, prioritize structural moves that
 can change `S_local` by double-digit points:
 
 - command-output-first Codex interception;
@@ -292,7 +296,10 @@ implementation: low (<1 point), medium (1-5 points), high (5-15 points), or
 major (15+ points) for the relevant route/workload. When a higher-leverage task
 is blocked by required live input or a missing control point, the agent may work
 the next best offline lever, but must keep the high-leverage blocker visible and
-return to it as soon as the blocker is removable.
+return to it as soon as the blocker is removable. After the structural lanes are
+exhausted, agents should continue down the optimization stack and compound
+smaller wins, including micro-optimizations, as long as each change remains
+measured, policy-safe, and net-positive.
 
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 

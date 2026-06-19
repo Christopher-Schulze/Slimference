@@ -49,6 +49,12 @@ command-output-first Codex interception, T354/Class-B/server-state continuation,
 Desktop/Class-B unlocks, and high-frequency search/captured-output paths. Small
 parser or guard-polish work is acceptable when cheap, when it unblocks a larger
 lane, or when live owner input is the only blocker for the higher-leverage lane.
+Small policy-safe wins should compound, but they are bundled into efficient
+structural work until all materially sensible savings lanes are harvested or
+proven blocked. Micro-optimization is a later product phase: after structural
+savings are exhausted, Slimference continues down the optimization stack and
+compounds smaller measured net-positive wins without relaxing the drawdown
+contract.
 
 ## 2. Active Product Layers
 
