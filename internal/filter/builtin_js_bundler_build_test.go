@@ -45,6 +45,12 @@ func TestTryCompactJSBundlerCleanOutput(t *testing.T) {
 			stdout: jsBundlerEsbuildCleanFixture(18),
 			want:   "[esbuild] ok\n",
 		},
+		{
+			name:   "tsup",
+			argv:   []string{"npx", "-y", "tsup", "src/index.ts", "--format", "cjs,esm", "--dts"},
+			stdout: jsBundlerTsupCleanFixture(18),
+			want:   "[tsup] ok\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -67,6 +73,15 @@ func TestTryCompactJSBundlerPackageScriptCleanOutput(t *testing.T) {
 	out, ok := TryCompactBuildOutput([]string{"pnpm", "run", "build"}, []byte(stdout.String()))
 	if !ok || string(out) != "[webpack] ok\n" {
 		t.Fatalf("package script webpack clean output: ok=%v out=%q", ok, out)
+	}
+
+	stdout.Reset()
+	stdout.WriteString("> web@1.0.0 build /repo\n")
+	stdout.WriteString("> tsup src/index.ts --format cjs,esm --dts\n")
+	stdout.WriteString(jsBundlerTsupCleanFixture(10))
+	out, ok = TryCompactBuildOutput([]string{"npm", "run", "build"}, []byte(stdout.String()))
+	if !ok || string(out) != "[tsup] ok\n" {
+		t.Fatalf("package script tsup clean output: ok=%v out=%q", ok, out)
 	}
 }
 
@@ -120,6 +135,39 @@ func TestTryCompactJSBundlerCleanOutputFailOpen(t *testing.T) {
 			argv:   []string{"esbuild", "src/index.ts", "--bundle", "--outfile=dist/index.js"},
 			stdout: "dist/index.js 1.2kb\nerror: Could not resolve \"missing\"\n",
 			try:    TryCompactEsbuildBundle,
+		},
+		{
+			name:   "tsup dts error after esm success",
+			argv:   []string{"tsup", "src/index.ts", "--dts"},
+			stdout: jsBundlerTsupCleanFixture(8) + "DTS Build start\nError parsing: src/index.ts:1:0\nDTS Build error\n",
+			try:    TryCompactTsupBuild,
+		},
+		{
+			name:   "tsup esbuild bracket error",
+			argv:   []string{"tsup", "src/index.ts"},
+			stdout: "CLI Building entry: src/index.ts\nCLI tsup v8.5.0\nESM Build start\nX [ERROR] Could not resolve \"missing\"\nESM Build failed\n",
+			try:    TryCompactTsupBuild,
+		},
+		{
+			name:   "tsup warning-like unused import",
+			argv:   []string{"tsup", "src/index.ts"},
+			stdout: jsBundlerTsupCleanFixture(8) + "\"useCallback\" is imported from external module \"react\" but never used in \"dist/chunk.js\".\n",
+			try:    TryCompactTsupBuild,
+		},
+		{
+			name: "tsup started phase without success",
+			argv: []string{"tsup", "src/index.ts", "--dts"},
+			stdout: strings.Join([]string{
+				"CLI Building entry: src/index.ts",
+				"CLI tsup v8.5.0",
+				"ESM Build start",
+				"ESM dist/index.mjs 182.00 B",
+				"ESM \u26a1\ufe0f Build success in 7ms",
+				"DTS Build start",
+				"DTS dist/index.d.ts 4.00 KB",
+				"",
+			}, "\n"),
+			try: TryCompactTsupBuild,
 		},
 	}
 
@@ -177,6 +225,24 @@ func TestTryCompactJSBundlerCleanOutputStrictBranches(t *testing.T) {
 			stdout: strings.Repeat("dist/index.js  12 kb\n", 4),
 			try:    TryCompactEsbuildBundle,
 		},
+		{
+			name:   "tsup missing cli marker",
+			argv:   []string{"tsup", "src/index.ts"},
+			stdout: strings.Repeat("ESM dist/index.mjs 182.00 B\nESM Build success in 7ms\n", 3),
+			try:    TryCompactTsupBuild,
+		},
+		{
+			name:   "tsup missing artifact",
+			argv:   []string{"tsup", "src/index.ts"},
+			stdout: strings.Repeat("CLI Building entry: src/index.ts\nCLI tsup v8.5.0\nESM Build success in 7ms\n", 3),
+			try:    TryCompactTsupBuild,
+		},
+		{
+			name:   "tsup missing success",
+			argv:   []string{"tsup", "src/index.ts"},
+			stdout: strings.Repeat("CLI Building entry: src/index.ts\nCLI tsup v8.5.0\nESM dist/index.mjs 182.00 B\n", 3),
+			try:    TryCompactTsupBuild,
+		},
 	}
 
 	for _, tt := range tests {
@@ -201,6 +267,7 @@ func TestWebBuildSignalHelpers(t *testing.T) {
 		{"src/index.ts: error TS1005", true},
 		{"errors: 1", true},
 		{"1 errors", true},
+		{"x [error] could not resolve", true},
 		{"compiled successfully", false},
 	}
 	for _, tc := range errorCases {
@@ -273,5 +340,26 @@ func jsBundlerEsbuildCleanFixture(entries int) string {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js  %d kb\n", i, 12+i)
 	}
 	b.WriteString("Done in 45ms\n")
+	return b.String()
+}
+
+func jsBundlerTsupCleanFixture(entries int) string {
+	var b strings.Builder
+	b.WriteString("CLI Building entry: src/index.ts\n")
+	b.WriteString("CLI Using tsconfig: tsconfig.json\n")
+	b.WriteString("CLI tsup v8.5.0\n")
+	b.WriteString("CLI Target: node18\n")
+	b.WriteString("CLI Cleaning output folder\n")
+	b.WriteString("ESM Build start\n")
+	b.WriteString("CJS Build start\n")
+	for i := 0; i < entries; i++ {
+		fmt.Fprintf(&b, "ESM dist/chunk-%02d.mjs     %d.00 KB\n", i, 10+i)
+		fmt.Fprintf(&b, "CJS dist/chunk-%02d.js      %d.00 KB\n", i, 11+i)
+	}
+	b.WriteString("ESM \u26a1\ufe0f Build success in 42ms\n")
+	b.WriteString("CJS \u26a1\ufe0f Build success in 44ms\n")
+	b.WriteString("DTS Build start\n")
+	b.WriteString("DTS \u26a1\ufe0f Build success in 320ms\n")
+	b.WriteString("DTS dist/index.d.ts 4.00 KB\n")
 	return b.String()
 }

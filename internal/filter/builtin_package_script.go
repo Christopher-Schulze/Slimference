@@ -120,6 +120,7 @@ func packageManagerBuildScriptParsers() []packageManagerScriptParser {
 		TryCompactTsc,
 		TryCompactNextBuild,
 		TryCompactViteBuild,
+		TryCompactTsupBuild,
 		TryCompactWebpack,
 		TryCompactRspackBuild,
 		TryCompactParcelBuild,

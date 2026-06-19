@@ -498,6 +498,112 @@ func compactViteBuildCleanOutput(stdout string, originalLen int) ([]byte, bool) 
 	return out, true
 }
 
+// TryCompactTsupBuild replaces empty or strictly clean stdout from `tsup` / `npx|pnpm exec|yarn ... tsup`.
+func TryCompactTsupBuild(argv []string, stdout []byte) ([]byte, bool) {
+	if !isSingleBinarySubcmdArgv(argv, "tsup", "") {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[tsup] ok\n"), true
+	}
+	return compactTsupCleanOutput(s, len(stdout))
+}
+
+func compactTsupCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	out := []byte("[tsup] ok\n")
+	if len(out) >= originalLen || webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	lower := strings.ToLower(stdout)
+	if !strings.Contains(lower, "cli building entry") ||
+		!strings.Contains(lower, "cli tsup v") ||
+		strings.Contains(lower, " never used") ||
+		strings.Contains(lower, " is imported from external module ") ||
+		!tsupHasCompleteSuccessfulPhaseSet(lower) ||
+		!tsupHasArtifactSignal(lower) {
+		return nil, false
+	}
+	return out, true
+}
+
+func tsupHasCompleteSuccessfulPhaseSet(lower string) bool {
+	started := make(map[string]bool)
+	succeeded := make(map[string]bool)
+	for _, line := range strings.Split(lower, "\n") {
+		line = strings.TrimSpace(line)
+		phase, ok := tsupLinePhase(line)
+		if !ok {
+			continue
+		}
+		if strings.Contains(line, "build start") {
+			started[phase] = true
+		}
+		if strings.Contains(line, "build success in") {
+			succeeded[phase] = true
+		}
+	}
+	if len(started) == 0 || len(succeeded) == 0 {
+		return false
+	}
+	for phase := range started {
+		if !succeeded[phase] {
+			return false
+		}
+	}
+	return true
+}
+
+func tsupHasArtifactSignal(lower string) bool {
+	for _, line := range strings.Split(lower, "\n") {
+		line = strings.TrimSpace(line)
+		if !tsupLineHasPhasePrefix(line) ||
+			strings.Contains(line, "build start") ||
+			strings.Contains(line, "build success") {
+			continue
+		}
+		if tsupLineHasArtifactPath(line) && tsupLineHasSizeUnit(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func tsupLineHasPhasePrefix(line string) bool {
+	_, ok := tsupLinePhase(line)
+	return ok
+}
+
+func tsupLinePhase(line string) (string, bool) {
+	for _, prefix := range []string{"esm ", "cjs ", "iife ", "dts "} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(prefix), true
+		}
+	}
+	return "", false
+}
+
+func tsupLineHasArtifactPath(line string) bool {
+	return strings.Contains(line, "dist/") ||
+		strings.Contains(line, ".js") ||
+		strings.Contains(line, ".mjs") ||
+		strings.Contains(line, ".cjs") ||
+		strings.Contains(line, ".css") ||
+		strings.Contains(line, ".d.ts") ||
+		strings.Contains(line, ".d.mts") ||
+		strings.Contains(line, ".d.cts")
+}
+
+func tsupLineHasSizeUnit(line string) bool {
+	for _, field := range strings.Fields(line) {
+		switch field {
+		case "b", "kb", "kib", "mb", "mib", "bytes":
+			return true
+		}
+	}
+	return false
+}
+
 func webBuildCleanOutputHasUnsafeSignal(stdout string) bool {
 	if outputHasUnsafeSuccessSignal(stdout) {
 		return true
@@ -529,6 +635,7 @@ func webBuildLineHasErrorSignal(lower string) bool {
 		return false
 	}
 	return strings.HasPrefix(lower, "error") ||
+		strings.Contains(lower, "[error]") ||
 		strings.Contains(lower, " error ") ||
 		strings.Contains(lower, ": error") ||
 		strings.Contains(lower, "errors:") ||
@@ -1177,6 +1284,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactViteBuild(argv, stdout); ok {
 		return out, true
 	}
+	if out, ok := TryCompactTsupBuild(argv, stdout); ok {
+		return out, true
+	}
 	if out, ok := TryCompactWebpack(argv, stdout); ok {
 		return out, true
 	}
@@ -1359,6 +1469,7 @@ func buildToolLabel(argv []string) string {
 		{"tsc", "", "tsc"},
 		{"next", "build", "next build"},
 		{"vite", "build", "vite build"},
+		{"tsup", "", "tsup"},
 		{"webpack", "", "webpack"},
 		{"webpack-cli", "", "webpack"},
 		{"rspack", "build", "rspack build"},

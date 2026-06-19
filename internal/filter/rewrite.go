@@ -21,7 +21,7 @@ var filterableCommands = map[string]bool{
 	"mix": true, "moon": true, "mvn": true, "next": true, "ninja": true,
 	"npm": true, "npx": true, "nx": true, "pack": true, "parcel": true,
 	"pio": true, "pnpm": true, "pnpx": true, "rollup": true, "rspack": true,
-	"swift": true, "task": true, "trunk": true, "tsc": true, "turbo": true,
+	"swift": true, "task": true, "trunk": true, "tsc": true, "tsup": true, "turbo": true,
 	"vite": true, "wasm-pack": true, "webpack": true, "webpack-cli": true,
 	"xcodebuild": true, "yarn": true, "zig": true,
 	// Test (F08)

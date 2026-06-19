@@ -67,6 +67,13 @@ func TestWSSStatefulSafeWebBuildCleanOutputCompactsFullHistoryTurn(t *testing.T)
 			want:      "[esbuild] ok",
 			forbidden: "dist/chunk-39.js",
 		},
+		{
+			name:      "tsup",
+			command:   "tsup src/index.ts --format cjs,esm --dts",
+			output:    webBuildCleanEnvelope("tsup-safe", wssTsupCleanFixture()),
+			want:      "[tsup] ok",
+			forbidden: "dist/chunk-39.mjs",
+		},
 	}
 
 	for _, tt := range tests {
@@ -187,5 +194,26 @@ func wssEsbuildCleanFixture() string {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js  %d kb\n", i, 12+i)
 	}
 	b.WriteString("Done in 45ms\n")
+	return b.String()
+}
+
+func wssTsupCleanFixture() string {
+	var b strings.Builder
+	b.WriteString("CLI Building entry: src/index.ts\n")
+	b.WriteString("CLI Using tsconfig: tsconfig.json\n")
+	b.WriteString("CLI tsup v8.5.0\n")
+	b.WriteString("CLI Target: node18\n")
+	b.WriteString("CLI Cleaning output folder\n")
+	b.WriteString("ESM Build start\n")
+	b.WriteString("CJS Build start\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "ESM dist/chunk-%02d.mjs     %d.00 KB\n", i, 10+i)
+		fmt.Fprintf(&b, "CJS dist/chunk-%02d.js      %d.00 KB\n", i, 11+i)
+	}
+	b.WriteString("ESM \u26a1\ufe0f Build success in 42ms\n")
+	b.WriteString("CJS \u26a1\ufe0f Build success in 44ms\n")
+	b.WriteString("DTS Build start\n")
+	b.WriteString("DTS \u26a1\ufe0f Build success in 320ms\n")
+	b.WriteString("DTS dist/index.d.ts 4.00 KB\n")
 	return b.String()
 }
