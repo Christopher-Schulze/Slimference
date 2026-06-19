@@ -14,6 +14,7 @@ func TestWSST354ShapeProofPassesCleanMutatedDeltaAndFollowingTurn(t *testing.T) 
 	writeJSONLFile(t, path,
 		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 180), false),
 		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_mutated", 40), true),
+		wssT354TestFrame("server_to_client", wssT354TestOutputItemDone("item-mutated", "call_mutated"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
 		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
 		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
@@ -42,6 +43,11 @@ func TestWSST354ShapeProofPassesCleanMutatedDeltaAndFollowingTurn(t *testing.T) 
 		report.Totals.ProviderUsage.CachedTokens != 600 ||
 		report.Totals.ProviderUsage.OutputTokens != 24 {
 		t.Fatalf("provider usage must stay separate from local savings: %+v", report.Totals.ProviderUsage)
+	}
+	if report.Totals.MetadataComparisons != 1 ||
+		report.Totals.MetadataMismatches != 0 ||
+		report.Totals.CandidatesWithServerOutputID != 1 {
+		t.Fatalf("metadata consistency and server output-id proof missing: %+v", report.Totals)
 	}
 }
 
@@ -121,6 +127,76 @@ func TestWSST354ShapeProofDoesNotPairDifferentSequences(t *testing.T) {
 	}
 }
 
+func TestWSST354ShapeProofBlocksReferenceMetadataMismatch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-metadata-mismatch.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_original", 180), false, 31),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_changed", 40), true, 31),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed ||
+		report.Totals.MetadataComparisons != 1 ||
+		report.Totals.MetadataMismatches != 1 ||
+		report.Totals.CandidatesPassing != 0 ||
+		!strings.Contains(strings.Join(report.GateFailures, "\n"), "metadata_reference_mismatch") {
+		t.Fatalf("reference metadata mismatch must block T354 unlock proof: %+v", report)
+	}
+}
+
+func TestWSST354ShapeProofSkipsMetadataMismatchForShapeChangedRebuild(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-shape-changed-rebuild.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-before", "call_delta", 180), false, 41),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_delta", 40), true, 41),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.Totals.MetadataComparisons != 0 ||
+		report.Totals.MetadataMismatches != 0 ||
+		report.Totals.CandidatesPassing != 1 {
+		t.Fatalf("shape-changing stateless rebuild must not be blocked as metadata mismatch: %+v", report)
+	}
+}
+
+func TestWSST354ShapeProofIgnoresStructuredToolOutputContentMetadata(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-structured-output-content.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestObjectOutputRequest("resp-before", "call_object", "content-original"), false, 51),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestObjectOutputRequest("resp-before", "call_object", "content-mutated"), true, 51),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.Totals.MetadataComparisons != 1 ||
+		report.Totals.MetadataMismatches != 0 ||
+		report.Totals.CandidatesPassing != 1 {
+		t.Fatalf("structured tool output content must not be treated as hidden metadata: %+v", report)
+	}
+}
+
 func wssT354TestFrame(direction string, payload any, mutated bool) map[string]any {
 	rec := wssABReplayTestRecord(direction, payload)
 	if mutated {
@@ -153,6 +229,37 @@ func wssT354TestToolOutputRequestLines(previousResponseID, callID string, lines 
 	}
 }
 
+func wssT354TestFullHistoryToolOutputRequestLines(callID string, lines int) map[string]any {
+	return map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "t354-shape-proof-test",
+		"input": []map[string]any{
+			{"type": "message", "role": "assistant", "content": "history"},
+			{"type": "function_call", "call_id": callID, "name": "exec_command", "arguments": map[string]any{"cmd": "rg -n needle internal"}},
+			{"type": "function_call_output", "call_id": callID, "output": strings.Repeat("stable proof output line\n", lines)},
+		},
+		"stream": true,
+	}
+}
+
+func wssT354TestObjectOutputRequest(previousResponseID, callID, contentID string) map[string]any {
+	return map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": previousResponseID,
+		"prompt_cache_key":     "t354-shape-proof-test",
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": callID,
+			"output": map[string]any{
+				"id":     contentID,
+				"type":   "content",
+				"status": "ok",
+			},
+		}},
+		"stream": true,
+	}
+}
+
 func wssT354TestUserDeltaRequest(previousResponseID string) map[string]any {
 	return map[string]any{
 		"model":                "gpt-5-codex",
@@ -179,6 +286,18 @@ func wssT354TestCompleted(responseID string) map[string]any {
 				},
 				"output_tokens": 12,
 			},
+		},
+	}
+}
+
+func wssT354TestOutputItemDone(itemID, callID string) map[string]any {
+	return map[string]any{
+		"type":    "response.output_item.done",
+		"item_id": itemID,
+		"item": map[string]any{
+			"type":    "function_call",
+			"id":      itemID,
+			"call_id": callID,
 		},
 	}
 }

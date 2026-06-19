@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/Christopher-Schulze/Slimference/internal/proxy"
@@ -53,44 +55,64 @@ type wssT354ShapeProofTotal struct {
 	ProviderUsage                  wssT354ProviderUsage `json:"provider_usage"`
 	MissingFollowingTurnCandidates int                  `json:"missing_following_turn_candidates"`
 	UnsafeCandidates               int                  `json:"unsafe_candidates"`
+	MetadataComparisons            int                  `json:"metadata_comparisons,omitempty"`
+	MetadataMismatches             int                  `json:"metadata_mismatches,omitempty"`
+	CandidatesWithServerOutputItem int                  `json:"candidates_with_server_output_item,omitempty"`
+	CandidatesWithServerOutputID   int                  `json:"candidates_with_server_output_id,omitempty"`
 }
 
 type wssT354ShapeProofRow struct {
-	Path                        string                  `json:"path"`
-	Frames                      int                     `json:"frames"`
-	RequestTurns                int                     `json:"request_turns"`
-	RequestShapes               replayShapeCounts       `json:"request_shapes"`
-	Candidates                  []wssT354CandidateProof `json:"candidates,omitempty"`
-	Upstream                    wssT354UpstreamProof    `json:"upstream"`
-	Lost                        int                     `json:"lost"`
-	ReplayLocalSavedTokens      int                     `json:"replay_local_saved_tokens"`
-	CapturedLocalSavedTokens    int                     `json:"captured_local_saved_tokens_estimate"`
-	RetryOrResendExtraTokens    int                     `json:"retry_or_resend_extra_tokens_estimate"`
-	NetCapturedLocalSavedTokens int                     `json:"net_captured_local_saved_tokens_estimate"`
-	ProviderUsage               wssT354ProviderUsage    `json:"provider_usage"`
-	GatePassed                  bool                    `json:"gate_passed"`
-	GateFailures                []string                `json:"gate_failures,omitempty"`
+	Path                           string                  `json:"path"`
+	Frames                         int                     `json:"frames"`
+	RequestTurns                   int                     `json:"request_turns"`
+	RequestShapes                  replayShapeCounts       `json:"request_shapes"`
+	Candidates                     []wssT354CandidateProof `json:"candidates,omitempty"`
+	Upstream                       wssT354UpstreamProof    `json:"upstream"`
+	Lost                           int                     `json:"lost"`
+	ReplayLocalSavedTokens         int                     `json:"replay_local_saved_tokens"`
+	CapturedLocalSavedTokens       int                     `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens       int                     `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens    int                     `json:"net_captured_local_saved_tokens_estimate"`
+	ProviderUsage                  wssT354ProviderUsage    `json:"provider_usage"`
+	MetadataComparisons            int                     `json:"metadata_comparisons,omitempty"`
+	MetadataMismatches             int                     `json:"metadata_mismatches,omitempty"`
+	CandidatesWithServerOutputItem int                     `json:"candidates_with_server_output_item,omitempty"`
+	CandidatesWithServerOutputID   int                     `json:"candidates_with_server_output_id,omitempty"`
+	GatePassed                     bool                    `json:"gate_passed"`
+	GateFailures                   []string                `json:"gate_failures,omitempty"`
 }
 
 type wssT354CandidateProof struct {
-	TurnIndex                      int                `json:"turn_index"`
-	Shape                          string             `json:"shape"`
-	PreviousResponseID             bool               `json:"previous_response_id"`
-	ToolOutputs                    int                `json:"tool_outputs"`
-	CustomToolOutputs              int                `json:"custom_tool_outputs"`
-	RequestTokensEstimate          int                `json:"request_tokens_estimate"`
-	CapturedOriginalRequestTokens  int                `json:"captured_original_request_tokens_estimate,omitempty"`
-	CapturedLocalSavedTokens       int                `json:"captured_local_saved_tokens_estimate,omitempty"`
-	CurrentTurnClean               bool               `json:"current_turn_clean"`
-	CurrentTurnHealth              wssT354TurnHealth  `json:"current_turn_health"`
-	FollowingTurnPresent           bool               `json:"following_turn_present"`
-	FollowingTurnShape             string             `json:"following_turn_shape,omitempty"`
-	FollowingRequestTokensEstimate int                `json:"following_request_tokens_estimate,omitempty"`
-	RetryOrResendExtraTokens       int                `json:"retry_or_resend_extra_tokens_estimate,omitempty"`
-	FollowingTurnClean             bool               `json:"following_turn_clean"`
-	FollowingTurnHealth            *wssT354TurnHealth `json:"following_turn_health,omitempty"`
-	UnlockProofPassing             bool               `json:"unlock_proof_passing"`
-	BlockReasons                   []string           `json:"block_reasons,omitempty"`
+	TurnIndex                      int                       `json:"turn_index"`
+	Shape                          string                    `json:"shape"`
+	PreviousResponseID             bool                      `json:"previous_response_id"`
+	ToolOutputs                    int                       `json:"tool_outputs"`
+	CustomToolOutputs              int                       `json:"custom_tool_outputs"`
+	RequestTokensEstimate          int                       `json:"request_tokens_estimate"`
+	CapturedOriginalRequestTokens  int                       `json:"captured_original_request_tokens_estimate,omitempty"`
+	CapturedLocalSavedTokens       int                       `json:"captured_local_saved_tokens_estimate,omitempty"`
+	CurrentTurnClean               bool                      `json:"current_turn_clean"`
+	CurrentTurnHealth              wssT354TurnHealth         `json:"current_turn_health"`
+	FollowingTurnPresent           bool                      `json:"following_turn_present"`
+	FollowingTurnShape             string                    `json:"following_turn_shape,omitempty"`
+	FollowingRequestTokensEstimate int                       `json:"following_request_tokens_estimate,omitempty"`
+	RetryOrResendExtraTokens       int                       `json:"retry_or_resend_extra_tokens_estimate,omitempty"`
+	FollowingTurnClean             bool                      `json:"following_turn_clean"`
+	FollowingTurnHealth            *wssT354TurnHealth        `json:"following_turn_health,omitempty"`
+	UnlockProofPassing             bool                      `json:"unlock_proof_passing"`
+	MetadataConsistency            string                    `json:"metadata_consistency,omitempty"`
+	OriginalMetadataFootprint      *wssT354MetadataFootprint `json:"original_metadata_footprint,omitempty"`
+	MutatedMetadataFootprint       *wssT354MetadataFootprint `json:"mutated_metadata_footprint,omitempty"`
+	CurrentTurnServerOutputItems   int                       `json:"current_turn_server_output_items,omitempty"`
+	CurrentTurnServerOutputIDs     int                       `json:"current_turn_server_output_ids,omitempty"`
+	BlockReasons                   []string                  `json:"block_reasons,omitempty"`
+}
+
+type wssT354MetadataFootprint struct {
+	ReferenceFields int `json:"reference_fields"`
+	MetadataFields  int `json:"metadata_fields"`
+	ShapeFields     int `json:"shape_fields"`
+	fingerprint     string
 }
 
 type wssT354ProviderUsage struct {
@@ -129,6 +151,12 @@ type wssT354Turn struct {
 	requestTokensEstimate         int
 	capturedOriginalRequestTokens int
 	capturedLocalSavedTokens      int
+	metadataFootprint             wssT354MetadataFootprint
+	capturedOriginalMetadata      wssT354MetadataFootprint
+	metadataComparisonAvailable   bool
+	metadataConsistent            bool
+	serverOutputItems             int
+	serverOutputItemIDs           int
 	sequence                      int64
 	mutated                       bool
 	capturedOriginalShadow        bool
@@ -290,6 +318,16 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 			CapturedLocalSavedTokens:      turn.capturedLocalSavedTokens,
 			CurrentTurnClean:              wssT354TurnClean(turn),
 			CurrentTurnHealth:             wssT354TurnHealthFromTurn(turn),
+			CurrentTurnServerOutputItems:  turn.serverOutputItems,
+			CurrentTurnServerOutputIDs:    turn.serverOutputItemIDs,
+		}
+		if turn.metadataComparisonAvailable {
+			candidate.MetadataConsistency = "preserved"
+			if !turn.metadataConsistent {
+				candidate.MetadataConsistency = "mismatch"
+			}
+			candidate.OriginalMetadataFootprint = turn.capturedOriginalMetadata.publicCopy()
+			candidate.MutatedMetadataFootprint = turn.metadataFootprint.publicCopy()
 		}
 		if following, ok := wssT354NextLogicalTurn(turns, i); ok {
 			followingHealth := wssT354TurnHealthFromTurn(following)
@@ -306,6 +344,18 @@ func loadWSST354ShapeProofRow(path string) (wssT354ShapeProofRow, error) {
 		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
 		row.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
 		row.RetryOrResendExtraTokens += candidate.RetryOrResendExtraTokens
+		if candidate.MetadataConsistency != "" {
+			row.MetadataComparisons++
+			if candidate.MetadataConsistency == "mismatch" {
+				row.MetadataMismatches++
+			}
+		}
+		if candidate.CurrentTurnServerOutputItems > 0 {
+			row.CandidatesWithServerOutputItem++
+		}
+		if candidate.CurrentTurnServerOutputIDs > 0 {
+			row.CandidatesWithServerOutputID++
+		}
 		row.Candidates = append(row.Candidates, candidate)
 	}
 	row.NetCapturedLocalSavedTokens = row.CapturedLocalSavedTokens - row.RetryOrResendExtraTokens
@@ -328,6 +378,7 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 				continue
 			}
 			info := wssT354RequestInfo(root)
+			info.metadataFootprint = wssT354MetadataFootprintFromRoot(root)
 			info.requestTokensEstimate = tokens.Estimate(len(body))
 			info.sequence = frame.Sequence
 			turns = append(turns, info)
@@ -337,6 +388,11 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 				if wssT354SameCapturedSequence(lastOriginal, info) {
 					turns[current].capturedOriginalRequestTokens = lastOriginal.requestTokensEstimate
 					turns[current].capturedLocalSavedTokens = positiveDelta(lastOriginal.requestTokensEstimate, info.requestTokensEstimate)
+					if lastOriginal.shape == info.shape && lastOriginal.previousResponseID == info.previousResponseID {
+						turns[current].capturedOriginalMetadata = lastOriginal.metadataFootprint
+						turns[current].metadataComparisonAvailable = true
+						turns[current].metadataConsistent = lastOriginal.metadataFootprint.fingerprint == info.metadataFootprint.fingerprint
+					}
 					if lastOriginalIndex >= 0 && lastOriginalIndex < current {
 						turns[lastOriginalIndex].capturedOriginalShadow = true
 					}
@@ -360,6 +416,9 @@ func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
 			continue
 		}
 		switch env.Kind {
+		case wsmitm.FrameKindResponseOutputItemAdded, wsmitm.FrameKindResponseOutputItemDone:
+			turns[current].serverOutputItems++
+			turns[current].serverOutputItemIDs += wssT354ServerOutputItemIDFields(env)
 		case wsmitm.FrameKindResponseCompleted:
 			turns[current].terminal = true
 		case wsmitm.FrameKindError:
@@ -475,6 +534,144 @@ func wssT354RequestInfo(root map[string]json.RawMessage) wssT354Turn {
 		toolOutputs:        toolOutputs,
 		customToolOutputs:  customToolOutputs,
 	}
+}
+
+func wssT354MetadataFootprintFromRoot(root map[string]json.RawMessage) wssT354MetadataFootprint {
+	var footprint wssT354MetadataFootprint
+	var signatureParts []string
+	for key, raw := range root {
+		wssT354WalkMetadataFootprint(strings.ToLower(strings.TrimSpace(key)), raw, &footprint, &signatureParts)
+	}
+	sort.Strings(signatureParts)
+	sum := sha256.Sum256([]byte(strings.Join(signatureParts, "\n")))
+	footprint.fingerprint = fmt.Sprintf("%x", sum[:])
+	return footprint
+}
+
+func wssT354WalkMetadataFootprint(key string, raw json.RawMessage, footprint *wssT354MetadataFootprint, signatureParts *[]string) {
+	if category := wssT354MetadataKeyCategory(key); category != "" {
+		switch category {
+		case "reference":
+			footprint.ReferenceFields++
+		case "metadata":
+			footprint.MetadataFields++
+		case "shape":
+			footprint.ShapeFields++
+		}
+		*signatureParts = append(*signatureParts, "key:"+category+":"+key)
+		if scalar, ok := wssT354ScalarSignature(raw); ok {
+			*signatureParts = append(*signatureParts, "value:"+category+":"+key+"="+scalar)
+		}
+	}
+	if wssT354ContentBearingKey(key) {
+		return
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err == nil && len(object) > 0 {
+		for childKey, childRaw := range object {
+			wssT354WalkMetadataFootprint(strings.ToLower(strings.TrimSpace(childKey)), childRaw, footprint, signatureParts)
+		}
+		return
+	}
+	var array []json.RawMessage
+	if err := json.Unmarshal(raw, &array); err == nil {
+		for _, childRaw := range array {
+			wssT354WalkMetadataFootprint("", childRaw, footprint, signatureParts)
+		}
+	}
+}
+
+func wssT354ContentBearingKey(key string) bool {
+	switch key {
+	case "arguments", "body", "content", "delta", "output", "text":
+		return true
+	default:
+		return false
+	}
+}
+
+func wssT354MetadataKeyCategory(key string) string {
+	switch key {
+	case "previous_response_id", "response_id", "item_id", "call_id", "output_id", "tool_call_id", "id":
+		return "reference"
+	case "metadata", "client_metadata", "x-codex-turn-metadata", "conversation_id", "thread_id", "session_id", "prompt_cache_key":
+		return "metadata"
+	case "model", "type", "role", "name":
+		return "shape"
+	default:
+		return ""
+	}
+}
+
+func wssT354ScalarSignature(raw json.RawMessage) (string, bool) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return "", false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	switch typed := value.(type) {
+	case string:
+		return "s:" + typed, true
+	case float64:
+		return fmt.Sprintf("n:%g", typed), true
+	case bool:
+		if typed {
+			return "b:true", true
+		}
+		return "b:false", true
+	case nil:
+		return "null", true
+	default:
+		return "", false
+	}
+}
+
+func (f wssT354MetadataFootprint) publicCopy() *wssT354MetadataFootprint {
+	out := f
+	out.fingerprint = ""
+	return &out
+}
+
+func wssT354ServerOutputItemIDFields(env wsmitm.Envelope) int {
+	count := 0
+	if strings.TrimSpace(env.ItemID) != "" {
+		count++
+	}
+	if len(env.Item) == 0 {
+		return count
+	}
+	var item map[string]json.RawMessage
+	if err := json.Unmarshal(env.Item, &item); err != nil {
+		return count
+	}
+	return count + wssT354CountReferenceFields(item)
+}
+
+func wssT354CountReferenceFields(root map[string]json.RawMessage) int {
+	count := 0
+	for key, raw := range root {
+		if wssT354MetadataKeyCategory(strings.ToLower(strings.TrimSpace(key))) == "reference" {
+			count++
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err == nil && len(object) > 0 {
+			count += wssT354CountReferenceFields(object)
+			continue
+		}
+		var array []json.RawMessage
+		if err := json.Unmarshal(raw, &array); err == nil {
+			for _, childRaw := range array {
+				var child map[string]json.RawMessage
+				if err := json.Unmarshal(childRaw, &child); err == nil {
+					count += wssT354CountReferenceFields(child)
+				}
+			}
+		}
+	}
+	return count
 }
 
 func wssT354InputFacts(raw json.RawMessage) (toolOutputs int, customToolOutputs int, history bool) {
@@ -656,6 +853,9 @@ func wssT354TurnHealthFromTurn(turn wssT354Turn) wssT354TurnHealth {
 
 func wssT354CandidateBlockReasons(candidate wssT354CandidateProof) []string {
 	var out []string
+	if candidate.MetadataConsistency == "mismatch" {
+		out = append(out, "metadata_reference_mismatch")
+	}
 	if !candidate.CurrentTurnClean {
 		out = append(out, wssT354TurnHealthBlockReason("current_turn", candidate.CurrentTurnHealth))
 	}
@@ -732,6 +932,10 @@ func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapePr
 	total.RetryOrResendExtraTokens += row.RetryOrResendExtraTokens
 	total.NetCapturedLocalSavedTokens += row.NetCapturedLocalSavedTokens
 	total.ProviderUsage.add(row.ProviderUsage)
+	total.MetadataComparisons += row.MetadataComparisons
+	total.MetadataMismatches += row.MetadataMismatches
+	total.CandidatesWithServerOutputItem += row.CandidatesWithServerOutputItem
+	total.CandidatesWithServerOutputID += row.CandidatesWithServerOutputID
 	for _, candidate := range row.Candidates {
 		total.MutatedToolOutputCandidates++
 		switch candidate.Shape {
@@ -800,6 +1004,15 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.ProviderUsage.CachedTokens > 0 {
 		findings = append(findings, fmt.Sprintf("provider_cached_tokens=%d", report.Totals.ProviderUsage.CachedTokens))
 	}
+	if report.Totals.MetadataComparisons > 0 {
+		findings = append(findings, fmt.Sprintf("metadata_comparisons=%d", report.Totals.MetadataComparisons))
+	}
+	if report.Totals.MetadataMismatches > 0 {
+		findings = append(findings, fmt.Sprintf("metadata_mismatches=%d", report.Totals.MetadataMismatches))
+	}
+	if report.Totals.CandidatesWithServerOutputID > 0 {
+		findings = append(findings, fmt.Sprintf("server_output_item_id_candidates=%d", report.Totals.CandidatesWithServerOutputID))
+	}
 	if report.Totals.UpstreamErrorFrames == 0 && report.Totals.Lost == 0 {
 		findings = append(findings, "upstream_and_lost_clean")
 	}
@@ -840,6 +1053,11 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.ProviderUsage.CachedPct,
 		report.Totals.ProviderUsage.OutputTokens,
 		report.Totals.ProviderUsage.CompletionFrames)
+	fmt.Fprintf(w, "  metadata:          comparisons=%d mismatches=%d server_output_items=%d server_output_ids=%d\n",
+		report.Totals.MetadataComparisons,
+		report.Totals.MetadataMismatches,
+		report.Totals.CandidatesWithServerOutputItem,
+		report.Totals.CandidatesWithServerOutputID)
 	if len(report.Findings) > 0 {
 		fmt.Fprintln(w, "  findings:")
 		for _, finding := range report.Findings {
