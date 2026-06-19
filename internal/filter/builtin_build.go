@@ -1465,25 +1465,140 @@ func isGradleBuildArgv(argv []string) bool {
 	return false
 }
 
-// TryCompactGradle replaces empty stdout from `gradle build` / `gradlew build` / `npx|pnpm exec|yarn … gradle|gradlew … build` (F07 partial).
+// TryCompactGradle replaces empty stdout and strict clean Gradle build success
+// from `gradle build` / `gradlew build` / `npx|pnpm exec|yarn ... gradle|gradlew ... build` (F07 partial).
 func TryCompactGradle(argv []string, stdout []byte) ([]byte, bool) {
-	if strings.TrimSpace(string(stdout)) != "" {
+	if _, ok := gradleCompactArgvSuffix(argv); !ok {
 		return stdout, false
 	}
-	if isGradleBuildArgv(argv) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
 		return []byte("[gradle build] ok\n"), true
 	}
+	if out, ok := compactGradleBuildCleanOutput(s, len(stdout)); ok {
+		return out, true
+	}
+	return stdout, false
+}
+
+func gradleCompactArgvSuffix(argv []string) ([]string, bool) {
+	if isGradleBuildArgv(argv) {
+		return argv, true
+	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 2 && isGradleBuildArgv(rest) {
-		return []byte("[gradle build] ok\n"), true
+		return rest, true
+	}
+	if len(argv) == 0 {
+		return nil, false
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" && isGradleBuildArgv(argv[2:]) {
-		return []byte("[gradle build] ok\n"), true
+		return argv[2:], true
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && isGradleBuildArgv(argv[1:]) {
-		return []byte("[gradle build] ok\n"), true
+		return argv[1:], true
 	}
-	return stdout, false
+	return nil, false
+}
+
+func compactGradleBuildCleanOutput(stdout string, originalLen int) ([]byte, bool) {
+	if webBuildCleanOutputHasUnsafeSignal(stdout) {
+		return nil, false
+	}
+	sawSuccess := false
+	sawTaskOrSummary := false
+	summary := ""
+	for _, raw := range strings.Split(stdout, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		switch {
+		case gradleBuildTaskLine(line):
+			sawTaskOrSummary = true
+		case gradleBuildSuccessLine(line):
+			sawSuccess = true
+		case gradleBuildActionableSummaryLine(line):
+			sawTaskOrSummary = true
+			summary = line
+		case gradleBuildNeutralLine(line):
+		default:
+			return nil, false
+		}
+	}
+	if !sawSuccess || !sawTaskOrSummary {
+		return nil, false
+	}
+	text := "[gradle build] ok\n"
+	if summary != "" {
+		text = "[gradle build] ok (" + summary + ")\n"
+	}
+	out := []byte(text)
+	if len(out) >= originalLen {
+		return nil, false
+	}
+	return out, true
+}
+
+func gradleBuildTaskLine(line string) bool {
+	task, ok := strings.CutPrefix(line, "> Task ")
+	return ok && strings.TrimSpace(task) != ""
+}
+
+func gradleBuildSuccessLine(line string) bool {
+	return strings.HasPrefix(line, "BUILD SUCCESSFUL in ") && strings.TrimSpace(strings.TrimPrefix(line, "BUILD SUCCESSFUL in ")) != ""
+}
+
+func gradleOutputContainsBuildSuccess(stdout string) bool {
+	for _, raw := range strings.Split(stdout, "\n") {
+		if gradleBuildSuccessLine(strings.TrimSpace(raw)) {
+			return true
+		}
+	}
+	return false
+}
+
+func gradleBuildActionableSummaryLine(line string) bool {
+	lower := strings.ToLower(line)
+	if !strings.Contains(lower, " actionable task") || !strings.Contains(line, ":") {
+		return false
+	}
+	if !strings.Contains(lower, " executed") &&
+		!strings.Contains(lower, " up-to-date") &&
+		!strings.Contains(lower, " from cache") &&
+		!strings.Contains(lower, " no-source") {
+		return false
+	}
+	for _, r := range line {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == ' ' || r == ':' || r == ',' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func gradleBuildNeutralLine(line string) bool {
+	for _, exact := range []string{
+		"Configuration cache entry stored.",
+		"Configuration cache entry reused.",
+		"Reusing configuration cache.",
+	} {
+		if line == exact {
+			return true
+		}
+	}
+	for _, prefix := range []string{
+		"Starting a Gradle Daemon",
+		"Gradle Daemon started",
+		"Calculating task graph as no cached configuration is available for tasks:",
+	} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isZigBin(name string) bool {
@@ -1812,6 +1927,9 @@ func TryCompactBuildOutput(argv []string, stdout []byte) ([]byte, bool) {
 		return out, true
 	}
 	if _, ok := mvnCompactArgvSuffix(argv); ok && mvnOutputContainsBuildSuccess(string(stdout)) {
+		return stdout, false
+	}
+	if _, ok := gradleCompactArgvSuffix(argv); ok && gradleOutputContainsBuildSuccess(string(stdout)) {
 		return stdout, false
 	}
 	// Structured parsers: tool-specific failure extraction before fallback.
