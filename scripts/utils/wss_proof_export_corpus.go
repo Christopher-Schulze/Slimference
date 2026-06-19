@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -396,6 +398,7 @@ func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSumma
 		OutputTokens:         outputTokens,
 		ProviderOutputTokens: providerOutput,
 		ProxyLatencyMs:       1,
+		DebugFacts:           wssProofCorpusDebugFacts(row),
 		Tokens: dbg.TokenCounts{
 			Original:    original,
 			AfterLayer0: final,
@@ -425,6 +428,73 @@ func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSumma
 		}
 	}
 	return summary
+}
+
+func wssProofCorpusDebugFacts(row wssProofMatrixRecord) map[string]string {
+	facts := map[string]string{}
+	switch strings.TrimSpace(row.WorkloadClass) {
+	case "repeat_full_read":
+		wssProofCorpusAddReadTraceFacts(facts, row, true, false)
+	case "ranged_read":
+		wssProofCorpusAddReadTraceFacts(facts, row, false, false)
+	case "apply_patch_then_read":
+		wssProofCorpusAddReadTraceFacts(facts, row, true, true)
+	case "search_loop":
+		wssProofCorpusAddCommandClassFacts(facts, "rg_search")
+	case "git_status_diff":
+		wssProofCorpusAddCommandClassFacts(facts, "git_status")
+	case "ok_summary_mypy_product":
+		wssProofCorpusAddCommandClassFacts(facts, "mypy")
+	case "build_test_lint_failure", "ok_summary_tool_output":
+		wssProofCorpusAddCommandClassFacts(facts, "other")
+	case "large_tool_output", "long_mixed_workday", "host_resource_long_workday":
+		wssProofCorpusAddCommandClassFacts(facts, "other")
+	case "tool_heavy":
+		wssProofCorpusAddCommandClassFacts(facts, "other")
+		facts["wss.tool_definition_workload"] = "true"
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	if _, ok := facts["wss.request_shape"]; !ok {
+		facts["wss.request_shape"] = "unknown"
+	}
+	return facts
+}
+
+func wssProofCorpusAddReadTraceFacts(facts map[string]string, row wssProofMatrixRecord, full bool, afterEdit bool) {
+	wssProofCorpusAddCommandClassFacts(facts, "read_like")
+	facts["wss.dependency_trace"] = "true"
+	facts["wss.read_trace_requests"] = "1"
+	facts["wss.read_file_path_hash"] = wssProofCorpusStableHash("path:" + row.Client + ":" + row.WorkloadClass + ":" + row.ID)
+	facts["wss.read_file_path_hash_count"] = "1"
+	facts["wss.read_range_hash"] = wssProofCorpusStableHash("range:" + row.WorkloadClass + ":" + row.ID)
+	facts["wss.read_range_hash_count"] = "1"
+	if full {
+		facts["wss.read_full_count"] = "1"
+		facts["wss.read_range"] = "full"
+	} else {
+		facts["wss.read_partial_count"] = "1"
+	}
+	if afterEdit {
+		facts["wss.read_after_edit"] = "true"
+		facts["wss.read_after_edit_count"] = "1"
+	}
+}
+
+func wssProofCorpusAddCommandClassFacts(facts map[string]string, class string) {
+	class = strings.TrimSpace(class)
+	if class == "" {
+		return
+	}
+	facts["wss.tool_command_classes"] = class + "=1"
+	facts["wss.tool_command_classed"] = "1"
+	facts["wss.tool_command_unclassed"] = "0"
+}
+
+func wssProofCorpusStableHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:8])
 }
 
 func tuneCorpusMetadataForWorkload(meta *CategoryMetadataLite, records []wssProofCorpusSummary) {

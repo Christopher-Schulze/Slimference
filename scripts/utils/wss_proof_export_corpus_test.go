@@ -205,12 +205,20 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 		searchRec.Tokens.Saved != 900 {
 		t.Fatalf("bad search summary denominator: %+v", searchRec)
 	}
+	if searchRec.DebugFacts["wss.tool_command_classes"] != "rg_search=1" ||
+		searchRec.DebugFacts["wss.tool_command_classed"] != "1" ||
+		searchRec.DebugFacts["wss.tool_command_unclassed"] != "0" {
+		t.Fatalf("search export should carry content-free command facts: %+v", searchRec.DebugFacts)
+	}
 
 	okSummaryRec := readFirstExportSummary(t, filepath.Join(root, "cli_ok_summary_tool_output", "session_wss_proof_export_001.jsonl"))
 	if okSummaryRec.ProviderInputTokens != 101259 || okSummaryRec.ProviderOutputTokens != 602 ||
 		okSummaryRec.Tokens.Original != 102024 || okSummaryRec.Tokens.Final != 101259 ||
 		okSummaryRec.Tokens.Saved != 765 {
 		t.Fatalf("bad ok-summary denominator: %+v", okSummaryRec)
+	}
+	if okSummaryRec.DebugFacts["wss.tool_command_classes"] != "mypy=1" {
+		t.Fatalf("mypy export should carry precise command facts: %+v", okSummaryRec.DebugFacts)
 	}
 
 	outputMeta := readExportMetadata(t, filepath.Join(root, "cli_output_reduce_aggressive", "metadata.json"))
@@ -223,6 +231,83 @@ func TestWSSProofExportCorpusWritesScrubbedLiveCategories(t *testing.T) {
 	if !outputRec.OutputReduce.Applied || outputRec.OutputReduce.AddedTokens != 7 || outputRec.OutputTokens != 42 {
 		t.Fatalf("bad output-reduce summary: %+v", outputRec)
 	}
+}
+
+func TestWSSProofExportCorpusAddsContentFreeReadDependencyFacts(t *testing.T) {
+	dir := t.TempDir()
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath,
+		wssProofMatrixRecord{
+			ID:            "cli-repeat-read",
+			Client:        "cli",
+			WorkloadClass: "repeat_full_read",
+			FramesPath:    filepath.Join(dir, "frames-repeat.jsonl"),
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 1200,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+		wssProofMatrixRecord{
+			ID:            "cli-ranged-read",
+			Client:        "cli",
+			WorkloadClass: "ranged_read",
+			FramesPath:    filepath.Join(dir, "frames-ranged.jsonl"),
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 400,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+		wssProofMatrixRecord{
+			ID:            "cli-edit-read",
+			Client:        "cli",
+			WorkloadClass: "apply_patch_then_read",
+			FramesPath:    filepath.Join(dir, "frames-edit-read.jsonl"),
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 700,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+	)
+
+	root := filepath.Join(dir, "corpus")
+	report, err := exportWSSProofCorpus(matrixPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsRead != 3 || report.RowsExported != 3 {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	repeat := readFirstExportSummary(t, filepath.Join(root, "cli_repeat_read", "session_wss_proof_export_001.jsonl"))
+	if repeat.DebugFacts["wss.tool_command_classes"] != "read_like=1" ||
+		repeat.DebugFacts["wss.dependency_trace"] != "true" ||
+		repeat.DebugFacts["wss.read_trace_requests"] != "1" ||
+		repeat.DebugFacts["wss.read_full_count"] != "1" ||
+		repeat.DebugFacts["wss.read_file_path_hash"] == "" ||
+		repeat.DebugFacts["wss.read_range"] != "full" {
+		t.Fatalf("repeat-read export missing trace facts: %+v", repeat.DebugFacts)
+	}
+	ranged := readFirstExportSummary(t, filepath.Join(root, "cli_ranged_read", "session_wss_proof_export_001.jsonl"))
+	if ranged.DebugFacts["wss.tool_command_classes"] != "read_like=1" ||
+		ranged.DebugFacts["wss.dependency_trace"] != "true" ||
+		ranged.DebugFacts["wss.read_partial_count"] != "1" ||
+		ranged.DebugFacts["wss.read_range"] != "" ||
+		ranged.DebugFacts["wss.read_range_hash"] == "" {
+		t.Fatalf("ranged-read export missing trace facts: %+v", ranged.DebugFacts)
+	}
+	editRead := readFirstExportSummary(t, filepath.Join(root, "cli_apply_patch_edit_read", "session_wss_proof_export_001.jsonl"))
+	if editRead.DebugFacts["wss.read_after_edit"] != "true" ||
+		editRead.DebugFacts["wss.read_after_edit_count"] != "1" {
+		t.Fatalf("edit-read export missing after-edit facts: %+v", editRead.DebugFacts)
+	}
+	assertExportDebugFactsDoNotLeak(t, repeat.DebugFacts, "cli-repeat-read")
+	assertExportDebugFactsDoNotLeak(t, ranged.DebugFacts, "cli-ranged-read")
+	assertExportDebugFactsDoNotLeak(t, editRead.DebugFacts, "cli-edit-read")
 }
 
 func TestWSSProofExportCorpusRefreshesExistingRowsWithWireDenominators(t *testing.T) {
@@ -552,6 +637,15 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertExportDebugFactsDoNotLeak(t *testing.T, facts map[string]string, raw string) {
+	t.Helper()
+	for key, value := range facts {
+		if strings.Contains(value, raw) {
+			t.Fatalf("debug fact %s leaked raw string %q in %q", key, raw, value)
+		}
+	}
 }
 
 func validCorpusSearchCapProof(extra int, retention float64) *searchCapProofReport {
