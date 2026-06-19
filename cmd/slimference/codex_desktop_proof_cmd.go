@@ -48,6 +48,7 @@ type codexDesktopStatusOutput struct {
 	ConversationObserved        bool                     `json:"conversation_observed"`
 	LaunchCommand               string                   `json:"launch_command"`
 	ProofStartedAt              string                   `json:"proof_started_at,omitempty"`
+	ManualProofCommand          string                   `json:"manual_proof_command,omitempty"`
 	OwnerPrompt                 string                   `json:"owner_prompt,omitempty"`
 	FinishCommand               string                   `json:"finish_command,omitempty"`
 	ClassDistributionCommand    string                   `json:"class_distribution_command,omitempty"`
@@ -91,6 +92,8 @@ type codexDesktopProofSession struct {
 const codexDesktopProofStateTimeout = 10 * time.Second
 
 const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real coding-session proof workload: read AGENTS.md, docs/todo.md, docs/todo/roadmap-48pct-wss.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg/sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
+
+const codexDesktopManualProofCommand = "slimference codex desktop prove --manual --json --duration=30s --keep-open"
 
 const codexDesktopFinishProofCommand = "slimference codex desktop prove --finish --json"
 
@@ -454,6 +457,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.LiveProofRequired = true
 		out.ConversationObserved = false
 		out.Notes = append(out.Notes, "Codex.app is already running (PID "+joinDesktopPIDs(runningPIDs)+"); quit it first so scoped Slimference env can be injected, or pass --replace-existing only when interrupting that session is intentional")
+		applyCodexDesktopOwnerSessionHandoff(&out)
 		return out
 	}
 	if out.LastProof != nil && out.LastProof.Mode == "desktop_ready_for_prompt" &&
@@ -535,6 +539,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.Mode = "desktop_direct_only"
 		out.FailureClass = firstNonEmpty(last.FailureClass, "no_wss_delta")
 		out.Notes = append(out.Notes, "last Desktop proof produced no Desktop WSS delta; use normal Codex.app direct launch")
+		applyCodexDesktopOwnerSessionHandoff(out)
 	case "desktop_app_server_wss_bridge":
 		out.Mode = "desktop_wss_bridge_only"
 		out.FailureClass = "desktop_savings_not_proven"
@@ -543,9 +548,22 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 	}
 }
 
+func applyCodexDesktopOwnerSessionHandoff(out *codexDesktopStatusOutput) {
+	out.ManualProofCommand = codexDesktopManualProofCommand
+	out.OwnerPrompt = codexDesktopOwnerProofPrompt
+	out.FinishCommand = codexDesktopFinishProofCommand
+	out.NextSteps = append(out.NextSteps,
+		"Quit the current Codex.app yourself, or use --replace-existing only when interrupting that Desktop session is intentional.",
+		"Run manual_proof_command to launch a scoped Codex.app with Slimference env.",
+		"Paste owner_prompt only into that newly launched scoped Codex.app window.",
+		"Run finish_command after the prompt completes; then run the class_distribution_command printed by the finish result.",
+	)
+}
+
 func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
 	startedAt := codexDesktopPromptProofStartedAt(out.LastProof)
 	out.ProofStartedAt = startedAt
+	out.ManualProofCommand = codexDesktopManualProofCommand
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
 	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAt)
@@ -867,6 +885,9 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 		fmt.Fprintf(w, "  Since     %s\n", out.ProofStartedAt)
 	}
 	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
+	if out.ManualProofCommand != "" {
+		fmt.Fprintf(w, "  Manual    %s\n", out.ManualProofCommand)
+	}
 	for _, step := range out.NextSteps {
 		fmt.Fprintf(w, "  Next      %s\n", step)
 	}

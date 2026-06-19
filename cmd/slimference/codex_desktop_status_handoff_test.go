@@ -240,3 +240,83 @@ func TestCodexDesktopStatusStalePromptLaunchDoesNotEmitHandoff(t *testing.T) {
 		t.Fatalf("stale handoff note missing: %+v", got.Notes)
 	}
 }
+
+func TestCodexDesktopStatusAlreadyRunningIncludesSafeOwnerProofRunbook(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:           "desktop_app_server_phasef_proven",
+		Transport:      codexDesktopTransportAppServer,
+		LaunchPID:      5151,
+		DesktopProven:  true,
+		DesktopSavings: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{6262}, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "codex_desktop_already_running" || got.FailureClass != "codex_desktop_already_running" {
+		t.Fatalf("status=%+v", got)
+	}
+	if got.ConversationObserved || !got.LiveProofRequired {
+		t.Fatalf("running owner app must not inherit stale proof: %+v", got)
+	}
+	if got.ManualProofCommand != codexDesktopManualProofCommand ||
+		!strings.Contains(got.OwnerPrompt, "PROOF_DONE") ||
+		got.FinishCommand != codexDesktopFinishProofCommand {
+		t.Fatalf("owner proof handoff missing: %+v", got)
+	}
+	if strings.Contains(got.ManualProofCommand, "--replace-existing") {
+		t.Fatalf("manual proof command must not normalize replace-existing: %q", got.ManualProofCommand)
+	}
+	joined := strings.Join(got.NextSteps, "\n")
+	for _, want := range []string{
+		"Quit the current Codex.app yourself",
+		"Run manual_proof_command",
+		"newly launched scoped Codex.app",
+		"finish_command",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("next steps missing %q: %+v", want, got.NextSteps)
+		}
+	}
+}
+
+func TestCodexDesktopStatusNoWSSDeltaIncludesFreshManualProofRunbook(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:         "desktop_no_wss_delta",
+		FailureClass: "no_wss_delta",
+		Transport:    codexDesktopTransportAppServer,
+		StartedAt:    "2026-05-18T12:00:00Z",
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return nil, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	text := out.String()
+	for _, want := range []string{
+		"desktop_direct_only",
+		"Manual    slimference codex desktop prove --manual --json --duration=30s --keep-open",
+		"Finish    slimference codex desktop prove --finish --json",
+		"Prompt    In the current Slimference repository",
+		"PROOF_DONE",
+		"newly launched scoped Codex.app",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("status text missing %q:\n%s", want, text)
+		}
+	}
+}
