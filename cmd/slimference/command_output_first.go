@@ -55,6 +55,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	for _, command := range []string{
 		"git", "rg", "go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
+		"pip", "pip3",
 		"fd", "fdfind", "find", "wc",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
@@ -266,13 +267,17 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return false
 		}
 	case "npm", "pnpm", "yarn", "bun":
-		return commandOutputFirstPackageScriptAllowed(command, args)
+		return commandOutputFirstPackageScriptAllowed(command, args) ||
+			commandOutputFirstPackageOutputAllowed(command, args)
 	case "npx":
 		return commandOutputFirstNpxAllowed(args)
 	case "cargo":
 		return commandOutputFirstCargoAllowed(args)
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
-		return commandOutputFirstPythonTestAllowed(command, args)
+		return commandOutputFirstPythonTestAllowed(command, args) ||
+			commandOutputFirstPackageOutputAllowed(command, args)
+	case "pip", "pip3":
+		return commandOutputFirstPackageOutputAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -666,6 +671,10 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			return nil, false
 		}
 	case "npm", "pnpm", "yarn", "bun":
+		if commandOutputFirstPackageOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		packageArgs := commandOutputFirstPackageScriptFilterArgs(command, args)
 		packageArgv := append([]string{realBin}, packageArgs...)
 		if commandOutputFirstPackageScriptIsTest(command, args) {
@@ -718,11 +727,21 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		case "clippy", "audit":
 			compacted, ok := filter.TryCompactLintOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "fetch", "update":
+			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
 			return nil, false
 		}
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
+		if commandOutputFirstPackageOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		compacted, ok := filter.TryCompactTestOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "pip", "pip3":
+		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
@@ -1027,13 +1046,161 @@ func commandOutputFirstWcAllowed(args []string) bool {
 func commandOutputFirstCargoAllowed(args []string) bool {
 	sub, idx := commandOutputFirstCargoCommand(args)
 	switch sub {
-	case "test", "llvm-cov", "build", "check", "doc", "clippy", "audit":
+	case "test", "llvm-cov", "build", "check", "doc", "clippy", "audit", "fetch", "update":
 		return true
 	case "nextest":
 		return idx+1 < len(args) && strings.TrimSpace(args[idx+1]) == "run"
 	default:
 		return false
 	}
+}
+
+func commandOutputFirstPackageOutputAllowed(command string, args []string) bool {
+	switch command {
+	case "npm":
+		verb, idx := packageScriptFirstCommand(args)
+		switch verb {
+		case "install", "ci", "update":
+			return idx >= 0 && commandOutputFirstNpmInstallArgsAllowed(args[idx+1:])
+		case "audit":
+			return idx >= 0 && commandOutputFirstPackageAuditJSONArgsAllowed(args[idx+1:])
+		default:
+			return false
+		}
+	case "pnpm":
+		verb, idx := packageScriptFirstCommand(args)
+		switch verb {
+		case "install", "ci", "update":
+			return idx >= 0 && commandOutputFirstPnpmInstallArgsAllowed(args[idx+1:])
+		case "audit":
+			return idx >= 0 && commandOutputFirstPackageAuditJSONArgsAllowed(args[idx+1:])
+		default:
+			return false
+		}
+	case "yarn":
+		verb, idx := packageScriptFirstCommand(args)
+		switch verb {
+		case "install", "upgrade":
+			return idx >= 0 && commandOutputFirstYarnInstallArgsAllowed(args[idx+1:])
+		default:
+			return false
+		}
+	case "bun":
+		verb, idx := packageScriptFirstCommand(args)
+		if verb != "install" || idx < 0 {
+			return false
+		}
+		return commandOutputFirstBunInstallArgsAllowed(args[idx+1:])
+	case "poetry":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "install" && idx >= 0
+	case "uv":
+		verb, idx := packageScriptFirstCommand(args)
+		if verb == "sync" {
+			return idx >= 0
+		}
+		return verb == "pip" && idx+2 < len(args) && args[idx+1] == "install"
+	case "pip", "pip3":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "install" && idx >= 0
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstNpmInstallArgsAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		lower := strings.ToLower(strings.TrimSpace(args[i]))
+		switch lower {
+		case "--dry-run", "--package-lock-only", "--json", "--parseable", "--porcelain", "--verbose", "-d", "-dd", "-ddd":
+			return false
+		case "--loglevel":
+			if i+1 >= len(args) || commandOutputFirstNpmLogLevelUnsafe(args[i+1]) {
+				return false
+			}
+			i++
+		default:
+			if strings.HasPrefix(lower, "--loglevel=") && commandOutputFirstNpmLogLevelUnsafe(strings.TrimPrefix(lower, "--loglevel=")) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func commandOutputFirstNpmLogLevelUnsafe(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "verbose", "silly":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPnpmInstallArgsAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		lower := strings.ToLower(strings.TrimSpace(args[i]))
+		switch lower {
+		case "--ignore-scripts", "--frozen-lockfile", "--prefer-frozen-lockfile",
+			"--prod", "--production", "-p", "--dev", "-d", "--no-optional",
+			"--offline", "--prefer-offline", "--ignore-workspace", "--no-color",
+			"--color=false", "--reporter=append-only", "--reporter=default":
+			continue
+		case "--reporter":
+			if i+1 >= len(args) {
+				return false
+			}
+			next := strings.ToLower(strings.TrimSpace(args[i+1]))
+			if next != "append-only" && next != "default" {
+				return false
+			}
+			i++
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func commandOutputFirstYarnInstallArgsAllowed(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "--non-interactive", "--no-progress", "--frozen-lockfile",
+			"--pure-lockfile", "--prefer-offline", "--offline", "--production",
+			"--prod", "--ignore-optional", "--ignore-engines", "--no-bin-links",
+			"--check-files", "--no-default-rc", "--no-node-version-check":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func commandOutputFirstBunInstallArgsAllowed(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "--ignore-scripts", "--no-progress", "--production", "-p", "--frozen-lockfile", "--yarn", "-y":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func commandOutputFirstPackageAuditJSONArgsAllowed(args []string) bool {
+	hasJSON := false
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		switch lower {
+		case "--json", "--json=true", "--json=1":
+			hasJSON = true
+		case "--json=false", "--json=0":
+			return false
+		}
+	}
+	return hasJSON
 }
 
 func commandOutputFirstCargoSubcommand(args []string) string {

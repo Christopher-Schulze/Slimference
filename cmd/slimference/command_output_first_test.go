@@ -174,9 +174,16 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	}{
 		{command: "npm", args: []string{"test", "--", "--runInBand"}},
 		{command: "npm", args: []string{"run", "test"}},
+		{command: "npm", args: []string{"install"}},
+		{command: "npm", args: []string{"ci", "--loglevel", "warn"}},
+		{command: "npm", args: []string{"audit", "--json"}},
 		{command: "pnpm", args: []string{"run", "test"}},
+		{command: "pnpm", args: []string{"install", "--reporter=append-only"}},
+		{command: "pnpm", args: []string{"audit", "--json=1"}},
 		{command: "yarn", args: []string{"run", "test"}},
+		{command: "yarn", args: []string{"install", "--non-interactive"}},
 		{command: "bun", args: []string{"test"}},
+		{command: "bun", args: []string{"install", "--ignore-scripts"}},
 		{command: "npm", args: []string{"run", "build"}},
 		{command: "pnpm", args: []string{"run", "build"}},
 		{command: "yarn", args: []string{"run", "build"}},
@@ -184,11 +191,18 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "cargo", args: []string{"+nightly", "nextest", "run"}},
 		{command: "cargo", args: []string{"check", "--workspace"}},
 		{command: "cargo", args: []string{"clippy", "--all-targets"}},
+		{command: "cargo", args: []string{"fetch"}},
+		{command: "cargo", args: []string{"update"}},
 		{command: "pytest", args: []string{"-vv"}},
 		{command: "python3", args: []string{"-m", "pytest", "-vv"}},
 		{command: "python", args: []string{"-u", "-m", "unittest"}},
 		{command: "uv", args: []string{"run", "pytest", "-vv"}},
+		{command: "uv", args: []string{"sync"}},
+		{command: "uv", args: []string{"pip", "install", "pytest"}},
+		{command: "poetry", args: []string{"install"}},
 		{command: "poetry", args: []string{"run", "python", "-m", "pytest"}},
+		{command: "pip", args: []string{"install", "requests"}},
+		{command: "pip3", args: []string{"install", "requests"}},
 		{command: "fd", args: []string{"--extension", "go", "internal"}},
 		{command: "fdfind", args: []string{"-e", "go", "internal"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-type", "f"}},
@@ -260,17 +274,25 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		command string
 		args    []string
 	}{
-		{command: "npm", args: []string{"install"}},
 		{command: "npm", args: []string{"run", "dev"}},
+		{command: "npm", args: []string{"install", "--json"}},
+		{command: "npm", args: []string{"ci", "--loglevel"}},
+		{command: "npm", args: []string{"ci", "--loglevel=verbose"}},
+		{command: "npm", args: []string{"update", "-d"}},
+		{command: "npm", args: []string{"audit"}},
+		{command: "npm", args: []string{"audit", "--json=false"}},
+		{command: "pnpm", args: []string{"install", "--reporter"}},
+		{command: "pnpm", args: []string{"install", "--reporter", "ndjson"}},
+		{command: "pnpm", args: []string{"update", "--json"}},
 		{command: "pnpm", args: []string{"exec", "vitest"}},
 		{command: "yarn", args: []string{"start"}},
-		{command: "bun", args: []string{"install"}},
+		{command: "yarn", args: []string{"install", "--json"}},
+		{command: "bun", args: []string{"install", "--dry-run"}},
 		{command: "cargo", args: []string{"install", "ripgrep"}},
 		{command: "cargo", args: []string{"nextest", "list"}},
 		{command: "python3", args: []string{"script.py"}},
 		{command: "python3", args: []string{"-m", "http.server"}},
 		{command: "uv", args: []string{"run", "python", "script.py"}},
-		{command: "poetry", args: []string{"install"}},
 		{command: "find", args: []string{"internal", "-type", "f"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-delete"}},
 		{command: "fd", args: []string{"--exec", "rm", "{}"}},
@@ -637,6 +659,130 @@ func TestCommandOutputFirstShimPackageBuildEmptyFullPasses(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimPackageInstallAndAuditCompactWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	auditJSON := `{"auditReportVersion":2,"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}},"vulnerabilities":{},"advisories":{},"actions":[],"scanNoise":"` + strings.Repeat("x", 512) + `"}`
+	realNpm := writeFakeCommand(t, "npm", `#!/bin/sh
+if [ "$1" = "install" ]; then
+  cat <<'EOF'
+`+commandOutputFirstNpmInstallFixture(90)+`EOF
+  exit 0
+fi
+if [ "$1" = "audit" ]; then
+  cat <<'EOF'
+`+auditJSON+`
+EOF
+  exit 0
+fi
+echo "unexpected $*" >&2
+exit 2
+`)
+
+	var installStdout, installStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npm", "--real-bin=" + realNpm, "--", "install"}, &bytes.Buffer{}, &installStdout, &installStderr)
+	if rc != 0 {
+		t.Fatalf("install rc=%d stderr=%q", rc, installStderr.String())
+	}
+	installVisible := commandOutputFirstVisibleOutput(installStdout.String())
+	for _, want := range []string{
+		"[npm install] added 90 packages",
+		"audited 91 packages",
+		"funding 45 packages",
+		"0 vulnerabilities",
+	} {
+		if !strings.Contains(installVisible, want) {
+			t.Fatalf("npm install compact output missing %q in %q", want, installVisible)
+		}
+	}
+	if strings.Contains(installVisible, "package_089") {
+		t.Fatalf("npm install command-output-first should elide fetch/timing roll-call: %q", installVisible)
+	}
+	installURI := commandOutputFirstArchiveURI(installStdout.String())
+	if installURI == "" {
+		t.Fatalf("missing npm install archive marker in %q", installStdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, installRaw, err := contentarchive.Get(contentarchive.DefaultDir(home), installURI)
+	if err != nil {
+		t.Fatalf("expand npm install archive: %v", err)
+	}
+	if !bytes.Contains(installRaw, []byte("package_089")) || !bytes.Contains(installRaw, []byte("found 0 vulnerabilities")) {
+		t.Fatalf("archive did not preserve npm install raw output: %q", installRaw)
+	}
+
+	var auditStdout, auditStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=npm", "--real-bin=" + realNpm, "--", "audit", "--json"}, &bytes.Buffer{}, &auditStdout, &auditStderr)
+	if rc != 0 {
+		t.Fatalf("audit rc=%d stderr=%q", rc, auditStderr.String())
+	}
+	if got := commandOutputFirstVisibleOutput(auditStdout.String()); got != "[npm audit] 0 vulnerabilities\n" {
+		t.Fatalf("unexpected npm audit compact output=%q", got)
+	}
+	auditURI := commandOutputFirstArchiveURI(auditStdout.String())
+	if auditURI == "" {
+		t.Fatalf("missing npm audit archive marker in %q", auditStdout.String())
+	}
+	_, auditRaw, err := contentarchive.Get(contentarchive.DefaultDir(home), auditURI)
+	if err != nil {
+		t.Fatalf("expand npm audit archive: %v", err)
+	}
+	if !bytes.Contains(auditRaw, []byte(`"critical":0`)) {
+		t.Fatalf("archive did not preserve npm audit raw output: %q", auditRaw)
+	}
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:npm] npm audit --json") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimPackageInstallWarningFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "npm WARN deprecated left-pad@1.3.0: use String.prototype.padStart()\n" + commandOutputFirstNpmInstallFixture(3)
+	realNpm := writeFakeCommand(t, "npm", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=npm", "--real-bin=" + realNpm, "--", "install"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("warning install must full-pass raw stdout\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("warning full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("warning full-pass must not record accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstShimNpxNextBuildCompactsWithAccounting(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	realNpx := writeFakeCommand(t, "npx", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstNextBuildFixture()+"EOF\n")
@@ -875,6 +1021,37 @@ func commandOutputFirstJSTestFixture(count int) string {
 		out.WriteRune(ch)
 	}
 	out.WriteString(" total\nTime: 1.2 s\n")
+	return out.String()
+}
+
+func commandOutputFirstNpmInstallFixture(count int) string {
+	var out strings.Builder
+	for i := 0; i < count; i++ {
+		out.WriteString("npm http fetch GET 200 https://registry.npmjs.org/package_")
+		if i < 10 {
+			out.WriteString("00")
+		} else if i < 100 {
+			out.WriteString("0")
+		}
+		out.WriteString(strconv.Itoa(i))
+		out.WriteString(" 12ms\n")
+		out.WriteString("npm timing idealTree:node_modules/package_")
+		if i < 10 {
+			out.WriteString("00")
+		} else if i < 100 {
+			out.WriteString("0")
+		}
+		out.WriteString(strconv.Itoa(i))
+		out.WriteString(" Completed in 5ms\n")
+	}
+	out.WriteString("\nadded ")
+	out.WriteString(strconv.Itoa(count))
+	out.WriteString(" packages, and audited ")
+	out.WriteString(strconv.Itoa(count + 1))
+	out.WriteString(" packages in 12s\n\n")
+	out.WriteString("45 packages are looking for funding\n")
+	out.WriteString("  run `npm fund` for details\n\n")
+	out.WriteString("found 0 vulnerabilities\n")
 	return out.String()
 }
 
