@@ -65,6 +65,14 @@ type wssClassDistributionReport struct {
 	PrefixDefaultKeepTools          int                            `json:"prefix_default_keep_tools,omitempty"`
 	PrefixNonDefaultTools           int                            `json:"prefix_nondefault_tools,omitempty"`
 	PrefixUnnamedTools              int                            `json:"prefix_unnamed_tools,omitempty"`
+	ToolPruneCandidateBytes         int                            `json:"tool_prune_candidate_bytes,omitempty"`
+	ToolPruneCandidateTokens        int                            `json:"tool_prune_candidate_tokens,omitempty"`
+	ToolPruneCandidateShare         float64                        `json:"tool_prune_candidate_share,omitempty"`
+	ToolPruneDeltaGuardedRequests   int                            `json:"tool_prune_delta_guarded_requests,omitempty"`
+	ToolPruneDeltaGuardedOriginal   int                            `json:"tool_prune_delta_guarded_original_tokens,omitempty"`
+	ToolPruneDeltaGuardedBytes      int                            `json:"tool_prune_delta_guarded_candidate_bytes,omitempty"`
+	ToolPruneDeltaGuardedTokens     int                            `json:"tool_prune_delta_guarded_candidate_tokens,omitempty"`
+	ToolPruneDeltaGuardedShare      float64                        `json:"tool_prune_delta_guarded_candidate_share,omitempty"`
 	ReducibleToolOutputTokens       int                            `json:"reducible_tool_output_tokens"`
 	ReducibleToolOutputShare        float64                        `json:"reducible_tool_output_share"`
 	OtherContextTokens              int                            `json:"other_context_tokens"`
@@ -112,6 +120,9 @@ type wssClassDistributionClassRow struct {
 	PrefixDefaultKeepTools          int            `json:"prefix_default_keep_tools,omitempty"`
 	PrefixNonDefaultTools           int            `json:"prefix_nondefault_tools,omitempty"`
 	PrefixUnnamedTools              int            `json:"prefix_unnamed_tools,omitempty"`
+	ToolPruneCandidateBytes         int            `json:"tool_prune_candidate_bytes,omitempty"`
+	ToolPruneCandidateTokens        int            `json:"tool_prune_candidate_tokens,omitempty"`
+	ToolPruneCandidateShare         float64        `json:"tool_prune_candidate_share,omitempty"`
 	ReducibleToolOutputTokens       int            `json:"reducible_tool_output_tokens"`
 	ReducibleToolOutputShare        float64        `json:"reducible_tool_output_share"`
 	OtherContextTokens              int            `json:"other_context_tokens"`
@@ -144,6 +155,9 @@ type wssClassDistributionLogRow struct {
 	PrefixDefaultKeepTools          int     `json:"prefix_default_keep_tools,omitempty"`
 	PrefixNonDefaultTools           int     `json:"prefix_nondefault_tools,omitempty"`
 	PrefixUnnamedTools              int     `json:"prefix_unnamed_tools,omitempty"`
+	ToolPruneCandidateBytes         int     `json:"tool_prune_candidate_bytes,omitempty"`
+	ToolPruneCandidateTokens        int     `json:"tool_prune_candidate_tokens,omitempty"`
+	ToolPruneCandidateShare         float64 `json:"tool_prune_candidate_share,omitempty"`
 	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
 	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
 }
@@ -175,6 +189,9 @@ type wssClassDistributionT354Row struct {
 	PrefixDefaultKeepTools          int     `json:"prefix_default_keep_tools,omitempty"`
 	PrefixNonDefaultTools           int     `json:"prefix_nondefault_tools,omitempty"`
 	PrefixUnnamedTools              int     `json:"prefix_unnamed_tools,omitempty"`
+	ToolPruneCandidateBytes         int     `json:"tool_prune_candidate_bytes,omitempty"`
+	ToolPruneCandidateTokens        int     `json:"tool_prune_candidate_tokens,omitempty"`
+	ToolPruneCandidateShare         float64 `json:"tool_prune_candidate_share,omitempty"`
 	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
 	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
 	ProviderInputTokens             int     `json:"provider_input_tokens"`
@@ -223,7 +240,9 @@ context tokens (the remainder: messages, user prompts, and Class-D reasoning).
 When available, content-free prefix-byte facts are additionally split into
 tool schemas, instructions, default-keep tool schemas, nondefault tool schemas,
 and unnamed tool schemas for T407/T410 proof planning. Those bytes are reported
-separately and never counted as reducible tool-output by this gate.
+separately and never counted as reducible tool-output by this gate. The
+tool_prune_candidate_* fields are an upper bound from nondefault tool schemas;
+default-keep and unnamed schemas stay excluded from the candidate estimate.
 reducible_ceiling_ratio is the most optimistic S_local achievable if every tool
 output were compacted to zero; when it is below the target the report records
 corpus-ceiling evidence, otherwise it reports un-captured reducible headroom.
@@ -403,6 +422,12 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	a.report.LocalSavedTokens += saved
 	a.report.PrefixProtectedTokens += prefixTokens
 	a.report.addPrefixSurface(prefixSurface)
+	if wssClassDistributionIsToolPruneDeltaGuard(summary) {
+		a.report.ToolPruneDeltaGuardedRequests++
+		a.report.ToolPruneDeltaGuardedOriginal += original
+		a.report.ToolPruneDeltaGuardedBytes += prefixSurface.ToolPruneCandidateBytes
+		a.report.ToolPruneDeltaGuardedTokens += prefixSurface.ToolPruneCandidateTokens
+	}
 	a.report.ReducibleToolOutputTokens += reducibleTokens
 	a.report.OtherContextTokens += otherTokens
 	a.report.PrefixMutationSavedTokens += prefixMutationSaved
@@ -516,6 +541,8 @@ type wssClassDistributionPrefixSurface struct {
 	DefaultKeepTools          int
 	NonDefaultTools           int
 	UnnamedTools              int
+	ToolPruneCandidateBytes   int
+	ToolPruneCandidateTokens  int
 }
 
 func wssClassDistributionPrefixSurfaceFromFacts(facts map[string]string) wssClassDistributionPrefixSurface {
@@ -524,6 +551,7 @@ func wssClassDistributionPrefixSurfaceFromFacts(facts map[string]string) wssClas
 	}
 	toolBytes := wssLocalGapFactInt(facts, "wss.tool_definition_bytes")
 	instructionBytes := wssLocalGapFactInt(facts, "wss.instructions_bytes")
+	nonDefaultToolBytes := wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes")
 	totalBytes := wssLocalGapFactInt(facts, "wss.prefix_total_bytes")
 	splitBytes := toolBytes + instructionBytes
 	inconsistentBytes := maxInt(0, splitBytes-totalBytes)
@@ -541,12 +569,14 @@ func wssClassDistributionPrefixSurfaceFromFacts(facts map[string]string) wssClas
 		InstructionBytes:          instructionBytes,
 		InstructionTokens:         tokens.Estimate(instructionBytes),
 		DefaultKeepToolBytes:      wssLocalGapFactInt(facts, "wss.tool_definition_default_keep_bytes"),
-		NonDefaultToolBytes:       wssLocalGapFactInt(facts, "wss.tool_definition_nondefault_bytes"),
+		NonDefaultToolBytes:       nonDefaultToolBytes,
 		UnnamedToolBytes:          wssLocalGapFactInt(facts, "wss.tool_definition_unnamed_bytes"),
 		ToolDefinitions:           wssLocalGapFactInt(facts, "wss.tool_definitions"),
 		DefaultKeepTools:          wssLocalGapFactInt(facts, "wss.tool_definition_default_keep"),
 		NonDefaultTools:           wssLocalGapFactInt(facts, "wss.tool_definition_nondefault"),
 		UnnamedTools:              wssLocalGapFactInt(facts, "wss.tool_definition_unnamed"),
+		ToolPruneCandidateBytes:   nonDefaultToolBytes,
+		ToolPruneCandidateTokens:  tokens.Estimate(nonDefaultToolBytes),
 	}
 }
 
@@ -566,6 +596,8 @@ func (r *wssClassDistributionReport) addPrefixSurface(surface wssClassDistributi
 	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
 	r.PrefixNonDefaultTools += surface.NonDefaultTools
 	r.PrefixUnnamedTools += surface.UnnamedTools
+	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
+	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
 func (r *wssClassDistributionClassRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
@@ -584,6 +616,8 @@ func (r *wssClassDistributionClassRow) addPrefixSurface(surface wssClassDistribu
 	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
 	r.PrefixNonDefaultTools += surface.NonDefaultTools
 	r.PrefixUnnamedTools += surface.UnnamedTools
+	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
+	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
 func (r *wssClassDistributionLogRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
@@ -602,6 +636,8 @@ func (r *wssClassDistributionLogRow) addPrefixSurface(surface wssClassDistributi
 	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
 	r.PrefixNonDefaultTools += surface.NonDefaultTools
 	r.PrefixUnnamedTools += surface.UnnamedTools
+	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
+	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
 func (r *wssClassDistributionT354Row) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
@@ -620,6 +656,8 @@ func (r *wssClassDistributionT354Row) addPrefixSurface(surface wssClassDistribut
 	r.PrefixDefaultKeepTools += surface.DefaultKeepTools
 	r.PrefixNonDefaultTools += surface.NonDefaultTools
 	r.PrefixUnnamedTools += surface.UnnamedTools
+	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
+	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
 func wssClassDistributionPreviousResponseID(summary dbg.RequestSummary) string {
@@ -728,6 +766,13 @@ func wssClassDistributionHasAppliedDecision(summary dbg.RequestSummary) bool {
 	return false
 }
 
+func wssClassDistributionIsToolPruneDeltaGuard(summary dbg.RequestSummary) bool {
+	if strings.TrimSpace(summary.DebugFacts["wss.tool_prune_guard"]) == "wss_tool_prune_delta_guard" {
+		return true
+	}
+	return strings.TrimSpace(summary.ToolPrune.Reason) == "wss_tool_prune_delta_guard"
+}
+
 // wssClassDistributionSplit decomposes one request's original tokens into
 // protected prefix (Class C), reducible tool-output (the Layer-0 target), and
 // other context (messages plus Class-D reasoning). The three components always
@@ -818,6 +863,8 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 	a.report.NonPrefixTokens = maxInt(0, a.report.OriginalTokens-a.report.PrefixProtectedTokens)
 	a.report.LocalSavingsRatio = wssLocalGapRatio(a.report.LocalSavedTokens, a.report.OriginalTokens)
 	a.report.PrefixProtectedShare = wssLocalGapRatio(a.report.PrefixProtectedTokens, a.report.OriginalTokens)
+	a.report.ToolPruneCandidateShare = wssLocalGapRatio(a.report.ToolPruneCandidateTokens, a.report.OriginalTokens)
+	a.report.ToolPruneDeltaGuardedShare = wssLocalGapRatio(a.report.ToolPruneDeltaGuardedTokens, a.report.ToolPruneDeltaGuardedOriginal)
 	a.report.ReducibleToolOutputShare = wssLocalGapRatio(a.report.ReducibleToolOutputTokens, a.report.OriginalTokens)
 	a.report.OtherContextShare = wssLocalGapRatio(a.report.OtherContextTokens, a.report.OriginalTokens)
 	a.report.NonPrefixRatio = wssLocalGapRatio(a.report.NonPrefixTokens, a.report.OriginalTokens)
@@ -830,6 +877,7 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 		copy := *row
 		copy.LocalSavingsRatio = wssLocalGapRatio(copy.LocalSavedTokens, copy.OriginalTokens)
 		copy.PrefixProtectedShare = wssLocalGapRatio(copy.PrefixProtectedTokens, copy.OriginalTokens)
+		copy.ToolPruneCandidateShare = wssLocalGapRatio(copy.ToolPruneCandidateTokens, copy.OriginalTokens)
 		copy.ReducibleToolOutputShare = wssLocalGapRatio(copy.ReducibleToolOutputTokens, copy.OriginalTokens)
 		copy.OtherContextShare = wssLocalGapRatio(copy.OtherContextTokens, copy.OriginalTokens)
 		copy.ReducibleCeilingRatio = wssLocalGapRatio(copy.ReducibleToolOutputTokens, copy.OriginalTokens)
@@ -847,6 +895,7 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 		copy := *row
 		copy.LocalSavingsRatio = wssLocalGapRatio(copy.LocalSavedTokens, copy.OriginalTokens)
 		copy.ReducibleCeilingRatio = wssLocalGapRatio(copy.ReducibleToolOutputTokens, copy.OriginalTokens)
+		copy.ToolPruneCandidateShare = wssLocalGapRatio(copy.ToolPruneCandidateTokens, copy.OriginalTokens)
 		copy.ProviderCachedPct = wssLocalGapRatio(copy.ProviderCachedTokens, copy.ProviderInputTokens)
 		a.report.T354ShapeTable = append(a.report.T354ShapeTable, copy)
 	}
@@ -878,6 +927,7 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 
 func finalizeWSSClassDistributionLogRow(row *wssClassDistributionLogRow) {
 	row.LocalSavingsRatio = wssLocalGapRatio(row.LocalSavedTokens, row.OriginalTokens)
+	row.ToolPruneCandidateShare = wssLocalGapRatio(row.ToolPruneCandidateTokens, row.OriginalTokens)
 	row.ReducibleCeilingRatio = wssLocalGapRatio(row.ReducibleToolOutputTokens, row.OriginalTokens)
 }
 
@@ -945,6 +995,24 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 			report.PrefixUnnamedToolBytes,
 		))
 	}
+	if report.ToolPruneCandidateTokens > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"T410 tool-prune candidate upper bound: nondefault tool schemas account for %d bytes (~%d tokens, %.2f%% of original input). Default-keep and unnamed tool schemas are excluded because pruning them would risk capability loss without a separate proof.",
+			report.ToolPruneCandidateBytes,
+			report.ToolPruneCandidateTokens,
+			report.ToolPruneCandidateShare*100,
+		))
+	}
+	if report.ToolPruneDeltaGuardedRequests > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"T410 delta guard surface: %d requests carried %d original tokens and %d nondefault-tool candidate bytes (~%d tokens, %.2f%% within guarded rows). This is blocked until stateless continuation, missing-tool recovery, cache stability, and downstream-turn proof pass.",
+			report.ToolPruneDeltaGuardedRequests,
+			report.ToolPruneDeltaGuardedOriginal,
+			report.ToolPruneDeltaGuardedBytes,
+			report.ToolPruneDeltaGuardedTokens,
+			report.ToolPruneDeltaGuardedShare*100,
+		))
+	}
 	if report.PrefixSplitInconsistentRequests > 0 {
 		notes = append(notes, fmt.Sprintf("%d Phase-F rows have prefix split bytes greater than recorded prefix_total_bytes by %d bytes; treat the split as planning telemetry and capture a fresh window before making a T407/T410 product unlock decision.", report.PrefixSplitInconsistentRequests, report.PrefixSplitInconsistentBytes))
 	}
@@ -1003,6 +1071,18 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 			report.PrefixDefaultKeepTools,
 			report.PrefixNonDefaultTools,
 			report.PrefixUnnamedTools)
+		fmt.Fprintf(w, "    tool-prune candidate upper bound: %d bytes (~%d tok, %.2f%% of original; nondefault schemas only)\n",
+			report.ToolPruneCandidateBytes,
+			report.ToolPruneCandidateTokens,
+			report.ToolPruneCandidateShare*100)
+	}
+	if report.ToolPruneDeltaGuardedRequests > 0 {
+		fmt.Fprintf(w, "  T410 delta tool-prune guard:  requests=%d original=%d candidate=%d bytes (~%d tok, %.2f%% within guarded rows)\n",
+			report.ToolPruneDeltaGuardedRequests,
+			report.ToolPruneDeltaGuardedOriginal,
+			report.ToolPruneDeltaGuardedBytes,
+			report.ToolPruneDeltaGuardedTokens,
+			report.ToolPruneDeltaGuardedShare*100)
 	}
 	fmt.Fprintf(w, "  Reducible tool-output (Layer-0): %d / %.2f%%  [the only Layer-0 target]\n", report.ReducibleToolOutputTokens, report.ReducibleToolOutputShare*100)
 	fmt.Fprintf(w, "  Other context (msgs/reasoning):  %d / %.2f%%  [model context, not L0-reducible]\n", report.OtherContextTokens, report.OtherContextShare*100)
@@ -1023,7 +1103,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.Classes) > 0 {
 		fmt.Fprintln(w, "\nPer request class:")
 		for _, row := range report.Classes {
-			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
+			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
 				row.Class,
 				row.Requests,
 				row.OriginalTokens,
@@ -1037,6 +1117,9 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.PrefixSplitInconsistentRequests,
 				row.PrefixToolDefinitionBytes,
 				row.PrefixInstructionBytes,
+				row.ToolPruneCandidateBytes,
+				row.ToolPruneCandidateTokens,
+				row.ToolPruneCandidateShare*100,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleToolOutputShare*100,
 				row.OtherContextTokens,
@@ -1050,7 +1133,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.T354ShapeTable) > 0 {
 		fmt.Fprintln(w, "\nT354 shape table:")
 		for _, row := range report.T354ShapeTable {
-			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d default_keep_bytes=%d nondefault_bytes=%d unnamed_bytes=%d reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
+			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d default_keep_bytes=%d nondefault_bytes=%d unnamed_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
 				row.RequestShape,
 				row.ShapeSource,
 				row.PreviousResponseID,
@@ -1071,6 +1154,9 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.PrefixDefaultKeepToolBytes,
 				row.PrefixNonDefaultToolBytes,
 				row.PrefixUnnamedToolBytes,
+				row.ToolPruneCandidateBytes,
+				row.ToolPruneCandidateTokens,
+				row.ToolPruneCandidateShare*100,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100,
 				row.ProviderCachedTokens,
@@ -1089,7 +1175,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.PerLog) > 0 {
 		fmt.Fprintln(w, "\nPer capture (by reducible ceiling):")
 		for _, row := range report.PerLog {
-			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d reducible=%d ceiling=%.2f%%\n",
+			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d ceiling=%.2f%%\n",
 				row.Name,
 				row.PhaseFRequests,
 				row.OriginalTokens,
@@ -1101,6 +1187,9 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.PrefixSplitInconsistentRequests,
 				row.PrefixToolDefinitionBytes,
 				row.PrefixInstructionBytes,
+				row.ToolPruneCandidateBytes,
+				row.ToolPruneCandidateTokens,
+				row.ToolPruneCandidateShare*100,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100)
 		}

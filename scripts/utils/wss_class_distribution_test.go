@@ -93,6 +93,8 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		report.PrefixDefaultKeepTools != 6 ||
 		report.PrefixNonDefaultTools != 2 ||
 		report.PrefixUnnamedTools != 0 ||
+		report.ToolPruneCandidateBytes != 10000 ||
+		report.ToolPruneCandidateTokens != 2500 ||
 		report.ReducibleToolOutputTokens != 15500 ||
 		report.OtherContextTokens != 4500 ||
 		report.NonPrefixTokens != 20000 {
@@ -117,6 +119,7 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	floatNearTest(t, report.ReducibleCeilingRatio, 15500.0/30000.0)
 	floatNearTest(t, report.NonPrefixRatio, 20000.0/30000.0)
 	floatNearTest(t, report.LocalSavingsRatio, 8500.0/30000.0)
+	floatNearTest(t, report.ToolPruneCandidateShare, 2500.0/30000.0)
 	if report.Verdict != "headroom_present" {
 		t.Fatalf("expected headroom_present (reducible ceiling 51.7%% >= 48%%), got %q: %s", report.Verdict, report.VerdictDetail)
 	}
@@ -138,9 +141,11 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		delta.PrefixSplitInconsistentBytes != 0 || delta.PrefixSplitInconsistentRequests != 0 ||
 		delta.PrefixToolDefinitionBytes != 24000 || delta.PrefixInstructionBytes != 8000 ||
 		delta.PrefixDefaultKeepToolBytes != 16000 || delta.PrefixNonDefaultToolBytes != 8000 ||
-		delta.PrefixToolDefinitions != 4 || delta.PrefixDefaultKeepTools != 3 || delta.PrefixNonDefaultTools != 1 {
+		delta.PrefixToolDefinitions != 4 || delta.PrefixDefaultKeepTools != 3 || delta.PrefixNonDefaultTools != 1 ||
+		delta.ToolPruneCandidateBytes != 8000 || delta.ToolPruneCandidateTokens != 2000 {
 		t.Fatalf("bad delta prefix surface: %+v", delta)
 	}
+	floatNearTest(t, delta.ToolPruneCandidateShare, 0.20)
 	if fullHist.ReducibleToolOutputTokens != 14000 || fullHist.PrefixProtectedTokens != 2000 || fullHist.OtherContextTokens != 4000 {
 		t.Fatalf("bad full_history class split: %+v", fullHist)
 	}
@@ -148,7 +153,8 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		fullHist.PrefixSplitInconsistentBytes != 0 || fullHist.PrefixSplitInconsistentRequests != 0 ||
 		fullHist.PrefixToolDefinitionBytes != 6000 || fullHist.PrefixInstructionBytes != 2000 ||
 		fullHist.PrefixDefaultKeepToolBytes != 4000 || fullHist.PrefixNonDefaultToolBytes != 2000 ||
-		fullHist.PrefixToolDefinitions != 4 || fullHist.PrefixDefaultKeepTools != 3 || fullHist.PrefixNonDefaultTools != 1 {
+		fullHist.PrefixToolDefinitions != 4 || fullHist.PrefixDefaultKeepTools != 3 || fullHist.PrefixNonDefaultTools != 1 ||
+		fullHist.ToolPruneCandidateBytes != 2000 || fullHist.ToolPruneCandidateTokens != 500 {
 		t.Fatalf("bad full_history prefix surface: %+v", fullHist)
 	}
 	floatNearTest(t, delta.ReducibleCeilingRatio, 0.15)
@@ -163,6 +169,9 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	}
 	if report.PerLog[0].PrefixToolDefinitionBytes != 6000 || report.PerLog[1].PrefixToolDefinitionBytes != 24000 {
 		t.Fatalf("bad per-log prefix split: %+v", report.PerLog)
+	}
+	if report.PerLog[0].ToolPruneCandidateTokens != 500 || report.PerLog[1].ToolPruneCandidateTokens != 2000 {
+		t.Fatalf("bad per-log tool-prune candidates: %+v", report.PerLog)
 	}
 }
 
@@ -256,7 +265,9 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 		deltaRow.PrefixToolDefinitionBytes != 24000 ||
 		deltaRow.PrefixInstructionBytes != 8000 ||
 		deltaRow.PrefixDefaultKeepToolBytes != 16000 ||
-		deltaRow.PrefixNonDefaultToolBytes != 8000 {
+		deltaRow.PrefixNonDefaultToolBytes != 8000 ||
+		deltaRow.ToolPruneCandidateBytes != 8000 ||
+		deltaRow.ToolPruneCandidateTokens != 2000 {
 		t.Fatalf("bad delta T354 row: %+v", deltaRow)
 	}
 	floatNearTest(t, deltaRow.ProviderCachedPct, 0.7)
@@ -274,7 +285,9 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 		fullRow.PrefixTotalBytes != 8000 ||
 		fullRow.PrefixSplitBytes != 8000 ||
 		fullRow.PrefixToolDefinitionBytes != 6000 ||
-		fullRow.PrefixInstructionBytes != 2000 {
+		fullRow.PrefixInstructionBytes != 2000 ||
+		fullRow.ToolPruneCandidateBytes != 2000 ||
+		fullRow.ToolPruneCandidateTokens != 500 {
 		t.Fatalf("bad full-history T354 row: %+v", fullRow)
 	}
 
@@ -286,8 +299,47 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 		!strings.Contains(stdout.String(), "guard=wss.effective_mutation_guard=wss_stateful_delta_mutation_proof_gate") ||
 		!strings.Contains(stdout.String(), "continuation=stateless_followup_detached") ||
 		!strings.Contains(stdout.String(), "tool_prefix_bytes=24000") ||
+		!strings.Contains(stdout.String(), "prune_candidate=8000B/~2000tok") ||
 		!strings.Contains(stdout.String(), "default_keep_bytes=16000") {
 		t.Fatalf("text output missing T354 table details:\n%s", stdout.String())
+	}
+}
+
+func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	guarded := wssClassDistributionTestSummary("guard", "delta", 10000, 0, 8000, 0, 7000, 0)
+	guarded.PreviousResponseIDUsed = true
+	guarded.DebugFacts["wss.socket_seq"] = "1"
+	guarded.DebugFacts["wss.tool_prune_guard"] = "wss_tool_prune_delta_guard"
+	guarded.ToolPrune = dbg.ToolPruneSummary{Reason: "wss_tool_prune_delta_guard"}
+	writeJSONLFile(t, path, guarded)
+
+	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSClassDistribution() error = %v", err)
+	}
+	if report.ToolPruneDeltaGuardedRequests != 1 ||
+		report.ToolPruneDeltaGuardedOriginal != 10000 ||
+		report.ToolPruneDeltaGuardedBytes != 8000 ||
+		report.ToolPruneDeltaGuardedTokens != 2000 {
+		t.Fatalf("bad tool-prune delta guarded surface: %+v", report)
+	}
+	floatNearTest(t, report.ToolPruneDeltaGuardedShare, 0.20)
+	row := findT354ShapeRow(report.T354ShapeTable, "delta")
+	if row == nil || row.GuardReason != "wss.tool_prune_guard=wss_tool_prune_delta_guard" || row.GuardedRequests != 1 {
+		t.Fatalf("missing tool-prune guard T354 row: %+v", report.T354ShapeTable)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSClassDistribution([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "T410 delta tool-prune guard:") ||
+		!strings.Contains(stdout.String(), "candidate=8000 bytes (~2000 tok") {
+		t.Fatalf("text output missing T410 guard surface:\n%s", stdout.String())
 	}
 }
 
@@ -357,6 +409,7 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Reducible ceiling ratio") ||
 		!strings.Contains(stdout.String(), "prefix split bytes:") ||
 		!strings.Contains(stdout.String(), "tool_prefix_bytes=") ||
+		!strings.Contains(stdout.String(), "tool-prune candidate upper bound:") ||
 		!strings.Contains(stdout.String(), "Non-prefix upper bound") ||
 		!strings.Contains(stdout.String(), "Headroom present:") ||
 		!strings.Contains(stdout.String(), "Next action:") ||
@@ -382,6 +435,8 @@ func TestRunWSSClassDistributionJSONAndText(t *testing.T) {
 		report.PrefixSplitInconsistentBytes != 0 ||
 		report.PrefixToolDefinitionBytes != 6000 ||
 		report.PrefixInstructionBytes != 2000 ||
+		report.ToolPruneCandidateBytes != 2000 ||
+		report.ToolPruneCandidateTokens != 500 ||
 		report.Verdict != "headroom_present" ||
 		!report.HeadroomPresent ||
 		!report.GapInventoryRecommended ||
