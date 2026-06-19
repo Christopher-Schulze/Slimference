@@ -230,20 +230,23 @@ func TestFilterRunsAggregate_Recent(t *testing.T) {
 	if err := RecordFilterRun(db, "b", "/p", 20, 20, 0, t0); err != nil {
 		t.Fatal(err)
 	}
+	if err := RecordFilterRun(db, "recover", "/p", 2, 12, -500, t0); err != nil {
+		t.Fatal(err)
+	}
 	start := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 10, 23, 0, 0, 0, time.UTC)
 	agg, err := QueryFilterRunsAggregate(db, start, end)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agg.Runs != 2 || agg.InputTokens != 30 || agg.TokensSavedEst != 5 {
+	if agg.Runs != 3 || agg.InputTokens != 32 || agg.OutputTokens != 37 || agg.TokensSavedEst != -5 {
 		t.Fatalf("agg %+v", agg)
 	}
 	recent, err := RecentFilterRuns(db, 5)
-	if err != nil || len(recent) != 2 {
+	if err != nil || len(recent) != 3 {
 		t.Fatalf("recent %v err=%v", recent, err)
 	}
-	if recent[0].Command != "b" || recent[1].Command != "a" {
+	if recent[0].Command != "recover" || recent[1].Command != "b" || recent[2].Command != "a" {
 		t.Fatalf("order: %+v", recent)
 	}
 }

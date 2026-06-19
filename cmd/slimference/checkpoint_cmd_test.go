@@ -13,6 +13,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/config"
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/toolarchive"
 )
 
@@ -89,6 +90,63 @@ func TestHandleExpandCmd_PrintsArchivedBody(t *testing.T) {
 	}
 }
 
+func TestHandleExpandCmd_RecordsNegativeRecoveryCostForToolArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	body := strings.Repeat("recovered diagnostic line with original evidence\n", 220)
+	entry, err := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+		ToolName:  "Bash",
+		ToolUseID: "recovery-cost-tool",
+		SessionID: "sess-recovery-cost",
+		Command:   "npm test",
+		Output:    body,
+	})
+	if err != nil || entry == nil {
+		t.Fatalf("archive entry=%+v err=%v", entry, err)
+	}
+
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleExpandCmd([]string{entry.URI})
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if buf.String() != body {
+		t.Fatalf("expand output mismatch")
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected archive recovery accounting row")
+	}
+	if !strings.Contains(run.Command, "[archive-recovery:toolarchive] slimference expand "+entry.URI) {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.ProjectPath != "/repo" {
+		t.Fatalf("project path=%q", run.ProjectPath)
+	}
+	if run.OutputTokens <= run.InputTokens || run.SavingsPct >= 0 {
+		t.Fatalf("expected negative recovery accounting row: %+v", run)
+	}
+}
+
 func TestHandleExpandCmd_FallsBackToContentArchive(t *testing.T) {
 	origHome := osUserHomeDir
 	origStdout := os.Stdout
@@ -122,6 +180,100 @@ func TestHandleExpandCmd_FallsBackToContentArchive(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "archived comment line") {
 		t.Fatalf("content-archive expand output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandCmd_RecordsNegativeRecoveryCostForContentArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	body := strings.Repeat("// recovered content archive line with omitted bytes\n", 80)
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SessionID:    "sess-content-recovery",
+		MessageIndex: 1,
+		BlockIndex:   0,
+		SubLayer:     "command_output_first",
+		Original:     body,
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("contentarchive put: entry=%#v err=%v", entry, err)
+	}
+
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleExpandCmd([]string{entry.URI})
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if buf.String() != body {
+		t.Fatalf("expand output mismatch")
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected content archive recovery accounting row")
+	}
+	if !strings.Contains(run.Command, "[archive-recovery:contentarchive] slimference expand "+entry.URI) {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.OutputTokens <= run.InputTokens || run.SavingsPct >= 0 {
+		t.Fatalf("expected negative recovery accounting row: %+v", run)
+	}
+}
+
+func TestRecordArchiveRecoveryRunSkipsEmptyBody(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+
+	recordArchiveRecoveryRun("contentarchive", "local-archive://empty", nil)
+
+	if _, err := os.Stat(dbPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty recovery body should not create db, stat err=%v", err)
+	}
+}
+
+func TestRecordArchiveRecoveryRunSkipsPathResolutionError(t *testing.T) {
+	origPath := resolveFilterDBPathFn
+	defer func() { resolveFilterDBPathFn = origPath }()
+	resolveFilterDBPathFn = func() (string, error) { return "", errors.New("db path unavailable") }
+
+	recordArchiveRecoveryRun("contentarchive", "local-archive://missing-db", []byte(strings.Repeat("x", 100)))
+}
+
+func TestRecordArchiveRecoveryRunTinyRecoveryIsZeroCostNotPositiveSavings(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+
+	recordArchiveRecoveryRun("contentarchive", "local-archive://tiny", []byte("x"))
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected tiny recovery accounting row")
+	}
+	if run.OutputTokens != run.InputTokens || run.SavingsPct != 0 {
+		t.Fatalf("tiny recovery must not record positive savings: %+v", run)
 	}
 }
 

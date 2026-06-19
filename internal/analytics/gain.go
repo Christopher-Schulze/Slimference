@@ -22,7 +22,8 @@ type FilterGainSummary struct {
 	Runs         int64  `json:"runs"`
 	InputTokens  int64  `json:"input_tokens"`
 	OutputTokens int64  `json:"output_tokens"`
-	// TokensSavedEst sums max(0, input_tokens-output_tokens) per run (byte/4 estimates).
+	// TokensSavedEst sums input_tokens-output_tokens per run, including
+	// negative recovery/rerun accounting rows.
 	TokensSavedEst int64 `json:"tokens_saved_est"`
 	// ProjectPathFilter is the normalized --project filter path, if any.
 	ProjectPathFilter string `json:"project_path_filter,omitempty"`
@@ -176,7 +177,7 @@ func queryFilterGainDB(db *sql.DB, period string, start, end time.Time, projectR
 SELECT COUNT(*),
        COALESCE(SUM(input_tokens), 0),
        COALESCE(SUM(output_tokens), 0),
-       COALESCE(SUM(CASE WHEN input_tokens > output_tokens THEN input_tokens - output_tokens ELSE 0 END), 0)
+       COALESCE(SUM(input_tokens - output_tokens), 0)
 FROM filter_runs
 WHERE created_at >= ? AND created_at <= ?
   AND (? = '' OR project_path = ?
@@ -208,7 +209,7 @@ SELECT command,
        COUNT(*),
        COALESCE(SUM(input_tokens), 0),
        COALESCE(SUM(output_tokens), 0),
-       COALESCE(SUM(CASE WHEN input_tokens > output_tokens THEN input_tokens - output_tokens ELSE 0 END), 0)
+       COALESCE(SUM(input_tokens - output_tokens), 0)
 FROM filter_runs
 WHERE created_at >= ? AND created_at <= ?
   AND (? = '' OR project_path = ?

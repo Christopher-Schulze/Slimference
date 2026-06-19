@@ -2571,7 +2571,7 @@ func handleGainCmd(args []string) {
 	fmt.Printf("Filter runs:            %d\n", s.Runs)
 	fmt.Printf("Input tokens (est):     %s\n", formatTokensPlain64(s.InputTokens))
 	fmt.Printf("Output tokens (est):    %s\n", formatTokensPlain64(s.OutputTokens))
-	fmt.Printf("Estimated tokens saved: %s\n", formatTokensPlain64(s.TokensSavedEst))
+	fmt.Printf("Estimated tokens saved: %s\n", formatSignedTokensPlain64(s.TokensSavedEst))
 	if s.USDPerMillionTokens > 0 {
 		fmt.Printf("Est. value saved (at $%.2f/M est. tokens): ~$%.4f\n", s.USDPerMillionTokens, s.SavingsUsdEst)
 	}
@@ -2588,7 +2588,7 @@ func handleGainCmd(args []string) {
 				row.Runs,
 				formatTokensPlain64(row.InputTokens),
 				formatTokensPlain64(row.OutputTokens),
-				formatTokensPlain64(row.TokensSavedEst),
+				formatSignedTokensPlain64(row.TokensSavedEst),
 				extra)
 		}
 	}
@@ -2604,7 +2604,7 @@ func handleGainCmd(args []string) {
 				row.Runs,
 				formatTokensPlain64(row.InputTokens),
 				formatTokensPlain64(row.OutputTokens),
-				formatTokensPlain64(row.TokensSavedEst),
+				formatSignedTokensPlain64(row.TokensSavedEst),
 				extra)
 		}
 	}
@@ -3173,7 +3173,7 @@ func handleDebugSummary(extra []string) {
 	fmt.Printf("runs:              %d\n", agg.Runs)
 	fmt.Printf("input_tokens:      %s\n", formatTokensPlain64(agg.InputTokens))
 	fmt.Printf("output_tokens:     %s\n", formatTokensPlain64(agg.OutputTokens))
-	fmt.Printf("est. tokens saved: %s\n", formatTokensPlain64(agg.TokensSavedEst))
+	fmt.Printf("est. tokens saved: %s\n", formatSignedTokensPlain64(agg.TokensSavedEst))
 	fmt.Println(strings.Repeat("-", 50))
 }
 
@@ -3512,6 +3512,13 @@ func formatTokensPlain64(n int64) string {
 	default:
 		return fmt.Sprintf("%d", n)
 	}
+}
+
+func formatSignedTokensPlain64(n int64) string {
+	if n < 0 {
+		return "-" + formatTokensPlain64(-n)
+	}
+	return formatTokensPlain64(n)
 }
 
 func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {

@@ -102,7 +102,7 @@ func QueryFilterRunsAggregate(db *sql.DB, start, end time.Time) (FilterRunsAggre
 SELECT COUNT(*),
        COALESCE(SUM(input_tokens), 0),
        COALESCE(SUM(output_tokens), 0),
-       COALESCE(SUM(CASE WHEN input_tokens > output_tokens THEN input_tokens - output_tokens ELSE 0 END), 0)
+       COALESCE(SUM(input_tokens - output_tokens), 0)
 FROM filter_runs
 WHERE created_at >= ? AND created_at <= ?
 `, startSec, endSec).Scan(&runs, &inTok, &outTok, &saved)

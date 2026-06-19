@@ -126,20 +126,26 @@ func TestQueryFilterGainReportByCommand(t *testing.T) {
 	if err := filter.RecordFilterRun(db, "a", "/p", 40, 10, 75, ts); err != nil {
 		t.Fatal(err)
 	}
+	if err := filter.RecordFilterRun(db, "[archive-recovery:contentarchive] slimference expand local-archive://abc", "/p", 2, 22, -1000, ts); err != nil {
+		t.Fatal(err)
+	}
 	_ = db.Close()
 
 	rep, err := QueryFilterGainReport(path, "month", ts, true, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Runs != 3 || rep.TokensSavedEst != 80 {
+	if rep.Runs != 4 || rep.TokensSavedEst != 60 {
 		t.Fatalf("summary %+v", rep.FilterGainSummary)
 	}
-	if len(rep.ByCommand) != 2 {
+	if len(rep.ByCommand) != 3 {
 		t.Fatalf("by command: %+v", rep.ByCommand)
 	}
 	if rep.ByCommand[0].Command != "a" || rep.ByCommand[0].TokensSavedEst != 80 {
 		t.Fatalf("order: %+v", rep.ByCommand)
+	}
+	if rep.ByCommand[2].TokensSavedEst != -20 {
+		t.Fatalf("negative recovery row hidden: %+v", rep.ByCommand)
 	}
 
 	var buf bytes.Buffer

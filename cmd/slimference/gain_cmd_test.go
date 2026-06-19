@@ -132,6 +132,42 @@ func TestHandleSubcommand_gain_csvByCommand(t *testing.T) {
 	}
 }
 
+func TestHandleSubcommand_gain_byCommandShowsNegativeRecoveryCost(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Now()
+	if err := filter.RecordFilterRun(db, "[command-output-first:grep] grep needle", "/proj", 100, 30, 70, ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "[archive-recovery:contentarchive] slimference expand local-archive://abc", "/proj", 2, 22, -1000, ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--by-command"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Estimated tokens saved: 50") {
+		t.Fatalf("summary did not subtract recovery cost: %q", out)
+	}
+	if !strings.Contains(out, "[archive-recovery:contentarchive]") || !strings.Contains(out, "saved ~-20") {
+		t.Fatalf("negative recovery row hidden: %q", out)
+	}
+}
+
 func TestHandleSubcommand_gain_withProjectFilter(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "filter.db")

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/checkpoints"
 	"github.com/Christopher-Schulze/Slimference/internal/codecompact"
@@ -91,6 +93,7 @@ func handleExpandCmd(args []string) {
 			fmt.Fprintf(os.Stderr, "expand write: %v\n", werr)
 			exitFn(1)
 		}
+		recordArchiveRecoveryRun("toolarchive", args[0], body)
 		return
 	}
 	_, body, err := contentarchive.Get(contentarchive.DefaultDir(home), args[0])
@@ -106,6 +109,40 @@ func handleExpandCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "expand write: %v\n", err)
 		exitFn(1)
 	}
+	recordArchiveRecoveryRun("contentarchive", args[0], body)
+}
+
+func recordArchiveRecoveryRun(kind string, rawID string, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	dbPath, err := resolveFilterDBPathFn()
+	if err != nil || strings.TrimSpace(dbPath) == "" {
+		return
+	}
+	if err := osMkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	wd, err := osGetwd()
+	if err != nil {
+		wd = ""
+	}
+	command := "[archive-recovery:" + strings.TrimSpace(kind) + "] slimference expand " + strings.TrimSpace(rawID)
+	inputTokens := filter.EstimateTokensFromText("slimference expand " + strings.TrimSpace(rawID))
+	outputTokens := filter.EstimateTokensFromBytes(len(body))
+	if inputTokens < 1 {
+		inputTokens = 1
+	}
+	if outputTokens < inputTokens {
+		outputTokens = inputTokens
+	}
+	savingsPct := float64(inputTokens-outputTokens) * 100 / float64(inputTokens)
+	_ = filter.RecordFilterRun(db, command, wd, inputTokens, outputTokens, savingsPct, time.Now())
 }
 
 func handleExpandBodyCmd(args []string) {
