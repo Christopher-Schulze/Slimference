@@ -66,8 +66,16 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		wssClassDistributionTestSummary("d1", "delta", 10000, 500, 8000, 4000, 7000, 2))
 	// Full-history turn: saved=8000 tool-output plus 24000 remaining bytes
 	// (6000 tokens) -> reducible 14000, other = 20000-2000-14000 = 4000.
+	fullHistory := wssClassDistributionTestSummary("f1", "full_history", 20000, 8000, 2000, 24000, 1000, 1)
+	fullHistory.ToolPrune = dbg.ToolPruneSummary{
+		Applied:     true,
+		Reason:      "idle_tools",
+		PrunedTools: 2,
+		AlwaysKept:  3,
+		SavedTokens: 75,
+	}
 	writeJSONLFile(t, filepath.Join(fullHistDir, "decisions.jsonl"),
-		wssClassDistributionTestSummary("f1", "full_history", 20000, 8000, 2000, 24000, 1000, 1))
+		fullHistory)
 
 	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: dir})
 	if err != nil {
@@ -95,6 +103,11 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		report.PrefixUnnamedTools != 0 ||
 		report.ToolPruneCandidateBytes != 10000 ||
 		report.ToolPruneCandidateTokens != 2500 ||
+		report.ToolPruneRequests != 1 ||
+		report.ToolPruneAppliedRequests != 1 ||
+		report.ToolPruneSavedTokens != 75 ||
+		report.ToolPrunePrunedTools != 2 ||
+		report.ToolPruneAlwaysKeptTools != 3 ||
 		report.ReducibleToolOutputTokens != 15500 ||
 		report.OtherContextTokens != 4500 ||
 		report.NonPrefixTokens != 20000 {
@@ -154,7 +167,10 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 		fullHist.PrefixToolDefinitionBytes != 6000 || fullHist.PrefixInstructionBytes != 2000 ||
 		fullHist.PrefixDefaultKeepToolBytes != 4000 || fullHist.PrefixNonDefaultToolBytes != 2000 ||
 		fullHist.PrefixToolDefinitions != 4 || fullHist.PrefixDefaultKeepTools != 3 || fullHist.PrefixNonDefaultTools != 1 ||
-		fullHist.ToolPruneCandidateBytes != 2000 || fullHist.ToolPruneCandidateTokens != 500 {
+		fullHist.ToolPruneCandidateBytes != 2000 || fullHist.ToolPruneCandidateTokens != 500 ||
+		fullHist.ToolPruneRequests != 1 || fullHist.ToolPruneAppliedRequests != 1 ||
+		fullHist.ToolPruneSavedTokens != 75 || fullHist.ToolPrunePrunedTools != 2 ||
+		fullHist.ToolPruneAlwaysKeptTools != 3 {
 		t.Fatalf("bad full_history prefix surface: %+v", fullHist)
 	}
 	floatNearTest(t, delta.ReducibleCeilingRatio, 0.15)
@@ -172,6 +188,9 @@ func TestWSSClassDistributionSplitAndAggregate(t *testing.T) {
 	}
 	if report.PerLog[0].ToolPruneCandidateTokens != 500 || report.PerLog[1].ToolPruneCandidateTokens != 2000 {
 		t.Fatalf("bad per-log tool-prune candidates: %+v", report.PerLog)
+	}
+	if report.PerLog[0].ToolPruneRequests != 1 || report.PerLog[0].ToolPruneSavedTokens != 75 {
+		t.Fatalf("bad per-log tool-prune telemetry: %+v", report.PerLog)
 	}
 }
 
@@ -314,7 +333,13 @@ func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
 	guarded.PreviousResponseIDUsed = true
 	guarded.DebugFacts["wss.socket_seq"] = "1"
 	guarded.DebugFacts["wss.tool_prune_guard"] = "wss_tool_prune_delta_guard"
-	guarded.ToolPrune = dbg.ToolPruneSummary{Reason: "wss_tool_prune_delta_guard"}
+	guarded.ToolPrune = dbg.ToolPruneSummary{
+		Reason:     "wss_tool_prune_delta_guard",
+		Reattached: 1,
+		Miss:       true,
+		Retry:      true,
+		Cooldown:   true,
+	}
 	writeJSONLFile(t, path, guarded)
 
 	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: path})
@@ -324,12 +349,24 @@ func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
 	if report.ToolPruneDeltaGuardedRequests != 1 ||
 		report.ToolPruneDeltaGuardedOriginal != 10000 ||
 		report.ToolPruneDeltaGuardedBytes != 8000 ||
-		report.ToolPruneDeltaGuardedTokens != 2000 {
+		report.ToolPruneDeltaGuardedTokens != 2000 ||
+		report.ToolPruneRequests != 1 ||
+		report.ToolPruneAppliedRequests != 0 ||
+		report.ToolPruneReattachedTools != 1 ||
+		report.ToolPruneMissRequests != 1 ||
+		report.ToolPruneRetryRequests != 1 ||
+		report.ToolPruneCooldownRequests != 1 {
 		t.Fatalf("bad tool-prune delta guarded surface: %+v", report)
 	}
 	floatNearTest(t, report.ToolPruneDeltaGuardedShare, 0.20)
 	row := findT354ShapeRow(report.T354ShapeTable, "delta")
-	if row == nil || row.GuardReason != "wss.tool_prune_guard=wss_tool_prune_delta_guard" || row.GuardedRequests != 1 {
+	if row == nil ||
+		row.GuardReason != "wss.tool_prune_guard=wss_tool_prune_delta_guard" ||
+		row.GuardedRequests != 1 ||
+		row.ToolPruneRequests != 1 ||
+		row.ToolPruneRetryRequests != 1 ||
+		row.ToolPruneMissRequests != 1 ||
+		row.ToolPruneCooldownRequests != 1 {
 		t.Fatalf("missing tool-prune guard T354 row: %+v", report.T354ShapeTable)
 	}
 
@@ -338,7 +375,9 @@ func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
 		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "T410 delta tool-prune guard:") ||
-		!strings.Contains(stdout.String(), "candidate=8000 bytes (~2000 tok") {
+		!strings.Contains(stdout.String(), "candidate=8000 bytes (~2000 tok") ||
+		!strings.Contains(stdout.String(), "Tool-prune telemetry:") ||
+		!strings.Contains(stdout.String(), "retry=1") {
 		t.Fatalf("text output missing T410 guard surface:\n%s", stdout.String())
 	}
 }

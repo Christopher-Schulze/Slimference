@@ -73,6 +73,15 @@ type wssClassDistributionReport struct {
 	ToolPruneDeltaGuardedBytes      int                            `json:"tool_prune_delta_guarded_candidate_bytes,omitempty"`
 	ToolPruneDeltaGuardedTokens     int                            `json:"tool_prune_delta_guarded_candidate_tokens,omitempty"`
 	ToolPruneDeltaGuardedShare      float64                        `json:"tool_prune_delta_guarded_candidate_share,omitempty"`
+	ToolPruneRequests               int                            `json:"tool_prune_requests,omitempty"`
+	ToolPruneAppliedRequests        int                            `json:"tool_prune_applied_requests,omitempty"`
+	ToolPruneSavedTokens            int                            `json:"tool_prune_saved_tokens,omitempty"`
+	ToolPrunePrunedTools            int                            `json:"tool_prune_pruned_tools,omitempty"`
+	ToolPruneReattachedTools        int                            `json:"tool_prune_reattached_tools,omitempty"`
+	ToolPruneAlwaysKeptTools        int                            `json:"tool_prune_always_kept_tools,omitempty"`
+	ToolPruneMissRequests           int                            `json:"tool_prune_miss_requests,omitempty"`
+	ToolPruneRetryRequests          int                            `json:"tool_prune_retry_requests,omitempty"`
+	ToolPruneCooldownRequests       int                            `json:"tool_prune_cooldown_requests,omitempty"`
 	ReducibleToolOutputTokens       int                            `json:"reducible_tool_output_tokens"`
 	ReducibleToolOutputShare        float64                        `json:"reducible_tool_output_share"`
 	OtherContextTokens              int                            `json:"other_context_tokens"`
@@ -123,6 +132,15 @@ type wssClassDistributionClassRow struct {
 	ToolPruneCandidateBytes         int            `json:"tool_prune_candidate_bytes,omitempty"`
 	ToolPruneCandidateTokens        int            `json:"tool_prune_candidate_tokens,omitempty"`
 	ToolPruneCandidateShare         float64        `json:"tool_prune_candidate_share,omitempty"`
+	ToolPruneRequests               int            `json:"tool_prune_requests,omitempty"`
+	ToolPruneAppliedRequests        int            `json:"tool_prune_applied_requests,omitempty"`
+	ToolPruneSavedTokens            int            `json:"tool_prune_saved_tokens,omitempty"`
+	ToolPrunePrunedTools            int            `json:"tool_prune_pruned_tools,omitempty"`
+	ToolPruneReattachedTools        int            `json:"tool_prune_reattached_tools,omitempty"`
+	ToolPruneAlwaysKeptTools        int            `json:"tool_prune_always_kept_tools,omitempty"`
+	ToolPruneMissRequests           int            `json:"tool_prune_miss_requests,omitempty"`
+	ToolPruneRetryRequests          int            `json:"tool_prune_retry_requests,omitempty"`
+	ToolPruneCooldownRequests       int            `json:"tool_prune_cooldown_requests,omitempty"`
 	ReducibleToolOutputTokens       int            `json:"reducible_tool_output_tokens"`
 	ReducibleToolOutputShare        float64        `json:"reducible_tool_output_share"`
 	OtherContextTokens              int            `json:"other_context_tokens"`
@@ -158,6 +176,15 @@ type wssClassDistributionLogRow struct {
 	ToolPruneCandidateBytes         int     `json:"tool_prune_candidate_bytes,omitempty"`
 	ToolPruneCandidateTokens        int     `json:"tool_prune_candidate_tokens,omitempty"`
 	ToolPruneCandidateShare         float64 `json:"tool_prune_candidate_share,omitempty"`
+	ToolPruneRequests               int     `json:"tool_prune_requests,omitempty"`
+	ToolPruneAppliedRequests        int     `json:"tool_prune_applied_requests,omitempty"`
+	ToolPruneSavedTokens            int     `json:"tool_prune_saved_tokens,omitempty"`
+	ToolPrunePrunedTools            int     `json:"tool_prune_pruned_tools,omitempty"`
+	ToolPruneReattachedTools        int     `json:"tool_prune_reattached_tools,omitempty"`
+	ToolPruneAlwaysKeptTools        int     `json:"tool_prune_always_kept_tools,omitempty"`
+	ToolPruneMissRequests           int     `json:"tool_prune_miss_requests,omitempty"`
+	ToolPruneRetryRequests          int     `json:"tool_prune_retry_requests,omitempty"`
+	ToolPruneCooldownRequests       int     `json:"tool_prune_cooldown_requests,omitempty"`
 	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
 	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
 }
@@ -192,6 +219,15 @@ type wssClassDistributionT354Row struct {
 	ToolPruneCandidateBytes         int     `json:"tool_prune_candidate_bytes,omitempty"`
 	ToolPruneCandidateTokens        int     `json:"tool_prune_candidate_tokens,omitempty"`
 	ToolPruneCandidateShare         float64 `json:"tool_prune_candidate_share,omitempty"`
+	ToolPruneRequests               int     `json:"tool_prune_requests,omitempty"`
+	ToolPruneAppliedRequests        int     `json:"tool_prune_applied_requests,omitempty"`
+	ToolPruneSavedTokens            int     `json:"tool_prune_saved_tokens,omitempty"`
+	ToolPrunePrunedTools            int     `json:"tool_prune_pruned_tools,omitempty"`
+	ToolPruneReattachedTools        int     `json:"tool_prune_reattached_tools,omitempty"`
+	ToolPruneAlwaysKeptTools        int     `json:"tool_prune_always_kept_tools,omitempty"`
+	ToolPruneMissRequests           int     `json:"tool_prune_miss_requests,omitempty"`
+	ToolPruneRetryRequests          int     `json:"tool_prune_retry_requests,omitempty"`
+	ToolPruneCooldownRequests       int     `json:"tool_prune_cooldown_requests,omitempty"`
 	ReducibleToolOutputTokens       int     `json:"reducible_tool_output_tokens"`
 	ReducibleCeilingRatio           float64 `json:"reducible_ceiling_ratio"`
 	ProviderInputTokens             int     `json:"provider_input_tokens"`
@@ -416,12 +452,14 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	saved := maxInt(0, summary.Tokens.Saved)
 	prefixTokens, reducibleTokens, otherTokens, prefixMutationSaved := wssClassDistributionSplit(summary, original, saved)
 	prefixSurface := wssClassDistributionPrefixSurfaceFromFacts(summary.DebugFacts)
+	toolPruneSurface := wssClassDistributionToolPruneSurfaceFromSummary(summary)
 
 	a.report.PhaseFRequests++
 	a.report.OriginalTokens += original
 	a.report.LocalSavedTokens += saved
 	a.report.PrefixProtectedTokens += prefixTokens
 	a.report.addPrefixSurface(prefixSurface)
+	a.report.addToolPruneSurface(toolPruneSurface)
 	if wssClassDistributionIsToolPruneDeltaGuard(summary) {
 		a.report.ToolPruneDeltaGuardedRequests++
 		a.report.ToolPruneDeltaGuardedOriginal += original
@@ -446,6 +484,7 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	row.LocalSavedTokens += saved
 	row.PrefixProtectedTokens += prefixTokens
 	row.addPrefixSurface(prefixSurface)
+	row.addToolPruneSurface(toolPruneSurface)
 	row.ReducibleToolOutputTokens += reducibleTokens
 	row.OtherContextTokens += otherTokens
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
@@ -457,6 +496,7 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	logRow.LocalSavedTokens += saved
 	logRow.PrefixProtectedTokens += prefixTokens
 	logRow.addPrefixSurface(prefixSurface)
+	logRow.addToolPruneSurface(toolPruneSurface)
 	logRow.ReducibleToolOutputTokens += reducibleTokens
 }
 
@@ -503,6 +543,7 @@ func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummar
 	row.OriginalTokens += original
 	row.LocalSavedTokens += saved
 	row.addPrefixSurface(prefixSurface)
+	row.addToolPruneSurface(wssClassDistributionToolPruneSurfaceFromSummary(summary))
 	row.ReducibleToolOutputTokens += reducibleTokens
 	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
@@ -543,6 +584,53 @@ type wssClassDistributionPrefixSurface struct {
 	UnnamedTools              int
 	ToolPruneCandidateBytes   int
 	ToolPruneCandidateTokens  int
+}
+
+type wssClassDistributionToolPruneSurface struct {
+	Requests         int
+	AppliedRequests  int
+	SavedTokens      int
+	PrunedTools      int
+	ReattachedTools  int
+	AlwaysKeptTools  int
+	MissRequests     int
+	RetryRequests    int
+	CooldownRequests int
+}
+
+func wssClassDistributionToolPruneSurfaceFromSummary(summary dbg.RequestSummary) wssClassDistributionToolPruneSurface {
+	toolPrune := summary.ToolPrune
+	if !toolPrune.Applied &&
+		strings.TrimSpace(toolPrune.Reason) == "" &&
+		toolPrune.SavedTokens == 0 &&
+		toolPrune.PrunedTools == 0 &&
+		toolPrune.Reattached == 0 &&
+		toolPrune.AlwaysKept == 0 &&
+		!toolPrune.Miss &&
+		!toolPrune.Retry &&
+		!toolPrune.Cooldown {
+		return wssClassDistributionToolPruneSurface{}
+	}
+	surface := wssClassDistributionToolPruneSurface{
+		Requests:        1,
+		SavedTokens:     maxInt(0, toolPrune.SavedTokens),
+		PrunedTools:     maxInt(0, toolPrune.PrunedTools),
+		ReattachedTools: maxInt(0, toolPrune.Reattached),
+		AlwaysKeptTools: maxInt(0, toolPrune.AlwaysKept),
+	}
+	if toolPrune.Applied {
+		surface.AppliedRequests = 1
+	}
+	if toolPrune.Miss {
+		surface.MissRequests = 1
+	}
+	if toolPrune.Retry {
+		surface.RetryRequests = 1
+	}
+	if toolPrune.Cooldown {
+		surface.CooldownRequests = 1
+	}
+	return surface
 }
 
 func wssClassDistributionPrefixSurfaceFromFacts(facts map[string]string) wssClassDistributionPrefixSurface {
@@ -600,6 +688,18 @@ func (r *wssClassDistributionReport) addPrefixSurface(surface wssClassDistributi
 	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
+func (r *wssClassDistributionReport) addToolPruneSurface(surface wssClassDistributionToolPruneSurface) {
+	r.ToolPruneRequests += surface.Requests
+	r.ToolPruneAppliedRequests += surface.AppliedRequests
+	r.ToolPruneSavedTokens += surface.SavedTokens
+	r.ToolPrunePrunedTools += surface.PrunedTools
+	r.ToolPruneReattachedTools += surface.ReattachedTools
+	r.ToolPruneAlwaysKeptTools += surface.AlwaysKeptTools
+	r.ToolPruneMissRequests += surface.MissRequests
+	r.ToolPruneRetryRequests += surface.RetryRequests
+	r.ToolPruneCooldownRequests += surface.CooldownRequests
+}
+
 func (r *wssClassDistributionClassRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
 	r.PrefixTotalBytes += surface.TotalBytes
 	r.PrefixSplitBytes += surface.SplitBytes
@@ -618,6 +718,18 @@ func (r *wssClassDistributionClassRow) addPrefixSurface(surface wssClassDistribu
 	r.PrefixUnnamedTools += surface.UnnamedTools
 	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
 	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
+}
+
+func (r *wssClassDistributionClassRow) addToolPruneSurface(surface wssClassDistributionToolPruneSurface) {
+	r.ToolPruneRequests += surface.Requests
+	r.ToolPruneAppliedRequests += surface.AppliedRequests
+	r.ToolPruneSavedTokens += surface.SavedTokens
+	r.ToolPrunePrunedTools += surface.PrunedTools
+	r.ToolPruneReattachedTools += surface.ReattachedTools
+	r.ToolPruneAlwaysKeptTools += surface.AlwaysKeptTools
+	r.ToolPruneMissRequests += surface.MissRequests
+	r.ToolPruneRetryRequests += surface.RetryRequests
+	r.ToolPruneCooldownRequests += surface.CooldownRequests
 }
 
 func (r *wssClassDistributionLogRow) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
@@ -640,6 +752,18 @@ func (r *wssClassDistributionLogRow) addPrefixSurface(surface wssClassDistributi
 	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
 }
 
+func (r *wssClassDistributionLogRow) addToolPruneSurface(surface wssClassDistributionToolPruneSurface) {
+	r.ToolPruneRequests += surface.Requests
+	r.ToolPruneAppliedRequests += surface.AppliedRequests
+	r.ToolPruneSavedTokens += surface.SavedTokens
+	r.ToolPrunePrunedTools += surface.PrunedTools
+	r.ToolPruneReattachedTools += surface.ReattachedTools
+	r.ToolPruneAlwaysKeptTools += surface.AlwaysKeptTools
+	r.ToolPruneMissRequests += surface.MissRequests
+	r.ToolPruneRetryRequests += surface.RetryRequests
+	r.ToolPruneCooldownRequests += surface.CooldownRequests
+}
+
 func (r *wssClassDistributionT354Row) addPrefixSurface(surface wssClassDistributionPrefixSurface) {
 	r.PrefixTotalBytes += surface.TotalBytes
 	r.PrefixSplitBytes += surface.SplitBytes
@@ -658,6 +782,18 @@ func (r *wssClassDistributionT354Row) addPrefixSurface(surface wssClassDistribut
 	r.PrefixUnnamedTools += surface.UnnamedTools
 	r.ToolPruneCandidateBytes += surface.ToolPruneCandidateBytes
 	r.ToolPruneCandidateTokens += surface.ToolPruneCandidateTokens
+}
+
+func (r *wssClassDistributionT354Row) addToolPruneSurface(surface wssClassDistributionToolPruneSurface) {
+	r.ToolPruneRequests += surface.Requests
+	r.ToolPruneAppliedRequests += surface.AppliedRequests
+	r.ToolPruneSavedTokens += surface.SavedTokens
+	r.ToolPrunePrunedTools += surface.PrunedTools
+	r.ToolPruneReattachedTools += surface.ReattachedTools
+	r.ToolPruneAlwaysKeptTools += surface.AlwaysKeptTools
+	r.ToolPruneMissRequests += surface.MissRequests
+	r.ToolPruneRetryRequests += surface.RetryRequests
+	r.ToolPruneCooldownRequests += surface.CooldownRequests
 }
 
 func wssClassDistributionPreviousResponseID(summary dbg.RequestSummary) string {
@@ -1013,6 +1149,20 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 			report.ToolPruneDeltaGuardedShare*100,
 		))
 	}
+	if report.ToolPruneRequests > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"T410 tool-prune recovery telemetry: requests=%d applied=%d saved=%d pruned_tools=%d reattached=%d miss=%d retry=%d cooldown=%d always_keep=%d. Miss/retry/cooldown are quality-cost signals and must stay zero or exactly recovered before any wider delta promotion.",
+			report.ToolPruneRequests,
+			report.ToolPruneAppliedRequests,
+			report.ToolPruneSavedTokens,
+			report.ToolPrunePrunedTools,
+			report.ToolPruneReattachedTools,
+			report.ToolPruneMissRequests,
+			report.ToolPruneRetryRequests,
+			report.ToolPruneCooldownRequests,
+			report.ToolPruneAlwaysKeptTools,
+		))
+	}
 	if report.PrefixSplitInconsistentRequests > 0 {
 		notes = append(notes, fmt.Sprintf("%d Phase-F rows have prefix split bytes greater than recorded prefix_total_bytes by %d bytes; treat the split as planning telemetry and capture a fresh window before making a T407/T410 product unlock decision.", report.PrefixSplitInconsistentRequests, report.PrefixSplitInconsistentBytes))
 	}
@@ -1084,6 +1234,18 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 			report.ToolPruneDeltaGuardedTokens,
 			report.ToolPruneDeltaGuardedShare*100)
 	}
+	if report.ToolPruneRequests > 0 {
+		fmt.Fprintf(w, "  Tool-prune telemetry:        requests=%d applied=%d saved=%d pruned=%d reattached=%d miss=%d retry=%d cooldown=%d always_keep=%d\n",
+			report.ToolPruneRequests,
+			report.ToolPruneAppliedRequests,
+			report.ToolPruneSavedTokens,
+			report.ToolPrunePrunedTools,
+			report.ToolPruneReattachedTools,
+			report.ToolPruneMissRequests,
+			report.ToolPruneRetryRequests,
+			report.ToolPruneCooldownRequests,
+			report.ToolPruneAlwaysKeptTools)
+	}
 	fmt.Fprintf(w, "  Reducible tool-output (Layer-0): %d / %.2f%%  [the only Layer-0 target]\n", report.ReducibleToolOutputTokens, report.ReducibleToolOutputShare*100)
 	fmt.Fprintf(w, "  Other context (msgs/reasoning):  %d / %.2f%%  [model context, not L0-reducible]\n", report.OtherContextTokens, report.OtherContextShare*100)
 	if report.PrefixMutationSavedTokens > 0 {
@@ -1103,7 +1265,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.Classes) > 0 {
 		fmt.Fprintln(w, "\nPer request class:")
 		for _, row := range report.Classes {
-			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
+			fmt.Fprintf(w, "  %-13s requests=%d original=%d saved=%d %.2f%% | prefix=%d(%.2f%%) prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) tool_prune=%d/%d saved=%d retry=%d miss=%d cooldown=%d reducible=%d(%.2f%%) other=%d(%.2f%%) | ceiling=%.2f%% cached=%d sources=%s\n",
 				row.Class,
 				row.Requests,
 				row.OriginalTokens,
@@ -1120,6 +1282,12 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.ToolPruneCandidateBytes,
 				row.ToolPruneCandidateTokens,
 				row.ToolPruneCandidateShare*100,
+				row.ToolPruneAppliedRequests,
+				row.ToolPruneRequests,
+				row.ToolPruneSavedTokens,
+				row.ToolPruneRetryRequests,
+				row.ToolPruneMissRequests,
+				row.ToolPruneCooldownRequests,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleToolOutputShare*100,
 				row.OtherContextTokens,
@@ -1133,7 +1301,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.T354ShapeTable) > 0 {
 		fmt.Fprintln(w, "\nT354 shape table:")
 		for _, row := range report.T354ShapeTable {
-			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d default_keep_bytes=%d nondefault_bytes=%d unnamed_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
+			fmt.Fprintf(w, "  shape=%s source=%s prev=%s socket=%s tool=%s continuation=%s guard=%s requests=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d default_keep_bytes=%d nondefault_bytes=%d unnamed_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) tool_prune=%d/%d saved=%d retry=%d miss=%d cooldown=%d reducible=%d ceiling=%.2f%% provider_cached=%d/%d %.2f%% cache_read/create=%d/%d errors=%d/%d/%d applied=%d guarded=%d\n",
 				row.RequestShape,
 				row.ShapeSource,
 				row.PreviousResponseID,
@@ -1157,6 +1325,12 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.ToolPruneCandidateBytes,
 				row.ToolPruneCandidateTokens,
 				row.ToolPruneCandidateShare*100,
+				row.ToolPruneAppliedRequests,
+				row.ToolPruneRequests,
+				row.ToolPruneSavedTokens,
+				row.ToolPruneRetryRequests,
+				row.ToolPruneMissRequests,
+				row.ToolPruneCooldownRequests,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100,
 				row.ProviderCachedTokens,
@@ -1175,7 +1349,7 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	if len(report.PerLog) > 0 {
 		fmt.Fprintln(w, "\nPer capture (by reducible ceiling):")
 		for _, row := range report.PerLog {
-			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) reducible=%d ceiling=%.2f%%\n",
+			fmt.Fprintf(w, "  %-48s phasef=%d original=%d saved=%d %.2f%% prefix_bytes=%d split_bytes=%d split_inconsistent=%dB/%drows tool_prefix_bytes=%d instruction_bytes=%d prune_candidate=%dB/~%dtok(%.2f%%) tool_prune=%d/%d saved=%d retry=%d miss=%d cooldown=%d reducible=%d ceiling=%.2f%%\n",
 				row.Name,
 				row.PhaseFRequests,
 				row.OriginalTokens,
@@ -1190,6 +1364,12 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 				row.ToolPruneCandidateBytes,
 				row.ToolPruneCandidateTokens,
 				row.ToolPruneCandidateShare*100,
+				row.ToolPruneAppliedRequests,
+				row.ToolPruneRequests,
+				row.ToolPruneSavedTokens,
+				row.ToolPruneRetryRequests,
+				row.ToolPruneMissRequests,
+				row.ToolPruneCooldownRequests,
 				row.ReducibleToolOutputTokens,
 				row.ReducibleCeilingRatio*100)
 		}
