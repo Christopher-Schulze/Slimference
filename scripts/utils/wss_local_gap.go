@@ -68,6 +68,7 @@ type wssLocalGapReport struct {
 	ContentClasses           []wssLocalGapContentClassRow `json:"content_classes,omitempty"`
 	ActionablePotential      []wssLocalGapActionableRow   `json:"actionable_potential,omitempty"`
 	PrefixCapabilityLedger   []wssLocalGapPrefixRow       `json:"prefix_capability_ledger,omitempty"`
+	RootContextLedger        []wssLocalGapRootContextRow  `json:"root_context_ledger,omitempty"`
 	UnattributedGapTokens    int                          `json:"policy_unattributed_gap_tokens,omitempty"`
 	UnattributedGap          []wssLocalGapUnattributedRow `json:"unattributed_gap,omitempty"`
 	GatePassed               bool                         `json:"gate_passed"`
@@ -204,6 +205,17 @@ type wssLocalGapPrefixRow struct {
 	NextStep                string         `json:"next_step"`
 }
 
+type wssLocalGapRootContextRow struct {
+	Surface         string         `json:"surface"`
+	RiskClass       string         `json:"risk_class"`
+	Bytes           int            `json:"bytes"`
+	EstimatedTokens int            `json:"estimated_tokens,omitempty"`
+	Requests        int            `json:"requests"`
+	RequestShapes   map[string]int `json:"request_shapes,omitempty"`
+	Policy          string         `json:"policy"`
+	NextStep        string         `json:"next_step"`
+}
+
 type wssLocalGapUnattributedRow struct {
 	Category              string                          `json:"category"`
 	Source                string                          `json:"source"`
@@ -245,6 +257,7 @@ type wssLocalGapAccumulator struct {
 	contentRows      map[string]*wssLocalGapContentClassRow
 	actionRows       map[string]*wssLocalGapActionableRow
 	prefixRows       map[string]*wssLocalGapPrefixRow
+	rootContextRows  map[string]*wssLocalGapRootContextRow
 	unattributedRows map[string]*wssLocalGapUnattributedRow
 }
 
@@ -419,6 +432,7 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 		contentRows:      make(map[string]*wssLocalGapContentClassRow),
 		actionRows:       make(map[string]*wssLocalGapActionableRow),
 		prefixRows:       make(map[string]*wssLocalGapPrefixRow),
+		rootContextRows:  make(map[string]*wssLocalGapRootContextRow),
 		unattributedRows: make(map[string]*wssLocalGapUnattributedRow),
 	}
 	if !flags.since.IsZero() {
@@ -503,6 +517,7 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	toolCommandClasses := wssLocalGapFactCountPairs(summary.DebugFacts, "wss.tool_command_classes")
 	a.addRequestGuardFacts(summary, shape, shapeResolution.Source, original, saved, noEvidence)
 	a.addPrefixCapabilityLedger(summary.DebugFacts, shape)
+	a.addRootContextLedger(summary.DebugFacts, shape)
 	noEvidenceCategory := ""
 	if noEvidence {
 		noEvidenceCategory = a.addNoEvidenceActionable(summary, shape, shapeResolution.Source, original, saved, toolCommandClasses)
@@ -911,6 +926,105 @@ func (a *wssLocalGapAccumulator) addPrefixCapabilityRow(row wssLocalGapPrefixRow
 	addWSSAuditCount(&existing.RequestShapes, shape)
 }
 
+func (a *wssLocalGapAccumulator) addRootContextLedger(facts map[string]string, shape string) {
+	if a == nil || facts == nil {
+		return
+	}
+	nonPrefixBytes := wssLocalGapFactInt(facts, "wss.non_prefix_bytes")
+	nonPrefixTokens := wssLocalGapFactInt(facts, "wss.non_prefix_estimated_tokens")
+	rawInputBytes := wssLocalGapFactInt(facts, "wss.raw_input_bytes")
+	messageBytes := wssLocalGapFactInt(facts, "wss.raw_input_message_bytes")
+	functionCallBytes := wssLocalGapFactInt(facts, "wss.raw_input_function_call_bytes")
+	functionOutputBytes := wssLocalGapFactInt(facts, "wss.raw_input_function_call_output_bytes")
+	reasoningBytes := wssLocalGapFactInt(facts, "wss.raw_input_reasoning_bytes")
+	otherBytes := wssLocalGapFactInt(facts, "wss.raw_input_other_bytes")
+	if messageBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "raw_input_messages",
+			RiskClass:       "model_context_ownership_candidate",
+			Bytes:           messageBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(messageBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "conversation/user/assistant context is model-visible state; reduce only through exact continuation/reference ownership or deterministic safe context pruning",
+			NextStep:        "rank for T408/T417 root-context ownership; do not treat as tool-output reducer mass",
+		}, shape)
+	}
+	if functionCallBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "raw_input_function_calls",
+			RiskClass:       "server_state_continuation_candidate",
+			Bytes:           functionCallBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(functionCallBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "function-call history is server/model state binding; mutation needs exact lineage, retry-cost, and downstream-state accounting",
+			NextStep:        "feed T417 continuation/reroute ranking before any broad history mutation",
+		}, shape)
+	}
+	if functionOutputBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "raw_input_function_call_outputs",
+			RiskClass:       "recoverable_tool_output_history_candidate",
+			Bytes:           functionOutputBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(functionOutputBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "function-call output history can be compacted only with exact archive/rehydrate recovery and downstream-state safety",
+			NextStep:        "route through T419 recovery contract plus T417/T408 lineage before product activation",
+		}, shape)
+	}
+	if reasoningBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "raw_input_reasoning",
+			RiskClass:       "protected_reasoning_context",
+			Bytes:           reasoningBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(reasoningBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "reasoning/encrypted context is protected model state; do not mutate or reconstruct",
+			NextStep:        "exclude from savings candidates unless a backend-owned exact continuation contract exists",
+		}, shape)
+	}
+	if otherBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "raw_input_other",
+			RiskClass:       "fail_closed_unclassified_context",
+			Bytes:           otherBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(otherBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "unclassified raw input bytes cannot be safely reduced without stronger shape ownership",
+			NextStep:        "instrument exact input item classes before treating this as savings surface",
+		}, shape)
+	}
+	envelopeBytes := nonPrefixBytes - rawInputBytes
+	if envelopeBytes > 0 {
+		a.addRootContextRow(wssLocalGapRootContextRow{
+			Surface:         "non_input_envelope",
+			RiskClass:       "request_envelope_ownership_candidate",
+			Bytes:           envelopeBytes,
+			EstimatedTokens: wssLocalGapEstimateSurfaceTokens(envelopeBytes, nonPrefixBytes, nonPrefixTokens),
+			Requests:        1,
+			Policy:          "non-input request envelope bytes need route/schema ownership before any reduction",
+			NextStep:        "separate stable envelope metadata from backend-required state before T408/T417 design",
+		}, shape)
+	}
+}
+
+func (a *wssLocalGapAccumulator) addRootContextRow(row wssLocalGapRootContextRow, shape string) {
+	if a == nil || row.Bytes <= 0 {
+		return
+	}
+	key := row.Surface + "\x00" + row.RiskClass
+	existing := a.rootContextRows[key]
+	if existing == nil {
+		copy := row
+		a.rootContextRows[key] = &copy
+		existing = &copy
+	} else {
+		existing.Bytes += row.Bytes
+		existing.EstimatedTokens += row.EstimatedTokens
+		existing.Requests += row.Requests
+	}
+	addWSSAuditCount(&existing.RequestShapes, shape)
+}
+
 func (a *wssLocalGapAccumulator) addUnattributedGap(summary dbg.RequestSummary, shape, noEvidenceCategory string, original, saved, protected, knownNonTarget int) {
 	if a == nil || original <= 0 {
 		return
@@ -1060,6 +1174,7 @@ func (a *wssLocalGapAccumulator) finalize(flags wssLocalGapFlags) {
 	a.report.ContentClasses = finalizeWSSLocalGapContentClasses(a.contentRows)
 	a.report.ActionablePotential = finalizeWSSLocalGapActionable(a.actionRows)
 	a.report.PrefixCapabilityLedger = finalizeWSSLocalGapPrefixRows(a.prefixRows)
+	a.report.RootContextLedger = finalizeWSSLocalGapRootContextRows(a.rootContextRows)
 	a.report.UnattributedGap = finalizeWSSLocalGapUnattributed(a.unattributedRows)
 	for _, row := range a.report.UnattributedGap {
 		a.report.UnattributedGapTokens += row.Tokens
@@ -1167,6 +1282,23 @@ func finalizeWSSLocalGapActionable(rows map[string]*wssLocalGapActionableRow) []
 
 func finalizeWSSLocalGapPrefixRows(rows map[string]*wssLocalGapPrefixRow) []wssLocalGapPrefixRow {
 	out := make([]wssLocalGapPrefixRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EstimatedTokens != out[j].EstimatedTokens {
+			return out[i].EstimatedTokens > out[j].EstimatedTokens
+		}
+		if out[i].Bytes != out[j].Bytes {
+			return out[i].Bytes > out[j].Bytes
+		}
+		return out[i].Surface < out[j].Surface
+	})
+	return out
+}
+
+func finalizeWSSLocalGapRootContextRows(rows map[string]*wssLocalGapRootContextRow) []wssLocalGapRootContextRow {
+	out := make([]wssLocalGapRootContextRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, *row)
 	}
@@ -1296,6 +1428,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 	if wssLocalGapPrefixLedgerHasCommandExecution(report.PrefixCapabilityLedger) {
 		notes = append(notes, "T407 default-keep capability surface includes command execution; this is the high-risk sentinel and must stay byte-identical until A/B proves tool-call behavior unchanged.")
 	}
+	if rootTokens := wssLocalGapRootContextLedgerTokens(report.RootContextLedger); rootTokens > 0 {
+		notes = append(notes, fmt.Sprintf("Root-context ledger ranks ~%d non-prefix input/envelope tokens; use this to choose T408/T417/T419 work before mutating broad root context.", rootTokens))
+	}
 	if len(report.Guards) == 0 && report.PhaseFRequests > 0 {
 		if report.NoEvidenceNeedsInstr > 0 || report.NoEvidenceOrigTokens == 0 {
 			notes = append(notes, "No full-pass evidence decisions found; remaining gap may be uninstrumented or outside Layer-0 evidence.")
@@ -1367,6 +1502,14 @@ func wssLocalGapPrefixLedgerHasCommandExecution(rows []wssLocalGapPrefixRow) boo
 		}
 	}
 	return false
+}
+
+func wssLocalGapRootContextLedgerTokens(rows []wssLocalGapRootContextRow) int {
+	total := 0
+	for _, row := range rows {
+		total += row.EstimatedTokens
+	}
+	return total
 }
 
 func wssLocalGapDecisionAction(reason string) (string, string, string) {
@@ -2046,6 +2189,20 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 					row.DescriptionBytes,
 					row.ParametersBytes)
 			}
+			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
+			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
+		}
+	}
+	if len(report.RootContextLedger) > 0 {
+		fmt.Fprintln(w, "\nRoot context ledger:")
+		for _, row := range report.RootContextLedger {
+			fmt.Fprintf(w, "  %-32s risk=%-42s bytes=%d est_tokens=%d requests=%d shapes=%s\n",
+				row.Surface,
+				row.RiskClass,
+				row.Bytes,
+				row.EstimatedTokens,
+				row.Requests,
+				formatWSSAuditCounts(row.RequestShapes))
 			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
 			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
 		}

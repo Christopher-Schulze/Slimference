@@ -770,6 +770,34 @@ func TestWSSLocalGapRootContextActionCarriesInputByteSplit(t *testing.T) {
 		row.RawInputOtherBytes != 500 {
 		t.Fatalf("bad root context byte split: %+v", row)
 	}
+	if len(report.RootContextLedger) != 6 {
+		t.Fatalf("expected root-context ledger rows, got %+v", report.RootContextLedger)
+	}
+	messages := wssLocalGapRootContextRowBySurface(report.RootContextLedger, "raw_input_messages")
+	if messages.RiskClass != "model_context_ownership_candidate" ||
+		messages.Bytes != 350000 ||
+		messages.EstimatedTokens != 87500 ||
+		messages.Requests != 1 ||
+		messages.RequestShapes["root"] != 1 ||
+		!strings.Contains(messages.NextStep, "T408/T417") {
+		t.Fatalf("bad message root-context row: %+v", messages)
+	}
+	functionOutputs := wssLocalGapRootContextRowBySurface(report.RootContextLedger, "raw_input_function_call_outputs")
+	if functionOutputs.RiskClass != "recoverable_tool_output_history_candidate" ||
+		functionOutputs.Bytes != 2000 ||
+		functionOutputs.EstimatedTokens != 500 ||
+		!strings.Contains(functionOutputs.NextStep, "T419") {
+		t.Fatalf("bad function-output root-context row: %+v", functionOutputs)
+	}
+	envelope := wssLocalGapRootContextRowBySurface(report.RootContextLedger, "non_input_envelope")
+	if envelope.RiskClass != "request_envelope_ownership_candidate" ||
+		envelope.Bytes != 5000 ||
+		envelope.EstimatedTokens != 1250 {
+		t.Fatalf("bad non-input envelope row: %+v", envelope)
+	}
+	if !hasString(report.Notes, "Root-context ledger ranks ~90000 non-prefix input/envelope tokens; use this to choose T408/T417/T419 work before mutating broad root context.") {
+		t.Fatalf("root-context note missing: %+v", report.Notes)
+	}
 }
 
 func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing.T) {
@@ -1114,4 +1142,13 @@ func wssLocalGapPrefixRowBySurface(rows []wssLocalGapPrefixRow, surface string) 
 		}
 	}
 	return wssLocalGapPrefixRow{}
+}
+
+func wssLocalGapRootContextRowBySurface(rows []wssLocalGapRootContextRow, surface string) wssLocalGapRootContextRow {
+	for _, row := range rows {
+		if row.Surface == surface {
+			return row
+		}
+	}
+	return wssLocalGapRootContextRow{}
 }
