@@ -528,6 +528,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "buf", args: []string{"lint"}},
 		{command: "gocritic", args: []string{"check", "./..."}},
 		{command: "prettier", args: []string{"--check", "."}},
+		{command: "gofmt", args: []string{"-l", "."}},
+		{command: "go", args: []string{"fmt", "./..."}},
+		{command: "rustfmt", args: []string{"--check", "src/lib.rs"}},
+		{command: "black", args: []string{"--check", "src/"}},
+		{command: "isort", args: []string{"--check-only", "src/"}},
+		{command: "clang-format", args: []string{"--dry-run", "src/app.cc"}},
 		{command: "npm", args: []string{"run", "lint"}},
 		{command: "pnpm", args: []string{"run", "typecheck"}},
 		{command: "yarn", args: []string{"run", "format:check"}},
@@ -564,6 +570,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "wget", args: []string{"-qO-", "https://api.example.com/data"}},
 		{command: "http", args: []string{"GET", "https://api.example.com/data"}},
 		{command: "https", args: []string{"api.example.com/data"}},
+		{command: "psql", args: []string{"-c", "select * from users"}},
+		{command: "psql", args: []string{"--command=select 1"}},
+		{command: "mysql", args: []string{"-e", "select * from users"}},
+		{command: "mariadb", args: []string{"--execute=select 1"}},
 		{command: "gradle", args: []string{"build"}},
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "meson", args: []string{"compile", "-C", "build"}},
@@ -635,6 +645,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "webpack", args: []string{"serve"}},
 		{command: "prettier", args: []string{"--write", "."}},
 		{command: "ruff", args: []string{"format", "."}},
+		{command: "gofmt", args: []string{"-w", "."}},
+		{command: "gofmt", args: []string{"."}},
+		{command: "rustfmt", args: []string{"src/lib.rs"}},
+		{command: "black", args: []string{"src/"}},
+		{command: "isort", args: []string{"src/"}},
+		{command: "clang-format", args: []string{"src/app.cc"}},
 		{command: "biome", args: []string{"ci", "."}},
 		{command: "buf", args: []string{"format", "-w"}},
 		{command: "gocritic", args: []string{"doc"}},
@@ -679,6 +695,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "curl", args: []string{"--no-buffer", "https://api.example.com/events"}},
 		{command: "wget", args: []string{"https://api.example.com/data"}},
 		{command: "http", args: []string{"--download", "https://api.example.com/data"}},
+		{command: "psql", args: nil},
+		{command: "psql", args: []string{"-c"}},
+		{command: "psql", args: []string{"db"}},
+		{command: "mysql", args: nil},
+		{command: "mysql", args: []string{"-e"}},
+		{command: "mariadb", args: []string{"--execute="}},
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run", "web:test"}},
@@ -3460,6 +3482,117 @@ func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
 	if !bytes.Contains(raw, []byte("> app@1.0.0 format:check /repo")) ||
 		!bytes.Contains(raw, []byte("All matched files use Prettier code style!")) {
 		t.Fatalf("archive did not preserve yarn format raw output: %q", raw)
+	}
+}
+
+func TestCommandOutputFirstShimDirectFormatListCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var files strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&files, "internal/generated/pkg_%03d/file_%03d.go\n", i, i)
+	}
+	realGofmt := writeFakeCommand(t, "gofmt", "#!/bin/sh\ncat <<'EOF'\n"+files.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=gofmt", "--real-bin=" + realGofmt, "--", "-l", "internal/generated"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("gofmt rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[gofmt] 80 file(s) formatted") ||
+		!strings.Contains(got, "internal/generated/pkg_000/file_000.go") ||
+		!strings.Contains(got, "[+") {
+		t.Fatalf("unexpected gofmt compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing gofmt archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand gofmt archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("internal/generated/pkg_")) != 80 {
+		t.Fatalf("archive did not preserve all gofmt file rows: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:gofmt] gofmt -l internal/generated") {
+		t.Fatalf("missing gofmt accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive gofmt accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimSQLTableCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var table strings.Builder
+	table.WriteString(" id | name        | email\n")
+	table.WriteString("----+-------------+-----------------------------\n")
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&table, " %3d | user_%03d    | user_%03d@example.com\n", i, i, i)
+	}
+	table.WriteString("(120 rows)\n")
+	realPsql := writeFakeCommand(t, "psql", "#!/bin/sh\ncat <<'EOF'\n"+table.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=psql", "--real-bin=" + realPsql, "--", "-c", "select * from users"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("psql rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if strings.Contains(got, "----+----") ||
+		!strings.Contains(got, "id | name | email") ||
+		!strings.Contains(got, "user_119@example.com") ||
+		!strings.Contains(got, "(120 rows)") {
+		t.Fatalf("unexpected psql compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing psql archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand psql archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("----+-------------+")) ||
+		bytes.Count(raw, []byte("user_")) != 240 {
+		t.Fatalf("archive did not preserve raw psql table: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:psql] psql -c select * from users") {
+		t.Fatalf("missing psql accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive psql accounting row: %+v", run)
 	}
 }
 

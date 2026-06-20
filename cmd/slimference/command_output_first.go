@@ -65,6 +65,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
+		"gofmt", "rustfmt", "black", "isort", "clang-format",
 		"golangci-lint", "staticcheck", "revive", "errcheck",
 		"ineffassign", "nilaway", "unparam", "misspell", "gocyclo",
 		"forbidigo", "prealloc", "gocritic", "gosec", "protolint",
@@ -87,6 +88,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq",
 		"curl", "wget", "http", "https",
 		"journalctl", "tail",
+		"psql", "mysql", "mariadb",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -293,7 +295,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return true
 		}
 		switch commandOutputFirstGoSubcommand(args) {
-		case "test", "build":
+		case "test", "build", "fmt":
 			return true
 		default:
 			return false
@@ -335,6 +337,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return true
 	case "curl", "wget", "http", "https":
 		return commandOutputFirstNetworkResponseAllowed(command, args)
+	case "psql", "mysql", "mariadb":
+		return commandOutputFirstSQLShellAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -471,6 +475,17 @@ func commandOutputFirstDirectFormatAllowed(command string, args []string) bool {
 	case "ruff":
 		return commandOutputFirstArgsContain(args, "format") &&
 			commandOutputFirstArgsContain(args, "--check")
+	case "gofmt":
+		return commandOutputFirstArgsContain(args, "-l") &&
+			!commandOutputFirstArgsContain(args, "-w")
+	case "rustfmt":
+		return commandOutputFirstArgsContain(args, "--check")
+	case "black":
+		return commandOutputFirstArgsContain(args, "--check")
+	case "isort":
+		return commandOutputFirstArgsContain(args, "--check", "--check-only", "-c")
+	case "clang-format":
+		return commandOutputFirstArgsContain(args, "--dry-run", "-n")
 	default:
 		return false
 	}
@@ -978,6 +993,38 @@ func commandOutputFirstNetworkResponseAllowed(command string, args []string) boo
 	}
 }
 
+func commandOutputFirstSQLShellAllowed(command string, args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch command {
+	case "psql":
+		return commandOutputFirstOptionWithValuePresent(args, "-c", "--command", "-f", "--file")
+	case "mysql", "mariadb":
+		return commandOutputFirstOptionWithValuePresent(args, "-e", "--execute")
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstOptionWithValuePresent(args []string, names ...string) bool {
+	for i, raw := range args {
+		arg := strings.TrimSpace(raw)
+		if arg == "" {
+			return false
+		}
+		for _, name := range names {
+			if arg == name {
+				return i+1 < len(args) && strings.TrimSpace(args[i+1]) != ""
+			}
+			if strings.HasPrefix(arg, name+"=") {
+				return strings.TrimSpace(strings.TrimPrefix(arg, name+"=")) != ""
+			}
+		}
+	}
+	return false
+}
+
 func commandOutputFirstCurlResponseAllowed(args []string) bool {
 	hasURL := false
 	for i := 0; i < len(args); i++ {
@@ -1305,6 +1352,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		case "build":
 			compacted, ok := filter.TryCompactBuildOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "fmt":
+			compacted, ok := filter.TryCompactFormatOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
 			return nil, false
 		}
@@ -1464,6 +1514,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "journalctl", "tail":
 		compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "psql", "mysql", "mariadb":
+		compacted, ok := filter.TryCompactPsql(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
