@@ -60,6 +60,19 @@ func TestWSSReferenceInventoryCountsFieldAndRawReferenceSignals(t *testing.T) {
 	if report.Verdict != "arbitrary_reference_candidate_observed" {
 		t.Fatalf("verdict = %q", report.Verdict)
 	}
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "previous_response_id", "rejected_continuation_anchor_only")
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "reference_id", "candidate_needs_isolated_acceptance_probe")
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "content_reference", "candidate_needs_isolated_acceptance_probe")
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "local-archive://", "rejected_local_only_rehydrate_before_upstream")
+	if report.Lane3AcceptedContractSchema.Version != 1 {
+		t.Fatalf("accepted contract schema version = %d, want 1", report.Lane3AcceptedContractSchema.Version)
+	}
+	if !wssReferenceInventoryStringSliceContains(report.Lane3AcceptedContractSchema.DemotionKey, "reference field") {
+		t.Fatalf("accepted contract schema lost demotion reference field: %+v", report.Lane3AcceptedContractSchema)
+	}
+	if len(report.Lane3ReprobeTriggers) == 0 {
+		t.Fatal("expected lane3 re-probe triggers")
+	}
 }
 
 func TestWSSReferenceInventoryNoArbitraryReferenceVerdict(t *testing.T) {
@@ -87,6 +100,8 @@ func TestWSSReferenceInventoryNoArbitraryReferenceVerdict(t *testing.T) {
 	if len(report.ArbitraryCandidates) != 0 {
 		t.Fatalf("unexpected arbitrary candidates: %+v", report.ArbitraryCandidates)
 	}
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "reference_id", "not_observed_current_slice")
+	assertWSSReferenceFieldVerdict(t, report.Lane3FieldVerdicts, "encrypted_content", "rejected_class_d_no_direct_mutation")
 	if !strings.Contains(strings.Join(report.Notes, "\n"), "Class-D ceiling mass") {
 		t.Fatalf("missing reasoning no-go note: %+v", report.Notes)
 	}
@@ -123,7 +138,9 @@ func TestRunWSSReferenceInventoryJSONAndText(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "WSS Reference Inventory") ||
 		!strings.Contains(stdout.String(), "Verdict:") ||
-		!strings.Contains(stdout.String(), "previous_response_id") {
+		!strings.Contains(stdout.String(), "previous_response_id") ||
+		!strings.Contains(stdout.String(), "Lane 3 accepted-contract schema") ||
+		!strings.Contains(stdout.String(), "Lane 3 field verdicts") {
 		t.Fatalf("text output missing expected fields:\n%s", stdout.String())
 	}
 
@@ -138,6 +155,9 @@ func TestRunWSSReferenceInventoryJSONAndText(t *testing.T) {
 	}
 	if report.Path != path || report.JSONRows != 1 {
 		t.Fatalf("bad json report: %+v", report)
+	}
+	if len(report.Lane3FieldVerdicts) == 0 || report.Lane3AcceptedContractSchema.Version != 1 {
+		t.Fatalf("json report lost Lane 3 contract data: %+v", report)
 	}
 }
 
@@ -179,4 +199,26 @@ func wssReferenceInventoryTestCount(rows []wssReferenceInventoryCount, name stri
 		}
 	}
 	return 0
+}
+
+func assertWSSReferenceFieldVerdict(t *testing.T, rows []wssReferenceFieldVerdict, field, verdict string) {
+	t.Helper()
+	for _, row := range rows {
+		if row.Field == field {
+			if row.Verdict != verdict {
+				t.Fatalf("%s verdict = %q, want %q: %+v", field, row.Verdict, verdict, row)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing verdict for %s in %+v", field, rows)
+}
+
+func wssReferenceInventoryStringSliceContains(rows []string, want string) bool {
+	for _, row := range rows {
+		if row == want {
+			return true
+		}
+	}
+	return false
 }

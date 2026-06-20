@@ -18,23 +18,52 @@ type wssReferenceInventoryFlags struct {
 }
 
 type wssReferenceInventoryReport struct {
-	Path                 string                       `json:"path"`
-	Files                int                          `json:"files"`
-	Lines                int                          `json:"lines"`
-	JSONRows             int                          `json:"json_rows"`
-	ParseErrors          int                          `json:"parse_errors"`
-	FieldKeys            []wssReferenceInventoryCount `json:"field_keys,omitempty"`
-	RawMentions          []wssReferenceInventoryCount `json:"raw_mentions,omitempty"`
-	ReasoningStateFields []wssReferenceInventoryCount `json:"reasoning_state_fields,omitempty"`
-	LocalReferenceURIs   []wssReferenceInventoryCount `json:"local_reference_uris,omitempty"`
-	ArbitraryCandidates  []wssReferenceInventoryCount `json:"arbitrary_reference_candidates,omitempty"`
-	Verdict              string                       `json:"verdict"`
-	Notes                []string                     `json:"notes,omitempty"`
+	Path                        string                       `json:"path"`
+	Files                       int                          `json:"files"`
+	Lines                       int                          `json:"lines"`
+	JSONRows                    int                          `json:"json_rows"`
+	ParseErrors                 int                          `json:"parse_errors"`
+	FieldKeys                   []wssReferenceInventoryCount `json:"field_keys,omitempty"`
+	RawMentions                 []wssReferenceInventoryCount `json:"raw_mentions,omitempty"`
+	ReasoningStateFields        []wssReferenceInventoryCount `json:"reasoning_state_fields,omitempty"`
+	LocalReferenceURIs          []wssReferenceInventoryCount `json:"local_reference_uris,omitempty"`
+	ArbitraryCandidates         []wssReferenceInventoryCount `json:"arbitrary_reference_candidates,omitempty"`
+	Lane3AcceptedContractSchema wssReferenceAcceptedSchema   `json:"lane3_accepted_contract_schema"`
+	Lane3FieldVerdicts          []wssReferenceFieldVerdict   `json:"lane3_field_verdicts"`
+	Lane3ReprobeTriggers        []wssReferenceReprobeTrigger `json:"lane3_reprobe_triggers"`
+	Verdict                     string                       `json:"verdict"`
+	Notes                       []string                     `json:"notes,omitempty"`
 }
 
 type wssReferenceInventoryCount struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+}
+
+type wssReferenceAcceptedSchema struct {
+	Version              int      `json:"version"`
+	KeyFields            []string `json:"key_fields"`
+	AcceptanceSignals    []string `json:"acceptance_signals"`
+	FallbackRequirements []string `json:"fallback_requirements"`
+	DemotionKey          []string `json:"demotion_key"`
+	NegativeAccounting   []string `json:"negative_accounting"`
+	ProductInvariants    []string `json:"product_invariants"`
+}
+
+type wssReferenceFieldVerdict struct {
+	Field              string   `json:"field"`
+	Category           string   `json:"category"`
+	FieldCount         int      `json:"field_count"`
+	RawMentionCount    int      `json:"raw_mention_count"`
+	Verdict            string   `json:"verdict"`
+	ProductAction      string   `json:"product_action"`
+	CandidatePotential string   `json:"candidate_potential"`
+	ReprobeTriggers    []string `json:"reprobe_triggers,omitempty"`
+}
+
+type wssReferenceReprobeTrigger struct {
+	Trigger string `json:"trigger"`
+	Action  string `json:"action"`
 }
 
 var wssReferenceInventoryKeys = []string{
@@ -95,9 +124,9 @@ Usage:
 Directory mode scans *.json and *.jsonl files recursively. The report counts
 only reference-like/reasoning-state JSON field names, raw field-name mentions,
 and local archive URI markers. It never prints field values, prompts, tool
-output, headers, or payload text. Use it for T408 backend-reference discovery
-and T416 reasoning/encrypted-context ceiling proof before any server-state or
-reasoning-state promotion.`
+output, headers, or payload text. The Lane 3 section emits a versioned
+backend-reference contract schema, per-field verdicts, and re-probe triggers
+so T408 promotion/kill decisions are explicit instead of hand-wavy.`
 
 func runWSSReferenceInventory(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSReferenceInventoryFlags(args)
@@ -175,6 +204,9 @@ func loadWSSReferenceInventory(path string) (wssReferenceInventoryReport, error)
 	report.ReasoningStateFields = wssReferenceInventoryNamedCounts(wssReferenceInventoryReasoningKeys, fieldCounts, rawCounts)
 	report.LocalReferenceURIs = wssReferenceInventoryCounts(localCounts)
 	report.ArbitraryCandidates = wssReferenceInventoryArbitraryCounts(fieldCounts, rawCounts)
+	report.Lane3AcceptedContractSchema = wssReferenceAcceptedContractSchema()
+	report.Lane3FieldVerdicts = wssReferenceInventoryFieldVerdicts(fieldCounts, rawCounts, localCounts)
+	report.Lane3ReprobeTriggers = wssReferenceInventoryReprobeTriggers()
 	report.Verdict, report.Notes = wssReferenceInventoryVerdict(report)
 	return report, nil
 }
@@ -346,6 +378,142 @@ func wssReferenceInventoryVerdict(report wssReferenceInventoryReport) (string, [
 	return "arbitrary_reference_candidate_observed", notes
 }
 
+func wssReferenceAcceptedContractSchema() wssReferenceAcceptedSchema {
+	return wssReferenceAcceptedSchema{
+		Version: 1,
+		KeyFields: []string{
+			"backend version",
+			"Codex version",
+			"route",
+			"request shape",
+			"lineage mode",
+			"reference field",
+			"content class",
+		},
+		AcceptanceSignals: []string{
+			"backend accepts the reference field without invalid_request or 400",
+			"downstream state behaves byte-equivalent to the full original payload",
+			"the model can use every referenced byte as if the original text was present",
+			"cache-prefix behavior is not worse than the byte-equal baseline for the accepted slice",
+			"S_local is positive after fallback, retry, and recovery costs",
+		},
+		FallbackRequirements: []string{
+			"exact archived raw bytes",
+			"raw hash and byte-size validation",
+			"session and lineage match",
+			"rehydrate-before-upstream fallback on rejection or drift",
+			"fail-open to original bytes on missing archive or validator mismatch",
+		},
+		DemotionKey: []string{
+			"backend version",
+			"Codex version",
+			"route",
+			"request shape",
+			"lineage mode",
+			"reference field",
+			"content class",
+		},
+		NegativeAccounting: []string{
+			"fallback rehydration bytes",
+			"retry bytes",
+			"manual expand bytes",
+			"cache-bust or provider-cache loss attributed separately from S_local",
+		},
+		ProductInvariants: []string{
+			"no local-only reference may be model-visible",
+			"no local-only reference may be upstream-visible unless the accepted contract explicitly covers it",
+			"neighboring unaccepted route/request shapes remain byte-equal",
+			"any invalid_request, 400, lost state, response_failed, or context-loss signal demotes the exact slice",
+		},
+	}
+}
+
+func wssReferenceInventoryFieldVerdicts(fieldCounts, rawCounts, localCounts map[string]int) []wssReferenceFieldVerdict {
+	verdicts := []wssReferenceFieldVerdict{
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "previous_response_id", "continuation_anchor", "rejected_continuation_anchor_only", "Keep as server-state lineage metadata; do not treat it as an arbitrary text-block reference.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "response_id", "response_identifier", "rejected_response_identifier_only", "Use only for lineage/accounting correlation unless a future contract binds it to byte-exact content references.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "item_id", "item_identifier", "rejected_item_identifier_only", "Use only as scoped item metadata; do not elide arbitrary content behind it.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "file_id", "upload_identifier", "rejected_scoped_upload_identifier_only", "Use only for uploaded/file attachment flows; not a proof of arbitrary history block references.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "attachment_id", "attachment_identifier", "rejected_scoped_attachment_identifier_only", "Use only for attachment metadata; not a general prior-text reference.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "encrypted_content", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as ceiling mass and leave byte-equal unless a separate backend contract explicitly exposes exact recoverable state.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "reasoning", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as reasoning-state metadata; do not compress or synthesize.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "reasoning_content", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as reasoning-state metadata; do not compress or synthesize.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "reasoning_items", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as reasoning-state metadata; do not compress or synthesize.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "reasoning_summary", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as reasoning-state metadata; do not compress or synthesize.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "reasoning_tokens", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as accounting metadata only.", "0 direct points"),
+		wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts, "thinking", "reasoning_or_encrypted_state", "rejected_class_d_no_direct_mutation", "Treat as reasoning-state metadata; do not compress or synthesize.", "0 direct points"),
+	}
+	for _, field := range wssReferenceInventoryArbitraryKeys {
+		fieldCount := fieldCounts[field]
+		rawCount := rawCounts[field]
+		verdict := "not_observed_current_slice"
+		action := "Do not create a live probe until this field is observed in the current backend/frame schema or appears in an official contract."
+		potential := "0 current points; +10 to +30 local points if a narrow backend-honored contract is later accepted"
+		if fieldCount+rawCount > 0 {
+			verdict = "candidate_needs_isolated_acceptance_probe"
+			action = "Create a narrow lab probe for this exact field and request shape; product remains byte-equal until acceptance, fallback, demotion, and positive S_local are satisfied."
+		}
+		verdicts = append(verdicts, wssReferenceFieldVerdict{
+			Field:              field,
+			Category:           "arbitrary_reference_candidate",
+			FieldCount:         fieldCount,
+			RawMentionCount:    rawCount,
+			Verdict:            verdict,
+			ProductAction:      action,
+			CandidatePotential: potential,
+			ReprobeTriggers:    wssReferenceInventoryReprobeTriggerNames(),
+		})
+	}
+	for _, marker := range wssReferenceInventoryLocalURIs {
+		verdicts = append(verdicts, wssReferenceFieldVerdict{
+			Field:              marker,
+			Category:           "local_archive_reference_uri",
+			FieldCount:         localCounts[marker],
+			Verdict:            "rejected_local_only_rehydrate_before_upstream",
+			ProductAction:      "Use only inside Slimference or after exact rehydration before upstream/model visibility.",
+			CandidatePotential: "0 direct backend-reference points; enabling value for Lane 2 recovery/accounting",
+		})
+	}
+	sort.SliceStable(verdicts, func(i, j int) bool {
+		if verdicts[i].Category != verdicts[j].Category {
+			return verdicts[i].Category < verdicts[j].Category
+		}
+		return verdicts[i].Field < verdicts[j].Field
+	})
+	return verdicts
+}
+
+func wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts map[string]int, field, category, verdict, action, potential string) wssReferenceFieldVerdict {
+	return wssReferenceFieldVerdict{
+		Field:              field,
+		Category:           category,
+		FieldCount:         fieldCounts[field],
+		RawMentionCount:    rawCounts[field],
+		Verdict:            verdict,
+		ProductAction:      action,
+		CandidatePotential: potential,
+	}
+}
+
+func wssReferenceInventoryReprobeTriggers() []wssReferenceReprobeTrigger {
+	return []wssReferenceReprobeTrigger{
+		{Trigger: "backend_version_change", Action: "rerun inventory and rebuild field verdicts before considering any accepted slice"},
+		{Trigger: "codex_version_change", Action: "rerun inventory and compare route/request-shape/lineage fields"},
+		{Trigger: "frame_schema_change", Action: "rerun inventory immediately when new reference-like fields appear"},
+		{Trigger: "official_api_reference_contract", Action: "create a narrow acceptance probe for the documented field and content class"},
+		{Trigger: "new_reference_like_live_field", Action: "create a candidate record with byte-equal fallback and demotion key before any mutation"},
+	}
+}
+
+func wssReferenceInventoryReprobeTriggerNames() []string {
+	triggers := wssReferenceInventoryReprobeTriggers()
+	names := make([]string, 0, len(triggers))
+	for _, trigger := range triggers {
+		names = append(names, trigger.Trigger)
+	}
+	return names
+}
+
 func writeWSSReferenceInventoryText(w io.Writer, report wssReferenceInventoryReport) {
 	fmt.Fprintf(w, "=== WSS Reference Inventory: %s ===\n", filepath.Base(report.Path))
 	fmt.Fprintf(w, "Files:               %d\n", report.Files)
@@ -358,11 +526,48 @@ func writeWSSReferenceInventoryText(w io.Writer, report wssReferenceInventoryRep
 	writeWSSReferenceInventoryRows(w, "\nReasoning/encrypted state fields:", report.ReasoningStateFields)
 	writeWSSReferenceInventoryRows(w, "\nLocal reference URIs:", report.LocalReferenceURIs)
 	writeWSSReferenceInventoryRows(w, "\nArbitrary candidates:", report.ArbitraryCandidates)
+	fmt.Fprintf(w, "\nLane 3 accepted-contract schema: v%d\n", report.Lane3AcceptedContractSchema.Version)
+	writeWSSReferenceStringRows(w, "  key fields:", report.Lane3AcceptedContractSchema.KeyFields)
+	writeWSSReferenceFieldVerdicts(w, report.Lane3FieldVerdicts)
+	writeWSSReferenceReprobeTriggers(w, report.Lane3ReprobeTriggers)
 	if len(report.Notes) > 0 {
 		fmt.Fprintln(w, "\nNotes:")
 		for _, note := range report.Notes {
 			fmt.Fprintf(w, "  - %s\n", note)
 		}
+	}
+}
+
+func writeWSSReferenceStringRows(w io.Writer, title string, rows []string) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintln(w, title)
+	for _, row := range rows {
+		fmt.Fprintf(w, "    - %s\n", row)
+	}
+}
+
+func writeWSSReferenceFieldVerdicts(w io.Writer, rows []wssReferenceFieldVerdict) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nLane 3 field verdicts:")
+	for _, row := range rows {
+		if row.FieldCount == 0 && row.RawMentionCount == 0 && row.Category != "arbitrary_reference_candidate" {
+			continue
+		}
+		fmt.Fprintf(w, "  %-28s %-40s fields=%d raw=%d\n", row.Field, row.Verdict, row.FieldCount, row.RawMentionCount)
+	}
+}
+
+func writeWSSReferenceReprobeTriggers(w io.Writer, rows []wssReferenceReprobeTrigger) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nLane 3 re-probe triggers:")
+	for _, row := range rows {
+		fmt.Fprintf(w, "  - %s: %s\n", row.Trigger, row.Action)
 	}
 }
 
