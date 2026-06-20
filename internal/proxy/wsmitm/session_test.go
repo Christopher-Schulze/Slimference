@@ -948,6 +948,93 @@ func TestSessionSnapshotZeroByDefault(t *testing.T) {
 	}
 }
 
+func TestSessionUpstreamKeepaliveWritesMaskedPingOnly(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer closeAll(client, clientPeer, upstream, upstreamPeer)
+
+	s := &Session{
+		Client:                    client,
+		Upstream:                  upstream,
+		UpstreamKeepaliveInterval: time.Millisecond,
+		UpstreamKeepalivePayload:  []byte("ka"),
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+
+	frames := make(chan wscompact.Frame, 1)
+	readErrs := make(chan error, 1)
+	go func() {
+		f, err := wscompact.ReadFrame(upstreamPeer)
+		if err != nil {
+			readErrs <- err
+			return
+		}
+		frames <- f
+	}()
+
+	var frame wscompact.Frame
+	select {
+	case frame = <-frames:
+	case err := <-readErrs:
+		t.Fatalf("read keepalive frame: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream keepalive ping")
+	}
+	if frame.Opcode != byte(wscompact.OpcodePing) {
+		t.Fatalf("opcode = %x, want ping", frame.Opcode)
+	}
+	if !frame.Masked {
+		t.Fatal("upstream keepalive ping must be client-to-server masked")
+	}
+	if string(frame.Payload) != "ka" {
+		t.Fatalf("payload = %q, want ka", frame.Payload)
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve after cancel: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Serve did not exit after cancel")
+	}
+	snap := s.Snapshot()
+	if snap.UpstreamKeepalivePings == 0 || snap.UpstreamKeepaliveWriteErrors != 0 {
+		t.Fatalf("bad keepalive telemetry: %+v", snap)
+	}
+	if snap.C2SFrames != 0 || snap.S2CFrames != 0 {
+		t.Fatalf("keepalive must not count as application frames: %+v", snap)
+	}
+}
+
+func TestSessionUpstreamKeepaliveWriteErrorIsTelemetryOnly(t *testing.T) {
+	s := &Session{UpstreamKeepaliveInterval: time.Millisecond}
+	s.runUpstreamKeepalive(context.Background(), failingDst{err: errors.New("boom")})
+	snap := s.Snapshot()
+	if snap.UpstreamKeepalivePings != 0 || snap.UpstreamKeepaliveWriteErrors != 1 {
+		t.Fatalf("bad keepalive error telemetry: %+v", snap)
+	}
+}
+
+func TestWriteMaskedWSPingFrameCapsControlPayload(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeMaskedWSPingFrame(&buf, bytes.Repeat([]byte("x"), 200)); err != nil {
+		t.Fatalf("writeMaskedWSPingFrame: %v", err)
+	}
+	frame, err := wscompact.ReadFrame(&buf)
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if frame.Opcode != byte(wscompact.OpcodePing) || !frame.Masked || len(frame.Payload) != 125 {
+		t.Fatalf("bad capped ping frame: opcode=%x masked=%v payload=%d", frame.Opcode, frame.Masked, len(frame.Payload))
+	}
+}
+
 func TestFreshMaskKeyIsFourBytes(t *testing.T) {
 	if k := freshMaskKey(); len(k) != 4 {
 		t.Errorf("mask key len=%d", len(k))

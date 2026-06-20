@@ -62,6 +62,7 @@ const (
 	// is invisible next to multi-second inference; only pathological
 	// productive passes count as breaches.
 	codexLayer0LatencyProductiveBudget = 250 * time.Millisecond
+	scopedWSSUpstreamKeepaliveInterval = 30 * time.Second
 	// codexLayer0LatencyDecayAfter lets one strike decay on a dead-zone
 	// sample (between recovery and breach budgets) once no breach happened
 	// for this long, so the gate cannot latch permanently when demoted
@@ -389,7 +390,10 @@ func New(cfg *config.Config) *Proxy {
 	p.httpClients[types.OpenAI] = upstreamClient
 	p.httpClients[types.CodexChatGPT] = upstreamClient
 	p.webSocketShapes = wscompact.NewShapeRegistry()
-	scopedWSSDispatcher := &PhaseFDispatcher{Proxy: p}
+	scopedWSSDispatcher := &PhaseFDispatcher{
+		Proxy:                     p,
+		UpstreamKeepaliveInterval: scopedWSSUpstreamKeepaliveInterval,
+	}
 	p.webSocketTunnel = &WebSocketTunnel{
 		Dialer:      newProfiledWebSocketDialer(tlsResolver),
 		Logger:      slog.Default(),

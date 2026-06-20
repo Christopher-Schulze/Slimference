@@ -56,6 +56,9 @@ type PhaseFDispatcher struct {
 	// stall. Zero defaults to no timeout (the bridge runs until either
 	// side closes).
 	BridgeTimeout time.Duration
+	// UpstreamKeepaliveInterval emits upstream-only WebSocket ping control
+	// frames on scoped WSS sessions. Zero disables it.
+	UpstreamKeepaliveInterval time.Duration
 
 	// Counters surface per-dispatcher activity to /admin/state.
 	counters       DispatcherCounters
@@ -89,79 +92,85 @@ type DispatcherCounters struct {
 	// because individual Session.Snapshot is per-conversation and
 	// disappears when the conversation ends. These tick whenever a
 	// frame parses/passes through.
-	wsmitmC2SFrames           atomic.Int64
-	wsmitmS2CFrames           atomic.Int64
-	wsmitmParseFailures       atomic.Int64
-	wsmitmDegraded            atomic.Int64
-	wsmitmReencoded           atomic.Int64
-	wsmitmForwarded           atomic.Int64
-	wsmitmCompressedInspected atomic.Int64
-	wsmitmCompressedMutated   atomic.Int64
-	wsmitmCompressedBypassed  atomic.Int64
-	wsmitmCompressionErrors   atomic.Int64
-	wsmitmPhaseFRequests      atomic.Int64
-	wsmitmPhaseFRequestBodies atomic.Int64
-	wsmitmPhaseFIndexed       atomic.Int64
-	wsmitmPhaseFTextDeltas    atomic.Int64
-	wsmitmPhaseFTerminals     atomic.Int64
-	wsmitmPhaseFMutations     atomic.Int64
-	wsmitmSocketsClosed       atomic.Int64
-	wsmitmClientEOF           atomic.Int64
-	wsmitmUpstreamEOF         atomic.Int64
-	wsmitmClientErrors        atomic.Int64
-	wsmitmUpstreamErrors      atomic.Int64
-	wsmitmOurErrors           atomic.Int64
-	wsmitmContextCancels      atomic.Int64
+	wsmitmC2SFrames                    atomic.Int64
+	wsmitmS2CFrames                    atomic.Int64
+	wsmitmParseFailures                atomic.Int64
+	wsmitmDegraded                     atomic.Int64
+	wsmitmReencoded                    atomic.Int64
+	wsmitmForwarded                    atomic.Int64
+	wsmitmCompressedInspected          atomic.Int64
+	wsmitmCompressedMutated            atomic.Int64
+	wsmitmCompressedBypassed           atomic.Int64
+	wsmitmCompressionErrors            atomic.Int64
+	wsmitmPhaseFRequests               atomic.Int64
+	wsmitmPhaseFRequestBodies          atomic.Int64
+	wsmitmPhaseFIndexed                atomic.Int64
+	wsmitmPhaseFTextDeltas             atomic.Int64
+	wsmitmPhaseFTerminals              atomic.Int64
+	wsmitmPhaseFMutations              atomic.Int64
+	wsmitmSocketsClosed                atomic.Int64
+	wsmitmClientEOF                    atomic.Int64
+	wsmitmUpstreamEOF                  atomic.Int64
+	wsmitmClientErrors                 atomic.Int64
+	wsmitmUpstreamErrors               atomic.Int64
+	wsmitmOurErrors                    atomic.Int64
+	wsmitmContextCancels               atomic.Int64
+	wsmitmUpstreamKeepalivePings       atomic.Int64
+	wsmitmUpstreamKeepaliveWriteErrors atomic.Int64
 }
 
 // DispatcherTelemetry is the snapshot type for /admin/state.
 type DispatcherTelemetry struct {
-	PassthroughBridged        int64                         `json:"passthrough_bridged"`
-	MITMBridged               int64                         `json:"mitm_bridged"`
-	PhasefBridged             int64                         `json:"phasef_bridged"`
-	Rejected                  int64                         `json:"rejected"`
-	UpstreamDialFail          int64                         `json:"upstream_dial_failures"`
-	BytesC2S                  int64                         `json:"bytes_c2s"`
-	BytesS2C                  int64                         `json:"bytes_s2c"`
-	WSMITMC2SFrames           int64                         `json:"wsmitm_c2s_frames"`
-	WSMITMS2CFrames           int64                         `json:"wsmitm_s2c_frames"`
-	WSMITMParseFailures       int64                         `json:"wsmitm_parse_failures"`
-	WSMITMDegraded            int64                         `json:"wsmitm_degraded_sessions"`
-	WSMITMReencoded           int64                         `json:"wsmitm_reencoded_frames"`
-	WSMITMForwarded           int64                         `json:"wsmitm_forwarded_frames"`
-	WSMITMCompressedInspected int64                         `json:"wsmitm_compressed_messages_inspected"`
-	WSMITMCompressedMutated   int64                         `json:"wsmitm_compressed_messages_mutated"`
-	WSMITMCompressedBypassed  int64                         `json:"wsmitm_compressed_messages_bypassed"`
-	WSMITMCompressionErrors   int64                         `json:"wsmitm_compression_errors"`
-	WSMITMPhaseFRequests      int64                         `json:"wsmitm_phasef_requests"`
-	WSMITMPhaseFRequestBodies int64                         `json:"wsmitm_phasef_request_bodies"`
-	WSMITMPhaseFIndexed       int64                         `json:"wsmitm_phasef_request_messages_indexed"`
-	WSMITMPhaseFTextDeltas    int64                         `json:"wsmitm_phasef_text_deltas"`
-	WSMITMPhaseFTerminals     int64                         `json:"wsmitm_phasef_terminal_responses"`
-	WSMITMPhaseFMutations     int64                         `json:"wsmitm_phasef_mutations"`
-	WSMITMSocketsClosed       int64                         `json:"wsmitm_sockets_closed"`
-	WSMITMClientEOF           int64                         `json:"wsmitm_client_eof"`
-	WSMITMUpstreamEOF         int64                         `json:"wsmitm_upstream_eof"`
-	WSMITMClientErrors        int64                         `json:"wsmitm_client_errors"`
-	WSMITMUpstreamErrors      int64                         `json:"wsmitm_upstream_errors"`
-	WSMITMOurErrors           int64                         `json:"wsmitm_our_errors"`
-	WSMITMContextCancels      int64                         `json:"wsmitm_context_cancels"`
-	RecentSockets             []WSSSocketLifecycleTelemetry `json:"recent_sockets,omitempty"`
+	PassthroughBridged                 int64                         `json:"passthrough_bridged"`
+	MITMBridged                        int64                         `json:"mitm_bridged"`
+	PhasefBridged                      int64                         `json:"phasef_bridged"`
+	Rejected                           int64                         `json:"rejected"`
+	UpstreamDialFail                   int64                         `json:"upstream_dial_failures"`
+	BytesC2S                           int64                         `json:"bytes_c2s"`
+	BytesS2C                           int64                         `json:"bytes_s2c"`
+	WSMITMC2SFrames                    int64                         `json:"wsmitm_c2s_frames"`
+	WSMITMS2CFrames                    int64                         `json:"wsmitm_s2c_frames"`
+	WSMITMParseFailures                int64                         `json:"wsmitm_parse_failures"`
+	WSMITMDegraded                     int64                         `json:"wsmitm_degraded_sessions"`
+	WSMITMReencoded                    int64                         `json:"wsmitm_reencoded_frames"`
+	WSMITMForwarded                    int64                         `json:"wsmitm_forwarded_frames"`
+	WSMITMCompressedInspected          int64                         `json:"wsmitm_compressed_messages_inspected"`
+	WSMITMCompressedMutated            int64                         `json:"wsmitm_compressed_messages_mutated"`
+	WSMITMCompressedBypassed           int64                         `json:"wsmitm_compressed_messages_bypassed"`
+	WSMITMCompressionErrors            int64                         `json:"wsmitm_compression_errors"`
+	WSMITMPhaseFRequests               int64                         `json:"wsmitm_phasef_requests"`
+	WSMITMPhaseFRequestBodies          int64                         `json:"wsmitm_phasef_request_bodies"`
+	WSMITMPhaseFIndexed                int64                         `json:"wsmitm_phasef_request_messages_indexed"`
+	WSMITMPhaseFTextDeltas             int64                         `json:"wsmitm_phasef_text_deltas"`
+	WSMITMPhaseFTerminals              int64                         `json:"wsmitm_phasef_terminal_responses"`
+	WSMITMPhaseFMutations              int64                         `json:"wsmitm_phasef_mutations"`
+	WSMITMSocketsClosed                int64                         `json:"wsmitm_sockets_closed"`
+	WSMITMClientEOF                    int64                         `json:"wsmitm_client_eof"`
+	WSMITMUpstreamEOF                  int64                         `json:"wsmitm_upstream_eof"`
+	WSMITMClientErrors                 int64                         `json:"wsmitm_client_errors"`
+	WSMITMUpstreamErrors               int64                         `json:"wsmitm_upstream_errors"`
+	WSMITMOurErrors                    int64                         `json:"wsmitm_our_errors"`
+	WSMITMContextCancels               int64                         `json:"wsmitm_context_cancels"`
+	WSMITMUpstreamKeepalivePings       int64                         `json:"wsmitm_upstream_keepalive_pings"`
+	WSMITMUpstreamKeepaliveWriteErrors int64                         `json:"wsmitm_upstream_keepalive_write_errors"`
+	RecentSockets                      []WSSSocketLifecycleTelemetry `json:"recent_sockets,omitempty"`
 }
 
 type WSSSocketLifecycleTelemetry struct {
-	SocketSeq        uint64 `json:"socket_seq"`
-	OpenedAtUnixNano int64  `json:"opened_at_unix_nano"`
-	ClosedAtUnixNano int64  `json:"closed_at_unix_nano"`
-	AgeMillis        int64  `json:"age_millis"`
-	CloseInitiator   string `json:"close_initiator,omitempty"`
-	CloseError       string `json:"close_error,omitempty"`
-	C2SFrames        int64  `json:"c2s_frames"`
-	S2CFrames        int64  `json:"s2c_frames"`
-	C2SBytes         int64  `json:"c2s_bytes"`
-	S2CBytes         int64  `json:"s2c_bytes"`
-	TurnsCompleted   int64  `json:"turns_completed"`
-	Active           bool   `json:"active"`
+	SocketSeq                    uint64 `json:"socket_seq"`
+	OpenedAtUnixNano             int64  `json:"opened_at_unix_nano"`
+	ClosedAtUnixNano             int64  `json:"closed_at_unix_nano"`
+	AgeMillis                    int64  `json:"age_millis"`
+	CloseInitiator               string `json:"close_initiator,omitempty"`
+	CloseError                   string `json:"close_error,omitempty"`
+	C2SFrames                    int64  `json:"c2s_frames"`
+	S2CFrames                    int64  `json:"s2c_frames"`
+	C2SBytes                     int64  `json:"c2s_bytes"`
+	S2CBytes                     int64  `json:"s2c_bytes"`
+	UpstreamKeepalivePings       int64  `json:"upstream_keepalive_pings"`
+	UpstreamKeepaliveWriteErrors int64  `json:"upstream_keepalive_write_errors"`
+	TurnsCompleted               int64  `json:"turns_completed"`
+	Active                       bool   `json:"active"`
 }
 
 const wssRecentSocketLifecycleLimit = 16
@@ -172,36 +181,38 @@ func (d *PhaseFDispatcher) Snapshot() DispatcherTelemetry {
 	defer d.activeMu.Unlock()
 
 	out := DispatcherTelemetry{
-		PassthroughBridged:        d.counters.passthroughBridged.Load(),
-		MITMBridged:               d.counters.mitmBridged.Load(),
-		PhasefBridged:             d.counters.phasefBridged.Load(),
-		Rejected:                  d.counters.rejected.Load(),
-		UpstreamDialFail:          d.counters.upstreamDialFail.Load(),
-		BytesC2S:                  d.counters.bytesC2S.Load(),
-		BytesS2C:                  d.counters.bytesS2C.Load(),
-		WSMITMC2SFrames:           d.counters.wsmitmC2SFrames.Load(),
-		WSMITMS2CFrames:           d.counters.wsmitmS2CFrames.Load(),
-		WSMITMParseFailures:       d.counters.wsmitmParseFailures.Load(),
-		WSMITMDegraded:            d.counters.wsmitmDegraded.Load(),
-		WSMITMReencoded:           d.counters.wsmitmReencoded.Load(),
-		WSMITMForwarded:           d.counters.wsmitmForwarded.Load(),
-		WSMITMCompressedInspected: d.counters.wsmitmCompressedInspected.Load(),
-		WSMITMCompressedMutated:   d.counters.wsmitmCompressedMutated.Load(),
-		WSMITMCompressedBypassed:  d.counters.wsmitmCompressedBypassed.Load(),
-		WSMITMCompressionErrors:   d.counters.wsmitmCompressionErrors.Load(),
-		WSMITMPhaseFRequests:      d.counters.wsmitmPhaseFRequests.Load(),
-		WSMITMPhaseFRequestBodies: d.counters.wsmitmPhaseFRequestBodies.Load(),
-		WSMITMPhaseFIndexed:       d.counters.wsmitmPhaseFIndexed.Load(),
-		WSMITMPhaseFTextDeltas:    d.counters.wsmitmPhaseFTextDeltas.Load(),
-		WSMITMPhaseFTerminals:     d.counters.wsmitmPhaseFTerminals.Load(),
-		WSMITMPhaseFMutations:     d.counters.wsmitmPhaseFMutations.Load(),
-		WSMITMSocketsClosed:       d.counters.wsmitmSocketsClosed.Load(),
-		WSMITMClientEOF:           d.counters.wsmitmClientEOF.Load(),
-		WSMITMUpstreamEOF:         d.counters.wsmitmUpstreamEOF.Load(),
-		WSMITMClientErrors:        d.counters.wsmitmClientErrors.Load(),
-		WSMITMUpstreamErrors:      d.counters.wsmitmUpstreamErrors.Load(),
-		WSMITMOurErrors:           d.counters.wsmitmOurErrors.Load(),
-		WSMITMContextCancels:      d.counters.wsmitmContextCancels.Load(),
+		PassthroughBridged:                 d.counters.passthroughBridged.Load(),
+		MITMBridged:                        d.counters.mitmBridged.Load(),
+		PhasefBridged:                      d.counters.phasefBridged.Load(),
+		Rejected:                           d.counters.rejected.Load(),
+		UpstreamDialFail:                   d.counters.upstreamDialFail.Load(),
+		BytesC2S:                           d.counters.bytesC2S.Load(),
+		BytesS2C:                           d.counters.bytesS2C.Load(),
+		WSMITMC2SFrames:                    d.counters.wsmitmC2SFrames.Load(),
+		WSMITMS2CFrames:                    d.counters.wsmitmS2CFrames.Load(),
+		WSMITMParseFailures:                d.counters.wsmitmParseFailures.Load(),
+		WSMITMDegraded:                     d.counters.wsmitmDegraded.Load(),
+		WSMITMReencoded:                    d.counters.wsmitmReencoded.Load(),
+		WSMITMForwarded:                    d.counters.wsmitmForwarded.Load(),
+		WSMITMCompressedInspected:          d.counters.wsmitmCompressedInspected.Load(),
+		WSMITMCompressedMutated:            d.counters.wsmitmCompressedMutated.Load(),
+		WSMITMCompressedBypassed:           d.counters.wsmitmCompressedBypassed.Load(),
+		WSMITMCompressionErrors:            d.counters.wsmitmCompressionErrors.Load(),
+		WSMITMPhaseFRequests:               d.counters.wsmitmPhaseFRequests.Load(),
+		WSMITMPhaseFRequestBodies:          d.counters.wsmitmPhaseFRequestBodies.Load(),
+		WSMITMPhaseFIndexed:                d.counters.wsmitmPhaseFIndexed.Load(),
+		WSMITMPhaseFTextDeltas:             d.counters.wsmitmPhaseFTextDeltas.Load(),
+		WSMITMPhaseFTerminals:              d.counters.wsmitmPhaseFTerminals.Load(),
+		WSMITMPhaseFMutations:              d.counters.wsmitmPhaseFMutations.Load(),
+		WSMITMSocketsClosed:                d.counters.wsmitmSocketsClosed.Load(),
+		WSMITMClientEOF:                    d.counters.wsmitmClientEOF.Load(),
+		WSMITMUpstreamEOF:                  d.counters.wsmitmUpstreamEOF.Load(),
+		WSMITMClientErrors:                 d.counters.wsmitmClientErrors.Load(),
+		WSMITMUpstreamErrors:               d.counters.wsmitmUpstreamErrors.Load(),
+		WSMITMOurErrors:                    d.counters.wsmitmOurErrors.Load(),
+		WSMITMContextCancels:               d.counters.wsmitmContextCancels.Load(),
+		WSMITMUpstreamKeepalivePings:       d.counters.wsmitmUpstreamKeepalivePings.Load(),
+		WSMITMUpstreamKeepaliveWriteErrors: d.counters.wsmitmUpstreamKeepaliveWriteErrors.Load(),
 	}
 	for id, active := range d.activeSessions {
 		var phaseF wsPhaseFTelemetry
@@ -427,9 +438,10 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 	capture := newWSSABReplayCaptureFromEnv()
 	defer capture.Close()
 	sess := &wsmitm.Session{
-		Client:     client,
-		Upstream:   upstream,
-		Extensions: opts.Extensions,
+		Client:                    client,
+		Upstream:                  upstream,
+		Extensions:                opts.Extensions,
+		UpstreamKeepaliveInterval: d.UpstreamKeepaliveInterval,
 	}
 	activeID := d.registerActiveWSMITMSession(sess, adapter)
 	clientHandler := capture.WrapWithSocketSeq(activeID, adapter.handle)
@@ -457,9 +469,10 @@ func (d *PhaseFDispatcher) runWSBridge(ctx context.Context, client, upstream net
 		_ = upstream.SetDeadline(dl)
 	}
 	sess := &wsmitm.Session{
-		Client:     client,
-		Upstream:   upstream,
-		Extensions: opts.Extensions,
+		Client:                    client,
+		Upstream:                  upstream,
+		Extensions:                opts.Extensions,
+		UpstreamKeepaliveInterval: d.UpstreamKeepaliveInterval,
 	}
 	activeID := d.registerActiveWSMITMSession(sess, nil)
 	err := sess.Serve(ctx)
@@ -505,6 +518,8 @@ func (d *PhaseFDispatcher) finishActiveWSMITMSession(id uint64, snap wsmitm.Sess
 	d.counters.wsmitmCompressedMutated.Add(snap.CompressedMessagesMutated)
 	d.counters.wsmitmCompressedBypassed.Add(snap.CompressedMessagesBypassed)
 	d.counters.wsmitmCompressionErrors.Add(snap.CompressionErrors)
+	d.counters.wsmitmUpstreamKeepalivePings.Add(snap.UpstreamKeepalivePings)
+	d.counters.wsmitmUpstreamKeepaliveWriteErrors.Add(snap.UpstreamKeepaliveWriteErrors)
 	d.counters.bytesC2S.Add(snap.C2SBytes)
 	d.counters.bytesS2C.Add(snap.S2CBytes)
 	if snap.Degraded {
@@ -547,18 +562,20 @@ func (d *PhaseFDispatcher) recordSocketLifecycleLocked(id uint64, snap wsmitm.Se
 
 func wssSocketLifecycleTelemetry(id uint64, snap wsmitm.SessionTelemetry, phaseF wsPhaseFTelemetry, active bool) WSSSocketLifecycleTelemetry {
 	return WSSSocketLifecycleTelemetry{
-		SocketSeq:        id,
-		OpenedAtUnixNano: snap.OpenedAtUnixNano,
-		ClosedAtUnixNano: snap.ClosedAtUnixNano,
-		AgeMillis:        snap.AgeMillis,
-		CloseInitiator:   snap.CloseInitiator,
-		CloseError:       snap.CloseError,
-		C2SFrames:        snap.C2SFrames,
-		S2CFrames:        snap.S2CFrames,
-		C2SBytes:         snap.C2SBytes,
-		S2CBytes:         snap.S2CBytes,
-		TurnsCompleted:   phaseF.TerminalResponsesSeen,
-		Active:           active,
+		SocketSeq:                    id,
+		OpenedAtUnixNano:             snap.OpenedAtUnixNano,
+		ClosedAtUnixNano:             snap.ClosedAtUnixNano,
+		AgeMillis:                    snap.AgeMillis,
+		CloseInitiator:               snap.CloseInitiator,
+		CloseError:                   snap.CloseError,
+		C2SFrames:                    snap.C2SFrames,
+		S2CFrames:                    snap.S2CFrames,
+		C2SBytes:                     snap.C2SBytes,
+		S2CBytes:                     snap.S2CBytes,
+		UpstreamKeepalivePings:       snap.UpstreamKeepalivePings,
+		UpstreamKeepaliveWriteErrors: snap.UpstreamKeepaliveWriteErrors,
+		TurnsCompleted:               phaseF.TerminalResponsesSeen,
+		Active:                       active,
 	}
 }
 
@@ -575,6 +592,8 @@ func addSessionTelemetryToDispatcher(out *DispatcherTelemetry, snap wsmitm.Sessi
 	out.WSMITMCompressedMutated += snap.CompressedMessagesMutated
 	out.WSMITMCompressedBypassed += snap.CompressedMessagesBypassed
 	out.WSMITMCompressionErrors += snap.CompressionErrors
+	out.WSMITMUpstreamKeepalivePings += snap.UpstreamKeepalivePings
+	out.WSMITMUpstreamKeepaliveWriteErrors += snap.UpstreamKeepaliveWriteErrors
 	out.BytesC2S += snap.C2SBytes
 	out.BytesS2C += snap.S2CBytes
 	if snap.Degraded {

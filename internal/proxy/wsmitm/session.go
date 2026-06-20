@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -60,6 +61,13 @@ type Session struct {
 	// Extensions carries the negotiated WebSocket extension profile for
 	// this session. Zero-value means extension passthrough only.
 	Extensions wscompact.WSExtensionProfile
+	// UpstreamKeepaliveInterval emits RFC 6455 ping control frames to the
+	// upstream only. It is transport hygiene: no JSON envelope, no request
+	// body, and no model-visible content. Zero disables the loop.
+	UpstreamKeepaliveInterval time.Duration
+	// UpstreamKeepalivePayload is optional and must fit a WebSocket control
+	// frame. Empty falls back to a tiny deterministic marker.
+	UpstreamKeepalivePayload []byte
 	// Telemetry counters.
 	counters  SessionCounters
 	lifecycle SessionLifecycle
@@ -67,18 +75,20 @@ type Session struct {
 
 // SessionCounters tracks per-session frame and degradation events.
 type SessionCounters struct {
-	C2SFrames                   atomic.Int64
-	S2CFrames                   atomic.Int64
-	C2SBytes                    atomic.Int64
-	S2CBytes                    atomic.Int64
-	ParseFailures               atomic.Int64
-	Degraded                    atomic.Bool
-	FramesReencoded             atomic.Int64
-	FramesForwarded             atomic.Int64
-	CompressedMessagesInspected atomic.Int64
-	CompressedMessagesMutated   atomic.Int64
-	CompressedMessagesBypassed  atomic.Int64
-	CompressionErrors           atomic.Int64
+	C2SFrames                    atomic.Int64
+	S2CFrames                    atomic.Int64
+	C2SBytes                     atomic.Int64
+	S2CBytes                     atomic.Int64
+	ParseFailures                atomic.Int64
+	Degraded                     atomic.Bool
+	FramesReencoded              atomic.Int64
+	FramesForwarded              atomic.Int64
+	CompressedMessagesInspected  atomic.Int64
+	CompressedMessagesMutated    atomic.Int64
+	CompressedMessagesBypassed   atomic.Int64
+	CompressionErrors            atomic.Int64
+	UpstreamKeepalivePings       atomic.Int64
+	UpstreamKeepaliveWriteErrors atomic.Int64
 }
 
 type SessionLifecycle struct {
@@ -103,45 +113,49 @@ func (s *Session) Snapshot() SessionTelemetry {
 		}
 	}
 	return SessionTelemetry{
-		C2SFrames:                   s.counters.C2SFrames.Load(),
-		S2CFrames:                   s.counters.S2CFrames.Load(),
-		C2SBytes:                    s.counters.C2SBytes.Load(),
-		S2CBytes:                    s.counters.S2CBytes.Load(),
-		ParseFailures:               s.counters.ParseFailures.Load(),
-		Degraded:                    s.counters.Degraded.Load(),
-		FramesReencoded:             s.counters.FramesReencoded.Load(),
-		FramesForwarded:             s.counters.FramesForwarded.Load(),
-		CompressedMessagesInspected: s.counters.CompressedMessagesInspected.Load(),
-		CompressedMessagesMutated:   s.counters.CompressedMessagesMutated.Load(),
-		CompressedMessagesBypassed:  s.counters.CompressedMessagesBypassed.Load(),
-		CompressionErrors:           s.counters.CompressionErrors.Load(),
-		OpenedAtUnixNano:            openedAt,
-		ClosedAtUnixNano:            closedAt,
-		AgeMillis:                   ageMillis,
-		CloseInitiator:              lifecycleString(s.lifecycle.CloseInitiator.Load()),
-		CloseError:                  lifecycleString(s.lifecycle.CloseError.Load()),
+		C2SFrames:                    s.counters.C2SFrames.Load(),
+		S2CFrames:                    s.counters.S2CFrames.Load(),
+		C2SBytes:                     s.counters.C2SBytes.Load(),
+		S2CBytes:                     s.counters.S2CBytes.Load(),
+		ParseFailures:                s.counters.ParseFailures.Load(),
+		Degraded:                     s.counters.Degraded.Load(),
+		FramesReencoded:              s.counters.FramesReencoded.Load(),
+		FramesForwarded:              s.counters.FramesForwarded.Load(),
+		CompressedMessagesInspected:  s.counters.CompressedMessagesInspected.Load(),
+		CompressedMessagesMutated:    s.counters.CompressedMessagesMutated.Load(),
+		CompressedMessagesBypassed:   s.counters.CompressedMessagesBypassed.Load(),
+		CompressionErrors:            s.counters.CompressionErrors.Load(),
+		UpstreamKeepalivePings:       s.counters.UpstreamKeepalivePings.Load(),
+		UpstreamKeepaliveWriteErrors: s.counters.UpstreamKeepaliveWriteErrors.Load(),
+		OpenedAtUnixNano:             openedAt,
+		ClosedAtUnixNano:             closedAt,
+		AgeMillis:                    ageMillis,
+		CloseInitiator:               lifecycleString(s.lifecycle.CloseInitiator.Load()),
+		CloseError:                   lifecycleString(s.lifecycle.CloseError.Load()),
 	}
 }
 
 // SessionTelemetry is the read-only view of session counters.
 type SessionTelemetry struct {
-	C2SFrames                   int64  `json:"c2s_frames"`
-	S2CFrames                   int64  `json:"s2c_frames"`
-	C2SBytes                    int64  `json:"c2s_bytes"`
-	S2CBytes                    int64  `json:"s2c_bytes"`
-	ParseFailures               int64  `json:"parse_failures"`
-	Degraded                    bool   `json:"degraded"`
-	FramesReencoded             int64  `json:"frames_reencoded"`
-	FramesForwarded             int64  `json:"frames_forwarded"`
-	CompressedMessagesInspected int64  `json:"compressed_messages_inspected"`
-	CompressedMessagesMutated   int64  `json:"compressed_messages_mutated"`
-	CompressedMessagesBypassed  int64  `json:"compressed_messages_bypassed"`
-	CompressionErrors           int64  `json:"compression_errors"`
-	OpenedAtUnixNano            int64  `json:"opened_at_unix_nano"`
-	ClosedAtUnixNano            int64  `json:"closed_at_unix_nano"`
-	AgeMillis                   int64  `json:"age_millis"`
-	CloseInitiator              string `json:"close_initiator,omitempty"`
-	CloseError                  string `json:"close_error,omitempty"`
+	C2SFrames                    int64  `json:"c2s_frames"`
+	S2CFrames                    int64  `json:"s2c_frames"`
+	C2SBytes                     int64  `json:"c2s_bytes"`
+	S2CBytes                     int64  `json:"s2c_bytes"`
+	ParseFailures                int64  `json:"parse_failures"`
+	Degraded                     bool   `json:"degraded"`
+	FramesReencoded              int64  `json:"frames_reencoded"`
+	FramesForwarded              int64  `json:"frames_forwarded"`
+	CompressedMessagesInspected  int64  `json:"compressed_messages_inspected"`
+	CompressedMessagesMutated    int64  `json:"compressed_messages_mutated"`
+	CompressedMessagesBypassed   int64  `json:"compressed_messages_bypassed"`
+	CompressionErrors            int64  `json:"compression_errors"`
+	UpstreamKeepalivePings       int64  `json:"upstream_keepalive_pings"`
+	UpstreamKeepaliveWriteErrors int64  `json:"upstream_keepalive_write_errors"`
+	OpenedAtUnixNano             int64  `json:"opened_at_unix_nano"`
+	ClosedAtUnixNano             int64  `json:"closed_at_unix_nano"`
+	AgeMillis                    int64  `json:"age_millis"`
+	CloseInitiator               string `json:"close_initiator,omitempty"`
+	CloseError                   string `json:"close_error,omitempty"`
 }
 
 // ErrSessionClosed is returned by Serve when either end-of-stream
@@ -170,9 +184,16 @@ func (s *Session) Serve(ctx context.Context) error {
 	derived, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	upstreamWriter := io.Writer(s.Upstream)
+	if s.UpstreamKeepaliveInterval > 0 {
+		locked := &sessionLockedWriter{w: s.Upstream}
+		upstreamWriter = locked
+		go s.runUpstreamKeepalive(derived, locked)
+	}
+
 	errs := make(chan sessionPumpResult, 2)
 	go func() {
-		errs <- sessionPumpResult{dir: DirClientToServer, err: s.pump(derived, DirClientToServer, s.Client, s.Upstream, s.ClientHandler)}
+		errs <- sessionPumpResult{dir: DirClientToServer, err: s.pump(derived, DirClientToServer, s.Client, upstreamWriter, s.ClientHandler)}
 	}()
 	go func() {
 		errs <- sessionPumpResult{dir: DirServerToClient, err: s.pump(derived, DirServerToClient, s.Upstream, s.Client, s.UpstreamHandler)}
@@ -189,6 +210,46 @@ func (s *Session) Serve(ctx context.Context) error {
 		return nil
 	}
 	return first.err
+}
+
+type sessionLockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (w *sessionLockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Write(p)
+}
+
+func (s *Session) runUpstreamKeepalive(ctx context.Context, upstream io.Writer) {
+	interval := s.UpstreamKeepaliveInterval
+	if interval <= 0 || upstream == nil {
+		return
+	}
+	payload := s.UpstreamKeepalivePayload
+	if len(payload) == 0 {
+		payload = []byte("sf")
+	}
+	if len(payload) > 125 {
+		payload = payload[:125]
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			if err := writeMaskedWSPingFrame(upstream, payload); err != nil {
+				s.counters.UpstreamKeepaliveWriteErrors.Add(1)
+				return
+			}
+			s.counters.UpstreamKeepalivePings.Add(1)
+			timer.Reset(interval)
+		}
+	}
 }
 
 type sessionPumpResult struct {
@@ -646,4 +707,15 @@ func freshMaskKey() []byte {
 	buf := make([]byte, 4)
 	_, _ = maskKeySource(buf)
 	return buf
+}
+
+func writeMaskedWSPingFrame(w io.Writer, payload []byte) error {
+	if w == nil {
+		return errors.New("wsmitm: upstream keepalive writer is nil")
+	}
+	if len(payload) > 125 {
+		payload = payload[:125]
+	}
+	_, err := wscompact.WriteFrame(w, true, wscompact.OpcodePing, freshMaskKey(), payload)
+	return err
 }
