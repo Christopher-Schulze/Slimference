@@ -264,6 +264,54 @@ func TestWSST354ShapeProofRanksNetPositiveFullHistoryCandidate(t *testing.T) {
 	}
 }
 
+func TestWSST354ShapeProofRequiresRecoveryContractForClassB(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-recovery-contract.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path, requireRecoveryContract: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.T419RecoveryContract == nil {
+		t.Fatalf("recovery contract should be attached and pass: %+v", report)
+	}
+	if report.T419RecoveryContract.ProductGaps != 0 ||
+		!report.T419RecoveryContract.T417ServerStateRowReady ||
+		report.T419RecoveryContract.ArchiveBackedRows == 0 ||
+		report.T419RecoveryContract.RehydrateBeforeUpstream == 0 {
+		t.Fatalf("T419 recovery gate missing Class-B prerequisites: %+v", report.T419RecoveryContract)
+	}
+	findings := strings.Join(report.Findings, "\n")
+	for _, want := range []string{
+		"t419_recovery_contract_product_gaps=0",
+		"t419_t417_server_state_recovery_ready",
+		"top_net_candidate=full_history",
+	} {
+		if !strings.Contains(findings, want) {
+			t.Fatalf("missing finding %q in %+v", want, report.Findings)
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSST354ShapeProof([]string{path, "--require-recovery-contract"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	text := stdout.String()
+	if !strings.Contains(text, "t419_contract:") ||
+		!strings.Contains(text, "product_gaps=0") ||
+		!strings.Contains(text, "t417_ready=true") {
+		t.Fatalf("text report lost T419 recovery contract: %s", text)
+	}
+}
+
 func TestWSST354ShapeProofIngestsT420ReconnectHandoff(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

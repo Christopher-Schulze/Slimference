@@ -16,11 +16,12 @@ import (
 )
 
 type wssT354ShapeProofFlags struct {
-	path            string
-	t420HandoffPath string
-	socketSeq       uint64
-	outputFormat    string
-	help            bool
+	path                    string
+	t420HandoffPath         string
+	socketSeq               uint64
+	outputFormat            string
+	requireRecoveryContract bool
+	help                    bool
 }
 
 type wssT354ShapeProofReport struct {
@@ -32,10 +33,24 @@ type wssT354ShapeProofReport struct {
 	Totals               wssT354ShapeProofTotal        `json:"totals"`
 	Rows                 []wssT354ShapeProofRow        `json:"rows"`
 	T420ReconnectHandoff []wssT354T420ReconnectHandoff `json:"t420_reconnect_handoff,omitempty"`
+	T419RecoveryContract *wssT354RecoveryContractGate  `json:"t419_recovery_contract,omitempty"`
 	Skips                []wssT354ShapeProofSkip       `json:"skips,omitempty"`
 	Findings             []string                      `json:"findings,omitempty"`
 	GatePassed           bool                          `json:"gate_passed"`
 	GateFailures         []string                      `json:"gate_failures,omitempty"`
+}
+
+type wssT354RecoveryContractGate struct {
+	Rows                       int      `json:"rows"`
+	ProductReady               int      `json:"product_ready"`
+	ProductGaps                int      `json:"product_gaps"`
+	BlockedRows                int      `json:"blocked_rows"`
+	ArchiveBackedRows          int      `json:"archive_backed_rows"`
+	RehydrateBeforeUpstream    int      `json:"rehydrate_before_upstream_rows"`
+	T417ServerStateRowReady    bool     `json:"t417_server_state_row_recovery_ready"`
+	T417ServerStateRowBlockers []string `json:"t417_server_state_row_blockers,omitempty"`
+	GatePassed                 bool     `json:"gate_passed"`
+	GateFailures               []string `json:"gate_failures,omitempty"`
 }
 
 type wssT354ShapeProofTotal struct {
@@ -240,7 +255,7 @@ type wssT354Turn struct {
 const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
 
 Usage:
-  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N] [--t420-handoff-json=debug-wss-sockets.json]
+  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N] [--t420-handoff-json=debug-wss-sockets.json] [--require-recovery-contract]
 
 The report is content-free. It reads WSS frame captures and emits only request
 shape, mutation, downstream-turn, 400/invalid_request, and lost-comprehension
@@ -295,6 +310,8 @@ func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) 
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--require-recovery-contract":
+			flags.requireRecoveryContract = true
 		case arg == "--t420-handoff-json":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("--t420-handoff-json requires a value")
@@ -378,9 +395,69 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 		report.T420ReconnectHandoff = handoff
 		applyWSST354T420ReconnectHandoff(&report.Totals, handoff)
 	}
+	if flags.requireRecoveryContract {
+		report.T419RecoveryContract = wssT354RecoveryContractGateFromMatrix(buildRecoveryContractMatrixReport())
+		if !report.T419RecoveryContract.GatePassed {
+			report.GatePassed = false
+			for _, failure := range report.T419RecoveryContract.GateFailures {
+				report.GateFailures = append(report.GateFailures, "t419_recovery_contract: "+failure)
+			}
+		}
+	}
 	report.GateFailures = compactStringList(report.GateFailures)
 	report.Findings = wssT354ShapeProofFindings(report)
 	return report, nil
+}
+
+func wssT354RecoveryContractGateFromMatrix(matrix recoveryContractMatrixReport) *wssT354RecoveryContractGate {
+	gate := &wssT354RecoveryContractGate{
+		Rows:                    matrix.Summary.Rows,
+		ProductReady:            matrix.Summary.ProductReady,
+		ProductGaps:             matrix.Summary.ProductGaps,
+		BlockedRows:             matrix.Summary.BlockedRows,
+		ArchiveBackedRows:       matrix.Summary.ArchiveBackedRows,
+		RehydrateBeforeUpstream: matrix.Summary.RehydrateBeforeRows,
+		GatePassed:              true,
+	}
+	for _, row := range matrix.Rows {
+		if row.ID != "t417_class_b_server_state_recovery_gate" {
+			continue
+		}
+		gate.T417ServerStateRowReady = row.ArchiveExact && row.MechanicalRecovery && row.NegativeAccounting && row.FailOpen
+		gate.T417ServerStateRowBlockers = recoveryContractBlockersExcept(row.Blockers, "not_default_eligible")
+		break
+	}
+	if matrix.Summary.ProductGaps > 0 {
+		gate.GatePassed = false
+		gate.GateFailures = append(gate.GateFailures, fmt.Sprintf("product_gaps=%d > 0", matrix.Summary.ProductGaps))
+	}
+	if !gate.T417ServerStateRowReady {
+		gate.GatePassed = false
+		gate.GateFailures = append(gate.GateFailures, "t417_server_state_recovery_contract_missing")
+	}
+	if len(gate.T417ServerStateRowBlockers) > 0 {
+		gate.GatePassed = false
+		gate.GateFailures = append(gate.GateFailures, "t417_server_state_recovery_blockers="+strings.Join(gate.T417ServerStateRowBlockers, ","))
+	}
+	return gate
+}
+
+func recoveryContractBlockersExcept(blockers []string, ignored ...string) []string {
+	if len(blockers) == 0 {
+		return nil
+	}
+	ignore := make(map[string]struct{}, len(ignored))
+	for _, blocker := range ignored {
+		ignore[blocker] = struct{}{}
+	}
+	out := make([]string, 0, len(blockers))
+	for _, blocker := range blockers {
+		if _, ok := ignore[blocker]; ok {
+			continue
+		}
+		out = append(out, blocker)
+	}
+	return out
 }
 
 func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofRow, error) {
@@ -1461,6 +1538,12 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 			report.Totals.TopNetCandidate.NetCapturedLocalSavedTokens,
 			report.Totals.TopNetCandidate.ContinuationCandidate))
 	}
+	if report.T419RecoveryContract != nil {
+		findings = append(findings, fmt.Sprintf("t419_recovery_contract_product_gaps=%d", report.T419RecoveryContract.ProductGaps))
+		if report.T419RecoveryContract.T417ServerStateRowReady {
+			findings = append(findings, "t419_t417_server_state_recovery_ready")
+		}
+	}
 	if report.Totals.UpstreamErrorFrames == 0 && report.Totals.Lost == 0 {
 		findings = append(findings, "upstream_and_lost_clean")
 	}
@@ -1529,6 +1612,17 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 			report.Totals.TopNetCandidate.NetCapturedLocalSavedTokens,
 			report.Totals.TopNetCandidate.EconomicsVerdict,
 			report.Totals.TopNetCandidate.ContinuationCandidate)
+	}
+	if report.T419RecoveryContract != nil {
+		fmt.Fprintf(w, "  t419_contract:     rows=%d product_ready=%d product_gaps=%d blocked=%d archive_backed=%d rehydrate_before=%d t417_ready=%v gate=%s\n",
+			report.T419RecoveryContract.Rows,
+			report.T419RecoveryContract.ProductReady,
+			report.T419RecoveryContract.ProductGaps,
+			report.T419RecoveryContract.BlockedRows,
+			report.T419RecoveryContract.ArchiveBackedRows,
+			report.T419RecoveryContract.RehydrateBeforeUpstream,
+			report.T419RecoveryContract.T417ServerStateRowReady,
+			passFail(report.T419RecoveryContract.GatePassed))
 	}
 	for _, row := range report.T420ReconnectHandoff {
 		fmt.Fprintf(w, "  t420_handoff_row:  socket=%s cause=%s reconnect_input=%d retry_resend_cost=%d cached=%d local_saved=%d verdict=%s candidate=%s\n",
