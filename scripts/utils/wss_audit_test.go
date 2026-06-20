@@ -372,6 +372,81 @@ func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
 	}
 }
 
+func TestWSSAuditShadowMirrorBlockerHeadroomCountsOnlyResidualBlockedMass(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID:           "wss-open",
+			SessionID:           "codex-wss:partial",
+			Path:                "/backend-api/codex/responses",
+			RouteMode:           "websocket_phasef",
+			Tokens:              dbg.TokenCounts{Original: 220, Final: 180, Saved: 40},
+			ProviderInputTokens: 220,
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+				"wss.socket_seq":    "1",
+				"wss.full_history_detached_previous_response": "true",
+				"wss.full_history_stateless_followup":         "true",
+				"wss.shadow_mirror_blocks":                    "1",
+				"wss.shadow_mirror_bytes":                     "400",
+				"wss.shadow_mirror_referenceable_blocks":      "1",
+				"wss.shadow_mirror_referenceable_bytes":       "400",
+			},
+		},
+		dbg.RequestSummary{
+			RequestID:           "wss-blocked",
+			SessionID:           "codex-wss:partial",
+			Path:                "/backend-api/codex/responses",
+			RouteMode:           "websocket_phasef",
+			Tokens:              dbg.TokenCounts{Original: 320, Final: 240, Saved: 80},
+			ProviderInputTokens: 320,
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+				"wss.socket_seq":    "1",
+				"wss.full_history_detached_previous_response": "true",
+				"wss.full_history_stateless_followup":         "true",
+				"wss.cache_bust_demoted_mechanisms":           "stale_read",
+				"wss.cache_bust_demoted_scope":                "route=wss_phasef|shape=full_history|prompt_cache_key=partial",
+				"wss.cache_bust_demoted_class_keys":           "stale_read:unknown",
+				"wss.shadow_mirror_blocks":                    "1",
+				"wss.shadow_mirror_bytes":                     "800",
+				"wss.shadow_mirror_referenceable_blocks":      "1",
+				"wss.shadow_mirror_referenceable_bytes":       "800",
+			},
+		},
+	)
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if len(report.ShadowMirrorCandidates) != 1 {
+		t.Fatalf("shadow mirror candidates = %d, want 1: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
+	}
+	candidate := report.ShadowMirrorCandidates[0]
+	wantBlocked := candidate.IncrementalLocalTokensHeadroom - candidate.PromotionOpenHeadroom
+	if wantBlocked <= 0 {
+		t.Fatalf("test fixture should have residual blocked headroom: %+v", candidate)
+	}
+	if candidate.PromotionStage != "t417_partial_product_candidate" ||
+		candidate.PromotionOpenStage != "t417_exact_scope_open_slice_candidate" ||
+		candidate.PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != wantBlocked {
+		t.Fatalf("candidate blocker headroom should be residual blocked mass only, want %d: %+v", wantBlocked, candidate)
+	}
+	if len(candidate.TopSessions) != 1 {
+		t.Fatalf("top sessions = %d, want 1: %+v", len(candidate.TopSessions), candidate.TopSessions)
+	}
+	session := candidate.TopSessions[0]
+	wantSessionBlocked := session.IncrementalLocalTokensHeadroom - session.PromotionOpenHeadroom
+	if session.PromotionStage != "t417_partial_product_candidate" ||
+		session.PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != wantSessionBlocked {
+		t.Fatalf("session blocker headroom should be residual blocked mass only, want %d: %+v", wantSessionBlocked, session)
+	}
+}
+
 func TestWSSAuditFootprintCoverageReportsMissingTokenEvidence(t *testing.T) {
 	t.Parallel()
 

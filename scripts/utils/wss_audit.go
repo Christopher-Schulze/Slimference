@@ -1299,7 +1299,7 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
 		candidate.PromotionBlockers = wssShadowMirrorCandidatePromotionBlockers(candidate)
-		candidate.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionBlockers, candidate.IncrementalLocalTokensHeadroom)
+		candidate.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionBlockers, wssShadowMirrorBlockedHeadroom(candidate.IncrementalLocalTokensHeadroom, candidate.PromotionOpenHeadroom))
 		candidate.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, candidate.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && candidate.PromotionOpenHeadroom > 0 && len(candidate.PromotionBlockers) > 0 {
 			candidate.PromotionStage = "t417_partial_product_candidate"
@@ -1342,7 +1342,7 @@ func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate
 		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
 		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
 		session.PromotionBlockers = wssShadowMirrorCandidateSessionPromotionBlockers(candidate, session)
-		session.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionBlockers, session.IncrementalLocalTokensHeadroom)
+		session.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionBlockers, wssShadowMirrorBlockedHeadroom(session.IncrementalLocalTokensHeadroom, session.PromotionOpenHeadroom))
 		session.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, session.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && session.PromotionOpenHeadroom > 0 && len(session.PromotionBlockers) > 0 {
 			session.PromotionStage = "t417_partial_product_candidate"
@@ -1498,6 +1498,16 @@ func wssShadowMirrorBlockerHeadroom(blockers []string, headroom int) map[string]
 		return nil
 	}
 	return out
+}
+
+func wssShadowMirrorBlockedHeadroom(totalHeadroom, openHeadroom int) int {
+	if totalHeadroom <= 0 {
+		return 0
+	}
+	if openHeadroom <= 0 {
+		return totalHeadroom
+	}
+	return maxInt(0, totalHeadroom-openHeadroom)
 }
 
 func wssShadowMirrorPromotionOpenReady(lane string, openHeadroom int) bool {
