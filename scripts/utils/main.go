@@ -16,7 +16,7 @@
 //	go run ./scripts/utils wss-local-gap <decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>] [--min-local-saved=<tokens>]
 //	go run ./scripts/utils wss-local-gap-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>]
 //	go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>] [--require-headroom]
-//	go run ./scripts/utils wss-proof-pack <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--sockets-json=wss-sockets.json] [--require-headroom]
+//	go run ./scripts/utils wss-proof-pack <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--sockets-json=wss-sockets.json] [--audit-json=wss-audit.json] [--require-headroom]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--t420-handoff-json=debug-wss-sockets.json]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]

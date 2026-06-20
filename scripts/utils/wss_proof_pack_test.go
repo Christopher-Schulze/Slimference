@@ -165,6 +165,118 @@ func TestWSSProofPackReconnectWithoutHandoffFailsClosed(t *testing.T) {
 	}
 }
 
+func TestWSSProofPackIngestsAuditReferenceHeadroom(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	auditPath := filepath.Join(dir, "wss-audit.json")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "fresh",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 9800, Saved: 200},
+		DebugFacts: map[string]string{
+			"wss.request_shape":           "delta",
+			"wss.prefix_total_bytes":      "2000",
+			"wss.prefix_estimated_tokens": "500",
+			"wss.raw_input_bytes":         "30000",
+		},
+	})
+	writeJSONFile(t, auditPath, map[string]any{
+		"requests":        9,
+		"phasef_requests": 7,
+		"shadow_mirror": map[string]any{
+			"requests":                               5,
+			"referenceable_bytes":                    12000,
+			"normalized_referenceable_bytes":         9000,
+			"normalized_referenceable_byte_pct":      60.0,
+			"normalized_referenceable_segments":      3,
+			"normalized_referenceable_bytes_by_kind": []any{},
+			"referenceable_blocks":                   3,
+			"referenceable_byte_pct":                 50.0,
+			"blocks":                                 5,
+			"bytes":                                  24000,
+			"normalized_segments":                    4,
+			"normalized_bytes":                       15000,
+		},
+		"shadow_mirror_candidates": []map[string]any{{
+			"request_shape":                     "full_history",
+			"kind":                              "exact_block",
+			"requests":                          4,
+			"candidate_lane":                    "t408_backend_reference_contract",
+			"next_proof_gate":                   "t408_backend_reference_acceptance_or_exact_rehydrate_contract",
+			"promotion_stage":                   "blocked_backend_reference_contract",
+			"candidate_local_tokens_estimate":   5000,
+			"incremental_local_tokens_headroom": 4200,
+			"error_free":                        true,
+			"recommended_action":                "run backend reference acceptance probe",
+			"promotion_open_blocker_headroom_tokens": map[string]int{
+				"reference_only_backend_contract_required": 4200,
+			},
+		}},
+	})
+
+	report, err := loadWSSProofPack(wssProofPackFlags{path: path, auditJSON: auditPath})
+	if err != nil {
+		t.Fatalf("loadWSSProofPack() error = %v", err)
+	}
+	if !report.GatePassed ||
+		report.AuditSummary == nil ||
+		report.AuditSummary.ShadowMirrorReferenceableBytes != 12000 ||
+		len(report.AuditSummary.TopCandidates) != 1 ||
+		report.AuditSummary.TopCandidates[0].CandidateLane != "t408_backend_reference_contract" ||
+		report.AuditSummary.TopCandidates[0].PromotionOpenBlockerHeadroom["reference_only_backend_contract_required"] != 4200 ||
+		report.ProofDecision != "t408_reference_contract_headroom_present" {
+		t.Fatalf("bad audit headroom proof pack: %+v", report)
+	}
+}
+
+func TestWSSProofPackIngestsAuditParserRecoveryHeadroom(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	auditPath := filepath.Join(dir, "wss-audit.json")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "fresh",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 9800, Saved: 200},
+		DebugFacts: map[string]string{
+			"wss.request_shape":           "delta",
+			"wss.prefix_total_bytes":      "2000",
+			"wss.prefix_estimated_tokens": "500",
+			"wss.raw_input_bytes":         "30000",
+		},
+	})
+	writeJSONFile(t, auditPath, map[string]any{
+		"requests":        4,
+		"phasef_requests": 4,
+		"shadow_mirror_candidates": []map[string]any{{
+			"request_shape":                     "full_history",
+			"kind":                              "codex_exec_payload",
+			"requests":                          2,
+			"candidate_lane":                    "t408_reference_or_t418_parser_recovery",
+			"next_proof_gate":                   "t408_backend_reference_or_t418_parser_recovery_gate",
+			"promotion_stage":                   "blocked_parser_recovery_contract",
+			"candidate_local_tokens_estimate":   3000,
+			"incremental_local_tokens_headroom": 2600,
+			"error_free":                        true,
+			"recommended_action":                "rank parser/recovery slice",
+		}},
+	})
+
+	report, err := loadWSSProofPack(wssProofPackFlags{path: path, auditJSON: auditPath})
+	if err != nil {
+		t.Fatalf("loadWSSProofPack() error = %v", err)
+	}
+	if report.ProofDecision != "t408_or_t418_parser_recovery_headroom_present" ||
+		report.RecommendedNextStep != "choose backend references or the largest parser/recovery-backed T418 slice from the audit candidate; do not loosen broad WSS guards" {
+		t.Fatalf("bad parser/recovery audit decision: %+v", report)
+	}
+}
+
 func TestWSSProofPackStaleRowsFailUnlessAllowed(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +326,7 @@ func TestParseWSSProofPackFlags(t *testing.T) {
 		"decisions.jsonl",
 		"--since-file=" + sincePath,
 		"--sockets-json=wss-sockets.json",
+		"--audit-json=wss-audit.json",
 		"--min-local-ratio=0.5",
 		"--require-headroom",
 		"--require-accepted-contract",
@@ -226,6 +339,7 @@ func TestParseWSSProofPackFlags(t *testing.T) {
 	if flags.path != "decisions.jsonl" ||
 		flags.sinceFile != sincePath ||
 		flags.socketsJSON != "wss-sockets.json" ||
+		flags.auditJSON != "wss-audit.json" ||
 		flags.minLocalRatio != 0.5 ||
 		!flags.requireHeadroom ||
 		!flags.requireAcceptedContract ||

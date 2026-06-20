@@ -15,6 +15,7 @@ type wssProofPackFlags struct {
 	since                   time.Time
 	sinceFile               string
 	socketsJSON             string
+	auditJSON               string
 	minLocalRatio           float64
 	allowStale              bool
 	requireHeadroom         bool
@@ -31,10 +32,13 @@ type wssProofPackReport struct {
 	GateFailures        []string                     `json:"gate_failures,omitempty"`
 	SocketCommand       string                       `json:"socket_command"`
 	SocketsJSON         string                       `json:"sockets_json,omitempty"`
+	AuditCommand        string                       `json:"audit_command"`
+	AuditJSON           string                       `json:"audit_json,omitempty"`
 	ClassCommand        string                       `json:"class_distribution_command"`
 	LocalGapCommand     string                       `json:"local_gap_command"`
 	ReferenceCommand    string                       `json:"reference_inventory_command"`
 	SocketSummary       *wssProofPackSocketSummary   `json:"socket_summary,omitempty"`
+	AuditSummary        *wssProofPackAuditSummary    `json:"audit_summary,omitempty"`
 	ClassDistribution   wssProofPackClassSummary     `json:"class_distribution"`
 	LocalGap            wssProofPackLocalGapSummary  `json:"local_gap"`
 	ReferenceInventory  wssProofPackReferenceSummary `json:"reference_inventory"`
@@ -118,6 +122,33 @@ type wssProofPackSocketSummary struct {
 	CloseInitiators                         map[string]int `json:"close_initiators,omitempty"`
 }
 
+type wssProofPackAuditSummary struct {
+	Requests                             int                          `json:"requests"`
+	PhaseFRequests                       int                          `json:"phasef_requests"`
+	ShadowMirrorRequests                 int                          `json:"shadow_mirror_requests,omitempty"`
+	ShadowMirrorReferenceableBytes       int                          `json:"shadow_mirror_referenceable_bytes,omitempty"`
+	ShadowMirrorNormalizedReferenceBytes int                          `json:"shadow_mirror_normalized_referenceable_bytes,omitempty"`
+	TopCandidates                        []wssProofPackAuditCandidate `json:"top_candidates,omitempty"`
+}
+
+type wssProofPackAuditCandidate struct {
+	RequestShape                   string         `json:"request_shape"`
+	Kind                           string         `json:"kind"`
+	Requests                       int            `json:"requests"`
+	CandidateLane                  string         `json:"candidate_lane"`
+	NextProofGate                  string         `json:"next_proof_gate"`
+	PromotionStage                 string         `json:"promotion_stage"`
+	CandidateLocalTokensEstimate   int            `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom int            `json:"incremental_local_tokens_headroom"`
+	PromotionOpenReady             bool           `json:"promotion_open_ready,omitempty"`
+	PromotionOpenHeadroom          int            `json:"promotion_open_headroom,omitempty"`
+	PromotionOpenStage             string         `json:"promotion_open_stage,omitempty"`
+	PromotionOpenBlockers          []string       `json:"promotion_open_blockers,omitempty"`
+	PromotionOpenBlockerHeadroom   map[string]int `json:"promotion_open_blocker_headroom_tokens,omitempty"`
+	ErrorFree                      bool           `json:"error_free"`
+	RecommendedAction              string         `json:"recommended_action"`
+}
+
 const wssProofPackHelpText = `wss-proof-pack: content-free WSS proof-window gate for T417/T420/T408
 
 Usage:
@@ -127,6 +158,7 @@ Flags:
   --since=<rfc3339>                  Ignore records before this timestamp
   --since-file=<path>                Read RFC3339 --since value from file
   --sockets-json=<path>               Ingest slimference debug wss-sockets --json output
+  --audit-json=<path>                 Ingest wss-audit --json shadow-mirror candidate output
   --min-local-ratio=<ratio>           Owner S_local target, default 0.48
   --require-headroom                  Fail unless class-distribution reports headroom
   --require-accepted-contract         Fail unless reference inventory has an accepted Lane 3 backend contract
@@ -135,10 +167,10 @@ Flags:
 
 The pack combines wss-class-distribution, wss-local-gap with current
 instrumentation requirements, wss-reference-inventory, and optional
-wss-sockets JSON. It prints the matching slimference debug wss-sockets command
-when socket JSON has not been captured yet. The report is content-free: it
-carries counts, byte/token estimates, verdicts, gates, and commands, never
-prompt or tool-output payloads.`
+wss-sockets plus wss-audit JSON. It prints the matching slimference debug
+wss-sockets and wss-audit commands when optional JSON has not been captured yet.
+The report is content-free: it carries counts, byte/token estimates, verdicts,
+gates, and commands, never prompt or tool-output payloads.`
 
 func runWSSProofPack(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSProofPackFlags(args)
@@ -233,6 +265,14 @@ func parseWSSProofPackFlags(args []string) (wssProofPackFlags, error) {
 			flags.socketsJSON = value
 		case strings.HasPrefix(arg, "--sockets-json="):
 			flags.socketsJSON = strings.TrimPrefix(arg, "--sockets-json=")
+		case arg == "--audit-json":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			flags.auditJSON = value
+		case strings.HasPrefix(arg, "--audit-json="):
+			flags.auditJSON = strings.TrimPrefix(arg, "--audit-json=")
 		case arg == "--min-local-ratio":
 			value, err := aggregateFlagValue(args, &i, arg)
 			if err != nil {
@@ -296,16 +336,27 @@ func loadWSSProofPack(flags wssProofPackFlags) (wssProofPackReport, error) {
 		}
 		socketSummary = &summary
 	}
+	var auditSummary *wssProofPackAuditSummary
+	if flags.auditJSON != "" {
+		summary, err := loadWSSProofPackAuditSummary(flags.auditJSON)
+		if err != nil {
+			return wssProofPackReport{}, err
+		}
+		auditSummary = &summary
+	}
 	report := wssProofPackReport{
 		Path:               flags.path,
 		SinceFile:          flags.sinceFile,
 		TargetRatio:        targetRatio,
 		SocketCommand:      wssProofPackSocketCommand(flags, targetRatio),
 		SocketsJSON:        flags.socketsJSON,
+		AuditCommand:       wssProofPackAuditCommand(flags),
+		AuditJSON:          flags.auditJSON,
 		ClassCommand:       wssProofPackClassCommand(flags, targetRatio),
 		LocalGapCommand:    wssProofPackLocalGapCommand(flags, targetRatio),
 		ReferenceCommand:   wssProofPackReferenceCommand(flags),
 		SocketSummary:      socketSummary,
+		AuditSummary:       auditSummary,
 		ClassDistribution:  wssProofPackClassSummaryFromReport(classReport),
 		LocalGap:           wssProofPackLocalGapSummaryFromReport(localGap),
 		ReferenceInventory: wssProofPackReferenceSummaryFromReport(referenceReport),
@@ -318,8 +369,8 @@ func loadWSSProofPack(flags wssProofPackFlags) (wssProofPackReport, error) {
 	}
 	report.GateFailures = wssProofPackGateFailures(flags, socketSummary, classReport, localGap, referenceReport)
 	report.GatePassed = len(report.GateFailures) == 0
-	report.ProofDecision, report.RecommendedNextStep = wssProofPackDecision(flags, socketSummary, classReport, localGap, referenceReport)
-	report.Notes = wssProofPackNotes(socketSummary, classReport, localGap, referenceReport)
+	report.ProofDecision, report.RecommendedNextStep = wssProofPackDecision(flags, socketSummary, auditSummary, classReport, localGap, referenceReport)
+	report.Notes = wssProofPackNotes(socketSummary, auditSummary, classReport, localGap, referenceReport)
 	return report, nil
 }
 
@@ -388,6 +439,54 @@ func loadWSSProofPackSocketSummary(path string) (wssProofPackSocketSummary, erro
 			summary.ContinuationCandidates = make(map[string]int)
 		}
 		summary.ContinuationCandidates[candidate]++
+	}
+	return summary, nil
+}
+
+func loadWSSProofPackAuditSummary(path string) (wssProofPackAuditSummary, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return wssProofPackAuditSummary{}, fmt.Errorf("read audit JSON %s: %w", path, err)
+	}
+	var raw struct {
+		Requests               int                        `json:"requests"`
+		PhaseFRequests         int                        `json:"phasef_requests"`
+		ShadowMirror           *wssShadowMirrorSummary    `json:"shadow_mirror"`
+		ShadowMirrorCandidates []wssShadowMirrorCandidate `json:"shadow_mirror_candidates"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return wssProofPackAuditSummary{}, fmt.Errorf("decode audit JSON %s: %w", path, err)
+	}
+	summary := wssProofPackAuditSummary{
+		Requests:       raw.Requests,
+		PhaseFRequests: raw.PhaseFRequests,
+	}
+	if raw.ShadowMirror != nil {
+		summary.ShadowMirrorRequests = raw.ShadowMirror.Requests
+		summary.ShadowMirrorReferenceableBytes = raw.ShadowMirror.ReferenceableBytes
+		summary.ShadowMirrorNormalizedReferenceBytes = raw.ShadowMirror.NormalizedReferenceableBytes
+	}
+	for i, row := range raw.ShadowMirrorCandidates {
+		if i >= 5 {
+			break
+		}
+		summary.TopCandidates = append(summary.TopCandidates, wssProofPackAuditCandidate{
+			RequestShape:                   row.RequestShape,
+			Kind:                           row.Kind,
+			Requests:                       row.Requests,
+			CandidateLane:                  row.CandidateLane,
+			NextProofGate:                  row.NextProofGate,
+			PromotionStage:                 row.PromotionStage,
+			CandidateLocalTokensEstimate:   row.CandidateLocalTokensEstimate,
+			IncrementalLocalTokensHeadroom: row.IncrementalLocalTokensHeadroom,
+			PromotionOpenReady:             row.PromotionOpenReady,
+			PromotionOpenHeadroom:          row.PromotionOpenHeadroom,
+			PromotionOpenStage:             row.PromotionOpenStage,
+			PromotionOpenBlockers:          append([]string(nil), row.PromotionOpenBlockers...),
+			PromotionOpenBlockerHeadroom:   cloneIntMap(row.PromotionOpenBlockerHeadroom),
+			ErrorFree:                      row.ErrorFree,
+			RecommendedAction:              row.RecommendedAction,
+		})
 	}
 	return summary, nil
 }
@@ -507,7 +606,7 @@ func wssProofPackGateFailures(flags wssProofPackFlags, socketSummary *wssProofPa
 	return failures
 }
 
-func wssProofPackDecision(flags wssProofPackFlags, socketSummary *wssProofPackSocketSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) (string, string) {
+func wssProofPackDecision(flags wssProofPackFlags, socketSummary *wssProofPackSocketSummary, auditSummary *wssProofPackAuditSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) (string, string) {
 	switch {
 	case !flags.allowStale && localGap.MissingInstrRequests > 0:
 		return "capture_fresh_instrumented_window",
@@ -524,6 +623,15 @@ func wssProofPackDecision(flags wssProofPackFlags, socketSummary *wssProofPackSo
 	case socketSummary != nil && socketSummary.FullHistoryRequests > 0:
 		return "class_b_socket_mass_present",
 			"use socket summary plus class distribution to rank T417 Class-B/server-state candidates"
+	case wssProofPackAuditTopCandidate(auditSummary, "t417") != nil:
+		return "t417_productizable_headroom_present",
+			"feed the same audit JSON into wss-t354-shape-proof --t408-open-slice-json and productize only the exact open Class-B slice"
+	case wssProofPackAuditTopCandidate(auditSummary, "t408_backend_reference_contract") != nil:
+		return "t408_reference_contract_headroom_present",
+			"run the backend-reference acceptance/rehydrate contract path for the top audit candidate before touching parser micro-work"
+	case wssProofPackAuditTopCandidate(auditSummary, "t408_reference_or_t418_parser_recovery") != nil:
+		return "t408_or_t418_parser_recovery_headroom_present",
+			"choose backend references or the largest parser/recovery-backed T418 slice from the audit candidate; do not loosen broad WSS guards"
 	case referenceReport.Lane3AcceptedContracts > 0:
 		return "t408_reference_productization_candidate",
 			"implement only the accepted backend-reference slice with rehydrate fallback and exact demotion"
@@ -542,13 +650,43 @@ func wssProofPackDecision(flags wssProofPackFlags, socketSummary *wssProofPackSo
 	}
 }
 
-func wssProofPackNotes(socketSummary *wssProofPackSocketSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
+func wssProofPackAuditTopCandidate(summary *wssProofPackAuditSummary, lanePrefix string) *wssProofPackAuditCandidate {
+	if summary == nil {
+		return nil
+	}
+	for i := range summary.TopCandidates {
+		row := &summary.TopCandidates[i]
+		if row.IncrementalLocalTokensHeadroom <= 0 {
+			continue
+		}
+		if !row.ErrorFree {
+			continue
+		}
+		if lanePrefix == "t417" {
+			if strings.HasPrefix(row.CandidateLane, "t417") || row.PromotionOpenReady {
+				return row
+			}
+			continue
+		}
+		if row.CandidateLane == lanePrefix {
+			return row
+		}
+	}
+	return nil
+}
+
+func wssProofPackNotes(socketSummary *wssProofPackSocketSummary, auditSummary *wssProofPackAuditSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
 	var notes []string
 	notes = append(notes, "Provider-cache discount is not counted as S_local.")
 	if socketSummary == nil {
 		notes = append(notes, "Socket/reconnect classification is command-only until --sockets-json is provided.")
 	} else if socketSummary.ReconnectFullHistoryRequests > 0 {
 		notes = append(notes, "Reconnect full-history mass preempts parser micro-work; choose T420 transport or T417 reroute from exact handoff rows.")
+	}
+	if auditSummary == nil {
+		notes = append(notes, "Shadow-mirror and parser/recovery headroom classification is absent until --audit-json is provided.")
+	} else if len(auditSummary.TopCandidates) > 0 {
+		notes = append(notes, "Audit headroom is advisory for ranking; product activation still requires the candidate's exact recovery/reference contract gate.")
 	}
 	if localGap.MissingInstrRequests > 0 {
 		notes = append(notes, "Stale or incomplete ownership facts are a hard proof blocker for broad T417/T408 promotion.")
@@ -606,6 +744,17 @@ func wssProofPackReferenceCommand(flags wssProofPackFlags) string {
 	args := []string{"go run ./scripts/utils wss-reference-inventory", shellQuote(flags.path)}
 	if flags.requireAcceptedContract {
 		args = append(args, "--require-accepted-contract")
+	}
+	args = append(args, "--json")
+	return strings.Join(args, " ")
+}
+
+func wssProofPackAuditCommand(flags wssProofPackFlags) string {
+	args := []string{"go run ./scripts/utils wss-audit", shellQuote(flags.path)}
+	if flags.sinceFile != "" {
+		args = append(args, "--since-file="+shellQuote(flags.sinceFile))
+	} else if !flags.since.IsZero() {
+		args = append(args, "--since="+flags.since.Format(time.RFC3339))
 	}
 	args = append(args, "--json")
 	return strings.Join(args, " ")
@@ -671,11 +820,32 @@ func writeWSSProofPackText(w io.Writer, report wssProofPackReport) {
 			report.SocketSummary.ReconnectFullHistoryProviderInputTokens,
 			report.SocketSummary.T417ReconnectHandoffRows+report.SocketSummary.T420ReconnectHandoffRows)
 	}
+	if report.AuditSummary != nil {
+		fmt.Fprintf(w, "Audit summary:         phasef=%d shadow_requests=%d shadow_ref_bytes=%d normalized_ref_bytes=%d candidates=%d\n",
+			report.AuditSummary.PhaseFRequests,
+			report.AuditSummary.ShadowMirrorRequests,
+			report.AuditSummary.ShadowMirrorReferenceableBytes,
+			report.AuditSummary.ShadowMirrorNormalizedReferenceBytes,
+			len(report.AuditSummary.TopCandidates))
+	}
 	fmt.Fprintln(w, "\nCommands:")
 	fmt.Fprintf(w, "  sockets:   %s\n", report.SocketCommand)
+	fmt.Fprintf(w, "  audit:     %s\n", report.AuditCommand)
 	fmt.Fprintf(w, "  classes:   %s\n", report.ClassCommand)
 	fmt.Fprintf(w, "  local_gap: %s\n", report.LocalGapCommand)
 	fmt.Fprintf(w, "  refs:      %s\n", report.ReferenceCommand)
+	if report.AuditSummary != nil && len(report.AuditSummary.TopCandidates) > 0 {
+		fmt.Fprintln(w, "\nAudit headroom candidates:")
+		for _, row := range report.AuditSummary.TopCandidates {
+			fmt.Fprintf(w, "  %-12s %-32s lane=%s headroom=%d gate=%s stage=%s\n",
+				row.RequestShape,
+				row.Kind,
+				row.CandidateLane,
+				row.IncrementalLocalTokensHeadroom,
+				row.NextProofGate,
+				row.PromotionStage)
+		}
+	}
 	if len(report.TopActionable) > 0 {
 		fmt.Fprintln(w, "\nTop actionable:")
 		for _, row := range report.TopActionable {
