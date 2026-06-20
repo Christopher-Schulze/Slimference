@@ -54,6 +54,7 @@ _slimference() {
     local period_flags="--json --csv --by-command --by-parser --cache --output --proxy --opportunities"
     local savings_flags="--json --csv --project"
     local quality_flags="--json --url"
+    local wss_socket_flags="--json --session --session= --since --since= --since-file --since-file= --fail-on-actionable --fail-on-full-history --max-actionable= --max-reconnect-full-history= --max-reconnect-full-history-input="
     local filter_flags="--stream --"
     local bypass_verbs="on off status"
     local bypass_scoped_flags="--duration= --next-request --next-request="
@@ -196,6 +197,13 @@ _slimference() {
             ;;
         quality)
             COMPREPLY=( $(compgen -W "$quality_flags" -- "$cur") )
+            ;;
+        debug)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "paths last summary tail replay flight wss-sockets bundle" -- "$cur") )
+            elif [ "${COMP_WORDS[2]}" = "wss-sockets" ]; then
+                COMPREPLY=( $(compgen -W "$wss_socket_flags" -- "$cur") )
+            fi
             ;;
         soak)
             COMPREPLY=( $(compgen -W "$periods --json" -- "$cur") )

@@ -46,6 +46,17 @@ func TestParseWSSSocketDebugArgs(t *testing.T) {
 		opts.MaxReconnectFullHistoryInputTokens != 123 {
 		t.Fatalf("filters/gates mismatch: %+v", opts)
 	}
+	sinceFile := filepath.Join(t.TempDir(), "since.txt")
+	if err := os.WriteFile(sinceFile, []byte("2026-06-11T10:01:02Z\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts, err = parseWSSSocketDebugArgs([]string{"--since-file", sinceFile})
+	if err != nil {
+		t.Fatalf("parse since-file: %v", err)
+	}
+	if opts.SinceFile != sinceFile || opts.Since.Format(time.RFC3339) != "2026-06-11T10:01:02Z" {
+		t.Fatalf("since-file mismatch: %+v", opts)
+	}
 	for _, args := range [][]string{
 		{"--bad"},
 		{"0"},
@@ -56,6 +67,8 @@ func TestParseWSSSocketDebugArgs(t *testing.T) {
 		{"--session"},
 		{"--since=bad"},
 		{"--since=-1h"},
+		{"--since-file"},
+		{"--since-file="},
 		{"--max-actionable=-1"},
 	} {
 		if _, err := parseWSSSocketDebugArgs(args); err == nil {
@@ -72,6 +85,26 @@ func TestParseWSSSocketSinceDuration(t *testing.T) {
 	}
 	if want := now.Add(-2 * time.Hour); !got.Equal(want) {
 		t.Fatalf("since duration=%s want %s", got, want)
+	}
+}
+
+func TestParseWSSSocketSinceFileErrors(t *testing.T) {
+	if _, err := parseWSSSocketSinceFile(filepath.Join(t.TempDir(), "missing.txt")); err == nil || !strings.Contains(err.Error(), "read --since-file") {
+		t.Fatalf("missing since-file error=%v", err)
+	}
+	empty := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(empty, []byte(" \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseWSSSocketSinceFile(empty); err == nil || !strings.Contains(err.Error(), "must contain RFC3339") {
+		t.Fatalf("empty since-file error=%v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.txt")
+	if err := os.WriteFile(bad, []byte("2h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseWSSSocketSinceFile(bad); err == nil || !strings.Contains(err.Error(), "must contain RFC3339") {
+		t.Fatalf("bad since-file error=%v", err)
 	}
 }
 
@@ -548,6 +581,48 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	if len(report.T417ReconnectHandoff) != 1 ||
 		report.T417ReconnectHandoff[0].ContinuationCandidate != "t417_stateless_or_lineage_reroute" {
 		t.Fatalf("json T417 handoff mismatch: %+v", report.T417ReconnectHandoff)
+	}
+}
+
+func TestHandleDebugWSSSocketsSinceFileFiltersProofWindow(t *testing.T) {
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	lines := []string{
+		mustJSONLine(t, wssSocketTestSummary("old-root", "codex-wss:thread", 1, "root", time.Date(2026, 6, 11, 9, 59, 59, 0, time.UTC), 1000, 100, 20, map[string]string{
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+		})),
+		mustJSONLine(t, wssSocketTestSummary("new-full", "codex-wss:thread", 2, "full_history", time.Date(2026, 6, 11, 10, 0, 1, 0, time.UTC), 8000, 0, 120, map[string]string{
+			"wss.socket_closed":          "true",
+			"wss.socket_close_initiator": "client_eof",
+		})),
+	}
+	if err := os.WriteFile(decisionsPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sinceFile := filepath.Join(tmp, "proof-since.txt")
+	if err := os.WriteFile(sinceFile, []byte("2026-06-11T10:00:00Z\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+
+	text := captureWSSSocketStdout(t, func() { handleDebugWSSSockets([]string{"20", "--since-file", sinceFile}) })
+	if !strings.Contains(text, "since_file:"+sinceFile) || !strings.Contains(text, "filtered:1") || strings.Contains(text, "old-root") {
+		t.Fatalf("since-file text output mismatch:\n%s", text)
+	}
+
+	jsonOut := captureWSSSocketStdout(t, func() { handleDebugWSSSockets([]string{"20", "--since-file=" + sinceFile, "--json"}) })
+	var report wssSocketReport
+	if err := json.Unmarshal([]byte(jsonOut), &report); err != nil {
+		t.Fatalf("json output: %v\n%s", err, jsonOut)
+	}
+	if report.SinceFile != sinceFile ||
+		report.Since.Format(time.RFC3339) != "2026-06-11T10:00:00Z" ||
+		report.RequestsFiltered != 1 ||
+		report.WSSRequests != 1 ||
+		report.FullHistoryRequests != 1 {
+		t.Fatalf("since-file report mismatch: %+v", report)
 	}
 }
 

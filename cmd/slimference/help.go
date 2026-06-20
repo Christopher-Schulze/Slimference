@@ -283,7 +283,8 @@ replay <path>      Replay a decision-chain JSONL session, break down per
                    request.
 flight <cmd>        Show/export normalized content-free request flight rows.
 wss-sockets <n>     Correlate/gate WSS socket close causes with request
-                   shape/provider-cache cost from the decisions log.
+                   shape/provider-cache cost from the decisions log
+                   (--since TIME or --since-file PATH for proof windows).
 bundle              Export bounded content-free diagnostics to
                    ~/.slimference/exports/ for later analysis.
 `

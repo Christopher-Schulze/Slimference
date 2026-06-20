@@ -22,6 +22,7 @@ type wssSocketDebugArgs struct {
 	JSONOut                            bool
 	SessionFilter                      string
 	Since                              time.Time
+	SinceFile                          string
 	MaxActionableSockets               int
 	MaxReconnectFullHistoryRequests    int
 	MaxReconnectFullHistoryInputTokens int
@@ -32,6 +33,7 @@ type wssSocketReport struct {
 	RequestLimit                            int                        `json:"request_limit"`
 	SessionFilter                           string                     `json:"session_filter,omitempty"`
 	Since                                   time.Time                  `json:"since,omitempty"`
+	SinceFile                               string                     `json:"since_file,omitempty"`
 	RequestsScanned                         int                        `json:"requests_scanned"`
 	RequestsFiltered                        int                        `json:"requests_filtered"`
 	WSSRequests                             int                        `json:"wss_requests"`
@@ -214,6 +216,30 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			opts.Since = since
 			continue
 		}
+		if strings.HasPrefix(arg, "--since-file=") {
+			sinceFile := strings.TrimSpace(strings.TrimPrefix(arg, "--since-file="))
+			since, err := parseWSSSocketSinceFile(sinceFile)
+			if err != nil {
+				return opts, err
+			}
+			opts.Since = since
+			opts.SinceFile = sinceFile
+			continue
+		}
+		if arg == "--since-file" {
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("since-file path is empty")
+			}
+			sinceFile := strings.TrimSpace(args[i])
+			since, err := parseWSSSocketSinceFile(sinceFile)
+			if err != nil {
+				return opts, err
+			}
+			opts.Since = since
+			opts.SinceFile = sinceFile
+			continue
+		}
 		if arg == "--fail-on-actionable" {
 			opts.MaxActionableSockets = 0
 			continue
@@ -247,7 +273,7 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			continue
 		}
 		if arg == "--limit" || arg == "-limit" {
-			return opts, fmt.Errorf("usage: slimference debug wss-sockets [limit|--limit=N] [--json] [--session ID] [--since TIME] [gate flags]")
+			return opts, fmt.Errorf("usage: slimference debug wss-sockets [limit|--limit=N] [--json] [--session ID] [--since TIME|--since-file PATH] [gate flags]")
 		}
 		if strings.HasPrefix(arg, "-") {
 			return opts, fmt.Errorf("unknown flag: %s", arg)
@@ -278,6 +304,7 @@ func buildWSSSocketReportWithOptions(path string, summaries []dbg.RequestSummary
 		RequestLimit:    opts.Limit,
 		SessionFilter:   opts.SessionFilter,
 		Since:           opts.Since,
+		SinceFile:       opts.SinceFile,
 		RequestsScanned: len(summaries),
 		CloseInitiators: make(map[string]int),
 		CauseClasses:    make(map[string]int),
@@ -643,6 +670,26 @@ func parseWSSSocketSince(raw string, now time.Time) (time.Time, error) {
 	return now.Add(-duration), nil
 }
 
+func parseWSSSocketSinceFile(path string) (time.Time, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return time.Time{}, fmt.Errorf("since-file path is empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read --since-file %s: %w", path, err)
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return time.Time{}, fmt.Errorf("--since-file must contain RFC3339")
+	}
+	since, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--since-file must contain RFC3339: %w", err)
+	}
+	return since, nil
+}
+
 func parseNonNegativeWSSSocketLimit(name string, raw string) (int, error) {
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || n < 0 {
@@ -810,8 +857,8 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 	fmt.Printf("WSS socket lifecycle (%d socket(s), %d request(s))\n", report.SocketCount, report.WSSRequests)
 	fmt.Println(strings.Repeat("-", 50))
 	if report.SessionFilter != "" || !report.Since.IsZero() || report.RequestsFiltered > 0 {
-		fmt.Printf("filters=session:%s since:%s filtered:%d scanned:%d\n",
-			emptyDash(report.SessionFilter), formatWSSSocketSince(report.Since), report.RequestsFiltered, report.RequestsScanned)
+		fmt.Printf("filters=session:%s since:%s since_file:%s filtered:%d scanned:%d\n",
+			emptyDash(report.SessionFilter), formatWSSSocketSince(report.Since), emptyDash(report.SinceFile), report.RequestsFiltered, report.RequestsScanned)
 	}
 	fmt.Printf("closed=%d provider_input=%d provider_cached=%d local_saved=%d full_history=%d reconnect_full_history=%d\n",
 		report.ClosedSockets,
