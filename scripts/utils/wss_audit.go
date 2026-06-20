@@ -212,25 +212,41 @@ type wssShadowMirrorAccumulator struct {
 }
 
 type wssShadowMirrorCandidate struct {
-	RequestShape                   string  `json:"request_shape"`
-	Kind                           string  `json:"kind"`
-	Requests                       int     `json:"requests"`
-	ReferenceableSegments          int     `json:"referenceable_segments"`
-	Segments                       int     `json:"segments"`
-	ReferenceableBytes             int     `json:"referenceable_bytes"`
-	Bytes                          int     `json:"bytes"`
-	ReferenceableBytePct           float64 `json:"referenceable_byte_pct"`
-	CandidateLocalTokensEstimate   int     `json:"candidate_local_tokens_estimate"`
-	IncrementalLocalTokensHeadroom int     `json:"incremental_local_tokens_headroom"`
-	ProviderInputTokens            int     `json:"provider_input_tokens"`
-	LocalSavedTokens               int     `json:"local_saved_tokens"`
-	ErrorRequests                  int     `json:"error_requests"`
-	UpstreamErrorRequests          int     `json:"upstream_error_requests"`
-	HTTP400ErrorRequests           int     `json:"http_400_error_requests"`
-	ErrorFree                      bool    `json:"error_free"`
-	CandidateLane                  string  `json:"candidate_lane"`
-	NextProofGate                  string  `json:"next_proof_gate"`
-	RecommendedAction              string  `json:"recommended_action"`
+	RequestShape                   string                            `json:"request_shape"`
+	Kind                           string                            `json:"kind"`
+	Requests                       int                               `json:"requests"`
+	ReferenceableSegments          int                               `json:"referenceable_segments"`
+	Segments                       int                               `json:"segments"`
+	ReferenceableBytes             int                               `json:"referenceable_bytes"`
+	Bytes                          int                               `json:"bytes"`
+	ReferenceableBytePct           float64                           `json:"referenceable_byte_pct"`
+	CandidateLocalTokensEstimate   int                               `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom int                               `json:"incremental_local_tokens_headroom"`
+	ProviderInputTokens            int                               `json:"provider_input_tokens"`
+	LocalSavedTokens               int                               `json:"local_saved_tokens"`
+	ErrorRequests                  int                               `json:"error_requests"`
+	UpstreamErrorRequests          int                               `json:"upstream_error_requests"`
+	HTTP400ErrorRequests           int                               `json:"http_400_error_requests"`
+	ErrorFree                      bool                              `json:"error_free"`
+	CandidateLane                  string                            `json:"candidate_lane"`
+	NextProofGate                  string                            `json:"next_proof_gate"`
+	RecommendedAction              string                            `json:"recommended_action"`
+	TopSessions                    []wssShadowMirrorCandidateSession `json:"top_sessions,omitempty"`
+	sessionRows                    map[string]*wssShadowMirrorCandidateSession
+}
+
+type wssShadowMirrorCandidateSession struct {
+	SessionID                      string `json:"session_id"`
+	Requests                       int    `json:"requests"`
+	ReferenceableBytes             int    `json:"referenceable_bytes"`
+	CandidateLocalTokensEstimate   int    `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom int    `json:"incremental_local_tokens_headroom"`
+	LocalSavedTokens               int    `json:"local_saved_tokens"`
+	ErrorRequests                  int    `json:"error_requests"`
+	UpstreamErrorRequests          int    `json:"upstream_error_requests"`
+	HTTP400ErrorRequests           int    `json:"http_400_error_requests"`
+	ErrorFree                      bool   `json:"error_free"`
+	NextProofGate                  string `json:"next_proof_gate"`
 }
 
 type wssShadowMirrorCandidateAccumulator struct {
@@ -1084,6 +1100,7 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 			Kind:              kind,
 			CandidateLane:     wssShadowMirrorCandidateLane(shape, kind),
 			RecommendedAction: wssShadowMirrorCandidateAction(shape, kind),
+			sessionRows:       make(map[string]*wssShadowMirrorCandidateSession),
 		}
 		a.rows[key] = row
 	}
@@ -1104,6 +1121,28 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	if wssAuditHasHTTP400Error(summary) {
 		row.HTTP400ErrorRequests++
 	}
+	sessionID := strings.TrimSpace(summary.SessionID)
+	if sessionID == "" {
+		sessionID = "(missing)"
+	}
+	session := row.sessionRows[sessionID]
+	if session == nil {
+		session = &wssShadowMirrorCandidateSession{SessionID: sessionID}
+		row.sessionRows[sessionID] = session
+	}
+	session.Requests++
+	session.ReferenceableBytes += refBytes
+	session.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
+	session.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
+	if len(summary.Errors) > 0 {
+		session.ErrorRequests++
+	}
+	if wssAuditHasUpstreamError(summary) {
+		session.UpstreamErrorRequests++
+	}
+	if wssAuditHasHTTP400Error(summary) {
+		session.HTTP400ErrorRequests++
+	}
 }
 
 func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandidate {
@@ -1117,6 +1156,8 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate.IncrementalLocalTokensHeadroom = maxInt(0, candidate.CandidateLocalTokensEstimate-candidate.LocalSavedTokens)
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
+		candidate.TopSessions = finalizeWSSShadowMirrorCandidateSessions(candidate)
+		candidate.sessionRows = nil
 		out = append(out, candidate)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -1135,6 +1176,40 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		return out[i].Kind < out[j].Kind
 	})
 	return out
+}
+
+func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate) []wssShadowMirrorCandidateSession {
+	if len(candidate.sessionRows) == 0 {
+		return nil
+	}
+	out := make([]wssShadowMirrorCandidateSession, 0, len(candidate.sessionRows))
+	for _, row := range candidate.sessionRows {
+		session := *row
+		session.IncrementalLocalTokensHeadroom = maxInt(0, session.CandidateLocalTokensEstimate-session.LocalSavedTokens)
+		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
+		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
+		out = append(out, session)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IncrementalLocalTokensHeadroom != out[j].IncrementalLocalTokensHeadroom {
+			return out[i].IncrementalLocalTokensHeadroom > out[j].IncrementalLocalTokensHeadroom
+		}
+		if out[i].ReferenceableBytes != out[j].ReferenceableBytes {
+			return out[i].ReferenceableBytes > out[j].ReferenceableBytes
+		}
+		return out[i].SessionID < out[j].SessionID
+	})
+	if len(out) > 5 {
+		out = out[:5]
+	}
+	return out
+}
+
+func wssShadowMirrorCandidateSessionProofGate(candidate wssShadowMirrorCandidate, session wssShadowMirrorCandidateSession) string {
+	if !session.ErrorFree {
+		return "fix_or_exclude_erroring_lineage_before_promotion"
+	}
+	return wssShadowMirrorCandidateProofGate(candidate)
 }
 
 func wssShadowMirrorCandidateProofGate(candidate wssShadowMirrorCandidate) string {
@@ -1640,7 +1715,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d error_free=%v lane=%s gate=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d error_free=%v lane=%s gate=%s top_sessions=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
@@ -1657,6 +1732,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.ErrorFree,
 				row.CandidateLane,
 				row.NextProofGate,
+				formatWSSShadowMirrorCandidateSessions(row.TopSessions),
 				row.RecommendedAction)
 		}
 	}
@@ -1681,6 +1757,22 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 			fmt.Fprintf(w, "  - %s\n", failure)
 		}
 	}
+}
+
+func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSession) string {
+	if len(rows) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		parts = append(parts, fmt.Sprintf("%s:%d/%d/%v/%s",
+			truncateMiddle(row.SessionID, 24),
+			row.IncrementalLocalTokensHeadroom,
+			row.ReferenceableBytes,
+			row.ErrorFree,
+			row.NextProofGate))
+	}
+	return strings.Join(parts, ",")
 }
 
 func formatWSSAuditCounts(counts map[string]int) string {
