@@ -37,7 +37,7 @@ exit 2
 	}
 }
 
-func TestCommandOutputFirstShimGitStatusDirtyFullPasses(t *testing.T) {
+func TestCommandOutputFirstShimGitStatusTinyDirtyFullPasses(t *testing.T) {
 	realGit := writeFakeGit(t, `#!/bin/sh
 if [ "$1" = "status" ]; then
   printf ' M file.go\n?? new.txt\n'
@@ -52,6 +52,56 @@ exit 2
 	}
 	if got := stdout.String(); got != " M file.go\n?? new.txt\n" {
 		t.Fatalf("stdout=%q", got)
+	}
+}
+
+func TestCommandOutputFirstShimGitStatusLargeDirtyCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&b, " M internal/generated/very/deep/path/file_%03d.go\n", i)
+	}
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&b, "?? internal/generated/very/deep/path/new_%03d.go\n", i)
+	}
+	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=git", "--real-bin=" + realGit, "--", "status", "--short"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[git status] 200 paths") ||
+		!strings.Contains(got, "worktree:120") ||
+		!strings.Contains(got, "untracked:80") {
+		t.Fatalf("unexpected compacted stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand git status archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte(" M internal/generated/very/deep/path/file_119.go")) ||
+		!bytes.Contains(raw, []byte("?? internal/generated/very/deep/path/new_079.go")) {
+		t.Fatalf("archive did not preserve raw git status output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil || !ok {
+		t.Fatalf("missing git status accounting row: ok=%v err=%v", ok, err)
+	}
+	if !strings.Contains(run.Command, "[command-output-first:git] git status --short") || run.SavingsPct <= 0 {
+		t.Fatalf("bad git status accounting row: %+v", run)
 	}
 }
 

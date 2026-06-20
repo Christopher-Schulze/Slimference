@@ -1320,9 +1320,6 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "git":
 		switch commandOutputFirstGitSubcommand(args) {
 		case "status":
-			if strings.TrimSpace(string(stdout)) != "" {
-				return nil, false
-			}
 			compacted, ok := filter.TryCompactGitStatus(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "diff":
