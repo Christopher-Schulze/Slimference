@@ -69,6 +69,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
 		"gradle", "sbt", "mill",
 		"tsup", "rspack", "parcel", "rollup", "esbuild", "mvn", "mvnw",
+		"dotnet", "dotnet.exe",
 		"gradlew", "meson", "zig", "wasm-pack", "bazel", "bazelisk",
 		"swift", "buf", "ko", "moon", "pack",
 	} {
@@ -326,6 +327,8 @@ func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
 	case "mvn", "mvnw":
 		return commandOutputFirstMavenBuildAllowed(args)
+	case "dotnet", "dotnet.exe":
+		return commandOutputFirstDotnetBuildAllowed(args)
 	case "gradle", "gradlew":
 		return commandOutputFirstArgsContain(args, "build") &&
 			!commandOutputFirstBuildArgsUnsafeLongRunning(args)
@@ -342,6 +345,8 @@ func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 
 func commandOutputFirstDirectTestAllowed(command string, args []string) bool {
 	switch command {
+	case "dotnet", "dotnet.exe":
+		return commandOutputFirstDotnetTestAllowed(args)
 	case "vitest", "jest", "mocha", "ava", "phpunit", "ctest", "ginkgo", "rspec":
 		return true
 	case "karma":
@@ -558,6 +563,20 @@ func commandOutputFirstMavenBuildAllowed(args []string) bool {
 	return false
 }
 
+func commandOutputFirstDotnetBuildAllowed(args []string) bool {
+	switch commandOutputFirstFirstNonOption(args) {
+	case "build", "publish", "pack":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstDotnetTestAllowed(args []string) bool {
+	return commandOutputFirstFirstNonOption(args) == "test" &&
+		!commandOutputFirstBuildArgsUnsafeLongRunning(args)
+}
+
 func commandOutputFirstMoonBuildAllowed(args []string) bool {
 	if commandOutputFirstFirstNonOption(args) != "run" {
 		return false
@@ -750,6 +769,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "pip", "pip3":
 		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "dotnet", "dotnet.exe":
+		compacted, ok := filter.TryCompactDotnet(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -1034,6 +1035,113 @@ func TestCommandOutputFirstShimGradleBuildCompacts(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimDotnetBuildCompactsWithAccounting(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := strings.Join([]string{
+		"Microsoft (R) Build Engine version 17.8.0",
+		"  Determining projects to restore...",
+		"  All projects are up-to-date for restore.",
+		"  App -> /repo/App/bin/Debug/net8.0/App.dll",
+		"",
+		"Build succeeded.",
+		"    0 Warning(s)",
+		"    0 Error(s)",
+		"",
+		"Time Elapsed 00:00:03.21",
+	}, "\n") + "\n"
+	realDotnet := writeFakeCommand(t, "dotnet", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=dotnet", "--real-bin=" + realDotnet, "--", "build", "--configuration", "Release"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := commandOutputFirstVisibleOutput(stdout.String()); got != "[dotnet build] ok\n" {
+		t.Fatalf("unexpected compacted dotnet stdout=%q", got)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:dotnet] dotnet build --configuration Release") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimDotnetTestCompactsWithArchive(t *testing.T) {
+	var raw strings.Builder
+	raw.WriteString("Test run for /repo/App.Tests/bin/Debug/net8.0/App.Tests.dll (.NETCoreApp,Version=v8.0)\n")
+	raw.WriteString("VSTest version 17.10.0 (arm64)\n\n")
+	raw.WriteString("Starting test execution, please wait...\n")
+	raw.WriteString("A total of 1 test files matched the specified pattern.\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&raw, "  Passed App.Tests.WidgetTests.Case%03d [1 ms]\n", i)
+	}
+	raw.WriteString("Passed!  - Failed:     0, Passed:    80, Skipped:     0, Total:    80, Duration: 1 s - App.Tests.dll (net8.0)\n")
+	realDotnet := writeFakeCommand(t, "dotnet", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=dotnet", "--real-bin=" + realDotnet, "--", "test", "--logger", "console;verbosity=detailed"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[dotnet test] ok (80 passed, 0 skipped, 80 total across 1 assembly(s))") ||
+		strings.Contains(got, "WidgetTests.Case000") {
+		t.Fatalf("unexpected compacted dotnet test stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("WidgetTests.Case079")) ||
+		!bytes.Contains(archived, []byte("Passed!  - Failed:     0, Passed:    80")) {
+		t.Fatalf("archive did not preserve raw dotnet output: %q", archived)
+	}
+}
+
+func TestCommandOutputFirstDotnetEdges(t *testing.T) {
+	for _, args := range [][]string{
+		{"build"},
+		{"publish", "--configuration", "Release"},
+		{"pack", "--no-build"},
+	} {
+		if !commandOutputFirstDirectBuildAllowed("dotnet", args) {
+			t.Fatalf("dotnet %v should be build-allowed", args)
+		}
+	}
+	if !commandOutputFirstDirectTestAllowed("dotnet", []string{"test", "--logger", "console;verbosity=detailed"}) {
+		t.Fatal("dotnet test should be test-allowed")
+	}
+	for _, args := range [][]string{
+		{"restore"},
+		{"run"},
+		{"watch", "test"},
+		{"build", "--watch"},
+	} {
+		if commandOutputFirstDirectBuildAllowed("dotnet", args) || commandOutputFirstDirectTestAllowed("dotnet", args) {
+			t.Fatalf("dotnet %v must not be command-output-first allowed", args)
+		}
+	}
+}
+
 func TestCommandOutputFirstShimNpxEsbuildCompacts(t *testing.T) {
 	var build strings.Builder
 	for i := 0; i < 40; i++ {
@@ -1949,6 +2057,10 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if err := os.WriteFile(gitBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	dotnetBin := filepath.Join(binDir, "dotnet")
+	if err := os.WriteFile(dotnetBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
@@ -1968,6 +2080,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "git")); err != nil {
 		t.Fatalf("git shim missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "dotnet")); err != nil {
+		t.Fatalf("dotnet shim missing: %v", err)
 	}
 	bashEnv := envValueInCommand(t, got, "BASH_ENV")
 	bashEnvContent, err := os.ReadFile(bashEnv)
