@@ -1040,6 +1040,33 @@ func TestCommandOutputFirstShimMavenBuildCompactsWithAccounting(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstArchiveMarkerIsCompactAndRecoverable(t *testing.T) {
+	uri := "local-archive://0123456789abcdef0123456789abcdef"
+	stdoutMarker := commandOutputFirstArchiveMarker(uri, "stdout")
+	if !strings.Contains(stdoutMarker, uri) || !strings.Contains(stdoutMarker, "recover: slimference expand URI") {
+		t.Fatalf("stdout marker lost recovery affordance: %q", stdoutMarker)
+	}
+	if strings.Count(stdoutMarker, uri) != 1 {
+		t.Fatalf("stdout marker must not duplicate archive URI: %q", stdoutMarker)
+	}
+	if strings.Contains(stdoutMarker, "context-archive") || strings.Contains(stdoutMarker, "kind=tool-output") {
+		t.Fatalf("stdout marker kept old high-overhead wording: %q", stdoutMarker)
+	}
+	if got := commandOutputFirstArchiveURI("compact\n" + stdoutMarker); got != uri {
+		t.Fatalf("stdout marker archive URI got %q want %q", got, uri)
+	}
+	stderrMarker := commandOutputFirstArchiveMarker(uri, "stderr")
+	if !strings.Contains(stderrMarker, "stream=stderr") || !strings.Contains(stderrMarker, "recover: slimference expand URI") {
+		t.Fatalf("stderr marker lost stream or recovery affordance: %q", stderrMarker)
+	}
+	if strings.Count(stderrMarker, uri) != 1 {
+		t.Fatalf("stderr marker must not duplicate archive URI: %q", stderrMarker)
+	}
+	if got := commandOutputFirstArchiveURI("compact\n" + stderrMarker); got != uri {
+		t.Fatalf("stderr marker archive URI got %q want %q", got, uri)
+	}
+}
+
 func TestCommandOutputFirstShimArchiveUnavailableFullPasses(t *testing.T) {
 	oldHome := osUserHomeDir
 	osUserHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
@@ -2619,11 +2646,24 @@ func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("yarn format rc=%d stderr=%q", rc, fmtStderr.String())
 	}
-	if got := fmtStdout.String(); got != "> app@1.0.0 format:check /repo\n> prettier --check .\nChecking formatting...\nAll matched files use Prettier code style!\n" {
-		t.Fatalf("small yarn format output should full-pass after archive overhead, got %q", got)
+	if got := commandOutputFirstVisibleOutput(fmtStdout.String()); got != "[prettier] ok\n" {
+		t.Fatalf("yarn format output should compact after short archive marker, got %q", got)
 	}
-	if uri := commandOutputFirstArchiveURI(fmtStdout.String()); uri != "" {
-		t.Fatalf("small yarn format full-pass must not archive: %q", fmtStdout.String())
+	uri := commandOutputFirstArchiveURI(fmtStdout.String())
+	if uri == "" {
+		t.Fatalf("missing yarn format archive marker in %q", fmtStdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand yarn format archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("> app@1.0.0 format:check /repo")) ||
+		!bytes.Contains(raw, []byte("All matched files use Prettier code style!")) {
+		t.Fatalf("archive did not preserve yarn format raw output: %q", raw)
 	}
 }
 
@@ -3631,7 +3671,10 @@ func withCommandOutputFirstArchiveHome(t *testing.T) string {
 }
 
 func commandOutputFirstVisibleOutput(output string) string {
-	idx := strings.Index(output, "\n[context-archive kind=tool-output uri=local-archive://")
+	idx := strings.Index(output, "\n[archive local-archive://")
+	if idx < 0 {
+		idx = strings.Index(output, "\n[context-archive kind=tool-output uri=local-archive://")
+	}
 	if idx < 0 {
 		return output
 	}
@@ -3639,6 +3682,15 @@ func commandOutputFirstVisibleOutput(output string) string {
 }
 
 func commandOutputFirstArchiveURI(output string) string {
+	archiveIdx := strings.Index(output, "local-archive://")
+	if archiveIdx >= 0 {
+		rest := output[archiveIdx:]
+		end := strings.IndexAny(rest, " ;]\n\t\"")
+		if end < 0 {
+			return strings.TrimSpace(rest)
+		}
+		return strings.TrimSpace(rest[:end])
+	}
 	marker := "uri="
 	idx := strings.Index(output, marker)
 	if idx < 0 {

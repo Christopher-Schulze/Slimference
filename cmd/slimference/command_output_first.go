@@ -1497,13 +1497,16 @@ func archiveCommandOutputFirstCompaction(command string, args []string, stream s
 	if err != nil || entry == nil || strings.TrimSpace(entry.URI) == "" {
 		return nil, false
 	}
-	marker := "\n[context-archive kind=tool-output uri=" + entry.URI + " recover=\"slimference expand " + entry.URI + "\"]\n"
-	recoverable := []byte(strings.TrimRight(string(compacted), "\n") + marker)
-	if stream == "stderr" {
-		marker = "\n[context-archive kind=tool-output uri=" + entry.URI + " stream=stderr recover=\"slimference expand " + entry.URI + "\"]\n"
-		recoverable = []byte(strings.TrimRight(string(compacted), "\n") + marker)
-	}
+	recoverable := []byte(strings.TrimRight(string(compacted), "\n") + commandOutputFirstArchiveMarker(entry.URI, stream))
 	return commandOutputFirstPositiveCompaction(recoverable, true, raw)
+}
+
+func commandOutputFirstArchiveMarker(uri string, stream string) string {
+	uri = strings.TrimSpace(uri)
+	if stream == "stderr" {
+		return "\n[archive " + uri + "; stream=stderr; recover: slimference expand URI]\n"
+	}
+	return "\n[archive " + uri + "; recover: slimference expand URI]\n"
 }
 
 func recordCommandOutputFirstRun(command string, args []string, rawOut, compacted []byte) {
