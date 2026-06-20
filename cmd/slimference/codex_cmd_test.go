@@ -1551,7 +1551,7 @@ func TestApplyCodexDesktopLastProofRouteProvenIsLaunchableButDistinct(t *testing
 	applyCodexDesktopLastProof(out, &codexDesktopProofOutput{
 		Transport: codexDesktopTransportAppServer,
 		Mode:      "desktop_app_server_route_proven",
-	})
+	}, false)
 	// Launch-eligible (no failure, conversation observed) but NOT the savings-proven
 	// mode: route-ready must stay distinct from desktop_app_server_proven so the TUI
 	// never sells "route ready" as "savings proven".

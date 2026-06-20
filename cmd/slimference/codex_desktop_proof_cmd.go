@@ -749,14 +749,14 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.LiveProofRequired = true
 		out.ConversationObserved = false
 		out.Notes = append(out.Notes, "Codex.app is already running (PID "+joinDesktopPIDs(runningPIDs)+"); quit it first so scoped Slimference env can be injected, or pass --replace-existing only when interrupting that session is intentional")
-		applyCodexDesktopOwnerSessionHandoff(&out)
+		applyCodexDesktopOwnerSessionHandoff(&out, false)
 		return out
 	}
 	if out.LastProof != nil && out.LastProof.Mode == "desktop_ready_for_prompt" &&
 		!codexDesktopLastProofOwnsRunningApp(out.LastProof, runningPIDs) {
 		out.Notes = append(out.Notes, "last Desktop prompt handoff is stale because the scoped Codex.app launch PID is no longer running; start a new manual Desktop proof before pasting the owner prompt")
 	} else if out.LastProof != nil {
-		applyCodexDesktopLastProof(&out, out.LastProof)
+		applyCodexDesktopLastProof(&out, out.LastProof, codexDesktopReusableProofAppActive(out.LastProof, runningPIDs))
 		if out.Mode != "not_ready" {
 			return out
 		}
@@ -793,6 +793,10 @@ func codexDesktopLastProofOwnsRunningApp(last *codexDesktopProofOutput, runningP
 	return false
 }
 
+func codexDesktopReusableProofAppActive(last *codexDesktopProofOutput, runningPIDs []int) bool {
+	return codexDesktopLastProofOwnsRunningApp(last, runningPIDs) && codexDesktopAppServerActiveFn()
+}
+
 func reusableCodexDesktopProofPID() (int, error) {
 	last, err := readCodexDesktopProofResult(codexDesktopResultFn())
 	if err != nil {
@@ -814,7 +818,7 @@ func reusableCodexDesktopProofPID() (int, error) {
 	return last.LaunchPID, nil
 }
 
-func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput) {
+func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput, reusable bool) {
 	if last.Transport != "" && last.Transport != codexDesktopTransportAppServer {
 		out.Notes = append(out.Notes, "last Desktop proof used legacy "+last.Transport+" route; app-server shim proof is still required")
 		return
@@ -843,7 +847,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 	case "desktop_ready_for_prompt":
 		out.Mode = "desktop_proof_prompt_required"
 		out.FailureClass = "prompt_required"
-		applyCodexDesktopPromptRequiredHandoff(out)
+		applyCodexDesktopPromptRequiredHandoff(out, reusable)
 	case "desktop_ca_env_rejected":
 		out.Mode = "desktop_direct_only"
 		out.FailureClass = firstNonEmpty(last.FailureClass, "tls_trust_rejected")
@@ -852,7 +856,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.Mode = "desktop_direct_only"
 		out.FailureClass = firstNonEmpty(last.FailureClass, "no_wss_delta")
 		out.Notes = append(out.Notes, "last Desktop proof produced no Desktop WSS delta; use normal Codex.app direct launch")
-		applyCodexDesktopOwnerSessionHandoff(out)
+		applyCodexDesktopOwnerSessionHandoff(out, reusable)
 	case "desktop_app_server_wss_bridge":
 		out.Mode = "desktop_wss_bridge_only"
 		out.FailureClass = "desktop_savings_not_proven"
@@ -861,32 +865,58 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 	}
 }
 
-func applyCodexDesktopOwnerSessionHandoff(out *codexDesktopStatusOutput) {
-	out.ManualProofCommand = codexDesktopManualProofCommand
+func applyCodexDesktopOwnerSessionHandoff(out *codexDesktopStatusOutput, reusable bool) {
+	if reusable {
+		out.ManualProofCommand = codexDesktopReuseProofCommand
+	} else {
+		out.ManualProofCommand = codexDesktopManualProofCommand
+	}
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
-	out.NextSteps = append(out.NextSteps,
-		"Quit the current Codex.app yourself, or use --replace-existing only when interrupting that Desktop session is intentional.",
-		"Run manual_proof_command to launch a scoped Codex.app with Slimference env.",
-		"Paste owner_prompt only into that newly launched scoped Codex.app window.",
-		"Run finish_command after the prompt completes; then run the class_distribution_command printed by the finish result.",
-	)
+	if reusable {
+		out.NextSteps = append(out.NextSteps,
+			"Run manual_proof_command to arm a fresh capture on the existing scoped Codex.app proof window; do not replace Codex.app.",
+			"Paste owner_prompt only into that existing scoped Codex.app window.",
+			"Run finish_command after the prompt completes; then run the class_distribution_command printed by the finish result.",
+		)
+	} else {
+		out.NextSteps = append(out.NextSteps,
+			"Quit the current Codex.app yourself, or use --replace-existing only when interrupting that Desktop session is intentional.",
+			"Run manual_proof_command to launch a scoped Codex.app with Slimference env.",
+			"Paste owner_prompt only into that newly launched scoped Codex.app window.",
+			"Run finish_command after the prompt completes; then run the class_distribution_command printed by the finish result.",
+		)
+	}
 }
 
-func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput) {
+func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput, reusable bool) {
 	startedAt := codexDesktopPromptProofStartedAt(out.LastProof)
 	out.ProofStartedAt = startedAt
-	out.ManualProofCommand = codexDesktopManualProofCommand
+	if reusable {
+		out.ManualProofCommand = codexDesktopReuseProofCommand
+	} else {
+		out.ManualProofCommand = codexDesktopManualProofCommand
+	}
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
 	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAt)
 	applyCodexDesktopStatusCaptureHandoff(out)
-	out.NextSteps = append(out.NextSteps,
-		"Paste owner_prompt into the scoped Codex.app window that was launched by the manual Desktop proof.",
-		"Run finish_command after the prompt completes.",
-		"Run matrix_row_command, focused_matrix_command, search_cap_proof_command, and class_distribution_command; continue guard work only when all focused proof gates pass and headroom_present=true.",
-	)
-	if out.LastProof != nil && out.LastProof.LaunchPID > 0 {
+	if reusable {
+		out.NextSteps = append(out.NextSteps,
+			"Paste owner_prompt into the existing scoped Codex.app proof window, or run manual_proof_command first to arm a fresh capture on it.",
+			"Run finish_command after the prompt completes.",
+			"Run matrix_row_command, focused_matrix_command, search_cap_proof_command, and class_distribution_command; continue guard work only when all focused proof gates pass and headroom_present=true.",
+		)
+	} else {
+		out.NextSteps = append(out.NextSteps,
+			"Paste owner_prompt into the scoped Codex.app window that was launched by the manual Desktop proof.",
+			"Run finish_command after the prompt completes.",
+			"Run matrix_row_command, focused_matrix_command, search_cap_proof_command, and class_distribution_command; continue guard work only when all focused proof gates pass and headroom_present=true.",
+		)
+	}
+	if reusable {
+		out.NextSteps = append(out.NextSteps, "For a fresh capture path on the same scoped proof app, manual_proof_command already uses --reuse-running instead of replacing Codex.app.")
+	} else if out.LastProof != nil && out.LastProof.LaunchPID > 0 {
 		out.NextSteps = append(out.NextSteps, "For a fresh capture path on the same scoped proof app, run `"+codexDesktopReuseProofCommand+"` instead of replacing Codex.app.")
 	}
 	out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `"+codexDesktopFinishProofCommand+"`")

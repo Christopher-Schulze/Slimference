@@ -66,6 +66,46 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 	}
 }
 
+func TestCodexDesktopStatusPromptRequiredReusesRunningScopedProofApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:              "desktop_ready_for_prompt",
+		Transport:         codexDesktopTransportAppServer,
+		StartedAt:         "2026-05-18T12:00:00Z",
+		LaunchPID:         4242,
+		CapturePath:       "/tmp/desktop-proof.frames.jsonl",
+		MatrixPath:        "/tmp/desktop-proof.matrix.jsonl",
+		LaunchReady:       true,
+		ManualPromptStill: true,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{4242}, nil
+	}
+	codexDesktopAppServerActiveFn = func() bool { return true }
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "desktop_proof_prompt_required" || got.FailureClass != "prompt_required" {
+		t.Fatalf("status=%+v", got)
+	}
+	if got.ManualProofCommand != codexDesktopReuseProofCommand {
+		t.Fatalf("manual proof command=%q want reuse command", got.ManualProofCommand)
+	}
+	joined := strings.Join(got.NextSteps, "\n")
+	if strings.Contains(joined, "Quit the current Codex.app yourself") ||
+		!strings.Contains(joined, "existing scoped Codex.app") ||
+		!strings.Contains(joined, "--reuse-running") {
+		t.Fatalf("reuse handoff should avoid replace/quit guidance: %+v", got.NextSteps)
+	}
+}
+
 func TestCodexDesktopStatusPromptRequiredJSONRecoversProofSinceFromSession(t *testing.T) {
 	withCodexCmdStubs(t)
 	proof := &codexDesktopProofOutput{
@@ -333,5 +373,42 @@ func TestCodexDesktopStatusNoWSSDeltaIncludesFreshManualProofRunbook(t *testing.
 		if !strings.Contains(text, want) {
 			t.Fatalf("status text missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestCodexDesktopStatusNoWSSDeltaReusesRunningScopedProofApp(t *testing.T) {
+	withCodexCmdStubs(t)
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:         "desktop_no_wss_delta",
+		FailureClass: "no_wss_delta",
+		Transport:    codexDesktopTransportAppServer,
+		StartedAt:    "2026-05-18T12:00:00Z",
+		LaunchPID:    7373,
+	})
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{7373}, nil
+	}
+	codexDesktopAppServerActiveFn = func() bool { return true }
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "desktop_direct_only" || got.FailureClass != "no_wss_delta" {
+		t.Fatalf("status=%+v", got)
+	}
+	if got.ManualProofCommand != codexDesktopReuseProofCommand {
+		t.Fatalf("manual proof command=%q want reuse command", got.ManualProofCommand)
+	}
+	joined := strings.Join(got.NextSteps, "\n")
+	if strings.Contains(joined, "Quit the current Codex.app yourself") ||
+		!strings.Contains(joined, "existing scoped Codex.app") ||
+		!strings.Contains(joined, "fresh capture") {
+		t.Fatalf("reuse no-wss handoff should avoid fresh launch guidance: %+v", got.NextSteps)
 	}
 }

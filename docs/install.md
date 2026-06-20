@@ -428,6 +428,13 @@ finish the proof:
 slimference codex desktop prove --finish --json
 ```
 
+When the same scoped proof app is still running and the app-server shim is
+active, `slimference codex desktop status` may print
+`slimference codex desktop prove --manual --reuse-running --json --duration=5s --keep-open`.
+That command arms a fresh capture on the existing scoped proof window without
+quitting or replacing Codex.app. It is still only a proof handoff; savings are
+claimed only after the owner prompt plus `--finish` produce a green result.
+
 The finish step compares current daemon WSS state against the saved manual
 baseline. Desktop savings are green only for
 `desktop_app_server_phasef_proven`, meaning bytes flowed both directions,
