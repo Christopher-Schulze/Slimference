@@ -289,6 +289,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			commandOutputFirstKnownJSONOutputAllowed(command, args)
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
 		return commandOutputFirstPythonTestAllowed(command, args) ||
+			commandOutputFirstPythonMypyAllowed(command, args) ||
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
@@ -1433,6 +1434,10 @@ func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []str
 		compacted, ok := filter.TryCompactEslintStylish(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	}
+	if commandOutputFirstMypyDiagnosticAllowed(command, args) {
+		compacted, ok := filter.TryCompactMypyDiagnostics(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	}
 	return nil, false
 }
 
@@ -1466,6 +1471,29 @@ func commandOutputFirstEslintStylishDiagnosticAllowed(command string, args []str
 	}
 	tool, _, ok := commandOutputFirstNpxTool(args)
 	return ok && tool == "eslint"
+}
+
+func commandOutputFirstMypyDiagnosticAllowed(command string, args []string) bool {
+	if command == "mypy" {
+		return true
+	}
+	if commandOutputFirstPythonMypyAllowed(command, args) {
+		return true
+	}
+	if command != "npx" {
+		return false
+	}
+	tool, _, ok := commandOutputFirstNpxTool(args)
+	return ok && tool == "mypy"
+}
+
+func commandOutputFirstPythonMypyAllowed(command string, args []string) bool {
+	switch command {
+	case "python", "python3":
+		return commandOutputFirstPythonModule(args) == "mypy"
+	default:
+		return false
+	}
 }
 
 func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte) ([]byte, bool) {

@@ -2463,6 +2463,144 @@ exit 1
 	}
 }
 
+func TestCommandOutputFirstShimMypyNonzeroStdoutCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 75; i++ {
+		diagnostics.WriteString("src/app.py:10: error: Incompatible return value type\n")
+	}
+	diagnostics.WriteString("src/app.py:10: note: expected str\n")
+	diagnostics.WriteString("Found 75 errors in 1 file (checked 48 source files)\n")
+	realMypy := writeFakeCommand(t, "mypy", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=mypy", "--real-bin=" + realMypy, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"[mypy] FAILED (76 diagnostics)",
+		"src/app.py:10: error: Incompatible return value type (repeated 75 times)",
+		"src/app.py:10: note: expected str",
+		"Found 75 errors in 1 file",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mypy compact output missing %q in %q", want, got)
+		}
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing mypy archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand mypy archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("Incompatible return value type")) != 75 ||
+		!bytes.Contains(raw, []byte("Found 75 errors in 1 file")) {
+		t.Fatalf("archive did not preserve mypy diagnostics: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:mypy] mypy src") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimPythonMypyNonzeroStderrCompactWithArchive(t *testing.T) {
+	var diagnostics strings.Builder
+	for i := 0; i < 65; i++ {
+		diagnostics.WriteString("pkg/model.pyi:7: error: Missing return statement\n")
+	}
+	diagnostics.WriteString("Found 65 errors in 1 file\n")
+	realPython := writeFakeCommand(t, "python3", "#!/bin/sh\ncat >&2 <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=python3", "--real-bin=" + realPython, "--", "-m", "mypy", "pkg"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+	got := commandOutputFirstVisibleOutput(stderr.String())
+	if !strings.Contains(got, "[mypy] FAILED (65 diagnostics)") ||
+		!strings.Contains(got, "pkg/model.pyi:7: error: Missing return statement (repeated 65 times)") {
+		t.Fatalf("python -m mypy compact output=%q", got)
+	}
+	if !strings.Contains(stderr.String(), "stream=stderr") {
+		t.Fatalf("stderr archive marker must preserve stream distinction: %q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stderr.String()); uri == "" {
+		t.Fatalf("missing python -m mypy archive marker in %q", stderr.String())
+	}
+}
+
+func TestCommandOutputFirstShimMypyRiskyDiagnosticsFullPass(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realMypy := writeFakeCommand(t, "mypy", `#!/bin/sh
+cat <<'EOF'
+Skipping analyzing 'requests': module is installed, but missing library stubs
+src/app.py:10: error: bad
+Found 1 error in 1 file
+EOF
+exit 1
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=mypy", "--real-bin=" + realMypy, "--", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d", rc)
+	}
+	want := "Skipping analyzing 'requests': module is installed, but missing library stubs\nsrc/app.py:10: error: bad\nFound 1 error in 1 file\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout=%q want=%q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("risky mypy full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("risky mypy full-pass must not record accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstPythonMypyAllowCaptureIsNarrow(t *testing.T) {
+	if !commandOutputFirstAllowCapture("python3", []string{"-m", "mypy", "src"}) {
+		t.Fatal("python -m mypy should be captured")
+	}
+	if commandOutputFirstAllowCapture("python3", []string{"script.py"}) {
+		t.Fatal("plain python script must not be captured as mypy")
+	}
+}
+
 func TestCommandOutputFirstShimEslintStylishNonzeroStdoutCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat <<'EOF'\n"+commandOutputFirstEslintStylishFixture("src/app.js", 45)+"EOF\nexit 1\n")
