@@ -331,12 +331,9 @@ func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
 			DebugFacts: map[string]string{
 				"wss.request_shape": "full_history",
 				"wss.socket_seq":    "1",
-				"wss.full_history_detached_previous_response": "true",
-				"wss.full_history_stateless_followup":         "true",
-				"wss.shadow_mirror_blocks":                    "1",
-				"wss.shadow_mirror_bytes":                     "800",
-				"wss.shadow_mirror_referenceable_blocks":      "1",
-				"wss.shadow_mirror_referenceable_bytes":       "400",
+				"wss.full_history_detached_previous_response":  "true",
+				"wss.full_history_stateless_followup":          "true",
+				"wss.shadow_mirror_normalized_density_by_kind": "stateful_safe_tool_output=400/800/1/1",
 			},
 		},
 	)
@@ -349,7 +346,8 @@ func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
 		t.Fatalf("shadow mirror candidates = %d, want 1: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
 	}
 	candidate := report.ShadowMirrorCandidates[0]
-	if candidate.PromotionStage != "product_candidate_no_observed_blockers" ||
+	if candidate.Kind != "stateful_safe_tool_output" ||
+		candidate.PromotionStage != "product_candidate_no_observed_blockers" ||
 		!candidate.PromotionOpenReady ||
 		candidate.PromotionOpenStage != "t417_exact_scope_open_slice_candidate" ||
 		len(candidate.PromotionOpenBlockers) != 0 ||
@@ -372,6 +370,59 @@ func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
 	}
 }
 
+func TestWSSAuditShadowMirrorReferenceOnlyHeadroomIsNotPromotionOpen(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID:           "wss-reference-only",
+			Timestamp:           time.Date(2026, 5, 30, 12, 6, 0, 0, time.UTC),
+			SessionID:           "codex-wss:reference-only",
+			Path:                "/backend-api/codex/responses",
+			RouteMode:           "websocket_phasef",
+			ClientFamily:        "codex_cli",
+			Tokens:              dbg.TokenCounts{Original: 220, Final: 180, Saved: 40},
+			ProviderInputTokens: 220,
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+				"wss.socket_seq":    "1",
+				"wss.full_history_detached_previous_response":  "true",
+				"wss.full_history_stateless_followup":          "true",
+				"wss.shadow_mirror_blocks":                     "1",
+				"wss.shadow_mirror_bytes":                      "800",
+				"wss.shadow_mirror_referenceable_blocks":       "1",
+				"wss.shadow_mirror_referenceable_bytes":        "400",
+				"wss.shadow_mirror_normalized_density_by_kind": "codex_exec_payload=300/700/1/1",
+			},
+		},
+	)
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if len(report.ShadowMirrorCandidates) != 2 {
+		t.Fatalf("shadow mirror candidates = %d, want 2: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
+	}
+	for _, candidate := range report.ShadowMirrorCandidates {
+		if candidate.PromotionOpenHeadroom <= 0 ||
+			candidate.PromotionOpenReady ||
+			candidate.PromotionOpenStage != "t417_no_open_slice_candidate" ||
+			!stringSliceContains(candidate.PromotionOpenBlockers, "reference_only_backend_contract_required") ||
+			!stringSliceContains(candidate.PromotionBlockers, "reference_only_backend_contract_required") ||
+			candidate.PromotionBlockerHeadroom["reference_only_backend_contract_required"] != candidate.IncrementalLocalTokensHeadroom {
+			t.Fatalf("reference-only candidate must keep headroom but fail product open: %+v", candidate)
+		}
+		if len(candidate.TopSessions) != 1 ||
+			candidate.TopSessions[0].PromotionOpenReady ||
+			!stringSliceContains(candidate.TopSessions[0].PromotionOpenBlockers, "reference_only_backend_contract_required") {
+			t.Fatalf("reference-only session must fail product open: %+v", candidate.TopSessions)
+		}
+	}
+}
+
 func TestWSSAuditShadowMirrorBlockerHeadroomCountsOnlyResidualBlockedMass(t *testing.T) {
 	t.Parallel()
 
@@ -388,12 +439,9 @@ func TestWSSAuditShadowMirrorBlockerHeadroomCountsOnlyResidualBlockedMass(t *tes
 			DebugFacts: map[string]string{
 				"wss.request_shape": "full_history",
 				"wss.socket_seq":    "1",
-				"wss.full_history_detached_previous_response": "true",
-				"wss.full_history_stateless_followup":         "true",
-				"wss.shadow_mirror_blocks":                    "1",
-				"wss.shadow_mirror_bytes":                     "400",
-				"wss.shadow_mirror_referenceable_blocks":      "1",
-				"wss.shadow_mirror_referenceable_bytes":       "400",
+				"wss.full_history_detached_previous_response":  "true",
+				"wss.full_history_stateless_followup":          "true",
+				"wss.shadow_mirror_normalized_density_by_kind": "stateful_safe_tool_output=400/400/1/1",
 			},
 		},
 		dbg.RequestSummary{
@@ -406,15 +454,12 @@ func TestWSSAuditShadowMirrorBlockerHeadroomCountsOnlyResidualBlockedMass(t *tes
 			DebugFacts: map[string]string{
 				"wss.request_shape": "full_history",
 				"wss.socket_seq":    "1",
-				"wss.full_history_detached_previous_response": "true",
-				"wss.full_history_stateless_followup":         "true",
-				"wss.cache_bust_demoted_mechanisms":           "stale_read",
-				"wss.cache_bust_demoted_scope":                "route=wss_phasef|shape=full_history|prompt_cache_key=partial",
-				"wss.cache_bust_demoted_class_keys":           "stale_read:unknown",
-				"wss.shadow_mirror_blocks":                    "1",
-				"wss.shadow_mirror_bytes":                     "800",
-				"wss.shadow_mirror_referenceable_blocks":      "1",
-				"wss.shadow_mirror_referenceable_bytes":       "800",
+				"wss.full_history_detached_previous_response":  "true",
+				"wss.full_history_stateless_followup":          "true",
+				"wss.cache_bust_demoted_mechanisms":            "stale_read",
+				"wss.cache_bust_demoted_scope":                 "route=wss_phasef|shape=full_history|prompt_cache_key=partial",
+				"wss.cache_bust_demoted_class_keys":            "stale_read:unknown",
+				"wss.shadow_mirror_normalized_density_by_kind": "stateful_safe_tool_output=800/800/1/1",
 			},
 		},
 	)
@@ -824,7 +869,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
 		!strings.Contains(stdout.String(), "stage=not_safe_erroring") ||
 		!strings.Contains(stdout.String(), "blockers=erroring_shape") ||
-		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/open_ready=false/open_stage=t417_no_open_slice_candidate/open_blockers=no_promotion_open_headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27") ||
+		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/open_ready=false/open_stage=t417_no_open_slice_candidate/open_blockers=no_promotion_open_headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|reference_only_backend_contract_required|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27,reference_only_backend_contract_required:27") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())

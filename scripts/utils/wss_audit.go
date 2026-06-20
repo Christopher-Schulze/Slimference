@@ -1292,14 +1292,14 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate.ReferenceableBytePct = pct(candidate.ReferenceableBytes, candidate.Bytes)
 		candidate.IncrementalLocalTokensHeadroom = maxInt(0, candidate.CandidateLocalTokensEstimate-candidate.LocalSavedTokens)
 		candidate.PromotionOpenHeadroom = maxInt(0, candidate.PromotionOpenCandidateTokens-candidate.PromotionOpenLocalSavedTokens)
-		candidate.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, candidate.PromotionOpenHeadroom)
-		candidate.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, candidate.PromotionOpenHeadroom)
+		candidate.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, candidate.Kind, candidate.PromotionOpenHeadroom)
+		candidate.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, candidate.Kind, candidate.PromotionOpenHeadroom)
 		candidate.PromotionOpenBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionOpenBlockers, candidate.PromotionOpenHeadroom)
 		candidate.PromotionOpenStage = wssShadowMirrorPromotionOpenStage(candidate.CandidateLane, candidate.PromotionOpenReady, candidate.PromotionOpenBlockers)
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
 		candidate.PromotionBlockers = wssShadowMirrorCandidatePromotionBlockers(candidate)
-		candidate.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionBlockers, wssShadowMirrorBlockedHeadroom(candidate.IncrementalLocalTokensHeadroom, candidate.PromotionOpenHeadroom))
+		candidate.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionBlockers, wssShadowMirrorBlockedHeadroom(candidate.IncrementalLocalTokensHeadroom, wssShadowMirrorEffectiveOpenHeadroom(candidate.PromotionOpenReady, candidate.PromotionOpenHeadroom)))
 		candidate.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, candidate.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && candidate.PromotionOpenHeadroom > 0 && len(candidate.PromotionBlockers) > 0 {
 			candidate.PromotionStage = "t417_partial_product_candidate"
@@ -1335,14 +1335,14 @@ func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate
 		session := *row
 		session.IncrementalLocalTokensHeadroom = maxInt(0, session.CandidateLocalTokensEstimate-session.LocalSavedTokens)
 		session.PromotionOpenHeadroom = maxInt(0, session.PromotionOpenCandidateTokens-session.PromotionOpenLocalSavedTokens)
-		session.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, session.PromotionOpenHeadroom)
-		session.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, session.PromotionOpenHeadroom)
+		session.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, candidate.Kind, session.PromotionOpenHeadroom)
+		session.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, candidate.Kind, session.PromotionOpenHeadroom)
 		session.PromotionOpenBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionOpenBlockers, session.PromotionOpenHeadroom)
 		session.PromotionOpenStage = wssShadowMirrorPromotionOpenStage(candidate.CandidateLane, session.PromotionOpenReady, session.PromotionOpenBlockers)
 		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
 		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
 		session.PromotionBlockers = wssShadowMirrorCandidateSessionPromotionBlockers(candidate, session)
-		session.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionBlockers, wssShadowMirrorBlockedHeadroom(session.IncrementalLocalTokensHeadroom, session.PromotionOpenHeadroom))
+		session.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionBlockers, wssShadowMirrorBlockedHeadroom(session.IncrementalLocalTokensHeadroom, wssShadowMirrorEffectiveOpenHeadroom(session.PromotionOpenReady, session.PromotionOpenHeadroom)))
 		session.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, session.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && session.PromotionOpenHeadroom > 0 && len(session.PromotionBlockers) > 0 {
 			session.PromotionStage = "t417_partial_product_candidate"
@@ -1400,6 +1400,9 @@ func wssShadowMirrorCandidatePromotionBlockers(candidate wssShadowMirrorCandidat
 	}
 	switch candidate.CandidateLane {
 	case "t417_class_b_server_state":
+		if !wssShadowMirrorProductizableOpenKind(candidate.Kind) {
+			blockers = append(blockers, "reference_only_backend_contract_required")
+		}
 		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
 			candidate.PreviousResponseIDUsed,
 			candidate.StructuredMutationGuarded,
@@ -1434,6 +1437,9 @@ func wssShadowMirrorCandidateSessionPromotionBlockers(candidate wssShadowMirrorC
 	}
 	switch candidate.CandidateLane {
 	case "t417_class_b_server_state":
+		if !wssShadowMirrorProductizableOpenKind(candidate.Kind) {
+			blockers = append(blockers, "reference_only_backend_contract_required")
+		}
 		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
 			session.PreviousResponseIDUsed,
 			session.StructuredMutationGuarded,
@@ -1510,18 +1516,37 @@ func wssShadowMirrorBlockedHeadroom(totalHeadroom, openHeadroom int) int {
 	return maxInt(0, totalHeadroom-openHeadroom)
 }
 
-func wssShadowMirrorPromotionOpenReady(lane string, openHeadroom int) bool {
-	return lane == "t417_class_b_server_state" && openHeadroom > 0
+func wssShadowMirrorEffectiveOpenHeadroom(openReady bool, openHeadroom int) int {
+	if !openReady {
+		return 0
+	}
+	return maxInt(0, openHeadroom)
 }
 
-func wssShadowMirrorPromotionOpenBlockers(lane string, openHeadroom int) []string {
+func wssShadowMirrorPromotionOpenReady(lane, kind string, openHeadroom int) bool {
+	return lane == "t417_class_b_server_state" && openHeadroom > 0 && wssShadowMirrorProductizableOpenKind(kind)
+}
+
+func wssShadowMirrorPromotionOpenBlockers(lane, kind string, openHeadroom int) []string {
 	if lane != "t417_class_b_server_state" {
 		return nil
 	}
 	if openHeadroom <= 0 {
 		return []string{"no_promotion_open_headroom"}
 	}
+	if !wssShadowMirrorProductizableOpenKind(kind) {
+		return []string{"reference_only_backend_contract_required"}
+	}
 	return nil
+}
+
+func wssShadowMirrorProductizableOpenKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "stateful_safe_tool_output", "stateful_safe_history_reducer", "search_cap_stateful_followup":
+		return true
+	default:
+		return false
+	}
 }
 
 func wssShadowMirrorPromotionOpenStage(lane string, ready bool, blockers []string) string {
