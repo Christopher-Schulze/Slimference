@@ -250,6 +250,16 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "turbo", args: []string{"run", "build"}},
 		{command: "mvn", args: []string{"test"}},
 		{command: "mvnw", args: []string{"-q", "verify"}},
+		{command: "docker", args: []string{"ps"}},
+		{command: "docker", args: []string{"images", "--quiet"}},
+		{command: "podman", args: []string{"ps", "-q"}},
+		{command: "nerdctl", args: []string{"images"}},
+		{command: "docker", args: []string{"compose", "ps", "-q"}},
+		{command: "docker-compose", args: []string{"ps", "-q"}},
+		{command: "kubectl", args: []string{"get", "pods", "-n", "default"}},
+		{command: "oc", args: []string{"get", "pods"}},
+		{command: "helm", args: []string{"list", "-q"}},
+		{command: "helm", args: []string{"search", "repo", "slimference"}},
 		{command: "gradle", args: []string{"build"}},
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "meson", args: []string{"compile", "-C", "build"}},
@@ -340,6 +350,16 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "esbuild", args: []string{"src/index.ts"}},
 		{command: "mvn", args: []string{"deploy"}},
 		{command: "mvn", args: []string{"site"}},
+		{command: "docker", args: []string{"logs", "web"}},
+		{command: "docker", args: []string{"run", "nginx"}},
+		{command: "docker", args: []string{"compose", "logs"}},
+		{command: "docker", args: []string{"compose", "up"}},
+		{command: "kubectl", args: []string{"describe", "pod", "web"}},
+		{command: "kubectl", args: []string{"get", "pods", "--watch"}},
+		{command: "kubectl", args: []string{"get", "pods", "-w"}},
+		{command: "oc", args: []string{"get", "pods", "--watch-only"}},
+		{command: "helm", args: []string{"install", "web", "repo/web"}},
+		{command: "helm", args: []string{"upgrade", "web", "repo/web"}},
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run", "web:test"}},
@@ -1138,6 +1158,154 @@ func TestCommandOutputFirstDotnetEdges(t *testing.T) {
 	} {
 		if commandOutputFirstDirectBuildAllowed("dotnet", args) || commandOutputFirstDirectTestAllowed("dotnet", args) {
 			t.Fatalf("dotnet %v must not be command-output-first allowed", args)
+		}
+	}
+}
+
+func TestCommandOutputFirstShimContainerStatusCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("NAME                    READY   STATUS             RESTARTS   AGE\n")
+	for i := 0; i < 36; i++ {
+		status := "Running"
+		if i == 7 {
+			status = "CrashLoopBackOff"
+		}
+		if i == 23 {
+			status = "ImagePullBackOff"
+		}
+		fmt.Fprintf(&raw, "api-%05d              1/1     %-18s 0          5d\n", i, status)
+	}
+	realKubectl := writeFakeCommand(t, "kubectl", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=kubectl", "--real-bin=" + realKubectl, "--", "get", "pods", "-n", "default"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"[kubectl get pods -n default] 36 item(s), 2 attention row(s)",
+		"api-00007",
+		"CrashLoopBackOff",
+		"api-00023",
+		"ImagePullBackOff",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("container compact output missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "api-00035") {
+		t.Fatalf("healthy container rows should stay in archive, not visible compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("api-00035")) ||
+		!bytes.Contains(archived, []byte("ImagePullBackOff")) {
+		t.Fatalf("archive did not preserve raw kubectl output: %q", archived)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:kubectl] kubectl get pods -n default") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimContainerQuietNonemptyFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "abc123\n"
+	realDocker := writeFakeCommand(t, "docker", "#!/bin/sh\nprintf 'abc123\\n'\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=docker", "--real-bin=" + realDocker, "--", "ps", "-q"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("non-empty quiet output must full-pass\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("non-compacted quiet output must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("full-pass quiet output must not record accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstContainerStatusEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "docker", args: []string{"ps"}},
+		{command: "docker", args: []string{"images", "-q"}},
+		{command: "docker", args: []string{"compose", "ps", "--quiet"}},
+		{command: "docker", args: []string{"compose", "ls"}},
+		{command: "docker-compose", args: []string{"ps", "-q"}},
+		{command: "podman", args: []string{"ps"}},
+		{command: "nerdctl", args: []string{"images"}},
+		{command: "kubectl", args: []string{"get", "pods"}},
+		{command: "oc", args: []string{"get", "routes"}},
+		{command: "helm", args: []string{"list", "--short"}},
+		{command: "helm", args: []string{"search", "repo", "app"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstContainerStatusAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v should be container-status allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "docker", args: []string{"logs", "web"}},
+		{command: "docker", args: []string{"run", "nginx"}},
+		{command: "docker", args: []string{"compose", "logs"}},
+		{command: "docker", args: []string{"compose", "up"}},
+		{command: "docker-compose", args: []string{"logs"}},
+		{command: "kubectl", args: []string{"describe", "pod", "web"}},
+		{command: "kubectl", args: []string{"get", "pods", "-w"}},
+		{command: "oc", args: []string{"get", "pods", "--watch-only"}},
+		{command: "helm", args: []string{"install", "web", "repo/web"}},
+		{command: "helm", args: []string{"upgrade", "web", "repo/web"}},
+		{command: "unknown", args: []string{"get", "pods"}},
+		{command: "kubectl", args: nil},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstContainerStatusAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be container-status allowed", tc.command, tc.args)
 		}
 	}
 }
@@ -2061,6 +2229,10 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if err := os.WriteFile(dotnetBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	kubectlBin := filepath.Join(binDir, "kubectl")
+	if err := os.WriteFile(kubectlBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
@@ -2083,6 +2255,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "dotnet")); err != nil {
 		t.Fatalf("dotnet shim missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "kubectl")); err != nil {
+		t.Fatalf("kubectl shim missing: %v", err)
 	}
 	bashEnv := envValueInCommand(t, got, "BASH_ENV")
 	bashEnvContent, err := os.ReadFile(bashEnv)

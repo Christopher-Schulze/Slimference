@@ -72,6 +72,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"dotnet", "dotnet.exe",
 		"gradlew", "meson", "zig", "wasm-pack", "bazel", "bazelisk",
 		"swift", "buf", "ko", "moon", "pack",
+		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -282,6 +283,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
+	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
+		return commandOutputFirstContainerStatusAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -577,6 +580,31 @@ func commandOutputFirstDotnetTestAllowed(args []string) bool {
 		!commandOutputFirstBuildArgsUnsafeLongRunning(args)
 }
 
+func commandOutputFirstContainerStatusAllowed(command string, args []string) bool {
+	if len(args) == 0 || commandOutputFirstArgsContain(args, "-w", "--watch", "--watch-only") {
+		return false
+	}
+	switch command {
+	case "docker", "podman", "nerdctl":
+		switch args[0] {
+		case "ps", "images":
+			return true
+		case "compose":
+			return len(args) >= 2 && (args[1] == "ps" || args[1] == "ls")
+		default:
+			return false
+		}
+	case "docker-compose":
+		return args[0] == "ps"
+	case "kubectl", "oc":
+		return args[0] == "get"
+	case "helm":
+		return args[0] == "list" || args[0] == "search"
+	default:
+		return false
+	}
+}
+
 func commandOutputFirstMoonBuildAllowed(args []string) bool {
 	if commandOutputFirstFirstNonOption(args) != "run" {
 		return false
@@ -772,6 +800,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "dotnet", "dotnet.exe":
 		compacted, ok := filter.TryCompactDotnet(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
+		compacted, ok := filter.TryCompactContainerOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
