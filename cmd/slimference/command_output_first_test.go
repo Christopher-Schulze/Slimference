@@ -364,6 +364,14 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "pyright", args: []string{"--outputjson", "src"}},
 		{command: "stylelint", args: []string{"--formatter", "json", "**/*.css"}},
 		{command: "eslint", args: []string{"src", "--format", "stylish"}},
+		{command: "biome", args: []string{"check", "."}},
+		{command: "deno", args: []string{"lint", "."}},
+		{command: "shellcheck", args: []string{"scripts/build.sh"}},
+		{command: "markdownlint", args: []string{"docs"}},
+		{command: "python3", args: []string{"-m", "pylint", "src"}},
+		{command: "python", args: []string{"-u", "-m", "flake8", "src"}},
+		{command: "buf", args: []string{"lint"}},
+		{command: "gocritic", args: []string{"check", "./..."}},
 		{command: "prettier", args: []string{"--check", "."}},
 		{command: "npm", args: []string{"run", "lint"}},
 		{command: "pnpm", args: []string{"run", "typecheck"}},
@@ -472,6 +480,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "webpack", args: []string{"serve"}},
 		{command: "prettier", args: []string{"--write", "."}},
 		{command: "ruff", args: []string{"format", "."}},
+		{command: "biome", args: []string{"ci", "."}},
+		{command: "buf", args: []string{"format", "-w"}},
+		{command: "gocritic", args: []string{"doc"}},
+		{command: "python3", args: []string{"-m", "pip", "list"}},
 		{command: "npm", args: []string{"run", "dev"}},
 		{command: "yarn", args: []string{"run", "format"}},
 		{command: "playwright", args: []string{"codegen"}},
@@ -520,6 +532,83 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be captured", tc.command, tc.args)
 		}
+	}
+}
+
+func TestCommandOutputFirstStructuredDiagnosticAllowed(t *testing.T) {
+	allowed := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "go build", command: "go", args: []string{"build", "./..."}},
+		{name: "cargo check", command: "cargo", args: []string{"check", "--workspace"}},
+		{name: "python module lint", command: "python3", args: []string{"-m", "pylint", "src"}},
+		{name: "python sqlfluff lint", command: "python", args: []string{"-m", "sqlfluff", "lint", "q.sql"}},
+		{name: "package script", command: "pnpm", args: []string{"run", "build"}},
+		{name: "npx direct build", command: "npx", args: []string{"-y", "tsc", "--noEmit"}},
+		{name: "direct build", command: "tsc", args: []string{"--noEmit"}},
+		{name: "direct lint", command: "shellcheck", args: []string{"scripts/build.sh"}},
+		{name: "direct test", command: "vitest", args: []string{"run"}},
+		{name: "direct format check", command: "prettier", args: []string{"--check", "."}},
+	}
+	for _, tc := range allowed {
+		t.Run("allow "+tc.name, func(t *testing.T) {
+			if !commandOutputFirstStructuredDiagnosticAllowed(tc.command, tc.args) {
+				t.Fatalf("%s %v should allow structured diagnostics", tc.command, tc.args)
+			}
+		})
+	}
+
+	denied := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "search no match", command: "rg", args: []string{"needle"}},
+		{name: "go env", command: "go", args: []string{"env", "-json"}},
+		{name: "cargo test", command: "cargo", args: []string{"test"}},
+		{name: "python non lint", command: "python3", args: []string{"-m", "pip", "list"}},
+		{name: "unknown npx", command: "npx", args: []string{"cowsay", "hello"}},
+		{name: "network", command: "curl", args: []string{"https://example.com"}},
+		{name: "unknown direct", command: "custom-tool", args: []string{"run"}},
+	}
+	for _, tc := range denied {
+		t.Run("deny "+tc.name, func(t *testing.T) {
+			if commandOutputFirstStructuredDiagnosticAllowed(tc.command, tc.args) {
+				t.Fatalf("%s %v must not allow structured diagnostics", tc.command, tc.args)
+			}
+		})
+	}
+}
+
+func TestCommandOutputFirstPythonModuleLintAllowed(t *testing.T) {
+	allowed := [][]string{
+		{"-m", "pylint", "src"},
+		{"-u", "-m", "flake8", "src"},
+		{"-m", "bandit", "-r", "src"},
+		{"-m", "semgrep", "--config", "auto"},
+		{"-m", "djlint", "templates"},
+		{"-m", "yamllint", "."},
+		{"-m", "sqlfluff", "lint", "q.sql"},
+	}
+	for _, args := range allowed {
+		if !commandOutputFirstPythonModuleLintAllowed("python3", args) {
+			t.Fatalf("python3 %v should allow module lint", args)
+		}
+	}
+	denied := [][]string{
+		{"-m", "sqlfluff", "fix", "q.sql"},
+		{"-m", "pip", "list"},
+		{"script.py"},
+	}
+	for _, args := range denied {
+		if commandOutputFirstPythonModuleLintAllowed("python3", args) {
+			t.Fatalf("python3 %v must not allow module lint", args)
+		}
+	}
+	if commandOutputFirstPythonModuleLintAllowed("uv", []string{"-m", "pylint", "src"}) {
+		t.Fatal("non-python command must not allow python module lint")
 	}
 }
 
@@ -2505,6 +2594,91 @@ func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStderr
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
 		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimStructuredNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 80; i++ {
+		diagnostics.WriteString("src/app.ts:10:5 - error TS2322: Type 'string' is not assignable to type 'number'.\n")
+	}
+	realTSC := writeFakeCommand(t, "tsc", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 2\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=tsc", "--real-bin=" + realTSC, "--", "--noEmit"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 2 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[typescript] FAILED") ||
+		!strings.Contains(got, "src/app.ts:10:5 - error TS2322: Type 'string' is not assignable to type 'number'.") {
+		t.Fatalf("structured diagnostics compact output=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing structured diagnostic archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand structured diagnostic archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("TS2322")) != 80 {
+		t.Fatalf("archive did not preserve structured diagnostic raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:tsc] tsc --noEmit") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimStructuredNonzeroDiagnosticsFailOpen(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "build failed\ninspect full logs manually\n"
+	realTSC := writeFakeCommand(t, "tsc", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\nexit 2\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=tsc", "--real-bin=" + realTSC, "--", "--noEmit"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 2 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stdout.String() != raw {
+		t.Fatalf("unstructured diagnostics must full-pass, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("unstructured full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("unstructured full-pass must not record accounting row: %+v", run)
 	}
 }
 

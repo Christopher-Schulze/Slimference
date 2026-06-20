@@ -63,7 +63,14 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
 		"golangci-lint", "staticcheck", "revive", "errcheck",
 		"ineffassign", "nilaway", "unparam", "misspell", "gocyclo",
-		"forbidigo", "prealloc",
+		"forbidigo", "prealloc", "gocritic", "gosec", "protolint",
+		"semgrep", "jscpd", "djlint", "ty", "biome", "sqlfluff",
+		"taplo", "cue", "spectral", "oxlint", "shellcheck",
+		"ansible-lint", "hadolint", "markdownlint", "yamllint",
+		"dotenv-linter", "kube-linter", "tflint", "cfn-lint",
+		"actionlint", "zizmor", "vale", "rubocop", "pint", "phpcs",
+		"phpstan", "psalm", "phan", "bandit", "pylint", "flake8",
+		"swiftlint", "ktlint", "detekt",
 		"vitest", "jest", "mocha", "ava", "karma", "playwright", "cypress",
 		"wdio", "nx", "turbo", "deno", "phpunit", "ctest", "ginkgo",
 		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
@@ -294,6 +301,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
 		return commandOutputFirstPythonTestAllowed(command, args) ||
 			commandOutputFirstPythonMypyAllowed(command, args) ||
+			commandOutputFirstPythonModuleLintAllowed(command, args) ||
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
@@ -417,7 +425,23 @@ func commandOutputFirstDirectLintAllowed(command string, args []string) bool {
 		return true
 	case "ruff":
 		return commandOutputFirstArgsContain(args, "check")
-	case "pyright", "basedpyright", "stylelint", "eslint", "mypy":
+	case "gocritic":
+		return commandOutputFirstFirstNonOption(args) == "check"
+	case "buf":
+		return commandOutputFirstFirstNonOption(args) == "lint"
+	case "ty", "biome", "taplo":
+		return commandOutputFirstFirstNonOption(args) == "check"
+	case "sqlfluff", "spectral", "deno":
+		return commandOutputFirstFirstNonOption(args) == "lint"
+	case "cue":
+		return commandOutputFirstFirstNonOption(args) == "vet"
+	case "pyright", "basedpyright", "stylelint", "eslint", "mypy",
+		"gosec", "protolint", "semgrep", "jscpd", "djlint",
+		"oxlint", "shellcheck", "ansible-lint", "hadolint",
+		"markdownlint", "yamllint", "dotenv-linter", "kube-linter",
+		"tflint", "cfn-lint", "actionlint", "zizmor", "vale",
+		"rubocop", "pint", "phpcs", "phpstan", "psalm", "phan",
+		"bandit", "pylint", "flake8", "swiftlint", "ktlint", "detekt":
 		return true
 	default:
 		return false
@@ -1451,7 +1475,49 @@ func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []str
 		compacted, ok := filter.TryCompactMypyDiagnostics(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	}
+	if commandOutputFirstStructuredDiagnosticAllowed(command, args) {
+		compacted, ok := filter.ParseFailures(argv, string(stdout))
+		return commandOutputFirstPositiveCompaction([]byte(compacted), ok, stdout)
+	}
 	return nil, false
+}
+
+func commandOutputFirstStructuredDiagnosticAllowed(command string, args []string) bool {
+	switch command {
+	case "git", "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift",
+		"fd", "fdfind", "find", "plocate", "locate", "wc",
+		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
+		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq", "curl", "wget", "http", "https":
+		return false
+	case "go":
+		switch commandOutputFirstGoSubcommand(args) {
+		case "test", "build":
+			return true
+		default:
+			return false
+		}
+	case "cargo":
+		switch commandOutputFirstCargoSubcommand(args) {
+		case "build", "check", "clippy":
+			return true
+		default:
+			return false
+		}
+	case "pytest", "py.test", "python", "python3", "uv", "poetry":
+		return commandOutputFirstPythonTestAllowed(command, args) ||
+			commandOutputFirstPythonMypyAllowed(command, args) ||
+			commandOutputFirstPythonModuleLintAllowed(command, args)
+	case "npm", "pnpm", "yarn", "bun":
+		return commandOutputFirstPackageScriptAllowed(command, args)
+	case "npx":
+		tool, toolArgs, ok := commandOutputFirstNpxTool(args)
+		return ok && commandOutputFirstStructuredDiagnosticAllowed(tool, toolArgs)
+	default:
+		return commandOutputFirstDirectBuildAllowed(command, args) ||
+			commandOutputFirstDirectTestAllowed(command, args) ||
+			commandOutputFirstDirectLintAllowed(command, args) ||
+			commandOutputFirstDirectFormatAllowed(command, args)
+	}
 }
 
 func commandOutputFirstFocusedLintDiagnosticAllowed(command string, args []string) bool {
@@ -1504,6 +1570,22 @@ func commandOutputFirstPythonMypyAllowed(command string, args []string) bool {
 	switch command {
 	case "python", "python3":
 		return commandOutputFirstPythonModule(args) == "mypy"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPythonModuleLintAllowed(command string, args []string) bool {
+	switch command {
+	case "python", "python3":
+	default:
+		return false
+	}
+	switch commandOutputFirstPythonModule(args) {
+	case "pylint", "flake8", "bandit", "semgrep", "djlint", "yamllint":
+		return true
+	case "sqlfluff":
+		return commandOutputFirstArgsContain(args, "lint")
 	default:
 		return false
 	}
