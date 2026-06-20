@@ -12,9 +12,10 @@ import (
 )
 
 type wssReferenceInventoryFlags struct {
-	path         string
-	outputFormat string
-	help         bool
+	path                    string
+	outputFormat            string
+	requireAcceptedContract bool
+	help                    bool
 }
 
 type wssReferenceInventoryReport struct {
@@ -30,6 +31,7 @@ type wssReferenceInventoryReport struct {
 	ArbitraryCandidates         []wssReferenceInventoryCount `json:"arbitrary_reference_candidates,omitempty"`
 	Lane3AcceptedContractSchema wssReferenceAcceptedSchema   `json:"lane3_accepted_contract_schema"`
 	Lane3FieldVerdicts          []wssReferenceFieldVerdict   `json:"lane3_field_verdicts"`
+	Lane3AcceptedContracts      int                          `json:"lane3_accepted_contracts"`
 	Lane3ReprobeTriggers        []wssReferenceReprobeTrigger `json:"lane3_reprobe_triggers"`
 	Verdict                     string                       `json:"verdict"`
 	Notes                       []string                     `json:"notes,omitempty"`
@@ -119,14 +121,18 @@ var wssReferenceInventoryLocalURIs = []string{
 const wssReferenceInventoryHelpText = `wss-reference-inventory: content-free WSS backend-reference field inventory
 
 Usage:
-  go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json]
+  go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json] [--require-accepted-contract]
 
 Directory mode scans *.json and *.jsonl files recursively. The report counts
 only reference-like/reasoning-state JSON field names, raw field-name mentions,
 and local archive URI markers. It never prints field values, prompts, tool
 output, headers, or payload text. The Lane 3 section emits a versioned
 backend-reference contract schema, per-field verdicts, and re-probe triggers
-so T408 promotion/kill decisions are explicit instead of hand-wavy.`
+so T408 promotion/kill decisions are explicit instead of hand-wavy.
+
+--require-accepted-contract fails closed unless at least one Lane 3 verdict is
+an accepted narrow backend-reference contract. Use it only for release gates
+that intentionally require direct backend-reference productization.`
 
 func runWSSReferenceInventory(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSReferenceInventoryFlags(args)
@@ -146,6 +152,10 @@ func runWSSReferenceInventory(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
+	}
+	if flags.requireAcceptedContract && report.Lane3AcceptedContracts == 0 {
+		fmt.Fprintln(stderr, "wss-reference-inventory: no accepted Lane 3 backend-reference contract for this backend/frame slice")
+		return 3
 	}
 	if flags.outputFormat == outputJSON {
 		data, err := json.MarshalIndent(report, "", "  ")
@@ -168,6 +178,8 @@ func parseWSSReferenceInventoryFlags(args []string) (wssReferenceInventoryFlags,
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--require-accepted-contract":
+			flags.requireAcceptedContract = true
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -206,6 +218,7 @@ func loadWSSReferenceInventory(path string) (wssReferenceInventoryReport, error)
 	report.ArbitraryCandidates = wssReferenceInventoryArbitraryCounts(fieldCounts, rawCounts)
 	report.Lane3AcceptedContractSchema = wssReferenceAcceptedContractSchema()
 	report.Lane3FieldVerdicts = wssReferenceInventoryFieldVerdicts(fieldCounts, rawCounts, localCounts)
+	report.Lane3AcceptedContracts = wssReferenceInventoryAcceptedContractCount(report.Lane3FieldVerdicts)
 	report.Lane3ReprobeTriggers = wssReferenceInventoryReprobeTriggers()
 	report.Verdict, report.Notes = wssReferenceInventoryVerdict(report)
 	return report, nil
@@ -495,6 +508,16 @@ func wssReferenceInventoryFieldVerdict(fieldCounts, rawCounts map[string]int, fi
 	}
 }
 
+func wssReferenceInventoryAcceptedContractCount(rows []wssReferenceFieldVerdict) int {
+	count := 0
+	for _, row := range rows {
+		if row.Verdict == "accepted_narrow_backend_reference_contract" {
+			count++
+		}
+	}
+	return count
+}
+
 func wssReferenceInventoryReprobeTriggers() []wssReferenceReprobeTrigger {
 	return []wssReferenceReprobeTrigger{
 		{Trigger: "backend_version_change", Action: "rerun inventory and rebuild field verdicts before considering any accepted slice"},
@@ -521,6 +544,7 @@ func writeWSSReferenceInventoryText(w io.Writer, report wssReferenceInventoryRep
 	fmt.Fprintf(w, "JSON rows:           %d\n", report.JSONRows)
 	fmt.Fprintf(w, "Parse errors:        %d\n", report.ParseErrors)
 	fmt.Fprintf(w, "Verdict:             %s\n", report.Verdict)
+	fmt.Fprintf(w, "Lane3 accepted:      %d\n", report.Lane3AcceptedContracts)
 	writeWSSReferenceInventoryRows(w, "\nTracked field keys:", report.FieldKeys)
 	writeWSSReferenceInventoryRows(w, "\nRaw mentions:", report.RawMentions)
 	writeWSSReferenceInventoryRows(w, "\nReasoning/encrypted state fields:", report.ReasoningStateFields)

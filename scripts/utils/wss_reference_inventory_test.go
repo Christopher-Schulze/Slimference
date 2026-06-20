@@ -67,6 +67,9 @@ func TestWSSReferenceInventoryCountsFieldAndRawReferenceSignals(t *testing.T) {
 	if report.Lane3AcceptedContractSchema.Version != 1 {
 		t.Fatalf("accepted contract schema version = %d, want 1", report.Lane3AcceptedContractSchema.Version)
 	}
+	if report.Lane3AcceptedContracts != 0 {
+		t.Fatalf("accepted contracts = %d, want 0 before an accepted backend contract exists", report.Lane3AcceptedContracts)
+	}
 	if !wssReferenceInventoryStringSliceContains(report.Lane3AcceptedContractSchema.DemotionKey, "reference field") {
 		t.Fatalf("accepted contract schema lost demotion reference field: %+v", report.Lane3AcceptedContractSchema)
 	}
@@ -156,8 +159,28 @@ func TestRunWSSReferenceInventoryJSONAndText(t *testing.T) {
 	if report.Path != path || report.JSONRows != 1 {
 		t.Fatalf("bad json report: %+v", report)
 	}
-	if len(report.Lane3FieldVerdicts) == 0 || report.Lane3AcceptedContractSchema.Version != 1 {
+	if len(report.Lane3FieldVerdicts) == 0 || report.Lane3AcceptedContractSchema.Version != 1 || report.Lane3AcceptedContracts != 0 {
 		t.Fatalf("json report lost Lane 3 contract data: %+v", report)
+	}
+}
+
+func TestRunWSSReferenceInventoryRequireAcceptedContractFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path, map[string]any{"reference_id": "candidate"})
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSReferenceInventory([]string{path, "--require-accepted-contract"}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("failing release gate must not print a payload report to stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "no accepted Lane 3 backend-reference contract") {
+		t.Fatalf("missing accepted-contract failure: %q", stderr.String())
 	}
 }
 
