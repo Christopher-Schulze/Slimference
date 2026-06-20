@@ -657,6 +657,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "bundle", args: []string{"exec", "ruby", "-I", "test", "test/models/user_test.rb"}},
 		{command: "bundle", args: []string{"install", "--jobs", "4", "--retry=2"}},
 		{command: "bundle", args: []string{"update", "rails"}},
+		{command: "pipenv", args: []string{"install", "--dev"}},
+		{command: "composer", args: []string{"install", "--no-interaction"}},
+		{command: "mix", args: []string{"deps.get", "--only", "test"}},
+		{command: "gem", args: []string{"install", "rake", "--no-document"}},
 		{command: "rake", args: []string{"spec"}},
 		{command: "rails", args: []string{"test"}},
 		{command: "gradle", args: []string{"test"}},
@@ -696,6 +700,14 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "bundle", args: []string{"exec", "rake", "db:migrate"}},
 		{command: "bundle", args: []string{"exec", "rails", "server"}},
 		{command: "bundle", args: []string{"install", "--verbose"}},
+		{command: "pipenv", args: []string{"run", "pytest"}},
+		{command: "pipenv", args: []string{"install", "--verbose"}},
+		{command: "composer", args: []string{"update"}},
+		{command: "composer", args: []string{"install", "-vvv"}},
+		{command: "mix", args: []string{"test"}},
+		{command: "mix", args: []string{"deps.get", "--debug"}},
+		{command: "gem", args: []string{"update", "rake"}},
+		{command: "gem", args: []string{"install", "rake", "--debug"}},
 		{command: "find", args: []string{"internal", "-type", "f"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-delete"}},
 		{command: "fd", args: []string{"--exec", "rm", "{}"}},
@@ -1882,6 +1894,123 @@ func TestCommandOutputFirstShimBundleInstallCompactsWithArchive(t *testing.T) {
 	if !bytes.Contains(archived, []byte("noisy_dependency_099")) ||
 		!bytes.Contains(archived, []byte("Bundle complete! 12 Gemfile dependencies")) {
 		t.Fatalf("archive did not preserve raw bundle install output: %q", archived)
+	}
+}
+
+func TestCommandOutputFirstShimPackageManagerFrontierCompactsWithArchive(t *testing.T) {
+	tests := []struct {
+		name        string
+		command     string
+		args        []string
+		raw         string
+		wantVisible string
+		wantArchive string
+	}{
+		{
+			name:    "pipenv",
+			command: "pipenv",
+			args:    []string{"install", "--dev"},
+			raw: strings.Repeat("Installing dependencies from Pipfile.lock (abc123)...\n", 80) +
+				"All dependencies are now up-to-date!\n",
+			wantVisible: "[pipenv install] ok (up to date)",
+			wantArchive: "Pipfile.lock (abc123)",
+		},
+		{
+			name:    "composer",
+			command: "composer",
+			args:    []string{"install", "--no-interaction"},
+			raw: strings.Repeat("- Downloading symfony/console (v6.4.0)\n- Installing symfony/console (v6.4.0): Extracting archive\n", 40) +
+				"Installing dependencies from lock file (including require-dev)\n" +
+				"Verifying lock file contents can be installed on current platform.\n" +
+				"Package operations: 40 installs, 0 updates, 0 removals\n" +
+				"Generating autoload files\n" +
+				"9 packages you are using are looking for funding.\n" +
+				"Use the `composer fund` command to find out more!\n",
+			wantVisible: "[composer install] ok (40 installs, 0 updates, 0 removals; autoload generated; funding 9 packages)",
+			wantArchive: "Extracting archive",
+		},
+		{
+			name:    "mix",
+			command: "mix",
+			args:    []string{"deps.get", "--only", "test"},
+			raw: "Resolving Hex dependencies...\n" +
+				"Resolution completed in 0.123s\n" +
+				"Unchanged:\n" +
+				func() string {
+					var rows strings.Builder
+					for i := 0; i < 80; i++ {
+						fmt.Fprintf(&rows, "plug_%03d 1.14.%d\n", i, i%10)
+					}
+					return rows.String()
+				}(),
+			wantVisible: "[mix deps.get] ok (80 dependencies listed)",
+			wantArchive: "plug_079 1.14.9",
+		},
+		{
+			name:    "gem",
+			command: "gem",
+			args:    []string{"install", "rake", "--no-document"},
+			raw: func() string {
+				var rows strings.Builder
+				for i := 0; i < 40; i++ {
+					fmt.Fprintf(&rows, "Successfully installed package_%03d-1.0.%d\n", i, i%10)
+					fmt.Fprintf(&rows, "Parsing documentation for package_%03d-1.0.%d\n", i, i%10)
+				}
+				rows.WriteString("Done installing documentation for rake after 0 seconds\n")
+				rows.WriteString("40 gems installed\n")
+				return rows.String()
+			}(),
+			wantVisible: "[gem install] ok (installed 40 gems; documentation installed)",
+			wantArchive: "package_039-1.0.9",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := withCommandOutputFirstRecordingDB(t)
+			realBin := writeFakeCommand(t, tc.command, "#!/bin/sh\ncat <<'EOF'\n"+tc.raw+"EOF\n")
+			var stdout, stderr bytes.Buffer
+			shimArgs := append([]string{"--command=" + tc.command, "--real-bin=" + realBin, "--"}, tc.args...)
+			rc := runCommandOutputFirstShim(shimArgs, &bytes.Buffer{}, &stdout, &stderr)
+			if rc != 0 {
+				t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+			}
+			got := commandOutputFirstVisibleOutput(stdout.String())
+			if !strings.Contains(got, tc.wantVisible) || strings.Contains(got, tc.wantArchive) {
+				t.Fatalf("unexpected compacted stdout=%q", got)
+			}
+			uri := commandOutputFirstArchiveURI(stdout.String())
+			if uri == "" {
+				t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+			}
+			home, err := osUserHomeDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+			if err != nil {
+				t.Fatalf("expand command-output-first archive: %v", err)
+			}
+			if !bytes.Contains(archived, []byte(tc.wantArchive)) {
+				t.Fatalf("archive did not preserve raw %s output: %q", tc.name, archived)
+			}
+			db, err := filter.OpenDB(dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			run, ok, err := filter.LastFilterRun(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				t.Fatal("expected command-output-first accounting row")
+			}
+			if !strings.Contains(run.Command, "[command-output-first:"+tc.command+"] "+tc.command) ||
+				run.InputTokens <= run.OutputTokens ||
+				run.SavingsPct <= 0 {
+				t.Fatalf("bad %s accounting row: %+v", tc.name, run)
+			}
+		})
 	}
 }
 

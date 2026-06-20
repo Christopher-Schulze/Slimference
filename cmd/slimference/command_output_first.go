@@ -60,7 +60,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"git", "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift",
 		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
-		"pip", "pip3",
+		"pip", "pip3", "pipenv", "composer", "mix", "gem",
 		"fd", "fdfind", "find", "plocate", "locate", "wc", "ls", "tree",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
@@ -319,6 +319,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			commandOutputFirstPythonModuleLintAllowed(command, args) ||
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
+		return commandOutputFirstPackageOutputAllowed(command, args)
+	case "pipenv", "composer", "mix", "gem":
 		return commandOutputFirstPackageOutputAllowed(command, args)
 	case "bundle":
 		return commandOutputFirstPackageOutputAllowed(command, args) ||
@@ -1569,6 +1571,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "pip", "pip3":
 		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "pipenv", "composer", "mix", "gem":
+		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "bundle":
 		if commandOutputFirstPackageOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
@@ -2281,6 +2286,18 @@ func commandOutputFirstPackageOutputAllowed(command string, args []string) bool 
 	case "pip", "pip3":
 		verb, idx := packageScriptFirstCommand(args)
 		return verb == "install" && idx >= 0
+	case "pipenv":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "install" && idx >= 0 && commandOutputFirstSimplePackageInstallArgsAllowed(args[idx+1:])
+	case "composer":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "install" && idx >= 0 && commandOutputFirstSimplePackageInstallArgsAllowed(args[idx+1:])
+	case "mix":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "deps.get" && idx >= 0 && commandOutputFirstSimplePackageInstallArgsAllowed(args[idx+1:])
+	case "gem":
+		verb, idx := packageScriptFirstCommand(args)
+		return verb == "install" && idx >= 0 && commandOutputFirstSimplePackageInstallArgsAllowed(args[idx+1:])
 	case "bundle":
 		verb, idx := packageScriptFirstCommand(args)
 		switch verb {
@@ -2399,6 +2416,24 @@ func commandOutputFirstBundleInstallArgsAllowed(args []string) bool {
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func commandOutputFirstSimplePackageInstallArgsAllowed(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		if lower == "" {
+			return false
+		}
+		switch lower {
+		case "--verbose", "-v", "-vv", "-vvv", "--debug":
+			return false
+		default:
+			if strings.HasPrefix(lower, "--verbose=") || strings.HasPrefix(lower, "--debug=") {
 				return false
 			}
 		}

@@ -72,6 +72,37 @@ func TestTryCompactPackageOutput(t *testing.T) {
 	if !ok || string(gemOut) != "[gem install] ok\n" {
 		t.Fatalf("gem install: %q", gemOut)
 	}
+	pipenvSuccess := strings.Repeat("Installing dependencies from Pipfile.lock (abc123)...\n", 20) + "All dependencies are now up-to-date!\n"
+	pipenvOut, ok := TryCompactPipenvInstall([]string{"pipenv", "install"}, []byte(pipenvSuccess))
+	if !ok || string(pipenvOut) != "[pipenv install] ok (up to date)\n" {
+		t.Fatalf("pipenv install success: ok=%v %q", ok, pipenvOut)
+	}
+	composerSuccess := strings.Repeat("- Downloading symfony/console (v6.4.0)\n- Installing symfony/console (v6.4.0): Extracting archive\n", 18) +
+		"Installing dependencies from lock file (including require-dev)\n" +
+		"Verifying lock file contents can be installed on current platform.\n" +
+		"Package operations: 18 installs, 0 updates, 0 removals\n" +
+		"Generating autoload files\n" +
+		"12 packages you are using are looking for funding.\n" +
+		"Use the `composer fund` command to find out more!\n"
+	composerOut, ok := TryCompactComposerInstall([]string{"composer", "install"}, []byte(composerSuccess))
+	if !ok || !strings.Contains(string(composerOut), "[composer install] ok (18 installs, 0 updates, 0 removals; autoload generated; funding 12 packages)") {
+		t.Fatalf("composer install success: ok=%v %q", ok, composerOut)
+	}
+	mixSuccess := strings.Repeat("phoenix 1.7.10\nplug 1.14.2\n", 20) +
+		"Resolving Hex dependencies...\n" +
+		"Resolution completed in 0.123s\n" +
+		"Unchanged:\n"
+	mixOut, ok := TryCompactMixDepsGet([]string{"mix", "deps.get"}, []byte(mixSuccess))
+	if !ok || !strings.Contains(string(mixOut), "[mix deps.get] ok (40 dependencies listed)") {
+		t.Fatalf("mix deps.get success: ok=%v %q", ok, mixOut)
+	}
+	gemSuccess := strings.Repeat("Successfully installed rake-13.0.6\nParsing documentation for rake-13.0.6\n", 20) +
+		"Done installing documentation for rake after 0 seconds\n" +
+		"20 gems installed\n"
+	gemSuccessOut, ok := TryCompactGemInstall([]string{"gem", "install", "rake"}, []byte(gemSuccess))
+	if !ok || string(gemSuccessOut) != "[gem install] ok (installed 20 gems; documentation installed)\n" {
+		t.Fatalf("gem install success: ok=%v %q", ok, gemSuccessOut)
+	}
 	out4, ok := TryCompactPipInstall([]string{"pip3", "install", "-r", "req.txt"}, []byte(""))
 	if !ok || string(out4) != "[pip install] ok\n" {
 		t.Fatalf("pip: %q", out4)
@@ -123,6 +154,12 @@ func TestTryCompactPackageOutput(t *testing.T) {
 	if _, ok := TryCompactNpmInstall([]string{"npm", "run", "build"}, []byte("")); ok {
 		t.Fatal("npm run build is not install")
 	}
+	if _, ok := TryCompactComposerInstall([]string{"composer", "install"}, []byte("Installing dependencies from lock file\nPackage operations: 1 install, 0 updates, 0 removals\n- Installing bad/pkg (1.0.0)\nwarning: unsafe detail\n")); ok {
+		t.Fatal("composer warning must full-pass")
+	}
+	if _, ok := TryCompactGemInstall([]string{"gem", "install", "rake"}, []byte("Successfully installed rake-13.0.6\n1 gems installed\n")); ok {
+		t.Fatal("gem count mismatch must full-pass")
+	}
 	out6, ok := TryCompactPackageOutput([]string{"go", "mod", "verify"}, []byte(""))
 	if !ok || string(out6) != "[go mod verify] ok\n" {
 		t.Fatalf("chain: %q", out6)
@@ -161,6 +198,191 @@ func TestTryCompactPackageOutput(t *testing.T) {
 	swChain, ok := TryCompactPackageOutput([]string{"pnpm", "exec", "swift", "package", "resolve"}, []byte(""))
 	if !ok || string(swChain) != "[swift package resolve] ok\n" {
 		t.Fatalf("chain swift resolve: %q", swChain)
+	}
+}
+
+func TestPackageManagerFrontierParserEdges(t *testing.T) {
+	t.Parallel()
+
+	pipenvInstalled := strings.Repeat("Installing dependencies from Pipfile...\n", 16) +
+		"Installation Succeeded\n" +
+		"Successfully installed requests-2.32.0\n" +
+		"Updated Pipfile.lock (abc123)!\n"
+	out, ok := TryCompactPipenvInstall([]string{"npx", "-y", "pipenv", "install", "requests"}, []byte(pipenvInstalled))
+	if !ok ||
+		!strings.Contains(string(out), "install succeeded") ||
+		!strings.Contains(string(out), "Successfully installed requests-2.32.0") ||
+		!strings.Contains(string(out), "lock file updated") {
+		t.Fatalf("pipenv installed edge: ok=%v out=%q", ok, out)
+	}
+	for _, raw := range []string{
+		"Installing dependencies from Pipfile.lock\n",
+		"All dependencies are now up-to-date!\n",
+		"Installing dependencies from Pipfile.lock\nwarning: unsafe\nAll dependencies are now up-to-date!\n",
+	} {
+		if compacted, ok := TryCompactPipenvInstall([]string{"pipenv", "install"}, []byte(raw)); ok {
+			t.Fatalf("unsafe/incomplete pipenv output compacted: %q", compacted)
+		}
+	}
+
+	composerUpToDate := strings.Repeat("Installing dependencies from lock file\n", 12) +
+		"Nothing to install, update or remove\n" +
+		"Generating autoload files\n"
+	out, ok = TryCompactComposerInstall([]string{"composer", "install"}, []byte(composerUpToDate))
+	if !ok || !strings.Contains(string(out), "up to date") || !strings.Contains(string(out), "autoload generated") {
+		t.Fatalf("composer up-to-date edge: ok=%v out=%q", ok, out)
+	}
+	composerSingular := strings.Repeat("- Installing one/pkg (1.0.0): Extracting archive\n", 14) +
+		"Installing dependencies from lock file\n" +
+		"Package operations: 1 install, 1 update, 1 removal\n" +
+		"- Updating two/pkg (1.0.0): Extracting archive\n" +
+		"- Removing old/pkg (0.9.0)\n" +
+		"Writing lock file\n" +
+		"1 package you are using is looking for funding.\n"
+	if compacted, ok := TryCompactComposerInstall([]string{"composer", "install"}, []byte(composerSingular)); ok {
+		t.Fatalf("composer missing funding prompt compacted: %q", compacted)
+	}
+	composerSingular += "Use the 'composer fund' command to find out more!\n"
+	out, ok = TryCompactComposerInstall([]string{"composer", "install"}, []byte(composerSingular))
+	if !ok || !strings.Contains(string(out), "1 install, 1 update, 1 removal") || !strings.Contains(string(out), "lock file written") {
+		t.Fatalf("composer singular edge: ok=%v out=%q", ok, out)
+	}
+	for _, raw := range []string{
+		"Installing dependencies from lock file\nPackage operations: 0 installs, 0 updates, 0 removals\n",
+		"Installing dependencies from lock file\nPackage operations: x installs, 0 updates, 0 removals\n",
+		"Installing dependencies from lock file\nPackage operations: 1 install, 0 updates, 0 removals\n",
+		"Installing dependencies from lock file\nPackage operations: 1 install, 0 updates, 0 removals\n- Installing broken\n",
+	} {
+		if compacted, ok := TryCompactComposerInstall([]string{"composer", "install"}, []byte(raw)); ok {
+			t.Fatalf("unsafe/incomplete composer output compacted: %q", compacted)
+		}
+	}
+
+	mixGetting := strings.Repeat("* Getting plug (Hex package)\n", 20) +
+		"Resolving Hex dependencies...\n" +
+		"Resolution completed in 0.10s\n"
+	out, ok = TryCompactMixDepsGet([]string{"pnpm", "exec", "mix", "deps.get"}, []byte(mixGetting))
+	if !ok || !strings.Contains(string(out), "20 dependencies listed") {
+		t.Fatalf("mix getting edge: ok=%v out=%q", ok, out)
+	}
+	mixUpToDate := strings.Repeat("Resolving Hex dependencies...\n", 10) + "All dependencies are up to date\n"
+	out, ok = TryCompactMixDepsGet([]string{"mix", "deps.get"}, []byte(mixUpToDate))
+	if !ok || !strings.Contains(string(out), "up to date") {
+		t.Fatalf("mix up-to-date edge: ok=%v out=%q", ok, out)
+	}
+	for _, raw := range []string{
+		"Resolution completed in 0.10s\nplug 1.0.0\n",
+		"Resolving Hex dependencies...\nResolution completed in 0.10s\nbad\trow\n",
+	} {
+		if compacted, ok := TryCompactMixDepsGet([]string{"mix", "deps.get"}, []byte(raw)); ok {
+			t.Fatalf("unsafe/incomplete mix output compacted: %q", compacted)
+		}
+	}
+
+	gemSingular := strings.Repeat("Parsing documentation for rake-13.0.6\n", 12) +
+		"Successfully installed rake-13.0.6\n" +
+		"Installing ri documentation for rake-13.0.6\n" +
+		"1 gem installed\n"
+	out, ok = TryCompactGemInstall([]string{"yarn", "gem", "install", "rake"}, []byte(gemSingular))
+	if !ok || !strings.Contains(string(out), "installed 1 gem") {
+		t.Fatalf("gem singular edge: ok=%v out=%q", ok, out)
+	}
+	for _, raw := range []string{
+		"Successfully installed rake-13.0.6\n",
+		"Successfully installed \n1 gem installed\n",
+		"Successfully installed rake-13.0.6\nx gems installed\n",
+		"Parsing documentation for \nSuccessfully installed rake-13.0.6\n1 gem installed\n",
+	} {
+		if compacted, ok := TryCompactGemInstall([]string{"gem", "install", "rake"}, []byte(raw)); ok {
+			t.Fatalf("unsafe/incomplete gem output compacted: %q", compacted)
+		}
+	}
+}
+
+func TestPackageManagerFrontierHelperEdges(t *testing.T) {
+	t.Parallel()
+
+	for _, line := range []string{
+		"Package operations: 2 installs, 1 update, 0 removals",
+		"Package operations: 1 install, 2 updates, 1 removal",
+	} {
+		installs, updates, removals, ok := parseComposerPackageOperations(line)
+		if !ok || installs+updates+removals == 0 {
+			t.Fatalf("valid composer operation line rejected: %q -> %d/%d/%d ok=%v", line, installs, updates, removals, ok)
+		}
+	}
+	for _, line := range []string{
+		"Package operations: 1 install, 0 updates",
+		"Package operations: one install, 0 updates, 0 removals",
+		"Package operations: 1 installs, 0 updates, 0 removals",
+		"Wrong operations: 1 install, 0 updates, 0 removals",
+	} {
+		if _, _, _, ok := parseComposerPackageOperations(line); ok {
+			t.Fatalf("invalid composer operation line accepted: %q", line)
+		}
+	}
+
+	for _, line := range []string{
+		"- Installing symfony/console (v6.4.0): Extracting archive",
+		"- Updating symfony/console (v6.4.1): Extracting archive",
+		"- Removing symfony/console (v6.4.0)",
+		"- Downloading symfony/console (v6.4.1)",
+	} {
+		if !composerPackageOperationRowOK(line) {
+			t.Fatalf("valid composer row rejected: %q", line)
+		}
+	}
+	for _, line := range []string{
+		"- Installing broken",
+		"- Downloading ",
+		"- Unknown symfony/console (v6.4.1)",
+		"- Installing symfony/console\t(v6.4.1)",
+	} {
+		if composerPackageOperationRowOK(line) {
+			t.Fatalf("invalid composer row accepted: %q", line)
+		}
+	}
+
+	for _, line := range []string{
+		"1 package you are using is looking for funding.",
+		"12 packages you are using are looking for funding.",
+	} {
+		count, ok := parseComposerFundingLine(line)
+		if !ok || count <= 0 {
+			t.Fatalf("valid composer funding line rejected: %q -> %d ok=%v", line, count, ok)
+		}
+	}
+	for _, line := range []string{
+		"1 packages you are using are looking for funding.",
+		"one package you are using is looking for funding.",
+		"1 package is looking for funding.",
+	} {
+		if count, ok := parseComposerFundingLine(line); ok {
+			t.Fatalf("invalid composer funding line accepted: %q -> %d", line, count)
+		}
+	}
+
+	for _, line := range []string{"plug 1.14.2", "phoenix_html 3.3.0 only test"} {
+		if !mixDependencyRowOK(line) {
+			t.Fatalf("valid mix row rejected: %q", line)
+		}
+	}
+	for _, line := range []string{"", "one", "too many fields in this row", "bad\trow"} {
+		if mixDependencyRowOK(line) {
+			t.Fatalf("invalid mix row accepted: %q", line)
+		}
+	}
+
+	for _, line := range []string{"1 gem installed", "12 gems installed"} {
+		count, ok := parseGemInstalledLine(line)
+		if !ok || count <= 0 {
+			t.Fatalf("valid gem installed line rejected: %q -> %d ok=%v", line, count, ok)
+		}
+	}
+	for _, line := range []string{"0 gems installed", "x gems installed", "1 gems installed", "1 gem installed now"} {
+		if count, ok := parseGemInstalledLine(line); ok {
+			t.Fatalf("invalid gem installed line accepted: %q -> %d", line, count)
+		}
 	}
 }
 

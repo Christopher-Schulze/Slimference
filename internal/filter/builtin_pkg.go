@@ -319,19 +319,37 @@ func TryCompactPoetryInstall(argv []string, stdout []byte) ([]byte, bool) {
 	return compactPoetryInstallSuccess(stdout)
 }
 
-// TryCompactPipenvInstall summarizes empty stdout from `pipenv install` / `npx|pnpm exec|yarn … pipenv install` (F12 partial).
+// TryCompactPipenvInstall summarizes empty stdout or strict clean success from `pipenv install` / `npx|pnpm exec|yarn … pipenv install` (F12 partial).
 func TryCompactPipenvInstall(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isPipenvInstallArgv, []byte("[pipenv install] ok\n"))
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isPipenvInstallArgv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[pipenv install] ok\n"), true
+	}
+	return compactPipenvInstallSuccess(stdout)
 }
 
-// TryCompactComposerInstall summarizes empty stdout from `composer install` / `npx|pnpm exec|yarn … composer install` (F12 partial).
+// TryCompactComposerInstall summarizes empty stdout or strict clean success from `composer install` / `npx|pnpm exec|yarn … composer install` (F12 partial).
 func TryCompactComposerInstall(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isComposerInstallArgv, []byte("[composer install] ok\n"))
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isComposerInstallArgv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[composer install] ok\n"), true
+	}
+	return compactComposerInstallSuccess(stdout)
 }
 
-// TryCompactMixDepsGet summarizes empty stdout from `mix deps.get` / `npx|pnpm exec|yarn … mix deps.get` (Elixir) (F12 partial).
+// TryCompactMixDepsGet summarizes empty stdout or strict clean success from `mix deps.get` / `npx|pnpm exec|yarn … mix deps.get` (Elixir) (F12 partial).
 func TryCompactMixDepsGet(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isMixDepsGetArgv, []byte("[mix deps.get] ok\n"))
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isMixDepsGetArgv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[mix deps.get] ok\n"), true
+	}
+	return compactMixDepsGetSuccess(stdout)
 }
 
 // TryCompactBundleInstall summarizes empty stdout from `bundle install` / `npx|pnpm exec|yarn … bundle install` (Bundler) (F12 partial).
@@ -339,9 +357,15 @@ func TryCompactBundleInstall(argv []string, stdout []byte) ([]byte, bool) {
 	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isBundleInstallArgv, []byte("[bundle install] ok\n"))
 }
 
-// TryCompactGemInstall summarizes empty stdout from `gem install` / `npx|pnpm exec|yarn … gem install` (F12 partial).
+// TryCompactGemInstall summarizes empty stdout or strict clean success from `gem install` / `npx|pnpm exec|yarn … gem install` (F12 partial).
 func TryCompactGemInstall(argv []string, stdout []byte) ([]byte, bool) {
-	return compactEmptyStdoutWithNpxPnpmYarn(argv, stdout, isGemInstallArgv, []byte("[gem install] ok\n"))
+	if !packageArgvMatchesWithNpxPnpmYarn(argv, isGemInstallArgv) {
+		return stdout, false
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return []byte("[gem install] ok\n"), true
+	}
+	return compactGemInstallSuccess(stdout)
 }
 
 // TryCompactPipInstall summarizes empty stdout from `pip install` / `pip3 install` / `npx|pnpm exec|yarn … pip|pip3 install` (F12 partial).
@@ -483,6 +507,357 @@ func compactPoetryInstallSuccess(stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return out, true
+}
+
+func compactPipenvInstallSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var sawInstallHeader bool
+	var upToDate bool
+	var installSucceeded bool
+	var lockUpdated bool
+	var successfullyInstalled string
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case strings.HasPrefix(trimmed, "Installing dependencies from Pipfile.lock"):
+			sawInstallHeader = true
+		case strings.HasPrefix(trimmed, "Installing dependencies from Pipfile"):
+			sawInstallHeader = true
+		case trimmed == "All dependencies are now up-to-date!":
+			upToDate = true
+		case strings.Contains(lower, "installation succeeded"):
+			installSucceeded = true
+		case strings.HasPrefix(lower, "successfully installed"):
+			successfullyInstalled = trimmed
+		case strings.HasPrefix(trimmed, "Updated Pipfile.lock"):
+			lockUpdated = true
+		default:
+			return stdout, false
+		}
+	}
+	parts := make([]string, 0, 3)
+	if upToDate {
+		parts = append(parts, "up to date")
+	}
+	if installSucceeded {
+		parts = append(parts, "install succeeded")
+	}
+	if successfullyInstalled != "" {
+		parts = append(parts, successfullyInstalled)
+	}
+	if lockUpdated {
+		parts = append(parts, "lock file updated")
+	}
+	if !sawInstallHeader || len(parts) == 0 {
+		return stdout, false
+	}
+	out := []byte("[pipenv install] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func compactComposerInstallSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var sawHeader bool
+	var upToDate bool
+	var autoload bool
+	var lockWritten bool
+	var installs, updates, removals int
+	var expectedOperations *int
+	var operationRows int
+	var funding *int
+	var awaitingFundingPrompt bool
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if awaitingFundingPrompt {
+			if trimmed != "Use the `composer fund` command to find out more!" && trimmed != "Use the 'composer fund' command to find out more!" {
+				return stdout, false
+			}
+			awaitingFundingPrompt = false
+			continue
+		}
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case strings.HasPrefix(trimmed, "Installing dependencies from lock file"):
+			sawHeader = true
+		case trimmed == "Verifying lock file contents can be installed on current platform.":
+			sawHeader = true
+		case trimmed == "Nothing to install, update or remove":
+			upToDate = true
+		case trimmed == "Writing lock file":
+			lockWritten = true
+		case trimmed == "Generating autoload files":
+			autoload = true
+		case strings.HasPrefix(trimmed, "Package operations: "):
+			parsedInstalls, parsedUpdates, parsedRemovals, ok := parseComposerPackageOperations(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			installs, updates, removals = parsedInstalls, parsedUpdates, parsedRemovals
+			total := installs + updates + removals
+			expectedOperations = &total
+		case strings.HasPrefix(trimmed, "- Installing ") ||
+			strings.HasPrefix(trimmed, "- Updating ") ||
+			strings.HasPrefix(trimmed, "- Removing ") ||
+			strings.HasPrefix(trimmed, "- Downloading "):
+			if !composerPackageOperationRowOK(trimmed) {
+				return stdout, false
+			}
+			operationRows++
+		case strings.HasSuffix(trimmed, " packages you are using are looking for funding.") ||
+			strings.HasSuffix(trimmed, " package you are using is looking for funding."):
+			count, ok := parseComposerFundingLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			funding = &count
+			awaitingFundingPrompt = true
+		default:
+			return stdout, false
+		}
+	}
+	if awaitingFundingPrompt {
+		return stdout, false
+	}
+	parts := make([]string, 0, 4)
+	if expectedOperations != nil {
+		if *expectedOperations == 0 {
+			return stdout, false
+		}
+		parts = append(parts, poetryOperationsSummary(installs, updates, removals))
+	}
+	if upToDate {
+		parts = append(parts, "up to date")
+	}
+	if lockWritten {
+		parts = append(parts, "lock file written")
+	}
+	if autoload {
+		parts = append(parts, "autoload generated")
+	}
+	if funding != nil {
+		parts = append(parts, fmt.Sprintf("funding %d %s", *funding, pluralWord(*funding, "package", "packages")))
+	}
+	if !sawHeader || len(parts) == 0 || (expectedOperations != nil && operationRows == 0) {
+		return stdout, false
+	}
+	out := []byte("[composer install] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func parseComposerPackageOperations(line string) (int, int, int, bool) {
+	rest := strings.TrimPrefix(line, "Package operations: ")
+	parts := strings.Split(rest, ",")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	installs, ok := parseComposerOperationPart(parts[0], "install")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	updates, ok := parseComposerOperationPart(parts[1], "update")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	removals, ok := parseComposerOperationPart(parts[2], "removal")
+	if !ok {
+		return 0, 0, 0, false
+	}
+	return installs, updates, removals, true
+}
+
+func parseComposerOperationPart(part, singular string) (int, bool) {
+	fields := strings.Fields(strings.TrimSpace(part))
+	if len(fields) != 2 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	want := singular
+	if count != 1 {
+		switch singular {
+		case "removal":
+			want = "removals"
+		default:
+			want = singular + "s"
+		}
+	}
+	return count, fields[1] == want
+}
+
+func composerPackageOperationRowOK(line string) bool {
+	for _, prefix := range []string{"- Installing ", "- Updating ", "- Removing ", "- Downloading "} {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		detail := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		return detail != "" && strings.Contains(detail, "(") && strings.Contains(detail, ")") && !strings.ContainsAny(detail, "\t")
+	}
+	return false
+}
+
+func parseComposerFundingLine(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 9 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	return count, fields[1] == pluralWord(count, "package", "packages") &&
+		fields[2] == "you" &&
+		fields[3] == "are" &&
+		fields[4] == "using" &&
+		fields[5] == pluralWord(count, "is", "are") &&
+		fields[6] == "looking" &&
+		fields[7] == "for" &&
+		fields[8] == "funding."
+}
+
+func compactMixDepsGetSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var sawResolver bool
+	var sawResolutionComplete bool
+	var upToDate bool
+	var dependencyRows int
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case trimmed == "Resolving Hex dependencies...":
+			sawResolver = true
+		case strings.HasPrefix(trimmed, "Resolution completed in "):
+			sawResolutionComplete = true
+		case trimmed == "All dependencies are up to date":
+			upToDate = true
+		case trimmed == "Unchanged:" || trimmed == "New:" || trimmed == "Updated:" || trimmed == "Removed:":
+			continue
+		case strings.HasPrefix(trimmed, "* Getting "):
+			if !mixDependencyRowOK(strings.TrimPrefix(trimmed, "* Getting ")) {
+				return stdout, false
+			}
+			dependencyRows++
+		default:
+			if !mixDependencyRowOK(trimmed) {
+				return stdout, false
+			}
+			dependencyRows++
+		}
+	}
+	if !sawResolver || (!sawResolutionComplete && !upToDate) {
+		return stdout, false
+	}
+	parts := make([]string, 0, 2)
+	if upToDate {
+		parts = append(parts, "up to date")
+	}
+	if dependencyRows > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s listed", dependencyRows, pluralWord(dependencyRows, "dependency", "dependencies")))
+	}
+	if len(parts) == 0 {
+		return stdout, false
+	}
+	out := []byte("[mix deps.get] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func mixDependencyRowOK(line string) bool {
+	if line == "" || strings.ContainsAny(line, "\t") {
+		return false
+	}
+	fields := strings.Fields(line)
+	return len(fields) >= 2 && len(fields) <= 4
+}
+
+func compactGemInstallSuccess(stdout []byte) ([]byte, bool) {
+	text := string(stdout)
+	var successRows int
+	var terminalCount *int
+	var documentationDone bool
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case packageOutputLineUnsafe(trimmed, lower):
+			return stdout, false
+		case strings.HasPrefix(trimmed, "Successfully installed "):
+			detail := strings.TrimSpace(strings.TrimPrefix(trimmed, "Successfully installed "))
+			if detail == "" || strings.ContainsAny(detail, "\t") {
+				return stdout, false
+			}
+			successRows++
+		case strings.HasPrefix(trimmed, "Parsing documentation for "):
+			if strings.TrimSpace(strings.TrimPrefix(trimmed, "Parsing documentation for ")) == "" {
+				return stdout, false
+			}
+		case strings.HasPrefix(trimmed, "Installing ri documentation for "):
+			if strings.TrimSpace(strings.TrimPrefix(trimmed, "Installing ri documentation for ")) == "" {
+				return stdout, false
+			}
+		case strings.HasPrefix(trimmed, "Done installing documentation for "):
+			documentationDone = true
+		default:
+			count, ok := parseGemInstalledLine(trimmed)
+			if !ok {
+				return stdout, false
+			}
+			terminalCount = &count
+		}
+	}
+	if successRows == 0 || terminalCount == nil || *terminalCount != successRows {
+		return stdout, false
+	}
+	parts := []string{fmt.Sprintf("installed %d %s", successRows, pluralWord(successRows, "gem", "gems"))}
+	if documentationDone {
+		parts = append(parts, "documentation installed")
+	}
+	out := []byte("[gem install] ok (" + strings.Join(parts, "; ") + ")\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func parseGemInstalledLine(line string) (int, bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 3 {
+		return 0, false
+	}
+	count, err := strconv.Atoi(fields[0])
+	if err != nil || count <= 0 {
+		return 0, false
+	}
+	return count, fields[1] == pluralWord(count, "gem", "gems") && fields[2] == "installed"
 }
 
 func parsePoetryPackageOperations(line string) (int, int, int, bool) {

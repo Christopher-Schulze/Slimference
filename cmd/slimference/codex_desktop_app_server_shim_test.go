@@ -215,6 +215,20 @@ func TestMediateCodexDesktopAppServerStdin(t *testing.T) {
 	}
 }
 
+func TestMediateCodexDesktopAppServerStdoutWrapper(t *testing.T) {
+	in := `{"id":"cfg1","result":{"config":{"model_provider":"openai"}}}` + "\n"
+	var out bytes.Buffer
+	mediateCodexDesktopAppServerStdout(strings.NewReader(in), &out)
+	got := out.String()
+	if !strings.Contains(got, `"model_provider":"slimference-codex"`) ||
+		!strings.Contains(got, `"modelProvider":"slimference-codex"`) {
+		t.Fatalf("stdout wrapper did not rewrite config provider: %s", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Fatalf("stdout wrapper did not preserve newline: %q", got)
+	}
+}
+
 func TestCodexDesktopAppServerStdoutConfigReadBadgeProvider(t *testing.T) {
 	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{
 		baseURL:            "http://127.0.0.1:8990/backend-api/codex",
@@ -370,6 +384,115 @@ func TestRewriteCodexDesktopConfigReadResponseRequiresConfigShape(t *testing.T) 
 	}
 }
 
+func TestCodexDesktopJSONRPCEdges(t *testing.T) {
+	id, method := codexJSONRPCIDAndMethod([]byte(`{"id":"abc","method":"model/list"}`))
+	if id != `"abc"` || method != "model/list" {
+		t.Fatalf("string id/method mismatch: id=%q method=%q", id, method)
+	}
+	id, method = codexJSONRPCIDAndMethod([]byte(`{"id":42,"method":"config/read"}`))
+	if id != "42" || method != "config/read" {
+		t.Fatalf("numeric id/method mismatch: id=%q method=%q", id, method)
+	}
+	for _, input := range [][]byte{
+		nil,
+		[]byte(`not-json`),
+		[]byte(`[]`),
+		[]byte(`{"id":null,"method":"config/read"}`),
+	} {
+		id, method := codexJSONRPCIDAndMethod(input)
+		if id != "" || method != "" {
+			t.Fatalf("invalid id/method input returned id=%q method=%q for %q", id, method, input)
+		}
+		if got := codexJSONRPCID(input); got != "" {
+			t.Fatalf("invalid id input returned %q for %q", got, input)
+		}
+	}
+	id, method = codexJSONRPCIDAndMethod([]byte(`{"id":"abc"}`))
+	if id != `"abc"` || method != "" {
+		t.Fatalf("id-only frame mismatch: id=%q method=%q", id, method)
+	}
+	id, method = codexJSONRPCIDAndMethod([]byte(`{"id":"abc","method":12}`))
+	if id != `"abc"` || method != "" {
+		t.Fatalf("bad-method frame mismatch: id=%q method=%q", id, method)
+	}
+	if !codexJSONIsNull(json.RawMessage(` null `)) || codexJSONIsNull(json.RawMessage(`"null"`)) {
+		t.Fatal("codexJSONIsNull mismatch")
+	}
+}
+
+func TestValidateCodexDesktopAppServerEdges(t *testing.T) {
+	dir := t.TempDir()
+	if err := validateCodexDesktopAppServerUpstream(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("expected directory rejection, got %v", err)
+	}
+	nonExec := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(nonExec, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCodexDesktopAppServerUpstream(nonExec); err == nil || !strings.Contains(err.Error(), "not executable") {
+		t.Fatalf("expected non-executable rejection, got %v", err)
+	}
+	exec := writeFakeExecutable(t, "codex")
+	if err := validateCodexDesktopAppServerUpstream(exec); err != nil {
+		t.Fatalf("valid executable rejected: %v", err)
+	}
+
+	for _, raw := range []string{
+		"http://localhost:8990/backend-api/codex",
+		"http://127.0.0.1:8990/backend-api/codex/",
+		"http://[::1]:8990/backend-api/codex",
+	} {
+		if err := validateCodexDesktopAppServerBaseURL(raw); err != nil {
+			t.Fatalf("valid base URL rejected %q: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"://bad",
+		"https://127.0.0.1:8990/backend-api/codex",
+		"http://127.0.0.1:8990/backend-api/codex#frag",
+		"http://127.0.0.1:8990/other",
+		"http://192.168.1.10:8990/backend-api/codex",
+	} {
+		if err := validateCodexDesktopAppServerBaseURL(raw); err == nil {
+			t.Fatalf("invalid base URL accepted: %q", raw)
+		}
+	}
+
+	if got, err := parseCodexDesktopShimBoolEnv(nil, "MISSING", true); err != nil || !got {
+		t.Fatalf("bool fallback mismatch: got=%v err=%v", got, err)
+	}
+	if got, err := parseCodexDesktopShimBoolEnv([]string{"X=false"}, "X", true); err != nil || got {
+		t.Fatalf("bool false mismatch: got=%v err=%v", got, err)
+	}
+	if _, err := parseCodexDesktopShimBoolEnv([]string{"X=nope"}, "X", true); err == nil {
+		t.Fatal("invalid bool accepted")
+	}
+}
+
+func TestCodexDesktopShimFileLoggerEdges(t *testing.T) {
+	var nilLogger *codexDesktopShimFileLogger
+	nilLogger.Log(codexDesktopShimLogRecord{Event: "ignored"})
+	empty := &codexDesktopShimFileLogger{}
+	empty.Log(codexDesktopShimLogRecord{Event: "ignored"})
+
+	path := filepath.Join(t.TempDir(), "logs", "desktop-shim.jsonl")
+	logger := &codexDesktopShimFileLogger{path: path}
+	logger.Log(codexDesktopShimLogRecord{})
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("empty event should not create log, stat err=%v", err)
+	}
+	logger.Log(codexDesktopShimLogRecord{Event: "config_read_rewrite", Method: "config/read", Provider: codexSlimferenceProviderID, BaseURLPresent: true})
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"event":"config_read_rewrite"`) ||
+		!strings.Contains(string(raw), `"method":"config/read"`) ||
+		!strings.Contains(string(raw), `"provider":"slimference-codex"`) {
+		t.Fatalf("bad log record: %s", raw)
+	}
+}
+
 func TestCodexDesktopProviderConfigFromArgv(t *testing.T) {
 	argv := []string{
 		"codex",
@@ -437,6 +560,38 @@ func TestRunCodexDesktopAppServerMediatedStartFailure(t *testing.T) {
 	rc := runCodexDesktopAppServerMediated(missing, []string{missing, "app-server"}, os.Environ(), strings.NewReader(""), installPrinter{Out: &out, Err: &errBuf})
 	if rc != 1 || !strings.Contains(errBuf.String(), "start") {
 		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
+	}
+}
+
+func TestRunCodexDesktopAppServerShimRejectsUnscopedLaunch(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	rc := runCodexDesktopAppServerShim(nil, installPrinter{Out: &out, Err: &errBuf})
+	if rc != 1 || !strings.Contains(errBuf.String(), "not a scoped Codex Desktop launch") {
+		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
+	}
+}
+
+func TestHandleCodexDesktopAppServerShimUsesExitFn(t *testing.T) {
+	oldExit := exitFn
+	t.Cleanup(func() { exitFn = oldExit })
+	got := -1
+	exitFn = func(code int) { got = code }
+	handleCodexDesktopAppServerShim(nil)
+	if got != 1 {
+		t.Fatalf("exit code=%d", got)
+	}
+}
+
+func TestCodexDesktopAppServerActiveUsesCount(t *testing.T) {
+	oldCount := codexDesktopAppServerCountFn
+	t.Cleanup(func() { codexDesktopAppServerCountFn = oldCount })
+	codexDesktopAppServerCountFn = func() int { return 2 }
+	if !codexDesktopAppServerActive() {
+		t.Fatal("expected active when count > 0")
+	}
+	codexDesktopAppServerCountFn = func() int { return 0 }
+	if codexDesktopAppServerActive() {
+		t.Fatal("expected inactive when count is 0")
 	}
 }
 
