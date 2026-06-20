@@ -170,12 +170,11 @@ func TestWSSAuditReport(t *testing.T) {
 		got.CacheBustDemoted != 1 ||
 		got.EffectiveMutationGuards["wss_full_history_downstream_delta_proof_gate"] != 1 ||
 		got.BySocketSeq["2"] != 1 ||
-		got.CandidateLane != "t417_class_b_server_state" ||
-		got.PromotionStage != "t417_lineage_candidate_needs_engineering" ||
-		!stringSliceContains(got.PromotionBlockers, "mixed_previous_response_state_requires_exact_lineage_split") ||
-		!stringSliceContains(got.PromotionBlockers, "cache_bust_demotion_present_exact_class_scope") ||
-		got.PromotionBlockerHeadroom["mixed_previous_response_state_requires_exact_lineage_split"] != got.IncrementalLocalTokensHeadroom ||
-		got.PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != got.IncrementalLocalTokensHeadroom ||
+		got.CandidateLane != "t408_backend_reference_contract" ||
+		got.NextProofGate != "t408_backend_reference_acceptance_or_exact_rehydrate_contract" ||
+		got.PromotionStage != "t408_backend_reference_candidate_needs_accepted_contract" ||
+		!stringSliceContains(got.PromotionBlockers, "reference_only_backend_contract_required") ||
+		got.PromotionBlockerHeadroom["reference_only_backend_contract_required"] != got.IncrementalLocalTokensHeadroom ||
 		got.CacheBustDemotedScopes["wss_phasef|full_history|prefix-a"] != 1 ||
 		got.CacheBustDemotedClassKeys["stale_read:git_status"] != 1 {
 		t.Fatalf("bad top shadow mirror candidate: %+v", got)
@@ -189,11 +188,10 @@ func TestWSSAuditReport(t *testing.T) {
 		got[0].CacheBustDemoted != 1 ||
 		got[0].EffectiveMutationGuards["wss_full_history_downstream_delta_proof_gate"] != 1 ||
 		got[0].BySocketSeq["2"] != 1 ||
-		got[0].PromotionStage != "t417_lineage_candidate_needs_engineering" ||
-		!stringSliceContains(got[0].PromotionBlockers, "mixed_previous_response_state_requires_exact_lineage_split") ||
-		!stringSliceContains(got[0].PromotionBlockers, "cache_bust_demotion_present_exact_class_scope") ||
-		got[0].PromotionBlockerHeadroom["mixed_previous_response_state_requires_exact_lineage_split"] != got[0].IncrementalLocalTokensHeadroom ||
-		got[0].PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != got[0].IncrementalLocalTokensHeadroom ||
+		got[0].NextProofGate != "t408_backend_reference_acceptance_or_exact_rehydrate_contract" ||
+		got[0].PromotionStage != "t408_backend_reference_candidate_needs_accepted_contract" ||
+		!stringSliceContains(got[0].PromotionBlockers, "reference_only_backend_contract_required") ||
+		got[0].PromotionBlockerHeadroom["reference_only_backend_contract_required"] != got[0].IncrementalLocalTokensHeadroom ||
 		got[0].CacheBustDemotedScopes["wss_phasef|full_history|prefix-a"] != 1 ||
 		got[0].CacheBustDemotedClassKeys["stale_read:git_status"] != 1 {
 		t.Fatalf("bad top shadow mirror candidate sessions: %+v", got)
@@ -202,7 +200,10 @@ func TestWSSAuditReport(t *testing.T) {
 		got.Kind != "codex_exec_payload" ||
 		got.ReferenceableBytes != 300 ||
 		got.Bytes != 500 ||
-		!strings.Contains(got.RecommendedAction, "T417") {
+		got.CandidateLane != "t408_reference_or_t418_parser_recovery" ||
+		got.NextProofGate != "t408_backend_reference_or_t418_parser_recovery_gate" ||
+		!stringSliceContains(got.PromotionBlockers, "requires_parser_or_recovery_product_slice") ||
+		!strings.Contains(got.RecommendedAction, "T418") {
 		t.Fatalf("bad normalized shadow mirror candidate: %+v", got)
 	}
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
@@ -375,15 +376,15 @@ func TestWSSShadowMirrorCandidateActionNamesCommandFamily(t *testing.T) {
 
 	action := wssShadowMirrorCandidateAction("full_history", "codex_exec_payload_command_git")
 	if !strings.Contains(action, "exact command family") ||
-		!strings.Contains(action, "T417 Class-B continuation") ||
+		!strings.Contains(action, "T408 backend-reference") ||
 		!strings.Contains(action, "T418 command-output-first") {
-		t.Fatalf("command-family action should name T417/T418 ranking path, got %q", action)
+		t.Fatalf("command-family action should name T408/T418 ranking path, got %q", action)
 	}
 	action = wssShadowMirrorCandidateAction("full_history", "tool_result_command_git")
 	if !strings.Contains(action, "resolved tool-result command family") ||
-		!strings.Contains(action, "T417 Class-B continuation") ||
+		!strings.Contains(action, "T408 backend-reference") ||
 		!strings.Contains(action, "T418 command-output-first") {
-		t.Fatalf("tool-result command-family action should name T417/T418 ranking path, got %q", action)
+		t.Fatalf("tool-result command-family action should name T408/T418 ranking path, got %q", action)
 	}
 }
 
@@ -434,7 +435,13 @@ func TestWSSAuditShadowMirrorStatefulSafeCommandClassIsPromotionOpen(t *testing.
 		t.Fatalf("stateful-safe command class should be promotion-open: %+v", report.ShadowMirrorCandidates)
 	}
 	if generic == nil || generic.PromotionOpenReady || !stringSliceContains(generic.PromotionOpenBlockers, "reference_only_backend_contract_required") {
-		t.Fatalf("generic command-family row must stay reference-only: %+v", report.ShadowMirrorCandidates)
+		if generic == nil ||
+			generic.CandidateLane != "t408_reference_or_t418_parser_recovery" ||
+			generic.NextProofGate != "t408_backend_reference_or_t418_parser_recovery_gate" ||
+			!stringSliceContains(generic.PromotionBlockers, "reference_only_backend_contract_required") ||
+			!stringSliceContains(generic.PromotionBlockers, "requires_parser_or_recovery_product_slice") {
+			t.Fatalf("generic command-family row must route to T408/T418 recovery lane: %+v", report.ShadowMirrorCandidates)
+		}
 	}
 }
 
@@ -475,17 +482,16 @@ func TestWSSAuditShadowMirrorReferenceOnlyHeadroomIsNotPromotionOpen(t *testing.
 		t.Fatalf("shadow mirror candidates = %d, want 2: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
 	}
 	for _, candidate := range report.ShadowMirrorCandidates {
-		if candidate.PromotionOpenHeadroom <= 0 ||
+		if candidate.IncrementalLocalTokensHeadroom <= 0 ||
 			candidate.PromotionOpenReady ||
-			candidate.PromotionOpenStage != "t417_no_open_slice_candidate" ||
-			!stringSliceContains(candidate.PromotionOpenBlockers, "reference_only_backend_contract_required") ||
+			(candidate.CandidateLane != "t408_backend_reference_contract" && candidate.CandidateLane != "t408_reference_or_t418_parser_recovery") ||
 			!stringSliceContains(candidate.PromotionBlockers, "reference_only_backend_contract_required") ||
 			candidate.PromotionBlockerHeadroom["reference_only_backend_contract_required"] != candidate.IncrementalLocalTokensHeadroom {
 			t.Fatalf("reference-only candidate must keep headroom but fail product open: %+v", candidate)
 		}
 		if len(candidate.TopSessions) != 1 ||
 			candidate.TopSessions[0].PromotionOpenReady ||
-			!stringSliceContains(candidate.TopSessions[0].PromotionOpenBlockers, "reference_only_backend_contract_required") {
+			!stringSliceContains(candidate.TopSessions[0].PromotionBlockers, "reference_only_backend_contract_required") {
 			t.Fatalf("reference-only session must fail product open: %+v", candidate.TopSessions)
 		}
 	}
@@ -953,7 +959,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
 		!strings.Contains(stdout.String(), "Shadow mirror candidates:") ||
 		!strings.Contains(stdout.String(), "shape=full_history") ||
-		!strings.Contains(stdout.String(), "lane=t417_class_b_server_state") ||
+		!strings.Contains(stdout.String(), "lane=t408_reference_or_t418_parser_recovery") ||
 		!strings.Contains(stdout.String(), "candidate_tokens=") ||
 		!strings.Contains(stdout.String(), "headroom=") ||
 		!strings.Contains(stdout.String(), "provider=44/22/6") ||
@@ -963,7 +969,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
 		!strings.Contains(stdout.String(), "stage=not_safe_erroring") ||
 		!strings.Contains(stdout.String(), "blockers=erroring_shape") ||
-		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/open_ready=false/open_stage=t417_no_open_slice_candidate/open_blockers=no_promotion_open_headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|reference_only_backend_contract_required|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27,reference_only_backend_contract_required:27") ||
+		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/open_ready=false/open_stage=/open_blockers=no_promotion_open_headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|reference_only_backend_contract_required|requires_parser_or_recovery_product_slice/blocker_headroom=erroring_lineage:27,reference_only_backend_contract_required:27,requires_parser_or_recovery_product_slice:27") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
@@ -1045,20 +1051,22 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if len(report.ShadowMirrorCandidates) != 1 ||
 		report.ShadowMirrorCandidates[0].Kind != "codex_exec_payload" ||
-		report.ShadowMirrorCandidates[0].CandidateLane != "t417_class_b_server_state" ||
+		report.ShadowMirrorCandidates[0].CandidateLane != "t408_reference_or_t418_parser_recovery" ||
 		report.ShadowMirrorCandidates[0].CandidateLocalTokensEstimate <= 0 ||
 		report.ShadowMirrorCandidates[0].IncrementalLocalTokensHeadroom <= 0 ||
 		report.ShadowMirrorCandidates[0].ErrorFree ||
 		report.ShadowMirrorCandidates[0].NextProofGate != "fix_or_exclude_erroring_shape_before_promotion" ||
 		report.ShadowMirrorCandidates[0].PromotionStage != "not_safe_erroring" ||
 		!stringSliceContains(report.ShadowMirrorCandidates[0].PromotionBlockers, "erroring_shape") ||
+		!stringSliceContains(report.ShadowMirrorCandidates[0].PromotionBlockers, "requires_parser_or_recovery_product_slice") ||
 		len(report.ShadowMirrorCandidates[0].TopSessions) != 1 ||
 		report.ShadowMirrorCandidates[0].TopSessions[0].SessionID != "codex-wss:s1" ||
 		report.ShadowMirrorCandidates[0].TopSessions[0].IncrementalLocalTokensHeadroom <= 0 ||
 		report.ShadowMirrorCandidates[0].TopSessions[0].ErrorFree ||
 		report.ShadowMirrorCandidates[0].TopSessions[0].NextProofGate != "fix_or_exclude_erroring_lineage_before_promotion" ||
 		report.ShadowMirrorCandidates[0].TopSessions[0].PromotionStage != "not_safe_erroring" ||
-		!stringSliceContains(report.ShadowMirrorCandidates[0].TopSessions[0].PromotionBlockers, "erroring_lineage") {
+		!stringSliceContains(report.ShadowMirrorCandidates[0].TopSessions[0].PromotionBlockers, "erroring_lineage") ||
+		!stringSliceContains(report.ShadowMirrorCandidates[0].TopSessions[0].PromotionBlockers, "requires_parser_or_recovery_product_slice") {
 		t.Fatalf("shadow mirror candidates missing from JSON report: %+v", report.ShadowMirrorCandidates)
 	}
 	if len(report.Policy) != 2 || report.PolicySource == "" {

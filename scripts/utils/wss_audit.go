@@ -1407,6 +1407,10 @@ func wssShadowMirrorCandidateProofGate(candidate wssShadowMirrorCandidate) strin
 	switch candidate.CandidateLane {
 	case "t417_class_b_server_state":
 		return "t417_exact_lineage_net_positive_zero400_gate"
+	case "t408_backend_reference_contract":
+		return "t408_backend_reference_acceptance_or_exact_rehydrate_contract"
+	case "t408_reference_or_t418_parser_recovery":
+		return "t408_backend_reference_or_t418_parser_recovery_gate"
 	case "t405_t354_stateful_delta":
 		return "t405_t354_downstream_state_zero400_gate"
 	case "t406_t418_parser_frontier":
@@ -1429,9 +1433,6 @@ func wssShadowMirrorCandidatePromotionBlockers(candidate wssShadowMirrorCandidat
 	}
 	switch candidate.CandidateLane {
 	case "t417_class_b_server_state":
-		if !wssShadowMirrorProductizableOpenKind(candidate.Kind) {
-			blockers = append(blockers, "reference_only_backend_contract_required")
-		}
 		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
 			candidate.PreviousResponseIDUsed,
 			candidate.StructuredMutationGuarded,
@@ -1443,6 +1444,10 @@ func wssShadowMirrorCandidatePromotionBlockers(candidate wssShadowMirrorCandidat
 			candidate.StatelessContinuation,
 			candidate.FullHistoryStatelessFollowup,
 		)...)
+	case "t408_backend_reference_contract":
+		blockers = append(blockers, "reference_only_backend_contract_required")
+	case "t408_reference_or_t418_parser_recovery":
+		blockers = append(blockers, "reference_only_backend_contract_required", "requires_parser_or_recovery_product_slice")
 	case "t405_t354_stateful_delta":
 		blockers = append(blockers, "requires_downstream_state_zero400_gate")
 	case "t406_t418_parser_frontier":
@@ -1466,9 +1471,6 @@ func wssShadowMirrorCandidateSessionPromotionBlockers(candidate wssShadowMirrorC
 	}
 	switch candidate.CandidateLane {
 	case "t417_class_b_server_state":
-		if !wssShadowMirrorProductizableOpenKind(candidate.Kind) {
-			blockers = append(blockers, "reference_only_backend_contract_required")
-		}
 		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
 			session.PreviousResponseIDUsed,
 			session.StructuredMutationGuarded,
@@ -1480,6 +1482,10 @@ func wssShadowMirrorCandidateSessionPromotionBlockers(candidate wssShadowMirrorC
 			session.StatelessContinuation,
 			session.FullHistoryStatelessFollowup,
 		)...)
+	case "t408_backend_reference_contract":
+		blockers = append(blockers, "reference_only_backend_contract_required")
+	case "t408_reference_or_t418_parser_recovery":
+		blockers = append(blockers, "reference_only_backend_contract_required", "requires_parser_or_recovery_product_slice")
 	case "t405_t354_stateful_delta":
 		blockers = append(blockers, "requires_downstream_state_zero400_gate")
 	case "t406_t418_parser_frontier":
@@ -1557,14 +1563,20 @@ func wssShadowMirrorPromotionOpenReady(lane, kind string, openHeadroom int) bool
 }
 
 func wssShadowMirrorPromotionOpenBlockers(lane, kind string, openHeadroom int) []string {
-	if lane != "t417_class_b_server_state" {
-		return nil
-	}
 	if openHeadroom <= 0 {
 		return []string{"no_promotion_open_headroom"}
 	}
-	if !wssShadowMirrorProductizableOpenKind(kind) {
+	switch lane {
+	case "t417_class_b_server_state":
+		if !wssShadowMirrorProductizableOpenKind(kind) {
+			return []string{"reference_only_backend_contract_required"}
+		}
+	case "t408_backend_reference_contract":
 		return []string{"reference_only_backend_contract_required"}
+	case "t408_reference_or_t418_parser_recovery":
+		return []string{"reference_only_backend_contract_required", "requires_parser_or_recovery_product_slice"}
+	default:
+		return nil
 	}
 	return nil
 }
@@ -1607,6 +1619,10 @@ func wssShadowMirrorPromotionStage(lane string, blockers []string) string {
 	switch lane {
 	case "t417_class_b_server_state":
 		return "t417_lineage_candidate_needs_engineering"
+	case "t408_backend_reference_contract":
+		return "t408_backend_reference_candidate_needs_accepted_contract"
+	case "t408_reference_or_t418_parser_recovery":
+		return "t408_reference_or_t418_parser_recovery_candidate_needs_contract"
 	case "t405_t354_stateful_delta":
 		return "t405_t354_candidate_needs_downstream_state_gate"
 	case "t406_t418_parser_frontier":
@@ -1688,7 +1704,14 @@ func wssShadowMirrorShapeRank(shape string) int {
 func wssShadowMirrorCandidateLane(shape, kind string) string {
 	switch strings.TrimSpace(shape) {
 	case "full_history":
-		return "t417_class_b_server_state"
+		kind = strings.TrimSpace(kind)
+		if wssShadowMirrorProductizableOpenKind(kind) {
+			return "t417_class_b_server_state"
+		}
+		if wssShadowMirrorParserRecoveryCandidateKind(kind) {
+			return "t408_reference_or_t418_parser_recovery"
+		}
+		return "t408_backend_reference_contract"
 	case "delta":
 		return "t405_t354_stateful_delta"
 	case "root":
@@ -1698,18 +1721,36 @@ func wssShadowMirrorCandidateLane(shape, kind string) string {
 	}
 }
 
+func wssShadowMirrorParserRecoveryCandidateKind(kind string) bool {
+	kind = strings.TrimSpace(kind)
+	switch {
+	case kind == "codex_exec_payload":
+		return true
+	case strings.HasPrefix(kind, "codex_exec_payload_command_"):
+		return true
+	case strings.HasPrefix(kind, "tool_result_command_"):
+		return true
+	default:
+		return false
+	}
+}
+
 func wssShadowMirrorCandidateAction(shape, kind string) string {
 	shape = strings.TrimSpace(shape)
 	kind = strings.TrimSpace(kind)
 	switch {
+	case shape == "full_history" && wssShadowMirrorProductizableOpenKind(kind):
+		return "rank for T417 exact lineage-scoped continuation; this kind has a productizable reducer/recovery contract"
+	}
+	switch {
 	case shape == "full_history" && kind == "codex_exec_payload":
-		return "rank for T417 Class-B continuation or T418 command-output-first recovery"
+		return "rank for T408 backend-reference acceptance or T418 command-output-first/parser recovery; do not treat as direct T417 product slice"
 	case shape == "full_history" && strings.HasPrefix(kind, "codex_exec_payload_command_"):
-		return "rank this exact command family for T417 Class-B continuation, then prefer T418 command-output-first if the same parser class is available"
+		return "rank this exact command family for T418 command-output-first/parser recovery first, with T408 backend-reference acceptance as the direct-reference path"
 	case shape == "full_history" && strings.HasPrefix(kind, "tool_result_command_"):
-		return "rank this resolved tool-result command family for T417 Class-B continuation, then prefer T418 command-output-first if the same parser class is available"
+		return "rank this resolved tool-result command family for T418 command-output-first/parser recovery first, with T408 backend-reference acceptance as the direct-reference path"
 	case shape == "full_history":
-		return "rank for T417 exact lineage-scoped continuation"
+		return "rank for T408 backend-reference acceptance or exact rehydrate-before-upstream contract; no direct T417 activation without a productizable reducer"
 	case shape == "delta":
 		return "rank for T405/T354 stateful-delta proof, keep current delta guards until downstream-clean"
 	case shape == "root":
