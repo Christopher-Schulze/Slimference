@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -15,23 +16,26 @@ import (
 )
 
 type wssT354ShapeProofFlags struct {
-	path         string
-	socketSeq    uint64
-	outputFormat string
-	help         bool
+	path            string
+	t420HandoffPath string
+	socketSeq       uint64
+	outputFormat    string
+	help            bool
 }
 
 type wssT354ShapeProofReport struct {
-	Path         string                  `json:"path"`
-	SocketSeq    uint64                  `json:"socket_seq,omitempty"`
-	FrameFiles   int                     `json:"frame_files"`
-	SkippedFiles int                     `json:"skipped_files"`
-	Totals       wssT354ShapeProofTotal  `json:"totals"`
-	Rows         []wssT354ShapeProofRow  `json:"rows"`
-	Skips        []wssT354ShapeProofSkip `json:"skips,omitempty"`
-	Findings     []string                `json:"findings,omitempty"`
-	GatePassed   bool                    `json:"gate_passed"`
-	GateFailures []string                `json:"gate_failures,omitempty"`
+	Path                 string                        `json:"path"`
+	T420HandoffPath      string                        `json:"t420_handoff_path,omitempty"`
+	SocketSeq            uint64                        `json:"socket_seq,omitempty"`
+	FrameFiles           int                           `json:"frame_files"`
+	SkippedFiles         int                           `json:"skipped_files"`
+	Totals               wssT354ShapeProofTotal        `json:"totals"`
+	Rows                 []wssT354ShapeProofRow        `json:"rows"`
+	T420ReconnectHandoff []wssT354T420ReconnectHandoff `json:"t420_reconnect_handoff,omitempty"`
+	Skips                []wssT354ShapeProofSkip       `json:"skips,omitempty"`
+	Findings             []string                      `json:"findings,omitempty"`
+	GatePassed           bool                          `json:"gate_passed"`
+	GateFailures         []string                      `json:"gate_failures,omitempty"`
 }
 
 type wssT354ShapeProofTotal struct {
@@ -63,6 +67,14 @@ type wssT354ShapeProofTotal struct {
 	MetadataMismatches             int                  `json:"metadata_mismatches,omitempty"`
 	CandidatesWithServerOutputItem int                  `json:"candidates_with_server_output_item,omitempty"`
 	CandidatesWithServerOutputID   int                  `json:"candidates_with_server_output_id,omitempty"`
+	T420ReconnectHandoffRows       int                  `json:"t420_reconnect_handoff_rows,omitempty"`
+	T420ReconnectInputTokens       int                  `json:"t420_reconnect_input_tokens,omitempty"`
+	T420RetryResendCostTokens      int                  `json:"t420_retry_resend_cost_tokens,omitempty"`
+	T420ProviderInputTokens        int                  `json:"t420_provider_input_tokens,omitempty"`
+	T420ProviderCachedTokens       int                  `json:"t420_provider_cached_tokens,omitempty"`
+	T420LocalSavedTokens           int                  `json:"t420_local_saved_tokens,omitempty"`
+	T417ReconnectRerouteCandidates int                  `json:"t417_reconnect_reroute_candidates,omitempty"`
+	T420TransportFixCandidates     int                  `json:"t420_transport_fix_candidates,omitempty"`
 	NetPositiveCandidates          int                  `json:"net_positive_candidates,omitempty"`
 	NetPositiveFullHistory         int                  `json:"net_positive_full_history_candidates,omitempty"`
 	NetPositiveCapturedSavedTokens int                  `json:"net_positive_captured_local_saved_tokens,omitempty"`
@@ -178,6 +190,28 @@ type wssT354ShapeProofSkip struct {
 	Reason string `json:"reason"`
 }
 
+type wssT354T420ReconnectHandoff struct {
+	SocketKey                     string         `json:"socket_key"`
+	SessionID                     string         `json:"session_id,omitempty"`
+	Cause                         string         `json:"cause"`
+	RequestShapes                 map[string]int `json:"request_shapes,omitempty"`
+	Requests                      int            `json:"requests"`
+	FullHistoryRequests           int            `json:"full_history_requests"`
+	ProviderInputTokens           int            `json:"provider_input_tokens"`
+	ProviderCachedTokens          int            `json:"provider_cached_tokens"`
+	LocalSavedTokens              int            `json:"local_saved_tokens"`
+	ReconnectInputTokens          int            `json:"reconnect_input_tokens"`
+	RetryResendCostTokens         int            `json:"retry_resend_cost_tokens"`
+	PreviousSocketKey             string         `json:"previous_socket_key,omitempty"`
+	PreviousClose                 string         `json:"previous_close_initiator,omitempty"`
+	ReconnectGapMillis            int64          `json:"reconnect_gap_ms,omitempty"`
+	Attribution                   string         `json:"attribution,omitempty"`
+	ContinuationCandidate         string         `json:"continuation_candidate"`
+	RecommendedAction             string         `json:"recommended_action,omitempty"`
+	CandidatePotentialLocalTokens int            `json:"candidate_potential_local_tokens,omitempty"`
+	EconomicsVerdict              string         `json:"economics_verdict,omitempty"`
+}
+
 type wssT354Turn struct {
 	shape                         string
 	previousResponseID            bool
@@ -206,7 +240,7 @@ type wssT354Turn struct {
 const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
 
 Usage:
-  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N]
+  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N] [--t420-handoff-json=debug-wss-sockets.json]
 
 The report is content-free. It reads WSS frame captures and emits only request
 shape, mutation, downstream-turn, 400/invalid_request, and lost-comprehension
@@ -261,6 +295,20 @@ func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) 
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--t420-handoff-json":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--t420-handoff-json requires a value")
+			}
+			i++
+			flags.t420HandoffPath = strings.TrimSpace(args[i])
+			if flags.t420HandoffPath == "" {
+				return flags, fmt.Errorf("--t420-handoff-json requires a value")
+			}
+		case strings.HasPrefix(arg, "--t420-handoff-json="):
+			flags.t420HandoffPath = strings.TrimSpace(strings.TrimPrefix(arg, "--t420-handoff-json="))
+			if flags.t420HandoffPath == "" {
+				return flags, fmt.Errorf("--t420-handoff-json requires a value")
+			}
 		case arg == "--socket-seq":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("--socket-seq requires a value")
@@ -296,7 +344,7 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 	}
 	restoreLogger := silenceWSSSavingsBaselineReplayLogs()
 	defer restoreLogger()
-	report := wssT354ShapeProofReport{Path: flags.path, SocketSeq: flags.socketSeq, GatePassed: true}
+	report := wssT354ShapeProofReport{Path: flags.path, T420HandoffPath: flags.t420HandoffPath, SocketSeq: flags.socketSeq, GatePassed: true}
 	for _, path := range files {
 		row, err := loadWSST354ShapeProofRow(path, flags.socketSeq)
 		if err != nil {
@@ -321,6 +369,14 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 	if report.Totals.Lost > 0 {
 		report.GatePassed = false
 		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", report.Totals.Lost))
+	}
+	if flags.t420HandoffPath != "" {
+		handoff, err := loadWSST354T420ReconnectHandoff(flags.t420HandoffPath)
+		if err != nil {
+			return wssT354ShapeProofReport{}, err
+		}
+		report.T420ReconnectHandoff = handoff
+		applyWSST354T420ReconnectHandoff(&report.Totals, handoff)
 	}
 	report.GateFailures = compactStringList(report.GateFailures)
 	report.Findings = wssT354ShapeProofFindings(report)
@@ -434,6 +490,114 @@ func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofR
 	row.GateFailures = wssT354RowGateFailures(row)
 	row.GatePassed = len(row.GateFailures) == 0
 	return row, nil
+}
+
+func loadWSST354T420ReconnectHandoff(path string) ([]wssT354T420ReconnectHandoff, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read T420 handoff JSON %s: %w", path, err)
+	}
+	var wrapped struct {
+		T417ReconnectHandoff []wssT354T420ReconnectHandoff `json:"t417_reconnect_handoff"`
+		T420ReconnectHandoff []wssT354T420ReconnectHandoff `json:"t420_reconnect_handoff"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil {
+		var root map[string]json.RawMessage
+		if err := json.Unmarshal(data, &root); err == nil {
+			_, hasT417 := root["t417_reconnect_handoff"]
+			_, hasT420 := root["t420_reconnect_handoff"]
+			if hasT417 || hasT420 {
+				rows := append([]wssT354T420ReconnectHandoff(nil), wrapped.T417ReconnectHandoff...)
+				rows = append(rows, wrapped.T420ReconnectHandoff...)
+				return finalizeWSST354T420ReconnectHandoff(rows), nil
+			}
+			if _, looksLikeSocketReport := root["sockets"]; looksLikeSocketReport {
+				reconnectRequests := rawJSONInt(root["reconnect_full_history_requests"])
+				if reconnectRequests > 0 {
+					return nil, fmt.Errorf("T420 handoff JSON %s has reconnect_full_history_requests=%d but no t417_reconnect_handoff rows", path, reconnectRequests)
+				}
+				return nil, nil
+			}
+		}
+	}
+	var rows []wssT354T420ReconnectHandoff
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("decode T420 handoff JSON %s: %w", path, err)
+	}
+	return finalizeWSST354T420ReconnectHandoff(rows), nil
+}
+
+func finalizeWSST354T420ReconnectHandoff(rows []wssT354T420ReconnectHandoff) []wssT354T420ReconnectHandoff {
+	out := make([]wssT354T420ReconnectHandoff, 0, len(rows))
+	for _, row := range rows {
+		row.SocketKey = strings.TrimSpace(row.SocketKey)
+		row.Cause = strings.TrimSpace(row.Cause)
+		row.ContinuationCandidate = strings.TrimSpace(row.ContinuationCandidate)
+		if row.SocketKey == "" || row.Cause == "" {
+			continue
+		}
+		row.RequestShapes = cloneIntMap(row.RequestShapes)
+		if row.CandidatePotentialLocalTokens == 0 && row.ReconnectInputTokens > 0 {
+			row.CandidatePotentialLocalTokens = row.ReconnectInputTokens
+		}
+		row.EconomicsVerdict = wssT354T420ReconnectEconomicsVerdict(row)
+		out = append(out, row)
+	}
+	return out
+}
+
+func wssT354T420ReconnectEconomicsVerdict(row wssT354T420ReconnectHandoff) string {
+	if row.ReconnectInputTokens <= 0 || row.FullHistoryRequests <= 0 {
+		return "not_actionable"
+	}
+	switch row.ContinuationCandidate {
+	case "t417_stateless_or_lineage_reroute":
+		return "t417_reconnect_reroute_input"
+	case "t420_local_lifecycle_fix", "t420_upstream_keepalive_or_recovery":
+		return "t420_transport_fix_input"
+	case "classify_before_reroute", "":
+		return "classify_before_reroute"
+	default:
+		if strings.HasPrefix(row.ContinuationCandidate, "t417_") {
+			return "t417_reconnect_reroute_input"
+		}
+		if strings.HasPrefix(row.ContinuationCandidate, "t420_") {
+			return "t420_transport_fix_input"
+		}
+		return "classify_before_reroute"
+	}
+}
+
+func applyWSST354T420ReconnectHandoff(total *wssT354ShapeProofTotal, rows []wssT354T420ReconnectHandoff) {
+	for _, row := range rows {
+		total.T420ReconnectHandoffRows++
+		total.T420ReconnectInputTokens += row.ReconnectInputTokens
+		total.T420RetryResendCostTokens += row.RetryResendCostTokens
+		total.T420ProviderInputTokens += row.ProviderInputTokens
+		total.T420ProviderCachedTokens += row.ProviderCachedTokens
+		total.T420LocalSavedTokens += row.LocalSavedTokens
+		switch row.EconomicsVerdict {
+		case "t417_reconnect_reroute_input":
+			total.T417ReconnectRerouteCandidates++
+		case "t420_transport_fix_input":
+			total.T420TransportFixCandidates++
+		}
+	}
+}
+
+func cloneIntMap(values map[string]int) map[string]int {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func wssT354TurnsFromFrames(frames []proxy.WSSABReplayFrame) []wssT354Turn {
@@ -831,6 +995,21 @@ func rawJSONScalarString(raw json.RawMessage) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+func rawJSONInt(raw json.RawMessage) int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	var value int
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return int(number)
+	}
+	return 0
 }
 
 type wssT354OpenAIUsage struct {
@@ -1255,6 +1434,17 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.CandidatesWithServerOutputID > 0 {
 		findings = append(findings, fmt.Sprintf("server_output_item_id_candidates=%d", report.Totals.CandidatesWithServerOutputID))
 	}
+	if report.Totals.T420ReconnectHandoffRows > 0 {
+		findings = append(findings, fmt.Sprintf("t420_reconnect_handoff_rows=%d", report.Totals.T420ReconnectHandoffRows))
+		findings = append(findings, fmt.Sprintf("t420_reconnect_input_tokens=%d", report.Totals.T420ReconnectInputTokens))
+		findings = append(findings, fmt.Sprintf("t420_retry_resend_cost_tokens=%d", report.Totals.T420RetryResendCostTokens))
+	}
+	if report.Totals.T417ReconnectRerouteCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("t417_reconnect_reroute_candidates=%d", report.Totals.T417ReconnectRerouteCandidates))
+	}
+	if report.Totals.T420TransportFixCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("t420_transport_fix_candidates=%d", report.Totals.T420TransportFixCandidates))
+	}
 	if report.Totals.NetPositiveCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("net_positive_candidates=%d", report.Totals.NetPositiveCandidates))
 	}
@@ -1317,6 +1507,15 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.MetadataMismatches,
 		report.Totals.CandidatesWithServerOutputItem,
 		report.Totals.CandidatesWithServerOutputID)
+	fmt.Fprintf(w, "  t420_handoff:      rows=%d reconnect_input=%d retry_resend_cost=%d provider_input=%d cached=%d local_saved=%d t417_reroute=%d t420_transport=%d\n",
+		report.Totals.T420ReconnectHandoffRows,
+		report.Totals.T420ReconnectInputTokens,
+		report.Totals.T420RetryResendCostTokens,
+		report.Totals.T420ProviderInputTokens,
+		report.Totals.T420ProviderCachedTokens,
+		report.Totals.T420LocalSavedTokens,
+		report.Totals.T417ReconnectRerouteCandidates,
+		report.Totals.T420TransportFixCandidates)
 	fmt.Fprintf(w, "  net_positive:      candidates=%d full_history=%d captured_saved=%d retry_extra=%d net=%d\n",
 		report.Totals.NetPositiveCandidates,
 		report.Totals.NetPositiveFullHistory,
@@ -1330,6 +1529,17 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 			report.Totals.TopNetCandidate.NetCapturedLocalSavedTokens,
 			report.Totals.TopNetCandidate.EconomicsVerdict,
 			report.Totals.TopNetCandidate.ContinuationCandidate)
+	}
+	for _, row := range report.T420ReconnectHandoff {
+		fmt.Fprintf(w, "  t420_handoff_row:  socket=%s cause=%s reconnect_input=%d retry_resend_cost=%d cached=%d local_saved=%d verdict=%s candidate=%s\n",
+			row.SocketKey,
+			row.Cause,
+			row.ReconnectInputTokens,
+			row.RetryResendCostTokens,
+			row.ProviderCachedTokens,
+			row.LocalSavedTokens,
+			row.EconomicsVerdict,
+			row.ContinuationCandidate)
 	}
 	if len(report.Findings) > 0 {
 		fmt.Fprintln(w, "  findings:")

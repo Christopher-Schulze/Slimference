@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,6 +261,126 @@ func TestWSST354ShapeProofRanksNetPositiveFullHistoryCandidate(t *testing.T) {
 	if !strings.Contains(strings.Join(report.Findings, "\n"), "net_positive_full_history_candidates=1") ||
 		!strings.Contains(strings.Join(report.Findings, "\n"), "top_net_candidate=full_history") {
 		t.Fatalf("findings missing net-positive full-history signal: %+v", report.Findings)
+	}
+}
+
+func TestWSST354ShapeProofIngestsT420ReconnectHandoff(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t354-clean.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+	handoffPath := filepath.Join(dir, "wss-sockets.json")
+	writeJSONFile(t, handoffPath, map[string]any{
+		"t417_reconnect_handoff": []map[string]any{{
+			"socket_key":                              "codex-wss:desktop-thread#2.1",
+			"session_id":                              "desktop-thread",
+			"cause":                                   "client_full_history_reconnect",
+			"request_shapes":                          map[string]int{"full_history": 2},
+			"requests":                                2,
+			"full_history_requests":                   2,
+			"provider_input_tokens":                   9000,
+			"provider_cached_tokens":                  3000,
+			"local_saved_tokens":                      700,
+			"reconnect_input_tokens":                  9000,
+			"retry_resend_cost_tokens":                9000,
+			"previous_socket_key":                     "codex-wss:desktop-thread#1.1",
+			"previous_close_initiator":                "client_eof",
+			"reconnect_gap_ms":                        45,
+			"attribution":                             "observed_previous_socket",
+			"continuation_candidate":                  "t417_stateless_or_lineage_reroute",
+			"recommended_action":                      "route exact reconnect class into T417",
+			"candidate_potential_local_tokens":        0,
+			"unexpected_ignored_forward_compat_field": true,
+		}},
+	})
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path, t420HandoffPath: handoffPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.T420HandoffPath != handoffPath ||
+		len(report.T420ReconnectHandoff) != 1 ||
+		report.Totals.T420ReconnectHandoffRows != 1 ||
+		report.Totals.T420ReconnectInputTokens != 9000 ||
+		report.Totals.T420RetryResendCostTokens != 9000 ||
+		report.Totals.T420ProviderCachedTokens != 3000 ||
+		report.Totals.T420LocalSavedTokens != 700 ||
+		report.Totals.T417ReconnectRerouteCandidates != 1 ||
+		report.Totals.T420TransportFixCandidates != 0 {
+		t.Fatalf("T420 handoff was not ingested as T417 candidate input: %+v", report)
+	}
+	row := report.T420ReconnectHandoff[0]
+	if row.EconomicsVerdict != "t417_reconnect_reroute_input" ||
+		row.CandidatePotentialLocalTokens != 9000 ||
+		row.RequestShapes["full_history"] != 2 {
+		t.Fatalf("T420 handoff candidate economics mismatch: %+v", row)
+	}
+	findings := strings.Join(report.Findings, "\n")
+	for _, want := range []string{
+		"t420_reconnect_handoff_rows=1",
+		"t420_reconnect_input_tokens=9000",
+		"t417_reconnect_reroute_candidates=1",
+	} {
+		if !strings.Contains(findings, want) {
+			t.Fatalf("missing finding %q in %+v", want, report.Findings)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWSST354ShapeProof([]string{path, "--t420-handoff-json", handoffPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	text := stdout.String()
+	if !strings.Contains(text, "t420_handoff:") ||
+		!strings.Contains(text, "t417_reroute=1") ||
+		!strings.Contains(text, "t420_handoff_row:  socket=codex-wss:desktop-thread#2.1") {
+		t.Fatalf("text report lost T420 handoff: %s", text)
+	}
+}
+
+func TestWSST354ShapeProofAcceptsEmptyT420ReconnectHandoffObject(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wss-sockets-empty.json")
+	writeJSONFile(t, path, map[string]any{"t417_reconnect_handoff": []any{}})
+	rows, err := loadWSST354T420ReconnectHandoff(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("empty top-level T420 handoff should load as empty rows: %+v", rows)
+	}
+}
+
+func TestWSST354ShapeProofAcceptsSocketReportWithoutReconnectHandoff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wss-sockets-no-reconnect.json")
+	writeJSONFile(t, path, map[string]any{
+		"sockets":                         []any{},
+		"reconnect_full_history_requests": 0,
+	})
+	rows, err := loadWSST354T420ReconnectHandoff(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("socket report without reconnect mass should load as empty handoff: %+v", rows)
+	}
+}
+
+func TestWSST354ShapeProofRejectsReconnectSocketReportWithoutHandoff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wss-sockets-missing-handoff.json")
+	writeJSONFile(t, path, map[string]any{
+		"sockets":                         []any{},
+		"reconnect_full_history_requests": 2,
+	})
+	_, err := loadWSST354T420ReconnectHandoff(path)
+	if err == nil || !strings.Contains(err.Error(), "no t417_reconnect_handoff rows") {
+		t.Fatalf("expected missing handoff error, got %v", err)
 	}
 }
 
@@ -526,5 +647,16 @@ func wssT354TestOutputItemDone(itemID, callID string) map[string]any {
 			"id":      itemID,
 			"call_id": callID,
 		},
+	}
+}
+
+func writeJSONFile(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
 	}
 }
