@@ -414,6 +414,105 @@ Date:   Sun Apr 6 08:00:00 2025 +0000
 	}
 }
 
+func TestTryCompactGitLogNameOnlyPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	input.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	input.WriteString("Author: Alice <alice@example.com>\n")
+	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	input.WriteString("    Feature branch sweep\n\n")
+	for i := 0; i < 40; i++ {
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+	input.WriteString("\ncommit 9e8d7c6b5a4f3e2d\n")
+	input.WriteString("Author: Bob <bob@example.com>\n")
+	input.WriteString("Date:   Sun Apr 6 08:00:00 2025 +0000\n\n")
+	input.WriteString("    Short follow-up\n\n")
+	input.WriteString("cmd/slimference/main.go\n")
+	input.WriteString("internal/filter/builtin_git.go\n")
+
+	out, ok := TryCompactGitLog([]string{"git", "log", "--name-only", "--max-count=2"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git log --name-only path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git log --name-only] 2 commit(s)") ||
+		!strings.Contains(s, "a1b2c3d Feature branch sweep") ||
+		!strings.Contains(s, "9e8d7c6 Short follow-up") ||
+		!strings.Contains(s, "[changed paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "cmd/slimference/main.go") {
+		t.Fatalf("compact output lost commit/path evidence: %q", s)
+	}
+	if strings.Contains(s, "internal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored inside the commit: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter name-only log output: got %d input %d", len(s), input.Len())
+	}
+}
+
+func TestTryCompactGitLogNameStatusPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	input.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	input.WriteString("Author: Alice <alice@example.com>\n")
+	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	input.WriteString("    Status branch sweep\n\n")
+	for i := 0; i < 40; i++ {
+		status := "M"
+		if i%3 == 0 {
+			status = "A"
+		}
+		input.WriteString(status)
+		input.WriteByte('\t')
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitLog([]string{"git", "log", "--name-status", "--diff-filter=M", "--", "internal"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git log --name-status path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git log --name-status] 1 commit(s)") ||
+		!strings.Contains(s, "a1b2c3d Status branch sweep") ||
+		!strings.Contains(s, "A file_39.go") {
+		t.Fatalf("compact output lost status/path evidence: %q", s)
+	}
+	if strings.Contains(s, "M\tinternal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored inside the commit: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter name-status log output: got %d input %d", len(s), input.Len())
+	}
+}
+
+func TestTryCompactGitLogPathListUnsafeShapes(t *testing.T) {
+	t.Parallel()
+	input := `commit a1b2c3d4e5f6a7b8
+Author: Alice <alice@example.com>
+Date:   Mon Apr 7 10:30:00 2025 +0000
+
+    Subject
+
+internal/proxy/file_00.go
+warning: ambiguous path
+internal/proxy/file_01.go
+`
+	if _, ok := TryCompactGitLog([]string{"git", "log", "--name-only"}, []byte(input)); ok {
+		t.Fatal("diagnostic lines in git log --name-only must fail open")
+	}
+	rename := strings.Replace(input, "internal/proxy/file_00.go", "R100\told.go\tinternal/proxy/file_00.go", 1)
+	if _, ok := TryCompactGitLog([]string{"git", "log", "--name-status"}, []byte(rename)); ok {
+		t.Fatal("complex rename rows in git log --name-status must fail open")
+	}
+	if _, ok := TryCompactGitLog([]string{"git", "log", "--name-only", "--oneline"}, []byte(input)); ok {
+		t.Fatal("custom/oneline git log path-list shape must fail open")
+	}
+}
+
 func TestTryCompactGitDiff_fullCompact(t *testing.T) {
 	t.Parallel()
 	input := `diff --git a/internal/proxy/handler.go b/internal/proxy/handler.go

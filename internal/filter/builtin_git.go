@@ -18,6 +18,15 @@ func TryCompactGitLog(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[git log] empty\n"), true
 	}
+	if isGitLogNameOnlyPathListArgv(argv) {
+		return compactGitLogPathList(stdout, "git log --name-only", false)
+	}
+	if isGitLogNameStatusPathListArgv(argv) {
+		return compactGitLogPathList(stdout, "git log --name-status", true)
+	}
+	if gitLogMetadataPathListArgPresent(argv) {
+		return stdout, false
+	}
 	compact := compactGitLog(s)
 	if compact == "" || len(compact) >= len(s) {
 		return stdout, false
@@ -555,6 +564,158 @@ func compactGitShowPathList(stdout []byte, toolName string, nameStatus bool) ([]
 	return []byte(out), true
 }
 
+type gitLogPathListEntry struct {
+	hash    string
+	subject string
+	paths   []string
+}
+
+func compactGitLogPathList(stdout []byte, toolName string, nameStatus bool) ([]byte, bool) {
+	entries, ok := splitGitLogEntriesAndPaths(string(stdout), nameStatus)
+	if !ok || len(entries) == 0 {
+		return stdout, false
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	sb.WriteString(toolName)
+	sb.WriteString("] ")
+	sb.WriteString(fmt.Sprintf("%d commit(s)\n", len(entries)))
+	for _, entry := range entries {
+		if len(entry.paths) == 0 {
+			return stdout, false
+		}
+		sb.WriteString("  ")
+		sb.WriteString(entry.hash)
+		if entry.subject != "" {
+			sb.WriteByte(' ')
+			sb.WriteString(entry.subject)
+		}
+		sb.WriteByte('\n')
+		grouped, groupedOK := compactGitLogEntryPaths(entry.paths, nameStatus)
+		if groupedOK {
+			appendIndentedLines(&sb, grouped, "    ")
+			continue
+		}
+		for _, path := range entry.paths {
+			sb.WriteString("    ")
+			if nameStatus {
+				status, p, ok := splitGitNameStatusPathLine(path)
+				if !ok {
+					return stdout, false
+				}
+				sb.WriteString(status)
+				sb.WriteByte(' ')
+				sb.WriteString(p)
+			} else {
+				if !safePathListLine(path) {
+					return stdout, false
+				}
+				sb.WriteString(path)
+			}
+			sb.WriteByte('\n')
+		}
+	}
+	out := sb.String()
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func compactGitLogEntryPaths(paths []string, nameStatus bool) (string, bool) {
+	joined := strings.Join(paths, "\n")
+	var compacted []byte
+	var ok bool
+	if nameStatus {
+		compacted, ok = groupNameStatusPathListResults([]byte(joined), "changed")
+	} else {
+		compacted, ok = groupPathListResults([]byte(joined), "changed")
+	}
+	if !ok {
+		return "", false
+	}
+	return string(compacted), true
+}
+
+func appendIndentedLines(sb *strings.Builder, text, indent string) {
+	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		sb.WriteString(indent)
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+}
+
+func splitGitLogEntriesAndPaths(stdout string, nameStatus bool) ([]gitLogPathListEntry, bool) {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	var entries []gitLogPathListEntry
+	var cur *gitLogPathListEntry
+	inSubject := false
+	inPaths := false
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if m := reGitLogCommitHeader.FindStringSubmatch(line); m != nil {
+			if cur != nil {
+				entries = append(entries, *cur)
+			}
+			cur = &gitLogPathListEntry{hash: m[1][:7]}
+			inSubject = false
+			inPaths = false
+			continue
+		}
+		if cur == nil {
+			return nil, false
+		}
+		if trimmed == "" {
+			if cur.subject == "" {
+				inSubject = true
+			} else {
+				inPaths = true
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "Author:") || strings.HasPrefix(line, "Date:") ||
+			strings.HasPrefix(line, "Merge:") || strings.HasPrefix(line, "Commit:") {
+			continue
+		}
+		if inSubject && cur.subject == "" {
+			cur.subject = trimmed
+			inSubject = false
+			continue
+		}
+		if !inPaths {
+			return nil, false
+		}
+		if nameStatus {
+			if _, _, ok := splitGitNameStatusPathLine(line); !ok {
+				return nil, false
+			}
+		} else if !safeGitLogNameOnlyPathLine(line) {
+			return nil, false
+		}
+		cur.paths = append(cur.paths, line)
+	}
+	if cur != nil {
+		entries = append(entries, *cur)
+	}
+	for _, entry := range entries {
+		if entry.hash == "" || len(entry.paths) == 0 {
+			return nil, false
+		}
+	}
+	return entries, true
+}
+
+func safeGitLogNameOnlyPathLine(line string) bool {
+	if !safePathListLine(line) {
+		return false
+	}
+	if strings.Contains(line, "/") {
+		return true
+	}
+	return safeRootPathListLine(line)
+}
+
 func splitGitShowHeaderAndPaths(stdout string, nameStatus bool) (string, []string, bool) {
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	var hash, subject string
@@ -801,6 +962,84 @@ func isGitLogArgv(argv []string) bool {
 		}
 	}
 	return false
+}
+
+func isGitLogNameOnlyPathListArgv(argv []string) bool {
+	return isGitLogSingleMetadataPathListArgv(argv, "--name-only")
+}
+
+func isGitLogNameStatusPathListArgv(argv []string) bool {
+	return isGitLogSingleMetadataPathListArgv(argv, "--name-status")
+}
+
+func gitLogMetadataPathListArgPresent(argv []string) bool {
+	idx := gitSubcommandIndex(argv, "log")
+	if idx < 0 {
+		return false
+	}
+	for _, arg := range argv[idx+1:] {
+		if arg == "--name-only" || arg == "--name-status" {
+			return true
+		}
+	}
+	return false
+}
+
+func isGitLogSingleMetadataPathListArgv(argv []string, mode string) bool {
+	idx := gitSubcommandIndex(argv, "log")
+	if idx < 0 {
+		return false
+	}
+	hasMode := false
+	for i := idx + 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return hasMode
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == mode:
+				hasMode = true
+			case arg == "--name-only" || arg == "--name-status" || arg == "--stat" ||
+				strings.HasPrefix(arg, "--stat=") || arg == "--numstat" || arg == "--raw" ||
+				arg == "--shortstat" || arg == "--patch" || arg == "--patch-with-stat" ||
+				arg == "--oneline" || arg == "--word-diff" || strings.HasPrefix(arg, "--word-diff="):
+				return false
+			case strings.HasPrefix(arg, "--find-renames"), strings.HasPrefix(arg, "--find-copies"),
+				strings.HasPrefix(arg, "--diff-filter="), strings.HasPrefix(arg, "--max-count="):
+				continue
+			case arg == "--diff-filter", arg == "--max-count", arg == "-n":
+				i++
+				if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+					return false
+				}
+			default:
+				return false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			switch {
+			case arg == "-M" || arg == "-C":
+				continue
+			case strings.HasPrefix(arg, "-M") || strings.HasPrefix(arg, "-C"):
+				continue
+			case arg == "-p" || arg == "-z" || strings.HasPrefix(arg, "-U"):
+				return false
+			default:
+				continue
+			}
+		}
+	}
+	return hasMode
 }
 
 func isGitDiffArgv(argv []string) bool {
