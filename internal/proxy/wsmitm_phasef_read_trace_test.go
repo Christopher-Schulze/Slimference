@@ -70,6 +70,134 @@ func TestWSSRequestDebugFactsAddsRangeReadDependencyTrace(t *testing.T) {
 	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/app.go")
 }
 
+func TestWSSRequestDebugFactsAddsSearchDependencyTrace(t *testing.T) {
+	searchOutput := "internal/proxy/wsmitm_phasef.go:10:func target() {}\ninternal/filter/builtin_search.go:22:target := true\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_rg",
+			Text:         "Process exited with code 0\nOutput:\n" + searchOutput,
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_rg": {
+			Type:      "tool_use",
+			ToolUseID: "call_rg",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"rg -n target internal"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.dependency_trace"] != "true" ||
+		facts["wss.read_trace_requests"] != "1" ||
+		facts["wss.read_partial_count"] != "1" ||
+		facts["wss.read_full_count"] != "" ||
+		facts["wss.read_file_path_hash_count"] != "2" ||
+		facts["wss.read_file_path_hashes"] == "" ||
+		facts["wss.read_range_hash_count"] != "2" ||
+		facts["wss.read_range_hashes"] == "" ||
+		facts["wss.read_range"] != "" ||
+		facts["wss.tool_command_classes"] != "rg_search=1" {
+		t.Fatalf("missing search dependency trace facts: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "internal/proxy/wsmitm_phasef.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "internal/filter/builtin_search.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "func target")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, searchOutput)
+}
+
+func TestWSSRequestDebugFactsAddsSingleSearchRangeTrace(t *testing.T) {
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_rg_single",
+			Text:         "src/app.go:7:needle\n",
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_rg_single": {
+			Type:      "tool_use",
+			ToolUseID: "call_rg_single",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"rg -n needle src"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.dependency_trace"] != "true" ||
+		facts["wss.read_trace_requests"] != "1" ||
+		facts["wss.read_partial_count"] != "1" ||
+		facts["wss.read_range"] != "lines:7:7" ||
+		facts["wss.read_file_path_hash"] == "" ||
+		facts["wss.read_range_hash"] == "" {
+		t.Fatalf("missing single search dependency trace facts: %+v", facts)
+	}
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "src/app.go")
+	assertWSSReadTraceFactsDoNotLeak(t, facts, "needle")
+}
+
+func TestWSSRequestDebugFactsSkipsFailedSearchDependencyTrace(t *testing.T) {
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_rg_fail",
+			Text:         "Process exited with code 2\nOutput:\nrg: unclosed group\n",
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_rg_fail": {
+			Type:      "tool_use",
+			ToolUseID: "call_rg_fail",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"rg -n '(' src"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.dependency_trace"] != "" ||
+		facts["wss.read_trace_requests"] != "" ||
+		facts["wss.read_file_path_hash"] != "" ||
+		facts["wss.tool_command_classes"] != "rg_search=1" {
+		t.Fatalf("failed search should not add dependency trace: %+v", facts)
+	}
+}
+
+func TestWSSRequestDebugFactsSkipsAmbiguousSearchDependencyTrace(t *testing.T) {
+	output := strings.Join([]string{
+		"src/app.go:7:needle",
+		"warning: something noisy",
+		"another unrelated line",
+		"third unrelated line",
+	}, "\n")
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_rg_ambiguous",
+			Text:         output,
+		}},
+	}}
+	meta := wssRequestMeta{ToolUseIndex: map[string]types.ContentBlock{
+		"call_rg_ambiguous": {
+			Type:      "tool_use",
+			ToolUseID: "call_rg_ambiguous",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"rg -n needle src"}`,
+		},
+	}}
+
+	facts := wssRequestDebugFacts([]byte(`{"input":[]}`), []byte(`{"input":[]}`), messages, proxyLayer0Stats{}, false, "", meta, outputreduce.Stats{Reason: "disabled"})
+	if facts["wss.dependency_trace"] != "" ||
+		facts["wss.read_trace_requests"] != "" ||
+		facts["wss.read_file_path_hash"] != "" {
+		t.Fatalf("ambiguous search should not add dependency trace: %+v", facts)
+	}
+}
+
 func TestWSSRequestDebugFactsMarksRecentlyEditedReadWithoutPathLeak(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

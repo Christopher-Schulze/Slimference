@@ -82,6 +82,9 @@ func collectWSSReadDependencyTrace(messages []types.Message, meta wssRequestMeta
 			}
 			req, ok := filter.ReadRequestFromCommandLine(commandLine)
 			if !ok || strings.TrimSpace(req.Path) == "" {
+				if wssReadTraceAddSearchResultDependencies(&trace, commandLine, block.Text) {
+					continue
+				}
 				continue
 			}
 			trace.requests++
@@ -115,6 +118,106 @@ func collectWSSReadDependencyTrace(messages []types.Message, meta wssRequestMeta
 		}
 	}
 	return trace
+}
+
+func wssReadTraceAddSearchResultDependencies(trace *wssReadDependencyTrace, commandLine, text string) bool {
+	if trace == nil || !wssReadTraceSearchCommand(commandLine) {
+		return false
+	}
+	payload, ok := wssReadTraceSuccessfulSearchPayload(text)
+	if !ok {
+		return false
+	}
+	matches, nonEmpty := wssReadTraceSearchMatches(payload)
+	if len(matches) == 0 || len(matches)*2 < nonEmpty {
+		return false
+	}
+	trace.requests++
+	trace.partial++
+	for _, match := range matches {
+		pathHash := wssReadTraceHash("path:" + wssReadTraceNormalizePath(match.path))
+		rangeText := "lines:" + strconv.Itoa(match.line) + ":" + strconv.Itoa(match.line)
+		rangeHash := wssReadTraceHash("range:" + rangeText)
+		trace.pathHashes[pathHash] = struct{}{}
+		trace.rangeHashes[rangeHash] = struct{}{}
+		if trace.singleRangeText == "" {
+			trace.singleRangeText = rangeText
+		} else if trace.singleRangeText != rangeText {
+			trace.multipleRanges = true
+		}
+	}
+	return true
+}
+
+func wssReadTraceSearchCommand(commandLine string) bool {
+	_, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	argv := filter.ArgvForCapturedOutput(filterCommandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	base := wssCommandBase(argv[0])
+	switch base {
+	case "rg", "ripgrep", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
+		return !wssArgvContains(argv[1:], "--files")
+	case "git":
+		return len(argv) > 1 && argv[1] == "grep"
+	default:
+		return false
+	}
+}
+
+func wssReadTraceSuccessfulSearchPayload(text string) (string, bool) {
+	header, payload, ok := splitCodexExecEnvelope(text)
+	if !ok {
+		return text, true
+	}
+	if !strings.Contains(header, "Process exited with code 0") {
+		return "", false
+	}
+	return payload, strings.TrimSpace(payload) != ""
+}
+
+type wssReadTraceSearchMatch struct {
+	path string
+	line int
+}
+
+func wssReadTraceSearchMatches(payload string) ([]wssReadTraceSearchMatch, int) {
+	var matches []wssReadTraceSearchMatch
+	nonEmpty := 0
+	for _, rawLine := range strings.Split(payload, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "Total output lines:") || line == "--" {
+			continue
+		}
+		nonEmpty++
+		match, ok := wssReadTraceSearchMatchLine(line)
+		if ok {
+			matches = append(matches, match)
+		}
+	}
+	return matches, nonEmpty
+}
+
+func wssReadTraceSearchMatchLine(line string) (wssReadTraceSearchMatch, bool) {
+	first := strings.IndexByte(line, ':')
+	if first <= 0 {
+		return wssReadTraceSearchMatch{}, false
+	}
+	second := strings.IndexByte(line[first+1:], ':')
+	if second <= 0 {
+		return wssReadTraceSearchMatch{}, false
+	}
+	lineNo := line[first+1 : first+1+second]
+	n, err := strconv.Atoi(lineNo)
+	if err != nil || n <= 0 {
+		return wssReadTraceSearchMatch{}, false
+	}
+	path := strings.TrimSpace(line[:first])
+	if path == "" || strings.Contains(path, "://") {
+		return wssReadTraceSearchMatch{}, false
+	}
+	return wssReadTraceSearchMatch{path: path, line: n}, true
 }
 
 func (t *wssReadDependencyTrace) addExactPostEditRead(fileHashAfter, editTurnSeq, changedRange string) {
