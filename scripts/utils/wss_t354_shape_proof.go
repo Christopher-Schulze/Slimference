@@ -63,6 +63,12 @@ type wssT354ShapeProofTotal struct {
 	MetadataMismatches             int                  `json:"metadata_mismatches,omitempty"`
 	CandidatesWithServerOutputItem int                  `json:"candidates_with_server_output_item,omitempty"`
 	CandidatesWithServerOutputID   int                  `json:"candidates_with_server_output_id,omitempty"`
+	NetPositiveCandidates          int                  `json:"net_positive_candidates,omitempty"`
+	NetPositiveFullHistory         int                  `json:"net_positive_full_history_candidates,omitempty"`
+	NetPositiveCapturedSavedTokens int                  `json:"net_positive_captured_local_saved_tokens,omitempty"`
+	NetPositiveRetryExtraTokens    int                  `json:"net_positive_retry_or_resend_extra_tokens,omitempty"`
+	NetPositiveNetSavedTokens      int                  `json:"net_positive_net_captured_local_saved_tokens,omitempty"`
+	TopNetCandidate                *wssT354TopCandidate `json:"top_net_candidate,omitempty"`
 }
 
 type wssT354ShapeProofRow struct {
@@ -83,6 +89,12 @@ type wssT354ShapeProofRow struct {
 	MetadataMismatches             int                     `json:"metadata_mismatches,omitempty"`
 	CandidatesWithServerOutputItem int                     `json:"candidates_with_server_output_item,omitempty"`
 	CandidatesWithServerOutputID   int                     `json:"candidates_with_server_output_id,omitempty"`
+	NetPositiveCandidates          int                     `json:"net_positive_candidates,omitempty"`
+	NetPositiveFullHistory         int                     `json:"net_positive_full_history_candidates,omitempty"`
+	NetPositiveCapturedSavedTokens int                     `json:"net_positive_captured_local_saved_tokens,omitempty"`
+	NetPositiveRetryExtraTokens    int                     `json:"net_positive_retry_or_resend_extra_tokens,omitempty"`
+	NetPositiveNetSavedTokens      int                     `json:"net_positive_net_captured_local_saved_tokens,omitempty"`
+	TopNetCandidate                *wssT354TopCandidate    `json:"top_net_candidate,omitempty"`
 	GatePassed                     bool                    `json:"gate_passed"`
 	GateFailures                   []string                `json:"gate_failures,omitempty"`
 }
@@ -102,6 +114,10 @@ type wssT354CandidateProof struct {
 	FollowingTurnShape             string                    `json:"following_turn_shape,omitempty"`
 	FollowingRequestTokensEstimate int                       `json:"following_request_tokens_estimate,omitempty"`
 	RetryOrResendExtraTokens       int                       `json:"retry_or_resend_extra_tokens_estimate,omitempty"`
+	NetCapturedLocalSavedTokens    int                       `json:"net_captured_local_saved_tokens_estimate,omitempty"`
+	PromotionEligible              bool                      `json:"promotion_eligible"`
+	EconomicsVerdict               string                    `json:"economics_verdict,omitempty"`
+	ContinuationCandidate          string                    `json:"continuation_candidate,omitempty"`
 	FollowingTurnClean             bool                      `json:"following_turn_clean"`
 	FollowingTurnHealth            *wssT354TurnHealth        `json:"following_turn_health,omitempty"`
 	UnlockProofPassing             bool                      `json:"unlock_proof_passing"`
@@ -111,6 +127,20 @@ type wssT354CandidateProof struct {
 	CurrentTurnServerOutputItems   int                       `json:"current_turn_server_output_items,omitempty"`
 	CurrentTurnServerOutputIDs     int                       `json:"current_turn_server_output_ids,omitempty"`
 	BlockReasons                   []string                  `json:"block_reasons,omitempty"`
+}
+
+type wssT354TopCandidate struct {
+	Path                        string   `json:"path,omitempty"`
+	TurnIndex                   int      `json:"turn_index"`
+	Shape                       string   `json:"shape"`
+	PreviousResponseID          bool     `json:"previous_response_id"`
+	FollowingTurnShape          string   `json:"following_turn_shape,omitempty"`
+	CapturedLocalSavedTokens    int      `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens    int      `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens int      `json:"net_captured_local_saved_tokens_estimate"`
+	EconomicsVerdict            string   `json:"economics_verdict"`
+	ContinuationCandidate       string   `json:"continuation_candidate"`
+	BlockReasons                []string `json:"block_reasons,omitempty"`
 }
 
 type wssT354MetadataFootprint struct {
@@ -373,6 +403,7 @@ func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofR
 		candidate.RetryOrResendExtraTokens = wssT354RetryOrResendExtraTokens(turn, following, hasFollowing)
 		candidate.BlockReasons = wssT354CandidateBlockReasons(candidate)
 		candidate.UnlockProofPassing = len(candidate.BlockReasons) == 0
+		finalizeWSST354CandidateEconomics(&candidate)
 		row.CapturedLocalSavedTokens += candidate.CapturedLocalSavedTokens
 		row.RetryOrResendExtraTokens += candidate.RetryOrResendExtraTokens
 		if candidate.MetadataConsistency != "" {
@@ -386,6 +417,16 @@ func loadWSST354ShapeProofRow(path string, socketSeq uint64) (wssT354ShapeProofR
 		}
 		if candidate.CurrentTurnServerOutputIDs > 0 {
 			row.CandidatesWithServerOutputID++
+		}
+		if candidate.PromotionEligible {
+			row.NetPositiveCandidates++
+			if candidate.Shape == "full_history" {
+				row.NetPositiveFullHistory++
+			}
+			row.NetPositiveCapturedSavedTokens += candidate.CapturedLocalSavedTokens
+			row.NetPositiveRetryExtraTokens += candidate.RetryOrResendExtraTokens
+			row.NetPositiveNetSavedTokens += candidate.NetCapturedLocalSavedTokens
+			row.TopNetCandidate = wssT354BetterTopCandidate(row.TopNetCandidate, wssT354CandidateTopSummary(path, candidate))
 		}
 		row.Candidates = append(row.Candidates, candidate)
 	}
@@ -911,6 +952,86 @@ func wssT354CandidateTurn(turn wssT354Turn) bool {
 	return turn.shape == "delta" || turn.shape == "full_history"
 }
 
+func finalizeWSST354CandidateEconomics(candidate *wssT354CandidateProof) {
+	if candidate == nil {
+		return
+	}
+	candidate.NetCapturedLocalSavedTokens = candidate.CapturedLocalSavedTokens - candidate.RetryOrResendExtraTokens
+	candidate.PromotionEligible = candidate.UnlockProofPassing && candidate.NetCapturedLocalSavedTokens > 0
+	candidate.EconomicsVerdict = wssT354CandidateEconomicsVerdict(*candidate)
+	candidate.ContinuationCandidate = wssT354CandidateContinuationCandidate(*candidate)
+}
+
+func wssT354CandidateEconomicsVerdict(candidate wssT354CandidateProof) string {
+	switch {
+	case wssT354CandidateHasSafetyFailure(candidate):
+		return "unsafe"
+	case !candidate.UnlockProofPassing:
+		return "unproven"
+	case candidate.NetCapturedLocalSavedTokens <= 0:
+		return "negative_net"
+	case candidate.Shape == "full_history":
+		return "class_b_net_positive"
+	case candidate.Shape == "delta":
+		return "delta_net_positive"
+	default:
+		return "net_positive"
+	}
+}
+
+func wssT354CandidateContinuationCandidate(candidate wssT354CandidateProof) string {
+	switch candidate.EconomicsVerdict {
+	case "unsafe":
+		return "keep_guarded_safety_failure"
+	case "unproven":
+		return "collect_following_turn_or_t420_handoff"
+	case "negative_net":
+		return "keep_guarded_retry_resend_negative"
+	}
+	switch {
+	case candidate.Shape == "full_history" && candidate.PreviousResponseID:
+		return "lineage_scoped_class_b_candidate"
+	case candidate.Shape == "full_history" && candidate.RetryOrResendExtraTokens > 0:
+		return "stateless_detach_net_positive"
+	case candidate.Shape == "full_history":
+		return "stateful_preserved_class_b"
+	case candidate.Shape == "delta" && candidate.PreviousResponseID:
+		return "stateful_delta_proven_slice"
+	default:
+		return "rank_before_promotion"
+	}
+}
+
+func wssT354CandidateTopSummary(path string, candidate wssT354CandidateProof) *wssT354TopCandidate {
+	return &wssT354TopCandidate{
+		Path:                        path,
+		TurnIndex:                   candidate.TurnIndex,
+		Shape:                       candidate.Shape,
+		PreviousResponseID:          candidate.PreviousResponseID,
+		FollowingTurnShape:          candidate.FollowingTurnShape,
+		CapturedLocalSavedTokens:    candidate.CapturedLocalSavedTokens,
+		RetryOrResendExtraTokens:    candidate.RetryOrResendExtraTokens,
+		NetCapturedLocalSavedTokens: candidate.NetCapturedLocalSavedTokens,
+		EconomicsVerdict:            candidate.EconomicsVerdict,
+		ContinuationCandidate:       candidate.ContinuationCandidate,
+		BlockReasons:                append([]string(nil), candidate.BlockReasons...),
+	}
+}
+
+func wssT354BetterTopCandidate(current, candidate *wssT354TopCandidate) *wssT354TopCandidate {
+	if candidate == nil {
+		return current
+	}
+	if current == nil || candidate.NetCapturedLocalSavedTokens > current.NetCapturedLocalSavedTokens {
+		return candidate
+	}
+	if candidate.NetCapturedLocalSavedTokens == current.NetCapturedLocalSavedTokens &&
+		candidate.Shape == "full_history" && current.Shape != "full_history" {
+		return candidate
+	}
+	return current
+}
+
 func wssT354TurnClean(turn wssT354Turn) bool {
 	return turn.terminal && turn.errorFrames == 0 && turn.http400Errors == 0 &&
 		turn.invalidRequests == 0 && turn.responseFailures == 0
@@ -1046,6 +1167,12 @@ func applyWSST354ShapeProofRow(total *wssT354ShapeProofTotal, row wssT354ShapePr
 	total.MetadataMismatches += row.MetadataMismatches
 	total.CandidatesWithServerOutputItem += row.CandidatesWithServerOutputItem
 	total.CandidatesWithServerOutputID += row.CandidatesWithServerOutputID
+	total.NetPositiveCandidates += row.NetPositiveCandidates
+	total.NetPositiveFullHistory += row.NetPositiveFullHistory
+	total.NetPositiveCapturedSavedTokens += row.NetPositiveCapturedSavedTokens
+	total.NetPositiveRetryExtraTokens += row.NetPositiveRetryExtraTokens
+	total.NetPositiveNetSavedTokens += row.NetPositiveNetSavedTokens
+	total.TopNetCandidate = wssT354BetterTopCandidate(total.TopNetCandidate, row.TopNetCandidate)
 	for _, candidate := range row.Candidates {
 		total.MutatedToolOutputCandidates++
 		switch candidate.Shape {
@@ -1128,6 +1255,22 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.CandidatesWithServerOutputID > 0 {
 		findings = append(findings, fmt.Sprintf("server_output_item_id_candidates=%d", report.Totals.CandidatesWithServerOutputID))
 	}
+	if report.Totals.NetPositiveCandidates > 0 {
+		findings = append(findings, fmt.Sprintf("net_positive_candidates=%d", report.Totals.NetPositiveCandidates))
+	}
+	if report.Totals.NetPositiveFullHistory > 0 {
+		findings = append(findings, fmt.Sprintf("net_positive_full_history_candidates=%d", report.Totals.NetPositiveFullHistory))
+	}
+	if report.Totals.NetPositiveNetSavedTokens > 0 {
+		findings = append(findings, fmt.Sprintf("net_positive_net_captured_local_saved_tokens=%d", report.Totals.NetPositiveNetSavedTokens))
+	}
+	if report.Totals.TopNetCandidate != nil {
+		findings = append(findings, fmt.Sprintf("top_net_candidate=%s turn=%d net=%d candidate=%s",
+			report.Totals.TopNetCandidate.Shape,
+			report.Totals.TopNetCandidate.TurnIndex,
+			report.Totals.TopNetCandidate.NetCapturedLocalSavedTokens,
+			report.Totals.TopNetCandidate.ContinuationCandidate))
+	}
 	if report.Totals.UpstreamErrorFrames == 0 && report.Totals.Lost == 0 {
 		findings = append(findings, "upstream_and_lost_clean")
 	}
@@ -1174,6 +1317,20 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.MetadataMismatches,
 		report.Totals.CandidatesWithServerOutputItem,
 		report.Totals.CandidatesWithServerOutputID)
+	fmt.Fprintf(w, "  net_positive:      candidates=%d full_history=%d captured_saved=%d retry_extra=%d net=%d\n",
+		report.Totals.NetPositiveCandidates,
+		report.Totals.NetPositiveFullHistory,
+		report.Totals.NetPositiveCapturedSavedTokens,
+		report.Totals.NetPositiveRetryExtraTokens,
+		report.Totals.NetPositiveNetSavedTokens)
+	if report.Totals.TopNetCandidate != nil {
+		fmt.Fprintf(w, "  top_candidate:     shape=%s turn=%d net=%d verdict=%s candidate=%s\n",
+			report.Totals.TopNetCandidate.Shape,
+			report.Totals.TopNetCandidate.TurnIndex,
+			report.Totals.TopNetCandidate.NetCapturedLocalSavedTokens,
+			report.Totals.TopNetCandidate.EconomicsVerdict,
+			report.Totals.TopNetCandidate.ContinuationCandidate)
+	}
 	if len(report.Findings) > 0 {
 		fmt.Fprintln(w, "  findings:")
 		for _, finding := range report.Findings {

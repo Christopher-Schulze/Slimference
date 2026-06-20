@@ -49,6 +49,17 @@ func TestWSST354ShapeProofPassesCleanMutatedDeltaAndFollowingTurn(t *testing.T) 
 		report.Totals.CandidatesWithServerOutputID != 1 {
 		t.Fatalf("metadata consistency and server output-id proof missing: %+v", report.Totals)
 	}
+	candidate := report.Rows[0].Candidates[0]
+	if !candidate.PromotionEligible ||
+		candidate.NetCapturedLocalSavedTokens != candidate.CapturedLocalSavedTokens ||
+		candidate.EconomicsVerdict != "delta_net_positive" ||
+		candidate.ContinuationCandidate != "stateful_delta_proven_slice" ||
+		report.Totals.NetPositiveCandidates != 1 ||
+		report.Totals.NetPositiveNetSavedTokens != candidate.NetCapturedLocalSavedTokens ||
+		report.Totals.TopNetCandidate == nil ||
+		report.Totals.TopNetCandidate.ContinuationCandidate != "stateful_delta_proven_slice" {
+		t.Fatalf("candidate net-economics ranking missing: candidate=%+v totals=%+v", candidate, report.Totals)
+	}
 }
 
 func TestWSST354ShapeProofCollapsesAdjacentDuplicateRequestFrames(t *testing.T) {
@@ -179,8 +190,76 @@ func TestWSST354ShapeProofChargesUnpairedFullHistoryFollowingConservatively(t *t
 	candidate := report.Rows[0].Candidates[0]
 	if candidate.FollowingTurnShape != "full_history" ||
 		candidate.RetryOrResendExtraTokens != candidate.FollowingRequestTokensEstimate ||
-		report.Totals.RetryOrResendExtraTokens != candidate.FollowingRequestTokensEstimate {
+		report.Totals.RetryOrResendExtraTokens != candidate.FollowingRequestTokensEstimate ||
+		candidate.NetCapturedLocalSavedTokens != candidate.CapturedLocalSavedTokens-candidate.RetryOrResendExtraTokens {
 		t.Fatalf("unpaired full-history following must charge the full following request, totals=%+v candidate=%+v", report.Totals, candidate)
+	}
+}
+
+func TestWSST354ShapeProofKeepsNegativeNetCandidateGuarded(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-negative-net-following.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_a", 50), false),
+		wssT354TestFrame("client_to_server", wssT354TestToolOutputRequestLines("resp-a", "call_a", 40), true),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-a-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_following", 260), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || len(report.Rows[0].Candidates) != 1 {
+		t.Fatalf("negative-net candidate can be safety-clean but must not promote: %+v", report)
+	}
+	candidate := report.Rows[0].Candidates[0]
+	if candidate.NetCapturedLocalSavedTokens >= 0 ||
+		candidate.PromotionEligible ||
+		candidate.EconomicsVerdict != "negative_net" ||
+		candidate.ContinuationCandidate != "keep_guarded_retry_resend_negative" ||
+		report.Totals.NetPositiveCandidates != 0 ||
+		report.Totals.TopNetCandidate != nil {
+		t.Fatalf("negative-net candidate should stay guarded: candidate=%+v totals=%+v", candidate, report.Totals)
+	}
+}
+
+func TestWSST354ShapeProofRanksNetPositiveFullHistoryCandidate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "t354-positive-full-history.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.Totals.CandidatesPassing != 1 {
+		t.Fatalf("positive full-history candidate should pass: %+v", report)
+	}
+	candidate := report.Rows[0].Candidates[0]
+	if candidate.Shape != "full_history" ||
+		!candidate.PromotionEligible ||
+		candidate.EconomicsVerdict != "class_b_net_positive" ||
+		candidate.ContinuationCandidate != "stateful_preserved_class_b" ||
+		candidate.NetCapturedLocalSavedTokens <= 0 ||
+		report.Totals.NetPositiveFullHistory != 1 ||
+		report.Rows[0].TopNetCandidate == nil ||
+		report.Rows[0].TopNetCandidate.Shape != "full_history" ||
+		report.Totals.TopNetCandidate == nil ||
+		report.Totals.TopNetCandidate.ContinuationCandidate != "stateful_preserved_class_b" {
+		t.Fatalf("full-history net-economics ranking mismatch: candidate=%+v row=%+v totals=%+v",
+			candidate, report.Rows[0].TopNetCandidate, report.Totals)
+	}
+	if !strings.Contains(strings.Join(report.Findings, "\n"), "net_positive_full_history_candidates=1") ||
+		!strings.Contains(strings.Join(report.Findings, "\n"), "top_net_candidate=full_history") {
+		t.Fatalf("findings missing net-positive full-history signal: %+v", report.Findings)
 	}
 }
 
@@ -262,6 +341,11 @@ func TestWSST354ShapeProofBlocksReferenceMetadataMismatch(t *testing.T) {
 		report.Totals.CandidatesPassing != 0 ||
 		!strings.Contains(strings.Join(report.GateFailures, "\n"), "metadata_reference_mismatch") {
 		t.Fatalf("reference metadata mismatch must block T354 unlock proof: %+v", report)
+	}
+	if report.Rows[0].Candidates[0].PromotionEligible ||
+		report.Rows[0].Candidates[0].EconomicsVerdict != "unsafe" ||
+		report.Rows[0].Candidates[0].ContinuationCandidate != "keep_guarded_safety_failure" {
+		t.Fatalf("metadata mismatch must stay unsafe in candidate economics: %+v", report.Rows[0].Candidates[0])
 	}
 }
 
