@@ -658,7 +658,6 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "esbuild", args: []string{"src/index.ts"}},
 		{command: "mvn", args: []string{"deploy"}},
 		{command: "mvn", args: []string{"site"}},
-		{command: "docker", args: []string{"logs", "web"}},
 		{command: "docker", args: []string{"run", "nginx"}},
 		{command: "docker", args: []string{"compose", "logs"}},
 		{command: "docker", args: []string{"compose", "up"}},
@@ -1792,6 +1791,147 @@ func TestCommandOutputFirstContainerStatusEdges(t *testing.T) {
 		if commandOutputFirstContainerStatusAllowed(tc.command, tc.args) {
 			t.Fatalf("%s %v must not be container-status allowed", tc.command, tc.args)
 		}
+	}
+}
+
+func TestCommandOutputFirstShimLogDuplicateCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	realDocker := writeFakeCommand(t, "docker", `#!/bin/sh
+if [ "$1" = "logs" ]; then
+  for i in $(seq 1 70); do
+    echo "2026-06-20T10:00:00Z INFO worker heartbeat id=alpha"
+  done
+  for i in $(seq 1 20); do
+    echo "2026-06-20T10:00:01Z ERROR upstream refused request id=beta"
+  done
+  exit 0
+fi
+exit 2
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=docker", "--real-bin=" + realDocker, "--", "logs", "web"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{"INFO worker heartbeat id=alpha [×70]", "ERROR upstream refused request id=beta [×20]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log duplicate compaction missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "more log line(s)") || strings.Contains(got, "local-archive://") {
+		t.Fatalf("visible duplicate-only output should not truncate or expose marker in visible helper: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand docker logs archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("INFO worker heartbeat")) != 70 ||
+		bytes.Count(raw, []byte("ERROR upstream refused")) != 20 {
+		t.Fatalf("archive did not preserve raw duplicate log output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:docker] docker logs web") {
+		t.Fatalf("expected docker logs accounting row, ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimLogUniqueFullPasses(t *testing.T) {
+	realKubectl := writeFakeCommand(t, "kubectl", `#!/bin/sh
+if [ "$1" = "logs" ]; then
+  echo "2026-06-20T10:00:00Z INFO first unique event"
+  echo "2026-06-20T10:00:01Z ERROR second unique event"
+  echo "2026-06-20T10:00:02Z WARN third unique event"
+  exit 0
+fi
+exit 2
+`)
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=kubectl", "--real-bin=" + realKubectl, "--", "logs", "pod/web"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	want := "2026-06-20T10:00:00Z INFO first unique event\n" +
+		"2026-06-20T10:00:01Z ERROR second unique event\n" +
+		"2026-06-20T10:00:02Z WARN third unique event\n"
+	if stdout.String() != want {
+		t.Fatalf("unique logs must full-pass byte-identically:\nwant=%q\ngot=%q", want, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestCommandOutputFirstLogDuplicateAllowlistEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "docker", args: []string{"logs", "web"}},
+		{command: "podman", args: []string{"logs", "--tail", "200", "web"}},
+		{command: "nerdctl", args: []string{"logs", "web"}},
+		{command: "kubectl", args: []string{"logs", "-n", "default", "pod/web"}},
+		{command: "oc", args: []string{"logs", "pod/web"}},
+		{command: "journalctl", args: []string{"-u", "slimference.service", "-n", "200"}},
+		{command: "tail", args: []string{"-n", "200", "app.log"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v should be log-duplicate allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "docker", args: []string{"logs", "-f", "web"}},
+		{command: "docker", args: []string{"compose", "logs"}},
+		{command: "docker-compose", args: []string{"logs", "web"}},
+		{command: "kubectl", args: []string{"logs", "--follow", "pod/web"}},
+		{command: "journalctl", args: []string{"--follow", "-u", "slimference.service"}},
+		{command: "tail", args: []string{"-f", "app.log"}},
+		{command: "tail", args: []string{"-n", "200", "notes.txt"}},
+		{command: "cat", args: []string{"app.log"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be log-duplicate allowed", tc.command, tc.args)
+		}
+	}
+	if !commandOutputFirstLogArgsFinite([]string{"--follow=false", "--", "web"}) {
+		t.Fatal("--follow=false should be finite")
+	}
+	if !commandOutputFirstLogArgsFinite([]string{"--follow=0", "web"}) {
+		t.Fatal("--follow=0 should be finite")
+	}
+	if commandOutputFirstLogArgsFinite([]string{"--follow=true", "web"}) {
+		t.Fatal("--follow=true must not be finite")
+	}
+	if commandOutputFirstLogArgsFinite([]string{"web", ""}) {
+		t.Fatal("empty log arg must fail closed")
+	}
+	if commandOutputFirstTailLogAllowed([]string{"-n", "20", "-v"}) {
+		t.Fatal("tail target that is still an option must fail closed")
 	}
 }
 

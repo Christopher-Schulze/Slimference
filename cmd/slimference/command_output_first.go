@@ -86,6 +86,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
 		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq",
 		"curl", "wget", "http", "https",
+		"journalctl", "tail",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -316,8 +317,13 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
 	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
+		if commandOutputFirstLogDuplicateAllowed(command, args) {
+			return true
+		}
 		return commandOutputFirstContainerStatusAllowed(command, args) ||
 			commandOutputFirstKnownJSONOutputAllowed(command, args)
+	case "journalctl", "tail":
+		return commandOutputFirstLogDuplicateAllowed(command, args)
 	case "terraform", "tofu", "tf":
 		return commandOutputFirstTerraformAllowed(args) ||
 			commandOutputFirstKnownJSONOutputAllowed(command, args)
@@ -663,6 +669,57 @@ func commandOutputFirstContainerStatusAllowed(command string, args []string) boo
 	default:
 		return false
 	}
+}
+
+func commandOutputFirstLogDuplicateAllowed(command string, args []string) bool {
+	if len(args) == 0 || commandOutputFirstArgsContain(args, "-f", "--follow") {
+		return false
+	}
+	switch command {
+	case "docker", "podman", "nerdctl":
+		return args[0] == "logs" && commandOutputFirstLogArgsFinite(args[1:])
+	case "kubectl", "oc":
+		return args[0] == "logs" && commandOutputFirstLogArgsFinite(args[1:])
+	case "journalctl":
+		return commandOutputFirstLogArgsFinite(args)
+	case "tail":
+		return commandOutputFirstTailLogAllowed(args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstLogArgsFinite(args []string) bool {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			return false
+		}
+		switch {
+		case arg == "--":
+			continue
+		case arg == "-f" || arg == "--follow":
+			return false
+		case strings.HasPrefix(arg, "--follow="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--follow="))
+			if value != "" && value != "false" && value != "0" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func commandOutputFirstTailLogAllowed(args []string) bool {
+	if !commandOutputFirstLogArgsFinite(args) || len(args) == 0 {
+		return false
+	}
+	target := strings.TrimSpace(args[len(args)-1])
+	if target == "" || strings.HasPrefix(target, "-") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(target))
+	return ext == ".log" || ext == ".out" || ext == ".err"
 }
 
 func commandOutputFirstTerraformAllowed(args []string) bool {
@@ -1340,6 +1397,10 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		compacted, ok := filter.TryCompactDotnet(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
+		if commandOutputFirstLogDuplicateAllowed(command, args) {
+			compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactKubectlJSON(argv, stdout)
 			if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
@@ -1400,6 +1461,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "curl", "wget", "http", "https":
 		compacted, ok := filter.TryCompactNetworkResponse(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "journalctl", "tail":
+		compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {

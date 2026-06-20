@@ -155,7 +155,7 @@ func isDockerLogsArgv(argv []string) bool {
 		return false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	return b == "docker" || b == "podman" || b == "podman.exe"
+	return b == "docker" || b == "podman" || b == "podman.exe" || b == "nerdctl" || b == "nerdctl.exe"
 }
 
 func isKubectlLogsArgv(argv []string) bool {
