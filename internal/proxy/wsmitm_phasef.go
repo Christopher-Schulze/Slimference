@@ -543,11 +543,15 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	// server already holds (pre-pipeline = full model intent) and record this
 	// frame's forwarded content. Telemetry-only; never changes a frame.
 	if sid := meta.SessionID; sid != "" {
-		pre := messages
+		mirrorMessages := messages
+		if len(mirrorMessages) == 0 {
+			mirrorMessages = wssRawPartialMessages(body)
+		}
+		pre := mirrorMessages
 		if changed && len(meta.OriginalMessages) > 0 {
 			pre = meta.OriginalMessages
 		}
-		if rep := recordShadowMirror(sid, pre, messages); rep.Blocks > 0 || rep.NormalizedSegments > 0 {
+		if rep := recordShadowMirror(sid, pre, mirrorMessages); rep.Blocks > 0 || rep.NormalizedSegments > 0 {
 			attachShadowMirrorDebugFacts(&meta, rep)
 			if rep.ReferenceableBlocks > 0 || rep.NormalizedReferenceableSegments > 0 {
 				slog.Info("wss server-state mirror shadow",

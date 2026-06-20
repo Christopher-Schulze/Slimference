@@ -1,10 +1,13 @@
 package proxy
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 	"github.com/Christopher-Schulze/Slimference/internal/servermirror"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
@@ -59,5 +62,55 @@ func TestRecordShadowMirror_NormalizedDebugFacts(t *testing.T) {
 		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/1/1" ||
 		meta.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/"+strconv.Itoa(len(payload))+"/1/1" {
 		t.Fatalf("bad normalized shadow facts: %+v", meta.DebugFacts)
+	}
+}
+
+func TestWSSShadowMirrorObservesRawFallbackMessages(t *testing.T) {
+	old := wssShadowMirror
+	t.Cleanup(func() { wssShadowMirror = old })
+	wssShadowMirror = servermirror.New()
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	output := "Chunk ID: raw-shadow\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
+		strings.Repeat("stable mirror payload\n", 60)
+	for i := 0; i < 2; i++ {
+		env := parseWSJSON(t, map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-raw-shadow",
+			"prompt_cache_key":     "raw-shadow-session",
+			"input": []any{
+				map[string]any{
+					"type":    "function_call_output",
+					"call_id": "call_raw_shadow",
+					"output":  output,
+				},
+				"future-codex-item-shape",
+			},
+			"stream": true,
+		})
+		original := append([]byte(nil), env.Raw...)
+		replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+		if err != nil {
+			t.Fatalf("raw shadow handle %d: %v", i, err)
+		}
+		if replace || string(env.Raw) != string(original) {
+			t.Fatalf("raw shadow fallback must stay byte-equal, replace=%v raw=%s", replace, env.Raw)
+		}
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.raw_partial_messages"] != "1" ||
+		summary.DebugFacts["wss.shadow_mirror_blocks"] != "1" ||
+		summary.DebugFacts["wss.shadow_mirror_referenceable_blocks"] != "1" ||
+		summary.DebugFacts["wss.shadow_mirror_referenceable_bytes"] == "0" ||
+		summary.DebugFacts["wss.changed"] != "false" ||
+		summary.Tokens.Saved != 0 {
+		t.Fatalf("raw fallback mirror should be observe-only but referenceable: %+v summary=%+v", summary.DebugFacts, summary)
 	}
 }
