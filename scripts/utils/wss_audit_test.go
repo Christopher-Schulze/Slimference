@@ -310,6 +310,68 @@ func TestWSSAuditReport(t *testing.T) {
 	}
 }
 
+func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID:              "wss-open-1",
+			Timestamp:              time.Date(2026, 5, 30, 12, 5, 0, 0, time.UTC),
+			SessionID:              "codex-wss:open-slice",
+			Path:                   "/backend-api/codex/responses",
+			RouteMode:              "websocket_phasef",
+			ClientFamily:           "codex_cli",
+			PreviousResponseIDUsed: false,
+			Tokens:                 dbg.TokenCounts{Original: 220, Final: 180, Saved: 40},
+			ProviderInputTokens:    220,
+			ProviderCachedTokens:   120,
+			ProviderOutputTokens:   8,
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+				"wss.socket_seq":    "1",
+				"wss.full_history_detached_previous_response": "true",
+				"wss.full_history_stateless_followup":         "true",
+				"wss.shadow_mirror_blocks":                    "1",
+				"wss.shadow_mirror_bytes":                     "800",
+				"wss.shadow_mirror_referenceable_blocks":      "1",
+				"wss.shadow_mirror_referenceable_bytes":       "400",
+			},
+		},
+	)
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	if len(report.ShadowMirrorCandidates) != 1 {
+		t.Fatalf("shadow mirror candidates = %d, want 1: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
+	}
+	candidate := report.ShadowMirrorCandidates[0]
+	if candidate.PromotionStage != "product_candidate_no_observed_blockers" ||
+		!candidate.PromotionOpenReady ||
+		candidate.PromotionOpenStage != "t417_exact_scope_open_slice_candidate" ||
+		len(candidate.PromotionOpenBlockers) != 0 ||
+		len(candidate.PromotionOpenBlockerHeadroom) != 0 ||
+		candidate.PromotionOpenRequests != 1 ||
+		candidate.PromotionOpenHeadroom <= 0 {
+		t.Fatalf("bad open-slice candidate: %+v", candidate)
+	}
+	if len(candidate.TopSessions) != 1 {
+		t.Fatalf("top sessions = %d, want 1: %+v", len(candidate.TopSessions), candidate.TopSessions)
+	}
+	session := candidate.TopSessions[0]
+	if !session.PromotionOpenReady ||
+		session.PromotionOpenStage != "t417_exact_scope_open_slice_candidate" ||
+		len(session.PromotionOpenBlockers) != 0 ||
+		len(session.PromotionOpenBlockerHeadroom) != 0 ||
+		session.PromotionOpenRequests != 1 ||
+		session.PromotionOpenHeadroom != candidate.PromotionOpenHeadroom {
+		t.Fatalf("bad open-slice session: %+v", session)
+	}
+}
+
 func TestWSSAuditFootprintCoverageReportsMissingTokenEvidence(t *testing.T) {
 	t.Parallel()
 
@@ -687,7 +749,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
 		!strings.Contains(stdout.String(), "stage=not_safe_erroring") ||
 		!strings.Contains(stdout.String(), "blockers=erroring_shape") ||
-		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27") ||
+		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/open_ready=false/open_stage=t417_no_open_slice_candidate/open_blockers=no_promotion_open_headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())

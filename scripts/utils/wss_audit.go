@@ -227,6 +227,10 @@ type wssShadowMirrorCandidate struct {
 	PromotionOpenCandidateTokens    int                               `json:"promotion_open_candidate_tokens_estimate,omitempty"`
 	PromotionOpenLocalSavedTokens   int                               `json:"promotion_open_local_saved_tokens,omitempty"`
 	PromotionOpenHeadroom           int                               `json:"promotion_open_headroom,omitempty"`
+	PromotionOpenReady              bool                              `json:"promotion_open_ready,omitempty"`
+	PromotionOpenStage              string                            `json:"promotion_open_stage,omitempty"`
+	PromotionOpenBlockers           []string                          `json:"promotion_open_blockers,omitempty"`
+	PromotionOpenBlockerHeadroom    map[string]int                    `json:"promotion_open_blocker_headroom_tokens,omitempty"`
 	ProviderInputTokens             int                               `json:"provider_input_tokens"`
 	ProviderCachedTokens            int                               `json:"provider_cached_tokens"`
 	ProviderOutputTokens            int                               `json:"provider_output_tokens"`
@@ -267,6 +271,10 @@ type wssShadowMirrorCandidateSession struct {
 	PromotionOpenCandidateTokens    int            `json:"promotion_open_candidate_tokens_estimate,omitempty"`
 	PromotionOpenLocalSavedTokens   int            `json:"promotion_open_local_saved_tokens,omitempty"`
 	PromotionOpenHeadroom           int            `json:"promotion_open_headroom,omitempty"`
+	PromotionOpenReady              bool           `json:"promotion_open_ready,omitempty"`
+	PromotionOpenStage              string         `json:"promotion_open_stage,omitempty"`
+	PromotionOpenBlockers           []string       `json:"promotion_open_blockers,omitempty"`
+	PromotionOpenBlockerHeadroom    map[string]int `json:"promotion_open_blocker_headroom_tokens,omitempty"`
 	ProviderInputTokens             int            `json:"provider_input_tokens"`
 	ProviderCachedTokens            int            `json:"provider_cached_tokens"`
 	LocalSavedTokens                int            `json:"local_saved_tokens"`
@@ -1284,6 +1292,10 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate.ReferenceableBytePct = pct(candidate.ReferenceableBytes, candidate.Bytes)
 		candidate.IncrementalLocalTokensHeadroom = maxInt(0, candidate.CandidateLocalTokensEstimate-candidate.LocalSavedTokens)
 		candidate.PromotionOpenHeadroom = maxInt(0, candidate.PromotionOpenCandidateTokens-candidate.PromotionOpenLocalSavedTokens)
+		candidate.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, candidate.PromotionOpenHeadroom)
+		candidate.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, candidate.PromotionOpenHeadroom)
+		candidate.PromotionOpenBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionOpenBlockers, candidate.PromotionOpenHeadroom)
+		candidate.PromotionOpenStage = wssShadowMirrorPromotionOpenStage(candidate.CandidateLane, candidate.PromotionOpenReady, candidate.PromotionOpenBlockers)
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
 		candidate.PromotionBlockers = wssShadowMirrorCandidatePromotionBlockers(candidate)
@@ -1323,6 +1335,10 @@ func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate
 		session := *row
 		session.IncrementalLocalTokensHeadroom = maxInt(0, session.CandidateLocalTokensEstimate-session.LocalSavedTokens)
 		session.PromotionOpenHeadroom = maxInt(0, session.PromotionOpenCandidateTokens-session.PromotionOpenLocalSavedTokens)
+		session.PromotionOpenReady = wssShadowMirrorPromotionOpenReady(candidate.CandidateLane, session.PromotionOpenHeadroom)
+		session.PromotionOpenBlockers = wssShadowMirrorPromotionOpenBlockers(candidate.CandidateLane, session.PromotionOpenHeadroom)
+		session.PromotionOpenBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionOpenBlockers, session.PromotionOpenHeadroom)
+		session.PromotionOpenStage = wssShadowMirrorPromotionOpenStage(candidate.CandidateLane, session.PromotionOpenReady, session.PromotionOpenBlockers)
 		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
 		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
 		session.PromotionBlockers = wssShadowMirrorCandidateSessionPromotionBlockers(candidate, session)
@@ -1482,6 +1498,30 @@ func wssShadowMirrorBlockerHeadroom(blockers []string, headroom int) map[string]
 		return nil
 	}
 	return out
+}
+
+func wssShadowMirrorPromotionOpenReady(lane string, openHeadroom int) bool {
+	return lane == "t417_class_b_server_state" && openHeadroom > 0
+}
+
+func wssShadowMirrorPromotionOpenBlockers(lane string, openHeadroom int) []string {
+	if lane != "t417_class_b_server_state" {
+		return nil
+	}
+	if openHeadroom <= 0 {
+		return []string{"no_promotion_open_headroom"}
+	}
+	return nil
+}
+
+func wssShadowMirrorPromotionOpenStage(lane string, ready bool, blockers []string) string {
+	if lane != "t417_class_b_server_state" {
+		return ""
+	}
+	if ready && len(blockers) == 0 {
+		return "t417_exact_scope_open_slice_candidate"
+	}
+	return "t417_no_open_slice_candidate"
 }
 
 func wssShadowMirrorPromotionStage(lane string, blockers []string) string {
@@ -2015,7 +2055,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d open=%dreq/%dtok/%dheadroom segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d cache_scopes=%s cache_classes=%s eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s stage=%s blockers=%s blocker_headroom=%s top_sessions=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d open=%dreq/%dtok/%dheadroom open_ready=%v open_stage=%s open_blockers=%s open_blocker_headroom=%s segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d cache_scopes=%s cache_classes=%s eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s stage=%s blockers=%s blocker_headroom=%s top_sessions=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
@@ -2026,6 +2066,10 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.PromotionOpenRequests,
 				row.PromotionOpenCandidateTokens,
 				row.PromotionOpenHeadroom,
+				row.PromotionOpenReady,
+				row.PromotionOpenStage,
+				formatStringList(row.PromotionOpenBlockers),
+				formatWSSAuditCounts(row.PromotionOpenBlockerHeadroom),
 				row.ReferenceableSegments,
 				row.Segments,
 				row.Requests,
@@ -2084,13 +2128,16 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 	}
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
-		parts = append(parts, fmt.Sprintf("%s:%d/%d/open=%dreq/%dtok/%dheadroom/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/cache_classes=%s/sockets=%s/ok=%v/%s/stage=%s/blockers=%s/blocker_headroom=%s",
+		parts = append(parts, fmt.Sprintf("%s:%d/%d/open=%dreq/%dtok/%dheadroom/open_ready=%v/open_stage=%s/open_blockers=%s/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/cache_classes=%s/sockets=%s/ok=%v/%s/stage=%s/blockers=%s/blocker_headroom=%s",
 			truncateMiddle(row.SessionID, 24),
 			row.IncrementalLocalTokensHeadroom,
 			row.ReferenceableBytes,
 			row.PromotionOpenRequests,
 			row.PromotionOpenCandidateTokens,
 			row.PromotionOpenHeadroom,
+			row.PromotionOpenReady,
+			row.PromotionOpenStage,
+			formatStringList(row.PromotionOpenBlockers),
 			row.ProviderInputTokens,
 			row.ProviderCachedTokens,
 			row.PreviousResponseIDUsed,
