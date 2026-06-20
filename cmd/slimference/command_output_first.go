@@ -1740,6 +1740,9 @@ func commandOutputFirstMixedCompaction(stream string, stdout, stderr, compacted 
 }
 
 func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []string, stdout []byte) ([]byte, bool) {
+	if compacted, ok := filter.TryCompactSARIF(argv, stdout); ok {
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	}
 	if commandOutputFirstFocusedLintDiagnosticAllowed(command, args) {
 		compacted, ok := filter.TryCompactLintOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)

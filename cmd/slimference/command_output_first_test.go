@@ -907,6 +907,67 @@ func TestCommandOutputFirstStructuredDiagnosticAllowed(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimSARIFNonzeroCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var results strings.Builder
+	for i := 0; i < 80; i++ {
+		if i > 0 {
+			results.WriteString(",")
+		}
+		fmt.Fprintf(&results, `{"ruleId":"no-generated-%02d","level":"warning","message":{"text":"generated diagnostic number %02d with repeated context payload repeated context payload repeated context payload"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"src/generated/deep/path/file_%02d.ts"},"region":{"startLine":%d,"startColumn":7}}}]}`, i, i, i, i+10)
+	}
+	sarif := `{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"eslint","version":"9.0.0"}},"results":[` + results.String() + `]}]}`
+	realEslint := writeFakeCommand(t, "eslint", "#!/bin/sh\ncat <<'EOF'\n"+sarif+"\nEOF\nexit 1\n")
+
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=eslint", "--real-bin=" + realEslint, "--", "--format", "sarif", "src"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr should stay empty: %q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[sarif: eslint] 80 result(s)") ||
+		!strings.Contains(got, "src/generated/deep/path/file_00.ts:10:7 warning [no-generated-00]") {
+		t.Fatalf("unexpected SARIF command-output-first stdout=%q", got)
+	}
+	if strings.Contains(got, `"runs"`) || strings.Contains(got, `"ruleId"`) {
+		t.Fatalf("visible SARIF output should be compacted, not raw JSON payload: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand SARIF command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte(`"ruleId":"no-generated-79"`)) {
+		t.Fatalf("archive did not preserve raw SARIF tail result: %q", raw[:min(len(raw), 260)])
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:eslint] eslint --format sarif src") ||
+		run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("bad SARIF accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstPythonModuleLintAllowed(t *testing.T) {
 	allowed := [][]string{
 		{"-m", "pylint", "src"},

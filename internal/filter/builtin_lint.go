@@ -1885,6 +1885,9 @@ func argvContainsToken(argv []string, tok string) bool {
 
 // TryCompactLintOutput chains common linters with empty-success stdout.
 func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
+	if out, ok := TryCompactSARIF(argv, stdout); ok {
+		return out, true
+	}
 	if out, ok := TryCompactCargoClippy(argv, stdout); ok {
 		return out, true
 	}
