@@ -5301,8 +5301,9 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 			facts.OtherBytes += itemBytes
 			continue
 		}
-		itemType := strings.TrimSpace(rawJSONString(item["type"]))
-		role := strings.TrimSpace(rawJSONString(item["role"]))
+		fields := wssRawInputShapeClassFields(item)
+		itemType := strings.TrimSpace(rawJSONString(fields["type"]))
+		role := strings.TrimSpace(rawJSONString(fields["role"]))
 		switch itemType {
 		case "message":
 			facts.MessageItems++
@@ -5325,6 +5326,16 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 			facts.ReasoningItems++
 			facts.ReasoningBytes += itemBytes
 		default:
+			if codexLooksLikeToolOutput(itemType, fields) {
+				facts.FunctionCallOutputs++
+				facts.FunctionCallOutputBytes += itemBytes
+				continue
+			}
+			if codexLooksLikeToolCall(itemType, fields) {
+				facts.FunctionCalls++
+				facts.FunctionCallBytes += itemBytes
+				continue
+			}
 			if role != "" {
 				facts.MessageItems++
 				facts.MessageBytes += itemBytes
@@ -5343,6 +5354,17 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 		}
 	}
 	return facts
+}
+
+func wssRawInputShapeClassFields(item map[string]json.RawMessage) map[string]json.RawMessage {
+	if strings.TrimSpace(rawJSONString(item["type"])) != "response_item" {
+		return item
+	}
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(item["payload"], &nested); err != nil || len(nested) == 0 {
+		return item
+	}
+	return nested
 }
 
 func wssPromptCacheKeyHashFromRaw(raw map[string]json.RawMessage) string {

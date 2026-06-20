@@ -989,6 +989,57 @@ func TestWSSRawInputShapeFactsFromRawCountsContentFreeItemTypes(t *testing.T) {
 	}
 }
 
+func TestWSSRawInputShapeFactsFromRawClassifiesResponseItemPayloads(t *testing.T) {
+	body := mustMarshal(map[string]any{
+		"input": []map[string]any{
+			{"type": "response_item", "payload": map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_1",
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "git status --short"},
+			}},
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output":  " M internal/proxy/wsmitm_phasef.go\n",
+			}},
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "message",
+				"role":    "assistant",
+				"content": "done",
+			}},
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "reasoning",
+				"summary": []string{"hidden"},
+			}},
+			{"type": "response_item", "payload": map[string]any{
+				"type": "custom_payload",
+				"data": "opaque",
+			}},
+		},
+	})
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("decode wrapped raw input shape fixture: %v", err)
+	}
+
+	facts := wssRawInputShapeFactsFromRaw(raw)
+	if facts.Items != 5 ||
+		facts.FunctionCalls != 1 ||
+		facts.FunctionCallBytes <= 0 ||
+		facts.FunctionCallOutputs != 1 ||
+		facts.FunctionCallOutputBytes <= 0 ||
+		facts.MessageItems != 1 ||
+		facts.AssistantMessages != 1 ||
+		facts.AssistantMessageBytes <= 0 ||
+		facts.ReasoningItems != 1 ||
+		facts.ReasoningBytes <= 0 ||
+		facts.OtherItems != 1 ||
+		facts.OtherBytes <= 0 {
+		t.Fatalf("bad wrapped raw input shape facts: %+v", facts)
+	}
+}
+
 func TestWSSRawInputShapeFactsFromRawFailsClosedForMissingOrMalformedInput(t *testing.T) {
 	t.Parallel()
 
