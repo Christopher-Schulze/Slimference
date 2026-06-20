@@ -56,6 +56,128 @@ func TestTryCompactLs_manyEntries(t *testing.T) {
 	}
 }
 
+func TestTryCompactLsLong(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("total 160\n")
+	for i := 0; i < 24; i++ {
+		fmt.Fprintf(&sb, "-rw-r--r--  1 user staff 1200 Jan 01 00:%02d generated_file_%02d.go\n", i%60, i)
+	}
+	out, ok := TryCompactLsLong([]string{"ls", "-lah", "generated"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("long ls output should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[ls -l] 24 entries total 160 owner=user group=staff") ||
+		!strings.Contains(text, "-rw-r--r-- 1 1200 Jan 01 00:23 generated_file_23.go") {
+		t.Fatalf("unexpected long ls compaction: %q", text)
+	}
+	if strings.Contains(text, "user staff 1200 Jan") {
+		t.Fatalf("common owner/group should be lifted to header, got %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("long ls compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+}
+
+func TestTryCompactLsLongMixedOwnerAndLongOptions(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("total 96\n")
+	for i := 0; i < 48; i++ {
+		owner := "user"
+		if i%2 == 0 {
+			owner = "root"
+		}
+		fmt.Fprintf(&sb, "drwxr-xr-x  2 %s staff 4.0K Jan 02 12:%02d dir_%02d\n", owner, i%60, i)
+	}
+	argv := []string{"ls", "-lh", "--all", "--human-readable", "--color=never", "--", "-literal"}
+	out, ok := TryCompactLsLong(argv, []byte(sb.String()))
+	if !ok {
+		t.Fatal("long ls with safe long options should compact")
+	}
+	text := string(out)
+	if strings.Contains(text, "owner=") || !strings.Contains(text, "root:staff 4.0K") ||
+		!strings.Contains(text, "user:staff 4.0K") {
+		t.Fatalf("mixed owner/group rows should preserve row owner/group: %q", text)
+	}
+	if !LsLongOutputEligibleArgv(argv) {
+		t.Fatal("safe long ls argv should be eligible")
+	}
+}
+
+func TestTryCompactLsLongFailOpen(t *testing.T) {
+	t.Parallel()
+	raw := []byte("-rw-r--r--  1 user staff 1200 Jan 01 00:00 file.go\n")
+	if _, ok := TryCompactLsLong(nil, raw); ok {
+		t.Fatal("nil argv must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"dir", "-la"}, raw); ok {
+		t.Fatal("non-ls command must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls"}, raw); ok {
+		t.Fatal("plain ls must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "--color=always"}, raw); ok {
+		t.Fatal("colorized ls must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "-lR"}, raw); ok {
+		t.Fatal("recursive ls must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "-la@"}, raw); ok {
+		t.Fatal("extended-attribute ls must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "-la"}, []byte("garbage row\n")); ok {
+		t.Fatal("unparseable long ls output must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "-la"}, []byte("total 8\ntotal 16\n"+string(raw))); ok {
+		t.Fatal("conflicting total lines must fail open")
+	}
+	if _, ok := TryCompactLsLong([]string{"ls", "-la"}, []byte("-rw-r--r--  1 user staff 1200 Jan 01 00:00 \x1b[31mfile.go\n")); ok {
+		t.Fatal("ANSI/control output must fail open")
+	}
+}
+
+func TestLsLongParserGuardHelpers(t *testing.T) {
+	t.Parallel()
+	if LsLongOutputEligibleArgv([]string{}) {
+		t.Fatal("empty argv must not be eligible")
+	}
+	if LsLongOutputEligibleArgv([]string{"ls", ""}) {
+		t.Fatal("blank arg must not be eligible")
+	}
+	if LsLongOutputEligibleArgv([]string{"ls", "--unknown"}) {
+		t.Fatal("unknown long option must not be eligible")
+	}
+	if LsLongOutputEligibleArgv([]string{"ls", "-l", "--sort"}) {
+		t.Fatal("missing inline sort value must not be eligible")
+	}
+	if !LsLongOutputEligibleArgv([]string{"ls", "-lSrd", "internal"}) {
+		t.Fatal("safe combined long-list flags should be eligible")
+	}
+	if _, _, ok := splitLeadingFields("one two", 3); ok {
+		t.Fatal("splitLeadingFields should reject missing fields")
+	}
+	if _, _, ok := splitLeadingFields("one two three", 3); ok {
+		t.Fatal("splitLeadingFields should reject missing rest")
+	}
+	if lsPermsField("") || lsPermsField("xrw-r--r--") || lsPermsField("-rw-r--r--\x1b") {
+		t.Fatal("invalid permission fields must fail")
+	}
+	if !lsPermsField("lrwxr-xr-x") || !lsPermsField("-rw-r--r--@") {
+		t.Fatal("valid permission fields should pass")
+	}
+	if lsSizeField("") || lsSizeField("12ms") {
+		t.Fatal("invalid size fields must fail")
+	}
+	if !lsSizeField("4.0K") || !lsSizeField("128B") {
+		t.Fatal("human-readable size fields should pass")
+	}
+	if !containsControl("bad\x7f") || containsControl("normal name -> target") {
+		t.Fatal("control detection mismatch")
+	}
+}
+
 func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder

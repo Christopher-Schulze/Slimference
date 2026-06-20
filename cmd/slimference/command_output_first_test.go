@@ -299,6 +299,60 @@ func TestCommandOutputFirstShimLocatePathListCompacts(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimLsLongCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("total 320\n")
+	for i := 0; i < 48; i++ {
+		fmt.Fprintf(&raw, "-rw-r--r--  1 user staff 4096 Jan 01 00:%02d generated_file_%02d.go\n", i%60, i)
+	}
+	realLs := writeFakeCommand(t, "ls", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=ls", "--real-bin=" + realLs, "--", "-lah", "generated"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[ls -l] 48 entries total 320 owner=user group=staff") ||
+		!strings.Contains(got, "generated_file_47.go") ||
+		strings.Contains(got, "user staff 4096") {
+		t.Fatalf("unexpected ls command-output-first output: %q", got[:min(len(got), 260)])
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("generated_file_47.go")) || !bytes.Contains(archived, []byte("user staff 4096")) {
+		t.Fatalf("archive did not preserve raw ls output: %q", archived[:min(len(archived), 220)])
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:ls] ls -lah generated") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstShimStderrFullPasses(t *testing.T) {
 	realGit := writeFakeGit(t, `#!/bin/sh
 printf ' file.go | 1 +\n'
@@ -372,6 +426,18 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	}
 	if !commandOutputFirstAllowCapture("rg", []string{"--files", "internal"}) {
 		t.Fatal("rg --files should be captured by the command-output-first shim")
+	}
+	if !commandOutputFirstAllowCapture("ls", []string{"-lah", "internal"}) {
+		t.Fatal("ls -lah should be captured by the command-output-first shim")
+	}
+	if commandOutputFirstAllowCapture("ls", []string{"internal"}) {
+		t.Fatal("plain ls must not be captured by the command-output-first shim")
+	}
+	if commandOutputFirstAllowCapture("ls", []string{"-lR", "internal"}) {
+		t.Fatal("recursive ls must not be captured by the command-output-first shim")
+	}
+	if commandOutputFirstAllowCapture("ls", []string{"-la@", "internal"}) {
+		t.Fatal("extended-attribute ls must not be captured by the command-output-first shim")
 	}
 	for _, tc := range []struct {
 		command string

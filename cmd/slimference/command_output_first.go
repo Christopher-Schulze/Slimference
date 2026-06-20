@@ -57,7 +57,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
 		"pip", "pip3",
-		"fd", "fdfind", "find", "plocate", "locate", "wc",
+		"fd", "fdfind", "find", "plocate", "locate", "wc", "ls",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
@@ -279,6 +279,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return commandOutputFirstLocateAllowed(args)
 	case "wc":
 		return commandOutputFirstWcAllowed(args)
+	case "ls":
+		return commandOutputFirstLsLongAllowed(args)
 	case "go":
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			return true
@@ -1225,6 +1227,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "wc":
 		compacted, ok := filter.TryCompactWc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "ls":
+		compacted, ok := filter.TryCompactLsLong(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
@@ -1493,7 +1498,7 @@ func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []str
 func commandOutputFirstStructuredDiagnosticAllowed(command string, args []string) bool {
 	switch command {
 	case "git", "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift",
-		"fd", "fdfind", "find", "plocate", "locate", "wc",
+		"fd", "fdfind", "find", "plocate", "locate", "wc", "ls",
 		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
 		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq", "curl", "wget", "http", "https":
 		return false
@@ -1888,6 +1893,11 @@ func commandOutputFirstWcAllowed(args []string) bool {
 		}
 	}
 	return hasExplicitInput
+}
+
+func commandOutputFirstLsLongAllowed(args []string) bool {
+	argv := append([]string{"ls"}, args...)
+	return filter.LsLongOutputEligibleArgv(argv)
 }
 
 func commandOutputFirstCargoAllowed(args []string) bool {

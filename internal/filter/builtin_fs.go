@@ -27,6 +27,41 @@ func TryCompactLs(argv []string, stdout []byte) ([]byte, bool) {
 	return stdout, false
 }
 
+type lsLongRow struct {
+	Perms string
+	Links string
+	Owner string
+	Group string
+	Size  string
+	Month string
+	Day   string
+	Time  string
+	Name  string
+}
+
+// TryCompactLsLong compacts parser-proven `ls -l` style output while keeping
+// every visible entry name and metadata row. It is stricter than TryCompactLs
+// and is intended for archive-backed command-output-first use, not WSS
+// downstream mutation.
+func TryCompactLsLong(argv []string, stdout []byte) ([]byte, bool) {
+	if !LsLongOutputEligibleArgv(argv) {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	total, rows, ok := parseLsLongRows(s)
+	if !ok || len(rows) < 8 {
+		return stdout, false
+	}
+	out := formatLsLongRows(total, rows)
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
 // TryCompactTree summarizes empty stdout from `tree`. Non-empty tree output
 // full-passes because path names and hierarchy are model-relevant evidence.
 func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
@@ -42,6 +77,225 @@ func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[tree] empty\n"), true
 	}
 	return stdout, false
+}
+
+// LsLongOutputEligibleArgv reports whether argv is a safe `ls -l` style shape
+// for parser-proven long-listing compaction.
+func LsLongOutputEligibleArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(argv[0])), ".exe"))
+	if base != "ls" {
+		return false
+	}
+	hasLong := false
+	optionParsing := true
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if optionParsing && arg == "--" {
+			optionParsing = false
+			continue
+		}
+		if !optionParsing || !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		switch {
+		case arg == "--all" || arg == "--almost-all" || arg == "--human-readable" ||
+			arg == "--reverse" || arg == "--directory" || arg == "--group-directories-first":
+			continue
+		case arg == "--color=never" || strings.HasPrefix(arg, "--sort=") ||
+			strings.HasPrefix(arg, "--time-style="):
+			continue
+		case strings.HasPrefix(arg, "--"):
+			return false
+		}
+		for _, ch := range arg[1:] {
+			switch ch {
+			case 'l':
+				hasLong = true
+			case 'a', 'A', 'h', 't', 'r', 'S', '1', 'd':
+			default:
+				return false
+			}
+		}
+	}
+	return hasLong
+}
+
+func parseLsLongRows(s string) (string, []lsLongRow, bool) {
+	lines := strings.Split(s, "\n")
+	rows := make([]lsLongRow, 0, len(lines))
+	total := ""
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.ContainsRune(line, '\x1b') || strings.ContainsRune(line, '\x00') {
+			return "", nil, false
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "total ") {
+			if total != "" && total != trimmed {
+				return "", nil, false
+			}
+			total = trimmed
+			continue
+		}
+		fields, rest, ok := splitLeadingFields(trimmed, 8)
+		if !ok || rest == "" || strings.TrimSpace(rest) != rest {
+			return "", nil, false
+		}
+		if !lsPermsField(fields[0]) || !allDigits(fields[1]) || !lsSizeField(fields[4]) ||
+			containsControl(rest) {
+			return "", nil, false
+		}
+		rows = append(rows, lsLongRow{
+			Perms: fields[0],
+			Links: fields[1],
+			Owner: fields[2],
+			Group: fields[3],
+			Size:  fields[4],
+			Month: fields[5],
+			Day:   fields[6],
+			Time:  fields[7],
+			Name:  rest,
+		})
+	}
+	return total, rows, len(rows) > 0
+}
+
+func splitLeadingFields(line string, n int) ([]string, string, bool) {
+	fields := make([]string, 0, n)
+	i := 0
+	for len(fields) < n {
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		start := i
+		for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+			i++
+		}
+		if start == i {
+			return nil, "", false
+		}
+		fields = append(fields, line[start:i])
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	if i >= len(line) {
+		return nil, "", false
+	}
+	return fields, line[i:], true
+}
+
+func formatLsLongRows(total string, rows []lsLongRow) string {
+	owner, group := commonLsOwnerGroup(rows)
+	var sb strings.Builder
+	sb.WriteString("[ls -l] ")
+	sb.WriteString(strconv.Itoa(len(rows)))
+	sb.WriteString(" entr")
+	if len(rows) == 1 {
+		sb.WriteByte('y')
+	} else {
+		sb.WriteString("ies")
+	}
+	if total != "" {
+		sb.WriteByte(' ')
+		sb.WriteString(total)
+	}
+	if owner != "" && group != "" {
+		sb.WriteString(" owner=")
+		sb.WriteString(owner)
+		sb.WriteString(" group=")
+		sb.WriteString(group)
+	}
+	sb.WriteByte('\n')
+	for _, row := range rows {
+		sb.WriteString(row.Perms)
+		sb.WriteByte(' ')
+		sb.WriteString(row.Links)
+		sb.WriteByte(' ')
+		if owner == "" || group == "" {
+			sb.WriteString(row.Owner)
+			sb.WriteByte(':')
+			sb.WriteString(row.Group)
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(row.Size)
+		sb.WriteByte(' ')
+		sb.WriteString(row.Month)
+		sb.WriteByte(' ')
+		sb.WriteString(row.Day)
+		sb.WriteByte(' ')
+		sb.WriteString(row.Time)
+		sb.WriteByte(' ')
+		sb.WriteString(row.Name)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+func commonLsOwnerGroup(rows []lsLongRow) (string, string) {
+	if len(rows) == 0 {
+		return "", ""
+	}
+	owner := rows[0].Owner
+	group := rows[0].Group
+	if owner == "" || group == "" {
+		return "", ""
+	}
+	for _, row := range rows[1:] {
+		if row.Owner != owner || row.Group != group {
+			return "", ""
+		}
+	}
+	return owner, group
+}
+
+func lsPermsField(field string) bool {
+	if len(field) < 10 || len(field) > 11 {
+		return false
+	}
+	switch field[0] {
+	case '-', 'd', 'l', 'c', 'b', 'p', 's':
+	default:
+		return false
+	}
+	for _, r := range field {
+		if r < 32 || r == 127 || r == '\x1b' {
+			return false
+		}
+	}
+	return true
+}
+
+func lsSizeField(field string) bool {
+	if field == "" {
+		return false
+	}
+	for _, r := range field {
+		if (r >= '0' && r <= '9') || r == '.' || r == ',' || r == 'K' || r == 'M' || r == 'G' ||
+			r == 'T' || r == 'P' || r == 'E' || r == 'B' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func containsControl(s string) bool {
+	for _, r := range s {
+		if r < 32 || r == 127 {
+			return true
+		}
+	}
+	return false
 }
 
 // TryCompactPathListOutput compacts commands whose stdout is a deterministic
