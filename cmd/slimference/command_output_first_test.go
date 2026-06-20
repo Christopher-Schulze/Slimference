@@ -652,6 +652,11 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "npx", args: []string{"-y", "vitest", "run"}},
 		{command: "nox", args: []string{"-s", "test"}},
 		{command: "tox", args: []string{"-e", "test"}},
+		{command: "ruby", args: []string{"-I", "test", "test/models/user_test.rb"}},
+		{command: "bundle", args: []string{"exec", "rspec", "spec"}},
+		{command: "bundle", args: []string{"exec", "ruby", "-I", "test", "test/models/user_test.rb"}},
+		{command: "bundle", args: []string{"install", "--jobs", "4", "--retry=2"}},
+		{command: "bundle", args: []string{"update", "rails"}},
 		{command: "rake", args: []string{"spec"}},
 		{command: "rails", args: []string{"test"}},
 		{command: "gradle", args: []string{"test"}},
@@ -685,6 +690,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "python3", args: []string{"script.py"}},
 		{command: "python3", args: []string{"-m", "http.server"}},
 		{command: "uv", args: []string{"run", "python", "script.py"}},
+		{command: "ruby", args: []string{"-e", "puts 1"}},
+		{command: "ruby", args: []string{"script.rb"}},
+		{command: "bundle", args: []string{"exec", "ruby", "script.rb"}},
+		{command: "bundle", args: []string{"exec", "rake", "db:migrate"}},
+		{command: "bundle", args: []string{"exec", "rails", "server"}},
+		{command: "bundle", args: []string{"install", "--verbose"}},
 		{command: "find", args: []string{"internal", "-type", "f"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-delete"}},
 		{command: "fd", args: []string{"--exec", "rm", "{}"}},
@@ -1705,6 +1716,175 @@ func TestCommandOutputFirstShimDotnetTestCompactsWithArchive(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimRspecCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("Randomized with seed 12345\n\n")
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&raw, "Widget feature example %03d emits a very noisy success line that should not enter model context\n", i)
+	}
+	raw.WriteString("\nFinished in 2.3 seconds (files took 1.1 seconds to load)\n")
+	raw.WriteString("120 examples, 0 failures\n")
+	realRspec := writeFakeCommand(t, "rspec", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=rspec", "--real-bin=" + realRspec, "--", "spec"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if got != "[rspec] ok (120 examples, 0 failures)\n" {
+		t.Fatalf("unexpected compacted rspec stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("Widget feature example 119 emits")) ||
+		!bytes.Contains(archived, []byte("120 examples, 0 failures")) {
+		t.Fatalf("archive did not preserve raw rspec output: %q", archived)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil || !ok {
+		t.Fatalf("missing rspec accounting row: ok=%v err=%v", ok, err)
+	}
+	if !strings.Contains(run.Command, "[command-output-first:rspec] rspec spec") ||
+		run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("bad rspec accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimBundleExecRspecNonzeroCompactsWithArchive(t *testing.T) {
+	var raw strings.Builder
+	raw.WriteString("Randomized with seed 999\n")
+	for i := 0; i < 90; i++ {
+		fmt.Fprintf(&raw, "intermediate success noise line %03d that should be archived instead of forwarded\n", i)
+	}
+	raw.WriteString("\nFailures:\n\n")
+	raw.WriteString("  1) Widget does the important thing\n")
+	raw.WriteString("     Failure/Error: expect(result).to eq(:ok)\n")
+	raw.WriteString("       expected: :ok\n")
+	raw.WriteString("            got: :bad\n")
+	raw.WriteString("     # ./spec/widget_spec.rb:42:in `block (2 levels) in <top (required)>'\n\n")
+	raw.WriteString("Finished in 1.2 seconds (files took 0.8 seconds to load)\n")
+	raw.WriteString("91 examples, 1 failure\n")
+	realBundle := writeFakeCommand(t, "bundle", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=bundle", "--real-bin=" + realBundle, "--", "exec", "rspec", "spec/widget_spec.rb"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "Failures:") ||
+		!strings.Contains(got, "Widget does the important thing") ||
+		!strings.Contains(got, "91 examples, 1 failure") ||
+		strings.Contains(got, "intermediate success noise line 089") {
+		t.Fatalf("unexpected compacted bundle rspec stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("intermediate success noise line 089")) ||
+		!bytes.Contains(archived, []byte("91 examples, 1 failure")) {
+		t.Fatalf("archive did not preserve raw bundle rspec output: %q", archived)
+	}
+}
+
+func TestCommandOutputFirstShimRubyMinitestCompactsWithArchive(t *testing.T) {
+	var raw strings.Builder
+	raw.WriteString("Run options: --seed 4242\n\n")
+	raw.WriteString("# Running:\n\n")
+	for i := 0; i < 8; i++ {
+		raw.WriteString(strings.Repeat(".", 80))
+		raw.WriteByte('\n')
+	}
+	raw.WriteString("\nFinished in 0.123456s, 5184.0 runs/s, 10368.0 assertions/s.\n")
+	raw.WriteString("640 runs, 1280 assertions, 0 failures, 0 errors, 0 skips\n")
+	realRuby := writeFakeCommand(t, "ruby", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=ruby", "--real-bin=" + realRuby, "--", "-I", "test", "test/models/widget_test.rb"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[minitest] ok - 640 runs, 1280 assertions, progress dots elided") ||
+		strings.Contains(got, strings.Repeat(".", 80)) {
+		t.Fatalf("unexpected compacted minitest stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte(strings.Repeat(".", 80))) ||
+		!bytes.Contains(archived, []byte("640 runs, 1280 assertions")) {
+		t.Fatalf("archive did not preserve raw minitest output: %q", archived)
+	}
+}
+
+func TestCommandOutputFirstShimBundleInstallCompactsWithArchive(t *testing.T) {
+	var raw strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&raw, "Fetching gem noisy_dependency_%03d 1.2.%d\n", i, i)
+	}
+	raw.WriteString("Bundle complete! 12 Gemfile dependencies, 101 gems now installed.\n")
+	realBundle := writeFakeCommand(t, "bundle", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=bundle", "--real-bin=" + realBundle, "--", "install", "--jobs", "4"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "Bundle complete! 12 Gemfile dependencies") ||
+		strings.Contains(got, "noisy_dependency_099") {
+		t.Fatalf("unexpected compacted bundle install stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("noisy_dependency_099")) ||
+		!bytes.Contains(archived, []byte("Bundle complete! 12 Gemfile dependencies")) {
+		t.Fatalf("archive did not preserve raw bundle install output: %q", archived)
+	}
+}
+
 func TestCommandOutputFirstDotnetEdges(t *testing.T) {
 	for _, args := range [][]string{
 		{"build"},
@@ -1726,6 +1906,120 @@ func TestCommandOutputFirstDotnetEdges(t *testing.T) {
 	} {
 		if commandOutputFirstDirectBuildAllowed("dotnet", args) || commandOutputFirstDirectTestAllowed("dotnet", args) {
 			t.Fatalf("dotnet %v must not be command-output-first allowed", args)
+		}
+	}
+}
+
+func TestCommandOutputFirstRubyBundleEdges(t *testing.T) {
+	rubyAllowed := [][]string{
+		{"test/models/user_test.rb"},
+		{"./test/models/user_test.rb"},
+		{"-w", "-Itest", "-rminitest/autorun", "test/models/user_test.rb"},
+		{"--", "test/models/user_test.rb"},
+	}
+	for _, args := range rubyAllowed {
+		if !commandOutputFirstRubyMinitestAllowed(args) {
+			t.Fatalf("ruby %v should be minitest-allowed", args)
+		}
+	}
+
+	rubyDenied := [][]string{
+		nil,
+		{""},
+		{"-e", "puts 1"},
+		{"--eval", "puts 1"},
+		{"-"},
+		{"--"},
+		{"-I"},
+		{"-C", ""},
+		{"script.rb"},
+		{"spec/models/user_spec.rb"},
+	}
+	for _, args := range rubyDenied {
+		if commandOutputFirstRubyMinitestAllowed(args) {
+			t.Fatalf("ruby %v must not be minitest-allowed", args)
+		}
+	}
+
+	bundleAllowed := [][]string{
+		{"exec", "rspec", "spec"},
+		{"exec", "rake", "test"},
+		{"exec", "rake", "spec"},
+		{"exec", "rails", "test"},
+		{"exec", "ruby", "-I", "test", "test/models/user_test.rb"},
+	}
+	for _, args := range bundleAllowed {
+		if !commandOutputFirstBundleExecRubyTestAllowed(args) {
+			t.Fatalf("bundle %v should be test-allowed", args)
+		}
+	}
+
+	bundleDenied := [][]string{
+		nil,
+		{"exec"},
+		{"rspec"},
+		{"exec", "rake", "db:migrate"},
+		{"exec", "rails", "server"},
+		{"exec", "ruby", "script.rb"},
+		{"exec", "unknown", "test"},
+	}
+	for _, args := range bundleDenied {
+		if commandOutputFirstBundleExecRubyTestAllowed(args) {
+			t.Fatalf("bundle %v must not be test-allowed", args)
+		}
+	}
+
+	installAllowed := [][]string{
+		nil,
+		{"--jobs=4", "--retry", "2", "--path", "vendor/bundle"},
+		{"--with", "development", "--without=production", "--gemfile", "Gemfile"},
+	}
+	for _, args := range installAllowed {
+		if !commandOutputFirstBundleInstallArgsAllowed(args) {
+			t.Fatalf("bundle install args %v should be allowed", args)
+		}
+	}
+
+	installDenied := [][]string{
+		{""},
+		{"--verbose"},
+		{"-v"},
+		{"--jobs"},
+		{"--gemfile", ""},
+		{"--unknown"},
+	}
+	for _, args := range installDenied {
+		if commandOutputFirstBundleInstallArgsAllowed(args) {
+			t.Fatalf("bundle install args %v must not be allowed", args)
+		}
+	}
+
+	diagnosticAllowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "rspec", args: []string{"spec"}},
+		{command: "rake", args: []string{"spec"}},
+		{command: "ruby", args: []string{"test/models/user_test.rb"}},
+		{command: "bundle", args: []string{"exec", "rspec", "spec"}},
+	}
+	for _, tc := range diagnosticAllowed {
+		if !commandOutputFirstRubyDiagnosticAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v should allow ruby diagnostics", tc.command, tc.args)
+		}
+	}
+	diagnosticDenied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "rake", args: []string{"db:migrate"}},
+		{command: "ruby", args: []string{"script.rb"}},
+		{command: "bundle", args: []string{"exec", "rails", "server"}},
+		{command: "unknown", args: []string{"spec"}},
+	}
+	for _, tc := range diagnosticDenied {
+		if commandOutputFirstRubyDiagnosticAllowed(tc.command, tc.args) {
+			t.Fatalf("%s %v must not allow ruby diagnostics", tc.command, tc.args)
 		}
 	}
 }

@@ -1572,6 +1572,8 @@ func pkgToolLabel(argv []string) string {
 		}
 	case b0 == "bun" && argv[1] == "install":
 		return "bun install"
+	case b0 == "bundle" && (argv[1] == "install" || argv[1] == "update"):
+		return fmt.Sprintf("bundle %s", argv[1])
 	case (b0 == "uv" || b0 == "uv.exe") && argv[1] == "sync":
 		return "uv sync"
 	case (b0 == "uv" || b0 == "uv.exe") && len(argv) >= 3 && argv[1] == "pip" && argv[2] == "install":

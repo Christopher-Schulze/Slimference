@@ -78,7 +78,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"swiftlint", "ktlint", "detekt",
 		"vitest", "jest", "mocha", "ava", "karma", "playwright", "cypress",
 		"wdio", "nx", "turbo", "deno", "phpunit", "ctest", "ginkgo",
-		"nox", "tox", "hatch", "rspec", "rake", "rails", "dart", "flutter",
+		"nox", "tox", "hatch", "ruby", "bundle", "rspec", "rake", "rails", "dart", "flutter",
 		"gradle", "sbt", "mill",
 		"tsup", "rspack", "parcel", "rollup", "esbuild", "mvn", "mvnw",
 		"dotnet", "dotnet.exe",
@@ -320,6 +320,9 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
+	case "bundle":
+		return commandOutputFirstPackageOutputAllowed(command, args) ||
+			commandOutputFirstBundleExecRubyTestAllowed(args)
 	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
 		if commandOutputFirstLogDuplicateAllowed(command, args) {
 			return true
@@ -408,6 +411,10 @@ func commandOutputFirstDirectTestAllowed(command string, args []string) bool {
 		return commandOutputFirstDotnetTestAllowed(args)
 	case "vitest", "jest", "mocha", "ava", "phpunit", "ctest", "ginkgo", "rspec":
 		return true
+	case "ruby":
+		return commandOutputFirstRubyMinitestAllowed(args)
+	case "bundle":
+		return commandOutputFirstBundleExecRubyTestAllowed(args)
 	case "karma":
 		return commandOutputFirstFirstNonOption(args) == "start"
 	case "playwright":
@@ -433,6 +440,82 @@ func commandOutputFirstDirectTestAllowed(command string, args []string) bool {
 		return commandOutputFirstArgsContain(args, "test")
 	case "mill":
 		return commandOutputFirstMillTestAllowed(args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstRubyMinitestAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		switch arg {
+		case "-e", "--eval", "-":
+			return false
+		case "--":
+			if i+1 >= len(args) {
+				return false
+			}
+			return commandOutputFirstRubyTestFile(args[i+1])
+		}
+		if commandOutputFirstRubyOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return commandOutputFirstRubyTestFile(arg)
+	}
+	return false
+}
+
+func commandOutputFirstRubyOptionConsumesValue(arg string) bool {
+	if strings.HasPrefix(arg, "-I") && len(arg) > 2 {
+		return false
+	}
+	if strings.HasPrefix(arg, "-r") && len(arg) > 2 {
+		return false
+	}
+	switch arg {
+	case "-I", "-r", "-C", "-E", "--encoding":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstRubyTestFile(arg string) bool {
+	path := filepath.ToSlash(strings.TrimSpace(arg))
+	if !strings.HasSuffix(path, "_test.rb") {
+		return false
+	}
+	return strings.HasPrefix(path, "test/") ||
+		strings.HasPrefix(path, "./test/") ||
+		strings.Contains(path, "/test/")
+}
+
+func commandOutputFirstBundleExecRubyTestAllowed(args []string) bool {
+	if len(args) < 2 || strings.TrimSpace(args[0]) != "exec" {
+		return false
+	}
+	tool := strings.TrimSpace(args[1])
+	toolArgs := args[2:]
+	switch tool {
+	case "rspec":
+		return true
+	case "rake":
+		sub := commandOutputFirstFirstNonOption(toolArgs)
+		return sub == "test" || sub == "spec"
+	case "rails":
+		return commandOutputFirstFirstNonOption(toolArgs) == "test"
+	case "ruby":
+		return commandOutputFirstRubyMinitestAllowed(toolArgs)
 	default:
 		return false
 	}
@@ -1486,6 +1569,13 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "pip", "pip3":
 		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "bundle":
+		if commandOutputFirstPackageOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		compacted, ok := filter.TryCompactRubyOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "dotnet", "dotnet.exe":
 		compacted, ok := filter.TryCompactDotnet(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
@@ -1560,6 +1650,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb":
 		compacted, ok := filter.TryCompactPsql(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "ruby", "rspec", "rake":
+		compacted, ok := filter.TryCompactRubyOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
@@ -1654,11 +1747,31 @@ func compactCommandOutputFirstNonzeroDiagnostic(command string, args, argv []str
 		compacted, ok := filter.TryCompactMypyDiagnostics(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	}
+	if commandOutputFirstRubyDiagnosticAllowed(command, args) {
+		compacted, ok := filter.TryCompactRubyOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	}
 	if commandOutputFirstStructuredDiagnosticAllowed(command, args) {
 		compacted, ok := filter.ParseFailures(argv, string(stdout))
 		return commandOutputFirstPositiveCompaction([]byte(compacted), ok, stdout)
 	}
 	return nil, false
+}
+
+func commandOutputFirstRubyDiagnosticAllowed(command string, args []string) bool {
+	switch command {
+	case "rspec":
+		return true
+	case "rake":
+		sub := commandOutputFirstFirstNonOption(args)
+		return sub == "test" || sub == "spec"
+	case "ruby":
+		return commandOutputFirstRubyMinitestAllowed(args)
+	case "bundle":
+		return commandOutputFirstBundleExecRubyTestAllowed(args)
+	default:
+		return false
+	}
 }
 
 func commandOutputFirstStructuredDiagnosticAllowed(command string, args []string) bool {
@@ -2168,6 +2281,14 @@ func commandOutputFirstPackageOutputAllowed(command string, args []string) bool 
 	case "pip", "pip3":
 		verb, idx := packageScriptFirstCommand(args)
 		return verb == "install" && idx >= 0
+	case "bundle":
+		verb, idx := packageScriptFirstCommand(args)
+		switch verb {
+		case "install", "update":
+			return idx >= 0 && commandOutputFirstBundleInstallArgsAllowed(args[idx+1:])
+		default:
+			return false
+		}
 	default:
 		return false
 	}
@@ -2249,6 +2370,37 @@ func commandOutputFirstBunInstallArgsAllowed(args []string) bool {
 			continue
 		default:
 			return false
+		}
+	}
+	return true
+}
+
+func commandOutputFirstBundleInstallArgsAllowed(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := strings.ToLower(strings.TrimSpace(args[i]))
+		if arg == "" {
+			return false
+		}
+		switch arg {
+		case "--verbose", "-v":
+			return false
+		case "--jobs", "-j", "--retry", "--path", "--with", "--without", "--gemfile":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+		default:
+			if strings.HasPrefix(arg, "--jobs=") ||
+				strings.HasPrefix(arg, "--retry=") ||
+				strings.HasPrefix(arg, "--path=") ||
+				strings.HasPrefix(arg, "--with=") ||
+				strings.HasPrefix(arg, "--without=") ||
+				strings.HasPrefix(arg, "--gemfile=") {
+				continue
+			}
+			if strings.HasPrefix(arg, "-") {
+				return false
+			}
 		}
 	}
 	return true
