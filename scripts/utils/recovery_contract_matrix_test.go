@@ -48,6 +48,9 @@ func TestBuildRecoveryContractMatrixReport(t *testing.T) {
 	assertRecoveryRow(t, report.Rows, "t418_command_output_first_archive_stdout", true, nil)
 	assertRecoveryRow(t, report.Rows, "t417_class_b_server_state_recovery_gate", false, []string{"not_default_eligible"})
 	assertRecoveryRow(t, report.Rows, "t408_backend_honored_reference_lane3", false, []string{"not_default_eligible", "missing_mechanical_recovery"})
+	assertRecoveryRowFields(t, report.Rows, "wss_http_archive_reinject_before_upstream",
+		[]string{"re_inject_bytes_raw", "re_inject_tokens_estimate"},
+		[]string{"separate rehydrate byte/token cost counters"})
 }
 
 func TestRunRecoveryContractMatrixJSONAndGate(t *testing.T) {
@@ -99,6 +102,27 @@ func assertRecoveryRow(t *testing.T, rows []recoveryContractRow, id string, want
 		for _, blocker := range wantBlockers {
 			if !stringSliceContains(row.Blockers, blocker) {
 				t.Fatalf("%s missing blocker %q in %v", id, blocker, row.Blockers)
+			}
+		}
+		return
+	}
+	t.Fatalf("row %s not found", id)
+}
+
+func assertRecoveryRowFields(t *testing.T, rows []recoveryContractRow, id string, wantRequired []string, wantEvidence []string) {
+	t.Helper()
+	for _, row := range rows {
+		if row.ID != id {
+			continue
+		}
+		for _, field := range wantRequired {
+			if !stringSliceContains(row.RequiredFields, field) {
+				t.Fatalf("%s missing required field %q in %v", id, field, row.RequiredFields)
+			}
+		}
+		for _, evidence := range wantEvidence {
+			if !stringSliceContains(row.PreservedEvidence, evidence) {
+				t.Fatalf("%s missing preserved evidence %q in %v", id, evidence, row.PreservedEvidence)
 			}
 		}
 		return

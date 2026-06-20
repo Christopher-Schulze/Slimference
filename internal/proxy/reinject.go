@@ -122,7 +122,7 @@ func (p *Proxy) reinjectArchivedContentForSession(sessionID string, messages []t
 					Type: "text",
 					Text: "[reinjected from " + m[0] + "]\n" + string(body),
 				})
-				contentarchive.RecordReInject(archiveDir)
+				contentarchive.RecordReInjectBytes(archiveDir, len(body))
 				if p.qualityNetSavings != nil {
 					p.qualityNetSavings.RecordInvalidation(len(body) / 4)
 				}

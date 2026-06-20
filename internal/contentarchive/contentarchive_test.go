@@ -461,6 +461,24 @@ func TestRecordReInject(t *testing.T) {
 	if stats.ReInjectCount != 1 || stats.LastReInjected.IsZero() {
 		t.Fatalf("re-inject not recorded: %+v", stats)
 	}
+	if stats.ReInjectBytesRaw != 0 || stats.ReInjectTokensEstimate != 0 {
+		t.Fatalf("count-only reinject should not invent cost: %+v", stats)
+	}
+}
+
+func TestRecordReInjectBytesRecordsRecoveryCost(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Put(dir, sampleInput(), Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	RecordReInjectBytes(dir, 123)
+	stats, err := LoadStats(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.ReInjectCount != 1 || stats.ReInjectBytesRaw != 123 || stats.ReInjectTokensEstimate != 30 {
+		t.Fatalf("reinject cost not recorded: %+v", stats)
+	}
 }
 
 func TestRecordReInjectBatch_NoOpOnZero(t *testing.T) {
@@ -486,6 +504,18 @@ func TestRecordReInjectBatch_AdvancesByN(t *testing.T) {
 	stats, _ := LoadStats(dir)
 	if stats.ReInjectCount != 3 {
 		t.Fatalf("expected 3, got %d", stats.ReInjectCount)
+	}
+}
+
+func TestRecordReInjectBatchCost_AdvancesCountAndCost(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Put(dir, sampleInput(), Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	RecordReInjectBatchCost(dir, 3, 400)
+	stats, _ := LoadStats(dir)
+	if stats.ReInjectCount != 3 || stats.ReInjectBytesRaw != 400 || stats.ReInjectTokensEstimate != 100 {
+		t.Fatalf("expected batch count and cost, got %+v", stats)
 	}
 }
 

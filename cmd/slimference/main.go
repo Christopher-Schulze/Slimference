@@ -2220,8 +2220,8 @@ func handleDoctorCmd() {
 		if err != nil {
 			return fmt.Sprintf("unreadable: %v", err), false
 		}
-		return fmt.Sprintf("%s - archived %d, expanded %d, re-injects %d",
-			dir, stats.Archived, stats.Expanded, stats.ReInjectCount), true
+		return fmt.Sprintf("%s - archived %d, expanded %d, re-injects %d, re-inject bytes %d, re-inject tokens est %d",
+			dir, stats.Archived, stats.Expanded, stats.ReInjectCount, stats.ReInjectBytesRaw, stats.ReInjectTokensEstimate), true
 	})
 
 	// T69: integration fallback checks. These surface the common

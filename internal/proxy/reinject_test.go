@@ -99,6 +99,9 @@ func TestReinjectArchivedContent_HappyPath(t *testing.T) {
 	if stats.ReInjectCount == 0 {
 		t.Fatal("re-inject counter did not advance")
 	}
+	if stats.ReInjectBytesRaw != int64(len(original)) || stats.ReInjectTokensEstimate != int64(len(original)/4) {
+		t.Fatalf("re-inject recovery cost not recorded: %+v want bytes=%d tokens=%d", stats, len(original), len(original)/4)
+	}
 }
 
 func TestReinjectArchivedContent_DuplicateRefDedupedPerMessage(t *testing.T) {

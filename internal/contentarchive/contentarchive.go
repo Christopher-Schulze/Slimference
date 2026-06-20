@@ -71,16 +71,18 @@ type Entry struct {
 
 // Stats captures aggregate counters for the archive directory.
 type Stats struct {
-	Count          int       `json:"count"`
-	Archived       int       `json:"archived"`
-	Expanded       int       `json:"expanded"`
-	ReInjectCount  int       `json:"re_inject_count"`
-	Evictions      int       `json:"evictions"`
-	BytesRaw       int64     `json:"bytes_raw"`
-	BytesStored    int64     `json:"bytes_stored"`
-	LastArchived   time.Time `json:"last_archived"`
-	LastExpanded   time.Time `json:"last_expanded"`
-	LastReInjected time.Time `json:"last_re_injected"`
+	Count                  int       `json:"count"`
+	Archived               int       `json:"archived"`
+	Expanded               int       `json:"expanded"`
+	ReInjectCount          int       `json:"re_inject_count"`
+	ReInjectBytesRaw       int64     `json:"re_inject_bytes_raw"`
+	ReInjectTokensEstimate int64     `json:"re_inject_tokens_estimate"`
+	Evictions              int       `json:"evictions"`
+	BytesRaw               int64     `json:"bytes_raw"`
+	BytesStored            int64     `json:"bytes_stored"`
+	LastArchived           time.Time `json:"last_archived"`
+	LastExpanded           time.Time `json:"last_expanded"`
+	LastReInjected         time.Time `json:"last_re_injected"`
 }
 
 // Limits configures eviction thresholds. Zero values fall back to defaults.
@@ -285,6 +287,20 @@ func RecordReInject(dir string) {
 // read/write so callers that detect multiple URIs in one response do
 // not pay N file-I/O round trips.
 func RecordReInjectBatch(dir string, n int) {
+	RecordReInjectBatchCost(dir, n, 0)
+}
+
+// RecordReInjectBytes records one exact rehydration and its raw-byte cost.
+// Token cost uses the same conservative byte/4 estimate as quality net-savings
+// invalidation accounting so archive recovery is visible in both surfaces.
+func RecordReInjectBytes(dir string, rawBytes int) {
+	RecordReInjectBatchCost(dir, 1, int64(rawBytes))
+}
+
+// RecordReInjectBatchCost advances re-injection counters and raw-byte/token
+// cost estimates in one write. It is telemetry-only and fail-open: errors are
+// intentionally swallowed so request handling never depends on stats I/O.
+func RecordReInjectBatchCost(dir string, n int, rawBytes int64) {
 	if n <= 0 {
 		return
 	}
@@ -293,6 +309,10 @@ func RecordReInjectBatch(dir string, n int) {
 		return
 	}
 	stats.ReInjectCount += n
+	if rawBytes > 0 {
+		stats.ReInjectBytesRaw += rawBytes
+		stats.ReInjectTokensEstimate += rawBytes / 4
+	}
 	stats.LastReInjected = time.Now().UTC()
 	_ = SaveStats(dir, stats)
 }
