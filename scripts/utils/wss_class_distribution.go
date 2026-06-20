@@ -109,6 +109,11 @@ type wssClassDistributionReport struct {
 	Classes                         []wssClassDistributionClassRow `json:"classes"`
 	T354ShapeTable                  []wssClassDistributionT354Row  `json:"t354_shape_table,omitempty"`
 	RootContextLedger               []wssLocalGapRootContextRow    `json:"root_context_ledger,omitempty"`
+	RootContextLedgerRequests       int                            `json:"root_context_ledger_requests"`
+	RootContextLedgerTokens         int                            `json:"root_context_ledger_tokens"`
+	RootContextLedgerCoverageRatio  float64                        `json:"root_context_ledger_coverage_ratio"`
+	RootContextLedgerMissingReqs    int                            `json:"root_context_ledger_missing_requests"`
+	RootContextLedgerMissingTokens  int                            `json:"root_context_ledger_missing_other_context_tokens"`
 	PerLog                          []wssClassDistributionLogRow   `json:"per_log,omitempty"`
 	Notes                           []string                       `json:"notes,omitempty"`
 }
@@ -575,7 +580,14 @@ func (a *wssClassDistributionAccumulator) addPhaseF(summary dbg.RequestSummary, 
 	}
 
 	resolution := wssAuditResolveRequestShape(summary)
-	a.addRootContextLedger(summary.DebugFacts, resolution.Shape)
+	if otherTokens > 0 {
+		if a.addRootContextLedger(summary.DebugFacts, resolution.Shape) {
+			a.report.RootContextLedgerRequests++
+		} else {
+			a.report.RootContextLedgerMissingReqs++
+			a.report.RootContextLedgerMissingTokens += otherTokens
+		}
+	}
 	class := wssClassDistributionClassForShape(resolution.Shape)
 	row := a.classRow(class)
 	row.Requests++
@@ -762,10 +774,11 @@ func (a *wssClassDistributionAccumulator) addT354Shape(summary dbg.RequestSummar
 	}
 }
 
-func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]string, shape string) {
+func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]string, shape string) bool {
 	if a == nil || facts == nil {
-		return
+		return false
 	}
+	added := false
 	nonPrefixBytes := wssLocalGapFactInt(facts, "wss.non_prefix_bytes")
 	nonPrefixTokens := wssLocalGapFactInt(facts, "wss.non_prefix_estimated_tokens")
 	rawInputBytes := wssLocalGapFactInt(facts, "wss.raw_input_bytes")
@@ -784,6 +797,7 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "conversation/user/assistant context is model-visible state; reduce only through exact continuation/reference ownership or deterministic safe context pruning",
 			NextStep:        "rank for T408/T417 root-context ownership; do not treat as tool-output reducer mass",
 		}, shape)
+		added = true
 	}
 	if functionCallBytes > 0 {
 		a.addRootContextRow(wssLocalGapRootContextRow{
@@ -795,6 +809,7 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "function-call history is server/model state binding; mutation needs exact lineage, retry-cost, and downstream-state accounting",
 			NextStep:        "feed T417 continuation/reroute ranking before any broad history mutation",
 		}, shape)
+		added = true
 	}
 	if functionOutputBytes > 0 {
 		a.addRootContextRow(wssLocalGapRootContextRow{
@@ -806,6 +821,7 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "function-call output history can be compacted only with exact archive/rehydrate recovery and downstream-state safety",
 			NextStep:        "route through T419 recovery contract plus T417/T408 lineage before product activation",
 		}, shape)
+		added = true
 	}
 	if reasoningBytes > 0 {
 		a.addRootContextRow(wssLocalGapRootContextRow{
@@ -817,6 +833,7 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "reasoning/encrypted context is protected model state; do not mutate or reconstruct",
 			NextStep:        "exclude from savings candidates unless a backend-owned exact continuation contract exists",
 		}, shape)
+		added = true
 	}
 	if otherBytes > 0 {
 		a.addRootContextRow(wssLocalGapRootContextRow{
@@ -828,6 +845,7 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "unclassified raw input bytes cannot be safely reduced without stronger shape ownership",
 			NextStep:        "instrument exact input item classes before treating this as savings surface",
 		}, shape)
+		added = true
 	}
 	envelopeBytes := nonPrefixBytes - rawInputBytes
 	if envelopeBytes > 0 {
@@ -840,7 +858,9 @@ func (a *wssClassDistributionAccumulator) addRootContextLedger(facts map[string]
 			Policy:          "non-input request envelope bytes need route/schema ownership before any reduction",
 			NextStep:        "separate stable envelope metadata from backend-required state before T408/T417 design",
 		}, shape)
+		added = true
 	}
+	return added
 }
 
 func (a *wssClassDistributionAccumulator) addRootContextRow(row wssLocalGapRootContextRow, shape string) {
@@ -1345,8 +1365,12 @@ func (a *wssClassDistributionAccumulator) finalize(targetRatio float64) {
 	a.report.RootContextLedger = make([]wssLocalGapRootContextRow, 0, len(a.rootContextRows))
 	for _, row := range a.rootContextRows {
 		copy := *row
+		a.report.RootContextLedgerTokens += copy.EstimatedTokens
 		a.report.RootContextLedger = append(a.report.RootContextLedger, copy)
 	}
+	covered := a.report.RootContextLedgerTokens
+	missing := a.report.RootContextLedgerMissingTokens
+	a.report.RootContextLedgerCoverageRatio = wssLocalGapRatio(covered, covered+missing)
 	sort.Slice(a.report.RootContextLedger, func(i, j int) bool {
 		left, right := a.report.RootContextLedger[i], a.report.RootContextLedger[j]
 		if left.EstimatedTokens != right.EstimatedTokens {
@@ -1512,11 +1536,19 @@ func wssClassDistributionNotes(report wssClassDistributionReport, targetRatio fl
 	if len(report.RootContextLedger) > 0 {
 		top := report.RootContextLedger[0]
 		notes = append(notes, fmt.Sprintf(
-			"Root/context ledger: top surface %s carries %d bytes (~%d tokens) across %d requests; this is T408/T417 ownership mass, not Layer-0 reducer mass.",
+			"Root/context ledger: top surface %s carries %d bytes (~%d tokens) across %d requests; coverage %.2f%%; this is T408/T417 ownership mass, not Layer-0 reducer mass.",
 			top.Surface,
 			top.Bytes,
 			top.EstimatedTokens,
 			top.Requests,
+			report.RootContextLedgerCoverageRatio*100,
+		))
+	}
+	if report.RootContextLedgerMissingTokens > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"Root/context ledger missing: %d other-context tokens across %d requests lack raw-input split facts; capture a fresh proof window before choosing a T408/T417 root-context mutation.",
+			report.RootContextLedgerMissingTokens,
+			report.RootContextLedgerMissingReqs,
 		))
 	}
 	delta := wssClassDistributionFindClass(report.Classes, wssClassDistributionClassFullHistory)
@@ -1605,6 +1637,14 @@ func writeWSSClassDistributionText(w io.Writer, report wssClassDistributionRepor
 	}
 	fmt.Fprintf(w, "  Reducible tool-output (Layer-0): %d / %.2f%%  [the only Layer-0 target]\n", report.ReducibleToolOutputTokens, report.ReducibleToolOutputShare*100)
 	fmt.Fprintf(w, "  Other context (msgs/reasoning):  %d / %.2f%%  [model context, not L0-reducible]\n", report.OtherContextTokens, report.OtherContextShare*100)
+	if report.RootContextLedgerTokens > 0 || report.RootContextLedgerMissingTokens > 0 {
+		fmt.Fprintf(w, "    root/context ledger: covered=%d missing=%d coverage=%.2f%% requests=%d missing_requests=%d\n",
+			report.RootContextLedgerTokens,
+			report.RootContextLedgerMissingTokens,
+			report.RootContextLedgerCoverageRatio*100,
+			report.RootContextLedgerRequests,
+			report.RootContextLedgerMissingReqs)
+	}
 	if report.PrefixMutationSavedTokens > 0 {
 		fmt.Fprintf(w, "  (prefix-mutation lab savings excluded from reducible: %d tokens)\n", report.PrefixMutationSavedTokens)
 	}

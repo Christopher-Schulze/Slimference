@@ -347,6 +347,13 @@ func TestWSSClassDistributionRootContextLedger(t *testing.T) {
 	if len(report.RootContextLedger) != 6 {
 		t.Fatalf("root context ledger rows = %d, want 6: %+v", len(report.RootContextLedger), report.RootContextLedger)
 	}
+	if report.RootContextLedgerRequests != 1 ||
+		report.RootContextLedgerTokens != 18000 ||
+		report.RootContextLedgerMissingReqs != 0 ||
+		report.RootContextLedgerMissingTokens != 0 {
+		t.Fatalf("bad root context coverage counters: %+v", report)
+	}
+	floatNearTest(t, report.RootContextLedgerCoverageRatio, 1.0)
 	messages := wssClassDistributionRootContextRowBySurface(report.RootContextLedger, "raw_input_messages")
 	if messages == nil ||
 		messages.RiskClass != "model_context_ownership_candidate" ||
@@ -384,10 +391,44 @@ func TestWSSClassDistributionRootContextLedger(t *testing.T) {
 		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Root/context ledger:") ||
+		!strings.Contains(stdout.String(), "root/context ledger: covered=18000 missing=0 coverage=100.00%") ||
 		!strings.Contains(stdout.String(), "surface=raw_input_messages") ||
 		!strings.Contains(stdout.String(), "surface=raw_input_function_call_outputs") ||
 		!strings.Contains(stdout.String(), "surface=non_input_envelope") {
 		t.Fatalf("text output missing root/context ledger:\n%s", stdout.String())
+	}
+}
+
+func TestWSSClassDistributionRootContextLedgerMissingFacts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		wssClassDistributionTestSummary("d1", "delta", 10000, 500, 8000, 4000, 7000, 0))
+
+	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSClassDistribution() error = %v", err)
+	}
+	if len(report.RootContextLedger) != 0 ||
+		report.RootContextLedgerRequests != 0 ||
+		report.RootContextLedgerTokens != 0 ||
+		report.RootContextLedgerMissingReqs != 1 ||
+		report.RootContextLedgerMissingTokens != 500 {
+		t.Fatalf("bad missing root-context counters: %+v", report)
+	}
+	floatNearTest(t, report.RootContextLedgerCoverageRatio, 0)
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "Root/context ledger missing: 500 other-context tokens across 1 requests") {
+		t.Fatalf("missing root-context gap note: %+v", report.Notes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSClassDistribution([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "root/context ledger: covered=0 missing=500 coverage=0.00%") {
+		t.Fatalf("text output missing root/context coverage gap:\n%s", stdout.String())
 	}
 }
 
