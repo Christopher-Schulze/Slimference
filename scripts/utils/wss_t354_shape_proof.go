@@ -754,7 +754,8 @@ func wssT354T408OpenSliceFromCandidate(candidate wssShadowMirrorCandidate) (wssT
 	if candidate.CandidateLane != "t417_class_b_server_state" ||
 		!candidate.PromotionOpenReady ||
 		candidate.PromotionOpenHeadroom <= 0 ||
-		len(candidate.PromotionOpenBlockers) > 0 {
+		len(candidate.PromotionOpenBlockers) > 0 ||
+		!wssT354T408OpenSliceProductizableKind(candidate.Kind) {
 		return wssT354T408OpenSlice{}, false
 	}
 	row := wssT354T408OpenSlice{
@@ -788,6 +789,15 @@ func wssT354T408OpenSliceFromCandidate(candidate wssShadowMirrorCandidate) (wssT
 		return wssT354T408OpenSlice{}, false
 	}
 	return row, true
+}
+
+func wssT354T408OpenSliceProductizableKind(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "stateful_safe_tool_output", "stateful_safe_history_reducer", "search_cap_stateful_followup":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyWSST354T408OpenSlices(total *wssT354ShapeProofTotal, rows []wssT354T408OpenSlice) {

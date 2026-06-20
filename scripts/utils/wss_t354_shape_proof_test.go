@@ -408,7 +408,7 @@ func TestWSST354ShapeProofIngestsT408OpenSlice(t *testing.T) {
 	writeJSONFile(t, openSlicePath, wssAuditReport{
 		ShadowMirrorCandidates: []wssShadowMirrorCandidate{{
 			RequestShape:                   "full_history",
-			Kind:                           "exact_block",
+			Kind:                           "stateful_safe_tool_output",
 			CandidateLane:                  "t417_class_b_server_state",
 			CandidateLocalTokensEstimate:   1916726,
 			IncrementalLocalTokensHeadroom: 890310,
@@ -458,7 +458,7 @@ func TestWSST354ShapeProofIngestsT408OpenSlice(t *testing.T) {
 	for _, want := range []string{
 		"t408_open_slice_rows=1",
 		"t408_open_slice_headroom_tokens=666975",
-		"top_t408_open_slice=full_history/exact_block",
+		"top_t408_open_slice=full_history/stateful_safe_tool_output",
 	} {
 		if !strings.Contains(findings, want) {
 			t.Fatalf("missing finding %q in %+v", want, report.Findings)
@@ -474,6 +474,41 @@ func TestWSST354ShapeProofIngestsT408OpenSlice(t *testing.T) {
 		!strings.Contains(text, "top_t408_slice:") ||
 		!strings.Contains(text, "t408_open_row:") {
 		t.Fatalf("text report lost T408 open slice: %s", text)
+	}
+}
+
+func TestWSST354ShapeProofRejectsReferenceOnlyT408OpenSlice(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t354-clean.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+	openSlicePath := filepath.Join(dir, "wss-audit-reference-only-open-slice.json")
+	writeJSONFile(t, openSlicePath, wssAuditReport{
+		ShadowMirrorCandidates: []wssShadowMirrorCandidate{{
+			RequestShape:                  "full_history",
+			Kind:                          "exact_block",
+			CandidateLane:                 "t417_class_b_server_state",
+			PromotionOpenRequests:         33,
+			PromotionOpenCandidateTokens:  1156175,
+			PromotionOpenLocalSavedTokens: 489200,
+			PromotionOpenHeadroom:         666975,
+			PromotionOpenReady:            true,
+			PromotionOpenStage:            "t417_exact_scope_open_slice_candidate",
+		}},
+	})
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path, t408OpenSlicePath: openSlicePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || !stringSliceContains(report.GateFailures, "t408_open_slice_candidates=0") || len(report.T408OpenSlices) != 0 {
+		t.Fatalf("reference-only shadow mirror slice must not be accepted as product open slice: %+v", report)
 	}
 }
 
