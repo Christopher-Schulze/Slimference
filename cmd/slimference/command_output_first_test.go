@@ -257,9 +257,18 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "docker", args: []string{"compose", "ps", "-q"}},
 		{command: "docker-compose", args: []string{"ps", "-q"}},
 		{command: "kubectl", args: []string{"get", "pods", "-n", "default"}},
+		{command: "kubectl", args: []string{"get", "pods", "-o", "json"}},
 		{command: "oc", args: []string{"get", "pods"}},
 		{command: "helm", args: []string{"list", "-q"}},
 		{command: "helm", args: []string{"search", "repo", "slimference"}},
+		{command: "terraform", args: []string{"plan", "-no-color"}},
+		{command: "tofu", args: []string{"init"}},
+		{command: "tf", args: []string{"show", "-json"}},
+		{command: "gh", args: []string{"api", "/repos/acme/project"}},
+		{command: "gh", args: []string{"pr", "list", "--json", "number,title"}},
+		{command: "glab", args: []string{"pipeline", "list"}},
+		{command: "aws", args: []string{"sts", "get-caller-identity"}},
+		{command: "jq", args: []string{".", "package.json"}},
 		{command: "gradle", args: []string{"build"}},
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "meson", args: []string{"compile", "-C", "build"}},
@@ -360,6 +369,14 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "oc", args: []string{"get", "pods", "--watch-only"}},
 		{command: "helm", args: []string{"install", "web", "repo/web"}},
 		{command: "helm", args: []string{"upgrade", "web", "repo/web"}},
+		{command: "terraform", args: []string{"apply", "-auto-approve"}},
+		{command: "terraform", args: []string{"destroy"}},
+		{command: "terraform", args: []string{"import", "aws_s3_bucket.main", "id"}},
+		{command: "gh", args: []string{"pr", "view", "1"}},
+		{command: "glab", args: []string{"mr", "view", "1"}},
+		{command: "aws", args: []string{"configure"}},
+		{command: "aws", args: []string{"sso", "login"}},
+		{command: "aws", args: []string{"ecr", "get-login-password"}},
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run", "web:test"}},
@@ -1310,6 +1327,416 @@ func TestCommandOutputFirstContainerStatusEdges(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimTerraformPlanCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("Terraform will perform the following actions:\n\n")
+	for i := 0; i < 36; i++ {
+		fmt.Fprintf(&raw, "  # aws_s3_bucket.generated_%03d will be created\n", i)
+		fmt.Fprintf(&raw, "  + resource \"aws_s3_bucket\" \"generated_%03d\" {\n", i)
+		raw.WriteString("      + acl    = \"private\"\n")
+		raw.WriteString("      + bucket = \"bucket-generated-name\"\n")
+		raw.WriteString("      + tags   = {\n")
+		raw.WriteString("          + \"Environment\" = \"prod\"\n")
+		raw.WriteString("        }\n")
+		raw.WriteString("    }\n\n")
+	}
+	raw.WriteString("Plan: 36 to add, 0 to change, 0 to destroy.\n")
+	realTerraform := writeFakeCommand(t, "terraform", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=terraform", "--real-bin=" + realTerraform, "--", "plan", "-no-color"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	for _, want := range []string{
+		"# aws_s3_bucket.generated_000 will be created",
+		"resource \"aws_s3_bucket\" \"generated_000\"",
+		"Plan: 36 to add, 0 to change, 0 to destroy.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("terraform compact output missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "bucket-generated-name") || strings.Contains(got, "Environment") {
+		t.Fatalf("terraform attribute body should be archived, not visible compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("bucket-generated-name")) ||
+		!bytes.Contains(archived, []byte("aws_s3_bucket.generated_035")) {
+		t.Fatalf("archive did not preserve raw terraform output: %q", archived)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:terraform] terraform plan -no-color") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimVCSHostJSONExactCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("{\n  \"items\": [\n")
+	for i := 0; i < 80; i++ {
+		comma := ","
+		if i == 79 {
+			comma = ""
+		}
+		fmt.Fprintf(&raw, "    {\"id\": %d, \"name\": \"release-%03d\", \"value\": \"%s\"}%s\n", i, i, strings.Repeat("abcdef", 4), comma)
+	}
+	raw.WriteString("  ]\n}\n")
+	realGh := writeFakeCommand(t, "gh", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=gh", "--real-bin=" + realGh, "--", "api", "/repos/acme/project/releases"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if strings.Contains(got, "\n  ") {
+		t.Fatalf("gh api JSON should be minified, got %q", got[:min(len(got), 160)])
+	}
+	for _, want := range []string{`"release-079"`, `"value":"abcdefabcdefabcdefabcdef"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("exact JSON compact output lost %q in %q", want, got[:min(len(got), 220)])
+		}
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:gh] gh api /repos/acme/project/releases") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimJQNonJSONFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "plain\nplain\n"
+	realJQ := writeFakeCommand(t, "jq", "#!/bin/sh\nprintf 'plain\\nplain\\n'\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=jq", "--real-bin=" + realJQ, "--", "-r", ".name", "package.json"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("jq non-json must full-pass\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("non-json full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("jq non-json full-pass must not record accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstInfraJSONEdges(t *testing.T) {
+	allowed := []struct {
+		command string
+		args    []string
+	}{
+		{command: "terraform", args: []string{"plan"}},
+		{command: "terraform", args: []string{"-chdir=infra", "init"}},
+		{command: "tofu", args: []string{"validate"}},
+		{command: "tf", args: []string{"show", "-json"}},
+		{command: "gh", args: []string{"api", "/repos/acme/project"}},
+		{command: "gh", args: []string{"--repo", "acme/project", "pr", "list", "--json", "number,title"}},
+		{command: "glab", args: []string{"pipeline", "list"}},
+		{command: "aws", args: []string{"sts", "get-caller-identity"}},
+		{command: "aws", args: []string{"ec2", "describe-instances", "--output", "json"}},
+		{command: "jq", args: []string{".", "package.json"}},
+		{command: "cargo", args: []string{"metadata", "--format-version", "1"}},
+		{command: "go", args: []string{"env", "-json"}},
+		{command: "npm", args: []string{"view", "react", "--json"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v should be infra/json allowed", tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		command string
+		args    []string
+	}{
+		{command: "terraform", args: []string{"apply", "-auto-approve"}},
+		{command: "terraform", args: []string{"destroy"}},
+		{command: "terraform", args: []string{"refresh"}},
+		{command: "terraform", args: []string{"import", "aws_s3_bucket.main", "id"}},
+		{command: "gh", args: []string{"pr", "view", "1"}},
+		{command: "glab", args: []string{"mr", "view", "1"}},
+		{command: "aws", args: []string{"configure"}},
+		{command: "aws", args: []string{"sso", "login"}},
+		{command: "aws", args: []string{"ecr", "get-login-password"}},
+		{command: "go", args: []string{"env"}},
+		{command: "npm", args: []string{"install", "--json"}},
+		{command: "cargo", args: []string{"install", "ripgrep", "--json"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s %v must not be infra/json allowed", tc.command, tc.args)
+		}
+	}
+}
+
+func TestCommandOutputFirstInfraJSONHelperBoundaries(t *testing.T) {
+	allowed := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "terraform chdir split option", command: "terraform", args: []string{"-chdir", "infra", "plan"}},
+		{name: "terraform var-file split option", command: "terraform", args: []string{"-var-file", "prod.tfvars", "show"}},
+		{name: "docker root inspect", command: "docker", args: []string{"inspect", "web"}},
+		{name: "docker object inspect", command: "docker", args: []string{"container", "inspect", "web"}},
+		{name: "docker compose json", command: "docker", args: []string{"compose", "config", "--format=json"}},
+		{name: "docker-compose json", command: "docker-compose", args: []string{"config", "--format", "json"}},
+		{name: "yarn npm json", command: "yarn", args: []string{"npm", "info", "react", "--json"}},
+		{name: "bun pm json", command: "bun", args: []string{"pm", "view", "react", "--json=1"}},
+		{name: "gh repo list", command: "gh", args: []string{"--repo", "acme/project", "pr", "list"}},
+		{name: "gh json flag", command: "gh", args: []string{"pr", "view", "1", "--json=number"}},
+		{name: "aws region before command", command: "aws", args: []string{"--region", "eu-central-1", "sts", "get-caller-identity"}},
+		{name: "aws output equals json", command: "aws", args: []string{"ec2", "describe-instances", "--output=json"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s: %s %v should be command-output-first allowed", tc.name, tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "terraform missing chdir value", command: "terraform", args: []string{"-chdir"}},
+		{name: "terraform blank var value", command: "terraform", args: []string{"-var", " ", "plan"}},
+		{name: "terraform blank first arg", command: "terraform", args: []string{" ", "plan"}},
+		{name: "docker no args", command: "docker", args: nil},
+		{name: "docker compose no json", command: "docker", args: []string{"compose", "config"}},
+		{name: "docker-compose no json", command: "docker-compose", args: []string{"config"}},
+		{name: "npm json false", command: "npm", args: []string{"view", "react", "--json=false"}},
+		{name: "npm no script", command: "npm", args: []string{"--json"}},
+		{name: "npm unknown json verb", command: "npm", args: []string{"install", "--json"}},
+		{name: "bun direct json", command: "bun", args: []string{"view", "react", "--json"}},
+		{name: "gh no args", command: "gh", args: nil},
+		{name: "gh missing repo value", command: "gh", args: []string{"--repo"}},
+		{name: "gh blank repo value", command: "gh", args: []string{"--repo", " ", "pr", "list"}},
+		{name: "aws no args", command: "aws", args: nil},
+		{name: "aws only option", command: "aws", args: []string{"--profile", "prod"}},
+		{name: "aws missing option value", command: "aws", args: []string{"--region"}},
+		{name: "aws output missing value", command: "aws", args: []string{"sts", "get-caller-identity", "--output"}},
+		{name: "aws text output", command: "aws", args: []string{"sts", "get-caller-identity", "--output", "text"}},
+		{name: "aws output equals text", command: "aws", args: []string{"sts", "get-caller-identity", "--output=text"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("%s: %s %v must not be command-output-first allowed", tc.name, tc.command, tc.args)
+		}
+	}
+}
+
+func TestCommandOutputFirstInfraJSONCompactionBranches(t *testing.T) {
+	var terraformFmt strings.Builder
+	for i := 0; i < 32; i++ {
+		fmt.Fprintf(&terraformFmt, "modules/app_%02d/main.tf\n", i)
+	}
+	var ghRuns strings.Builder
+	for i := 1; i <= 25; i++ {
+		state := "SUCCESS"
+		if i == 23 {
+			state = "FAILURE"
+		}
+		fmt.Fprintf(&ghRuns, "%d\tci run %d\t%s\t2024-01-01\n", i, i, state)
+	}
+	var glabPipelines strings.Builder
+	for i := 1; i <= 25; i++ {
+		status := "success"
+		if i == 22 {
+			status = "failed"
+		}
+		fmt.Fprintf(&glabPipelines, "pipeline-%02d  branch-%02d  %s  2024-01-01\n", i, i, status)
+	}
+	cases := []struct {
+		name    string
+		command string
+		args    []string
+		stdout  []byte
+		want    string
+	}{
+		{
+			name:    "go env json exact",
+			command: "go",
+			args:    []string{"env", "-json"},
+			stdout:  []byte("{\n  \"GOOS\": \"darwin\",\n  \"GOARCH\": \"arm64\"\n}\n"),
+			want:    `{"GOOS":"darwin","GOARCH":"arm64"}`,
+		},
+		{
+			name:    "npm view json exact",
+			command: "npm",
+			args:    []string{"view", "react", "--json"},
+			stdout:  []byte("{\n  \"name\": \"react\",\n  \"version\": \"19.0.0\"\n}\n"),
+			want:    `{"name":"react","version":"19.0.0"}`,
+		},
+		{
+			name:    "cargo metadata summary",
+			command: "cargo",
+			args:    []string{"metadata", "--format-version", "1"},
+			stdout:  []byte(`{"packages":[{"name":"app","version":"0.1.0","id":"path+file:///app#0.1.0"},{"name":"lib","version":"0.2.0","id":"path+file:///lib#0.2.0"},{"name":"serde","version":"1.0.0","id":"registry+serde#1.0.0"}],"workspace_members":["path+file:///app#0.1.0","path+file:///lib#0.2.0"],"resolve":{"nodes":[{"id":"path+file:///app#0.1.0","dependencies":["registry+serde#1.0.0"]}]}}`),
+			want:    "[cargo metadata]",
+		},
+		{
+			name:    "docker inspect json exact",
+			command: "docker",
+			args:    []string{"container", "inspect", "web"},
+			stdout:  []byte("[\n  {\"Id\": \"abc\", \"State\": {\"Status\": \"running\"}}\n]\n"),
+			want:    `"Status":"running"`,
+		},
+		{
+			name:    "kubectl healthy json exact fallback",
+			command: "kubectl",
+			args:    []string{"get", "pods", "-o", "json"},
+			stdout:  []byte("{\n  \"kind\": \"List\",\n  \"items\": []\n}\n"),
+			want:    `{"kind":"List","items":[]}`,
+		},
+		{
+			name:    "terraform init summary",
+			command: "terraform",
+			args:    []string{"init"},
+			stdout: []byte(`Initializing provider plugins...
+- Finding hashicorp/aws versions matching "~> 5.0"...
+- Finding hashicorp/random versions matching "~> 3.5"...
+- Installing hashicorp/aws v5.31.0...
+- Installed hashicorp/aws v5.31.0 (signed by HashiCorp)
+- Installing hashicorp/random v3.5.1...
+- Installed hashicorp/random v3.5.1 (signed by HashiCorp)
+
+Terraform has been successfully initialized!
+`),
+			want: "provider(s) installed",
+		},
+		{
+			name:    "terraform validate summary",
+			command: "terraform",
+			args:    []string{"validate"},
+			stdout: []byte(`Initializing modules...
+
+Success! The configuration is valid.
+
+`),
+			want: "Success!",
+		},
+		{
+			name:    "terraform show text summary",
+			command: "terraform",
+			args:    []string{"show"},
+			stdout: []byte(`  # aws_s3_bucket.main was created
+  + resource "aws_s3_bucket" "main" {
+      + acl = "private"
+    }
+
+Plan: 1 to add, 0 to change, 0 to destroy.
+`),
+			want: "aws_s3_bucket.main",
+		},
+		{
+			name:    "terraform show json summary",
+			command: "terraform",
+			args:    []string{"show", "-json", "plan.out"},
+			stdout:  []byte(`{"format_version":"1.2","resource_changes":[{"address":"aws_s3_bucket.app","change":{"actions":["create"]}},{"address":"aws_iam_role.old","change":{"actions":["delete"]}}]}`),
+			want:    "aws_iam_role.old actions=delete",
+		},
+		{
+			name:    "terraform fmt summary",
+			command: "terraform",
+			args:    []string{"fmt", "-recursive"},
+			stdout:  []byte(terraformFmt.String()),
+			want:    "[terraform] 32 file(s) formatted",
+		},
+		{
+			name:    "gh list summary",
+			command: "gh",
+			args:    []string{"run", "list"},
+			stdout:  []byte(ghRuns.String()),
+			want:    "ci run 23",
+		},
+		{
+			name:    "glab list summary",
+			command: "glab",
+			args:    []string{"pipeline", "list"},
+			stdout:  []byte(glabPipelines.String()),
+			want:    "pipeline-22",
+		},
+		{
+			name:    "aws json exact",
+			command: "aws",
+			args:    []string{"sts", "get-caller-identity"},
+			stdout:  []byte("{\n  \"UserId\": \"AIDAEXAMPLE\",\n  \"Account\": \"123456789012\"\n}\n"),
+			want:    `"Account":"123456789012"`,
+		},
+	}
+	for _, tc := range cases {
+		out, ok := compactCommandOutputFirstStdout(tc.command, tc.command, tc.args, tc.stdout, 0)
+		if !ok {
+			t.Fatalf("%s: expected compaction", tc.name)
+		}
+		if !strings.Contains(string(out), tc.want) {
+			t.Fatalf("%s: compacted output missing %q in %q", tc.name, tc.want, out)
+		}
+		if len(out) >= len(tc.stdout) {
+			t.Fatalf("%s: compacted output must shrink, in=%d out=%d", tc.name, len(tc.stdout), len(out))
+		}
+	}
+}
+
 func TestCommandOutputFirstShimNpxEsbuildCompacts(t *testing.T) {
 	var build strings.Builder
 	for i := 0; i < 40; i++ {
@@ -2233,6 +2660,14 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if err := os.WriteFile(kubectlBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	terraformBin := filepath.Join(binDir, "terraform")
+	if err := os.WriteFile(terraformBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	ghBin := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(ghBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
@@ -2259,6 +2694,12 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "kubectl")); err != nil {
 		t.Fatalf("kubectl shim missing: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "terraform")); err != nil {
+		t.Fatalf("terraform shim missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "gh")); err != nil {
+		t.Fatalf("gh shim missing: %v", err)
+	}
 	bashEnv := envValueInCommand(t, got, "BASH_ENV")
 	bashEnvContent, err := os.ReadFile(bashEnv)
 	if err != nil {
@@ -2266,6 +2707,86 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if !strings.Contains(string(bashEnvContent), "export PATH=") || !strings.Contains(string(bashEnvContent), "${PATH:+:$PATH}") {
 		t.Fatalf("BASH_ENV does not re-prepend shim PATH: %q", bashEnvContent)
+	}
+}
+
+func TestPrepareCommandOutputFirstEnvFailOpenBoundaries(t *testing.T) {
+	oldExecutable := osExecutable
+	t.Cleanup(func() { osExecutable = oldExecutable })
+
+	osExecutable = func() (string, error) { return "", errors.New("missing self") }
+	if env, cleanup, ok := prepareCommandOutputFirstEnv(); ok || env != nil {
+		cleanup()
+		t.Fatalf("osExecutable error must fail open without env, ok=%v env=%v", ok, env)
+	}
+
+	osExecutable = func() (string, error) { return "   ", nil }
+	if env, cleanup, ok := prepareCommandOutputFirstEnv(); ok || env != nil {
+		cleanup()
+		t.Fatalf("blank self path must fail open without env, ok=%v env=%v", ok, env)
+	}
+
+	binDir := t.TempDir()
+	self := filepath.Join(binDir, "slimference")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	osExecutable = func() (string, error) { return self, nil }
+	t.Setenv("PATH", t.TempDir())
+	if env, cleanup, ok := prepareCommandOutputFirstEnv(); ok || env != nil {
+		cleanup()
+		t.Fatalf("no real command binaries must fail open without env, ok=%v env=%v", ok, env)
+	}
+}
+
+func TestRecordCommandOutputFirstRunFailOpenAndMissingCWD(t *testing.T) {
+	oldPath := resolveFilterDBPathFn
+	oldMkdirAll := osMkdirAll
+	oldGetwd := osGetwd
+	t.Cleanup(func() {
+		resolveFilterDBPathFn = oldPath
+		osMkdirAll = oldMkdirAll
+		osGetwd = oldGetwd
+	})
+
+	raw := []byte(strings.Repeat("raw-output-line\n", 80))
+	compacted := []byte("[terraform] compact\n")
+
+	resolveFilterDBPathFn = func() (string, error) { return "", errors.New("db path unavailable") }
+	recordCommandOutputFirstRun("terraform", []string{"plan"}, raw, compacted)
+
+	resolveFilterDBPathFn = func() (string, error) { return " ", nil }
+	recordCommandOutputFirstRun("terraform", []string{"plan"}, raw, compacted)
+
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	resolveFilterDBPathFn = func() (string, error) { return dbPath, nil }
+	osMkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") }
+	recordCommandOutputFirstRun("terraform", []string{"plan"}, raw, compacted)
+
+	osMkdirAll = oldMkdirAll
+	osGetwd = func() (string, error) { return "", errors.New("cwd unavailable") }
+	recordCommandOutputFirstRun("terraform", []string{"plan"}, raw, compacted)
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected accounting row despite missing cwd")
+	}
+	if run.ProjectPath != "" {
+		t.Fatalf("missing cwd must record blank project path, got %q", run.ProjectPath)
+	}
+	if !strings.Contains(run.Command, "[command-output-first:terraform] terraform plan") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
 	}
 }
 

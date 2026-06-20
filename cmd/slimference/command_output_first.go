@@ -73,6 +73,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"gradlew", "meson", "zig", "wasm-pack", "bazel", "bazelisk",
 		"swift", "buf", "ko", "moon", "pack",
 		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
+		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -265,6 +266,9 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 	case "wc":
 		return commandOutputFirstWcAllowed(args)
 	case "go":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			return true
+		}
 		switch commandOutputFirstGoSubcommand(args) {
 		case "test", "build":
 			return true
@@ -272,19 +276,33 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return false
 		}
 	case "npm", "pnpm", "yarn", "bun":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			return true
+		}
 		return commandOutputFirstPackageScriptAllowed(command, args) ||
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "npx":
 		return commandOutputFirstNpxAllowed(args)
 	case "cargo":
-		return commandOutputFirstCargoAllowed(args)
+		return commandOutputFirstCargoAllowed(args) ||
+			commandOutputFirstKnownJSONOutputAllowed(command, args)
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
 		return commandOutputFirstPythonTestAllowed(command, args) ||
 			commandOutputFirstPackageOutputAllowed(command, args)
 	case "pip", "pip3":
 		return commandOutputFirstPackageOutputAllowed(command, args)
 	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
-		return commandOutputFirstContainerStatusAllowed(command, args)
+		return commandOutputFirstContainerStatusAllowed(command, args) ||
+			commandOutputFirstKnownJSONOutputAllowed(command, args)
+	case "terraform", "tofu", "tf":
+		return commandOutputFirstTerraformAllowed(args) ||
+			commandOutputFirstKnownJSONOutputAllowed(command, args)
+	case "gh", "glab":
+		return commandOutputFirstVCSHostAllowed(args)
+	case "aws":
+		return commandOutputFirstAwsJSONAllowed(args)
+	case "jq":
+		return true
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -605,6 +623,246 @@ func commandOutputFirstContainerStatusAllowed(command string, args []string) boo
 	}
 }
 
+func commandOutputFirstTerraformAllowed(args []string) bool {
+	switch commandOutputFirstTerraformSubcommand(args) {
+	case "plan", "init", "validate", "show", "fmt":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstTerraformSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return ""
+		}
+		if commandOutputFirstTerraformOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return ""
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func commandOutputFirstTerraformOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-chdir", "-var", "-var-file", "-state", "-state-out", "-backup", "-config", "-plugin-dir":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstKnownJSONOutputAllowed(command string, args []string) bool {
+	switch command {
+	case "go":
+		sub := commandOutputFirstGoSubcommand(args)
+		return (sub == "env" || sub == "list" || sub == "version") && commandOutputFirstHasJSONMode(args)
+	case "cargo":
+		return commandOutputFirstCargoSubcommand(args) == "metadata"
+	case "kubectl", "oc":
+		return commandOutputFirstFirstNonOption(args) == "get" && commandOutputFirstHasJSONMode(args)
+	case "docker", "podman", "nerdctl":
+		return commandOutputFirstContainerJSONAllowed(command, args)
+	case "docker-compose":
+		return len(args) > 0 && args[0] == "config" && commandOutputFirstHasJSONMode(args)
+	case "terraform", "tofu", "tf":
+		sub := commandOutputFirstTerraformSubcommand(args)
+		return (sub == "show" || sub == "output") && commandOutputFirstHasJSONMode(args)
+	case "npm", "pnpm", "yarn", "bun":
+		return commandOutputFirstPackageJSONAllowed(command, args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstContainerJSONAllowed(command string, args []string) bool {
+	if len(args) < 1 {
+		return false
+	}
+	switch args[0] {
+	case "inspect":
+		return true
+	case "compose":
+		return len(args) >= 2 && args[1] == "config" && commandOutputFirstHasJSONMode(args)
+	default:
+		return len(args) >= 2 && args[1] == "inspect"
+	}
+}
+
+func commandOutputFirstPackageJSONAllowed(command string, args []string) bool {
+	if !commandOutputFirstHasJSONMode(args) {
+		return false
+	}
+	verb, idx := packageScriptFirstCommand(args)
+	if idx < 0 {
+		return false
+	}
+	switch command {
+	case "npm", "pnpm":
+		return commandOutputFirstPackageJSONSubcommand(verb)
+	case "yarn":
+		if commandOutputFirstPackageJSONSubcommand(verb) {
+			return true
+		}
+		return verb == "npm" && idx+1 < len(args) && commandOutputFirstPackageJSONSubcommand(args[idx+1])
+	case "bun":
+		return verb == "pm" && idx+1 < len(args) && commandOutputFirstPackageJSONSubcommand(args[idx+1])
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstPackageJSONSubcommand(sub string) bool {
+	switch sub {
+	case "fund", "info", "list", "ls", "outdated", "query", "view", "why":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstHasJSONMode(args []string) bool {
+	for i, raw := range args {
+		arg := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case arg == "-json" || arg == "--json":
+			return true
+		case strings.HasPrefix(arg, "--json="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--json="))
+			return value != "" && value != "false" && value != "0"
+		case arg == "-o=json" || arg == "--output=json" || arg == "--format=json":
+			return true
+		case arg == "-o" || arg == "--output" || arg == "--format":
+			return i+1 < len(args) && strings.EqualFold(strings.TrimSpace(args[i+1]), "json")
+		}
+	}
+	return false
+}
+
+func commandOutputFirstVCSHostAllowed(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	return commandOutputFirstVCSHostJSONAllowed(args) || commandOutputFirstVCSHostListAllowed(args)
+}
+
+func commandOutputFirstVCSHostJSONAllowed(args []string) bool {
+	return commandOutputFirstFirstNonOption(args) == "api" || commandOutputFirstHasJSONMode(args)
+}
+
+func commandOutputFirstVCSHostListAllowed(args []string) bool {
+	nonOptions := commandOutputFirstNonOptionArgs(args)
+	if len(nonOptions) < 2 {
+		return false
+	}
+	return nonOptions[len(nonOptions)-1] == "list"
+}
+
+func commandOutputFirstNonOptionArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return nil
+		}
+		if commandOutputFirstGenericOptionConsumesValue(arg) || commandOutputFirstVCSOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return nil
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+func commandOutputFirstVCSOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-R", "--repo", "--hostname", "--owner", "--org", "--limit", "-L", "--jq", "-q", "--template":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstAwsJSONAllowed(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	nonOptions := commandOutputFirstAwsNonOptionArgs(args)
+	if len(nonOptions) == 0 {
+		return false
+	}
+	if nonOptions[0] == "configure" {
+		return false
+	}
+	if len(nonOptions) >= 2 && nonOptions[0] == "sso" && nonOptions[1] == "login" {
+		return false
+	}
+	if len(nonOptions) >= 2 && nonOptions[0] == "ecr" && nonOptions[1] == "get-login-password" {
+		return false
+	}
+	for i, raw := range args {
+		arg := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case arg == "--output":
+			if i+1 >= len(args) {
+				return false
+			}
+			value := strings.ToLower(strings.TrimSpace(args[i+1]))
+			return value == "json"
+		case strings.HasPrefix(arg, "--output="):
+			return strings.TrimPrefix(arg, "--output=") == "json"
+		}
+	}
+	return true
+}
+
+func commandOutputFirstAwsNonOptionArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return nil
+		}
+		if commandOutputFirstGenericOptionConsumesValue(arg) || commandOutputFirstAwsOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return nil
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+func commandOutputFirstAwsOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "--profile", "--region", "--endpoint-url", "--ca-bundle", "--cli-input-json", "--cli-input-yaml", "--query":
+		return true
+	default:
+		return false
+	}
+}
+
 func commandOutputFirstMoonBuildAllowed(args []string) bool {
 	if commandOutputFirstFirstNonOption(args) != "run" {
 		return false
@@ -715,6 +973,10 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		compacted, ok := filter.TryCompactWc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		switch commandOutputFirstGoSubcommand(args) {
 		case "test":
 			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
@@ -726,6 +988,10 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			return nil, false
 		}
 	case "npm", "pnpm", "yarn", "bun":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstPackageOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
@@ -772,6 +1038,14 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		}
 		return nil, false
 	case "cargo":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactCargoMetadataJSON(argv, stdout)
+			if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+				return out, true
+			}
+			compacted, ok = filter.TryCompactKnownCLIJSONExact(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		switch commandOutputFirstCargoSubcommand(args) {
 		case "test", "nextest", "llvm-cov":
 			compacted, ok := filter.TryCompactTestOutput(argv, stdout)
@@ -802,7 +1076,63 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		compacted, ok := filter.TryCompactDotnet(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactKubectlJSON(argv, stdout)
+			if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+				return out, true
+			}
+			compacted, ok = filter.TryCompactKnownCLIJSONExact(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		compacted, ok := filter.TryCompactContainerOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "terraform", "tofu", "tf":
+		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
+			compacted, ok := filter.TryCompactTerraformShowJSON(argv, stdout)
+			if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+				return out, true
+			}
+			compacted, ok = filter.TryCompactKnownCLIJSONExact(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		switch commandOutputFirstTerraformSubcommand(args) {
+		case "plan":
+			compacted, ok := filter.TryCompactTerraformPlan(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "init":
+			compacted, ok := filter.TryCompactTerraformInit(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "validate":
+			compacted, ok := filter.TryCompactTerraformValidate(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "show":
+			compacted, ok := filter.TryCompactTerraformShow(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "fmt":
+			compacted, ok := filter.TryCompactFormatOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		default:
+			return nil, false
+		}
+	case "gh", "glab":
+		compacted, ok := filter.TryCompactVCSHostJSONExact(argv, stdout)
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		if commandOutputFirstVCSHostListAllowed(args) {
+			if command == "gh" {
+				compacted, ok = filter.TryCompactGhList(argv, stdout)
+			} else {
+				compacted, ok = filter.TryCompactGlabList(argv, stdout)
+			}
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		return nil, false
+	case "aws":
+		compacted, ok := filter.TryCompactAwsJSONExact(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "jq":
+		compacted, ok := filter.TryCompactJQJSONExact(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
