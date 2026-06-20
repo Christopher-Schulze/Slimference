@@ -132,6 +132,29 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	if !strings.HasPrefix(obsoleteKeyA, "obsolete_prune:plain:cmd=") || obsoleteKeyA == obsoleteKeyB {
 		t.Fatalf("obsolete-prune keys must be command-scoped, got %q and %q", obsoleteKeyA, obsoleteKeyB)
 	}
+	if got := proxyHistoryMutationEvidenceClassFromKeys(map[string]struct{}{obsoleteKeyA: {}}); got != evidence.ContentPlain {
+		t.Fatalf("history evidence class from key=%q, want plain", got)
+	}
+	if got := proxyHistoryMutationEvidenceClassFromKeys(nil); got != evidence.ContentUnknown {
+		t.Fatalf("empty history evidence class=%q, want unknown", got)
+	}
+	if got := proxyHistoryMutationEvidenceClassFromKeys(map[string]struct{}{"malformed": {}}); got != evidence.ContentUnknown {
+		t.Fatalf("malformed history evidence class=%q, want unknown", got)
+	}
+	if got := proxyHistoryMutationEvidenceClassFromKeys(map[string]struct{}{
+		obsoleteKeyA: {},
+		proxyLayer0CacheBustClassKeyForMechanism(proxyLayer0MechanismObsoletePrune, evidence.ContentCode): {},
+	}); got != evidence.ContentUnknown {
+		t.Fatalf("mixed history evidence classes must fall back to unknown, got %q", got)
+	}
+	historyDecision := proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", evidence.ContentPlain, 40, 10, 2, 0.1)
+	if historyDecision.ContentClass != evidence.ContentPlain || historyDecision.FootprintScore <= 0 || historyDecision.FootprintScoreBucket == "" {
+		t.Fatalf("history mutation evidence must preserve classified content and footprint: %+v", historyDecision)
+	}
+	unknownHistoryDecision := proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, "guard", "", 40, 40, 2, 0.1)
+	if unknownHistoryDecision.ContentClass != evidence.ContentUnknown {
+		t.Fatalf("empty history mutation content class must fall back to unknown: %+v", unknownHistoryDecision)
+	}
 	if got := proxyLayer0CacheBustGeneralClassKey(commandKeyA); got != "repeated_tool_output:plain" {
 		t.Fatalf("general key from command key=%q, want repeated_tool_output:plain", got)
 	}

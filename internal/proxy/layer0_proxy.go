@@ -1411,9 +1411,12 @@ func proxyLayer0PreservedEvidence(mechanism proxyLayer0Mechanism, workload savin
 	}
 }
 
-func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, beforeTokens int, afterTokens int, turnSeq int, cachedPriceRatio float64) evidence.BlockDecision {
+func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action evidence.Action, reason string, contentClass evidence.ContentClass, beforeTokens int, afterTokens int, turnSeq int, cachedPriceRatio float64) evidence.BlockDecision {
+	if contentClass == "" {
+		contentClass = evidence.ContentUnknown
+	}
 	analysis := evidence.Analysis{
-		ContentClass: evidence.ContentUnknown,
+		ContentClass: contentClass,
 		Signals:      []evidence.Signal{evidence.SignalPath, evidence.SignalRecency},
 	}
 	decision := evidence.DecisionFromObservation(
@@ -1431,6 +1434,32 @@ func proxyHistoryMutationEvidenceDecision(mechanism proxyLayer0Mechanism, action
 	decision.FootprintScore = proxyFootprintScoreWithCachedPriceRatio(decision.OriginalTokens, decision.SavedTokens, turnSeq, cachedPriceRatio)
 	decision.FootprintScoreBucket = proxyFootprintScoreBucketFromScore(decision.FootprintScore)
 	return decision
+}
+
+func proxyHistoryMutationEvidenceClassFromKeys(keys map[string]struct{}) evidence.ContentClass {
+	var out evidence.ContentClass
+	for key := range keys {
+		general := proxyLayer0CacheBustGeneralClassKey(key)
+		parts := strings.SplitN(general, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		class := evidence.ContentClass(strings.TrimSpace(parts[1]))
+		if class == "" {
+			continue
+		}
+		if out == "" {
+			out = class
+			continue
+		}
+		if out != class {
+			return evidence.ContentUnknown
+		}
+	}
+	if out == "" {
+		return evidence.ContentUnknown
+	}
+	return out
 }
 
 func proxyWSSSearchOutputRisk(commandLine, text string, workload savingspolicy.CodexWorkload) bool {

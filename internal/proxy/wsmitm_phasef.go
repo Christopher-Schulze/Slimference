@@ -820,7 +820,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					staleGuardReason = "cache_bust_guard"
 				}
 				if staleGuardReason != "" {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				} else {
 					stagedMessages = aged
 					messageMutationPending = true
@@ -830,7 +830,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.StaleReadBytesSaved = stats.BytesReplaced
 					historyStats.StaleReadTokensSaved = beforeTokens - afterTokens
 					historyStats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(historyStats.CacheBustClassKeys, cacheBustKeys)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
 		}
@@ -847,7 +847,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					obsoleteGuardReason = "cache_bust_guard"
 				}
 				if obsoleteGuardReason != "" {
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				} else {
 					stagedMessages = pruned
 					messageMutationPending = true
@@ -857,7 +857,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.ObsoletePruneBytesSaved = stats.BytesReplaced
 					historyStats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
 					historyStats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(historyStats.CacheBustClassKeys, cacheBustKeys)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
 		}
@@ -3850,7 +3850,7 @@ func (a *wsPhaseFAdapter) wssGuardedHistoryReducerEvidence(out []byte, messages 
 		if stats.BlocksReplaced > 0 {
 			beforeTokens := wssPlannerTokenCount(out, messages)
 			afterTokens := wssPlannerTokenCount(out, aged)
-			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, guardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, guardReason, evidence.ContentUnknown, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 		}
 	}
 	if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
@@ -3858,7 +3858,7 @@ func (a *wsPhaseFAdapter) wssGuardedHistoryReducerEvidence(out []byte, messages 
 		if stats.BlocksReplaced > 0 {
 			beforeTokens := wssPlannerTokenCount(out, messages)
 			afterTokens := wssPlannerTokenCount(out, pruned)
-			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, guardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+			historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, guardReason, evidence.ContentUnknown, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 		}
 	}
 	return historyStats
@@ -3951,7 +3951,7 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				staleGuardReason = "cache_bust_guard"
 			}
 			if staleGuardReason != "" {
-				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			} else {
 				stagedMessages = aged
 				result.Mutated = true
@@ -3961,7 +3961,7 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				result.Stats.StaleReadBytesSaved = stats.BytesReplaced
 				result.Stats.StaleReadTokensSaved = beforeTokens - afterTokens
 				result.Stats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(result.Stats.CacheBustClassKeys, cacheBustKeys)
-				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			}
 		}
 	}
@@ -3978,7 +3978,7 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				obsoleteGuardReason = "cache_bust_guard"
 			}
 			if obsoleteGuardReason != "" {
-				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			} else {
 				stagedMessages = pruned
 				result.Mutated = true
@@ -3988,7 +3988,7 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				result.Stats.ObsoletePruneBytesSaved = stats.BytesReplaced
 				result.Stats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
 				result.Stats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(result.Stats.CacheBustClassKeys, cacheBustKeys)
-				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
+				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			}
 		}
 	}

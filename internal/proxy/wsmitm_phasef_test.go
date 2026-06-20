@@ -2524,6 +2524,13 @@ func TestWSPhaseFCacheBustDemotionNarrowsHistoryMechanismsToClassKeys(t *testing
 	if !strings.Contains(keyText, "stale_read:") || !strings.Contains(keyText, "obsolete_prune:") || !strings.Contains(keyText, ":cmd=") {
 		t.Fatalf("applied history reducers must emit precise command-scoped cache-bust keys: %q", keyText)
 	}
+	demotionKeys := proxyLayer0CacheBustClassKeysFromStats(unrelated.Stats)
+	if _, ok := demotionKeys["stale_read:unknown"]; ok {
+		t.Fatalf("applied stale-read evidence must not widen command-scoped demotion to unknown: %+v", demotionKeys)
+	}
+	if _, ok := demotionKeys["obsolete_prune:unknown"]; ok {
+		t.Fatalf("applied obsolete-prune evidence must not widen command-scoped demotion to unknown: %+v", demotionKeys)
+	}
 
 	aged, staleStats := staleread.AgeMessages(messages, staleread.Options{MinTurnGap: 2})
 	if staleStats.BlocksReplaced == 0 {
