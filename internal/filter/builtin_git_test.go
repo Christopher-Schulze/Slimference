@@ -603,6 +603,111 @@ func TestTryCompactGitDiffNameStatusPathList(t *testing.T) {
 	}
 }
 
+func TestTryCompactGitShowNameOnlyPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	input.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	input.WriteString("Author: Alice <alice@example.com>\n")
+	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	input.WriteString("    Metadata-only show\n\n")
+	for i := 0; i < 40; i++ {
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitShow([]string{"git", "show", "--name-only", "HEAD"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git show --name-only path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git show] a1b2c3d Metadata-only show\n[git show --name-only paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "file_39.go") {
+		t.Fatalf("compact output lost show path-list evidence: %q", s)
+	}
+	if strings.Contains(s, "internal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter show name-only output: got %d input %d", len(s), input.Len())
+	}
+
+	withBody := strings.Replace(input.String(), "    Metadata-only show\n\n", "    Metadata-only show\n\n    body line\n\n", 1)
+	if _, ok := TryCompactGitShow([]string{"git", "show", "--name-only", "HEAD"}, []byte(withBody)); ok {
+		t.Fatal("multi-line body before path list must fail open")
+	}
+
+	if _, ok := TryCompactGitShow([]string{"git", "-C", "/repo", "show", "--name-only", "--format", "oneline", "--diff-filter", "M", "-M", "HEAD", "--", "internal"}, []byte(input.String())); !ok {
+		t.Fatal("safe show name-only options and pathspec should compact")
+	}
+
+	tooSmall := strings.Replace(input.String(), "internal/proxy/generated/very/deep/path/file_07.go\n", "", 1)
+	tooSmall = strings.Join(strings.Split(tooSmall, "\n")[:12], "\n")
+	if _, ok := TryCompactGitShow([]string{"git", "show", "--name-only", "HEAD"}, []byte(tooSmall)); ok {
+		t.Fatal("non-shrinking/small show name-only path list must fail open")
+	}
+
+	for _, argv := range [][]string{
+		{"git", "show", "--name-only", "--stat", "HEAD"},
+		{"git", "show", "--name-only", "--format"},
+		{"git", "show", "--name-only", "-p", "HEAD"},
+		{"git", "show", "--name-only", "", "HEAD"},
+	} {
+		if _, ok := TryCompactGitShow(argv, []byte(input.String())); ok {
+			t.Fatalf("unsafe show name-only argv should fail open: %#v", argv)
+		}
+	}
+}
+
+func TestTryCompactGitShowNameStatusPathList(t *testing.T) {
+	t.Parallel()
+	var input strings.Builder
+	input.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	input.WriteString("Author: Alice <alice@example.com>\n")
+	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	input.WriteString("    Metadata-only show status\n\n")
+	for i := 0; i < 40; i++ {
+		status := "M"
+		if i%4 == 0 {
+			status = "A"
+		}
+		input.WriteString(status)
+		input.WriteByte('\t')
+		input.WriteString("internal/proxy/generated/very/deep/path/file_")
+		input.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+
+	out, ok := TryCompactGitShow([]string{"git", "show", "--name-status", "HEAD"}, []byte(input.String()))
+	if !ok {
+		t.Fatal("expected git show --name-status path-list compaction")
+	}
+	s := string(out)
+	if !strings.HasPrefix(s, "[git show] a1b2c3d Metadata-only show status\n[git show --name-status paths]") ||
+		!strings.Contains(s, "internal/proxy/generated/very/deep/path/") ||
+		!strings.Contains(s, "M file_39.go") {
+		t.Fatalf("compact output lost show name-status evidence: %q", s)
+	}
+	if strings.Contains(s, "M\tinternal/proxy/generated/very/deep/path/file_39.go") {
+		t.Fatalf("common path prefix should be factored once: %q", s)
+	}
+	if len(s) >= input.Len() {
+		t.Fatalf("expected shorter show name-status output: got %d input %d", len(s), input.Len())
+	}
+
+	if _, ok := TryCompactGitShow([]string{"git", "show", "--name-status", "--patch", "HEAD"}, []byte(input.String())); ok {
+		t.Fatal("show name-status plus patch must not use metadata path-list compaction")
+	}
+
+	if _, ok := TryCompactGitShow([]string{"git", "show", "--name-status", "--pretty=oneline", "--find-renames=50%", "--find-copies", "--diff-filter=M", "-C", "HEAD"}, []byte(input.String())); !ok {
+		t.Fatal("safe show name-status options should compact")
+	}
+
+	badStatus := strings.Replace(input.String(), "M\tinternal/proxy/generated/very/deep/path/file_01.go", "R100\told/path.go\tinternal/proxy/generated/very/deep/path/file_01.go", 1)
+	if _, ok := TryCompactGitShow([]string{"git", "show", "--name-status", "HEAD"}, []byte(badStatus)); ok {
+		t.Fatal("complex name-status rows must fail open")
+	}
+}
+
 func TestTryCompactGitShow_fullCompact(t *testing.T) {
 	t.Parallel()
 	input := `commit a1b2c3d4e5f6a7b8

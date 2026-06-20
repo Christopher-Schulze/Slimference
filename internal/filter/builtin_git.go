@@ -436,6 +436,15 @@ func TryCompactGitShow(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[git show] empty\n"), true
 	}
+	if isGitShowNameOnlyPathListArgv(argv) {
+		return compactGitShowPathList(stdout, "git show --name-only", false)
+	}
+	if isGitShowNameStatusPathListArgv(argv) {
+		return compactGitShowPathList(stdout, "git show --name-status", true)
+	}
+	if gitShowMetadataPathListArgPresent(argv) {
+		return stdout, false
+	}
 	compact := compactGitShow(s)
 	if compact == "" || len(compact) >= len(s) {
 		return stdout, false
@@ -523,6 +532,80 @@ func compactGitShow(s string) string {
 	}
 
 	return sb.String()
+}
+
+func compactGitShowPathList(stdout []byte, toolName string, nameStatus bool) ([]byte, bool) {
+	header, paths, ok := splitGitShowHeaderAndPaths(string(stdout), nameStatus)
+	if !ok {
+		return stdout, false
+	}
+	var compactedPaths []byte
+	if nameStatus {
+		compactedPaths, ok = groupNameStatusPathListResults([]byte(strings.Join(paths, "\n")), toolName)
+	} else {
+		compactedPaths, ok = groupPathListResults([]byte(strings.Join(paths, "\n")), toolName)
+	}
+	if !ok {
+		return stdout, false
+	}
+	out := header + string(compactedPaths)
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func splitGitShowHeaderAndPaths(stdout string, nameStatus bool) (string, []string, bool) {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	var hash, subject string
+	var pastHeader, subjectFound bool
+	var paths []string
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if subjectFound {
+				continue
+			}
+			pastHeader = true
+			continue
+		}
+		if m := reGitShowHash.FindStringSubmatch(line); m != nil {
+			hash = m[1][:7]
+			continue
+		}
+		if strings.HasPrefix(line, "Author:") || strings.HasPrefix(line, "Date:") ||
+			strings.HasPrefix(line, "Commit:") || strings.HasPrefix(line, "Merge:") {
+			continue
+		}
+		if pastHeader && !subjectFound {
+			subject = trimmed
+			subjectFound = true
+			continue
+		}
+		if !subjectFound {
+			continue
+		}
+		if nameStatus {
+			if _, _, ok := splitGitNameStatusPathLine(line); !ok {
+				return "", nil, false
+			}
+		} else if !safePathListLine(line) {
+			return "", nil, false
+		}
+		paths = append(paths, line)
+	}
+	if hash == "" || len(paths) == 0 {
+		return "", nil, false
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[git show] %s", hash))
+	if subject != "" {
+		sb.WriteByte(' ')
+		sb.WriteString(subject)
+	}
+	sb.WriteByte('\n')
+	return sb.String(), paths, true
 }
 
 // Porcelain v1: two status columns (see git-status short) or untracked ??.
@@ -844,6 +927,85 @@ func isGitDiffNameStatusPathListArgv(argv []string) bool {
 		}
 	}
 	return hasNameStatus
+}
+
+func isGitShowNameOnlyPathListArgv(argv []string) bool {
+	return isGitShowSingleMetadataPathListArgv(argv, "--name-only")
+}
+
+func isGitShowNameStatusPathListArgv(argv []string) bool {
+	return isGitShowSingleMetadataPathListArgv(argv, "--name-status")
+}
+
+func gitShowMetadataPathListArgPresent(argv []string) bool {
+	idx := gitSubcommandIndex(argv, "show")
+	if idx < 0 {
+		return false
+	}
+	for _, arg := range argv[idx+1:] {
+		if arg == "--name-only" || arg == "--name-status" {
+			return true
+		}
+	}
+	return false
+}
+
+func isGitShowSingleMetadataPathListArgv(argv []string, mode string) bool {
+	idx := gitSubcommandIndex(argv, "show")
+	if idx < 0 {
+		return false
+	}
+	hasMode := false
+	for i := idx + 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return hasMode
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == mode:
+				hasMode = true
+			case arg == "--name-only" || arg == "--name-status" || arg == "--stat" ||
+				strings.HasPrefix(arg, "--stat=") || arg == "--numstat" || arg == "--raw" ||
+				arg == "--shortstat" || arg == "--patch" || arg == "--patch-with-stat" ||
+				arg == "--word-diff" || strings.HasPrefix(arg, "--word-diff="):
+				return false
+			case strings.HasPrefix(arg, "--format="), strings.HasPrefix(arg, "--pretty="),
+				strings.HasPrefix(arg, "--find-renames"), strings.HasPrefix(arg, "--find-copies"),
+				strings.HasPrefix(arg, "--diff-filter="):
+				continue
+			case arg == "--format" || arg == "--pretty" || arg == "--diff-filter":
+				i++
+				if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+					return false
+				}
+			default:
+				continue
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			switch {
+			case arg == "-M" || arg == "-C":
+				continue
+			case strings.HasPrefix(arg, "-M") || strings.HasPrefix(arg, "-C"):
+				continue
+			case arg == "-p" || arg == "-z" || strings.HasPrefix(arg, "-U"):
+				return false
+			default:
+				continue
+			}
+		}
+	}
+	return hasMode
 }
 
 func isGitShowArgv(argv []string) bool {

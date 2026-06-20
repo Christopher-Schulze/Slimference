@@ -364,6 +364,13 @@ func TestWSSSocketSmallHelpers(t *testing.T) {
 	if got := cloneWSSSocketShapeCounts(nil); got != nil {
 		t.Fatalf("nil shape clone should stay nil: %+v", got)
 	}
+	if got := formatWSSSocketSince(time.Time{}); got != "-" {
+		t.Fatalf("zero since formatting=%q", got)
+	}
+	when := time.Date(2026, 6, 20, 12, 34, 56, 0, time.UTC)
+	if got := formatWSSSocketSince(when); got != "2026-06-20T12:34:56Z" {
+		t.Fatalf("since formatting=%q", got)
+	}
 	if got := formatWSSReconnectCauseSummaries(nil); got != "-" {
 		t.Fatalf("empty reconnect cause formatting=%q", got)
 	}

@@ -75,6 +75,65 @@ func TestCommandOutputFirstShimGitDiffStatCompacts(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimGitShowMetadataCompacts(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	b.WriteString("commit a1b2c3d4e5f6a7b8\n")
+	b.WriteString("Author: Alice <alice@example.com>\n")
+	b.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+	b.WriteString("    Metadata-only show\n\n")
+	for i := 0; i < 40; i++ {
+		b.WriteString(" internal/proxy/generated/very/deep/path/file_")
+		b.WriteString(fmt.Sprintf("%02d.go | %d +++++-----\n", i, i+1))
+	}
+	b.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=git", "--real-bin=" + realGit, "--", "show", "--stat", "HEAD"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[git show] a1b2c3d Metadata-only show") ||
+		!strings.Contains(got, "[git show --stat] 40 file(s)") ||
+		!strings.Contains(got, "[prefix=internal/proxy/generated/very/deep/path/]") {
+		t.Fatalf("unexpected compacted stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand git show archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("file_39.go | 40 +++++-----")) {
+		t.Fatalf("archive did not preserve raw git show output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:git] git show --stat HEAD") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstShimGitLsFilesCompacts(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
@@ -147,6 +206,21 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	}
 	if commandOutputFirstAllowCapture("git", []string{"show", "HEAD"}) {
 		t.Fatal("git show must not be captured")
+	}
+	if !commandOutputFirstAllowCapture("git", []string{"show", "--stat", "HEAD"}) {
+		t.Fatal("git show --stat should be captured")
+	}
+	if !commandOutputFirstAllowCapture("git", []string{"-C", "/repo", "show", "--name-only", "HEAD"}) {
+		t.Fatal("git -C repo show --name-only should be captured")
+	}
+	if !commandOutputFirstAllowCapture("git", []string{"show", "--name-status", "HEAD"}) {
+		t.Fatal("git show --name-status should be captured")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"show", "--stat", "--patch", "HEAD"}) {
+		t.Fatal("git show --stat --patch must not be captured")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"show", "--name-only", "--name-status", "HEAD"}) {
+		t.Fatal("git show with multiple metadata modes must not be captured")
 	}
 	if !commandOutputFirstAllowCapture("git", []string{"grep", "-n", "TODO", "--", "internal"}) {
 		t.Fatal("git grep should be captured by the command-output-first shim")
@@ -3326,6 +3400,31 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "HEAD"}, []byte("commit x\n"), nil, 0); ok || out != nil {
 		t.Fatalf("git show compacted: out=%q ok=%v", out, ok)
+	}
+	var showStat strings.Builder
+	showStat.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
+	for i := 0; i < 40; i++ {
+		showStat.WriteString(fmt.Sprintf(" internal/proxy/generated/very/deep/path/file_%02d.go | 10 +++++-----\n", i))
+	}
+	showStat.WriteString(" 40 files changed, 200 insertions(+), 200 deletions(-)\n")
+	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "--stat", "HEAD"}, []byte(showStat.String()), nil, 0); !ok || !strings.Contains(string(out), "[git show --stat]") {
+		t.Fatalf("git show --stat did not compact: out=%q ok=%v", out, ok)
+	}
+	var showNameOnly strings.Builder
+	showNameOnly.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
+	for i := 0; i < 40; i++ {
+		showNameOnly.WriteString(fmt.Sprintf("internal/proxy/generated/very/deep/path/file_%02d.go\n", i))
+	}
+	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "--name-only", "HEAD"}, []byte(showNameOnly.String()), nil, 0); !ok || !strings.Contains(string(out), "[git show --name-only paths]") {
+		t.Fatalf("git show --name-only did not compact: out=%q ok=%v", out, ok)
+	}
+	var showNameStatus strings.Builder
+	showNameStatus.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
+	for i := 0; i < 40; i++ {
+		showNameStatus.WriteString(fmt.Sprintf("M\tinternal/proxy/generated/very/deep/path/file_%02d.go\n", i))
+	}
+	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "--name-status", "HEAD"}, []byte(showNameStatus.String()), nil, 0); !ok || !strings.Contains(string(out), "[git show --name-status paths]") {
+		t.Fatalf("git show --name-status did not compact: out=%q ok=%v", out, ok)
 	}
 	if out, ok := compactCommandOutputFirst("npm", "/usr/bin/npm", []string{"run", "dev"}, []byte("ready\n"), nil, 0); ok || out != nil {
 		t.Fatalf("npm run dev compacted: out=%q ok=%v", out, ok)
