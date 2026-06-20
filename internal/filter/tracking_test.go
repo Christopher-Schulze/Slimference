@@ -250,3 +250,81 @@ func TestFilterRunsAggregate_Recent(t *testing.T) {
 		t.Fatalf("order: %+v", recent)
 	}
 }
+
+func TestRecordFilterObservation_QueryByCommand(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "observations.db")
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	t0 := time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC)
+	if err := RecordFilterRun(db, "saved", "/repo", 100, 50, 50, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordFilterObservation(db, "command_output_first", "ls -lah generated", "/repo", 700, 700, "full_pass", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordFilterObservation(db, "command_output_first", "ls -lah generated", "/repo", 300, 300, "full_pass", t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordFilterObservation(db, "command_output_first", "mvn test", "/repo", 900, 900, "archive_unavailable", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordFilterObservation(db, "other_scope", "cargo test", "/repo", 5000, 5000, "full_pass", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordFilterObservation(db, "command_output_first", "old", "/repo", 9000, 9000, "full_pass", t0.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 10, 23, 59, 59, 0, time.UTC)
+	rows, err := QueryFilterObservationByCommand(db, "command_output_first", start, end, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%+v", rows)
+	}
+	if rows[0].Command != "ls -lah generated" || rows[0].Outcome != "full_pass" || rows[0].Runs != 2 || rows[0].InputTokens != 1000 {
+		t.Fatalf("first row=%+v", rows[0])
+	}
+	if rows[1].Command != "mvn test" || rows[1].Outcome != "archive_unavailable" || rows[1].Runs != 1 || rows[1].InputTokens != 900 {
+		t.Fatalf("second row=%+v", rows[1])
+	}
+
+	agg, err := QueryFilterRunsAggregate(db, start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agg.Runs != 1 || agg.InputTokens != 100 || agg.OutputTokens != 50 {
+		t.Fatalf("observations must not affect filter_runs aggregate: %+v", agg)
+	}
+
+	limited, err := QueryFilterObservationByCommand(db, "command_output_first", start, end, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 1 || limited[0].Command != "ls -lah generated" {
+		t.Fatalf("limited=%+v", limited)
+	}
+}
+
+func TestQueryFilterObservationByCommand_closedDB(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "closed-observations.db")
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	_, err = QueryFilterObservationByCommand(db, "command_output_first", start, end, 10)
+	if err == nil {
+		t.Fatal("expected error on closed db")
+	}
+}

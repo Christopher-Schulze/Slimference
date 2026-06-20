@@ -206,14 +206,16 @@ Manage smart-compaction checkpoints. 'list' prints rankings,
 full pre-compaction context for copy-paste.
 `
 	case "gain":
-		return `slimference gain [today|week|month|all] [--by-command|--by-parser|--cache|--output|--proxy] [--csv] [--project <p>] [--json]
+		return `slimference gain [today|week|month|all] [--by-command|--by-parser|--cache|--output|--proxy|--opportunities] [--csv] [--project <p>] [--json]
 
 Aggregate Layer-0 filter.db rows into a savings report. --by-command
 breaks down per parent command, --by-parser groups by parser/tool family,
 --cache reports provider prompt-cache tokens, --output reports T130
 output-reduce overhead/observed-output telemetry, --proxy reports decision-log
-flight accounting for real proxied LLM requests, --csv prints CSV, --json prints
-machine-readable output. Optional $/M-token rate in config multiplies savings.
+flight accounting for real proxied LLM requests, --opportunities ranks
+command-output-first full-pass/miss mass that does not count as savings,
+--csv prints CSV, --json prints machine-readable output. Optional $/M-token
+rate in config multiplies savings.
 `
 	case "savings":
 		return `slimference savings [today|week|month|all] [--json|--csv] [--project <p>]

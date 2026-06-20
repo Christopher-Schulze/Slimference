@@ -49,6 +49,231 @@ func TestParseGainArgs(t *testing.T) {
 	if err != nil || p != "week" {
 		t.Fatalf("empty token skip: period=%q err=%v", p, err)
 	}
+	p, f, err = parseGainArgs([]string{"--opportunities", "--json", "week"})
+	if err != nil || p != "week" || !f.opportunities || !f.json {
+		t.Fatalf("opportunities: period=%q flags=%+v err=%v", p, f, err)
+	}
+	if _, _, err = parseGainArgs([]string{"--opportunities", "--by-command"}); err == nil {
+		t.Fatal("expected invalid opportunities/by-command combination")
+	}
+	if _, _, err = parseGainArgs([]string{"--opportunities", "--cache"}); err == nil {
+		t.Fatal("expected invalid opportunities/cache combination")
+	}
+	if _, _, err = parseGainArgs([]string{"--opportunities", "--project", "/repo"}); err == nil {
+		t.Fatal("expected invalid opportunities/project combination")
+	}
+}
+
+func TestHandleSubcommand_gain_opportunities(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := filter.RecordFilterObservation(db, commandOutputFirstObservationScope, "[command-output-first:ls] ls -lah generated", "/repo", 900, 900, commandOutputFirstObservationFullPass, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterObservation(db, commandOutputFirstObservationScope, "[command-output-first:go] go test ./...", "/repo", 1200, 1200, commandOutputFirstObservationArchiveFail, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "[command-output-first:git] git diff --stat", "/repo", 500, 100, 80, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--opportunities"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Command-output-first opportunities") || !strings.Contains(out, "These rows do not count as savings") {
+		t.Fatalf("opportunities stdout missing title/disclaimer: %q", out)
+	}
+	if !strings.Contains(out, "go test ./...") || !strings.Contains(out, "archive_unavailable") {
+		t.Fatalf("opportunities stdout missing row: %q", out)
+	}
+	if strings.Contains(out, "git diff --stat") {
+		t.Fatalf("filter_runs savings row leaked into opportunities: %q", out)
+	}
+
+	r2, w2, _ := os.Pipe()
+	os.Stdout = w2
+	handleSubcommand([]string{"gain", "today", "--opportunities", "--json"})
+	_ = w2.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r2)
+	if !strings.Contains(buf.String(), `"command"`) || !strings.Contains(buf.String(), `"archive_unavailable"`) {
+		t.Fatalf("opportunities json: %q", buf.String())
+	}
+
+	r3, w3, _ := os.Pipe()
+	os.Stdout = w3
+	handleSubcommand([]string{"gain", "today", "--opportunities", "--csv"})
+	_ = w3.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r3)
+	if !strings.Contains(buf.String(), "scope,command,outcome,runs,input_tokens,output_tokens") || !strings.Contains(buf.String(), "command_output_first") {
+		t.Fatalf("opportunities csv: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_gain_opportunitiesEmptyAndNoDB(t *testing.T) {
+	dir := t.TempDir()
+	missingPath := filepath.Join(dir, "missing.db")
+	t.Setenv("SLIMFERENCE_FILTER_DB", missingPath)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--opportunities"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No command-output-first opportunities recorded yet") {
+		t.Fatalf("no-db stdout: %q", buf.String())
+	}
+
+	dbPath := filepath.Join(dir, "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+
+	r2, w2, _ := os.Pipe()
+	os.Stdout = w2
+	handleSubcommand([]string{"gain", "today", "--opportunities"})
+	_ = w2.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r2)
+	if !strings.Contains(buf.String(), "No command-output-first opportunities in this window") {
+		t.Fatalf("empty stdout: %q", buf.String())
+	}
+}
+
+func TestWriteGainOpportunitiesCSVError(t *testing.T) {
+	err := writeGainOpportunitiesCSV(errGainOpportunityWriter{}, []filter.FilterObservationAggregate{{
+		Scope:        commandOutputFirstObservationScope,
+		Command:      "ls -lah generated",
+		Outcome:      commandOutputFirstObservationFullPass,
+		Runs:         1,
+		InputTokens:  100,
+		OutputTokens: 100,
+	}})
+	if err == nil {
+		t.Fatal("expected CSV writer error")
+	}
+}
+
+type errGainOpportunityWriter struct{}
+
+func (errGainOpportunityWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestHandleGainOpportunitiesErrorBranches(t *testing.T) {
+	origPath := resolveFilterDBPathFn
+	t.Cleanup(func() { resolveFilterDBPathFn = origPath })
+
+	resolveFilterDBPathFn = func() (string, error) { return "", errors.New("path failed") }
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleSubcommand([]string{"gain", "today", "--opportunities"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --opportunities: path failed") {
+		t.Fatalf("path error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	resolveFilterDBPathFn = func() (string, error) { return "bad\x00path", nil }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "today", "--opportunities"})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --opportunities") {
+		t.Fatalf("stat error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	corruptDB := filepath.Join(t.TempDir(), "corrupt.db")
+	if err := os.WriteFile(corruptDB, []byte("not-a-sqlite-database"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resolveFilterDBPathFn = func() (string, error) { return corruptDB, nil }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "today", "--opportunities"})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --opportunities") {
+		t.Fatalf("corrupt db exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterObservation(db, commandOutputFirstObservationScope, "ls -lah generated", "/repo", 100, 100, commandOutputFirstObservationFullPass, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resolveFilterDBPathFn = func() (string, error) { return dbPath, nil }
+	closedOut, err := os.CreateTemp(t.TempDir(), "closed-stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedOut.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = closedOut
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "today", "--opportunities", "--csv"})
+	})
+	cleanup()
+	os.Stdout = oldStdout
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --opportunities") {
+		t.Fatalf("csv error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleGainOpportunities("bad-period", gainCLIFlags{})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --opportunities") {
+		t.Fatalf("period error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
 }
 
 func TestHandleSubcommand_gain_today_andJSON(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
@@ -1440,8 +1441,17 @@ func TestCommandOutputFirstArchiveMarkerIsCompactAndRecoverable(t *testing.T) {
 
 func TestCommandOutputFirstShimArchiveUnavailableFullPasses(t *testing.T) {
 	oldHome := osUserHomeDir
+	oldPath := resolveFilterDBPathFn
+	oldGetwd := osGetwd
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
 	osUserHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { osUserHomeDir = oldHome })
+	resolveFilterDBPathFn = func() (string, error) { return dbPath, nil }
+	osGetwd = func() (string, error) { return "/repo", nil }
+	t.Cleanup(func() {
+		osUserHomeDir = oldHome
+		resolveFilterDBPathFn = oldPath
+		osGetwd = oldGetwd
+	})
 
 	dir := filepath.Join(t.TempDir(), "real")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -1463,6 +1473,58 @@ func TestCommandOutputFirstShimArchiveUnavailableFullPasses(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr=%q", stderr.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, time.Now().Add(-time.Hour), time.Now().Add(time.Hour), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Outcome != commandOutputFirstObservationArchiveFail || !strings.Contains(rows[0].Command, "mvn test") {
+		t.Fatalf("archive unavailable observation rows=%+v", rows)
+	}
+}
+
+func TestCommandOutputFirstShimFullPassRecordsOpportunity(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	dir := filepath.Join(t.TempDir(), "real")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	realLs := filepath.Join(dir, "ls")
+	raw := strings.Repeat("not-a-long-ls-row with enough bytes to survive the observation threshold\n", 80)
+	if err := os.WriteFile(realLs, []byte("#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=ls", "--real-bin=" + realLs, "--", "-lah", "generated"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stdout.String() != raw {
+		t.Fatalf("full-pass stdout changed\ngot=%q\nwant=%q", stdout.String(), raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, time.Now().Add(-time.Hour), time.Now().Add(time.Hour), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Outcome != commandOutputFirstObservationFullPass || !strings.Contains(rows[0].Command, "ls -lah generated") {
+		t.Fatalf("full-pass observation rows=%+v", rows)
+	}
+	if rows[0].InputTokens < commandOutputFirstObservationMinTokens {
+		t.Fatalf("observation below threshold: %+v", rows[0])
 	}
 }
 
@@ -3588,6 +3650,48 @@ func TestRecordCommandOutputFirstRunFailOpenAndMissingCWD(t *testing.T) {
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
 		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestRecordCommandOutputFirstObservationFailOpenAndMissingCWD(t *testing.T) {
+	oldPath := resolveFilterDBPathFn
+	oldMkdirAll := osMkdirAll
+	oldGetwd := osGetwd
+	t.Cleanup(func() {
+		resolveFilterDBPathFn = oldPath
+		osMkdirAll = oldMkdirAll
+		osGetwd = oldGetwd
+	})
+
+	raw := []byte(strings.Repeat("raw-output-line\n", 80))
+	recordCommandOutputFirstObservation("ls", []string{"-lah"}, []byte("tiny"), nil, commandOutputFirstObservationFullPass)
+
+	resolveFilterDBPathFn = func() (string, error) { return "", errors.New("db path unavailable") }
+	recordCommandOutputFirstObservation("ls", []string{"-lah"}, raw, nil, commandOutputFirstObservationFullPass)
+
+	resolveFilterDBPathFn = func() (string, error) { return " ", nil }
+	recordCommandOutputFirstObservation("ls", []string{"-lah"}, raw, nil, commandOutputFirstObservationFullPass)
+
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	resolveFilterDBPathFn = func() (string, error) { return dbPath, nil }
+	osMkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") }
+	recordCommandOutputFirstObservation("ls", []string{"-lah"}, raw, nil, commandOutputFirstObservationFullPass)
+
+	osMkdirAll = oldMkdirAll
+	osGetwd = func() (string, error) { return "", errors.New("cwd unavailable") }
+	recordCommandOutputFirstObservation("ls", []string{"-lah"}, raw, nil, commandOutputFirstObservationFullPass)
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, time.Now().Add(-time.Hour), time.Now().Add(time.Hour), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Command != "[command-output-first:ls] ls -lah" || rows[0].Outcome != commandOutputFirstObservationFullPass {
+		t.Fatalf("observation rows=%+v", rows)
 	}
 }
 

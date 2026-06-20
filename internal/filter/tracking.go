@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS filter_runs (
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_filter_runs_created ON filter_runs(created_at);
+CREATE TABLE IF NOT EXISTS filter_observations (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	scope TEXT NOT NULL,
+	command TEXT NOT NULL,
+	project_path TEXT NOT NULL,
+	input_tokens INTEGER NOT NULL,
+	output_tokens INTEGER NOT NULL,
+	outcome TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_filter_observations_created ON filter_observations(created_at);
+CREATE INDEX IF NOT EXISTS idx_filter_observations_scope_created ON filter_observations(scope, created_at);
 `)
 	return err
 }
@@ -52,6 +64,17 @@ func RecordFilterRun(db *sql.DB, command, projectPath string, inputTokens, outpu
 	return err
 }
 
+// RecordFilterObservation appends one non-savings observation row. It is used
+// for local opportunity ranking and must not affect filter_runs savings totals.
+func RecordFilterObservation(db *sql.DB, scope, command, projectPath string, inputTokens, outputTokens int, outcome string, createdAt time.Time) error {
+	_, err := db.Exec(
+		`INSERT INTO filter_observations (scope, command, project_path, input_tokens, output_tokens, outcome, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		scope, command, projectPath, inputTokens, outputTokens, outcome, createdAt.Unix(),
+	)
+	return err
+}
+
 // FilterRun is one persisted Layer-0 tracking row.
 type FilterRun struct {
 	ID           int64     `json:"id"`
@@ -61,6 +84,49 @@ type FilterRun struct {
 	OutputTokens int       `json:"output_tokens"`
 	SavingsPct   float64   `json:"savings_pct"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// FilterObservationAggregate is a grouped non-savings observation row.
+type FilterObservationAggregate struct {
+	Scope        string `json:"scope,omitempty"`
+	Command      string `json:"command"`
+	Outcome      string `json:"outcome,omitempty"`
+	Runs         int64  `json:"runs"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+}
+
+// QueryFilterObservationByCommand returns local opportunity rows sorted by
+// observed input-token mass, not by savings.
+func QueryFilterObservationByCommand(db *sql.DB, scope string, start, end time.Time, limit int) ([]FilterObservationAggregate, error) {
+	if limit < 1 {
+		limit = 20
+	}
+	rows, err := db.Query(`
+SELECT command,
+       outcome,
+       COUNT(*),
+       COALESCE(SUM(input_tokens), 0),
+       COALESCE(SUM(output_tokens), 0)
+FROM filter_observations
+WHERE scope = ? AND created_at >= ? AND created_at <= ?
+GROUP BY command, outcome
+ORDER BY SUM(input_tokens) DESC, COUNT(*) DESC, command ASC
+LIMIT ?`, scope, start.Unix(), end.Unix(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]FilterObservationAggregate, 0, limit)
+	for rows.Next() {
+		var row FilterObservationAggregate
+		row.Scope = scope
+		if err := rows.Scan(&row.Command, &row.Outcome, &row.Runs, &row.InputTokens, &row.OutputTokens); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 // LastFilterRun returns the newest row by primary key, or ok=false if the table is empty.

@@ -17,8 +17,12 @@ import (
 )
 
 const (
-	commandOutputFirstDisableEnv = "SLIMFERENCE_COMMAND_OUTPUT_FIRST_DISABLE"
-	commandOutputFirstActiveEnv  = "SLIMFERENCE_COMMAND_OUTPUT_FIRST"
+	commandOutputFirstDisableEnv             = "SLIMFERENCE_COMMAND_OUTPUT_FIRST_DISABLE"
+	commandOutputFirstActiveEnv              = "SLIMFERENCE_COMMAND_OUTPUT_FIRST"
+	commandOutputFirstObservationScope       = "command_output_first"
+	commandOutputFirstObservationMinTokens   = 50
+	commandOutputFirstObservationFullPass    = "full_pass"
+	commandOutputFirstObservationArchiveFail = "archive_unavailable"
 )
 
 func maybeApplyCommandOutputFirstEnv(mode string, command []string) ([]string, func()) {
@@ -189,6 +193,7 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 	if ok {
 		recoverable, ok := archiveCommandOutputFirstCompaction(cfg.command, childArgs, compacted.stream, compacted.raw, compacted.compacted)
 		if !ok {
+			recordCommandOutputFirstObservation(cfg.command, childArgs, rawOut, rawErr, commandOutputFirstObservationArchiveFail)
 			_, _ = stdout.Write(rawOut)
 			_, _ = stderr.Write(rawErr)
 			return code
@@ -210,6 +215,7 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 		}
 		return code
 	}
+	recordCommandOutputFirstObservation(cfg.command, childArgs, rawOut, rawErr, commandOutputFirstObservationFullPass)
 	_, _ = stdout.Write(rawOut)
 	_, _ = stderr.Write(rawErr)
 	return code
@@ -1669,6 +1675,31 @@ func recordCommandOutputFirstRun(command string, args []string, rawOut, compacte
 	}
 	savingsPct := float64(inputTokens-outputTokens) * 100 / float64(inputTokens)
 	_ = filter.RecordFilterRun(db, commandOutputFirstLabel(command, args), wd, inputTokens, outputTokens, savingsPct, time.Now())
+}
+
+func recordCommandOutputFirstObservation(command string, args []string, rawOut, rawErr []byte, outcome string) {
+	raw := append(append([]byte(nil), rawOut...), rawErr...)
+	inputTokens := filter.EstimateTokensFromBytes(len(raw))
+	if inputTokens < commandOutputFirstObservationMinTokens {
+		return
+	}
+	dbPath, err := resolveFilterDBPathFn()
+	if err != nil || strings.TrimSpace(dbPath) == "" {
+		return
+	}
+	if err := osMkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	wd, err := osGetwd()
+	if err != nil {
+		wd = ""
+	}
+	_ = filter.RecordFilterObservation(db, commandOutputFirstObservationScope, commandOutputFirstLabel(command, args), wd, inputTokens, inputTokens, outcome, time.Now())
 }
 
 func commandOutputFirstLabel(command string, args []string) string {

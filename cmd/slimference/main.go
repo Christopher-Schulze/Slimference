@@ -11,7 +11,7 @@
 //	slimference doctor             # Run all diagnostics
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
-//	slimference gain today         # Layer-0/filter/cache/output/proxy telemetry (--by-command, --by-parser, --cache, --output, --proxy)
+//	slimference gain today         # Layer-0/filter/cache/output/proxy telemetry (--by-command, --by-parser, --cache, --output, --proxy, --opportunities)
 //	slimference plan inspect       # Dry-run cross-layer planner decisions
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
@@ -2418,14 +2418,15 @@ func handleStatsCmd(args []string) {
 }
 
 type gainCLIFlags struct {
-	json      bool
-	byCommand bool
-	byParser  bool
-	cache     bool
-	output    bool
-	proxy     bool
-	csv       bool
-	project   string
+	json          bool
+	byCommand     bool
+	byParser      bool
+	cache         bool
+	output        bool
+	proxy         bool
+	opportunities bool
+	csv           bool
+	project       string
 }
 
 func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
@@ -2444,6 +2445,8 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 			f.output = true
 		case "--proxy":
 			f.proxy = true
+		case "--opportunities":
+			f.opportunities = true
 		case "--csv":
 			f.csv = true
 		case "--project":
@@ -2478,6 +2481,9 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 	if f.proxy && (f.byCommand || f.byParser || f.cache || f.project != "") {
 		return "", f, fmt.Errorf("--proxy cannot be combined with --by-command, --by-parser, --cache, or --project")
 	}
+	if f.opportunities && (f.byCommand || f.byParser || f.cache || f.output || f.proxy || f.project != "") {
+		return "", f, fmt.Errorf("--opportunities cannot be combined with --by-command, --by-parser, --cache, --output, --proxy, or --project")
+	}
 	if f.byCommand && f.byParser {
 		return "", f, fmt.Errorf("--by-command and --by-parser are mutually exclusive")
 	}
@@ -2494,8 +2500,12 @@ func handleGainCmd(args []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache|--output|--proxy] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
+		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache|--output|--proxy|--opportunities] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
 		exitFn(1)
+	}
+	if flags.opportunities {
+		handleGainOpportunities(period, flags)
+		return
 	}
 	if flags.cache {
 		handleGainCache(period, flags)
@@ -2608,6 +2618,91 @@ func handleGainCmd(args []string) {
 				extra)
 		}
 	}
+}
+
+func handleGainOpportunities(period string, flags gainCLIFlags) {
+	path, err := resolveFilterDBPathFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No command-output-first opportunities recorded yet (no filter.db).")
+			return
+		}
+		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+		exitFn(1)
+		return
+	}
+	db, err := filter.OpenDB(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+		exitFn(1)
+		return
+	}
+	defer db.Close()
+	start, end, err := analytics.FilterGainWindow(period, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+		exitFn(1)
+		return
+	}
+	rows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, start, end, 20)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if flags.csv {
+		if err := writeGainOpportunitiesCSV(os.Stdout, rows); err != nil {
+			fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	if flags.json {
+		b, _ := json.MarshalIndent(rows, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if len(rows) == 0 {
+		fmt.Println("No command-output-first opportunities in this window.")
+		return
+	}
+	fmt.Printf("Command-output-first opportunities (%s)\n", period)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Println("Observed full-pass/miss command mass, sorted by input tokens. These rows do not count as savings.")
+	for _, row := range rows {
+		fmt.Printf("  %s\n", row.Command)
+		fmt.Printf("    outcome %s  runs %d  in %s  out %s\n",
+			row.Outcome,
+			row.Runs,
+			formatTokensPlain64(row.InputTokens),
+			formatTokensPlain64(row.OutputTokens))
+	}
+}
+
+func writeGainOpportunitiesCSV(out io.Writer, rows []filter.FilterObservationAggregate) error {
+	w := csv.NewWriter(out)
+	if err := w.Write([]string{"scope", "command", "outcome", "runs", "input_tokens", "output_tokens"}); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := w.Write([]string{
+			row.Scope,
+			row.Command,
+			row.Outcome,
+			fmt.Sprint(row.Runs),
+			fmt.Sprint(row.InputTokens),
+			fmt.Sprint(row.OutputTokens),
+		}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
 }
 
 func handleGainProxy(period string, flags gainCLIFlags) {
