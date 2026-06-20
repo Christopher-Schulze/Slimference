@@ -61,7 +61,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
 		"pip", "pip3",
-		"fd", "fdfind", "find", "plocate", "locate", "wc", "ls",
+		"fd", "fdfind", "find", "plocate", "locate", "wc", "ls", "tree",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
@@ -290,6 +290,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return commandOutputFirstWcAllowed(args)
 	case "ls":
 		return commandOutputFirstLsLongAllowed(args)
+	case "tree":
+		return commandOutputFirstTreeAllowed(args)
 	case "go":
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			return true
@@ -1378,6 +1380,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "ls":
 		compacted, ok := filter.TryCompactLsLong(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "tree":
+		compacted, ok := filter.TryCompactTree(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
@@ -2085,6 +2090,23 @@ func commandOutputFirstLsLongAllowed(args []string) bool {
 	argv := append([]string{"ls"}, args...)
 	return filter.LsLongOutputEligibleArgv(argv)
 }
+
+func commandOutputFirstTreeAllowed(args []string) bool {
+	argv := append([]string{"tree"}, args...)
+	_, ok := filter.TryCompactTree(argv, []byte(treeEligibilityProbeOutput))
+	return ok
+}
+
+const treeEligibilityProbeOutput = ".\n" +
+	"├── src\n" +
+	"│   ├── app.go\n" +
+	"│   ├── app_test.go\n" +
+	"│   ├── config.go\n" +
+	"│   ├── router.go\n" +
+	"│   └── service.go\n" +
+	"└── docs\n" +
+	"    └── README.md\n\n" +
+	"2 directories, 6 files\n"
 
 func commandOutputFirstCargoAllowed(args []string) bool {
 	sub, idx := commandOutputFirstCargoCommand(args)

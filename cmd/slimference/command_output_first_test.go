@@ -3865,6 +3865,10 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if err := os.WriteFile(plocateBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	treeBin := filepath.Join(binDir, "tree")
+	if err := os.WriteFile(treeBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
@@ -3899,6 +3903,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "plocate")); err != nil {
 		t.Fatalf("plocate shim missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "tree")); err != nil {
+		t.Fatalf("tree shim missing: %v", err)
 	}
 	bashEnv := envValueInCommand(t, got, "BASH_ENV")
 	bashEnvContent, err := os.ReadFile(bashEnv)
@@ -4261,6 +4268,73 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 }
 
+func TestCommandOutputFirstShimTreeCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var listing strings.Builder
+	listing.WriteString(".\n")
+	listing.WriteString("├── src\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&listing, "│   ├── generated_file_%02d.go\n", i)
+	}
+	listing.WriteString("│   └── service.go\n")
+	listing.WriteString("└── docs\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&listing, "    ├── guide_%02d.md\n", i)
+	}
+	listing.WriteString("    └── README.md\n\n")
+	listing.WriteString("2 directories, 122 files\n")
+	realTree := writeFakeCommand(t, "tree", "#!/bin/sh\ncat <<'EOF'\n"+listing.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=tree", "--real-bin=" + realTree, "--", "-L", "2", "."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("tree rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[tree paths] 124 entries 2 directories 122 files root=.") ||
+		!strings.Contains(got, "src/\n") ||
+		!strings.Contains(got, "generated_file_79.go") ||
+		!strings.Contains(got, "docs/\n") ||
+		!strings.Contains(got, "guide_39.md") ||
+		strings.Contains(got, "├──") {
+		t.Fatalf("unexpected tree compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing tree archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand tree archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("├── src")) ||
+		bytes.Count(raw, []byte("generated_file_")) != 80 ||
+		bytes.Count(raw, []byte("guide_")) != 40 {
+		t.Fatalf("archive did not preserve raw tree listing: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:tree] tree -L 2 .") {
+		t.Fatalf("missing tree accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive tree accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstMixedCompactionRejectsNonPositiveAndUnknownStream(t *testing.T) {
 	if got, ok := commandOutputFirstMixedCompaction("stdout", []byte("short\n"), []byte("warn\n"), []byte("short\n")); ok {
 		t.Fatalf("non-positive mixed stdout compacted: %+v", got)
@@ -4341,6 +4415,8 @@ func TestCommandOutputFirstPathListAndWcEdges(t *testing.T) {
 		{command: "plocate", args: []string{"generated"}},
 		{command: "locate", args: []string{"-i", "--limit=100", "generated"}},
 		{command: "locate", args: []string{"-d", "/var/db/locate.database", "-l50", "--", "generated"}},
+		{command: "tree", args: []string{"-L", "2", "."}},
+		{command: "tree", args: []string{"--dirsfirst", "--charset=ascii", "-L2", "--", "internal/proxy"}},
 	}
 	for _, tc := range pathListAllowed {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
@@ -4367,6 +4443,11 @@ func TestCommandOutputFirstPathListAndWcEdges(t *testing.T) {
 		{command: "locate", args: []string{"-l", ""}},
 		{command: "locate", args: []string{"--", ""}},
 		{command: "locate", args: []string{"--unknown", "generated"}},
+		{command: "tree", args: nil},
+		{command: "tree", args: []string{"."}},
+		{command: "tree", args: []string{"-L", "9", "."}},
+		{command: "tree", args: []string{"-L", "2", "--du", "."}},
+		{command: "tree", args: []string{"-f", "-L", "2", "."}},
 		{command: "wc", args: []string{"-l"}},
 		{command: "wc", args: []string{"--files0-from=list"}},
 		{command: "wc", args: []string{"-q", "file.go"}},
