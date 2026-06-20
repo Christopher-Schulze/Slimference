@@ -350,6 +350,18 @@ func inferCommandLineFromCodexExecPayload(payload string) string {
 	switch {
 	case payloadLooksLikeGoTestOutput(payload):
 		return "go test"
+	case payloadLooksLikeSARIFOutput(payload):
+		return "sarif"
+	case payloadLooksLikePackageInstallOutput(payload):
+		return "npm install"
+	case payloadLooksLikeTerraformPlanOutput(payload):
+		return "terraform plan"
+	case payloadLooksLikeKubectlGetOutput(payload):
+		return "kubectl get"
+	case payloadLooksLikeLsLongOutput(payload):
+		return "ls -l"
+	case payloadLooksLikeTreeOutput(payload):
+		return "tree -L"
 	case payloadLooksLikeSearchOutput(payload):
 		return "rg"
 	case payloadLooksLikeGitStatusOutput(payload):
@@ -523,6 +535,127 @@ func payloadLooksLikeGoTestOutput(payload string) bool {
 		}
 	}
 	return matches >= 2 && matches*2 >= nonEmpty
+}
+
+func payloadLooksLikeSARIFOutput(payload string) bool {
+	payload = strings.TrimSpace(payload)
+	if !strings.HasPrefix(payload, "{") {
+		return false
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payload), &doc); err != nil {
+		return false
+	}
+	var version string
+	if err := json.Unmarshal(doc["version"], &version); err != nil || version != "2.1.0" {
+		return false
+	}
+	var runs []json.RawMessage
+	if err := json.Unmarshal(doc["runs"], &runs); err != nil || len(runs) == 0 {
+		return false
+	}
+	var schema string
+	if err := json.Unmarshal(doc["$schema"], &schema); err == nil && strings.Contains(strings.ToLower(schema), "sarif") {
+		return true
+	}
+	for _, rawRun := range runs {
+		var run map[string]json.RawMessage
+		if err := json.Unmarshal(rawRun, &run); err == nil && (len(run["tool"]) > 0 || len(run["results"]) > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func payloadLooksLikePackageInstallOutput(payload string) bool {
+	lower := strings.ToLower(payload)
+	return strings.Contains(lower, "added ") &&
+		strings.Contains(lower, " packages") &&
+		strings.Contains(lower, "audited ") &&
+		strings.Contains(lower, " vulnerabilities")
+}
+
+func payloadLooksLikeTerraformPlanOutput(payload string) bool {
+	return strings.Contains(payload, "Terraform will perform the following actions:") &&
+		strings.Contains(payload, "\nPlan:") &&
+		(strings.Contains(payload, " to add") || strings.Contains(payload, " to change") || strings.Contains(payload, " to destroy"))
+}
+
+func payloadLooksLikeKubectlGetOutput(payload string) bool {
+	nonEmpty := 0
+	rows := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		nonEmpty++
+		if nonEmpty == 1 {
+			if len(fields) < 4 || fields[0] != "NAME" {
+				return false
+			}
+			continue
+		}
+		if len(fields) >= 4 {
+			rows++
+		}
+	}
+	return rows >= 2
+}
+
+func payloadLooksLikeLsLongOutput(payload string) bool {
+	nonEmpty := 0
+	longRows := 0
+	for len(payload) > 0 && nonEmpty < 32 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "total ") {
+			continue
+		}
+		nonEmpty++
+		fields := strings.Fields(line)
+		if len(fields) >= 8 && looksLikeLsMode(fields[0]) && allDecimal(fields[1]) {
+			longRows++
+		}
+	}
+	return longRows >= 5 && longRows*2 >= nonEmpty
+}
+
+func looksLikeLsMode(value string) bool {
+	if len(value) < 10 {
+		return false
+	}
+	switch value[0] {
+	case '-', 'd', 'l', 'b', 'c', 'p', 's':
+	default:
+		return false
+	}
+	for _, ch := range value[1:10] {
+		if !strings.ContainsRune("rwxstST-", ch) {
+			return false
+		}
+	}
+	return true
+}
+
+func payloadLooksLikeTreeOutput(payload string) bool {
+	if !(strings.Contains(payload, "\n├") || strings.Contains(payload, "\n└") || strings.Contains(payload, "\n|-- ") || strings.Contains(payload, "\n`-- ")) {
+		return false
+	}
+	return strings.Contains(payload, " directories") && strings.Contains(payload, " files")
 }
 
 func payloadLooksLikeSearchOutput(payload string) bool {

@@ -242,17 +242,23 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 		}
 	}
 	payloadInputs := map[string]string{
-		"ok  github.com/Christopher-Schulze/Slimference/internal/proxy 0.123s\nok  github.com/Christopher-Schulze/Slimference/internal/servermirror 0.045s\n":                                                                                        "codex_exec_payload_command_go",
-		"internal/proxy/layer0_proxy.go:2048:\tif proxyLooksLikeGoTestOutput(payload) {\ninternal/proxy/layer0_proxy.go:2049:\t\treturn \"go test\"\ninternal/servermirror/mirror.go:305:func payloadLooksLikeGoTestOutput(payload string) bool {\n": "codex_exec_payload_command_rg",
-		" M internal/servermirror/mirror.go\n?? docs/todo/t418.md\n M internal/proxy/layer0_proxy.go\n":                                                                                                                                              "codex_exec_payload_command_git",
-		"internal/servermirror/mirror.go      | 42 +++++++++++++++++++++\ninternal/servermirror/mirror_test.go | 31 +++++++++++++++\n2 files changed, 73 insertions(+)\n":                                                                            "codex_exec_payload_command_git",
-		"commit abcdef1234567890abcdef1234567890abcdef12\nAuthor: Test <test@example.com>\n\n    sample\n\ninternal/servermirror/mirror.go | 10 +++++-----\n1 file changed, 5 insertions(+), 5 deletions(-)\n":                                       "codex_exec_payload_command_git",
-		"M\tinternal/servermirror/mirror.go\nA\tinternal/servermirror/mirror_test.go\nD\tdocs/old.md\n":                                                                                                                                              "codex_exec_payload_command_git",
-		"abcdef1 TASK T418: rank WSS shadow opportunities\n1234567 TASK T417: server state continuation\nfedcba9 TASK T419: archive recovery gate\n":                                                                                                 "codex_exec_payload_command_git",
-		"  120 internal/servermirror/mirror.go\n   87 internal/servermirror/mirror_test.go\n":                                                                                                                                                        "codex_exec_payload_command_wc",
-		"internal/servermirror/mirror.go\ninternal/servermirror/mirror_test.go\ninternal/proxy/layer0_proxy.go\ndocs/todo/t418.md\ncmd/slimference/gain.go\n":                                                                                        "codex_exec_payload_command_find",
-		"warning:12:looks like line syntax but no file path\ntrace:34:also not a grep path\nplain:56:still ambiguous\n":                                                                                                                              "codex_exec_payload",
-		"this is just ambiguous prose\nwith multiple stable lines\nbut no command shape\n":                                                                                                                                                           "codex_exec_payload",
+		"ok  github.com/Christopher-Schulze/Slimference/internal/proxy 0.123s\nok  github.com/Christopher-Schulze/Slimference/internal/servermirror 0.045s\n":                                                                                                                                            "codex_exec_payload_command_go",
+		"internal/proxy/layer0_proxy.go:2048:\tif proxyLooksLikeGoTestOutput(payload) {\ninternal/proxy/layer0_proxy.go:2049:\t\treturn \"go test\"\ninternal/servermirror/mirror.go:305:func payloadLooksLikeGoTestOutput(payload string) bool {\n":                                                     "codex_exec_payload_command_rg",
+		" M internal/servermirror/mirror.go\n?? docs/todo/t418.md\n M internal/proxy/layer0_proxy.go\n":                                                                                                                                                                                                  "codex_exec_payload_command_git",
+		"internal/servermirror/mirror.go      | 42 +++++++++++++++++++++\ninternal/servermirror/mirror_test.go | 31 +++++++++++++++\n2 files changed, 73 insertions(+)\n":                                                                                                                                "codex_exec_payload_command_git",
+		"commit abcdef1234567890abcdef1234567890abcdef12\nAuthor: Test <test@example.com>\n\n    sample\n\ninternal/servermirror/mirror.go | 10 +++++-----\n1 file changed, 5 insertions(+), 5 deletions(-)\n":                                                                                           "codex_exec_payload_command_git",
+		"M\tinternal/servermirror/mirror.go\nA\tinternal/servermirror/mirror_test.go\nD\tdocs/old.md\n":                                                                                                                                                                                                  "codex_exec_payload_command_git",
+		"abcdef1 TASK T418: rank WSS shadow opportunities\n1234567 TASK T417: server state continuation\nfedcba9 TASK T419: archive recovery gate\n":                                                                                                                                                     "codex_exec_payload_command_git",
+		"  120 internal/servermirror/mirror.go\n   87 internal/servermirror/mirror_test.go\n":                                                                                                                                                                                                            "codex_exec_payload_command_wc",
+		"internal/servermirror/mirror.go\ninternal/servermirror/mirror_test.go\ninternal/proxy/layer0_proxy.go\ndocs/todo/t418.md\ncmd/slimference/gain.go\n":                                                                                                                                            "codex_exec_payload_command_find",
+		`{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"eslint"}},"results":[]}]}` + "\n":                                                                                                                                               "codex_exec_payload_command_sarif",
+		"added 120 packages, and audited 121 packages in 2s\n45 packages are looking for funding\nfound 0 vulnerabilities\n":                                                                                                                                                                             "codex_exec_payload_command_npm",
+		"Terraform will perform the following actions:\n\n  # aws_s3_bucket.example will be created\n\nPlan: 12 to add, 0 to change, 0 to destroy.\n":                                                                                                                                                    "codex_exec_payload_command_terraform",
+		"NAME      READY   STATUS             RESTARTS   AGE\napi-0     1/1     Running            0          2m\nworker-0  0/1     CrashLoopBackOff   3          1m\n":                                                                                                                                  "codex_exec_payload_command_kubectl",
+		"total 320\n-rw-r--r--  1 user staff 1200 Jan 01 00:00 file_00.go\n-rw-r--r--  1 user staff 1201 Jan 01 00:00 file_01.go\n-rw-r--r--  1 user staff 1202 Jan 01 00:00 file_02.go\n-rw-r--r--  1 user staff 1203 Jan 01 00:00 file_03.go\n-rw-r--r--  1 user staff 1204 Jan 01 00:00 file_04.go\n": "codex_exec_payload_command_ls",
+		".\n├── cmd\n│   └── slimference\n└── internal\n    └── servermirror\n\n4 directories, 0 files\n":                                                                                                                                                                                                "codex_exec_payload_command_tree",
+		"warning:12:looks like line syntax but no file path\ntrace:34:also not a grep path\nplain:56:still ambiguous\n":                                                                                                                                                                                  "codex_exec_payload",
+		"this is just ambiguous prose\nwith multiple stable lines\nbut no command shape\n":                                                                                                                                                                                                               "codex_exec_payload",
 	}
 	for payload, want := range payloadInputs {
 		if got := normalizedCodexExecPayloadKind(types.ContentBlock{}, payload); got != want {
@@ -273,6 +279,42 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 func TestMirror_PayloadInferenceBoundaries(t *testing.T) {
 	t.Parallel()
 
+	if !payloadLooksLikeSARIFOutput(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"sarif-runner"}}}]}`) {
+		t.Fatal("SARIF marker fallback should classify")
+	}
+	if payloadLooksLikeSARIFOutput("not json") {
+		t.Fatal("non-JSON SARIF payload must not classify")
+	}
+	if payloadLooksLikeSARIFOutput(`{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.0.0","runs":[]}`) {
+		t.Fatal("wrong SARIF version must not classify")
+	}
+	if payloadLooksLikeSARIFOutput(`{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":{}}`) {
+		t.Fatal("SARIF runs object must not classify")
+	}
+	if payloadLooksLikeSARIFOutput(`{"version":"2.1.0","runs":[{}]}`) {
+		t.Fatal("SARIF run without tool/results must not classify")
+	}
+	if !payloadLooksLikePackageInstallOutput("added 12 packages, and audited 13 packages in 1s\nfound 0 vulnerabilities\n") {
+		t.Fatal("npm install success should classify")
+	}
+	if !payloadLooksLikeTerraformPlanOutput("Terraform will perform the following actions:\n\nPlan: 0 to add, 1 to change, 0 to destroy.\n") {
+		t.Fatal("terraform plan should classify")
+	}
+	if payloadLooksLikeTerraformPlanOutput("Terraform will perform the following actions:\n\nNo changes. Your infrastructure matches the configuration.\n") {
+		t.Fatal("terraform no-op output without Plan counts must not classify")
+	}
+	if !payloadLooksLikeKubectlGetOutput("NAME READY STATUS RESTARTS AGE\npod-a 1/1 Running 0 1m\npod-b 1/1 Running 0 2m\n") {
+		t.Fatal("kubectl get table should classify")
+	}
+	if !payloadLooksLikeLsLongOutput("total 5\ndrwxr-xr-x 2 user staff 64 Jan 01 00:00 dir\nlrwxr-xr-x 1 user staff 3 Jan 01 00:00 link -> dst\n-rw-r--r-- 1 user staff 1 Jan 01 00:00 a\n-rw-r--r-- 1 user staff 2 Jan 01 00:00 b\n-rw-r--r-- 1 user staff 3 Jan 01 00:00 c\n") {
+		t.Fatal("ls long output should classify")
+	}
+	if looksLikeLsMode("xrwxrwxrwx") || looksLikeLsMode("-rwxbad") || !looksLikeLsMode("-rw-r--r--") {
+		t.Fatal("ls mode guard misclassified")
+	}
+	if !payloadLooksLikeTreeOutput(".\n|-- cmd\n`-- internal\n\n2 directories, 0 files\n") {
+		t.Fatal("ASCII tree output should classify")
+	}
 	if got := inferCommandLineFromCodexExecPayload(" \n\t "); got != "" {
 		t.Fatalf("empty payload inferred as %q", got)
 	}
@@ -291,6 +333,36 @@ func TestMirror_PayloadInferenceBoundaries(t *testing.T) {
 	}
 	if payloadLooksLikeGoTestOutput("ok  github.com/example/one 0.1s\n\nplain line\n") {
 		t.Fatal("go-test sparse output with prose must not classify")
+	}
+	if payloadLooksLikeSARIFOutput(`{"version":"2.1.0","runs":[]}`) {
+		t.Fatal("SARIF without schema or sarif marker must not classify")
+	}
+	if payloadLooksLikePackageInstallOutput("added two ideas and audited the document; found 0 vulnerabilities in prose") {
+		t.Fatal("package prose must not classify as install output")
+	}
+	if payloadLooksLikeTerraformPlanOutput("Plan: write the code and add tests") {
+		t.Fatal("plain plan prose must not classify as terraform")
+	}
+	if payloadLooksLikeKubectlGetOutput("NAME VALUE\nthing 1\nother 2\n") {
+		t.Fatal("short two-column table must not classify as kubectl get")
+	}
+	if payloadLooksLikeKubectlGetOutput("\nPOD READY STATUS\npod-a 1/1 Running\npod-b 1/1 Running\n") {
+		t.Fatal("kubectl-like output without NAME header must not classify")
+	}
+	if payloadLooksLikeKubectlGetOutput("NAME READY STATUS RESTARTS AGE\npod-a 1/1\npod-b 1/1\n") {
+		t.Fatal("kubectl rows with too few columns must not classify")
+	}
+	if payloadLooksLikeLsLongOutput("-rw-r--r-- one malformed row\n-rw-r--r-- another malformed row\n") {
+		t.Fatal("malformed ls rows must not classify")
+	}
+	if looksLikeLsMode("-rw-r--q--") || !looksLikeLsMode("drwxr-xr-x") || !looksLikeLsMode("lrwxrwxrwx") {
+		t.Fatal("ls mode branch coverage misclassified")
+	}
+	if payloadLooksLikeLsLongOutput("total 2\n-rw-r--r-- 1 user staff 1 Jan 01 00:00 a\nplain prose\n") {
+		t.Fatal("mixed sparse ls output must not classify")
+	}
+	if payloadLooksLikeTreeOutput(".\ncmd\ninternal\n\n2 directories, 0 files\n") {
+		t.Fatal("plain summary without tree drawing must not classify")
 	}
 	if payloadLooksLikeSearchOutput("Total output lines: 2\nplain:12:not/a/path\nother:34:still/no/path\n") {
 		t.Fatal("colon prose without path must not classify as search")
