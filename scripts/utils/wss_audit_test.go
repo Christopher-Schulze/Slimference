@@ -147,6 +147,25 @@ func TestWSSAuditReport(t *testing.T) {
 	if got := report.ShadowMirror.NormalizedReferenceableBytesByKind[0]; got.Kind != "codex_exec_payload" || got.ReferenceableBytes != 300 || got.Bytes != 500 || got.ReferenceableBytePct != 60 {
 		t.Fatalf("bad shadow mirror kind row: %+v", got)
 	}
+	if len(report.ShadowMirrorCandidates) != 2 {
+		t.Fatalf("shadow mirror candidates = %d, want 2: %+v", len(report.ShadowMirrorCandidates), report.ShadowMirrorCandidates)
+	}
+	if got := report.ShadowMirrorCandidates[0]; got.RequestShape != "full_history" ||
+		got.Kind != "exact_block" ||
+		got.ReferenceableBytes != 400 ||
+		got.Bytes != 1000 ||
+		got.ReferenceableBytePct != 40 ||
+		got.ProviderInputTokens != 90 ||
+		got.CandidateLane != "t417_class_b_server_state" {
+		t.Fatalf("bad top shadow mirror candidate: %+v", got)
+	}
+	if got := report.ShadowMirrorCandidates[1]; got.RequestShape != "full_history" ||
+		got.Kind != "codex_exec_payload" ||
+		got.ReferenceableBytes != 300 ||
+		got.Bytes != 500 ||
+		!strings.Contains(got.RecommendedAction, "T417") {
+		t.Fatalf("bad normalized shadow mirror candidate: %+v", got)
+	}
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
 		t.Fatalf("bad content classes: %+v", report.ContentClasses)
 	}
@@ -617,6 +636,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "turn=turn_4_8") ||
 		!strings.Contains(stdout.String(), "Footprint coverage:") ||
 		!strings.Contains(stdout.String(), "Shadow mirror density:") ||
+		!strings.Contains(stdout.String(), "Shadow mirror candidates:") ||
+		!strings.Contains(stdout.String(), "shape=full_history") ||
+		!strings.Contains(stdout.String(), "lane=t417_class_b_server_state") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
@@ -695,6 +717,11 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.ShadowMirror == nil || report.ShadowMirror.NormalizedReferenceableBytes != 120 || report.ShadowMirror.NormalizedReferenceableBytePct != 60 {
 		t.Fatalf("shadow mirror missing from JSON report: %+v", report.ShadowMirror)
+	}
+	if len(report.ShadowMirrorCandidates) != 1 ||
+		report.ShadowMirrorCandidates[0].Kind != "codex_exec_payload" ||
+		report.ShadowMirrorCandidates[0].CandidateLane != "t417_class_b_server_state" {
+		t.Fatalf("shadow mirror candidates missing from JSON report: %+v", report.ShadowMirrorCandidates)
 	}
 	if len(report.Policy) != 2 || report.PolicySource == "" {
 		t.Fatalf("policy join missing from JSON report: %+v", report)

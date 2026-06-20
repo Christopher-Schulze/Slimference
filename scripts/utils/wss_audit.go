@@ -48,6 +48,7 @@ type wssAuditReport struct {
 	ShapeEconomics         []wssAuditShapeEconomicsSummary  `json:"shape_economics,omitempty"`
 	FullHistory            *wssFullHistoryClassBSummary     `json:"full_history,omitempty"`
 	ShadowMirror           *wssShadowMirrorSummary          `json:"shadow_mirror,omitempty"`
+	ShadowMirrorCandidates []wssShadowMirrorCandidate       `json:"shadow_mirror_candidates,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
 }
@@ -207,6 +208,28 @@ type wssShadowMirrorKindSummary struct {
 type wssShadowMirrorAccumulator struct {
 	summary wssShadowMirrorSummary
 	byKind  map[string]*wssShadowMirrorKindSummary
+}
+
+type wssShadowMirrorCandidate struct {
+	RequestShape          string  `json:"request_shape"`
+	Kind                  string  `json:"kind"`
+	Requests              int     `json:"requests"`
+	ReferenceableSegments int     `json:"referenceable_segments"`
+	Segments              int     `json:"segments"`
+	ReferenceableBytes    int     `json:"referenceable_bytes"`
+	Bytes                 int     `json:"bytes"`
+	ReferenceableBytePct  float64 `json:"referenceable_byte_pct"`
+	ProviderInputTokens   int     `json:"provider_input_tokens"`
+	LocalSavedTokens      int     `json:"local_saved_tokens"`
+	ErrorRequests         int     `json:"error_requests"`
+	UpstreamErrorRequests int     `json:"upstream_error_requests"`
+	HTTP400ErrorRequests  int     `json:"http_400_error_requests"`
+	CandidateLane         string  `json:"candidate_lane"`
+	RecommendedAction     string  `json:"recommended_action"`
+}
+
+type wssShadowMirrorCandidateAccumulator struct {
+	rows map[string]*wssShadowMirrorCandidate
 }
 
 type wssAuditFlags struct {
@@ -412,6 +435,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	fullHistory := wssFullHistoryClassBAccumulator{}
 	shapeEconomics := wssAuditShapeEconomicsAccumulator{rows: make(map[string]*wssAuditShapeEconomicsSummary)}
 	shadowMirror := wssShadowMirrorAccumulator{byKind: make(map[string]*wssShadowMirrorKindSummary)}
+	shadowMirrorCandidates := wssShadowMirrorCandidateAccumulator{rows: make(map[string]*wssShadowMirrorCandidate)}
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
 			if summary.Timestamp.IsZero() || summary.Timestamp.Before(flags.since) {
@@ -444,6 +468,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 			if shape == "full_history" {
 				fullHistory.add(summary)
 			}
+			shadowMirrorCandidates.add(summary, resolvedShape.Shape)
 		}
 		if strings.TrimSpace(summary.SessionID) == "" {
 			report.MissingSessionID++
@@ -512,6 +537,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	if shadow := shadowMirror.finalize(); shadow != nil {
 		report.ShadowMirror = shadow
 	}
+	report.ShadowMirrorCandidates = shadowMirrorCandidates.finalize()
 	if history := fullHistory.finalize(); history != nil {
 		report.FullHistory = history
 	}
@@ -1012,6 +1038,172 @@ func (a *wssShadowMirrorAccumulator) finalize() *wssShadowMirrorSummary {
 	return &out
 }
 
+func (a *wssShadowMirrorCandidateAccumulator) add(summary dbg.RequestSummary, shape string) {
+	if a == nil || len(summary.DebugFacts) == 0 {
+		return
+	}
+	shape = strings.TrimSpace(shape)
+	if shape == "" {
+		shape = "unknown"
+	}
+	if a.rows == nil {
+		a.rows = make(map[string]*wssShadowMirrorCandidate)
+	}
+	if refBytes := intFact(summary.DebugFacts, "wss.shadow_mirror_referenceable_bytes"); refBytes > 0 {
+		bytes := intFact(summary.DebugFacts, "wss.shadow_mirror_bytes")
+		segments := intFact(summary.DebugFacts, "wss.shadow_mirror_blocks")
+		refSegments := intFact(summary.DebugFacts, "wss.shadow_mirror_referenceable_blocks")
+		a.addRow(summary, shape, "exact_block", refBytes, bytes, refSegments, segments)
+	}
+	for _, row := range parseWSSShadowMirrorKindRows(summary.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"]) {
+		if row.ReferenceableBytes <= 0 {
+			continue
+		}
+		a.addRow(summary, shape, row.Kind, row.ReferenceableBytes, row.Bytes, row.ReferenceableSegments, row.Segments)
+	}
+}
+
+func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary, shape, kind string, refBytes, bytes, refSegments, segments int) {
+	if refBytes <= 0 {
+		return
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "unknown"
+	}
+	key := shape + "\x00" + kind
+	row := a.rows[key]
+	if row == nil {
+		row = &wssShadowMirrorCandidate{
+			RequestShape:      shape,
+			Kind:              kind,
+			CandidateLane:     wssShadowMirrorCandidateLane(shape, kind),
+			RecommendedAction: wssShadowMirrorCandidateAction(shape, kind),
+		}
+		a.rows[key] = row
+	}
+	row.Requests++
+	row.ReferenceableBytes += refBytes
+	row.Bytes += maxInt(0, bytes)
+	row.ReferenceableSegments += maxInt(0, refSegments)
+	row.Segments += maxInt(0, segments)
+	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	row.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
+	if len(summary.Errors) > 0 {
+		row.ErrorRequests++
+	}
+	if wssAuditHasUpstreamError(summary) {
+		row.UpstreamErrorRequests++
+	}
+	if wssAuditHasHTTP400Error(summary) {
+		row.HTTP400ErrorRequests++
+	}
+}
+
+func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandidate {
+	if a == nil || len(a.rows) == 0 {
+		return nil
+	}
+	out := make([]wssShadowMirrorCandidate, 0, len(a.rows))
+	for _, row := range a.rows {
+		candidate := *row
+		candidate.ReferenceableBytePct = pct(candidate.ReferenceableBytes, candidate.Bytes)
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ReferenceableBytes != out[j].ReferenceableBytes {
+			return out[i].ReferenceableBytes > out[j].ReferenceableBytes
+		}
+		if out[i].RequestShape != out[j].RequestShape {
+			return wssShadowMirrorShapeRank(out[i].RequestShape) < wssShadowMirrorShapeRank(out[j].RequestShape)
+		}
+		if out[i].ReferenceableBytePct != out[j].ReferenceableBytePct {
+			return out[i].ReferenceableBytePct > out[j].ReferenceableBytePct
+		}
+		return out[i].Kind < out[j].Kind
+	})
+	return out
+}
+
+func parseWSSShadowMirrorKindRows(encoded string) []wssShadowMirrorKindSummary {
+	if strings.TrimSpace(encoded) == "" {
+		return nil
+	}
+	var rows []wssShadowMirrorKindSummary
+	for _, part := range strings.Split(encoded, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, values, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		pieces := strings.Split(values, "/")
+		if len(pieces) != 4 {
+			continue
+		}
+		refBytes, okRefBytes := parseNonNegativeInt(pieces[0])
+		bytes, okBytes := parseNonNegativeInt(pieces[1])
+		refSegments, okRefSegments := parseNonNegativeInt(pieces[2])
+		segments, okSegments := parseNonNegativeInt(pieces[3])
+		if !okRefBytes || !okBytes || !okRefSegments || !okSegments {
+			continue
+		}
+		rows = append(rows, wssShadowMirrorKindSummary{
+			Kind:                  strings.TrimSpace(name),
+			ReferenceableBytes:    refBytes,
+			Bytes:                 bytes,
+			ReferenceableSegments: refSegments,
+			Segments:              segments,
+		})
+	}
+	return rows
+}
+
+func wssShadowMirrorShapeRank(shape string) int {
+	switch strings.TrimSpace(shape) {
+	case "full_history":
+		return 0
+	case "delta":
+		return 1
+	case "root":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func wssShadowMirrorCandidateLane(shape, kind string) string {
+	switch strings.TrimSpace(shape) {
+	case "full_history":
+		return "t417_class_b_server_state"
+	case "delta":
+		return "t405_t354_stateful_delta"
+	case "root":
+		return "t406_t418_parser_frontier"
+	default:
+		return "capture_shape_resolution"
+	}
+}
+
+func wssShadowMirrorCandidateAction(shape, kind string) string {
+	shape = strings.TrimSpace(shape)
+	kind = strings.TrimSpace(kind)
+	switch {
+	case shape == "full_history" && kind == "codex_exec_payload":
+		return "rank for T417 Class-B continuation or T418 command-output-first recovery"
+	case shape == "full_history":
+		return "rank for T417 exact lineage-scoped continuation"
+	case shape == "delta":
+		return "rank for T405/T354 stateful-delta proof, keep current delta guards until downstream-clean"
+	case shape == "root":
+		return "rank for T406/T418 parser/default-on command-output classes"
+	default:
+		return "improve shape attribution before product promotion"
+	}
+}
+
 func wssShadowMirrorFactsPresent(facts map[string]string) bool {
 	for key := range facts {
 		if strings.HasPrefix(key, "wss.shadow_mirror_") {
@@ -1415,6 +1607,25 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 					row.Kind, row.ReferenceableBytes, row.Bytes, row.ReferenceableBytePct,
 					row.ReferenceableSegments, row.Segments)
 			}
+		}
+	}
+	if len(report.ShadowMirrorCandidates) > 0 {
+		fmt.Fprintln(w, "\nShadow mirror candidates:")
+		for _, row := range report.ShadowMirrorCandidates {
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d lane=%s action=%s\n",
+				row.RequestShape,
+				row.Kind,
+				row.ReferenceableBytes,
+				row.Bytes,
+				row.ReferenceableBytePct,
+				row.ReferenceableSegments,
+				row.Segments,
+				row.Requests,
+				row.ProviderInputTokens,
+				row.LocalSavedTokens,
+				row.ErrorRequests,
+				row.CandidateLane,
+				row.RecommendedAction)
 		}
 	}
 	if len(report.Sessions) > 0 {
