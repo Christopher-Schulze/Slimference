@@ -39,6 +39,8 @@ func sqlShellLabel(argv []string) string {
 		return "mariadb"
 	case "sqlite", "sqlite.exe", "sqlite3", "sqlite3.exe":
 		return "sqlite"
+	case "duckdb", "duckdb.exe":
+		return "duckdb"
 	default:
 		return ""
 	}

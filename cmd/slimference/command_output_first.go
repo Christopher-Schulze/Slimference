@@ -88,7 +88,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq",
 		"curl", "wget", "http", "https",
 		"journalctl", "tail",
-		"psql", "mysql", "mariadb",
+		"psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -337,7 +337,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return true
 	case "curl", "wget", "http", "https":
 		return commandOutputFirstNetworkResponseAllowed(command, args)
-	case "psql", "mysql", "mariadb":
+	case "psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb":
 		return commandOutputFirstSQLShellAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
@@ -1002,9 +1002,47 @@ func commandOutputFirstSQLShellAllowed(command string, args []string) bool {
 		return commandOutputFirstOptionWithValuePresent(args, "-c", "--command", "-f", "--file")
 	case "mysql", "mariadb":
 		return commandOutputFirstOptionWithValuePresent(args, "-e", "--execute")
+	case "sqlite", "sqlite3":
+		return commandOutputFirstSQLPositionalQueryPresent(args, "-cmd", "-init", "-separator", "-nullvalue")
+	case "duckdb":
+		return commandOutputFirstOptionWithValuePresent(args, "-c", "--command") ||
+			commandOutputFirstSQLPositionalQueryPresent(args, "-c", "--command")
 	default:
 		return false
 	}
+}
+
+func commandOutputFirstSQLPositionalQueryPresent(args []string, optionValueNames ...string) bool {
+	nonOptions := 0
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		consumesValue := false
+		for _, name := range optionValueNames {
+			if arg == name {
+				consumesValue = true
+				break
+			}
+			if strings.HasPrefix(arg, name+"=") {
+				consumesValue = false
+				break
+			}
+		}
+		if consumesValue {
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return false
+			}
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		nonOptions++
+	}
+	return nonOptions >= 2
 }
 
 func commandOutputFirstOptionWithValuePresent(args []string, names ...string) bool {
@@ -1515,7 +1553,7 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "journalctl", "tail":
 		compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
-	case "psql", "mysql", "mariadb":
+	case "psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb":
 		compacted, ok := filter.TryCompactPsql(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:

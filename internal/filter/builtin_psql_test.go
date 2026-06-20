@@ -23,6 +23,10 @@ func TestTryCompactPsql(t *testing.T) {
 	if !ok || string(sqliteOut) != "[sqlite] ok\n" {
 		t.Fatalf("sqlite ok=%v %q", ok, sqliteOut)
 	}
+	duckDBOut, ok := TryCompactPsql([]string{"duckdb", "-c", "select 1"}, []byte(""))
+	if !ok || string(duckDBOut) != "[duckdb] ok\n" {
+		t.Fatalf("duckdb ok=%v %q", ok, duckDBOut)
+	}
 	if _, ok := TryCompactPsql([]string{"redis-cli", "ping"}, []byte("")); ok {
 		t.Fatal("not a SQL shell")
 	}
@@ -148,7 +152,8 @@ func TestSQLShellLabel(t *testing.T) {
 		{[]string{"sqlite"}, "sqlite"},
 		{[]string{"sqlite.exe"}, "sqlite"},
 		{[]string{"sqlite3.exe"}, "sqlite"},
-		{[]string{"duckdb"}, ""},
+		{[]string{"duckdb"}, "duckdb"},
+		{[]string{"duckdb.exe"}, "duckdb"},
 		{nil, ""},
 	}
 	for _, tt := range tests {

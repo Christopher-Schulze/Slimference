@@ -574,6 +574,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "psql", args: []string{"--command=select 1"}},
 		{command: "mysql", args: []string{"-e", "select * from users"}},
 		{command: "mariadb", args: []string{"--execute=select 1"}},
+		{command: "sqlite3", args: []string{"db.sqlite", "select * from users"}},
+		{command: "sqlite", args: []string{"-readonly", "db.sqlite", "select 1"}},
+		{command: "duckdb", args: []string{"-c", "select * from users"}},
+		{command: "duckdb", args: []string{"db.duckdb", "select 1"}},
 		{command: "gradle", args: []string{"build"}},
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "meson", args: []string{"compile", "-C", "build"}},
@@ -701,6 +705,12 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "mysql", args: nil},
 		{command: "mysql", args: []string{"-e"}},
 		{command: "mariadb", args: []string{"--execute="}},
+		{command: "sqlite3", args: nil},
+		{command: "sqlite3", args: []string{"db.sqlite"}},
+		{command: "sqlite3", args: []string{"-cmd", "select 1", "db.sqlite"}},
+		{command: "duckdb", args: nil},
+		{command: "duckdb", args: []string{"db.duckdb"}},
+		{command: "duckdb", args: []string{"-c"}},
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run", "web:test"}},
@@ -3593,6 +3603,60 @@ func TestCommandOutputFirstShimSQLTableCompactsWithArchive(t *testing.T) {
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
 		t.Fatalf("non-positive psql accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimSQLiteTableCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var table strings.Builder
+	table.WriteString("id  | name        | email\n")
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&table, "%-3d | user_%03d    | user_%03d@example.com\n", i, i, i)
+	}
+	realSQLite := writeFakeCommand(t, "sqlite3", "#!/bin/sh\ncat <<'EOF'\n"+table.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=sqlite3", "--real-bin=" + realSQLite, "--", "db.sqlite", "select * from users"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("sqlite3 rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "id | name | email") ||
+		!strings.Contains(got, "user_119@example.com") {
+		t.Fatalf("unexpected sqlite compact output: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing sqlite archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand sqlite archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("id  | name        | email")) ||
+		bytes.Count(raw, []byte("user_")) != 240 {
+		t.Fatalf("archive did not preserve raw sqlite table: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:sqlite3] sqlite3 db.sqlite select * from users") {
+		t.Fatalf("missing sqlite accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive sqlite accounting row: %+v", run)
 	}
 }
 
