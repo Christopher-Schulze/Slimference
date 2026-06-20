@@ -264,6 +264,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return commandOutputFirstGitDiffMetadataOnly(args)
 		case "show":
 			return commandOutputFirstGitShowMetadataOnly(args)
+		case "log":
+			return commandOutputFirstGitLogStatOnly(args)
 		default:
 			return false
 		}
@@ -1183,6 +1185,12 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			}
 			compacted, ok := filter.TryCompactGitShow(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "log":
+			if !commandOutputFirstGitLogStatOnly(args) {
+				return nil, false
+			}
+			compacted, ok := filter.TryCompactGitLog(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "ls-files":
 			compacted, ok := filter.TryCompactGitLsFiles(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
@@ -1712,6 +1720,24 @@ func commandOutputFirstGitShowMetadataOnly(args []string) bool {
 			arg == "--numstat", arg == "--shortstat", arg == "-z", arg == "--word-diff",
 			strings.HasPrefix(arg, "--word-diff="), strings.HasPrefix(arg, "-U"),
 			strings.HasPrefix(arg, "--unified="):
+			return false
+		}
+	}
+	return modes == 1
+}
+
+func commandOutputFirstGitLogStatOnly(args []string) bool {
+	modes := 0
+	for _, arg := range args {
+		switch {
+		case arg == "--stat", strings.HasPrefix(arg, "--stat="):
+			modes++
+		case arg == "-p", arg == "--patch", arg == "--patch-with-stat", arg == "--raw",
+			arg == "--numstat", arg == "--shortstat", arg == "--name-only",
+			arg == "--name-status", arg == "--oneline", arg == "--word-diff",
+			strings.HasPrefix(arg, "--word-diff="), strings.HasPrefix(arg, "-U"),
+			strings.HasPrefix(arg, "--unified="), strings.HasPrefix(arg, "--format="),
+			strings.HasPrefix(arg, "--pretty="), arg == "--format", arg == "--pretty":
 			return false
 		}
 	}

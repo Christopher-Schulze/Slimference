@@ -134,6 +134,76 @@ func TestCommandOutputFirstShimGitShowMetadataCompacts(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimGitLogStatCompacts(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for commit := 0; commit < 16; commit++ {
+		b.WriteString("commit ")
+		b.WriteString(fmt.Sprintf("%040x", commit+1))
+		b.WriteString("\n")
+		b.WriteString("Author: Dev <dev@example.com>\n")
+		b.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
+		b.WriteString("    Tighten command-output-first metadata path ")
+		b.WriteString(strconv.Itoa(commit))
+		b.WriteString("\n\n")
+		for i := 0; i < 8; i++ {
+			b.WriteString(" internal/proxy/generated/history/deep/path/commit_")
+			b.WriteString(fmt.Sprintf("%02d", commit))
+			b.WriteString("_file_")
+			b.WriteString(fmt.Sprintf("%02d.go | %d +++++-----\n", i, i+1))
+		}
+		b.WriteString(" 8 files changed, 64 insertions(+), 32 deletions(-)\n\n")
+	}
+	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=git", "--real-bin=" + realGit, "--", "-C", "/repo", "log", "--stat", "--max-count=16", "--", "internal/proxy"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[git log] 16 commit(s)") ||
+		!strings.Contains(got, "Tighten command-output-first metadata path 15") ||
+		!strings.Contains(got, "[8 file(s), +64/-32]") {
+		t.Fatalf("unexpected compacted stdout=%q", got)
+	}
+	if strings.Contains(got, "internal/proxy/generated/history/deep/path/commit_15_file_07.go") {
+		t.Fatalf("git log --stat command-output-first should elide repeated stat path rows: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand git log archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("internal/proxy/generated/history/deep/path/commit_15_file_07.go")) {
+		t.Fatalf("archive did not preserve raw git log output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:git] git -C /repo log --stat --max-count=16 -- internal/proxy") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstShimGitLsFilesCompacts(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
@@ -275,6 +345,24 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 	}
 	if commandOutputFirstAllowCapture("git", []string{"show", "--name-only", "--name-status", "HEAD"}) {
 		t.Fatal("git show with multiple metadata modes must not be captured")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"log"}) {
+		t.Fatal("plain git log must not be captured")
+	}
+	if !commandOutputFirstAllowCapture("git", []string{"log", "--stat", "--max-count=20"}) {
+		t.Fatal("git log --stat should be captured")
+	}
+	if !commandOutputFirstAllowCapture("git", []string{"-C", "/repo", "log", "--stat=80", "--", "internal"}) {
+		t.Fatal("git -C repo log --stat pathspec should be captured")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"log", "--stat", "--patch"}) {
+		t.Fatal("git log --stat --patch must not be captured")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"log", "--name-only"}) {
+		t.Fatal("git log --name-only must not be captured until a path-list log reducer exists")
+	}
+	if commandOutputFirstAllowCapture("git", []string{"log", "--stat", "--format=oneline"}) {
+		t.Fatal("git log custom format must not be captured by the default-header reducer")
 	}
 	if !commandOutputFirstAllowCapture("git", []string{"grep", "-n", "TODO", "--", "internal"}) {
 		t.Fatal("git grep should be captured by the command-output-first shim")
