@@ -57,6 +57,9 @@ type codexDesktopStatusOutput struct {
 	SearchCapProofCommand       string                   `json:"search_cap_proof_command,omitempty"`
 	MatrixRowCommand            string                   `json:"matrix_row_command,omitempty"`
 	FocusedMatrixCommand        string                   `json:"focused_matrix_command,omitempty"`
+	WSSSocketsCommand           string                   `json:"wss_sockets_command,omitempty"`
+	WSSAuditCommand             string                   `json:"wss_audit_command,omitempty"`
+	WSSProofPackCommand         string                   `json:"wss_proof_pack_command,omitempty"`
 	ManualProofCommand          string                   `json:"manual_proof_command,omitempty"`
 	OwnerPrompt                 string                   `json:"owner_prompt,omitempty"`
 	FinishCommand               string                   `json:"finish_command,omitempty"`
@@ -79,6 +82,9 @@ type codexDesktopProofOutput struct {
 	SearchCapProofCommand    string              `json:"search_cap_proof_command,omitempty"`
 	MatrixRowCommand         string              `json:"matrix_row_command,omitempty"`
 	FocusedMatrixCommand     string              `json:"focused_matrix_command,omitempty"`
+	WSSSocketsCommand        string              `json:"wss_sockets_command,omitempty"`
+	WSSAuditCommand          string              `json:"wss_audit_command,omitempty"`
+	WSSProofPackCommand      string              `json:"wss_proof_pack_command,omitempty"`
 	DeltaWSS                 control.WSSState    `json:"delta_wss"`
 	CATrust                  codexDesktopCAState `json:"ca_trust"`
 	SessionPath              string              `json:"session_path,omitempty"`
@@ -197,6 +203,13 @@ func applyCodexDesktopProofCaptureCommands(out *codexDesktopProofOutput, host st
 	out.FocusedMatrixCommand = codexDesktopFocusedMatrixCommand(out.MatrixPath)
 }
 
+func applyCodexDesktopProofPackCommands(out *codexDesktopProofOutput) {
+	if out == nil {
+		return
+	}
+	out.WSSSocketsCommand, out.WSSAuditCommand, out.WSSProofPackCommand = codexDesktopProofPackCommands(out.StartedAt)
+}
+
 func codexDesktopSearchCapProofCommand(capturePath string, socketSeq uint64) string {
 	return "go run ./scripts/utils search-cap-proof --frames " + capturePath + codexDesktopSocketSeqFlag(socketSeq) + " --candidate=30:15 --candidate=25:15 --min-candidate-retained-pct=40 --min-search-outputs=2 --min-extra-reducer-tokens=1 --json"
 }
@@ -217,6 +230,29 @@ func codexDesktopClassDistributionCommandForSince(startedAt string) string {
 		return codexDesktopClassDistributionCommand
 	}
 	return codexDesktopClassDistributionCommandPrefix + " --since=" + startedAt + " --min-local-ratio=0.48 --json"
+}
+
+func codexDesktopProofPackCommands(startedAt string) (string, string, string) {
+	sinceFlag := "--since-file=" + codexDesktopProofSinceFilePathFn()
+	stamp := "since-file"
+	if normalized := normalizeCodexDesktopProofStartedAt(startedAt); normalized != "" {
+		sinceFlag = "--since=" + normalized
+		stamp = codexDesktopProofArtifactStamp(normalized)
+	}
+	socketsPath := "/tmp/slimference-desktop-proof-wss-sockets-" + stamp + ".json"
+	auditPath := "/tmp/slimference-desktop-proof-wss-audit-" + stamp + ".json"
+	sockets := "slimference debug wss-sockets 200 " + sinceFlag + " --json > " + socketsPath
+	audit := "go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl " + sinceFlag + " --json > " + auditPath
+	pack := "go run ./scripts/utils wss-proof-pack ~/.slimference/debug/decisions.jsonl " + sinceFlag + " --sockets-json=" + socketsPath + " --audit-json=" + auditPath + " --json"
+	return sockets, audit, pack
+}
+
+func codexDesktopProofArtifactStamp(startedAt string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(startedAt))
+	if err != nil {
+		return "since-file"
+	}
+	return t.UTC().Format("20060102T150405Z")
 }
 
 func normalizeCodexDesktopProofStartedAt(startedAt string) string {
@@ -380,6 +416,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 				StartedAt:    startedAtText,
 				Notes:        []string{expandErr.Error()},
 			}
+			applyCodexDesktopProofPackCommands(&out)
 			emitCodexDesktopProof(p, flags.json, out)
 			return 2
 		}
@@ -397,6 +434,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 				CapturePath:  capturePath,
 				Notes:        []string{expandErr.Error()},
 			}
+			applyCodexDesktopProofPackCommands(&out)
 			emitCodexDesktopProof(p, flags.json, out)
 			return 2
 		}
@@ -416,6 +454,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 			Notes:        []string{"start the Slimference daemon before running the Desktop proof"},
 		}
 		applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+		applyCodexDesktopProofPackCommands(&out)
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -430,6 +469,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 			Notes:        []string{err.Error()},
 		}
 		applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+		applyCodexDesktopProofPackCommands(&out)
 		emitCodexDesktopProof(p, flags.json, out)
 		return 1
 	}
@@ -446,6 +486,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 				Notes:        []string{"daemon-side Desktop proof WSS capture could not be enabled: " + err.Error()},
 			}
 			applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+			applyCodexDesktopProofPackCommands(&out)
 			emitCodexDesktopProof(p, flags.json, out)
 			return 1
 		}
@@ -470,6 +511,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 				Notes:        []string{reuseErr.Error()},
 			}
 			applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+			applyCodexDesktopProofPackCommands(&out)
 			if daemonCaptureArmed {
 				clearCodexDesktopDaemonCapture(&out, flags.host, flags.port)
 			}
@@ -503,6 +545,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 		out.Notes = append(out.Notes, "reused the previous scoped Desktop proof app; no existing Codex.app session was replaced")
 	}
 	applyCodexDesktopProofCaptureCommands(&out, flags.host, flags.port)
+	applyCodexDesktopProofPackCommands(&out)
 	out.LaunchPID = launchPID
 	if rc != 0 {
 		out.Mode = "launch_failed"
@@ -542,6 +585,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	classifyCodexDesktopProof(&out, flags.manual)
 	if flags.manual && (out.LaunchReady || out.DesktopSavings) {
 		out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(out.StartedAt)
+		applyCodexDesktopProofPackCommands(&out)
 		if err := writeCodexDesktopProofSession(flags, before.WSS, startedAt, &out); err != nil {
 			out.Mode = "session_write_failed"
 			out.FailureClass = "session_write_failed"
@@ -595,6 +639,7 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 			Notes:                    []string{err.Error()},
 		}
 		applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
+		applyCodexDesktopProofPackCommands(&out)
 		if session.CapturePath != "" {
 			clearCodexDesktopDaemonCapture(&out, session.Host, session.Port)
 		}
@@ -617,6 +662,7 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 		Notes:                    []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
 	}
 	applyCodexDesktopProofCaptureCommands(&out, session.Host, session.Port)
+	applyCodexDesktopProofPackCommands(&out)
 	classifyCodexDesktopProof(&out, false)
 	if session.CapturePath != "" {
 		clearCodexDesktopDaemonCapture(&out, session.Host, session.Port)
@@ -726,6 +772,8 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.Notes = append(out.Notes, "Codex.app running-state probe failed: "+runningErr.Error())
 	}
 	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
+		applyCodexDesktopProofCaptureCommands(last, flags.host, flags.port)
+		applyCodexDesktopProofPackCommands(last)
 		out.LastProof = last
 	}
 	state, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
@@ -900,6 +948,7 @@ func applyCodexDesktopPromptRequiredHandoff(out *codexDesktopStatusOutput, reusa
 	out.OwnerPrompt = codexDesktopOwnerProofPrompt
 	out.FinishCommand = codexDesktopFinishProofCommand
 	out.ClassDistributionCommand = codexDesktopClassDistributionCommandForSince(startedAt)
+	out.WSSSocketsCommand, out.WSSAuditCommand, out.WSSProofPackCommand = codexDesktopProofPackCommands(startedAt)
 	applyCodexDesktopStatusCaptureHandoff(out)
 	if reusable {
 		out.NextSteps = append(out.NextSteps,
@@ -1243,6 +1292,15 @@ func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
 	if out.SearchCapProofCommand != "" {
 		fmt.Fprintf(w, "  SearchCap %s\n", out.SearchCapProofCommand)
 	}
+	if out.WSSSocketsCommand != "" {
+		fmt.Fprintf(w, "  Sockets   %s\n", out.WSSSocketsCommand)
+	}
+	if out.WSSAuditCommand != "" {
+		fmt.Fprintf(w, "  Audit     %s\n", out.WSSAuditCommand)
+	}
+	if out.WSSProofPackCommand != "" {
+		fmt.Fprintf(w, "  ProofPack %s\n", out.WSSProofPackCommand)
+	}
 	fmt.Fprintf(w, "  Delta WSS mitm=%d bytes_c2s=%d bytes_s2c=%d frames_reencoded=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
 		out.DeltaWSS.MITMBridged, out.DeltaWSS.BytesC2S, out.DeltaWSS.BytesS2C,
 		out.DeltaWSS.FramesReencoded, out.DeltaWSS.CompressedMessagesInspected,
@@ -1313,6 +1371,15 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 	}
 	if out.SearchCapProofCommand != "" {
 		fmt.Fprintf(w, "  SearchCap %s\n", out.SearchCapProofCommand)
+	}
+	if out.WSSSocketsCommand != "" {
+		fmt.Fprintf(w, "  Sockets   %s\n", out.WSSSocketsCommand)
+	}
+	if out.WSSAuditCommand != "" {
+		fmt.Fprintf(w, "  Audit     %s\n", out.WSSAuditCommand)
+	}
+	if out.WSSProofPackCommand != "" {
+		fmt.Fprintf(w, "  ProofPack %s\n", out.WSSProofPackCommand)
 	}
 	if out.OwnerPrompt != "" {
 		fmt.Fprintf(w, "  Prompt    %s\n", out.OwnerPrompt)

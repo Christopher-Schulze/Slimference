@@ -61,6 +61,11 @@ func TestCodexDesktopStatusPromptRequiredJSONIncludesProofHandoff(t *testing.T) 
 		!strings.Contains(got.FocusedMatrixCommand, "wss-proof-matrix /tmp/desktop-proof.matrix.jsonl") {
 		t.Fatalf("capture proof handoff missing: %+v", got)
 	}
+	if !strings.Contains(got.WSSSocketsCommand, "slimference debug wss-sockets 200 --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json") ||
+		!strings.Contains(got.WSSAuditCommand, "wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json") ||
+		!strings.Contains(got.WSSProofPackCommand, "wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json") {
+		t.Fatalf("proof-pack handoff missing: %+v", got)
+	}
 	if !strings.Contains(strings.Join(got.NextSteps, "\n"), "headroom_present=true") {
 		t.Fatalf("next steps missing headroom gate: %+v", got.NextSteps)
 	}
@@ -252,6 +257,9 @@ func TestCodexDesktopStatusPromptRequiredTextIncludesProofHandoff(t *testing.T) 
 		"Row       go run ./scripts/utils wss-proof-live-row --matrix-row /tmp/desktop-proof-text.matrix.jsonl --frames /tmp/desktop-proof-text.frames.jsonl",
 		"Matrix    go run ./scripts/utils wss-proof-matrix /tmp/desktop-proof-text.matrix.jsonl",
 		"SearchCap go run ./scripts/utils search-cap-proof --frames /tmp/desktop-proof-text.frames.jsonl",
+		"Sockets   slimference debug wss-sockets 200 --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json",
+		"Audit     go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json",
+		"ProofPack go run ./scripts/utils wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json",
 		"--since=2026-05-18T12:00:00Z",
 		"Prompt    In the current Slimference repository",
 		"PROOF_DONE",
@@ -288,7 +296,9 @@ func TestCodexDesktopStatusStalePromptLaunchDoesNotEmitHandoff(t *testing.T) {
 	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" {
 		t.Fatalf("stale prompt handoff should fall back to a fresh probe: %+v", got)
 	}
-	if got.OwnerPrompt != "" || got.FinishCommand != "" || got.ClassDistributionCommand != "" || len(got.NextSteps) != 0 {
+	if got.OwnerPrompt != "" || got.FinishCommand != "" || got.ClassDistributionCommand != "" ||
+		got.WSSSocketsCommand != "" || got.WSSAuditCommand != "" || got.WSSProofPackCommand != "" ||
+		len(got.NextSteps) != 0 {
 		t.Fatalf("stale prompt handoff must not emit owner proof commands: %+v", got)
 	}
 	if !strings.Contains(strings.Join(got.Notes, "\n"), "prompt handoff is stale") {
@@ -301,7 +311,9 @@ func TestCodexDesktopStatusAlreadyRunningIncludesSafeOwnerProofRunbook(t *testin
 	writeCodexDesktopProofResult(&codexDesktopProofOutput{
 		Mode:           "desktop_app_server_phasef_proven",
 		Transport:      codexDesktopTransportAppServer,
+		StartedAt:      "2026-05-18T12:00:00Z",
 		LaunchPID:      5151,
+		CapturePath:    "/tmp/older-desktop-proof.frames.jsonl",
 		DesktopProven:  true,
 		DesktopSavings: true,
 	})
@@ -328,6 +340,11 @@ func TestCodexDesktopStatusAlreadyRunningIncludesSafeOwnerProofRunbook(t *testin
 		!strings.Contains(got.OwnerPrompt, "PROOF_DONE") ||
 		got.FinishCommand != codexDesktopFinishProofCommand {
 		t.Fatalf("owner proof handoff missing: %+v", got)
+	}
+	if got.LastProof == nil ||
+		!strings.Contains(got.LastProof.SearchCapProofCommand, "search-cap-proof --frames /tmp/older-desktop-proof.frames.jsonl") ||
+		!strings.Contains(got.LastProof.WSSProofPackCommand, "wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json") {
+		t.Fatalf("older last proof was not enriched with proof-pack handoff: %+v", got.LastProof)
 	}
 	if strings.Contains(got.ManualProofCommand, "--replace-existing") {
 		t.Fatalf("manual proof command must not normalize replace-existing: %q", got.ManualProofCommand)

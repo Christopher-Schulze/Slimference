@@ -1641,8 +1641,11 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		"search-cap-proof --frames " + capturePath,
 		"wss-proof-live-row --matrix-row " + matrixPath + " --frames " + capturePath,
 		"wss-proof-matrix " + matrixPath,
+		"wss-sockets 200 --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json",
+		"wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json",
+		"wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json",
 	} {
-		if !strings.Contains(started.SearchCapProofCommand+"\n"+started.MatrixRowCommand+"\n"+started.FocusedMatrixCommand, want) {
+		if !strings.Contains(started.SearchCapProofCommand+"\n"+started.MatrixRowCommand+"\n"+started.FocusedMatrixCommand+"\n"+started.WSSSocketsCommand+"\n"+started.WSSAuditCommand+"\n"+started.WSSProofPackCommand, want) {
 			t.Fatalf("manual proof missing command fragment %q: %+v", want, started)
 		}
 	}
@@ -1663,7 +1666,8 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	if finished.CapturePath != capturePath || finished.MatrixPath != matrixPath ||
 		!strings.Contains(finished.SearchCapProofCommand, "search-cap-proof --frames "+capturePath+" --socket-seq=9") ||
 		!strings.Contains(finished.MatrixRowCommand, "wss-proof-live-row --matrix-row "+matrixPath+" --frames "+capturePath+" --socket-seq=9") ||
-		!strings.Contains(finished.FocusedMatrixCommand, "wss-proof-matrix "+matrixPath) {
+		!strings.Contains(finished.FocusedMatrixCommand, "wss-proof-matrix "+matrixPath) ||
+		!strings.Contains(finished.WSSProofPackCommand, "wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json") {
 		t.Fatalf("finish proof lost capture handoff: %+v", finished)
 	}
 	if len(captureCalls) != 2 || captureCalls[1].enabled || captureCalls[1].path != "" {
@@ -1864,6 +1868,9 @@ func TestCodexDesktopProofCaptureHelpersAndHumanRender(t *testing.T) {
 		MatrixRowCommand:         "row",
 		FocusedMatrixCommand:     "matrix",
 		SearchCapProofCommand:    "search",
+		WSSSocketsCommand:        "sockets",
+		WSSAuditCommand:          "audit",
+		WSSProofPackCommand:      "proofpack",
 		Notes:                    []string{"capture note"},
 	})
 	for _, want := range []string{
@@ -1872,6 +1879,9 @@ func TestCodexDesktopProofCaptureHelpersAndHumanRender(t *testing.T) {
 		"Row       row",
 		"Matrix    matrix",
 		"SearchCap search",
+		"Sockets   sockets",
+		"Audit     audit",
+		"ProofPack proofpack",
 		"Note      capture note",
 	} {
 		if !strings.Contains(rendered.String(), want) {
@@ -1883,6 +1893,34 @@ func TestCodexDesktopProofCaptureHelpersAndHumanRender(t *testing.T) {
 	if _, err := expandCodexDesktopProofPath("~/frames.jsonl"); err == nil {
 		t.Fatal("expected home expansion error")
 	}
+}
+
+func TestCodexDesktopProofPackCommandsUseStableSinceAndFallback(t *testing.T) {
+	withCodexCmdStubs(t)
+
+	sockets, audit, pack := codexDesktopProofPackCommands("2026-05-18T12:00:00Z")
+	for _, want := range []string{
+		"slimference debug wss-sockets 200 --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json",
+		"go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --json > /tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json",
+		"go run ./scripts/utils wss-proof-pack ~/.slimference/debug/decisions.jsonl --since=2026-05-18T12:00:00Z --sockets-json=/tmp/slimference-desktop-proof-wss-sockets-20260518T120000Z.json --audit-json=/tmp/slimference-desktop-proof-wss-audit-20260518T120000Z.json --json",
+	} {
+		if !strings.Contains(sockets+"\n"+audit+"\n"+pack, want) {
+			t.Fatalf("proof-pack command set missing %q:\nsockets=%s\naudit=%s\npack=%s", want, sockets, audit, pack)
+		}
+	}
+
+	out := codexDesktopProofOutput{}
+	applyCodexDesktopProofPackCommands(&out)
+	for _, got := range []string{out.WSSSocketsCommand, out.WSSAuditCommand, out.WSSProofPackCommand} {
+		if !strings.Contains(got, "--since-file="+codexDesktopProofSinceFilePathFn()) ||
+			!strings.Contains(got, "since-file") {
+			t.Fatalf("empty proof start must use since-file fallback, got %q", got)
+		}
+	}
+	if codexDesktopProofArtifactStamp("not-rfc3339") != "since-file" {
+		t.Fatalf("invalid proof timestamp must fall back to since-file artifact stamp")
+	}
+	applyCodexDesktopProofPackCommands(nil)
 }
 
 func TestCodexDesktopProveCapturePrepareFailureDoesNotLaunch(t *testing.T) {
