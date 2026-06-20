@@ -57,7 +57,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
 		"pip", "pip3",
-		"fd", "fdfind", "find", "wc",
+		"fd", "fdfind", "find", "plocate", "locate", "wc",
 		"make", "gmake", "cmake", "ninja", "npx", "tsc", "next", "vite",
 		"webpack", "webpack-cli", "pre-commit", "ruff", "pyright",
 		"basedpyright", "stylelint", "eslint", "prettier", "mypy",
@@ -266,6 +266,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return true
 	case "fd", "fdfind", "find":
 		return commandOutputFirstPathListAllowed(command, args)
+	case "plocate", "locate":
+		return commandOutputFirstLocateAllowed(args)
 	case "wc":
 		return commandOutputFirstWcAllowed(args)
 	case "go":
@@ -1185,6 +1187,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "fd", "fdfind", "find":
 		compacted, ok := filter.TryCompactPathListOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "plocate", "locate":
+		compacted, ok := filter.TryCompactSearchOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "wc":
 		compacted, ok := filter.TryCompactWc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
@@ -1655,6 +1660,84 @@ func commandOutputFirstGoSubcommand(args []string) string {
 func commandOutputFirstPathListAllowed(command string, args []string) bool {
 	argv := append([]string{command}, args...)
 	return filter.PathListOutputReducerEligibleArgv(argv)
+}
+
+func commandOutputFirstLocateAllowed(args []string) bool {
+	hasPattern := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range args[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+				hasPattern = true
+			}
+			return hasPattern
+		}
+		if commandOutputFirstLocateDenyFlag(arg) {
+			return false
+		}
+		if commandOutputFirstLocateValueFlag(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+			continue
+		}
+		if commandOutputFirstLocateInlineValueFlag(arg) || commandOutputFirstLocateBoolFlag(arg) {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			return false
+		}
+		hasPattern = true
+	}
+	return hasPattern
+}
+
+func commandOutputFirstLocateBoolFlag(arg string) bool {
+	switch arg {
+	case "-i", "--ignore-case", "-b", "--basename", "-e", "--existing",
+		"-L", "--follow", "-P", "--nofollow", "-r", "--regex", "--regexp",
+		"-w", "--wholename", "-A", "--all":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstLocateValueFlag(arg string) bool {
+	switch arg {
+	case "-d", "--database", "-l", "--limit":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstLocateInlineValueFlag(arg string) bool {
+	switch {
+	case strings.HasPrefix(arg, "--database="), strings.HasPrefix(arg, "--limit="):
+		_, value, _ := strings.Cut(arg, "=")
+		return strings.TrimSpace(value) != ""
+	case strings.HasPrefix(arg, "-d"), strings.HasPrefix(arg, "-l"):
+		return len(arg) > 2 && strings.TrimSpace(arg[2:]) != ""
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstLocateDenyFlag(arg string) bool {
+	switch arg {
+	case "-0", "--null", "-c", "--count", "-S", "--statistics", "-h", "--help", "-V", "--version":
+		return true
+	default:
+		return false
+	}
 }
 
 func commandOutputFirstWcAllowed(args []string) bool {

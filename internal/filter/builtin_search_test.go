@@ -239,6 +239,24 @@ func TestGroupPathListResults(t *testing.T) {
 	if len(text) >= sb.Len() {
 		t.Fatalf("grouped path list should be shorter: out=%d in=%d", len(text), sb.Len())
 	}
+
+	out, ok = TryCompactSearchOutput([]string{"plocate", "generated"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("large plocate path list should group")
+	}
+	text = string(out)
+	if !strings.Contains(text, "[plocate paths]") || !strings.Contains(text, "src/generated/deep/package/") || !strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected grouped plocate path list: %q", text)
+	}
+
+	out, ok = TryCompactSearchOutput([]string{"locate", "-i", "generated"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("large locate path list should group")
+	}
+	text = string(out)
+	if !strings.Contains(text, "[locate paths]") || !strings.Contains(text, "src/generated/deep/package/") || !strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected grouped locate path list: %q", text)
+	}
 }
 
 func TestGroupPathListResultsFailOpen(t *testing.T) {

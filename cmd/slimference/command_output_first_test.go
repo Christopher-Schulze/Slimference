@@ -175,6 +175,60 @@ func TestCommandOutputFirstShimGitLsFilesCompacts(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimLocatePathListCompacts(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var b strings.Builder
+	for i := 0; i < 48; i++ {
+		b.WriteString("/Users/christopher/CODE/Slimference/internal/proxy/generated/deep/path/file_")
+		b.WriteString(fmt.Sprintf("%02d.go\n", i))
+	}
+	realPlocate := writeFakeCommand(t, "plocate", "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=plocate", "--real-bin=" + realPlocate, "--", "generated"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[plocate paths]") ||
+		!strings.Contains(got, "/Users/christopher/CODE/Slimference/internal/proxy/generated/deep/path/") ||
+		!strings.Contains(got, "file_47.go") {
+		t.Fatalf("unexpected compacted stdout=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand plocate archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("file_47.go")) {
+		t.Fatalf("archive did not preserve raw plocate output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:plocate] plocate generated") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
 func TestCommandOutputFirstShimStderrFullPasses(t *testing.T) {
 	realGit := writeFakeGit(t, `#!/bin/sh
 printf ' file.go | 1 +\n'
@@ -3080,6 +3134,10 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	if err := os.WriteFile(ghBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	plocateBin := filepath.Join(binDir, "plocate")
+	if err := os.WriteFile(plocateBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
@@ -3111,6 +3169,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "gh")); err != nil {
 		t.Fatalf("gh shim missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(strings.Split(pathValue, string(os.PathListSeparator))[0], "plocate")); err != nil {
+		t.Fatalf("plocate shim missing: %v", err)
 	}
 	bashEnv := envValueInCommand(t, got, "BASH_ENV")
 	bashEnvContent, err := os.ReadFile(bashEnv)
@@ -3508,6 +3569,9 @@ func TestCommandOutputFirstPathListAndWcEdges(t *testing.T) {
 		{command: "fd", args: []string{"--extension", "go", "internal"}},
 		{command: "fdfind", args: []string{"-e", "go", "internal"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-type", "f"}},
+		{command: "plocate", args: []string{"generated"}},
+		{command: "locate", args: []string{"-i", "--limit=100", "generated"}},
+		{command: "locate", args: []string{"-d", "/var/db/locate.database", "-l50", "--", "generated"}},
 	}
 	for _, tc := range pathListAllowed {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
@@ -3523,6 +3587,17 @@ func TestCommandOutputFirstPathListAndWcEdges(t *testing.T) {
 		{command: "find", args: []string{"internal", "-type", "f"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "9", "-type", "f"}},
 		{command: "find", args: []string{"internal", "-maxdepth", "4", "-printf", "%p\n"}},
+		{command: "plocate", args: []string{}},
+		{command: "plocate", args: []string{"--null", "generated"}},
+		{command: "locate", args: []string{"--count", "generated"}},
+		{command: "locate", args: []string{"--statistics"}},
+		{command: "locate", args: []string{"--help"}},
+		{command: "locate", args: []string{"--database"}},
+		{command: "locate", args: []string{"--database="}},
+		{command: "locate", args: []string{"-l"}},
+		{command: "locate", args: []string{"-l", ""}},
+		{command: "locate", args: []string{"--", ""}},
+		{command: "locate", args: []string{"--unknown", "generated"}},
 		{command: "wc", args: []string{"-l"}},
 		{command: "wc", args: []string{"--files0-from=list"}},
 		{command: "wc", args: []string{"-q", "file.go"}},

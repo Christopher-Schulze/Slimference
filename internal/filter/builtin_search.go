@@ -1041,7 +1041,7 @@ func isPathListTool(argv []string) bool {
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
 	b = strings.TrimSuffix(b, ".exe")
-	return b == "fd" || b == "fdfind" || b == "find"
+	return b == "fd" || b == "fdfind" || b == "find" || b == "plocate" || b == "locate"
 }
 
 func groupPathListResults(stdout []byte, toolName string) ([]byte, bool) {
