@@ -2,6 +2,7 @@ package filter
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -52,12 +53,35 @@ func parseGoErrors(stdout string) (string, bool, bool) {
 
 	var out strings.Builder
 	out.WriteString("[go build] FAILED\n")
+	lastLine := ""
+	repeatCount := 0
+	hasLast := false
+	flushLast := func() {
+		if !hasLast {
+			return
+		}
+		out.WriteString(lastLine)
+		if lastLine != "" && repeatCount > 1 {
+			out.WriteString(" [x")
+			out.WriteString(strconv.Itoa(repeatCount))
+			out.WriteByte(']')
+		}
+		out.WriteByte('\n')
+	}
 	for i, line := range lines {
 		if kept[i] {
-			out.WriteString(strings.TrimSpace(line))
-			out.WriteByte('\n')
+			trimmed := strings.TrimSpace(line)
+			if trimmed == lastLine {
+				repeatCount++
+				continue
+			}
+			flushLast()
+			lastLine = trimmed
+			repeatCount = 1
+			hasLast = true
 		}
 	}
+	flushLast()
 	result := out.String()
 	if len(result) >= len(stdout) {
 		return "", false, false

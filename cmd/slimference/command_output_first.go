@@ -297,7 +297,7 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			return true
 		}
 		switch commandOutputFirstGoSubcommand(args) {
-		case "test", "build", "fmt":
+		case "test", "build", "fmt", "vet":
 			return true
 		default:
 			return false
@@ -1395,6 +1395,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		case "fmt":
 			compacted, ok := filter.TryCompactFormatOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		case "vet":
+			compacted, ok := filter.TryCompactLintOutput(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
 			return nil, false
 		}
@@ -1667,7 +1670,7 @@ func commandOutputFirstStructuredDiagnosticAllowed(command string, args []string
 		return false
 	case "go":
 		switch commandOutputFirstGoSubcommand(args) {
-		case "test", "build":
+		case "test", "build", "vet":
 			return true
 		default:
 			return false

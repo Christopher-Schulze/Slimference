@@ -580,6 +580,7 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "prettier", args: []string{"--check", "."}},
 		{command: "gofmt", args: []string{"-l", "."}},
 		{command: "go", args: []string{"fmt", "./..."}},
+		{command: "go", args: []string{"vet", "./..."}},
 		{command: "rustfmt", args: []string{"--check", "src/lib.rs"}},
 		{command: "black", args: []string{"--check", "src/"}},
 		{command: "isort", args: []string{"--check-only", "src/"}},
@@ -778,6 +779,7 @@ func TestCommandOutputFirstStructuredDiagnosticAllowed(t *testing.T) {
 		args    []string
 	}{
 		{name: "go build", command: "go", args: []string{"build", "./..."}},
+		{name: "go vet", command: "go", args: []string{"vet", "./..."}},
 		{name: "cargo check", command: "cargo", args: []string{"check", "--workspace"}},
 		{name: "python module lint", command: "python3", args: []string{"-m", "pylint", "src"}},
 		{name: "python sqlfluff lint", command: "python", args: []string{"-m", "sqlfluff", "lint", "q.sql"}},
@@ -2427,6 +2429,10 @@ func TestCommandOutputFirstInfraJSONHelperBoundaries(t *testing.T) {
 }
 
 func TestCommandOutputFirstInfraJSONCompactionBranches(t *testing.T) {
+	var goVet strings.Builder
+	for i := 0; i < 80; i++ {
+		goVet.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
+	}
 	var terraformFmt strings.Builder
 	for i := 0; i < 32; i++ {
 		fmt.Fprintf(&terraformFmt, "modules/app_%02d/main.tf\n", i)
@@ -2460,6 +2466,13 @@ func TestCommandOutputFirstInfraJSONCompactionBranches(t *testing.T) {
 			args:    []string{"env", "-json"},
 			stdout:  []byte("{\n  \"GOOS\": \"darwin\",\n  \"GOARCH\": \"arm64\"\n}\n"),
 			want:    `{"GOOS":"darwin","GOARCH":"arm64"}`,
+		},
+		{
+			name:    "go vet diagnostic summary",
+			command: "go",
+			args:    []string{"vet", "./..."},
+			stdout:  []byte(goVet.String()),
+			want:    "fmt.Printf call needs 1 arg but has 2 args [x80]",
 		},
 		{
 			name:    "npm view json exact",
@@ -3083,6 +3096,61 @@ func TestCommandOutputFirstShimStructuredNonzeroDiagnosticsCompactWithArchive(t 
 		t.Fatal("expected command-output-first accounting row")
 	}
 	if !strings.Contains(run.Command, "[command-output-first:tsc] tsc --noEmit") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGoVetNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var diagnostics strings.Builder
+	for i := 0; i < 80; i++ {
+		diagnostics.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
+	}
+	realGo := writeFakeCommand(t, "go", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=go", "--real-bin=" + realGo, "--", "vet", "./..."}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[go vet] FAILED") ||
+		!strings.Contains(got, "internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args [x80]") {
+		t.Fatalf("go vet diagnostics compact output=%q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing go vet diagnostic archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand go vet archive: %v", err)
+	}
+	if bytes.Count(raw, []byte("fmt.Printf call needs 1 arg")) != 80 {
+		t.Fatalf("archive did not preserve go vet raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:go] go vet ./...") {
 		t.Fatalf("command label=%q", run.Command)
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
@@ -4440,6 +4508,7 @@ func TestCommandOutputFirstGoSubcommandGlobalOptionEdges(t *testing.T) {
 	}{
 		{args: []string{"test", "./..."}, want: "test"},
 		{args: []string{"-C", "/repo", "build", "./cmd/slimference"}, want: "build"},
+		{args: []string{"-C=/repo", "vet", "./..."}, want: "vet"},
 		{args: []string{"-C"}, want: ""},
 		{args: []string{"-C=/repo", "test"}, want: "test"},
 		{args: []string{"-mod=mod", "test"}, want: "test"},

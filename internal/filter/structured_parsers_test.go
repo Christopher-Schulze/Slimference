@@ -41,6 +41,56 @@ func TestParseGoErrors_MultipleErrors(t *testing.T) {
 	}
 }
 
+func TestParseGoErrors_DeduplicatesConsecutiveDiagnostics(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 80; i++ {
+		sb.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
+	}
+	compact, hadFailures, ok := parseGoErrorsForArgv([]string{"go", "vet", "./..."}, sb.String())
+	if !ok || !hadFailures {
+		t.Fatal("expected go vet diagnostic compaction")
+	}
+	if !strings.Contains(compact, "[go vet] FAILED") ||
+		!strings.Contains(compact, "fmt.Printf call needs 1 arg but has 2 args [x80]") {
+		t.Fatalf("missing deduped go vet diagnostic: %q", compact)
+	}
+	if strings.Count(compact, "fmt.Printf call needs") != 1 {
+		t.Fatalf("duplicate diagnostic was not folded: %q", compact)
+	}
+}
+
+func TestParseGoErrors_LabelsGoVetAfterGlobalOptions(t *testing.T) {
+	t.Parallel()
+	stdout := "internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n" +
+		strings.Repeat("padding line that makes output significantly longer\n", 10)
+	compact, ok := ParseFailures([]string{"go", "-C=/repo", "vet", "./..."}, stdout)
+	if !ok {
+		t.Fatal("expected go vet global-option diagnostic compaction")
+	}
+	if !strings.Contains(compact, "[go vet] FAILED") {
+		t.Fatalf("wrong go diagnostic label: %q", compact)
+	}
+}
+
+func TestGoDiagnosticCommandLabel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"go", "build", "./..."}, "go build"},
+		{[]string{"go", "-C", "/repo", "vet", "./..."}, "go vet"},
+		{[]string{"go", "-mod=mod", "test", "./..."}, "go test"},
+		{[]string{"python", "build"}, "go build"},
+	}
+	for _, tt := range tests {
+		if got := goDiagnosticCommandLabel(tt.argv); got != tt.want {
+			t.Fatalf("goDiagnosticCommandLabel(%v)=%q want %q", tt.argv, got, tt.want)
+		}
+	}
+}
+
 func TestParseGoErrors_Success(t *testing.T) {
 	t.Parallel()
 	result, hadFailures, ok := parseGoErrors("")
@@ -350,6 +400,10 @@ func TestIsGoBuildOrVetArgv(t *testing.T) {
 		{[]string{"go", "build"}, true},
 		{[]string{"go", "vet"}, true},
 		{[]string{"go", "test"}, true},
+		{[]string{"go", "-C", "/repo", "build"}, true},
+		{[]string{"go", "-C=/repo", "vet"}, true},
+		{[]string{"go", "-mod=mod", "test"}, true},
+		{[]string{"go", "-C"}, false},
 		{[]string{"go", "run"}, false},
 		{[]string{"go"}, false},
 		{[]string{"python", "build"}, false},

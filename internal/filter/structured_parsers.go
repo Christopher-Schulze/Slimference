@@ -12,7 +12,7 @@ type structuredParser struct {
 }
 
 var structuredParsers = []structuredParser{
-	{"go_build", isGoBuildOrVetArgv, parseStructuredWithoutArgv(parseGoErrors)},
+	{"go_build", isGoBuildOrVetArgv, parseGoErrorsForArgv},
 	{"cargo_build", isCargoBuildOrCheckArgv, parseCargoErrorsForArgv},
 	{"gcc_clang", isGccClangArgv, parseStructuredWithoutArgv(parseGccClangErrors)},
 	{"focused_lint", isFocusedLintDiagnosticArgv, parseFocusedLintDiagnosticsForArgv},
@@ -52,20 +52,63 @@ func parseStructuredWithoutArgv(fn func(string) (string, bool, bool)) func([]str
 	}
 }
 
+func parseGoErrorsForArgv(argv []string, stdout string) (string, bool, bool) {
+	compact, hadFailures, ok := parseGoErrors(stdout)
+	if !ok {
+		return "", false, false
+	}
+	if command := goDiagnosticCommandLabel(argv); command != "go build" {
+		compact = strings.Replace(compact, "[go build]", "["+command+"]", 1)
+	}
+	return compact, hadFailures, true
+}
+
+func goDiagnosticCommandLabel(argv []string) string {
+	switch goDiagnosticSubcommand(argv) {
+	case "vet":
+		return "go vet"
+	case "test":
+		return "go test"
+	default:
+		return "go build"
+	}
+}
+
 func parseMypyDiagnosticsForArgv(_ []string, stdout string) (string, bool, bool) {
 	compact, ok := compactStrictMypyDiagnostics(stdout)
 	return compact, ok, ok
 }
 
 func isGoBuildOrVetArgv(argv []string) bool {
+	sub := goDiagnosticSubcommand(argv)
+	return sub == "build" || sub == "vet" || sub == "test"
+}
+
+func goDiagnosticSubcommand(argv []string) string {
 	if len(argv) < 2 {
-		return false
+		return ""
 	}
 	if !isGoBinary(argv[0]) {
-		return false
+		return ""
 	}
-	sub := argv[1]
-	return sub == "build" || sub == "vet" || sub == "test"
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return ""
+		}
+		switch {
+		case arg == "-C":
+			i++
+			if i >= len(argv) {
+				return ""
+			}
+		case strings.HasPrefix(arg, "-C="), strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return arg
+		}
+	}
+	return ""
 }
 
 func isCargoBuildOrCheckArgv(argv []string) bool {
