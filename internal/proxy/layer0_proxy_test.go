@@ -127,6 +127,17 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	if commandKeyA == commandKeyB {
 		t.Fatalf("different command identities must not share cache-bust keys: %q", commandKeyA)
 	}
+	obsoleteKeyA := proxyLayer0CacheBustClassKey(proxyLayer0MechanismObsoletePrune, "cat internal/a.go", "old a contents\n")
+	obsoleteKeyB := proxyLayer0CacheBustClassKey(proxyLayer0MechanismObsoletePrune, "cat internal/b.go", "old b contents\n")
+	if !strings.HasPrefix(obsoleteKeyA, "obsolete_prune:plain:cmd=") || obsoleteKeyA == obsoleteKeyB {
+		t.Fatalf("obsolete-prune keys must be command-scoped, got %q and %q", obsoleteKeyA, obsoleteKeyB)
+	}
+	if got := proxyLayer0CacheBustGeneralClassKey(commandKeyA); got != "repeated_tool_output:plain" {
+		t.Fatalf("general key from command key=%q, want repeated_tool_output:plain", got)
+	}
+	if got := proxyLayer0CacheBustGeneralClassKey("captured_output:search"); got != "captured_output:search" {
+		t.Fatalf("general key without suffix=%q, want unchanged", got)
+	}
 	if got := proxyLayer0CacheBustCommandIdentityKey(""); got != "" {
 		t.Fatalf("empty command identity key=%q, want empty", got)
 	}
@@ -141,6 +152,13 @@ func TestProxyLayer0CacheBustClassKeyHelpers(t *testing.T) {
 	})
 	if got := proxyLayer0CacheBustClassKeysString(keys); got != searchKeyA+",repeated_tool_output:plain" {
 		t.Fatalf("sorted class keys=%q", got)
+	}
+	mergedKeys := mergeProxyLayer0CacheBustClassKeys(map[string]struct{}{"existing:plain": {}}, map[string]struct{}{"": {}, obsoleteKeyA: {}})
+	if _, ok := mergedKeys["existing:plain"]; !ok {
+		t.Fatalf("merge lost existing key: %+v", mergedKeys)
+	}
+	if _, ok := mergedKeys[obsoleteKeyA]; !ok || len(mergedKeys) != 2 {
+		t.Fatalf("merge did not add exactly the non-empty source key: %+v", mergedKeys)
 	}
 	stats := proxyLayer0Stats{EvidenceDecisions: []evidence.BlockDecision{
 		{Mechanism: string(proxyLayer0MechanismCapturedOut), ContentClass: evidence.ContentSearch, Action: evidence.ActionApplied},

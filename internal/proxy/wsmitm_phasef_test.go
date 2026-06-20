@@ -2491,6 +2491,83 @@ func TestWSPhaseFCacheBustDemotionFullPassesHistoryMechanisms(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFCacheBustDemotionNarrowsHistoryMechanismsToClassKeys(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
+	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := codexWSStaleObsoleteLayer0Body()
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		t.Fatalf("extract fixture messages: %v", err)
+	}
+	toolUses := proxyToolUseIndex(messages)
+	mask := proxyLayer0MechanismMaskFor(proxyLayer0MechanismStaleRead) | proxyLayer0MechanismMaskFor(proxyLayer0MechanismObsoletePrune)
+	unrelatedKeys := map[string]struct{}{
+		proxyLayer0CacheBustClassKey(proxyLayer0MechanismStaleRead, "cat unrelated-stale.go", "unrelated stale content"):        {},
+		proxyLayer0CacheBustClassKey(proxyLayer0MechanismObsoletePrune, "cat unrelated-obsolete.go", "unrelated obsolete data"): {},
+	}
+
+	unrelated := adapter.applyWSSHistoryReducers(body, messages, "", mask, unrelatedKeys, toolUses, 4)
+	if !unrelated.Mutated || unrelated.Stats.StaleReadBlocks == 0 || unrelated.Stats.ObsoletePruneBlocks == 0 {
+		t.Fatalf("unrelated class-key demotion must not block history savings: %+v", unrelated.Stats)
+	}
+	if hasEvidenceDecision(unrelated.Stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "cache_bust_guard", evidence.ActionFullPass) ||
+		hasEvidenceDecision(unrelated.Stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("unrelated class-key demotion must not emit cache-bust full-pass evidence: %+v", unrelated.Stats.EvidenceDecisions)
+	}
+	keyText := proxyLayer0CacheBustClassKeysString(unrelated.Stats.CacheBustClassKeys)
+	if !strings.Contains(keyText, "stale_read:") || !strings.Contains(keyText, "obsolete_prune:") || !strings.Contains(keyText, ":cmd=") {
+		t.Fatalf("applied history reducers must emit precise command-scoped cache-bust keys: %q", keyText)
+	}
+
+	aged, staleStats := staleread.AgeMessages(messages, staleread.Options{MinTurnGap: 2})
+	if staleStats.BlocksReplaced == 0 {
+		t.Fatal("fixture should produce stale-read candidates")
+	}
+	matchingStaleKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismStaleRead, messages, aged, toolUses)
+	matching := adapter.applyWSSHistoryReducers(body, messages, "", proxyLayer0MechanismMaskFor(proxyLayer0MechanismStaleRead), matchingStaleKeys, toolUses, 4)
+	if matching.Stats.StaleReadBlocks != 0 || !hasEvidenceDecision(matching.Stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "cache_bust_guard", evidence.ActionFullPass) {
+		t.Fatalf("matching stale-read class-key demotion must still full-pass stale reads: %+v evidence=%+v", matching.Stats, matching.Stats.EvidenceDecisions)
+	}
+	if matching.Stats.ObsoletePruneBlocks == 0 {
+		t.Fatalf("matching stale-read demotion must not block unrelated obsolete-prune savings: %+v", matching.Stats)
+	}
+}
+
+func TestWSSHistoryMutationCacheBustDemotedMatchesSpecificAndGeneralKeys(t *testing.T) {
+	t.Parallel()
+
+	mechanism := proxyLayer0MechanismStaleRead
+	mask := proxyLayer0MechanismMaskFor(mechanism)
+	candidateKey := proxyLayer0CacheBustClassKey(mechanism, "cat src/x.go", "old x content\n")
+	unrelatedKey := proxyLayer0CacheBustClassKey(mechanism, "cat src/y.go", "old y content\n")
+	generalKey := proxyLayer0CacheBustGeneralClassKey(candidateKey)
+
+	if wssHistoryMutationCacheBustDemoted(0, nil, map[string]struct{}{candidateKey: {}}, mechanism) {
+		t.Fatal("missing mechanism bit must not demote history mutation")
+	}
+	if !wssHistoryMutationCacheBustDemoted(mask, nil, map[string]struct{}{candidateKey: {}}, mechanism) {
+		t.Fatal("legacy broad demotion without class keys must still guard")
+	}
+	if !wssHistoryMutationCacheBustDemoted(mask, map[string]struct{}{candidateKey: {}}, nil, mechanism) {
+		t.Fatal("unclassifiable candidate must fail closed under class-key demotion")
+	}
+	if wssHistoryMutationCacheBustDemoted(mask, map[string]struct{}{unrelatedKey: {}}, map[string]struct{}{candidateKey: {}}, mechanism) {
+		t.Fatal("unrelated specific key must not demote history mutation")
+	}
+	if !wssHistoryMutationCacheBustDemoted(mask, map[string]struct{}{candidateKey: {}}, map[string]struct{}{candidateKey: {}}, mechanism) {
+		t.Fatal("matching specific key must demote history mutation")
+	}
+	if !wssHistoryMutationCacheBustDemoted(mask, map[string]struct{}{generalKey: {}}, map[string]struct{}{candidateKey: {}}, mechanism) {
+		t.Fatal("matching general class key must demote history mutation")
+	}
+}
+
 func TestWSPhaseFHistoryMutationsAreByteDeterministicAcrossReconnect(t *testing.T) {
 	sharedChunk := strings.Repeat("deterministic chunk shared region with cache stable bytes\n", 1000)
 	readOutput := strings.Repeat("deterministic read line with stable content\n", 120)
@@ -5018,6 +5095,10 @@ func TestWSPhaseFFullHistoryHistoryReducersApplyOnLiveSocket(t *testing.T) {
 	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismStaleRead, "positive_net_savings", evidence.ActionApplied) ||
 		!hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismObsoletePrune, "positive_net_savings", evidence.ActionApplied) {
 		t.Fatalf("applied full-history reducers must emit precise evidence: %+v", stats.EvidenceDecisions)
+	}
+	cacheBustKeyText := proxyLayer0CacheBustClassKeysString(stats.CacheBustClassKeys)
+	if !strings.Contains(cacheBustKeyText, "stale_read:") || !strings.Contains(cacheBustKeyText, "obsolete_prune:") || !strings.Contains(cacheBustKeyText, ":cmd=") {
+		t.Fatalf("applied full-history reducers must emit command-scoped cache-bust keys: %q", cacheBustKeyText)
 	}
 	for _, mechanism := range []proxyLayer0Mechanism{proxyLayer0MechanismStaleRead, proxyLayer0MechanismObsoletePrune} {
 		found := false

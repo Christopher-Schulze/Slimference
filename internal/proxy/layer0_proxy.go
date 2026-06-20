@@ -180,7 +180,8 @@ func proxyLayer0CacheBustMechanismUsesCommandIdentity(mechanism proxyLayer0Mecha
 		proxyLayer0MechanismCapturedOut,
 		proxyLayer0MechanismCodexEnvelope,
 		proxyLayer0MechanismRepeatedOut,
-		proxyLayer0MechanismStaleRead:
+		proxyLayer0MechanismStaleRead,
+		proxyLayer0MechanismObsoletePrune:
 		return true
 	default:
 		return false
@@ -225,6 +226,38 @@ func proxyLayer0CacheBustClassKeysCover(keys map[string]struct{}, generalKey str
 		}
 	}
 	return false
+}
+
+func proxyLayer0CacheBustGeneralClassKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	first := strings.IndexByte(key, ':')
+	if first < 0 {
+		return key
+	}
+	second := strings.IndexByte(key[first+1:], ':')
+	if second < 0 {
+		return key
+	}
+	return key[:first+1+second]
+}
+
+func mergeProxyLayer0CacheBustClassKeys(dst map[string]struct{}, src map[string]struct{}) map[string]struct{} {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]struct{}, len(src))
+	}
+	for key := range src {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			dst[key] = struct{}{}
+		}
+	}
+	return dst
 }
 
 func cloneProxyLayer0CacheBustClassKeys(keys map[string]struct{}) map[string]struct{} {

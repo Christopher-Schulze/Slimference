@@ -695,7 +695,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				observedStats := a.observeWSSPreviousResponseDeltaLayer0(messages, mergedToolUses, sessionID, turnID, suppressedKeys, chunkSettings, meta, cacheBustDemoted, cacheBustDemotedClassKeys)
 				l0Stats = mergeWSSLayer0ObservationStats(l0Stats, observedStats)
 			}
-			historyResult := a.applyWSSHistoryReducers(out, messages, historyMutationGuardReason, cacheBustDemoted, meta.TurnSeq)
+			historyResult := a.applyWSSHistoryReducers(out, messages, historyMutationGuardReason, cacheBustDemoted, cacheBustDemotedClassKeys, mergedToolUses, meta.TurnSeq)
 			l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyResult.Stats)
 			changed := false
 			detachedPreviousResponseID := false
@@ -806,30 +806,22 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		obsoleteBlocksPruned := 0
 		obsoleteBytesPruned := 0
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
-			staleGuardReason := ""
-			if historyMutationGuardReason != "" {
-				staleGuardReason = historyMutationGuardReason
-			} else if cacheBustDemoted.Has(proxyLayer0MechanismStaleRead) {
-				staleGuardReason = "cache_bust_guard"
-			}
-			if staleGuardReason != "" {
-				aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
-					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
-				})
-				if stats.BlocksReplaced > 0 {
-					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
-					afterTokens := wssPlannerTokenCount(out, aged)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+			aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
+				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+			})
+			if stats.BlocksReplaced > 0 {
+				beforeTokens := wssPlannerTokenCount(out, stagedMessages)
+				afterTokens := wssPlannerTokenCount(out, aged)
+				cacheBustKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismStaleRead, stagedMessages, aged, mergedToolUses)
+				staleGuardReason := ""
+				if historyMutationGuardReason != "" {
+					staleGuardReason = historyMutationGuardReason
+				} else if wssHistoryMutationCacheBustDemoted(cacheBustDemoted, cacheBustDemotedClassKeys, cacheBustKeys, proxyLayer0MechanismStaleRead) {
+					staleGuardReason = "cache_bust_guard"
 				}
-			} else {
-				beforeTokens := 0
-				afterTokens := 0
-				aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
-					MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
-				})
-				if stats.BlocksReplaced > 0 {
-					beforeTokens = wssPlannerTokenCount(out, stagedMessages)
-					afterTokens = wssPlannerTokenCount(out, aged)
+				if staleGuardReason != "" {
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+				} else {
 					stagedMessages = aged
 					messageMutationPending = true
 					staleBlocksReplaced = stats.BlocksReplaced
@@ -837,31 +829,26 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.StaleReadBlocks = stats.BlocksReplaced
 					historyStats.StaleReadBytesSaved = stats.BytesReplaced
 					historyStats.StaleReadTokensSaved = beforeTokens - afterTokens
+					historyStats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(historyStats.CacheBustClassKeys, cacheBustKeys)
 					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
 		}
 		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
-			obsoleteGuardReason := ""
-			if historyMutationGuardReason != "" {
-				obsoleteGuardReason = historyMutationGuardReason
-			} else if cacheBustDemoted.Has(proxyLayer0MechanismObsoletePrune) {
-				obsoleteGuardReason = "cache_bust_guard"
-			}
-			if obsoleteGuardReason != "" {
-				pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
-				if stats.BlocksReplaced > 0 {
-					beforeTokens := wssPlannerTokenCount(out, stagedMessages)
-					afterTokens := wssPlannerTokenCount(out, pruned)
-					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+			pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
+			if stats.BlocksReplaced > 0 {
+				beforeTokens := wssPlannerTokenCount(out, stagedMessages)
+				afterTokens := wssPlannerTokenCount(out, pruned)
+				cacheBustKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismObsoletePrune, stagedMessages, pruned, mergedToolUses)
+				obsoleteGuardReason := ""
+				if historyMutationGuardReason != "" {
+					obsoleteGuardReason = historyMutationGuardReason
+				} else if wssHistoryMutationCacheBustDemoted(cacheBustDemoted, cacheBustDemotedClassKeys, cacheBustKeys, proxyLayer0MechanismObsoletePrune) {
+					obsoleteGuardReason = "cache_bust_guard"
 				}
-			} else {
-				beforeTokens := 0
-				afterTokens := 0
-				pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
-				if stats.BlocksReplaced > 0 {
-					beforeTokens = wssPlannerTokenCount(out, stagedMessages)
-					afterTokens = wssPlannerTokenCount(out, pruned)
+				if obsoleteGuardReason != "" {
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+				} else {
 					stagedMessages = pruned
 					messageMutationPending = true
 					obsoleteBlocksPruned = stats.BlocksReplaced
@@ -869,6 +856,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 					historyStats.ObsoletePruneBlocks = stats.BlocksReplaced
 					historyStats.ObsoletePruneBytesSaved = stats.BytesReplaced
 					historyStats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
+					historyStats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(historyStats.CacheBustClassKeys, cacheBustKeys)
 					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
 				}
 			}
@@ -3748,6 +3736,7 @@ func mergeWSSHistoryReducerStats(base proxyLayer0Stats, history proxyLayer0Stats
 	if len(history.EvidenceDecisions) > 0 {
 		base.EvidenceDecisions = append(append([]evidence.BlockDecision(nil), history.EvidenceDecisions...), base.EvidenceDecisions...)
 	}
+	base.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(base.CacheBustClassKeys, history.CacheBustClassKeys)
 	return base
 }
 
@@ -3779,6 +3768,7 @@ func mergeWSSLayer0ObservationStats(base proxyLayer0Stats, observed proxyLayer0S
 	base.PolicyDecisions = append(base.PolicyDecisions, observed.PolicyDecisions...)
 	base.CacheEvents = append(base.CacheEvents, observed.CacheEvents...)
 	base.EvidenceDecisions = append(base.EvidenceDecisions, observed.EvidenceDecisions...)
+	base.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(base.CacheBustClassKeys, observed.CacheBustClassKeys)
 	base.TotalLatencyNs += observed.TotalLatencyNs
 	base.ReadDeltaLatencyNs += observed.ReadDeltaLatencyNs
 	base.FilterLatencyNs += observed.FilterLatencyNs
@@ -3884,25 +3874,82 @@ type wssHistoryReducerResult struct {
 	ObsoleteBytesPruned  int
 }
 
-func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.Message, guardReason string, cacheBustDemoted proxyLayer0MechanismMask, turnSeq int) wssHistoryReducerResult {
+func wssHistoryMutationCacheBustClassKeys(mechanism proxyLayer0Mechanism, before []types.Message, after []types.Message, toolUses map[string]types.ContentBlock) map[string]struct{} {
+	if len(before) == 0 || len(after) == 0 {
+		return nil
+	}
+	keys := make(map[string]struct{})
+	for msgIdx, msg := range before {
+		if msgIdx >= len(after) {
+			break
+		}
+		afterContent := after[msgIdx].Content
+		for blockIdx, block := range msg.Content {
+			if block.Type != "tool_result" || blockIdx >= len(afterContent) {
+				continue
+			}
+			afterBlock := afterContent[blockIdx]
+			if afterBlock.Type != "tool_result" || afterBlock.Text == block.Text {
+				continue
+			}
+			use, _ := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := proxyLayer0CommandLine(use)
+			if commandLine == "" {
+				commandLine = proxyInferCommandLineFromToolResult(block.Text)
+			}
+			if key := proxyLayer0CacheBustClassKey(mechanism, commandLine, block.Text); key != "" {
+				keys[key] = struct{}{}
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
+}
+
+func wssHistoryMutationCacheBustDemoted(demoted proxyLayer0MechanismMask, demotedClassKeys map[string]struct{}, candidateKeys map[string]struct{}, mechanism proxyLayer0Mechanism) bool {
+	if !demoted.Has(mechanism) {
+		return false
+	}
+	if len(demotedClassKeys) == 0 || len(candidateKeys) == 0 {
+		return true
+	}
+	for key := range candidateKeys {
+		if _, ok := demotedClassKeys[key]; ok {
+			return true
+		}
+		general := proxyLayer0CacheBustGeneralClassKey(key)
+		if general == "" {
+			continue
+		}
+		if _, ok := demotedClassKeys[general]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.Message, guardReason string, cacheBustDemoted proxyLayer0MechanismMask, cacheBustDemotedClassKeys map[string]struct{}, toolUses map[string]types.ContentBlock, turnSeq int) wssHistoryReducerResult {
 	result := wssHistoryReducerResult{
 		Messages: messages,
 		Stats:    proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF},
 	}
 	stagedMessages := messages
 	if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
-		staleGuardReason := ""
-		if guardReason != "" {
-			staleGuardReason = guardReason
-		} else if cacheBustDemoted.Has(proxyLayer0MechanismStaleRead) {
-			staleGuardReason = "cache_bust_guard"
-		}
 		aged, stats := staleread.AgeMessages(stagedMessages, staleread.Options{
 			MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
 		})
 		if stats.BlocksReplaced > 0 {
 			beforeTokens := wssPlannerTokenCount(body, stagedMessages)
 			afterTokens := wssPlannerTokenCount(body, aged)
+			cacheBustKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismStaleRead, stagedMessages, aged, toolUses)
+			staleGuardReason := ""
+			if guardReason != "" {
+				staleGuardReason = guardReason
+			} else if wssHistoryMutationCacheBustDemoted(cacheBustDemoted, cacheBustDemotedClassKeys, cacheBustKeys, proxyLayer0MechanismStaleRead) {
+				staleGuardReason = "cache_bust_guard"
+			}
 			if staleGuardReason != "" {
 				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionFullPass, staleGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			} else {
@@ -3913,21 +3960,23 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				result.Stats.StaleReadBlocks = stats.BlocksReplaced
 				result.Stats.StaleReadBytesSaved = stats.BytesReplaced
 				result.Stats.StaleReadTokensSaved = beforeTokens - afterTokens
+				result.Stats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(result.Stats.CacheBustClassKeys, cacheBustKeys)
 				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismStaleRead, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			}
 		}
 	}
 	if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
-		obsoleteGuardReason := ""
-		if guardReason != "" {
-			obsoleteGuardReason = guardReason
-		} else if cacheBustDemoted.Has(proxyLayer0MechanismObsoletePrune) {
-			obsoleteGuardReason = "cache_bust_guard"
-		}
 		pruned, stats := staleread.PruneObsoleteReads(stagedMessages, staleread.ObsoleteOptions{})
 		if stats.BlocksReplaced > 0 {
 			beforeTokens := wssPlannerTokenCount(body, stagedMessages)
 			afterTokens := wssPlannerTokenCount(body, pruned)
+			cacheBustKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismObsoletePrune, stagedMessages, pruned, toolUses)
+			obsoleteGuardReason := ""
+			if guardReason != "" {
+				obsoleteGuardReason = guardReason
+			} else if wssHistoryMutationCacheBustDemoted(cacheBustDemoted, cacheBustDemotedClassKeys, cacheBustKeys, proxyLayer0MechanismObsoletePrune) {
+				obsoleteGuardReason = "cache_bust_guard"
+			}
 			if obsoleteGuardReason != "" {
 				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, obsoleteGuardReason, beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			} else {
@@ -3938,6 +3987,7 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 				result.Stats.ObsoletePruneBlocks = stats.BlocksReplaced
 				result.Stats.ObsoletePruneBytesSaved = stats.BytesReplaced
 				result.Stats.ObsoletePruneTokensSaved = beforeTokens - afterTokens
+				result.Stats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(result.Stats.CacheBustClassKeys, cacheBustKeys)
 				result.Stats.EvidenceDecisions = append(result.Stats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", beforeTokens, afterTokens, turnSeq, a.p.config.Savings.CachedPriceRatio))
 			}
 		}
