@@ -1975,6 +1975,58 @@ func TestWSPhaseFPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFReconnectPreviousResponseFullHistoryDiffStatCompactsAndDetaches(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-diffstat-safe-reconnect",
+			"prompt_cache_key":     "stateful-diffstat-safe-reconnect-session",
+			"input": []map[string]any{
+				{"type": "message", "role": "user", "content": "summarize the reconnect diff stat"},
+				{"type": "function_call", "call_id": "call_diffstat_reconnect", "name": "exec_command", "arguments": map[string]any{"cmd": "git diff --stat"}},
+				{"type": "function_call_output", "call_id": "call_diffstat_reconnect", "output": wssDiffStatFixture(80)},
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle reconnect diffstat request: %v", err)
+	}
+	if !replace {
+		t.Fatalf("reconnect previous_response full-history diffstat should compact")
+	}
+	body := string(env.Body)
+	if strings.Contains(body, "previous_response_id") {
+		t.Fatalf("reconnect stateful-safe full-history mutation must detach previous_response_id: %s", body)
+	}
+	if !strings.Contains(body, "[git diff --stat] 80 file(s)") ||
+		!strings.Contains(body, "[prefix=internal/proxy/generated/very/deep/path/]") ||
+		strings.Contains(body, "internal/proxy/generated/very/deep/path/file_xxxxxxxxxxxx_79.go") {
+		t.Fatalf("reconnect diffstat compaction did not preserve compact evidence: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved <= 0 ||
+		summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" {
+		t.Fatalf("reconnect stateful-safe diffstat should save as detached stateless full-history: %+v", summary)
+	}
+}
+
 func TestWSPhaseFCDWrappedPreviousResponseFullHistoryDiffStatCompacts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
