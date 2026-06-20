@@ -1138,6 +1138,12 @@ func (a *wssShadowMirrorCandidateAccumulator) add(summary dbg.RequestSummary, sh
 		}
 		a.addRow(summary, shape, row.Kind, row.ReferenceableBytes, row.Bytes, row.ReferenceableSegments, row.Segments)
 	}
+	for _, row := range parseWSSShadowMirrorKindRows(summary.DebugFacts["wss.shadow_mirror_stateful_safe_density_by_kind"]) {
+		if row.ReferenceableBytes <= 0 {
+			continue
+		}
+		a.addRow(summary, shape, row.Kind, row.ReferenceableBytes, row.Bytes, row.ReferenceableSegments, row.Segments)
+	}
 }
 
 func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary, shape, kind string, refBytes, bytes, refSegments, segments int) {
@@ -1541,7 +1547,11 @@ func wssShadowMirrorPromotionOpenBlockers(lane, kind string, openHeadroom int) [
 }
 
 func wssShadowMirrorProductizableOpenKind(kind string) bool {
-	switch strings.TrimSpace(kind) {
+	kind = strings.TrimSpace(kind)
+	if strings.HasPrefix(kind, "stateful_safe_tool_output_") {
+		return true
+	}
+	switch kind {
 	case "stateful_safe_tool_output", "stateful_safe_history_reducer", "search_cap_stateful_followup":
 		return true
 	default:

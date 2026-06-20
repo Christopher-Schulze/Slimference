@@ -387,6 +387,57 @@ func TestWSSShadowMirrorCandidateActionNamesCommandFamily(t *testing.T) {
 	}
 }
 
+func TestWSSAuditShadowMirrorStatefulSafeCommandClassIsPromotionOpen(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID:              "wss-stateful-safe-class",
+			Timestamp:              time.Date(2026, 5, 30, 12, 5, 0, 0, time.UTC),
+			SessionID:              "codex-wss:stateful-safe-class",
+			Path:                   "/backend-api/codex/responses",
+			RouteMode:              "websocket_phasef",
+			ClientFamily:           "codex_cli",
+			PreviousResponseIDUsed: false,
+			Tokens:                 dbg.TokenCounts{Original: 220, Final: 180, Saved: 40},
+			ProviderInputTokens:    220,
+			ProviderCachedTokens:   120,
+			ProviderOutputTokens:   8,
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+				"wss.socket_seq":    "1",
+				"wss.full_history_detached_previous_response":     "true",
+				"wss.full_history_stateless_followup":             "true",
+				"wss.shadow_mirror_normalized_density_by_kind":    "tool_result_command_git=400/800/1/1",
+				"wss.shadow_mirror_stateful_safe_density_by_kind": "stateful_safe_tool_output_git_status=400/400/1/1",
+			},
+		},
+	)
+
+	report, err := loadWSSAuditReport(wssAuditFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSAuditReport() error = %v", err)
+	}
+	var safe *wssShadowMirrorCandidate
+	var generic *wssShadowMirrorCandidate
+	for i := range report.ShadowMirrorCandidates {
+		switch report.ShadowMirrorCandidates[i].Kind {
+		case "stateful_safe_tool_output_git_status":
+			safe = &report.ShadowMirrorCandidates[i]
+		case "tool_result_command_git":
+			generic = &report.ShadowMirrorCandidates[i]
+		}
+	}
+	if safe == nil || !safe.PromotionOpenReady || safe.PromotionOpenStage != "t417_exact_scope_open_slice_candidate" || len(safe.PromotionOpenBlockers) != 0 {
+		t.Fatalf("stateful-safe command class should be promotion-open: %+v", report.ShadowMirrorCandidates)
+	}
+	if generic == nil || generic.PromotionOpenReady || !stringSliceContains(generic.PromotionOpenBlockers, "reference_only_backend_contract_required") {
+		t.Fatalf("generic command-family row must stay reference-only: %+v", report.ShadowMirrorCandidates)
+	}
+}
+
 func TestWSSAuditShadowMirrorReferenceOnlyHeadroomIsNotPromotionOpen(t *testing.T) {
 	t.Parallel()
 

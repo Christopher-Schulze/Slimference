@@ -512,6 +512,31 @@ func TestWSST354ShapeProofRejectsReferenceOnlyT408OpenSlice(t *testing.T) {
 	}
 }
 
+func TestWSST354ShapeProofAcceptsStatefulSafeCommandClassOpenSlice(t *testing.T) {
+	row, ok := wssT354T408OpenSliceFromCandidate(wssShadowMirrorCandidate{
+		RequestShape:                   "full_history",
+		Kind:                           "stateful_safe_tool_output_git_status",
+		CandidateLane:                  "t417_class_b_server_state",
+		PromotionOpenRequests:          2,
+		PromotionOpenCandidateTokens:   1200,
+		PromotionOpenLocalSavedTokens:  200,
+		PromotionOpenHeadroom:          1000,
+		PromotionOpenReady:             true,
+		PromotionOpenStage:             "t417_exact_scope_open_slice_candidate",
+		IncrementalLocalTokensHeadroom: 1000,
+		TopSessions: []wssShadowMirrorCandidateSession{{
+			SessionID:                      "codex-wss:safe-class",
+			PromotionOpenReady:             true,
+			PromotionOpenRequests:          2,
+			PromotionOpenHeadroom:          1000,
+			IncrementalLocalTokensHeadroom: 1000,
+		}},
+	})
+	if !ok || row.Kind != "stateful_safe_tool_output_git_status" || row.OpenHeadroomTokens != 1000 || row.TopSessionID != "codex-wss:safe-class" {
+		t.Fatalf("stateful-safe command-class open slice not accepted: row=%+v ok=%v", row, ok)
+	}
+}
+
 func TestWSST354ShapeProofFailsClosedForEmptyT408OpenSlice(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

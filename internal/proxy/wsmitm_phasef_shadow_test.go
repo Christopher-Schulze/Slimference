@@ -54,7 +54,7 @@ func TestRecordShadowMirror_NormalizedDebugFacts(t *testing.T) {
 	}
 
 	var meta wssRequestMeta
-	attachShadowMirrorDebugFacts(&meta, rep)
+	attachShadowMirrorDebugFacts(&meta, rep, shadowMsg(second))
 	if meta.DebugFacts["wss.shadow_mirror_bytes"] != strconv.Itoa(len(second)) ||
 		meta.DebugFacts["wss.shadow_mirror_referenceable_bytes"] != "0" ||
 		meta.DebugFacts["wss.shadow_mirror_normalized_bytes"] != strconv.Itoa(len(payload)) ||
@@ -62,6 +62,65 @@ func TestRecordShadowMirror_NormalizedDebugFacts(t *testing.T) {
 		meta.DebugFacts["wss.shadow_mirror_normalized_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/1/1" ||
 		meta.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"] != "codex_exec_payload="+strconv.Itoa(len(payload))+"/"+strconv.Itoa(len(payload))+"/1/1" {
 		t.Fatalf("bad normalized shadow facts: %+v", meta.DebugFacts)
+	}
+}
+
+func TestRecordShadowMirror_StatefulSafeToolOutputDebugFact(t *testing.T) {
+	old := wssShadowMirror
+	t.Cleanup(func() { wssShadowMirror = old })
+	wssShadowMirror = servermirror.New()
+
+	output := " M internal/proxy/wsmitm_phasef.go\n?? docs/todo.md\n"
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: "call-status",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git status --short"}`,
+		}}},
+		{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call-status",
+			Text:         output,
+		}}},
+	}
+	recordShadowMirror("sess-stateful-safe", messages, messages)
+	rep := recordShadowMirror("sess-stateful-safe", messages, messages)
+	var meta wssRequestMeta
+	attachShadowMirrorDebugFacts(&meta, rep, messages)
+
+	want := "stateful_safe_tool_output_git_status=" + strconv.Itoa(len(output)) + "/" + strconv.Itoa(len(output)) + "/1/1"
+	if got := meta.DebugFacts["wss.shadow_mirror_stateful_safe_density_by_kind"]; got != want {
+		t.Fatalf("stateful-safe density = %q, want %q; facts=%+v", got, want, meta.DebugFacts)
+	}
+}
+
+func TestRecordShadowMirror_StatefulSafeToolOutputDebugFactSkipsUnsafePatch(t *testing.T) {
+	old := wssShadowMirror
+	t.Cleanup(func() { wssShadowMirror = old })
+	wssShadowMirror = servermirror.New()
+
+	output := "diff --git a/main.go b/main.go\n@@ -1 +1 @@\n-old\n+new\n"
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: "call-diff",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git diff -- main.go"}`,
+		}}},
+		{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call-diff",
+			Text:         output,
+		}}},
+	}
+	recordShadowMirror("sess-stateful-unsafe", messages, messages)
+	rep := recordShadowMirror("sess-stateful-unsafe", messages, messages)
+	var meta wssRequestMeta
+	attachShadowMirrorDebugFacts(&meta, rep, messages)
+
+	if got := meta.DebugFacts["wss.shadow_mirror_stateful_safe_density_by_kind"]; got != "" {
+		t.Fatalf("unsafe patch must not emit stateful-safe density, got %q; facts=%+v", got, meta.DebugFacts)
 	}
 }
 

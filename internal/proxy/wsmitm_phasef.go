@@ -446,7 +446,7 @@ func recordShadowMirror(sessionID string, pre, forwarded []types.Message) server
 	return rep
 }
 
-func attachShadowMirrorDebugFacts(meta *wssRequestMeta, rep servermirror.Report) {
+func attachShadowMirrorDebugFacts(meta *wssRequestMeta, rep servermirror.Report, messages []types.Message) {
 	if meta == nil || (rep.Blocks == 0 && rep.NormalizedSegments == 0) {
 		return
 	}
@@ -467,6 +467,65 @@ func attachShadowMirrorDebugFacts(meta *wssRequestMeta, rep servermirror.Report)
 	if byKind := formatShadowMirrorKindDensityReport(rep.NormalizedPotentialSavedBytesByKind); byKind != "" {
 		meta.DebugFacts["wss.shadow_mirror_normalized_density_by_kind"] = byKind
 	}
+	if byKind := formatShadowMirrorStatefulSafeDensityReport(meta, rep, messages); byKind != "" {
+		meta.DebugFacts["wss.shadow_mirror_stateful_safe_density_by_kind"] = byKind
+	}
+}
+
+func formatShadowMirrorStatefulSafeDensityReport(meta *wssRequestMeta, rep servermirror.Report, messages []types.Message) string {
+	if meta == nil || len(messages) == 0 || len(rep.NormalizedPredictions) == 0 {
+		return ""
+	}
+	blocks := wssNonEmptyTextBlocks(messages)
+	if len(blocks) == 0 {
+		return ""
+	}
+	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), meta.ToolUseIndex)
+	byKind := make(map[string]servermirror.SegmentKindReport)
+	for _, prediction := range rep.NormalizedPredictions {
+		if !prediction.AlreadyForwarded || prediction.Bytes <= 0 || prediction.Block < 0 || prediction.Block >= len(blocks) {
+			continue
+		}
+		block := blocks[prediction.Block]
+		if block.Type != "tool_result" {
+			continue
+		}
+		use, resolved := proxyResolveToolUseDetailed(block, toolUses)
+		commandLine := ""
+		if resolved {
+			commandLine = proxyLayer0CommandLine(use)
+		}
+		if commandLine == "" {
+			commandLine = proxyInferCommandLineFromToolResult(block.Text)
+		}
+		if commandLine == "" || !wssSafeStatefulStatusCommandOutput(commandLine, block.Text) {
+			continue
+		}
+		kind := "stateful_safe_tool_output"
+		if class := wssToolCommandClass(commandLine); class != "" && class != "other" {
+			kind += "_" + class
+		}
+		row := byKind[kind]
+		row.Segments++
+		row.ReferenceableSegments++
+		row.Bytes += prediction.Bytes
+		row.PotentialSavedBytes += prediction.Bytes
+		byKind[kind] = row
+	}
+	return formatShadowMirrorKindDensityReport(byKind)
+}
+
+func wssNonEmptyTextBlocks(messages []types.Message) []types.ContentBlock {
+	var blocks []types.ContentBlock
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Text == "" {
+				continue
+			}
+			blocks = append(blocks, block)
+		}
+	}
+	return blocks
 }
 
 func formatShadowMirrorKindReport(byKind map[string]servermirror.SegmentKindReport) string {
@@ -552,7 +611,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 			pre = meta.OriginalMessages
 		}
 		if rep := recordShadowMirror(sid, pre, mirrorMessages); rep.Blocks > 0 || rep.NormalizedSegments > 0 {
-			attachShadowMirrorDebugFacts(&meta, rep)
+			attachShadowMirrorDebugFacts(&meta, rep, pre)
 			if rep.ReferenceableBlocks > 0 || rep.NormalizedReferenceableSegments > 0 {
 				slog.Info("wss server-state mirror shadow",
 					"session", sid,

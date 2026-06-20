@@ -792,7 +792,11 @@ func wssT354T408OpenSliceFromCandidate(candidate wssShadowMirrorCandidate) (wssT
 }
 
 func wssT354T408OpenSliceProductizableKind(kind string) bool {
-	switch strings.TrimSpace(kind) {
+	kind = strings.TrimSpace(kind)
+	if strings.HasPrefix(kind, "stateful_safe_tool_output_") {
+		return true
+	}
+	switch kind {
 	case "stateful_safe_tool_output", "stateful_safe_history_reducer", "search_cap_stateful_followup":
 		return true
 	default:
