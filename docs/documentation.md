@@ -1314,6 +1314,10 @@ candidate. Likewise, legacy `previous_response_id` tool-output bypass rows and
 stateful structured-mutation guard rows must carry tool-result byte facts or
 command-class facts before `wss-local-gap` treats them as proof or parser work;
 otherwise they stay in `needs_instrumentation`.
+For remaining residual mass, `wss-local-gap` emits `unattributed_gap.top_sessions`
+with the largest session IDs, tokens, request counts, shapes, mechanisms, and
+guard reasons. This turns broad policy-ceiling gaps into exact T417/T420/T418
+candidate windows without changing runtime bytes or authorizing guard widening.
 `--stateful-prefix-elision-proof` is an offline-only replay flag for the
 tool-schema candidate. Offline replay can measure repeated top-level `tools`
 prefix mass only on `previous_response_id` requests, only inside the same

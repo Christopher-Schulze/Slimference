@@ -305,6 +305,114 @@ func TestWSSLocalGapSearchRiskUsesProofBlockReason(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapUnattributedRowsExposeTopSessions(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID: "s1-big-full-history",
+			SessionID: "codex-wss:s1",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 12000, Final: 11000, Saved: 1000},
+			DebugFacts: map[string]string{
+				"wss.request_shape": "full_history",
+			},
+			EvidenceDecisions: []evidence.BlockDecision{
+				{
+					Mechanism:      "captured_output",
+					ContentClass:   evidence.ContentSearch,
+					Action:         evidence.ActionFullPass,
+					Reason:         "wss_search_output_risk_gate",
+					OriginalTokens: 3000,
+					FinalTokens:    3000,
+					CommandClass:   "rg_search",
+				},
+				{
+					Mechanism:      "read_delta",
+					ContentClass:   evidence.ContentPlain,
+					Action:         evidence.ActionApplied,
+					Reason:         "positive_net_savings",
+					OriginalTokens: 1000,
+					FinalTokens:    0,
+					SavedTokens:    1000,
+					NetTokens:      1000,
+				},
+			},
+		},
+		dbg.RequestSummary{
+			RequestID:              "s2-small-delta",
+			SessionID:              "codex-wss:s2",
+			Path:                   "/backend-api/codex/responses",
+			RouteMode:              "websocket_phasef",
+			PreviousResponseIDUsed: true,
+			Tokens:                 dbg.TokenCounts{Original: 5000, Final: 5000, Saved: 0},
+			EvidenceDecisions: []evidence.BlockDecision{{
+				Mechanism:      "repeated_tool_output",
+				ContentClass:   evidence.ContentPlain,
+				Action:         evidence.ActionFullPass,
+				Reason:         "wss_stateful_delta_mutation_proof_gate",
+				OriginalTokens: 1000,
+				FinalTokens:    1000,
+			}},
+		},
+		dbg.RequestSummary{
+			RequestID: "missing-no-evidence",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 4000, Final: 4000, Saved: 0},
+		},
+	)
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.UnattributedGap) != 2 {
+		t.Fatalf("expected two unattributed rows, got %+v", report.UnattributedGap)
+	}
+	evidenceRow := report.UnattributedGap[0]
+	if evidenceRow.Category != "evidence_request_residual_without_block_ownership" ||
+		evidenceRow.Tokens != 12000 ||
+		len(evidenceRow.TopSessions) != 2 ||
+		evidenceRow.TopSessions[0].SessionID != "codex-wss:s1" ||
+		evidenceRow.TopSessions[0].Tokens != 8000 ||
+		evidenceRow.TopSessions[0].Requests != 1 ||
+		evidenceRow.TopSessions[0].PolicyCeilingTokens != 12000 ||
+		evidenceRow.TopSessions[0].LocalSavedTokens != 1000 ||
+		evidenceRow.TopSessions[0].GuardedPotential != 3000 ||
+		evidenceRow.TopSessions[0].RequestShapes["full_history"] != 1 ||
+		evidenceRow.TopSessions[0].Mechanisms["captured_output"] != 1 ||
+		evidenceRow.TopSessions[0].Mechanisms["read_delta"] != 1 ||
+		evidenceRow.TopSessions[0].Reasons["wss_search_output_risk_gate"] != 1 ||
+		evidenceRow.TopSessions[1].SessionID != "codex-wss:s2" ||
+		evidenceRow.TopSessions[1].Tokens != 4000 ||
+		evidenceRow.TopSessions[1].RequestShapes["delta"] != 1 ||
+		evidenceRow.TopSessions[1].Mechanisms["repeated_tool_output"] != 1 {
+		t.Fatalf("bad evidence residual top sessions: %+v", evidenceRow)
+	}
+	noEvidenceRow := report.UnattributedGap[1]
+	if noEvidenceRow.Category != "no_evidence_request_residual" ||
+		noEvidenceRow.Tokens != 4000 ||
+		len(noEvidenceRow.TopSessions) != 1 ||
+		noEvidenceRow.TopSessions[0].SessionID != "(missing)" ||
+		noEvidenceRow.TopSessions[0].Tokens != 4000 ||
+		noEvidenceRow.TopSessions[0].RequestShapes["unknown"] != 1 {
+		t.Fatalf("bad no-evidence residual top sessions: %+v", noEvidenceRow)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSLocalGap([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSLocalGap code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "top_sessions: codex-wss:s1/8000tok/1req") ||
+		!strings.Contains(stdout.String(), "(missing)/4000tok/1req") {
+		t.Fatalf("text output missing top sessions:\n%s", stdout.String())
+	}
+}
+
 func TestWSSLocalGapSinceAndSavedGate(t *testing.T) {
 	t.Parallel()
 

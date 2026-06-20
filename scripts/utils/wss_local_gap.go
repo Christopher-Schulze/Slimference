@@ -180,17 +180,32 @@ type wssLocalGapActionableRow struct {
 }
 
 type wssLocalGapUnattributedRow struct {
-	Category              string         `json:"category"`
-	Source                string         `json:"source"`
-	TokenBasis            string         `json:"token_basis"`
+	Category              string                          `json:"category"`
+	Source                string                          `json:"source"`
+	TokenBasis            string                          `json:"token_basis"`
+	Tokens                int                             `json:"tokens"`
+	Requests              int                             `json:"requests"`
+	PolicyCeilingTokens   int                             `json:"policy_ceiling_tokens"`
+	PolicyProtectedTokens int                             `json:"policy_protected_tokens,omitempty"`
+	LocalSavedTokens      int                             `json:"local_saved_tokens,omitempty"`
+	GuardedPotential      int                             `json:"guarded_potential_tokens,omitempty"`
+	Policy                string                          `json:"policy"`
+	NextStep              string                          `json:"next_step"`
+	RequestShapes         map[string]int                  `json:"request_shapes,omitempty"`
+	Mechanisms            map[string]int                  `json:"mechanisms,omitempty"`
+	Reasons               map[string]int                  `json:"reasons,omitempty"`
+	TopSessions           []wssLocalGapResidualSessionRow `json:"top_sessions,omitempty"`
+	sessionRows           map[string]*wssLocalGapResidualSessionRow
+}
+
+type wssLocalGapResidualSessionRow struct {
+	SessionID             string         `json:"session_id"`
 	Tokens                int            `json:"tokens"`
 	Requests              int            `json:"requests"`
 	PolicyCeilingTokens   int            `json:"policy_ceiling_tokens"`
 	PolicyProtectedTokens int            `json:"policy_protected_tokens,omitempty"`
 	LocalSavedTokens      int            `json:"local_saved_tokens,omitempty"`
 	GuardedPotential      int            `json:"guarded_potential_tokens,omitempty"`
-	Policy                string         `json:"policy"`
-	NextStep              string         `json:"next_step"`
 	RequestShapes         map[string]int `json:"request_shapes,omitempty"`
 	Mechanisms            map[string]int `json:"mechanisms,omitempty"`
 	Reasons               map[string]int `json:"reasons,omitempty"`
@@ -794,7 +809,7 @@ func (a *wssLocalGapAccumulator) addUnattributedGap(summary dbg.RequestSummary, 
 			addWSSAuditCount(&row.Reasons, reason)
 		}
 	}
-	a.addUnattributed(row, shape)
+	a.addUnattributed(row, shape, summary.SessionID)
 }
 
 func wssLocalGapSummaryGuardedPotential(decisions []evidence.BlockDecision) int {
@@ -831,7 +846,7 @@ func wssLocalGapUnattributedAction(summary dbg.RequestSummary, noEvidenceCategor
 		"add or tighten reducer evidence for the exact request shape before changing product behavior"
 }
 
-func (a *wssLocalGapAccumulator) addUnattributed(row wssLocalGapUnattributedRow, shape string) {
+func (a *wssLocalGapAccumulator) addUnattributed(row wssLocalGapUnattributedRow, shape, sessionID string) {
 	if a == nil || row.Tokens <= 0 {
 		return
 	}
@@ -839,12 +854,14 @@ func (a *wssLocalGapAccumulator) addUnattributed(row wssLocalGapUnattributedRow,
 	existing := a.unattributedRows[key]
 	if existing == nil {
 		copy := row
+		copy.sessionRows = nil
 		a.unattributedRows[key] = &copy
 		existing = &copy
 	} else {
 		mergeWSSLocalGapUnattributedRow(existing, row)
 	}
 	addWSSAuditCount(&existing.RequestShapes, shape)
+	addWSSLocalGapResidualSession(existing, row, shape, sessionID)
 }
 
 func (a *wssLocalGapAccumulator) shapeRow(shape string) *wssLocalGapShapeRow {
@@ -1014,7 +1031,10 @@ func finalizeWSSLocalGapActionable(rows map[string]*wssLocalGapActionableRow) []
 func finalizeWSSLocalGapUnattributed(rows map[string]*wssLocalGapUnattributedRow) []wssLocalGapUnattributedRow {
 	out := make([]wssLocalGapUnattributedRow, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, *row)
+		copy := *row
+		copy.TopSessions = finalizeWSSLocalGapResidualSessions(row.sessionRows, 5)
+		copy.sessionRows = nil
+		out = append(out, copy)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Tokens != out[j].Tokens {
@@ -1609,6 +1629,56 @@ func mergeWSSLocalGapUnattributedRow(dst *wssLocalGapUnattributedRow, src wssLoc
 	mergeWSSLocalGapCounts(&dst.Reasons, src.Reasons)
 }
 
+func addWSSLocalGapResidualSession(dst *wssLocalGapUnattributedRow, src wssLocalGapUnattributedRow, shape, sessionID string) {
+	if dst == nil || src.Tokens <= 0 {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "(missing)"
+	}
+	if dst.sessionRows == nil {
+		dst.sessionRows = make(map[string]*wssLocalGapResidualSessionRow)
+	}
+	row := dst.sessionRows[sessionID]
+	if row == nil {
+		row = &wssLocalGapResidualSessionRow{SessionID: sessionID}
+		dst.sessionRows[sessionID] = row
+	}
+	row.Tokens += src.Tokens
+	row.Requests += src.Requests
+	row.PolicyCeilingTokens += src.PolicyCeilingTokens
+	row.PolicyProtectedTokens += src.PolicyProtectedTokens
+	row.LocalSavedTokens += src.LocalSavedTokens
+	row.GuardedPotential += src.GuardedPotential
+	addWSSAuditCount(&row.RequestShapes, shape)
+	mergeWSSLocalGapCounts(&row.Mechanisms, src.Mechanisms)
+	mergeWSSLocalGapCounts(&row.Reasons, src.Reasons)
+}
+
+func finalizeWSSLocalGapResidualSessions(rows map[string]*wssLocalGapResidualSessionRow, limit int) []wssLocalGapResidualSessionRow {
+	if len(rows) == 0 || limit <= 0 {
+		return nil
+	}
+	out := make([]wssLocalGapResidualSessionRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tokens != out[j].Tokens {
+			return out[i].Tokens > out[j].Tokens
+		}
+		if out[i].Requests != out[j].Requests {
+			return out[i].Requests > out[j].Requests
+		}
+		return out[i].SessionID < out[j].SessionID
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
 func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "=== WSS Local Gap: %s ===\n", filepath.Base(report.Path))
 	if report.Since != nil {
@@ -1753,6 +1823,9 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 				formatWSSAuditCounts(row.Reasons))
 			fmt.Fprintf(w, "    policy: %s\n", row.Policy)
 			fmt.Fprintf(w, "    next:   %s\n", row.NextStep)
+			if len(row.TopSessions) > 0 {
+				fmt.Fprintf(w, "    top_sessions: %s\n", formatWSSLocalGapResidualTopSessions(row.TopSessions))
+			}
 		}
 	}
 	if len(report.Guards) > 0 {
@@ -1809,4 +1882,25 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 			fmt.Fprintf(w, "  - %s\n", note)
 		}
 	}
+}
+
+func formatWSSLocalGapResidualTopSessions(rows []wssLocalGapResidualSessionRow) string {
+	if len(rows) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		parts = append(parts, fmt.Sprintf("%s/%dtok/%dreq/ceiling=%d/protected=%d/saved=%d/guarded=%d/shapes=%s/mechanisms=%s/reasons=%s",
+			truncateMiddle(row.SessionID, 32),
+			row.Tokens,
+			row.Requests,
+			row.PolicyCeilingTokens,
+			row.PolicyProtectedTokens,
+			row.LocalSavedTokens,
+			row.GuardedPotential,
+			formatWSSAuditCounts(row.RequestShapes),
+			formatWSSAuditCounts(row.Mechanisms),
+			formatWSSAuditCounts(row.Reasons)))
+	}
+	return strings.Join(parts, ";")
 }
