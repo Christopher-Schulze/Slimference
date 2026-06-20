@@ -213,7 +213,8 @@ breaks down per parent command, --by-parser groups by parser/tool family,
 --cache reports provider prompt-cache tokens, --output reports T130
 output-reduce overhead/observed-output telemetry, --proxy reports decision-log
 flight accounting for real proxied LLM requests, --opportunities ranks
-command-output-first full-pass/miss mass that does not count as savings,
+command-output-first full-pass/miss mass plus WSS shadow-mirror headroom
+that does not count as savings,
 --csv prints CSV, --json prints machine-readable output. Optional $/M-token
 rate in config multiplies savings.
 `

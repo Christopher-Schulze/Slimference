@@ -84,6 +84,7 @@ func TestHandleSubcommand_gain_opportunities(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", filepath.Join(t.TempDir(), "missing-decisions.jsonl"))
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
@@ -95,7 +96,7 @@ func TestHandleSubcommand_gain_opportunities(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "Command-output-first opportunities") || !strings.Contains(out, "These rows do not count as savings") {
+	if !strings.Contains(out, "Savings opportunities") || !strings.Contains(out, "These rows do not count as savings") {
 		t.Fatalf("opportunities stdout missing title/disclaimer: %q", out)
 	}
 	if !strings.Contains(out, "go test ./...") || !strings.Contains(out, "archive_unavailable") {
@@ -132,6 +133,7 @@ func TestHandleSubcommand_gain_opportunitiesEmptyAndNoDB(t *testing.T) {
 	dir := t.TempDir()
 	missingPath := filepath.Join(dir, "missing.db")
 	t.Setenv("SLIMFERENCE_FILTER_DB", missingPath)
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", filepath.Join(t.TempDir(), "missing-decisions.jsonl"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -141,7 +143,7 @@ func TestHandleSubcommand_gain_opportunitiesEmptyAndNoDB(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "No command-output-first opportunities recorded yet") {
+	if !strings.Contains(buf.String(), "No command-output-first or WSS shadow-mirror opportunities in this window") {
 		t.Fatalf("no-db stdout: %q", buf.String())
 	}
 
@@ -162,13 +164,62 @@ func TestHandleSubcommand_gain_opportunitiesEmptyAndNoDB(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r2)
-	if !strings.Contains(buf.String(), "No command-output-first opportunities in this window") {
+	if !strings.Contains(buf.String(), "No command-output-first or WSS shadow-mirror opportunities in this window") {
 		t.Fatalf("empty stdout: %q", buf.String())
 	}
 }
 
+func TestHandleSubcommand_gain_opportunitiesIncludesWSSShadowMirrorHeadroom(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(tmp, "missing-filter.db"))
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "req-wss-headroom",
+		Timestamp: time.Now(),
+		DebugFacts: map[string]string{
+			"wss.request_shape":                            "full_history",
+			"wss.shadow_mirror_normalized_density_by_kind": "codex_exec_payload=4000/8000/1/1",
+		},
+		Tokens: dbg.TokenCounts{Saved: 100},
+	})
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--opportunities"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	for _, want := range []string{
+		"full_history/codex_exec_payload",
+		"wss_shadow_mirror",
+		"t408_reference_or_t418_parser_recovery",
+		"t408_backend_reference_or_t418_parser_recovery_gate",
+		"requires_parser_or_recovery_product_slice",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("WSS opportunity stdout missing %q: %q", want, out)
+		}
+	}
+
+	r2, w2, _ := os.Pipe()
+	os.Stdout = w2
+	handleSubcommand([]string{"gain", "today", "--opportunities", "--json"})
+	_ = w2.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r2)
+	if !strings.Contains(buf.String(), `"local_tokens_headroom"`) || !strings.Contains(buf.String(), `"candidate_lane"`) {
+		t.Fatalf("WSS opportunities json: %q", buf.String())
+	}
+}
+
 func TestWriteGainOpportunitiesCSVError(t *testing.T) {
-	err := writeGainOpportunitiesCSV(errGainOpportunityWriter{}, []filter.FilterObservationAggregate{{
+	err := writeGainOpportunitiesCSV(errGainOpportunityWriter{}, []gainOpportunityRow{{
 		Scope:        commandOutputFirstObservationScope,
 		Command:      "ls -lah generated",
 		Outcome:      commandOutputFirstObservationFullPass,

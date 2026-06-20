@@ -2621,6 +2621,8 @@ func handleGainCmd(args []string) {
 }
 
 func handleGainOpportunities(period string, flags gainCLIFlags) {
+	now := time.Now()
+	var rows []gainOpportunityRow
 	path, err := resolveFilterDBPathFn()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
@@ -2628,32 +2630,43 @@ func handleGainOpportunities(period string, flags gainCLIFlags) {
 		return
 	}
 	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("No command-output-first opportunities recorded yet (no filter.db).")
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+			exitFn(1)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
-		exitFn(1)
-		return
+	} else {
+		db, err := filter.OpenDB(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+			exitFn(1)
+			return
+		}
+		defer db.Close()
+		start, end, err := analytics.FilterGainWindow(period, now)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+			exitFn(1)
+			return
+		}
+		filterRows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, start, end, 20)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
+			exitFn(1)
+			return
+		}
+		rows = append(rows, commandOutputFirstRowsToGainOpportunities(filterRows)...)
 	}
-	db, err := filter.OpenDB(path)
+	wssRows, err := queryWSSShadowMirrorOpportunityRows(period, now, 20)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
 		exitFn(1)
 		return
 	}
-	defer db.Close()
-	start, end, err := analytics.FilterGainWindow(period, time.Now())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
-		exitFn(1)
-		return
-	}
-	rows, err := filter.QueryFilterObservationByCommand(db, commandOutputFirstObservationScope, start, end, 20)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gain --opportunities: %v\n", err)
-		exitFn(1)
-		return
+	rows = append(rows, wssRows...)
+	sortGainOpportunityRows(rows)
+	if len(rows) > 20 {
+		rows = rows[:20]
 	}
 	if flags.csv {
 		if err := writeGainOpportunitiesCSV(os.Stdout, rows); err != nil {
@@ -2668,25 +2681,39 @@ func handleGainOpportunities(period string, flags gainCLIFlags) {
 		return
 	}
 	if len(rows) == 0 {
-		fmt.Println("No command-output-first opportunities in this window.")
+		fmt.Println("No command-output-first or WSS shadow-mirror opportunities in this window.")
 		return
 	}
-	fmt.Printf("Command-output-first opportunities (%s)\n", period)
+	fmt.Printf("Savings opportunities (%s)\n", period)
 	fmt.Println(strings.Repeat("-", 50))
-	fmt.Println("Observed full-pass/miss command mass, sorted by input tokens. These rows do not count as savings.")
+	fmt.Println("Observed full-pass/miss command mass and WSS shadow-mirror headroom. These rows do not count as savings.")
 	for _, row := range rows {
 		fmt.Printf("  %s\n", row.Command)
-		fmt.Printf("    outcome %s  runs %d  in %s  out %s\n",
+		fmt.Printf("    scope %s  outcome %s  runs %d  in %s  out %s",
+			row.Scope,
 			row.Outcome,
 			row.Runs,
 			formatTokensPlain64(row.InputTokens),
 			formatTokensPlain64(row.OutputTokens))
+		if row.LocalTokensHeadroom > 0 {
+			fmt.Printf("  headroom %s", formatTokensPlain64(row.LocalTokensHeadroom))
+		}
+		fmt.Println()
+		if row.CandidateLane != "" {
+			fmt.Printf("    lane %s  gate %s  stage %s\n", row.CandidateLane, row.NextProofGate, row.PromotionStage)
+		}
+		if len(row.PromotionBlockers) > 0 {
+			fmt.Printf("    blockers %s\n", strings.Join(row.PromotionBlockers, "|"))
+		}
+		if row.RecommendedAction != "" {
+			fmt.Printf("    action %s\n", row.RecommendedAction)
+		}
 	}
 }
 
-func writeGainOpportunitiesCSV(out io.Writer, rows []filter.FilterObservationAggregate) error {
+func writeGainOpportunitiesCSV(out io.Writer, rows []gainOpportunityRow) error {
 	w := csv.NewWriter(out)
-	if err := w.Write([]string{"scope", "command", "outcome", "runs", "input_tokens", "output_tokens"}); err != nil {
+	if err := w.Write([]string{"scope", "command", "outcome", "runs", "input_tokens", "output_tokens", "local_tokens_headroom", "candidate_lane", "next_proof_gate", "promotion_stage", "promotion_blockers", "recommended_action"}); err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -2697,6 +2724,12 @@ func writeGainOpportunitiesCSV(out io.Writer, rows []filter.FilterObservationAgg
 			fmt.Sprint(row.Runs),
 			fmt.Sprint(row.InputTokens),
 			fmt.Sprint(row.OutputTokens),
+			fmt.Sprint(row.LocalTokensHeadroom),
+			row.CandidateLane,
+			row.NextProofGate,
+			row.PromotionStage,
+			strings.Join(row.PromotionBlockers, "|"),
+			row.RecommendedAction,
 		}); err != nil {
 			return err
 		}
