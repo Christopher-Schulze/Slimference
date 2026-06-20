@@ -393,6 +393,123 @@ func TestWSST354ShapeProofIngestsT420ReconnectHandoff(t *testing.T) {
 	}
 }
 
+func TestWSST354ShapeProofIngestsT408OpenSlice(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t354-clean.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+	openSlicePath := filepath.Join(dir, "wss-audit-open-slice.json")
+	writeJSONFile(t, openSlicePath, wssAuditReport{
+		ShadowMirrorCandidates: []wssShadowMirrorCandidate{{
+			RequestShape:                   "full_history",
+			Kind:                           "exact_block",
+			CandidateLane:                  "t417_class_b_server_state",
+			CandidateLocalTokensEstimate:   1916726,
+			IncrementalLocalTokensHeadroom: 890310,
+			PromotionOpenRequests:          33,
+			PromotionOpenCandidateTokens:   1156175,
+			PromotionOpenLocalSavedTokens:  489200,
+			PromotionOpenHeadroom:          666975,
+			PromotionOpenReady:             true,
+			PromotionOpenStage:             "t417_exact_scope_open_slice_candidate",
+			ProviderInputTokens:            2340176,
+			ProviderCachedTokens:           1420800,
+			PromotionBlockers:              []string{"cache_bust_demotion_present_exact_class_scope"},
+			TopSessions: []wssShadowMirrorCandidateSession{{
+				SessionID:                      "codex-wss:top-open",
+				PromotionOpenRequests:          30,
+				PromotionOpenHeadroom:          600000,
+				PromotionOpenReady:             true,
+				PromotionOpenStage:             "t417_exact_scope_open_slice_candidate",
+				IncrementalLocalTokensHeadroom: 700000,
+				PromotionBlockers:              []string{"cache_bust_demotion_present_exact_class_scope"},
+			}},
+		}},
+	})
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path, t408OpenSlicePath: openSlicePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed ||
+		report.T408OpenSlicePath != openSlicePath ||
+		len(report.T408OpenSlices) != 1 ||
+		report.Totals.T408OpenSliceRows != 1 ||
+		report.Totals.T408OpenSliceRequests != 33 ||
+		report.Totals.T408OpenSliceHeadroomTokens != 666975 ||
+		report.Totals.TopT408OpenSlice == nil ||
+		report.Totals.TopT408OpenSlice.TopSessionID != "codex-wss:top-open" ||
+		report.Totals.TopT408OpenSlice.TopSessionOpenHeadroomTokens != 600000 {
+		t.Fatalf("T408 open slice was not ingested as T417 input: %+v", report)
+	}
+	row := report.T408OpenSlices[0]
+	if row.EconomicsVerdict != "t417_open_slice_net_positive" ||
+		row.ContinuationCandidate != "t417_exact_scope_open_slice" ||
+		row.AggregateBlockers[0] != "cache_bust_demotion_present_exact_class_scope" {
+		t.Fatalf("T408 open-slice candidate mismatch: %+v", row)
+	}
+	findings := strings.Join(report.Findings, "\n")
+	for _, want := range []string{
+		"t408_open_slice_rows=1",
+		"t408_open_slice_headroom_tokens=666975",
+		"top_t408_open_slice=full_history/exact_block",
+	} {
+		if !strings.Contains(findings, want) {
+			t.Fatalf("missing finding %q in %+v", want, report.Findings)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWSST354ShapeProof([]string{path, "--t408-open-slice-json", openSlicePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	text := stdout.String()
+	if !strings.Contains(text, "t408_open_slice:") ||
+		!strings.Contains(text, "top_t408_slice:") ||
+		!strings.Contains(text, "t408_open_row:") {
+		t.Fatalf("text report lost T408 open slice: %s", text)
+	}
+}
+
+func TestWSST354ShapeProofFailsClosedForEmptyT408OpenSlice(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t354-clean.frames.jsonl")
+	writeJSONLFile(t, path,
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 220), false, 91),
+		wssT354TestSequencedFrame("client_to_server", wssT354TestFullHistoryToolOutputRequestLines("call_history", 40), true, 91),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-history-mutated"), false),
+		wssT354TestFrame("client_to_server", wssT354TestUserDeltaRequest("resp-history-mutated"), false),
+		wssT354TestFrame("server_to_client", wssT354TestCompleted("resp-following"), false),
+	)
+	openSlicePath := filepath.Join(dir, "wss-audit-no-open-slice.json")
+	writeJSONFile(t, openSlicePath, wssAuditReport{
+		ShadowMirrorCandidates: []wssShadowMirrorCandidate{{
+			RequestShape:          "full_history",
+			Kind:                  "exact_block",
+			CandidateLane:         "t417_class_b_server_state",
+			PromotionOpenHeadroom: 0,
+			PromotionOpenReady:    false,
+			PromotionOpenBlockers: []string{"no_promotion_open_headroom"},
+			PromotionOpenStage:    "t417_no_open_slice_candidate",
+		}},
+	})
+
+	report, err := loadWSST354ShapeProofReport(wssT354ShapeProofFlags{path: path, t408OpenSlicePath: openSlicePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || !stringSliceContains(report.GateFailures, "t408_open_slice_candidates=0") {
+		t.Fatalf("empty explicit T408 open slice should fail closed: %+v", report)
+	}
+}
+
 func TestWSST354ShapeProofAcceptsEmptyT420ReconnectHandoffObject(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wss-sockets-empty.json")
 	writeJSONFile(t, path, map[string]any{"t417_reconnect_handoff": []any{}})

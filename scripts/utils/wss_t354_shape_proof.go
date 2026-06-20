@@ -18,6 +18,7 @@ import (
 type wssT354ShapeProofFlags struct {
 	path                    string
 	t420HandoffPath         string
+	t408OpenSlicePath       string
 	socketSeq               uint64
 	outputFormat            string
 	requireRecoveryContract bool
@@ -27,12 +28,14 @@ type wssT354ShapeProofFlags struct {
 type wssT354ShapeProofReport struct {
 	Path                 string                        `json:"path"`
 	T420HandoffPath      string                        `json:"t420_handoff_path,omitempty"`
+	T408OpenSlicePath    string                        `json:"t408_open_slice_path,omitempty"`
 	SocketSeq            uint64                        `json:"socket_seq,omitempty"`
 	FrameFiles           int                           `json:"frame_files"`
 	SkippedFiles         int                           `json:"skipped_files"`
 	Totals               wssT354ShapeProofTotal        `json:"totals"`
 	Rows                 []wssT354ShapeProofRow        `json:"rows"`
 	T420ReconnectHandoff []wssT354T420ReconnectHandoff `json:"t420_reconnect_handoff,omitempty"`
+	T408OpenSlices       []wssT354T408OpenSlice        `json:"t408_open_slices,omitempty"`
 	T419RecoveryContract *wssT354RecoveryContractGate  `json:"t419_recovery_contract,omitempty"`
 	Skips                []wssT354ShapeProofSkip       `json:"skips,omitempty"`
 	Findings             []string                      `json:"findings,omitempty"`
@@ -54,48 +57,54 @@ type wssT354RecoveryContractGate struct {
 }
 
 type wssT354ShapeProofTotal struct {
-	Frames                         int                  `json:"frames"`
-	RequestTurns                   int                  `json:"request_turns"`
-	RequestShapes                  replayShapeCounts    `json:"request_shapes"`
-	MutatedRequests                int                  `json:"mutated_requests"`
-	MutatedToolOutputCandidates    int                  `json:"mutated_tool_output_candidates"`
-	MutatedDeltaCandidates         int                  `json:"mutated_delta_candidates"`
-	MutatedFullHistoryCandidates   int                  `json:"mutated_full_history_candidates"`
-	CandidatesWithCleanCurrentTurn int                  `json:"candidates_with_clean_current_turn"`
-	CandidatesWithFollowingTurn    int                  `json:"candidates_with_following_turn"`
-	CandidatesWithCleanFollowing   int                  `json:"candidates_with_clean_following"`
-	CandidatesPassing              int                  `json:"candidates_passing"`
-	UpstreamErrorFrames            int                  `json:"upstream_error_frames"`
-	InvalidRequestErrors           int                  `json:"invalid_request_errors"`
-	HTTP400Errors                  int                  `json:"http_400_errors"`
-	ResponseFailedFrames           int                  `json:"response_failed_frames"`
-	Lost                           int                  `json:"lost"`
-	ReplayLocalSavedTokens         int                  `json:"replay_local_saved_tokens"`
-	CapturedLocalSavedTokens       int                  `json:"captured_local_saved_tokens_estimate"`
-	RetryOrResendExtraTokens       int                  `json:"retry_or_resend_extra_tokens_estimate"`
-	NetCapturedLocalSavedTokens    int                  `json:"net_captured_local_saved_tokens_estimate"`
-	ProviderUsage                  wssT354ProviderUsage `json:"provider_usage"`
-	MissingFollowingTurnCandidates int                  `json:"missing_following_turn_candidates"`
-	UnsafeCandidates               int                  `json:"unsafe_candidates"`
-	UnprovenCandidates             int                  `json:"unproven_candidates,omitempty"`
-	MetadataComparisons            int                  `json:"metadata_comparisons,omitempty"`
-	MetadataMismatches             int                  `json:"metadata_mismatches,omitempty"`
-	CandidatesWithServerOutputItem int                  `json:"candidates_with_server_output_item,omitempty"`
-	CandidatesWithServerOutputID   int                  `json:"candidates_with_server_output_id,omitempty"`
-	T420ReconnectHandoffRows       int                  `json:"t420_reconnect_handoff_rows,omitempty"`
-	T420ReconnectInputTokens       int                  `json:"t420_reconnect_input_tokens,omitempty"`
-	T420RetryResendCostTokens      int                  `json:"t420_retry_resend_cost_tokens,omitempty"`
-	T420ProviderInputTokens        int                  `json:"t420_provider_input_tokens,omitempty"`
-	T420ProviderCachedTokens       int                  `json:"t420_provider_cached_tokens,omitempty"`
-	T420LocalSavedTokens           int                  `json:"t420_local_saved_tokens,omitempty"`
-	T417ReconnectRerouteCandidates int                  `json:"t417_reconnect_reroute_candidates,omitempty"`
-	T420TransportFixCandidates     int                  `json:"t420_transport_fix_candidates,omitempty"`
-	NetPositiveCandidates          int                  `json:"net_positive_candidates,omitempty"`
-	NetPositiveFullHistory         int                  `json:"net_positive_full_history_candidates,omitempty"`
-	NetPositiveCapturedSavedTokens int                  `json:"net_positive_captured_local_saved_tokens,omitempty"`
-	NetPositiveRetryExtraTokens    int                  `json:"net_positive_retry_or_resend_extra_tokens,omitempty"`
-	NetPositiveNetSavedTokens      int                  `json:"net_positive_net_captured_local_saved_tokens,omitempty"`
-	TopNetCandidate                *wssT354TopCandidate `json:"top_net_candidate,omitempty"`
+	Frames                         int                   `json:"frames"`
+	RequestTurns                   int                   `json:"request_turns"`
+	RequestShapes                  replayShapeCounts     `json:"request_shapes"`
+	MutatedRequests                int                   `json:"mutated_requests"`
+	MutatedToolOutputCandidates    int                   `json:"mutated_tool_output_candidates"`
+	MutatedDeltaCandidates         int                   `json:"mutated_delta_candidates"`
+	MutatedFullHistoryCandidates   int                   `json:"mutated_full_history_candidates"`
+	CandidatesWithCleanCurrentTurn int                   `json:"candidates_with_clean_current_turn"`
+	CandidatesWithFollowingTurn    int                   `json:"candidates_with_following_turn"`
+	CandidatesWithCleanFollowing   int                   `json:"candidates_with_clean_following"`
+	CandidatesPassing              int                   `json:"candidates_passing"`
+	UpstreamErrorFrames            int                   `json:"upstream_error_frames"`
+	InvalidRequestErrors           int                   `json:"invalid_request_errors"`
+	HTTP400Errors                  int                   `json:"http_400_errors"`
+	ResponseFailedFrames           int                   `json:"response_failed_frames"`
+	Lost                           int                   `json:"lost"`
+	ReplayLocalSavedTokens         int                   `json:"replay_local_saved_tokens"`
+	CapturedLocalSavedTokens       int                   `json:"captured_local_saved_tokens_estimate"`
+	RetryOrResendExtraTokens       int                   `json:"retry_or_resend_extra_tokens_estimate"`
+	NetCapturedLocalSavedTokens    int                   `json:"net_captured_local_saved_tokens_estimate"`
+	ProviderUsage                  wssT354ProviderUsage  `json:"provider_usage"`
+	MissingFollowingTurnCandidates int                   `json:"missing_following_turn_candidates"`
+	UnsafeCandidates               int                   `json:"unsafe_candidates"`
+	UnprovenCandidates             int                   `json:"unproven_candidates,omitempty"`
+	MetadataComparisons            int                   `json:"metadata_comparisons,omitempty"`
+	MetadataMismatches             int                   `json:"metadata_mismatches,omitempty"`
+	CandidatesWithServerOutputItem int                   `json:"candidates_with_server_output_item,omitempty"`
+	CandidatesWithServerOutputID   int                   `json:"candidates_with_server_output_id,omitempty"`
+	T420ReconnectHandoffRows       int                   `json:"t420_reconnect_handoff_rows,omitempty"`
+	T420ReconnectInputTokens       int                   `json:"t420_reconnect_input_tokens,omitempty"`
+	T420RetryResendCostTokens      int                   `json:"t420_retry_resend_cost_tokens,omitempty"`
+	T420ProviderInputTokens        int                   `json:"t420_provider_input_tokens,omitempty"`
+	T420ProviderCachedTokens       int                   `json:"t420_provider_cached_tokens,omitempty"`
+	T420LocalSavedTokens           int                   `json:"t420_local_saved_tokens,omitempty"`
+	T417ReconnectRerouteCandidates int                   `json:"t417_reconnect_reroute_candidates,omitempty"`
+	T420TransportFixCandidates     int                   `json:"t420_transport_fix_candidates,omitempty"`
+	T408OpenSliceRows              int                   `json:"t408_open_slice_rows,omitempty"`
+	T408OpenSliceRequests          int                   `json:"t408_open_slice_requests,omitempty"`
+	T408OpenSliceCandidateTokens   int                   `json:"t408_open_slice_candidate_tokens_estimate,omitempty"`
+	T408OpenSliceLocalSavedTokens  int                   `json:"t408_open_slice_local_saved_tokens,omitempty"`
+	T408OpenSliceHeadroomTokens    int                   `json:"t408_open_slice_headroom_tokens,omitempty"`
+	TopT408OpenSlice               *wssT354T408OpenSlice `json:"top_t408_open_slice,omitempty"`
+	NetPositiveCandidates          int                   `json:"net_positive_candidates,omitempty"`
+	NetPositiveFullHistory         int                   `json:"net_positive_full_history_candidates,omitempty"`
+	NetPositiveCapturedSavedTokens int                   `json:"net_positive_captured_local_saved_tokens,omitempty"`
+	NetPositiveRetryExtraTokens    int                   `json:"net_positive_retry_or_resend_extra_tokens,omitempty"`
+	NetPositiveNetSavedTokens      int                   `json:"net_positive_net_captured_local_saved_tokens,omitempty"`
+	TopNetCandidate                *wssT354TopCandidate  `json:"top_net_candidate,omitempty"`
 }
 
 type wssT354ShapeProofRow struct {
@@ -227,6 +236,28 @@ type wssT354T420ReconnectHandoff struct {
 	EconomicsVerdict              string         `json:"economics_verdict,omitempty"`
 }
 
+type wssT354T408OpenSlice struct {
+	RequestShape                 string   `json:"request_shape"`
+	Kind                         string   `json:"kind"`
+	OpenRequests                 int      `json:"open_requests"`
+	OpenCandidateTokens          int      `json:"open_candidate_tokens_estimate"`
+	OpenLocalSavedTokens         int      `json:"open_local_saved_tokens"`
+	OpenHeadroomTokens           int      `json:"open_headroom_tokens"`
+	ProviderInputTokens          int      `json:"provider_input_tokens,omitempty"`
+	ProviderCachedTokens         int      `json:"provider_cached_tokens,omitempty"`
+	AggregateHeadroomTokens      int      `json:"aggregate_headroom_tokens,omitempty"`
+	AggregateBlockers            []string `json:"aggregate_blockers,omitempty"`
+	TopSessionID                 string   `json:"top_session_id,omitempty"`
+	TopSessionOpenRequests       int      `json:"top_session_open_requests,omitempty"`
+	TopSessionOpenHeadroomTokens int      `json:"top_session_open_headroom_tokens,omitempty"`
+	TopSessionAggregateHeadroom  int      `json:"top_session_aggregate_headroom_tokens,omitempty"`
+	TopSessionAggregateBlockers  []string `json:"top_session_aggregate_blockers,omitempty"`
+	PromotionOpenStage           string   `json:"promotion_open_stage"`
+	ContinuationCandidate        string   `json:"continuation_candidate"`
+	EconomicsVerdict             string   `json:"economics_verdict"`
+	RecommendedAction            string   `json:"recommended_action,omitempty"`
+}
+
 type wssT354Turn struct {
 	shape                         string
 	previousResponseID            bool
@@ -255,7 +286,7 @@ type wssT354Turn struct {
 const wssT354ShapeProofHelpText = `wss-t354-shape-proof: classify WSS T354 downstream-state proof readiness
 
 Usage:
-  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N] [--t420-handoff-json=debug-wss-sockets.json] [--require-recovery-contract]
+  go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--socket-seq=N] [--t420-handoff-json=debug-wss-sockets.json] [--t408-open-slice-json=wss-audit.json] [--require-recovery-contract]
 
 The report is content-free. It reads WSS frame captures and emits only request
 shape, mutation, downstream-turn, 400/invalid_request, and lost-comprehension
@@ -326,6 +357,20 @@ func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) 
 			if flags.t420HandoffPath == "" {
 				return flags, fmt.Errorf("--t420-handoff-json requires a value")
 			}
+		case arg == "--t408-open-slice-json":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--t408-open-slice-json requires a value")
+			}
+			i++
+			flags.t408OpenSlicePath = strings.TrimSpace(args[i])
+			if flags.t408OpenSlicePath == "" {
+				return flags, fmt.Errorf("--t408-open-slice-json requires a value")
+			}
+		case strings.HasPrefix(arg, "--t408-open-slice-json="):
+			flags.t408OpenSlicePath = strings.TrimSpace(strings.TrimPrefix(arg, "--t408-open-slice-json="))
+			if flags.t408OpenSlicePath == "" {
+				return flags, fmt.Errorf("--t408-open-slice-json requires a value")
+			}
 		case arg == "--socket-seq":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("--socket-seq requires a value")
@@ -361,7 +406,7 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 	}
 	restoreLogger := silenceWSSSavingsBaselineReplayLogs()
 	defer restoreLogger()
-	report := wssT354ShapeProofReport{Path: flags.path, T420HandoffPath: flags.t420HandoffPath, SocketSeq: flags.socketSeq, GatePassed: true}
+	report := wssT354ShapeProofReport{Path: flags.path, T420HandoffPath: flags.t420HandoffPath, T408OpenSlicePath: flags.t408OpenSlicePath, SocketSeq: flags.socketSeq, GatePassed: true}
 	for _, path := range files {
 		row, err := loadWSST354ShapeProofRow(path, flags.socketSeq)
 		if err != nil {
@@ -394,6 +439,18 @@ func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProo
 		}
 		report.T420ReconnectHandoff = handoff
 		applyWSST354T420ReconnectHandoff(&report.Totals, handoff)
+	}
+	if flags.t408OpenSlicePath != "" {
+		openSlices, err := loadWSST354T408OpenSlices(flags.t408OpenSlicePath)
+		if err != nil {
+			return wssT354ShapeProofReport{}, err
+		}
+		report.T408OpenSlices = openSlices
+		applyWSST354T408OpenSlices(&report.Totals, openSlices)
+		if len(openSlices) == 0 {
+			report.GatePassed = false
+			report.GateFailures = append(report.GateFailures, "t408_open_slice_candidates=0")
+		}
 	}
 	if flags.requireRecoveryContract {
 		report.T419RecoveryContract = wssT354RecoveryContractGateFromMatrix(buildRecoveryContractMatrixReport())
@@ -660,6 +717,102 @@ func applyWSST354T420ReconnectHandoff(total *wssT354ShapeProofTotal, rows []wssT
 			total.T420TransportFixCandidates++
 		}
 	}
+}
+
+func loadWSST354T408OpenSlices(path string) ([]wssT354T408OpenSlice, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read T408 open-slice JSON %s: %w", path, err)
+	}
+	var report wssAuditReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("decode T408 open-slice JSON %s: %w", path, err)
+	}
+	rows := make([]wssT354T408OpenSlice, 0, len(report.ShadowMirrorCandidates))
+	for _, candidate := range report.ShadowMirrorCandidates {
+		row, ok := wssT354T408OpenSliceFromCandidate(candidate)
+		if ok {
+			rows = append(rows, row)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].OpenHeadroomTokens != rows[j].OpenHeadroomTokens {
+			return rows[i].OpenHeadroomTokens > rows[j].OpenHeadroomTokens
+		}
+		if rows[i].OpenCandidateTokens != rows[j].OpenCandidateTokens {
+			return rows[i].OpenCandidateTokens > rows[j].OpenCandidateTokens
+		}
+		if rows[i].RequestShape != rows[j].RequestShape {
+			return rows[i].RequestShape < rows[j].RequestShape
+		}
+		return rows[i].Kind < rows[j].Kind
+	})
+	return rows, nil
+}
+
+func wssT354T408OpenSliceFromCandidate(candidate wssShadowMirrorCandidate) (wssT354T408OpenSlice, bool) {
+	if candidate.CandidateLane != "t417_class_b_server_state" ||
+		!candidate.PromotionOpenReady ||
+		candidate.PromotionOpenHeadroom <= 0 ||
+		len(candidate.PromotionOpenBlockers) > 0 {
+		return wssT354T408OpenSlice{}, false
+	}
+	row := wssT354T408OpenSlice{
+		RequestShape:            strings.TrimSpace(candidate.RequestShape),
+		Kind:                    strings.TrimSpace(candidate.Kind),
+		OpenRequests:            candidate.PromotionOpenRequests,
+		OpenCandidateTokens:     candidate.PromotionOpenCandidateTokens,
+		OpenLocalSavedTokens:    candidate.PromotionOpenLocalSavedTokens,
+		OpenHeadroomTokens:      candidate.PromotionOpenHeadroom,
+		ProviderInputTokens:     candidate.ProviderInputTokens,
+		ProviderCachedTokens:    candidate.ProviderCachedTokens,
+		AggregateHeadroomTokens: candidate.IncrementalLocalTokensHeadroom,
+		AggregateBlockers:       compactStringList(candidate.PromotionBlockers),
+		PromotionOpenStage:      strings.TrimSpace(candidate.PromotionOpenStage),
+		ContinuationCandidate:   "t417_exact_scope_open_slice",
+		EconomicsVerdict:        "t417_open_slice_net_positive",
+		RecommendedAction:       "promote only exact open-scope rows; keep aggregate blockers guarded",
+	}
+	for _, session := range candidate.TopSessions {
+		if !session.PromotionOpenReady || session.PromotionOpenHeadroom <= 0 || len(session.PromotionOpenBlockers) > 0 {
+			continue
+		}
+		row.TopSessionID = strings.TrimSpace(session.SessionID)
+		row.TopSessionOpenRequests = session.PromotionOpenRequests
+		row.TopSessionOpenHeadroomTokens = session.PromotionOpenHeadroom
+		row.TopSessionAggregateHeadroom = session.IncrementalLocalTokensHeadroom
+		row.TopSessionAggregateBlockers = compactStringList(session.PromotionBlockers)
+		break
+	}
+	if row.RequestShape == "" || row.Kind == "" || row.OpenRequests <= 0 || row.OpenCandidateTokens <= 0 {
+		return wssT354T408OpenSlice{}, false
+	}
+	return row, true
+}
+
+func applyWSST354T408OpenSlices(total *wssT354ShapeProofTotal, rows []wssT354T408OpenSlice) {
+	for _, row := range rows {
+		total.T408OpenSliceRows++
+		total.T408OpenSliceRequests += row.OpenRequests
+		total.T408OpenSliceCandidateTokens += row.OpenCandidateTokens
+		total.T408OpenSliceLocalSavedTokens += row.OpenLocalSavedTokens
+		total.T408OpenSliceHeadroomTokens += row.OpenHeadroomTokens
+		total.TopT408OpenSlice = wssT354BetterT408OpenSlice(total.TopT408OpenSlice, row)
+	}
+}
+
+func wssT354BetterT408OpenSlice(current *wssT354T408OpenSlice, candidate wssT354T408OpenSlice) *wssT354T408OpenSlice {
+	if candidate.OpenHeadroomTokens <= 0 {
+		return current
+	}
+	if current == nil || candidate.OpenHeadroomTokens > current.OpenHeadroomTokens ||
+		(candidate.OpenHeadroomTokens == current.OpenHeadroomTokens && candidate.OpenCandidateTokens > current.OpenCandidateTokens) {
+		copy := candidate
+		copy.AggregateBlockers = append([]string(nil), candidate.AggregateBlockers...)
+		copy.TopSessionAggregateBlockers = append([]string(nil), candidate.TopSessionAggregateBlockers...)
+		return &copy
+	}
+	return current
 }
 
 func cloneIntMap(values map[string]int) map[string]int {
@@ -1522,6 +1675,17 @@ func wssT354ShapeProofFindings(report wssT354ShapeProofReport) []string {
 	if report.Totals.T420TransportFixCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("t420_transport_fix_candidates=%d", report.Totals.T420TransportFixCandidates))
 	}
+	if report.Totals.T408OpenSliceRows > 0 {
+		findings = append(findings, fmt.Sprintf("t408_open_slice_rows=%d", report.Totals.T408OpenSliceRows))
+		findings = append(findings, fmt.Sprintf("t408_open_slice_headroom_tokens=%d", report.Totals.T408OpenSliceHeadroomTokens))
+	}
+	if report.Totals.TopT408OpenSlice != nil {
+		findings = append(findings, fmt.Sprintf("top_t408_open_slice=%s/%s open_headroom=%d candidate=%s",
+			report.Totals.TopT408OpenSlice.RequestShape,
+			report.Totals.TopT408OpenSlice.Kind,
+			report.Totals.TopT408OpenSlice.OpenHeadroomTokens,
+			report.Totals.TopT408OpenSlice.ContinuationCandidate))
+	}
 	if report.Totals.NetPositiveCandidates > 0 {
 		findings = append(findings, fmt.Sprintf("net_positive_candidates=%d", report.Totals.NetPositiveCandidates))
 	}
@@ -1599,6 +1763,22 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 		report.Totals.T420LocalSavedTokens,
 		report.Totals.T417ReconnectRerouteCandidates,
 		report.Totals.T420TransportFixCandidates)
+	fmt.Fprintf(w, "  t408_open_slice:   rows=%d requests=%d candidate_tokens=%d local_saved=%d headroom=%d\n",
+		report.Totals.T408OpenSliceRows,
+		report.Totals.T408OpenSliceRequests,
+		report.Totals.T408OpenSliceCandidateTokens,
+		report.Totals.T408OpenSliceLocalSavedTokens,
+		report.Totals.T408OpenSliceHeadroomTokens)
+	if report.Totals.TopT408OpenSlice != nil {
+		fmt.Fprintf(w, "  top_t408_slice:    shape=%s kind=%s open_headroom=%d top_session=%s top_session_open_headroom=%d verdict=%s candidate=%s\n",
+			report.Totals.TopT408OpenSlice.RequestShape,
+			report.Totals.TopT408OpenSlice.Kind,
+			report.Totals.TopT408OpenSlice.OpenHeadroomTokens,
+			report.Totals.TopT408OpenSlice.TopSessionID,
+			report.Totals.TopT408OpenSlice.TopSessionOpenHeadroomTokens,
+			report.Totals.TopT408OpenSlice.EconomicsVerdict,
+			report.Totals.TopT408OpenSlice.ContinuationCandidate)
+	}
 	fmt.Fprintf(w, "  net_positive:      candidates=%d full_history=%d captured_saved=%d retry_extra=%d net=%d\n",
 		report.Totals.NetPositiveCandidates,
 		report.Totals.NetPositiveFullHistory,
@@ -1632,6 +1812,20 @@ func writeWSST354ShapeProofText(w io.Writer, report wssT354ShapeProofReport) {
 			row.RetryResendCostTokens,
 			row.ProviderCachedTokens,
 			row.LocalSavedTokens,
+			row.EconomicsVerdict,
+			row.ContinuationCandidate)
+	}
+	for _, row := range report.T408OpenSlices {
+		fmt.Fprintf(w, "  t408_open_row:     shape=%s kind=%s requests=%d candidate_tokens=%d local_saved=%d headroom=%d top_session=%s top_session_headroom=%d blockers=%s verdict=%s candidate=%s\n",
+			row.RequestShape,
+			row.Kind,
+			row.OpenRequests,
+			row.OpenCandidateTokens,
+			row.OpenLocalSavedTokens,
+			row.OpenHeadroomTokens,
+			row.TopSessionID,
+			row.TopSessionOpenHeadroomTokens,
+			strings.Join(row.AggregateBlockers, "|"),
 			row.EconomicsVerdict,
 			row.ContinuationCandidate)
 	}
