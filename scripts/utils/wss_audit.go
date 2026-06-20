@@ -212,63 +212,81 @@ type wssShadowMirrorAccumulator struct {
 }
 
 type wssShadowMirrorCandidate struct {
-	RequestShape                   string                            `json:"request_shape"`
-	Kind                           string                            `json:"kind"`
-	Requests                       int                               `json:"requests"`
-	ReferenceableSegments          int                               `json:"referenceable_segments"`
-	Segments                       int                               `json:"segments"`
-	ReferenceableBytes             int                               `json:"referenceable_bytes"`
-	Bytes                          int                               `json:"bytes"`
-	ReferenceableBytePct           float64                           `json:"referenceable_byte_pct"`
-	CandidateLocalTokensEstimate   int                               `json:"candidate_local_tokens_estimate"`
-	IncrementalLocalTokensHeadroom int                               `json:"incremental_local_tokens_headroom"`
-	ProviderInputTokens            int                               `json:"provider_input_tokens"`
-	ProviderCachedTokens           int                               `json:"provider_cached_tokens"`
-	ProviderOutputTokens           int                               `json:"provider_output_tokens"`
-	LocalSavedTokens               int                               `json:"local_saved_tokens"`
-	PreviousResponseIDUsed         int                               `json:"previous_response_id_used"`
-	DetachedPreviousResponse       int                               `json:"detached_previous_response_requests"`
-	StatelessContinuation          int                               `json:"stateless_continuation_requests"`
-	FullHistoryStatelessFollowup   int                               `json:"full_history_stateless_followup_requests"`
-	StructuredMutationGuarded      int                               `json:"structured_mutation_guarded_requests"`
-	HistoryRecoveryGuarded         int                               `json:"history_recovery_guarded_requests"`
-	CacheBustDemoted               int                               `json:"cache_bust_demoted_requests"`
-	EffectiveMutationGuards        map[string]int                    `json:"effective_mutation_guards,omitempty"`
-	BySocketSeq                    map[string]int                    `json:"by_socket_seq,omitempty"`
-	ErrorRequests                  int                               `json:"error_requests"`
-	UpstreamErrorRequests          int                               `json:"upstream_error_requests"`
-	HTTP400ErrorRequests           int                               `json:"http_400_error_requests"`
-	ErrorFree                      bool                              `json:"error_free"`
-	CandidateLane                  string                            `json:"candidate_lane"`
-	NextProofGate                  string                            `json:"next_proof_gate"`
-	RecommendedAction              string                            `json:"recommended_action"`
-	TopSessions                    []wssShadowMirrorCandidateSession `json:"top_sessions,omitempty"`
-	sessionRows                    map[string]*wssShadowMirrorCandidateSession
+	RequestShape                    string                            `json:"request_shape"`
+	Kind                            string                            `json:"kind"`
+	Requests                        int                               `json:"requests"`
+	ReferenceableSegments           int                               `json:"referenceable_segments"`
+	Segments                        int                               `json:"segments"`
+	ReferenceableBytes              int                               `json:"referenceable_bytes"`
+	Bytes                           int                               `json:"bytes"`
+	ReferenceableBytePct            float64                           `json:"referenceable_byte_pct"`
+	CandidateLocalTokensEstimate    int                               `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom  int                               `json:"incremental_local_tokens_headroom"`
+	PromotionOpenRequests           int                               `json:"promotion_open_requests,omitempty"`
+	PromotionOpenReferenceableBytes int                               `json:"promotion_open_referenceable_bytes,omitempty"`
+	PromotionOpenCandidateTokens    int                               `json:"promotion_open_candidate_tokens_estimate,omitempty"`
+	PromotionOpenLocalSavedTokens   int                               `json:"promotion_open_local_saved_tokens,omitempty"`
+	PromotionOpenHeadroom           int                               `json:"promotion_open_headroom,omitempty"`
+	ProviderInputTokens             int                               `json:"provider_input_tokens"`
+	ProviderCachedTokens            int                               `json:"provider_cached_tokens"`
+	ProviderOutputTokens            int                               `json:"provider_output_tokens"`
+	LocalSavedTokens                int                               `json:"local_saved_tokens"`
+	PreviousResponseIDUsed          int                               `json:"previous_response_id_used"`
+	DetachedPreviousResponse        int                               `json:"detached_previous_response_requests"`
+	StatelessContinuation           int                               `json:"stateless_continuation_requests"`
+	FullHistoryStatelessFollowup    int                               `json:"full_history_stateless_followup_requests"`
+	StructuredMutationGuarded       int                               `json:"structured_mutation_guarded_requests"`
+	HistoryRecoveryGuarded          int                               `json:"history_recovery_guarded_requests"`
+	CacheBustDemoted                int                               `json:"cache_bust_demoted_requests"`
+	CacheBustDemotedScopes          map[string]int                    `json:"cache_bust_demoted_scopes,omitempty"`
+	CacheBustDemotedClassKeys       map[string]int                    `json:"cache_bust_demoted_class_keys,omitempty"`
+	EffectiveMutationGuards         map[string]int                    `json:"effective_mutation_guards,omitempty"`
+	BySocketSeq                     map[string]int                    `json:"by_socket_seq,omitempty"`
+	ErrorRequests                   int                               `json:"error_requests"`
+	UpstreamErrorRequests           int                               `json:"upstream_error_requests"`
+	HTTP400ErrorRequests            int                               `json:"http_400_error_requests"`
+	ErrorFree                       bool                              `json:"error_free"`
+	CandidateLane                   string                            `json:"candidate_lane"`
+	NextProofGate                   string                            `json:"next_proof_gate"`
+	PromotionStage                  string                            `json:"promotion_stage"`
+	PromotionBlockers               []string                          `json:"promotion_blockers,omitempty"`
+	RecommendedAction               string                            `json:"recommended_action"`
+	TopSessions                     []wssShadowMirrorCandidateSession `json:"top_sessions,omitempty"`
+	sessionRows                     map[string]*wssShadowMirrorCandidateSession
 }
 
 type wssShadowMirrorCandidateSession struct {
-	SessionID                      string         `json:"session_id"`
-	Requests                       int            `json:"requests"`
-	ReferenceableBytes             int            `json:"referenceable_bytes"`
-	CandidateLocalTokensEstimate   int            `json:"candidate_local_tokens_estimate"`
-	IncrementalLocalTokensHeadroom int            `json:"incremental_local_tokens_headroom"`
-	ProviderInputTokens            int            `json:"provider_input_tokens"`
-	ProviderCachedTokens           int            `json:"provider_cached_tokens"`
-	LocalSavedTokens               int            `json:"local_saved_tokens"`
-	PreviousResponseIDUsed         int            `json:"previous_response_id_used"`
-	DetachedPreviousResponse       int            `json:"detached_previous_response_requests"`
-	StatelessContinuation          int            `json:"stateless_continuation_requests"`
-	FullHistoryStatelessFollowup   int            `json:"full_history_stateless_followup_requests"`
-	StructuredMutationGuarded      int            `json:"structured_mutation_guarded_requests"`
-	HistoryRecoveryGuarded         int            `json:"history_recovery_guarded_requests"`
-	CacheBustDemoted               int            `json:"cache_bust_demoted_requests"`
-	EffectiveMutationGuards        map[string]int `json:"effective_mutation_guards,omitempty"`
-	BySocketSeq                    map[string]int `json:"by_socket_seq,omitempty"`
-	ErrorRequests                  int            `json:"error_requests"`
-	UpstreamErrorRequests          int            `json:"upstream_error_requests"`
-	HTTP400ErrorRequests           int            `json:"http_400_error_requests"`
-	ErrorFree                      bool           `json:"error_free"`
-	NextProofGate                  string         `json:"next_proof_gate"`
+	SessionID                       string         `json:"session_id"`
+	Requests                        int            `json:"requests"`
+	ReferenceableBytes              int            `json:"referenceable_bytes"`
+	CandidateLocalTokensEstimate    int            `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom  int            `json:"incremental_local_tokens_headroom"`
+	PromotionOpenRequests           int            `json:"promotion_open_requests,omitempty"`
+	PromotionOpenReferenceableBytes int            `json:"promotion_open_referenceable_bytes,omitempty"`
+	PromotionOpenCandidateTokens    int            `json:"promotion_open_candidate_tokens_estimate,omitempty"`
+	PromotionOpenLocalSavedTokens   int            `json:"promotion_open_local_saved_tokens,omitempty"`
+	PromotionOpenHeadroom           int            `json:"promotion_open_headroom,omitempty"`
+	ProviderInputTokens             int            `json:"provider_input_tokens"`
+	ProviderCachedTokens            int            `json:"provider_cached_tokens"`
+	LocalSavedTokens                int            `json:"local_saved_tokens"`
+	PreviousResponseIDUsed          int            `json:"previous_response_id_used"`
+	DetachedPreviousResponse        int            `json:"detached_previous_response_requests"`
+	StatelessContinuation           int            `json:"stateless_continuation_requests"`
+	FullHistoryStatelessFollowup    int            `json:"full_history_stateless_followup_requests"`
+	StructuredMutationGuarded       int            `json:"structured_mutation_guarded_requests"`
+	HistoryRecoveryGuarded          int            `json:"history_recovery_guarded_requests"`
+	CacheBustDemoted                int            `json:"cache_bust_demoted_requests"`
+	CacheBustDemotedScopes          map[string]int `json:"cache_bust_demoted_scopes,omitempty"`
+	CacheBustDemotedClassKeys       map[string]int `json:"cache_bust_demoted_class_keys,omitempty"`
+	EffectiveMutationGuards         map[string]int `json:"effective_mutation_guards,omitempty"`
+	BySocketSeq                     map[string]int `json:"by_socket_seq,omitempty"`
+	ErrorRequests                   int            `json:"error_requests"`
+	UpstreamErrorRequests           int            `json:"upstream_error_requests"`
+	HTTP400ErrorRequests            int            `json:"http_400_error_requests"`
+	ErrorFree                       bool           `json:"error_free"`
+	NextProofGate                   string         `json:"next_proof_gate"`
+	PromotionStage                  string         `json:"promotion_stage"`
+	PromotionBlockers               []string       `json:"promotion_blockers,omitempty"`
 }
 
 type wssShadowMirrorCandidateAccumulator struct {
@@ -668,6 +686,12 @@ func addWSSAuditCountWithMissing(counts *map[string]int, key string) {
 		key = "(missing)"
 	}
 	addWSSAuditCount(counts, key)
+}
+
+func addDelimitedWSSAuditCounts(counts *map[string]int, value string) {
+	for _, part := range strings.Split(value, ",") {
+		addWSSAuditCount(counts, part)
+	}
 }
 
 func (a *wssAuditShapeEconomicsAccumulator) add(summary dbg.RequestSummary, resolution wssAuditRequestShapeResolution) {
@@ -1131,7 +1155,8 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	row.Bytes += maxInt(0, bytes)
 	row.ReferenceableSegments += maxInt(0, refSegments)
 	row.Segments += maxInt(0, segments)
-	row.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
+	candidateTokens := tokens.Estimate(refBytes)
+	row.CandidateLocalTokensEstimate += candidateTokens
 	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
 	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
 	row.ProviderOutputTokens += maxInt(0, summary.ProviderOutputTokens)
@@ -1156,11 +1181,21 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	}
 	session.Requests++
 	session.ReferenceableBytes += refBytes
-	session.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
+	session.CandidateLocalTokensEstimate += candidateTokens
 	session.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
 	session.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
 	session.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
 	addWSSShadowMirrorCandidateSignals(summary, row, session)
+	if wssShadowMirrorRowPromotionOpen(summary, row.CandidateLane) {
+		row.PromotionOpenRequests++
+		row.PromotionOpenReferenceableBytes += refBytes
+		row.PromotionOpenCandidateTokens += candidateTokens
+		row.PromotionOpenLocalSavedTokens += maxInt(0, summary.Tokens.Saved)
+		session.PromotionOpenRequests++
+		session.PromotionOpenReferenceableBytes += refBytes
+		session.PromotionOpenCandidateTokens += candidateTokens
+		session.PromotionOpenLocalSavedTokens += maxInt(0, summary.Tokens.Saved)
+	}
 	if len(summary.Errors) > 0 {
 		session.ErrorRequests++
 	}
@@ -1203,11 +1238,38 @@ func addWSSShadowMirrorCandidateSignals(summary dbg.RequestSummary, row *wssShad
 	if strings.TrimSpace(summary.DebugFacts["wss.cache_bust_demoted_mechanisms"]) != "" {
 		row.CacheBustDemoted++
 		session.CacheBustDemoted++
+		addWSSAuditCountWithMissing(&row.CacheBustDemotedScopes, summary.DebugFacts["wss.cache_bust_demoted_scope"])
+		addWSSAuditCountWithMissing(&session.CacheBustDemotedScopes, summary.DebugFacts["wss.cache_bust_demoted_scope"])
+		addDelimitedWSSAuditCounts(&row.CacheBustDemotedClassKeys, summary.DebugFacts["wss.cache_bust_demoted_class_keys"])
+		addDelimitedWSSAuditCounts(&session.CacheBustDemotedClassKeys, summary.DebugFacts["wss.cache_bust_demoted_class_keys"])
 	}
 	addWSSAuditCount(&row.EffectiveMutationGuards, summary.DebugFacts["wss.effective_mutation_guard"])
 	addWSSAuditCount(&session.EffectiveMutationGuards, summary.DebugFacts["wss.effective_mutation_guard"])
 	addWSSAuditCountWithMissing(&row.BySocketSeq, summary.DebugFacts["wss.socket_seq"])
 	addWSSAuditCountWithMissing(&session.BySocketSeq, summary.DebugFacts["wss.socket_seq"])
+}
+
+func wssShadowMirrorRowPromotionOpen(summary dbg.RequestSummary, lane string) bool {
+	if lane != "t417_class_b_server_state" {
+		return false
+	}
+	if strings.TrimSpace(summary.SessionID) == "" ||
+		len(summary.Errors) > 0 ||
+		wssAuditHasUpstreamError(summary) ||
+		wssAuditHasHTTP400Error(summary) {
+		return false
+	}
+	if summary.PreviousResponseIDUsed || parseBoolFact(summary.DebugFacts["wss.previous_response_id"]) {
+		return false
+	}
+	if strings.TrimSpace(summary.DebugFacts["wss.structured_mutation_guard"]) != "" ||
+		parseBoolFact(summary.DebugFacts["wss.history_mutation_recovery_guard"]) ||
+		strings.TrimSpace(summary.DebugFacts["wss.cache_bust_demoted_mechanisms"]) != "" {
+		return false
+	}
+	return parseBoolFact(summary.DebugFacts["wss.full_history_detached_previous_response"]) ||
+		parseBoolFact(summary.DebugFacts["wss.stateless_history_continuation"]) ||
+		parseBoolFact(summary.DebugFacts["wss.full_history_stateless_followup"])
 }
 
 func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandidate {
@@ -1219,8 +1281,14 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate := *row
 		candidate.ReferenceableBytePct = pct(candidate.ReferenceableBytes, candidate.Bytes)
 		candidate.IncrementalLocalTokensHeadroom = maxInt(0, candidate.CandidateLocalTokensEstimate-candidate.LocalSavedTokens)
+		candidate.PromotionOpenHeadroom = maxInt(0, candidate.PromotionOpenCandidateTokens-candidate.PromotionOpenLocalSavedTokens)
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
+		candidate.PromotionBlockers = wssShadowMirrorCandidatePromotionBlockers(candidate)
+		candidate.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, candidate.PromotionBlockers)
+		if candidate.CandidateLane == "t417_class_b_server_state" && candidate.PromotionOpenHeadroom > 0 && len(candidate.PromotionBlockers) > 0 {
+			candidate.PromotionStage = "t417_partial_product_candidate"
+		}
 		candidate.TopSessions = finalizeWSSShadowMirrorCandidateSessions(candidate)
 		candidate.sessionRows = nil
 		out = append(out, candidate)
@@ -1251,8 +1319,14 @@ func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate
 	for _, row := range candidate.sessionRows {
 		session := *row
 		session.IncrementalLocalTokensHeadroom = maxInt(0, session.CandidateLocalTokensEstimate-session.LocalSavedTokens)
+		session.PromotionOpenHeadroom = maxInt(0, session.PromotionOpenCandidateTokens-session.PromotionOpenLocalSavedTokens)
 		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
 		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
+		session.PromotionBlockers = wssShadowMirrorCandidateSessionPromotionBlockers(candidate, session)
+		session.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, session.PromotionBlockers)
+		if candidate.CandidateLane == "t417_class_b_server_state" && session.PromotionOpenHeadroom > 0 && len(session.PromotionBlockers) > 0 {
+			session.PromotionStage = "t417_partial_product_candidate"
+		}
 		out = append(out, session)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -1291,6 +1365,145 @@ func wssShadowMirrorCandidateProofGate(candidate wssShadowMirrorCandidate) strin
 	default:
 		return "shape_resolution_gate"
 	}
+}
+
+func wssShadowMirrorCandidatePromotionBlockers(candidate wssShadowMirrorCandidate) []string {
+	var blockers []string
+	if candidate.IncrementalLocalTokensHeadroom <= 0 {
+		blockers = append(blockers, "no_incremental_local_headroom")
+	}
+	if !candidate.ErrorFree {
+		blockers = append(blockers, "erroring_shape")
+	}
+	if candidate.RequestShape == "unknown" || strings.TrimSpace(candidate.RequestShape) == "" {
+		blockers = append(blockers, "unknown_request_shape")
+	}
+	switch candidate.CandidateLane {
+	case "t417_class_b_server_state":
+		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
+			candidate.PreviousResponseIDUsed,
+			candidate.StructuredMutationGuarded,
+			candidate.HistoryRecoveryGuarded,
+			candidate.CacheBustDemoted,
+			candidate.CacheBustDemotedScopes,
+			candidate.CacheBustDemotedClassKeys,
+			candidate.DetachedPreviousResponse,
+			candidate.StatelessContinuation,
+			candidate.FullHistoryStatelessFollowup,
+		)...)
+	case "t405_t354_stateful_delta":
+		blockers = append(blockers, "requires_downstream_state_zero400_gate")
+	case "t406_t418_parser_frontier":
+		blockers = append(blockers, "requires_command_output_first_parser_gate")
+	default:
+		blockers = append(blockers, "requires_shape_resolution")
+	}
+	return dedupeStrings(blockers)
+}
+
+func wssShadowMirrorCandidateSessionPromotionBlockers(candidate wssShadowMirrorCandidate, session wssShadowMirrorCandidateSession) []string {
+	var blockers []string
+	if session.IncrementalLocalTokensHeadroom <= 0 {
+		blockers = append(blockers, "no_incremental_local_headroom")
+	}
+	if !session.ErrorFree {
+		blockers = append(blockers, "erroring_lineage")
+	}
+	if strings.TrimSpace(session.SessionID) == "" || session.SessionID == "(missing)" {
+		blockers = append(blockers, "missing_session_id")
+	}
+	switch candidate.CandidateLane {
+	case "t417_class_b_server_state":
+		blockers = append(blockers, wssShadowMirrorClassBPromotionBlockers(
+			session.PreviousResponseIDUsed,
+			session.StructuredMutationGuarded,
+			session.HistoryRecoveryGuarded,
+			session.CacheBustDemoted,
+			session.CacheBustDemotedScopes,
+			session.CacheBustDemotedClassKeys,
+			session.DetachedPreviousResponse,
+			session.StatelessContinuation,
+			session.FullHistoryStatelessFollowup,
+		)...)
+	case "t405_t354_stateful_delta":
+		blockers = append(blockers, "requires_downstream_state_zero400_gate")
+	case "t406_t418_parser_frontier":
+		blockers = append(blockers, "requires_command_output_first_parser_gate")
+	default:
+		blockers = append(blockers, "requires_shape_resolution")
+	}
+	return dedupeStrings(blockers)
+}
+
+func wssShadowMirrorClassBPromotionBlockers(previousResponseIDUsed, structuredMutationGuarded, historyRecoveryGuarded, cacheBustDemoted int, cacheBustDemotedScopes, cacheBustDemotedClassKeys map[string]int, detachedPreviousResponse, statelessContinuation, fullHistoryStatelessFollowup int) []string {
+	var blockers []string
+	if previousResponseIDUsed > 0 {
+		blockers = append(blockers, "mixed_previous_response_state_requires_exact_lineage_split")
+	}
+	if structuredMutationGuarded > 0 {
+		blockers = append(blockers, "structured_mutation_guard_requires_exact_release_latch")
+	}
+	if historyRecoveryGuarded > 0 {
+		blockers = append(blockers, "history_recovery_guard_requires_lineage_reset")
+	}
+	if cacheBustDemoted > 0 {
+		switch {
+		case len(cacheBustDemotedClassKeys) > 0:
+			blockers = append(blockers, "cache_bust_demotion_present_exact_class_scope")
+		case len(cacheBustDemotedScopes) > 0:
+			blockers = append(blockers, "cache_bust_demotion_present_prompt_scope")
+		default:
+			blockers = append(blockers, "cache_bust_demotion_scope_unknown")
+		}
+	}
+	if detachedPreviousResponse+statelessContinuation+fullHistoryStatelessFollowup == 0 {
+		blockers = append(blockers, "missing_detached_or_stateless_followup_signal")
+	}
+	return blockers
+}
+
+func wssShadowMirrorPromotionStage(lane string, blockers []string) string {
+	for _, blocker := range blockers {
+		if blocker == "erroring_shape" || blocker == "erroring_lineage" {
+			return "not_safe_erroring"
+		}
+		if blocker == "no_incremental_local_headroom" {
+			return "not_economic"
+		}
+	}
+	if len(blockers) == 0 {
+		return "product_candidate_no_observed_blockers"
+	}
+	switch lane {
+	case "t417_class_b_server_state":
+		return "t417_lineage_candidate_needs_engineering"
+	case "t405_t354_stateful_delta":
+		return "t405_t354_candidate_needs_downstream_state_gate"
+	case "t406_t418_parser_frontier":
+		return "t418_parser_candidate_needs_release_gate"
+	default:
+		return "needs_shape_resolution"
+	}
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func parseWSSShadowMirrorKindRows(encoded string) []wssShadowMirrorKindSummary {
@@ -1780,7 +1993,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s top_sessions=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d open=%dreq/%dtok/%dheadroom segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d cache_scopes=%s cache_classes=%s eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s stage=%s blockers=%s top_sessions=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
@@ -1788,6 +2001,9 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.ReferenceableBytePct,
 				row.CandidateLocalTokensEstimate,
 				row.IncrementalLocalTokensHeadroom,
+				row.PromotionOpenRequests,
+				row.PromotionOpenCandidateTokens,
+				row.PromotionOpenHeadroom,
 				row.ReferenceableSegments,
 				row.Segments,
 				row.Requests,
@@ -1802,12 +2018,16 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.StructuredMutationGuarded,
 				row.HistoryRecoveryGuarded,
 				row.CacheBustDemoted,
+				formatWSSAuditCounts(row.CacheBustDemotedScopes),
+				formatWSSAuditCounts(row.CacheBustDemotedClassKeys),
 				formatWSSAuditCounts(row.EffectiveMutationGuards),
 				formatWSSAuditCounts(row.BySocketSeq),
 				row.ErrorRequests,
 				row.ErrorFree,
 				row.CandidateLane,
 				row.NextProofGate,
+				row.PromotionStage,
+				formatStringList(row.PromotionBlockers),
 				formatWSSShadowMirrorCandidateSessions(row.TopSessions),
 				row.RecommendedAction)
 		}
@@ -1841,10 +2061,13 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 	}
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
-		parts = append(parts, fmt.Sprintf("%s:%d/%d/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/sockets=%s/ok=%v/%s",
+		parts = append(parts, fmt.Sprintf("%s:%d/%d/open=%dreq/%dtok/%dheadroom/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/cache_classes=%s/sockets=%s/ok=%v/%s/stage=%s/blockers=%s",
 			truncateMiddle(row.SessionID, 24),
 			row.IncrementalLocalTokensHeadroom,
 			row.ReferenceableBytes,
+			row.PromotionOpenRequests,
+			row.PromotionOpenCandidateTokens,
+			row.PromotionOpenHeadroom,
 			row.ProviderInputTokens,
 			row.ProviderCachedTokens,
 			row.PreviousResponseIDUsed,
@@ -1853,11 +2076,21 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 			row.FullHistoryStatelessFollowup,
 			row.StructuredMutationGuarded+row.HistoryRecoveryGuarded,
 			row.CacheBustDemoted,
+			formatWSSAuditCounts(row.CacheBustDemotedClassKeys),
 			formatWSSAuditCounts(row.BySocketSeq),
 			row.ErrorFree,
-			row.NextProofGate))
+			row.NextProofGate,
+			row.PromotionStage,
+			formatStringList(row.PromotionBlockers)))
 	}
 	return strings.Join(parts, ",")
+}
+
+func formatStringList(values []string) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	return strings.Join(values, "|")
 }
 
 func formatWSSAuditCounts(counts map[string]int) string {
