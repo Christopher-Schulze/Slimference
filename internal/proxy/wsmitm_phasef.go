@@ -864,20 +864,25 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		}
 		searchCapProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
+		searchCapStatefulFollowupProofed := a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
+			a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled
 		searchCapStatefulDeltaCandidate := requestShape == "delta" &&
 			meta.PreviousResponseID != "" &&
 			searchCapProofed &&
-			(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
-				a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled)
+			searchCapStatefulFollowupProofed
 		searchCapStatefulDeltaBudgetOK := !searchCapStatefulDeltaCandidate ||
 			a.wssSearchCapStatefulDeltaBudgetAvailable(sessionID)
 		searchCapStatefulDeltaAllowed := requestShape == "delta" &&
 			meta.PreviousResponseID != "" &&
 			searchCapProofed &&
-			(a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
-				a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled) &&
+			searchCapStatefulFollowupProofed &&
 			searchCapStatefulDeltaBudgetOK
-		searchMutationAllowed := (requestShape == "full_history" ||
+		searchMutationFullHistoryAllowed := requestShape == "full_history"
+		if requestShape == "full_history" && reconnectFullHistoryToolOutputMutationBlocked &&
+			!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
+			searchMutationFullHistoryAllowed = searchCapProofed && searchCapStatefulFollowupProofed
+		}
+		searchMutationAllowed := (searchMutationFullHistoryAllowed ||
 			a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled ||
 			searchCapStatefulDeltaAllowed) &&
 			((structuredMutationAllowed && !statefulDeltaMutationBlocked) || searchCapProofed) &&

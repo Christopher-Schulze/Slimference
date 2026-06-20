@@ -7393,6 +7393,118 @@ func TestWSPhaseFReconnectFullHistorySearchOutputKeepsDownstreamProofGate(t *tes
 	}
 }
 
+func TestWSPhaseFReconnectFullHistorySearchCapNeedsStatefulFollowupLatch(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-reconnect-cap-only-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-cap-only-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-reconnect-full-history-cap-only", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-cap-only", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("reconnect full-history search-cap-only handle: %v", err)
+	}
+	raw := string(env.Raw)
+	if replace ||
+		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("search-cap without stateful follow-up proof must stay guarded: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "wss_full_history_downstream_delta_proof_gate" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("search-cap-only reconnect full-history must not save without follow-up latch: %+v", summary)
+	}
+}
+
+func TestWSPhaseFReconnectFullHistorySearchCapStatefulFollowupDetachesPreviousResponse(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled = true
+	cfg.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-reconnect-proof-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-proof-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-reconnect-full-history-proof", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-proof", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("reconnect full-history proofed search-cap handle: %v", err)
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("proofed reconnect full-history search-cap body missing")
+	}
+	raw := string(body)
+	if !replace ||
+		!strings.Contains(raw, "[rg]") ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("proofed reconnect full-history search-cap should compact with archive recovery: replace=%v raw=%s", replace, raw)
+	}
+	if bytes.Contains(body, []byte("previous_response_id")) {
+		t.Fatalf("proofed reconnect full-history search-cap must detach previous_response_id: %s", body)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.delta_shape"] != "false" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("proofed reconnect full-history search-cap should save as detached stateless mutation: %+v", summary)
+	}
+}
+
 func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
