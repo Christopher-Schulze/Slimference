@@ -19,6 +19,7 @@ type wssLocalGapFlags struct {
 	path          string
 	outputFormat  string
 	since         time.Time
+	sinceFile     string
 	minLocalRatio float64
 	minLocalSaved int
 	help          bool
@@ -27,6 +28,7 @@ type wssLocalGapFlags struct {
 type wssLocalGapReport struct {
 	Path                     string                       `json:"path"`
 	Since                    *time.Time                   `json:"since,omitempty"`
+	SinceFile                string                       `json:"since_file,omitempty"`
 	Requests                 int                          `json:"requests"`
 	WSSRequests              int                          `json:"wss_requests"`
 	PhaseFRequests           int                          `json:"phasef_requests"`
@@ -268,6 +270,7 @@ Usage:
 
 Flags:
   --since=<rfc3339>                 Ignore records before this timestamp
+  --since-file=<path>               Read RFC3339 --since value from a marker file
   --min-local-ratio=<ratio>          Fail if S_local is below ratio, for example 0.48
   --min-local-saved=<tokens>         Fail if local saved tokens are below this floor
   --json                            Output JSON
@@ -354,6 +357,25 @@ func parseWSSLocalGapFlags(args []string) (wssLocalGapFlags, error) {
 				return flags, fmt.Errorf("--since must be RFC3339: %w", err)
 			}
 			flags.since = since
+		case arg == "--since-file":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			since, err := parseWSSSinceFile(value)
+			if err != nil {
+				return flags, err
+			}
+			flags.since = since
+			flags.sinceFile = value
+		case strings.HasPrefix(arg, "--since-file="):
+			value := strings.TrimPrefix(arg, "--since-file=")
+			since, err := parseWSSSinceFile(value)
+			if err != nil {
+				return flags, err
+			}
+			flags.since = since
+			flags.sinceFile = value
 		case arg == "--min-local-ratio":
 			value, err := aggregateFlagValue(args, &i, arg)
 			if err != nil {
@@ -439,6 +461,7 @@ func loadWSSLocalGapReport(flags wssLocalGapFlags) (wssLocalGapReport, error) {
 		since := flags.since
 		acc.report.Since = &since
 	}
+	acc.report.SinceFile = flags.sinceFile
 	for _, summary := range summaries {
 		if !flags.since.IsZero() {
 			if summary.Timestamp.IsZero() || summary.Timestamp.Before(flags.since) {
@@ -2051,6 +2074,9 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 	fmt.Fprintf(w, "=== WSS Local Gap: %s ===\n", filepath.Base(report.Path))
 	if report.Since != nil {
 		fmt.Fprintf(w, "Since:                    %s\n", report.Since.Format(time.RFC3339))
+	}
+	if report.SinceFile != "" {
+		fmt.Fprintf(w, "Since file:               %s\n", report.SinceFile)
 	}
 	fmt.Fprintf(w, "Requests analyzed:         %d\n", report.Requests)
 	fmt.Fprintf(w, "WSS / Phase-F requests:    %d / %d\n", report.WSSRequests, report.PhaseFRequests)

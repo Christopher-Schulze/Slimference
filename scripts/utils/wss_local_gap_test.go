@@ -451,6 +451,33 @@ func TestWSSLocalGapSinceAndSavedGate(t *testing.T) {
 		!strings.Contains(report.GateFailures[0], "local_saved_tokens") {
 		t.Fatalf("since/saved gate failed: %+v", report)
 	}
+
+	sincePath := filepath.Join(dir, "since.txt")
+	writeFileForLocalArtifactTest(t, sincePath, "2026-06-13T09:30:00Z\n")
+	var stdout, stderr bytes.Buffer
+	if code := runWSSLocalGap([]string{path, "--since-file", sincePath, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSLocalGap --since-file code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var cliReport wssLocalGapReport
+	if err := json.Unmarshal(stdout.Bytes(), &cliReport); err != nil {
+		t.Fatalf("parse --since-file json: %v\n%s", err, stdout.String())
+	}
+	if cliReport.PhaseFRequests != 1 ||
+		cliReport.OriginalTokens != 1000 ||
+		cliReport.LocalSavedTokens != 100 ||
+		cliReport.SinceFile != sincePath ||
+		cliReport.Since == nil ||
+		!cliReport.Since.Equal(time.Date(2026, 6, 13, 9, 30, 0, 0, time.UTC)) {
+		t.Fatalf("--since-file report mismatch: %+v", cliReport)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSLocalGap([]string{path, "--since-file=" + sincePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSLocalGap text --since-file code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Since file:") || !strings.Contains(stdout.String(), sincePath) {
+		t.Fatalf("text output missing since file:\n%s", stdout.String())
+	}
 }
 
 func TestWSSLocalGapRequestGuardsExposeNoEvidenceAndMissingShapeFacts(t *testing.T) {
