@@ -6611,6 +6611,69 @@ func TestWSPhaseFDefaultUnknownPreviousResponseToolOutputFullPasses(t *testing.T
 	}
 }
 
+func TestWSPhaseFRawFallbackFactsSurvivePartialInputParseFailure(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var diffStat strings.Builder
+	diffStat.WriteString("Chunk ID: raw-fallback\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&diffStat, " internal/proxy/generated/file_%02d.go | %d +++++-----\n", i, i+1)
+	}
+	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
+
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-raw-fallback",
+		"prompt_cache_key":     "raw-fallback-session",
+		"tools": []map[string]any{{
+			"type":        "function",
+			"name":        "shell",
+			"description": "run shell command",
+			"parameters":  map[string]any{"type": "object"},
+		}},
+		"input": []any{
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_raw_fallback",
+				"output":  diffStat.String(),
+			},
+			"future-codex-item-shape",
+		},
+		"stream": true,
+	})
+	original := append([]byte(nil), env.Raw...)
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("raw fallback handle: %v", err)
+	}
+	if replace || !bytes.Equal(env.Raw, original) {
+		t.Fatalf("raw fallback parse failure must remain byte-equal, replace=%v raw=%s", replace, env.Raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.Tokens.Saved != 0 || summary.MessagesCompressed != 0 {
+		t.Fatalf("raw fallback facts must not imply mutation savings: %+v", summary)
+	}
+	if summary.DebugFacts["wss.request_shape"] != "delta" ||
+		summary.DebugFacts["wss.request_shape_source"] != "raw_input_previous_response_delta_shape" ||
+		summary.DebugFacts["wss.raw_input_function_call_outputs"] != "1" ||
+		summary.DebugFacts["wss.raw_input_other_items"] != "1" ||
+		summary.DebugFacts["wss.raw_partial_messages"] != "1" ||
+		summary.DebugFacts["wss.tool_results"] != "1" ||
+		summary.DebugFacts["wss.tool_result_output_bytes"] == "0" ||
+		summary.DebugFacts["wss.tool_command_classes"] != "git_diff_stat=1" ||
+		summary.DebugFacts["wss.tool_definition_bytes"] == "0" ||
+		summary.DebugFacts["wss.prompt_cache_prefix"] != "true" {
+		t.Fatalf("raw fallback should expose content-free ownership facts: %+v", summary.DebugFacts)
+	}
+}
+
 func TestWSPhaseFPreviousResponseMixedUnknownToolOutputObservesInferableDelta(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

@@ -609,6 +609,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
 		}
 	} else {
+		var raw map[string]json.RawMessage
+		if json.Unmarshal(out, &raw) == nil {
+			meta = wssRequestMetaFromRaw(raw)
+			a.applyBridgeClientFamilyFallback(&meta)
+			meta.SocketSeq = a.socketSeq.Load()
+		}
 		requestContainsToolOutput = wssBodyContainsFunctionCallOutput(out)
 	}
 	if err == nil && len(messages) > 0 {
@@ -3653,6 +3659,18 @@ func wssRequestShape(meta wssRequestMeta, messages []types.Message) string {
 	if wssRequestHasHistoryShape(messages) {
 		return "full_history"
 	}
+	if len(messages) == 0 && meta.InputShape.Items > 0 {
+		if meta.InputShape.AssistantMessages > 0 || meta.InputShape.FunctionCalls > 0 {
+			return "full_history"
+		}
+		if meta.PreviousResponseID == "" {
+			return "root"
+		}
+		if meta.InputShape.MessageItems > 0 || meta.InputShape.FunctionCallOutputs > 0 || meta.InputShape.ReasoningItems > 0 || meta.InputShape.OtherItems > 0 {
+			return "delta"
+		}
+		return "full_history"
+	}
 	if meta.PreviousResponseID == "" {
 		return "root"
 	}
@@ -3687,6 +3705,18 @@ func wssMessagesContainCodexCustomToolCall(messages []types.Message) bool {
 func wssRequestShapeSource(meta wssRequestMeta, messages []types.Message) string {
 	if wssRequestHasHistoryShape(messages) {
 		return "message_history"
+	}
+	if len(messages) == 0 && meta.InputShape.Items > 0 {
+		if meta.InputShape.AssistantMessages > 0 || meta.InputShape.FunctionCalls > 0 {
+			return "raw_input_history"
+		}
+		if meta.PreviousResponseID == "" {
+			return "raw_input_root_without_previous_response"
+		}
+		if meta.InputShape.MessageItems > 0 || meta.InputShape.FunctionCallOutputs > 0 || meta.InputShape.ReasoningItems > 0 || meta.InputShape.OtherItems > 0 {
+			return "raw_input_previous_response_delta_shape"
+		}
+		return "raw_input_previous_response_full_history_fallback"
 	}
 	if meta.PreviousResponseID == "" {
 		return "root_without_previous_response"
@@ -3915,12 +3945,18 @@ func (a *wsPhaseFAdapter) applyWSSHistoryReducers(body []byte, messages []types.
 }
 
 func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, meta wssRequestMeta, outputReduceStats outputreduce.Stats) map[string]string {
-	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(messages)
-	_, toolResultBytes := wssToolResultPayloadStats(messages)
-	_, toolResultOutputBytes := wssToolResultOutputStats(messages)
-	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(messages)
+	factMessages := messages
+	rawPartialMessages := 0
+	if len(factMessages) == 0 {
+		factMessages = wssRawPartialMessages(body)
+		rawPartialMessages = len(factMessages)
+	}
+	toolResults, sourceToolResults, toolUses := wssMessageShapeCounts(factMessages)
+	_, toolResultBytes := wssToolResultPayloadStats(factMessages)
+	_, toolResultOutputBytes := wssToolResultOutputStats(factMessages)
+	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(factMessages)
 	prefixMetrics := wssRootPrefixMetrics(body)
-	deltaShape := wssRequestIsDeltaShape(messages)
+	deltaShape := wssRequestIsDeltaShape(factMessages)
 	facts := map[string]string{
 		"wss.original_bytes":                                 strconv.Itoa(len(body)),
 		"wss.final_bytes":                                    strconv.Itoa(len(mutated)),
@@ -3964,6 +4000,7 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.raw_input_reasoning_items":                      strconv.Itoa(meta.InputShape.ReasoningItems),
 		"wss.raw_input_other_items":                          strconv.Itoa(meta.InputShape.OtherItems),
 		"wss.messages":                                       strconv.Itoa(len(messages)),
+		"wss.raw_partial_messages":                           strconv.Itoa(rawPartialMessages),
 		"wss.tool_results":                                   strconv.Itoa(toolResults),
 		"wss.tool_result_bytes":                              strconv.Itoa(toolResultBytes),
 		"wss.tool_result_output_bytes":                       strconv.Itoa(toolResultOutputBytes),
@@ -3999,6 +4036,8 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	classMessages := messages
 	if len(meta.OriginalMessages) > 0 {
 		classMessages = meta.OriginalMessages
+	} else if len(classMessages) == 0 {
+		classMessages = factMessages
 	}
 	if classes, classed, unclassed := wssToolCommandClassFacts(classMessages, meta.ToolUseIndex); classed+unclassed > 0 {
 		if classes != "" {
@@ -4010,6 +4049,30 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	attachWSSReadDependencyDebugFacts(facts, classMessages, meta)
 	attachWSSPatchContextDebugFacts(facts, classMessages, meta)
 	return facts
+}
+
+func wssRawPartialMessages(body []byte) []types.Message {
+	var root map[string]json.RawMessage
+	if len(body) == 0 || json.Unmarshal(body, &root) != nil {
+		return nil
+	}
+	inputRaw := bytes.TrimSpace(root["input"])
+	if len(inputRaw) == 0 || inputRaw[0] != '[' {
+		return nil
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(inputRaw, &items) != nil {
+		return nil
+	}
+	messages := make([]types.Message, 0, len(items))
+	for i, itemRaw := range items {
+		msg, ok, err := codexInputItemToMessage(i, itemRaw)
+		if err != nil || !ok {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+	return messages
 }
 
 func wssCompactCountMap(counts map[string]int) string {
@@ -5086,12 +5149,17 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 	if len(raw) == 0 || len(raw["input"]) == 0 {
 		return wssRawInputShapeFacts{}
 	}
-	var items []map[string]json.RawMessage
+	var items []json.RawMessage
 	if err := json.Unmarshal(raw["input"], &items); err != nil {
 		return wssRawInputShapeFacts{}
 	}
 	facts := wssRawInputShapeFacts{Items: len(items)}
-	for _, item := range items {
+	for _, itemRaw := range items {
+		var item map[string]json.RawMessage
+		if json.Unmarshal(itemRaw, &item) != nil {
+			facts.OtherItems++
+			continue
+		}
 		itemType := strings.TrimSpace(rawJSONString(item["type"]))
 		role := strings.TrimSpace(rawJSONString(item["role"]))
 		switch itemType {
