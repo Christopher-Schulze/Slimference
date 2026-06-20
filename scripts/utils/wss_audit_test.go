@@ -854,6 +854,32 @@ func TestWSSAuditSinceFiltersOldRecords(t *testing.T) {
 	if report.Requests != 1 || report.UniqueSessions != 1 || report.Sessions[0].SessionID != "codex-wss:new" || report.TokensSaved != 0 {
 		t.Fatalf("since filter failed: %+v", report)
 	}
+
+	sincePath := filepath.Join(dir, "since.txt")
+	writeFileForLocalArtifactTest(t, sincePath, "2026-05-30T11:30:00Z\n")
+	var stdout, stderr bytes.Buffer
+	if code := runWSSAudit([]string{path, "--since-file", sincePath, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSAudit --since-file code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var cliReport wssAuditReport
+	if err := json.Unmarshal(stdout.Bytes(), &cliReport); err != nil {
+		t.Fatalf("parse --since-file JSON: %v\n%s", err, stdout.String())
+	}
+	if cliReport.Requests != 1 || cliReport.UniqueSessions != 1 ||
+		cliReport.Sessions[0].SessionID != "codex-wss:new" ||
+		cliReport.SinceFile != sincePath ||
+		cliReport.Since == nil ||
+		!cliReport.Since.Equal(time.Date(2026, 5, 30, 11, 30, 0, 0, time.UTC)) {
+		t.Fatalf("--since-file filter failed: %+v", cliReport)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSAudit([]string{path, "--since-file=" + sincePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSAudit text --since-file code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Since file:") || !strings.Contains(stdout.String(), sincePath) {
+		t.Fatalf("text output missing since file:\n%s", stdout.String())
+	}
 }
 
 func TestRunWSSAuditJSONAndText(t *testing.T) {

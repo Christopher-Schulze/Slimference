@@ -33,6 +33,7 @@ type wssAuditReport struct {
 	PositiveSavings        int                              `json:"positive_savings_requests"`
 	TokensSaved            int                              `json:"tokens_saved"`
 	Since                  *time.Time                       `json:"since,omitempty"`
+	SinceFile              string                           `json:"since_file,omitempty"`
 	GatePassed             bool                             `json:"gate_passed"`
 	GateFailures           []string                         `json:"gate_failures,omitempty"`
 	RouteModes             map[string]int                   `json:"route_modes,omitempty"`
@@ -314,6 +315,7 @@ type wssAuditFlags struct {
 	requireFootprintEvidence bool
 	adminStateFile           string
 	since                    time.Time
+	sinceFile                string
 	help                     bool
 }
 
@@ -331,6 +333,7 @@ Flags:
   --require-footprint-evidence    Fail if footprint-score or remaining-turn evidence is missing
   --admin-state-file=<path>        Join current /admin/state policy counters into the report
   --since=<rfc3339>               Ignore records before this timestamp
+  --since-file=<path>              Read RFC3339 --since value from a marker file
   --json                          Output JSON
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
@@ -421,6 +424,25 @@ func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
 				return flags, fmt.Errorf("--since must be RFC3339: %w", err)
 			}
 			flags.since = t
+		case a == "--since-file":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			t, err := parseWSSSinceFile(v)
+			if err != nil {
+				return flags, err
+			}
+			flags.since = t
+			flags.sinceFile = v
+		case strings.HasPrefix(a, "--since-file="):
+			v := strings.TrimPrefix(a, "--since-file=")
+			t, err := parseWSSSinceFile(v)
+			if err != nil {
+				return flags, err
+			}
+			flags.since = t
+			flags.sinceFile = v
 		case a == "--expect-distinct-sessions":
 			v, err := aggregateFlagValue(args, &i, a)
 			if err != nil {
@@ -499,6 +521,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		since := flags.since
 		report.Since = &since
 	}
+	report.SinceFile = flags.sinceFile
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	historyReducers := make(map[string]*wssHistoryReducerSummary)
 	footprintEconomics := wssFootprintEconomicsAccumulator{rows: make(map[string]*wssFootprintEconomicsSummary)}
@@ -1916,6 +1939,9 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	fmt.Fprintf(w, "=== WSS Audit: %s ===\n", filepath.Base(report.Path))
 	if report.Since != nil {
 		fmt.Fprintf(w, "Since:                   %s\n", report.Since.Format(time.RFC3339))
+	}
+	if report.SinceFile != "" {
+		fmt.Fprintf(w, "Since file:              %s\n", report.SinceFile)
 	}
 	fmt.Fprintf(w, "Requests analyzed:        %d\n", report.Requests)
 	fmt.Fprintf(w, "WSS requests:             %d\n", report.WSSRequests)
