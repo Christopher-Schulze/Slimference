@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -13,6 +14,7 @@ type wssProofPackFlags struct {
 	outputFormat            string
 	since                   time.Time
 	sinceFile               string
+	socketsJSON             string
 	minLocalRatio           float64
 	allowStale              bool
 	requireHeadroom         bool
@@ -28,9 +30,11 @@ type wssProofPackReport struct {
 	GatePassed          bool                         `json:"gate_passed"`
 	GateFailures        []string                     `json:"gate_failures,omitempty"`
 	SocketCommand       string                       `json:"socket_command"`
+	SocketsJSON         string                       `json:"sockets_json,omitempty"`
 	ClassCommand        string                       `json:"class_distribution_command"`
 	LocalGapCommand     string                       `json:"local_gap_command"`
 	ReferenceCommand    string                       `json:"reference_inventory_command"`
+	SocketSummary       *wssProofPackSocketSummary   `json:"socket_summary,omitempty"`
 	ClassDistribution   wssProofPackClassSummary     `json:"class_distribution"`
 	LocalGap            wssProofPackLocalGapSummary  `json:"local_gap"`
 	ReferenceInventory  wssProofPackReferenceSummary `json:"reference_inventory"`
@@ -94,6 +98,26 @@ type wssProofPackActionable struct {
 	Basis    string `json:"basis"`
 }
 
+type wssProofPackSocketSummary struct {
+	SocketCount                             int            `json:"socket_count"`
+	ActionableSockets                       int            `json:"actionable_sockets"`
+	ProviderInputTokens                     int            `json:"provider_input_tokens"`
+	ProviderCachedTokens                    int            `json:"provider_cached_tokens"`
+	LocalSavedTokens                        int            `json:"local_saved_tokens"`
+	FullHistoryRequests                     int            `json:"full_history_requests"`
+	FullHistoryProviderInputTokens          int            `json:"full_history_provider_input_tokens"`
+	ReconnectFullHistoryRequests            int            `json:"reconnect_full_history_requests"`
+	ReconnectFullHistoryProviderInputTokens int            `json:"reconnect_full_history_provider_input_tokens"`
+	T417ReconnectHandoffRows                int            `json:"t417_reconnect_handoff_rows"`
+	T420ReconnectHandoffRows                int            `json:"t420_reconnect_handoff_rows,omitempty"`
+	TopReconnectCause                       string         `json:"top_reconnect_cause,omitempty"`
+	TopReconnectCauseInputTokens            int            `json:"top_reconnect_cause_input_tokens,omitempty"`
+	TopReconnectCauseRetryResendCostTokens  int            `json:"top_reconnect_cause_retry_resend_cost_tokens,omitempty"`
+	ContinuationCandidates                  map[string]int `json:"continuation_candidates,omitempty"`
+	CauseClasses                            map[string]int `json:"cause_classes,omitempty"`
+	CloseInitiators                         map[string]int `json:"close_initiators,omitempty"`
+}
+
 const wssProofPackHelpText = `wss-proof-pack: content-free WSS proof-window gate for T417/T420/T408
 
 Usage:
@@ -102,6 +126,7 @@ Usage:
 Flags:
   --since=<rfc3339>                  Ignore records before this timestamp
   --since-file=<path>                Read RFC3339 --since value from file
+  --sockets-json=<path>               Ingest slimference debug wss-sockets --json output
   --min-local-ratio=<ratio>           Owner S_local target, default 0.48
   --require-headroom                  Fail unless class-distribution reports headroom
   --require-accepted-contract         Fail unless reference inventory has an accepted Lane 3 backend contract
@@ -109,11 +134,11 @@ Flags:
   --json                             Output JSON
 
 The pack combines wss-class-distribution, wss-local-gap with current
-instrumentation requirements, and wss-reference-inventory. It also prints the
-matching slimference debug wss-sockets command, because socket/reconnect
-analysis lives in the product CLI. The report is content-free: it carries
-counts, byte/token estimates, verdicts, gates, and commands, never prompt or
-tool-output payloads.`
+instrumentation requirements, wss-reference-inventory, and optional
+wss-sockets JSON. It prints the matching slimference debug wss-sockets command
+when socket JSON has not been captured yet. The report is content-free: it
+carries counts, byte/token estimates, verdicts, gates, and commands, never
+prompt or tool-output payloads.`
 
 func runWSSProofPack(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSProofPackFlags(args)
@@ -200,6 +225,14 @@ func parseWSSProofPackFlags(args []string) (wssProofPackFlags, error) {
 			}
 			flags.since = since
 			flags.sinceFile = value
+		case arg == "--sockets-json":
+			value, err := aggregateFlagValue(args, &i, arg)
+			if err != nil {
+				return flags, err
+			}
+			flags.socketsJSON = value
+		case strings.HasPrefix(arg, "--sockets-json="):
+			flags.socketsJSON = strings.TrimPrefix(arg, "--sockets-json=")
 		case arg == "--min-local-ratio":
 			value, err := aggregateFlagValue(args, &i, arg)
 			if err != nil {
@@ -255,14 +288,24 @@ func loadWSSProofPack(flags wssProofPackFlags) (wssProofPackReport, error) {
 	if err != nil {
 		return wssProofPackReport{}, err
 	}
+	var socketSummary *wssProofPackSocketSummary
+	if flags.socketsJSON != "" {
+		summary, err := loadWSSProofPackSocketSummary(flags.socketsJSON)
+		if err != nil {
+			return wssProofPackReport{}, err
+		}
+		socketSummary = &summary
+	}
 	report := wssProofPackReport{
 		Path:               flags.path,
 		SinceFile:          flags.sinceFile,
 		TargetRatio:        targetRatio,
 		SocketCommand:      wssProofPackSocketCommand(flags, targetRatio),
+		SocketsJSON:        flags.socketsJSON,
 		ClassCommand:       wssProofPackClassCommand(flags, targetRatio),
 		LocalGapCommand:    wssProofPackLocalGapCommand(flags, targetRatio),
 		ReferenceCommand:   wssProofPackReferenceCommand(flags),
+		SocketSummary:      socketSummary,
 		ClassDistribution:  wssProofPackClassSummaryFromReport(classReport),
 		LocalGap:           wssProofPackLocalGapSummaryFromReport(localGap),
 		ReferenceInventory: wssProofPackReferenceSummaryFromReport(referenceReport),
@@ -273,11 +316,90 @@ func loadWSSProofPack(flags wssProofPackFlags) (wssProofPackReport, error) {
 		since := flags.since
 		report.Since = &since
 	}
-	report.GateFailures = wssProofPackGateFailures(flags, classReport, localGap, referenceReport)
+	report.GateFailures = wssProofPackGateFailures(flags, socketSummary, classReport, localGap, referenceReport)
 	report.GatePassed = len(report.GateFailures) == 0
-	report.ProofDecision, report.RecommendedNextStep = wssProofPackDecision(flags, classReport, localGap, referenceReport)
-	report.Notes = wssProofPackNotes(classReport, localGap, referenceReport)
+	report.ProofDecision, report.RecommendedNextStep = wssProofPackDecision(flags, socketSummary, classReport, localGap, referenceReport)
+	report.Notes = wssProofPackNotes(socketSummary, classReport, localGap, referenceReport)
 	return report, nil
+}
+
+func loadWSSProofPackSocketSummary(path string) (wssProofPackSocketSummary, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return wssProofPackSocketSummary{}, fmt.Errorf("read sockets JSON %s: %w", path, err)
+	}
+	var raw struct {
+		SocketCount                             int                            `json:"socket_count"`
+		ActionableSockets                       int                            `json:"actionable_sockets"`
+		ProviderInputTokens                     int                            `json:"provider_input_tokens"`
+		ProviderCachedTokens                    int                            `json:"provider_cached_tokens"`
+		LocalSavedTokens                        int                            `json:"local_saved_tokens"`
+		FullHistoryRequests                     int                            `json:"full_history_requests"`
+		FullHistoryProviderInputTokens          int                            `json:"full_history_provider_input_tokens"`
+		ReconnectFullHistoryRequests            int                            `json:"reconnect_full_history_requests"`
+		ReconnectFullHistoryProviderInputTokens int                            `json:"reconnect_full_history_provider_input_tokens"`
+		ReconnectFullHistoryByCause             []wssProofPackReconnectCause   `json:"reconnect_full_history_by_cause"`
+		T417ReconnectHandoff                    []wssProofPackReconnectHandoff `json:"t417_reconnect_handoff"`
+		T420ReconnectHandoff                    []wssProofPackReconnectHandoff `json:"t420_reconnect_handoff"`
+		CauseClasses                            map[string]int                 `json:"cause_classes"`
+		CloseInitiators                         map[string]int                 `json:"close_initiators"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return wssProofPackSocketSummary{}, fmt.Errorf("decode sockets JSON %s: %w", path, err)
+	}
+	summary := wssProofPackSocketSummary{
+		SocketCount:                             raw.SocketCount,
+		ActionableSockets:                       raw.ActionableSockets,
+		ProviderInputTokens:                     raw.ProviderInputTokens,
+		ProviderCachedTokens:                    raw.ProviderCachedTokens,
+		LocalSavedTokens:                        raw.LocalSavedTokens,
+		FullHistoryRequests:                     raw.FullHistoryRequests,
+		FullHistoryProviderInputTokens:          raw.FullHistoryProviderInputTokens,
+		ReconnectFullHistoryRequests:            raw.ReconnectFullHistoryRequests,
+		ReconnectFullHistoryProviderInputTokens: raw.ReconnectFullHistoryProviderInputTokens,
+		T417ReconnectHandoffRows:                len(raw.T417ReconnectHandoff),
+		T420ReconnectHandoffRows:                len(raw.T420ReconnectHandoff),
+		CauseClasses:                            cloneIntMap(raw.CauseClasses),
+		CloseInitiators:                         cloneIntMap(raw.CloseInitiators),
+	}
+	for _, row := range raw.ReconnectFullHistoryByCause {
+		if row.ProviderInputTokens > summary.TopReconnectCauseInputTokens {
+			summary.TopReconnectCause = strings.TrimSpace(row.Cause)
+			summary.TopReconnectCauseInputTokens = row.ProviderInputTokens
+			summary.TopReconnectCauseRetryResendCostTokens = row.RetryResendCost
+		}
+	}
+	for _, row := range raw.T417ReconnectHandoff {
+		candidate := strings.TrimSpace(row.ContinuationCandidate)
+		if candidate == "" {
+			continue
+		}
+		if summary.ContinuationCandidates == nil {
+			summary.ContinuationCandidates = make(map[string]int)
+		}
+		summary.ContinuationCandidates[candidate]++
+	}
+	for _, row := range raw.T420ReconnectHandoff {
+		candidate := strings.TrimSpace(row.ContinuationCandidate)
+		if candidate == "" {
+			continue
+		}
+		if summary.ContinuationCandidates == nil {
+			summary.ContinuationCandidates = make(map[string]int)
+		}
+		summary.ContinuationCandidates[candidate]++
+	}
+	return summary, nil
+}
+
+type wssProofPackReconnectCause struct {
+	Cause               string `json:"cause"`
+	ProviderInputTokens int    `json:"provider_input_tokens"`
+	RetryResendCost     int    `json:"retry_resend_cost_tokens"`
+}
+
+type wssProofPackReconnectHandoff struct {
+	ContinuationCandidate string `json:"continuation_candidate"`
 }
 
 func wssProofPackClassSummaryFromReport(report wssClassDistributionReport) wssProofPackClassSummary {
@@ -365,10 +487,13 @@ func wssProofPackTopActionable(rows []wssLocalGapActionableRow, limit int) []wss
 	return out
 }
 
-func wssProofPackGateFailures(flags wssProofPackFlags, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
+func wssProofPackGateFailures(flags wssProofPackFlags, socketSummary *wssProofPackSocketSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
 	var failures []string
 	if !flags.allowStale && localGap.MissingInstrRequests > 0 {
 		failures = append(failures, fmt.Sprintf("missing_instrumentation_requests=%d original_tokens=%d", localGap.MissingInstrRequests, localGap.MissingInstrOrigTokens))
+	}
+	if socketSummary != nil && socketSummary.ReconnectFullHistoryRequests > 0 && socketSummary.T417ReconnectHandoffRows+socketSummary.T420ReconnectHandoffRows == 0 {
+		failures = append(failures, fmt.Sprintf("reconnect_full_history_without_handoff requests=%d input_tokens=%d", socketSummary.ReconnectFullHistoryRequests, socketSummary.ReconnectFullHistoryProviderInputTokens))
 	}
 	if flags.requireHeadroom && !classReport.HeadroomPresent {
 		failures = append(failures, "headroom_not_present:"+classReport.Verdict)
@@ -382,7 +507,7 @@ func wssProofPackGateFailures(flags wssProofPackFlags, classReport wssClassDistr
 	return failures
 }
 
-func wssProofPackDecision(flags wssProofPackFlags, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) (string, string) {
+func wssProofPackDecision(flags wssProofPackFlags, socketSummary *wssProofPackSocketSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) (string, string) {
 	switch {
 	case !flags.allowStale && localGap.MissingInstrRequests > 0:
 		return "capture_fresh_instrumented_window",
@@ -390,6 +515,15 @@ func wssProofPackDecision(flags wssProofPackFlags, classReport wssClassDistribut
 	case localGap.UpstreamErrorRequests > 0 || localGap.HTTP400ErrorRequests > 0:
 		return "stability_first",
 			"classify upstream/400 errors before widening any savings mechanism"
+	case socketSummary != nil && socketSummary.ReconnectFullHistoryRequests > 0 && socketSummary.T417ReconnectHandoffRows+socketSummary.T420ReconnectHandoffRows > 0:
+		return "t420_reconnect_handoff_present",
+			"feed the same sockets JSON into wss-t354-shape-proof --t420-handoff-json and choose T420 transport fix or T417 reroute by exact cause"
+	case socketSummary != nil && socketSummary.ReconnectFullHistoryRequests > 0:
+		return "t420_reconnect_handoff_missing",
+			"regenerate slimference debug wss-sockets with handoff-capable current binary before engineering reconnect fixes"
+	case socketSummary != nil && socketSummary.FullHistoryRequests > 0:
+		return "class_b_socket_mass_present",
+			"use socket summary plus class distribution to rank T417 Class-B/server-state candidates"
 	case referenceReport.Lane3AcceptedContracts > 0:
 		return "t408_reference_productization_candidate",
 			"implement only the accepted backend-reference slice with rehydrate fallback and exact demotion"
@@ -408,9 +542,14 @@ func wssProofPackDecision(flags wssProofPackFlags, classReport wssClassDistribut
 	}
 }
 
-func wssProofPackNotes(classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
+func wssProofPackNotes(socketSummary *wssProofPackSocketSummary, classReport wssClassDistributionReport, localGap wssLocalGapReport, referenceReport wssReferenceInventoryReport) []string {
 	var notes []string
 	notes = append(notes, "Provider-cache discount is not counted as S_local.")
+	if socketSummary == nil {
+		notes = append(notes, "Socket/reconnect classification is command-only until --sockets-json is provided.")
+	} else if socketSummary.ReconnectFullHistoryRequests > 0 {
+		notes = append(notes, "Reconnect full-history mass preempts parser micro-work; choose T420 transport or T417 reroute from exact handoff rows.")
+	}
 	if localGap.MissingInstrRequests > 0 {
 		notes = append(notes, "Stale or incomplete ownership facts are a hard proof blocker for broad T417/T408 promotion.")
 	}
@@ -522,6 +661,16 @@ func writeWSSProofPackText(w io.Writer, report wssProofPackReport) {
 		report.ReferenceInventory.Lane3AcceptedContracts,
 		report.ReferenceInventory.ArbitraryCandidateKinds,
 		report.ReferenceInventory.LocalReferenceURIKinds)
+	if report.SocketSummary != nil {
+		fmt.Fprintf(w, "Socket summary:        sockets=%d actionable=%d full_history=%d/%d reconnect_full_history=%d/%d handoff=%d\n",
+			report.SocketSummary.SocketCount,
+			report.SocketSummary.ActionableSockets,
+			report.SocketSummary.FullHistoryRequests,
+			report.SocketSummary.FullHistoryProviderInputTokens,
+			report.SocketSummary.ReconnectFullHistoryRequests,
+			report.SocketSummary.ReconnectFullHistoryProviderInputTokens,
+			report.SocketSummary.T417ReconnectHandoffRows+report.SocketSummary.T420ReconnectHandoffRows)
+	}
 	fmt.Fprintln(w, "\nCommands:")
 	fmt.Fprintf(w, "  sockets:   %s\n", report.SocketCommand)
 	fmt.Fprintf(w, "  classes:   %s\n", report.ClassCommand)

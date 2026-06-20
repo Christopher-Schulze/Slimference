@@ -63,6 +63,108 @@ func TestWSSProofPackFreshInstrumentedWindowPasses(t *testing.T) {
 	}
 }
 
+func TestWSSProofPackIngestsSocketReconnectHandoff(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	socketsPath := filepath.Join(dir, "wss-sockets.json")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "fresh",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 9200, Saved: 800},
+		DebugFacts: map[string]string{
+			"wss.request_shape":            "full_history",
+			"wss.prefix_total_bytes":       "2000",
+			"wss.prefix_estimated_tokens":  "500",
+			"wss.raw_input_bytes":          "30000",
+			"wss.tool_result_output_bytes": "12000",
+			"wss.tool_results":             "1",
+			"wss.source_tool_bytes":        "0",
+		},
+	})
+	writeJSONFile(t, socketsPath, map[string]any{
+		"socket_count":                                 2,
+		"actionable_sockets":                           1,
+		"provider_input_tokens":                        9000,
+		"provider_cached_tokens":                       3000,
+		"local_saved_tokens":                           700,
+		"full_history_requests":                        2,
+		"full_history_provider_input_tokens":           9000,
+		"reconnect_full_history_requests":              2,
+		"reconnect_full_history_provider_input_tokens": 9000,
+		"cause_classes":                                map[string]int{"client_full_history_reconnect": 1},
+		"close_initiators":                             map[string]int{"client_eof": 1},
+		"reconnect_full_history_by_cause": []map[string]any{{
+			"cause":                    "client_full_history_reconnect",
+			"provider_input_tokens":    9000,
+			"retry_resend_cost_tokens": 9000,
+		}},
+		"t417_reconnect_handoff": []map[string]any{{
+			"socket_key":               "codex-wss:thread#2.1",
+			"cause":                    "client_full_history_reconnect",
+			"continuation_candidate":   "t417_stateless_or_lineage_reroute",
+			"reconnect_input_tokens":   9000,
+			"retry_resend_cost_tokens": 9000,
+			"full_history_requests":    2,
+			"provider_input_tokens":    9000,
+			"provider_cached_tokens":   3000,
+			"local_saved_tokens":       700,
+		}},
+	})
+
+	report, err := loadWSSProofPack(wssProofPackFlags{path: path, socketsJSON: socketsPath})
+	if err != nil {
+		t.Fatalf("loadWSSProofPack() error = %v", err)
+	}
+	if !report.GatePassed ||
+		report.SocketSummary == nil ||
+		report.SocketSummary.ReconnectFullHistoryRequests != 2 ||
+		report.SocketSummary.T417ReconnectHandoffRows != 1 ||
+		report.SocketSummary.TopReconnectCause != "client_full_history_reconnect" ||
+		report.SocketSummary.ContinuationCandidates["t417_stateless_or_lineage_reroute"] != 1 ||
+		report.ProofDecision != "t420_reconnect_handoff_present" {
+		t.Fatalf("bad socket handoff proof pack: %+v", report)
+	}
+}
+
+func TestWSSProofPackReconnectWithoutHandoffFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	socketsPath := filepath.Join(dir, "wss-sockets.json")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "fresh",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 9500, Saved: 500},
+		DebugFacts: map[string]string{
+			"wss.request_shape":           "delta",
+			"wss.prefix_total_bytes":      "2000",
+			"wss.prefix_estimated_tokens": "500",
+			"wss.raw_input_bytes":         "30000",
+		},
+	})
+	writeJSONFile(t, socketsPath, map[string]any{
+		"sockets":                         []any{},
+		"reconnect_full_history_requests": 2,
+		"reconnect_full_history_provider_input_tokens": 9000,
+	})
+
+	report, err := loadWSSProofPack(wssProofPackFlags{path: path, socketsJSON: socketsPath})
+	if err != nil {
+		t.Fatalf("loadWSSProofPack() error = %v", err)
+	}
+	if report.GatePassed ||
+		report.ProofDecision != "t420_reconnect_handoff_missing" ||
+		len(report.GateFailures) != 1 ||
+		!strings.Contains(report.GateFailures[0], "reconnect_full_history_without_handoff") {
+		t.Fatalf("reconnect without handoff should fail closed: %+v", report)
+	}
+}
+
 func TestWSSProofPackStaleRowsFailUnlessAllowed(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +213,7 @@ func TestParseWSSProofPackFlags(t *testing.T) {
 	flags, err := parseWSSProofPackFlags([]string{
 		"decisions.jsonl",
 		"--since-file=" + sincePath,
+		"--sockets-json=wss-sockets.json",
 		"--min-local-ratio=0.5",
 		"--require-headroom",
 		"--require-accepted-contract",
@@ -122,6 +225,7 @@ func TestParseWSSProofPackFlags(t *testing.T) {
 	}
 	if flags.path != "decisions.jsonl" ||
 		flags.sinceFile != sincePath ||
+		flags.socketsJSON != "wss-sockets.json" ||
 		flags.minLocalRatio != 0.5 ||
 		!flags.requireHeadroom ||
 		!flags.requireAcceptedContract ||
