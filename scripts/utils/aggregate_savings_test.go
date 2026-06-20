@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 const aggregateSampleAdminState = `{
@@ -234,7 +236,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"request_side_bytes_reduced:    512",
 		"repdet_rewrites:       7 (bytes saved: 1024)",
 		"stale_read_blocks:     1",
-		"HTTP-path Layer-0 filter: not loaded (pass --filter-db=<path>)",
+		"Pre-entry / hook Layer-0 filter: not loaded (pass --filter-db=<path>)",
 		"Aggregate:",
 		"WSS input tokens saved:        42000",
 		"Filter Layer-0 tokens saved:   0",
@@ -360,6 +362,114 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if time.Since(got.Generated) > time.Minute {
 		t.Fatalf("generated too old: %v", got.Generated)
+	}
+}
+
+func TestAggregateSavingsIncludesPreEntryFilterLedgerRatio(t *testing.T) {
+	statePath := writeAggregateStateFile(t, aggregateSampleAdminState)
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := filter.RecordFilterRun(db, "[command-output-first:git] git show --stat", "/repo", 2000, 500, 75, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "[archive-recovery:contentarchive] slimference expand local-archive://abc", "/repo", 20, 220, 0, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var jsonOut, jsonErr bytes.Buffer
+	code := runAggregateSavings([]string{
+		"--admin-state-file=" + statePath,
+		"--filter-db=" + dbPath,
+		"--period=month",
+		"--json",
+	}, &jsonOut, &jsonErr)
+	if code != 0 {
+		t.Fatalf("json exit=%d stderr=%s", code, jsonErr.String())
+	}
+	var report aggregateSavingsReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &report); err != nil {
+		t.Fatalf("decode aggregate JSON: %v\n%s", err, jsonOut.String())
+	}
+	if report.Aggregate.Layer0FilterInputTokens != 2020 ||
+		report.Aggregate.Layer0FilterOutputTokens != 720 ||
+		report.Aggregate.Layer0FilterTokensSaved != 1300 ||
+		report.Aggregate.TotalTokensSaved != 43300 {
+		t.Fatalf("bad aggregate filter ledger: %+v", report.Aggregate)
+	}
+	wantRatio := 1300.0 / 2020.0
+	if report.Aggregate.Layer0FilterSavingsRatio < wantRatio-1e-9 ||
+		report.Aggregate.Layer0FilterSavingsRatio > wantRatio+1e-9 {
+		t.Fatalf("bad layer0 filter ratio: got=%v want=%v", report.Aggregate.Layer0FilterSavingsRatio, wantRatio)
+	}
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "scoped command-output-first before Codex history") {
+		t.Fatalf("pre-entry command-output-first note missing: %+v", report.Notes)
+	}
+
+	var textOut, textErr bytes.Buffer
+	code = runAggregateSavings([]string{
+		"--admin-state-file=" + statePath,
+		"--filter-db=" + dbPath,
+		"--period=month",
+	}, &textOut, &textErr)
+	if code != 0 {
+		t.Fatalf("text exit=%d stderr=%s", code, textErr.String())
+	}
+	text := textOut.String()
+	for _, want := range []string{
+		"Pre-entry / hook Layer-0 filter (period=month):",
+		"input_tokens:       2020",
+		"output_tokens:      720",
+		"tokens_saved_est:   1300",
+		"local_savings_ratio:64.36%",
+		"Filter Layer-0 input/output:   2020 / 720",
+		"Filter Layer-0 local ratio:    64.36%",
+		"Filter Layer-0 tokens saved:   1300",
+		"TOTAL tokens saved:            43300",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text output missing %q\nfull output:\n%s", want, text)
+		}
+	}
+}
+
+func TestAggregateSavingsTodayFilterUsesLocalWindow(t *testing.T) {
+	state, err := parseAdminStateJSON([]byte(aggregateSampleAdminState))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := time.FixedZone("test-local", 2*60*60)
+	rowTime := time.Date(2026, 1, 2, 0, 10, 0, 0, local)
+	if err := filter.RecordFilterRun(db, "[command-output-first:git] git status --short", "/repo", 100, 25, 75, rowTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	report := buildAggregateSavingsReport(state, "test", aggregateSavingsFlags{
+		filterDB: dbPath,
+		period:   "today",
+	}, time.Date(2026, 1, 2, 0, 30, 0, 0, local))
+	if report.FilterLayer0 == nil ||
+		report.Aggregate.Layer0FilterInputTokens != 100 ||
+		report.Aggregate.Layer0FilterOutputTokens != 25 ||
+		report.Aggregate.Layer0FilterTokensSaved != 75 {
+		t.Fatalf("today filter must use the caller's local day window, got filter=%+v aggregate=%+v", report.FilterLayer0, report.Aggregate)
+	}
+	if report.Generated.Location() != time.UTC {
+		t.Fatalf("generated timestamp should stay UTC for reports, got %s", report.Generated.Location())
 	}
 }
 

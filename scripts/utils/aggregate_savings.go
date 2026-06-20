@@ -113,10 +113,13 @@ type aggregateHostBudgetBlock struct {
 }
 
 type aggregateTotalsBlock struct {
-	WSSInputTokensSaved     int64   `json:"wss_input_tokens_saved"`
-	Layer0FilterTokensSaved int64   `json:"layer0_filter_tokens_saved"`
-	TotalTokensSaved        int64   `json:"total_tokens_saved"`
-	EstUSDSaved             float64 `json:"estimated_usd_saved,omitempty"`
+	WSSInputTokensSaved      int64   `json:"wss_input_tokens_saved"`
+	Layer0FilterInputTokens  int64   `json:"layer0_filter_input_tokens,omitempty"`
+	Layer0FilterOutputTokens int64   `json:"layer0_filter_output_tokens,omitempty"`
+	Layer0FilterTokensSaved  int64   `json:"layer0_filter_tokens_saved"`
+	Layer0FilterSavingsRatio float64 `json:"layer0_filter_savings_ratio,omitempty"`
+	TotalTokensSaved         int64   `json:"total_tokens_saved"`
+	EstUSDSaved              float64 `json:"estimated_usd_saved,omitempty"`
 }
 
 type aggregateSavingsReport struct {
@@ -149,8 +152,9 @@ This tool gives an honest, single-glance picture of every measurable Slimference
 savings source for one daemon, without conflating route-ready with savings-proven.
 It also includes the current Codex traffic / auto-recert snapshot, so workday
 reports can explain whether savings were active, bridged, repaired, or in
-fallback. WSS counters are live (daemon admin/state); filter Layer-0 savings
-come from the SQLite analytics DB if a path is provided.`
+fallback. WSS counters are live (daemon admin/state); pre-entry/scoped
+command-output-first, hook, archive-recovery, and standalone filter Layer-0
+savings come from the SQLite analytics DB if a path is provided.`
 
 func runAggregateSavings(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseAggregateSavingsFlags(args)
@@ -167,7 +171,7 @@ func runAggregateSavings(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	report := buildAggregateSavingsReport(state, src, flags, time.Now().UTC())
+	report := buildAggregateSavingsReport(state, src, flags, time.Now())
 	if flags.outputFormat == outputJSON {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -319,7 +323,7 @@ func parseAdminStateJSON(data []byte) (control.SetupState, error) {
 func buildAggregateSavingsReport(state control.SetupState, source string, flags aggregateSavingsFlags, now time.Time) aggregateSavingsReport {
 	report := aggregateSavingsReport{
 		Source:    source,
-		Generated: now,
+		Generated: now.UTC(),
 		CodexRoute: aggregateCodexRouteBlock{
 			DaemonReachable:    state.CodexRoute.DaemonReachable,
 			AutoMode:           state.CodexRoute.AutoMode,
@@ -415,7 +419,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 	}
 	report.Aggregate.WSSInputTokensSaved = report.WSS.InputTokensSaved
 	if report.FilterLayer0 != nil {
+		report.Aggregate.Layer0FilterInputTokens = report.FilterLayer0.InputTokens
+		report.Aggregate.Layer0FilterOutputTokens = report.FilterLayer0.OutputTokens
 		report.Aggregate.Layer0FilterTokensSaved = report.FilterLayer0.TokensSavedEst
+		report.Aggregate.Layer0FilterSavingsRatio = aggregateSavingsRatio(report.FilterLayer0.TokensSavedEst, report.FilterLayer0.InputTokens)
 	}
 	report.Aggregate.TotalTokensSaved = report.Aggregate.WSSInputTokensSaved + report.Aggregate.Layer0FilterTokensSaved
 	if flags.usdPerMTokens > 0 {
@@ -424,7 +431,7 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 	report.Notes = append(report.Notes,
 		"WSS input_tokens_saved is from the live RecordProxyLayer0 path (read-delta + L0 filter chain).",
 		"WSS savings are workload-dependent: low without repeat-read sessions, large with them.",
-		"Filter Layer-0 savings cover non-WSS HTTP-path Codex hook traffic (offline SQLite).",
+		"Filter Layer-0 savings include scoped command-output-first before Codex history, hook/filter traffic, and archive-recovery negative accounting from the SQLite ledger.",
 		"Output-wire bytes and request-side byte reductions are reported separately and are not added to billable input-token savings totals.",
 	)
 	switch {
@@ -568,22 +575,29 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintln(w)
 
 	if report.FilterLayer0 != nil {
-		fmt.Fprintf(w, "HTTP-path Layer-0 filter (period=%s):\n", report.FilterLayer0.Period)
+		fmt.Fprintf(w, "Pre-entry / hook Layer-0 filter (period=%s):\n", report.FilterLayer0.Period)
 		fmt.Fprintf(w, "  runs:               %d\n", report.FilterLayer0.Runs)
 		fmt.Fprintf(w, "  input_tokens:       %d\n", report.FilterLayer0.InputTokens)
 		fmt.Fprintf(w, "  output_tokens:      %d\n", report.FilterLayer0.OutputTokens)
 		fmt.Fprintf(w, "  tokens_saved_est:   %d\n", report.FilterLayer0.TokensSavedEst)
+		fmt.Fprintf(w, "  local_savings_ratio:%.2f%%\n", aggregateSavingsRatio(report.FilterLayer0.TokensSavedEst, report.FilterLayer0.InputTokens)*100)
 		if report.FilterLayer0.SavingsUsdEst > 0 {
 			fmt.Fprintf(w, "  estimated USD:      %.4f\n", report.FilterLayer0.SavingsUsdEst)
 		}
 		fmt.Fprintln(w)
 	} else {
-		fmt.Fprintln(w, "HTTP-path Layer-0 filter: not loaded (pass --filter-db=<path>)")
+		fmt.Fprintln(w, "Pre-entry / hook Layer-0 filter: not loaded (pass --filter-db=<path>)")
 		fmt.Fprintln(w)
 	}
 
 	fmt.Fprintln(w, "Aggregate:")
 	fmt.Fprintf(w, "  WSS input tokens saved:        %d\n", report.Aggregate.WSSInputTokensSaved)
+	if report.FilterLayer0 != nil {
+		fmt.Fprintf(w, "  Filter Layer-0 input/output:   %d / %d\n",
+			report.Aggregate.Layer0FilterInputTokens,
+			report.Aggregate.Layer0FilterOutputTokens)
+		fmt.Fprintf(w, "  Filter Layer-0 local ratio:    %.2f%%\n", report.Aggregate.Layer0FilterSavingsRatio*100)
+	}
 	fmt.Fprintf(w, "  Filter Layer-0 tokens saved:   %d\n", report.Aggregate.Layer0FilterTokensSaved)
 	fmt.Fprintf(w, "  TOTAL tokens saved:            %d\n", report.Aggregate.TotalTokensSaved)
 	if report.Aggregate.EstUSDSaved > 0 {
@@ -602,6 +616,13 @@ func valueOrDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func aggregateSavingsRatio(saved, original int64) float64 {
+	if original <= 0 || saved <= 0 {
+		return 0
+	}
+	return float64(saved) / float64(original)
 }
 
 func optionalTime(t time.Time) *time.Time {
