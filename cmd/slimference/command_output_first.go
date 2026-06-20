@@ -38,7 +38,7 @@ func maybeApplyCommandOutputFirstEnv(mode string, command []string) ([]string, f
 
 func commandOutputFirstModeEnabled(mode string) bool {
 	switch mode {
-	case "proxied", "proxied-wss", "proxied-wss-bridge":
+	case "proxied", "proxied-wss", "proxied-wss-bridge", "transparent-proxied":
 		return true
 	default:
 		return false

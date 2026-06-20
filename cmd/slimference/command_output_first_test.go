@@ -4477,16 +4477,22 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	osExecutable = func() (string, error) { return self, nil }
 	t.Setenv("PATH", binDir)
 
-	command := codexEnvCommand("proxied-wss", "127.0.0.1", "8990", []string{"exec", "hi"})
-	got, cleanup := maybeApplyCommandOutputFirstEnv("proxied-wss", command)
+	for _, mode := range []string{"proxied", "proxied-wss", "proxied-wss-bridge", "transparent-proxied"} {
+		command := codexEnvCommand(mode, "127.0.0.1", "8990", []string{"exec", "hi"})
+		got, cleanup := maybeApplyCommandOutputFirstEnv(mode, command)
+		defer cleanup()
+		joined := strings.Join(got, "\x00")
+		if !strings.Contains(joined, "\x00"+commandOutputFirstActiveEnv+"=1\x00") {
+			t.Fatalf("%s missing active env in %#v", mode, got)
+		}
+		if !strings.Contains(joined, "\x00BASH_ENV=") {
+			t.Fatalf("%s missing BASH_ENV in %#v", mode, got)
+		}
+	}
+
+	command := codexEnvCommand("transparent-proxied", "127.0.0.1", "8990", []string{"exec", "hi"})
+	got, cleanup := maybeApplyCommandOutputFirstEnv("transparent-proxied", command)
 	defer cleanup()
-	joined := strings.Join(got, "\x00")
-	if !strings.Contains(joined, "\x00"+commandOutputFirstActiveEnv+"=1\x00") {
-		t.Fatalf("missing active env in %#v", got)
-	}
-	if !strings.Contains(joined, "\x00BASH_ENV=") {
-		t.Fatalf("missing BASH_ENV in %#v", got)
-	}
 	pathValue := envValueInCommand(t, got, "PATH")
 	if !strings.Contains(pathValue, string(os.PathListSeparator)+binDir) {
 		t.Fatalf("PATH did not preserve original path: %q", pathValue)
@@ -4667,18 +4673,22 @@ func TestProxyRunCodexAppliesCommandOutputFirstEnvForScopedRun(t *testing.T) {
 		gotArgs = append([]string(nil), args...)
 		return nil
 	}
-	if rc := proxyRun([]string{"run", "codex", "--proxied-wss", "--", "exec", "hi"}, env); rc != 0 {
-		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
-	}
-	if gotName != "env" {
-		t.Fatalf("runner name=%q", gotName)
-	}
-	joined := strings.Join(gotArgs, "\x00")
-	if !strings.Contains(joined, commandOutputFirstActiveEnv+"=1") || !strings.Contains(joined, "BASH_ENV=") {
-		t.Fatalf("scoped run missing command-output-first env: %#v", gotArgs)
-	}
-	if !strings.Contains(joined, "\x00codex\x00") {
-		t.Fatalf("codex command missing: %#v", gotArgs)
+	for _, flag := range []string{"--proxied", "--proxied-wss", "--proxied-wss-bridge", "--transparent-proxied"} {
+		gotName = ""
+		gotArgs = nil
+		if rc := proxyRun([]string{"run", "codex", flag, "--", "exec", "hi"}, env); rc != 0 {
+			t.Fatalf("%s rc=%d stderr=%q", flag, rc, stderr.String())
+		}
+		if gotName != "env" {
+			t.Fatalf("%s runner name=%q", flag, gotName)
+		}
+		joined := strings.Join(gotArgs, "\x00")
+		if !strings.Contains(joined, commandOutputFirstActiveEnv+"=1") || !strings.Contains(joined, "BASH_ENV=") {
+			t.Fatalf("%s scoped run missing command-output-first env: %#v", flag, gotArgs)
+		}
+		if !strings.Contains(joined, "\x00codex\x00") {
+			t.Fatalf("%s codex command missing: %#v", flag, gotArgs)
+		}
 	}
 }
 
