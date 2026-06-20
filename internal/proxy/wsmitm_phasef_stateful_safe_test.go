@@ -1044,8 +1044,19 @@ func TestWSSStatefulSafeTreeRepeatCompactsOnSecondFullHistoryTurn(t *testing.T) 
 	if err != nil {
 		t.Fatalf("handle first tree request: %v", err)
 	}
-	if replace {
-		t.Fatalf("first tree observation should seed only, got mutation: %s", first.Body)
+	if !replace {
+		t.Fatal("first parser-proven tree should compact immediately")
+	}
+	firstBody := string(first.Body)
+	if !strings.Contains(firstBody, "[tree paths]") ||
+		!strings.Contains(firstBody, "local-archive://") ||
+		!strings.Contains(firstBody, "tree_file_089.go") ||
+		strings.Contains(firstBody, "|-- tree_file_089.go") {
+		t.Fatalf("first tree was not parser-preserved compacted: %s", firstBody)
+	}
+	firstSummary := p.DebugRecorder().Last(1, false)[0]
+	if firstSummary.Tokens.Saved <= 0 || firstSummary.DebugFacts["wss.structured_mutation_guard"] != "" {
+		t.Fatalf("stateful-safe tree parser should save without structured guard: %+v", firstSummary)
 	}
 
 	second := parseWSJSON(t, wssTreeRequestBody("resp-tree-2", "call_tree_2", tree))
@@ -1057,9 +1068,8 @@ func TestWSSStatefulSafeTreeRepeatCompactsOnSecondFullHistoryTurn(t *testing.T) 
 		t.Fatal("second identical tree should compact through repeated-output archive reference")
 	}
 	body := string(second.Body)
-	if !strings.Contains(body, "context-elided kind=tool-output status=unchanged") ||
-		!strings.Contains(body, "archive=local-archive://") ||
-		strings.Contains(body, "tree_file_089.go") {
+	if !strings.Contains(body, "local-archive://") ||
+		strings.Contains(body, "|-- tree_file_089.go") {
 		t.Fatalf("tree repeat was not archive-backed compacted: %s", body)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]

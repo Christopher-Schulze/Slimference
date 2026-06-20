@@ -62,8 +62,9 @@ func TryCompactLsLong(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte(out), true
 }
 
-// TryCompactTree summarizes empty stdout from `tree`. Non-empty tree output
-// full-passes because path names and hierarchy are model-relevant evidence.
+// TryCompactTree compacts parser-proven, bounded `tree` listings while keeping
+// every visible entry as a path. Unknown shapes fail open because tree output is
+// often used as repository reality.
 func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
@@ -76,7 +77,279 @@ func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[tree] empty\n"), true
 	}
-	return stdout, false
+	if !treeOutputEligibleArgv(argv) {
+		return stdout, false
+	}
+	listing, ok := parseTreeListing(s)
+	if !ok || len(listing.Paths) < 8 {
+		return stdout, false
+	}
+	out := formatTreeListing(listing)
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+type treeListing struct {
+	Root  string
+	Dirs  int
+	Files int
+	Paths []string
+}
+
+func treeOutputEligibleArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(strings.TrimSpace(argv[0])), ".exe"))
+	if base != "tree" {
+		return false
+	}
+	sawDepth := false
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			return false
+		}
+		if arg == "--" {
+			for _, rest := range argv[i+1:] {
+				if strings.TrimSpace(rest) == "" {
+					return false
+				}
+			}
+			return sawDepth
+		}
+		if strings.HasPrefix(arg, "--") {
+			switch {
+			case arg == "--dirsfirst":
+				continue
+			case arg == "--charset":
+				i++
+				if i >= len(argv) || strings.TrimSpace(argv[i]) == "" {
+					return false
+				}
+				continue
+			case strings.HasPrefix(arg, "--charset="):
+				if strings.TrimSpace(strings.TrimPrefix(arg, "--charset=")) == "" {
+					return false
+				}
+				continue
+			default:
+				return false
+			}
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			for j := 1; j < len(arg); j++ {
+				switch arg[j] {
+				case 'a', 'd':
+					continue
+				case 'L':
+					depth := strings.TrimSpace(arg[j+1:])
+					if depth == "" {
+						i++
+						if i >= len(argv) {
+							return false
+						}
+						depth = strings.TrimSpace(argv[i])
+					}
+					if !treeBoundedDepthArg(depth) {
+						return false
+					}
+					sawDepth = true
+					j = len(arg)
+				default:
+					return false
+				}
+			}
+		}
+	}
+	return sawDepth
+}
+
+func treeBoundedDepthArg(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	n, err := strconv.Atoi(raw)
+	return err == nil && n > 0 && n <= 6
+}
+
+func parseTreeListing(s string) (treeListing, bool) {
+	lines := strings.Split(s, "\n")
+	var listing treeListing
+	stack := make([]string, 0, 8)
+	sawSummary := false
+
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.ContainsRune(line, '\x00') || strings.ContainsRune(line, '\x1b') || containsControl(line) {
+			return treeListing{}, false
+		}
+		if dirs, files, ok := parseTreeSummaryLine(line); ok {
+			if sawSummary {
+				return treeListing{}, false
+			}
+			listing.Dirs = dirs
+			listing.Files = files
+			sawSummary = true
+			continue
+		}
+		if sawSummary {
+			return treeListing{}, false
+		}
+		if listing.Root == "" {
+			if _, _, ok := parseTreeEntryLine(line); ok || strings.TrimSpace(line) != line {
+				return treeListing{}, false
+			}
+			listing.Root = line
+			continue
+		}
+		level, name, ok := parseTreeEntryLine(line)
+		if !ok || name == "." || name == ".." || strings.TrimSpace(name) != name {
+			return treeListing{}, false
+		}
+		if level > len(stack)+1 {
+			return treeListing{}, false
+		}
+		stack = stack[:level-1]
+		path := treeEntryPath(listing.Root, stack, name)
+		if path == "" || containsControl(path) {
+			return treeListing{}, false
+		}
+		listing.Paths = append(listing.Paths, path)
+		stack = append(stack, name)
+	}
+
+	if listing.Root == "" || !sawSummary || len(listing.Paths) == 0 {
+		return treeListing{}, false
+	}
+	total := listing.Dirs + listing.Files
+	if total <= 0 || (len(listing.Paths) != total && len(listing.Paths) != total-1) {
+		return treeListing{}, false
+	}
+	return listing, true
+}
+
+func parseTreeSummaryLine(line string) (int, int, bool) {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) != 4 {
+		return 0, 0, false
+	}
+	if fields[1] != "directory," && fields[1] != "directories," {
+		return 0, 0, false
+	}
+	if fields[3] != "file" && fields[3] != "files" {
+		return 0, 0, false
+	}
+	dirs, err := strconv.Atoi(fields[0])
+	if err != nil || dirs < 0 {
+		return 0, 0, false
+	}
+	files, err := strconv.Atoi(fields[2])
+	if err != nil || files < 0 {
+		return 0, 0, false
+	}
+	return dirs, files, true
+}
+
+func parseTreeEntryLine(line string) (int, string, bool) {
+	connectors := []string{"├── ", "└── ", "|-- ", "`-- ", "\\-- "}
+	for _, connector := range connectors {
+		idx := strings.Index(line, connector)
+		if idx < 0 {
+			continue
+		}
+		prefix := line[:idx]
+		depth, ok := treePrefixDepth(prefix)
+		if !ok {
+			return 0, "", false
+		}
+		name := line[idx+len(connector):]
+		if name == "" {
+			return 0, "", false
+		}
+		return depth + 1, name, true
+	}
+	return 0, "", false
+}
+
+func treePrefixDepth(prefix string) (int, bool) {
+	depth := 0
+	for prefix != "" {
+		switch {
+		case strings.HasPrefix(prefix, "│   "):
+			prefix = strings.TrimPrefix(prefix, "│   ")
+		case strings.HasPrefix(prefix, "│\u00a0\u00a0 "):
+			prefix = strings.TrimPrefix(prefix, "│\u00a0\u00a0 ")
+		case strings.HasPrefix(prefix, "|   "):
+			prefix = strings.TrimPrefix(prefix, "|   ")
+		case strings.HasPrefix(prefix, "|\u00a0\u00a0 "):
+			prefix = strings.TrimPrefix(prefix, "|\u00a0\u00a0 ")
+		case strings.HasPrefix(prefix, "    "):
+			prefix = strings.TrimPrefix(prefix, "    ")
+		default:
+			return 0, false
+		}
+		depth++
+	}
+	return depth, true
+}
+
+func treeEntryPath(root string, stack []string, name string) string {
+	parts := make([]string, 0, len(stack)+1)
+	for _, part := range stack {
+		parts = append(parts, strings.TrimSuffix(part, "/"))
+	}
+	parts = append(parts, name)
+	joined := strings.Join(parts, "/")
+	switch root {
+	case ".", "./":
+		return joined
+	default:
+		return strings.TrimRight(root, "/") + "/" + joined
+	}
+}
+
+func formatTreeListing(listing treeListing) string {
+	var sb strings.Builder
+	sb.WriteString("[tree paths] ")
+	sb.WriteString(strconv.Itoa(len(listing.Paths)))
+	sb.WriteString(" entries ")
+	sb.WriteString(strconv.Itoa(listing.Dirs))
+	sb.WriteString(" directories ")
+	sb.WriteString(strconv.Itoa(listing.Files))
+	sb.WriteString(" files root=")
+	sb.WriteString(listing.Root)
+	sb.WriteByte('\n')
+	currentDir := ""
+	for _, path := range listing.Paths {
+		idx := strings.LastIndex(path, "/")
+		dir := "./"
+		base := path
+		if idx >= 0 {
+			dir = path[:idx+1]
+			base = path[idx+1:]
+		}
+		if dir != currentDir {
+			sb.WriteString(dir)
+			sb.WriteByte('\n')
+			currentDir = dir
+		}
+		sb.WriteString("  ")
+		sb.WriteString(base)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
 }
 
 // LsLongOutputEligibleArgv reports whether argv is a safe `ls -l` style shape

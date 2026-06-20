@@ -286,7 +286,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("path_list_output", "listing", []string{"file path", "directory grouping", "path count"}, TryCompactPathListOutput),
 		searchOutputReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}),
 		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
-		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
+		evidenceReducer("tree", "listing", []string{"empty marker", "file path", "directory grouping", "summary counts", "bounded depth"}, TryCompactTree),
 		evidenceReducer("wc", "listing", []string{"count values", "requested count units", "file path", "total row"}, TryCompactWc),
 		argvReducer("vcs_host_json_exact", "vcs_host", Layer0ReducerSafetyExact, []string{"all response bytes", "valid JSON fields", "valid JSON scalar values", "array order"}, TryCompactVCSHostJSONExact),
 		argvReducer("network_response_exact", "network", Layer0ReducerSafetyExact, []string{"all response bytes", "valid JSON fields", "valid JSON scalar values", "array order"}, TryCompactNetworkResponse),

@@ -40,7 +40,7 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 			t.Fatalf("%s has no recovery path contract", reducer.ID)
 		}
 		if reducer.SafetyClass == Layer0ReducerSafetyEmptyEvidence {
-			if reducer.ID != "ls" && reducer.ID != "tree" {
+			if reducer.ID != "ls" {
 				t.Fatalf("%s uses empty-evidence safety class; only empty filesystem probes may use it", reducer.ID)
 			}
 			if !containsPreservedEvidence(reducer.PreservedEvidence, "full-pass") {

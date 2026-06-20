@@ -493,9 +493,155 @@ func TestPathListOutputParserEdges(t *testing.T) {
 
 func TestTryCompactTree_withSummary(t *testing.T) {
 	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString(".\n")
+	sb.WriteString("├── src\n")
+	for i := 0; i < 24; i++ {
+		connector := "│   ├── "
+		if i == 23 {
+			connector = "│   └── "
+		}
+		fmt.Fprintf(&sb, "%sgenerated_file_%02d.go\n", connector, i)
+	}
+	sb.WriteString("├── go.mod\n")
+	sb.WriteString("└── README.md\n\n")
+	sb.WriteString("2 directories, 26 files\n")
+
+	out, ok := TryCompactTree([]string{"tree", "-a", "-L", "2", "."}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("bounded non-empty tree output should compact")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[tree paths] 27 entries 2 directories 26 files root=.") ||
+		!strings.Contains(text, "src/") ||
+		!strings.Contains(text, "  generated_file_23.go") ||
+		!strings.Contains(text, "./\n  go.mod\n  README.md") {
+		t.Fatalf("unexpected tree compaction: %q", text)
+	}
+	if strings.Contains(text, "├──") || strings.Contains(text, "│") {
+		t.Fatalf("tree compaction should remove tree drawing glyphs: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("tree compaction should save bytes: out=%d in=%d", len(text), sb.Len())
+	}
+}
+
+func TestTryCompactTreeFailOpen(t *testing.T) {
+	t.Parallel()
 	input := ".\n├── src\n│   ├── main.go\n│   └── config.go\n├── go.mod\n└── README.md\n\n2 directories, 4 files\n"
-	if _, ok := TryCompactTree([]string{"tree"}, []byte(input)); ok {
-		t.Fatal("non-empty tree output must full-pass; hierarchy is model evidence")
+	for _, tc := range []struct {
+		name   string
+		argv   []string
+		stdout string
+	}{
+		{name: "missing bounded depth", argv: []string{"tree"}, stdout: input},
+		{name: "noreport", argv: []string{"tree", "-L", "2", "--noreport"}, stdout: ".\n├── src\n│   └── main.go\n"},
+		{name: "deep", argv: []string{"tree", "-L", "99"}, stdout: input},
+		{name: "rich flag", argv: []string{"tree", "-L", "2", "--du"}, stdout: input},
+		{name: "full-path flag", argv: []string{"tree", "-f", "-L", "2"}, stdout: input},
+		{name: "ansi", argv: []string{"tree", "-L", "2"}, stdout: ".\n├── \x1b[31msrc\n\n2 directories, 0 files\n"},
+		{name: "summary mismatch", argv: []string{"tree", "-L", "2"}, stdout: ".\n├── src\n│   └── main.go\n\n9 directories, 9 files\n"},
+		{name: "tiny non shrinking", argv: []string{"tree", "-L", "1"}, stdout: ".\n└── README.md\n\n1 directory, 1 file\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := TryCompactTree(tc.argv, []byte(tc.stdout)); ok {
+				t.Fatal("unsafe or non-beneficial tree output must fail open")
+			}
+		})
+	}
+}
+
+func TestTryCompactTreeArgvAndASCIIShapes(t *testing.T) {
+	t.Parallel()
+	var ascii strings.Builder
+	ascii.WriteString("internal/proxy\n")
+	for i := 0; i < 40; i++ {
+		connector := "|-- "
+		if i == 39 {
+			connector = "`-- "
+		}
+		fmt.Fprintf(&ascii, "%stree_file_%02d.go\n", connector, i)
+	}
+	ascii.WriteString("\n1 directory, 40 files\n")
+
+	for _, argv := range [][]string{
+		{"tree", "-adL2", "internal/proxy"},
+		{"tree", "--dirsfirst", "--charset", "ascii", "-L", "2", "--", "internal/proxy"},
+		{"tree.exe", "--charset=ascii", "-L2", "internal/proxy"},
+	} {
+		out, ok := TryCompactTree(argv, []byte(ascii.String()))
+		if !ok {
+			t.Fatalf("safe ASCII tree argv should compact: %v", argv)
+		}
+		text := string(out)
+		if !strings.Contains(text, "root=internal/proxy") ||
+			!strings.Contains(text, "tree_file_39.go") ||
+			strings.Contains(text, "`--") ||
+			strings.Contains(text, "|--") {
+			t.Fatalf("unexpected ASCII tree compaction for %v: %q", argv, text)
+		}
+	}
+}
+
+func TestTryCompactTreeParserFailOpenEdges(t *testing.T) {
+	t.Parallel()
+	if treeOutputEligibleArgv(nil) || treeOutputEligibleArgv([]string{"tree", ""}) {
+		t.Fatal("empty tree argv shapes must fail open")
+	}
+	if treeOutputEligibleArgv([]string{"tree", "-L"}) || treeOutputEligibleArgv([]string{"tree", "-L", "x"}) {
+		t.Fatal("missing or non-numeric tree depth must fail open")
+	}
+	if treeOutputEligibleArgv([]string{"tree", "--", ""}) ||
+		treeOutputEligibleArgv([]string{"tree", "--charset"}) ||
+		treeOutputEligibleArgv([]string{"tree", "--charset="}) {
+		t.Fatal("blank separator or charset args must fail open")
+	}
+	if !treeOutputEligibleArgv([]string{"tree", "-L", "6", "--", "path with spaces"}) {
+		t.Fatal("bounded tree with separator and path argument should be eligible")
+	}
+	if treeBoundedDepthArg("0") || treeBoundedDepthArg("-1") || treeBoundedDepthArg("7") {
+		t.Fatal("tree depth bounds mismatch")
+	}
+	if _, _, ok := parseTreeEntryLine("│  ├── bad-prefix.go"); ok {
+		t.Fatal("malformed tree prefix must fail open")
+	}
+	if _, _, ok := parseTreeEntryLine("\\-- ascii-backslash.go"); !ok {
+		t.Fatal("ascii backslash final connector should parse")
+	}
+	if _, _, ok := parseTreeSummaryLine("2 dirs, 4 files"); ok {
+		t.Fatal("non-tree summary wording must fail open")
+	}
+	if _, _, ok := parseTreeSummaryLine("x directories, 4 files"); ok {
+		t.Fatal("non-numeric directory count must fail open")
+	}
+	if _, _, ok := parseTreeSummaryLine("2 directories, -4 files"); ok {
+		t.Fatal("negative file count must fail open")
+	}
+	if _, ok := treePrefixDepth("│   |   "); !ok {
+		t.Fatal("mixed unicode/ascii continuation chunks should parse")
+	}
+	if _, ok := treePrefixDepth("│\u00a0\u00a0 "); !ok {
+		t.Fatal("macOS tree NBSP continuation chunk should parse")
+	}
+	if _, ok := treePrefixDepth("│  "); ok {
+		t.Fatal("partial tree prefix chunk must fail open")
+	}
+	if got := treeEntryPath(".", []string{"src/"}, "main.go"); got != "src/main.go" {
+		t.Fatalf("treeEntryPath trims parent slash for children, got %q", got)
+	}
+	for _, payload := range []string{
+		"",
+		"  .\n└── file.go\n\n1 directory, 1 file\n",
+		".\n└── file.go\n\n1 directory, 1 file\nunexpected\n",
+		".\n└── file.go\n\n1 directory, 1 file\n1 directory, 1 file\n",
+		".\n    └── impossible.go\n\n1 directory, 1 file\n",
+		".\n├── .\n\n1 directory, 1 file\n",
+		".\n└── file.go\n\n0 directories, 0 files\n",
+	} {
+		if _, ok := parseTreeListing(payload); ok {
+			t.Fatalf("unsafe tree payload should fail open: %q", payload)
+		}
 	}
 }
 
