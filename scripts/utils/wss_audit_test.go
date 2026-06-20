@@ -639,6 +639,10 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "Shadow mirror candidates:") ||
 		!strings.Contains(stdout.String(), "shape=full_history") ||
 		!strings.Contains(stdout.String(), "lane=t417_class_b_server_state") ||
+		!strings.Contains(stdout.String(), "candidate_tokens=") ||
+		!strings.Contains(stdout.String(), "headroom=") ||
+		!strings.Contains(stdout.String(), "error_free=false") ||
+		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
@@ -720,7 +724,11 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if len(report.ShadowMirrorCandidates) != 1 ||
 		report.ShadowMirrorCandidates[0].Kind != "codex_exec_payload" ||
-		report.ShadowMirrorCandidates[0].CandidateLane != "t417_class_b_server_state" {
+		report.ShadowMirrorCandidates[0].CandidateLane != "t417_class_b_server_state" ||
+		report.ShadowMirrorCandidates[0].CandidateLocalTokensEstimate <= 0 ||
+		report.ShadowMirrorCandidates[0].IncrementalLocalTokensHeadroom <= 0 ||
+		report.ShadowMirrorCandidates[0].ErrorFree ||
+		report.ShadowMirrorCandidates[0].NextProofGate != "fix_or_exclude_erroring_shape_before_promotion" {
 		t.Fatalf("shadow mirror candidates missing from JSON report: %+v", report.ShadowMirrorCandidates)
 	}
 	if len(report.Policy) != 2 || report.PolicySource == "" {

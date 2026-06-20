@@ -14,6 +14,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/control"
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
+	"github.com/Christopher-Schulze/Slimference/internal/tokens"
 )
 
 type wssAuditReport struct {
@@ -211,21 +212,25 @@ type wssShadowMirrorAccumulator struct {
 }
 
 type wssShadowMirrorCandidate struct {
-	RequestShape          string  `json:"request_shape"`
-	Kind                  string  `json:"kind"`
-	Requests              int     `json:"requests"`
-	ReferenceableSegments int     `json:"referenceable_segments"`
-	Segments              int     `json:"segments"`
-	ReferenceableBytes    int     `json:"referenceable_bytes"`
-	Bytes                 int     `json:"bytes"`
-	ReferenceableBytePct  float64 `json:"referenceable_byte_pct"`
-	ProviderInputTokens   int     `json:"provider_input_tokens"`
-	LocalSavedTokens      int     `json:"local_saved_tokens"`
-	ErrorRequests         int     `json:"error_requests"`
-	UpstreamErrorRequests int     `json:"upstream_error_requests"`
-	HTTP400ErrorRequests  int     `json:"http_400_error_requests"`
-	CandidateLane         string  `json:"candidate_lane"`
-	RecommendedAction     string  `json:"recommended_action"`
+	RequestShape                   string  `json:"request_shape"`
+	Kind                           string  `json:"kind"`
+	Requests                       int     `json:"requests"`
+	ReferenceableSegments          int     `json:"referenceable_segments"`
+	Segments                       int     `json:"segments"`
+	ReferenceableBytes             int     `json:"referenceable_bytes"`
+	Bytes                          int     `json:"bytes"`
+	ReferenceableBytePct           float64 `json:"referenceable_byte_pct"`
+	CandidateLocalTokensEstimate   int     `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom int     `json:"incremental_local_tokens_headroom"`
+	ProviderInputTokens            int     `json:"provider_input_tokens"`
+	LocalSavedTokens               int     `json:"local_saved_tokens"`
+	ErrorRequests                  int     `json:"error_requests"`
+	UpstreamErrorRequests          int     `json:"upstream_error_requests"`
+	HTTP400ErrorRequests           int     `json:"http_400_error_requests"`
+	ErrorFree                      bool    `json:"error_free"`
+	CandidateLane                  string  `json:"candidate_lane"`
+	NextProofGate                  string  `json:"next_proof_gate"`
+	RecommendedAction              string  `json:"recommended_action"`
 }
 
 type wssShadowMirrorCandidateAccumulator struct {
@@ -1087,6 +1092,7 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	row.Bytes += maxInt(0, bytes)
 	row.ReferenceableSegments += maxInt(0, refSegments)
 	row.Segments += maxInt(0, segments)
+	row.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
 	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
 	row.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
 	if len(summary.Errors) > 0 {
@@ -1108,9 +1114,15 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 	for _, row := range a.rows {
 		candidate := *row
 		candidate.ReferenceableBytePct = pct(candidate.ReferenceableBytes, candidate.Bytes)
+		candidate.IncrementalLocalTokensHeadroom = maxInt(0, candidate.CandidateLocalTokensEstimate-candidate.LocalSavedTokens)
+		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
+		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
 		out = append(out, candidate)
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].IncrementalLocalTokensHeadroom != out[j].IncrementalLocalTokensHeadroom {
+			return out[i].IncrementalLocalTokensHeadroom > out[j].IncrementalLocalTokensHeadroom
+		}
 		if out[i].ReferenceableBytes != out[j].ReferenceableBytes {
 			return out[i].ReferenceableBytes > out[j].ReferenceableBytes
 		}
@@ -1123,6 +1135,22 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		return out[i].Kind < out[j].Kind
 	})
 	return out
+}
+
+func wssShadowMirrorCandidateProofGate(candidate wssShadowMirrorCandidate) string {
+	if !candidate.ErrorFree {
+		return "fix_or_exclude_erroring_shape_before_promotion"
+	}
+	switch candidate.CandidateLane {
+	case "t417_class_b_server_state":
+		return "t417_exact_lineage_net_positive_zero400_gate"
+	case "t405_t354_stateful_delta":
+		return "t405_t354_downstream_state_zero400_gate"
+	case "t406_t418_parser_frontier":
+		return "t418_command_output_first_or_t406_stateful_safe_parser_gate"
+	default:
+		return "shape_resolution_gate"
+	}
 }
 
 func parseWSSShadowMirrorKindRows(encoded string) []wssShadowMirrorKindSummary {
@@ -1612,19 +1640,23 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d lane=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d error_free=%v lane=%s gate=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
 				row.Bytes,
 				row.ReferenceableBytePct,
+				row.CandidateLocalTokensEstimate,
+				row.IncrementalLocalTokensHeadroom,
 				row.ReferenceableSegments,
 				row.Segments,
 				row.Requests,
 				row.ProviderInputTokens,
 				row.LocalSavedTokens,
 				row.ErrorRequests,
+				row.ErrorFree,
 				row.CandidateLane,
+				row.NextProofGate,
 				row.RecommendedAction)
 		}
 	}
