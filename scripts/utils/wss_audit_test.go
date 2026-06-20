@@ -370,6 +370,17 @@ func TestWSSAuditShadowMirrorPromotionOpenSlice(t *testing.T) {
 	}
 }
 
+func TestWSSShadowMirrorCandidateActionNamesCommandFamily(t *testing.T) {
+	t.Parallel()
+
+	action := wssShadowMirrorCandidateAction("full_history", "codex_exec_payload_command_git")
+	if !strings.Contains(action, "exact command family") ||
+		!strings.Contains(action, "T417 Class-B continuation") ||
+		!strings.Contains(action, "T418 command-output-first") {
+		t.Fatalf("command-family action should name T417/T418 ranking path, got %q", action)
+	}
+}
+
 func TestWSSAuditShadowMirrorReferenceOnlyHeadroomIsNotPromotionOpen(t *testing.T) {
 	t.Parallel()
 

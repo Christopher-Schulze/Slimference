@@ -70,6 +70,34 @@ func TestMirror_NormalizedCodexExecPayloadPredictsThroughVolatileHeader(t *testi
 	}
 }
 
+func TestMirror_NormalizedCodexExecPayloadClassifiesCommandFamily(t *testing.T) {
+	t.Parallel()
+	m := New()
+	payload := strings.Repeat("stable npm install output\n", 20)
+	first := "Chunk ID: first\nProcess exited with code 0\nOutput:\n" + payload
+	second := "Chunk ID: second\nProcess exited with code 0\nOutput:\n" + payload
+	firstMsg := []types.Message{{Role: "tool", Content: []types.ContentBlock{{
+		Type:      "tool_result",
+		Text:      first,
+		ToolInput: `{"cmd":"npm install"}`,
+	}}}}
+	secondMsg := []types.Message{{Role: "tool", Content: []types.ContentBlock{{
+		Type:      "tool_result",
+		Text:      second,
+		ToolInput: `{"command":["/usr/local/bin/npm","install"]}`,
+	}}}}
+	m.Observe("s", firstMsg)
+
+	rep := m.Predict("s", secondMsg)
+	kind := rep.NormalizedPotentialSavedBytesByKind["codex_exec_payload_command_npm"]
+	if kind.Segments != 1 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
+		t.Fatalf("command-family kind accounting wrong: %+v", rep.NormalizedPotentialSavedBytesByKind)
+	}
+	if got := rep.NormalizedPredictions[0]; got.Kind != "codex_exec_payload_command_npm" || !got.AlreadyForwarded {
+		t.Fatalf("command-family prediction wrong: %+v", got)
+	}
+}
+
 func TestMirror_NormalizedNovelPayloadNotReferenceable(t *testing.T) {
 	t.Parallel()
 	m := New()
@@ -109,6 +137,36 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 	textFallback := normalizedSegmentKind(types.Message{}, types.ContentBlock{})
 	if textFallback != "text" {
 		t.Fatalf("text fallback kind wrong: %q", textFallback)
+	}
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"git status --short"}`}); kind != "codex_exec_payload_command_git" {
+		t.Fatalf("codex exec command kind wrong: %q", kind)
+	}
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"command":["/opt/homebrew/bin/bash","-lc","go test ./..."]}`}); kind != "codex_exec_payload_command_go" {
+		t.Fatalf("codex exec array command kind wrong: %q", kind)
+	}
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"env GIT_OPTIONAL_LOCKS=0 git status --short"}`}); kind != "codex_exec_payload_command_git" {
+		t.Fatalf("codex exec env-wrapped command kind wrong: %q", kind)
+	}
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"!!!"}`}); kind != "codex_exec_payload" {
+		t.Fatalf("unsafe command kind should fall back, got %q", kind)
+	}
+	commandInputs := map[string]string{
+		`"cargo test --workspace"`:                         "codex_exec_payload_command_cargo",
+		`{"command_line":"go test ./..."}`:                 "codex_exec_payload_command_go",
+		`{"shellCommand":"pnpm build"}`:                    "codex_exec_payload_command_pnpm",
+		`{"argv":["/usr/bin/python3","-m","pytest"]}`:      "codex_exec_payload_command_python3",
+		`{"args":["/bin/zsh","-c","terraform plan"]}`:      "codex_exec_payload_command_terraform",
+		`not-json-command --flag`:                          "codex_exec_payload_command_not_json_command",
+		`{"command":["env","-i","PATH=/bin","git","log"]}`: "codex_exec_payload_command_git",
+		`{"command":123}`:                                  "codex_exec_payload",
+		`{"argv":[1,2]}`:                                   "codex_exec_payload",
+		`{"unknown":"value"}`:                              "codex_exec_payload",
+		``:                                                 "codex_exec_payload",
+	}
+	for input, want := range commandInputs {
+		if got := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: input}); got != want {
+			t.Fatalf("command input %q classified as %q, want %q", input, got, want)
+		}
 	}
 
 	m := New()

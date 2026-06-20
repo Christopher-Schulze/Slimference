@@ -20,8 +20,11 @@ package servermirror
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
@@ -243,7 +246,7 @@ func normalizedSegments(msgs []types.Message) []normalizedSegment {
 				out = append(out, normalizedSegment{
 					Block:   blockIdx,
 					Segment: 0,
-					Kind:    "codex_exec_payload",
+					Kind:    normalizedCodexExecPayloadKind(b),
 					Text:    payload,
 				})
 			} else {
@@ -268,6 +271,115 @@ func normalizedSegmentKind(msg types.Message, block types.ContentBlock) string {
 		return role
 	}
 	return "text"
+}
+
+func normalizedCodexExecPayloadKind(block types.ContentBlock) string {
+	base := sanitizedCommandBase(commandLineFromToolInput(block.ToolInput))
+	if base == "" {
+		return "codex_exec_payload"
+	}
+	return "codex_exec_payload_command_" + base
+}
+
+func commandLineFromToolInput(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+	var raw string
+	if err := json.Unmarshal([]byte(input), &raw); err == nil {
+		return strings.TrimSpace(raw)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &obj); err == nil {
+		for _, key := range []string{"command", "cmd", "command_line", "cmdline", "commandLine", "shell_command", "shellCommand"} {
+			if value := rawJSONString(obj[key]); value != "" {
+				return value
+			}
+		}
+		for _, key := range []string{"command", "argv", "args", "cmd_args", "command_args"} {
+			if argv := rawStringArray(obj[key]); len(argv) > 0 {
+				return strings.Join(argv, " ")
+			}
+		}
+		return ""
+	}
+	return input
+}
+
+func rawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+func rawStringArray(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil
+	}
+	out := values[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func sanitizedCommandBase(commandLine string) string {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return ""
+	}
+	base := commandBaseFromFields(strings.Fields(commandLine))
+	base = strings.ToLower(base)
+	var b strings.Builder
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune('_')
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func commandBaseFromFields(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	base := filepath.Base(strings.Trim(fields[0], `"'`))
+	switch base {
+	case "env":
+		for _, field := range fields[1:] {
+			if strings.HasPrefix(field, "-") || strings.Contains(field, "=") {
+				continue
+			}
+			return commandBaseFromFields([]string{field})
+		}
+	case "bash", "sh", "zsh":
+		for i := 1; i < len(fields)-1; i++ {
+			if fields[i] == "-c" || fields[i] == "-lc" {
+				return commandBaseFromFields(strings.Fields(strings.Trim(fields[i+1], `"'`)))
+			}
+		}
+	}
+	return base
 }
 
 func splitCodexExecEnvelope(text string) (header, payload string, ok bool) {
