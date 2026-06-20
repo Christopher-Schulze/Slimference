@@ -345,6 +345,27 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyFullPass, reason: "latency_budget_full_context",
 		},
 		{
+			name: "latency budget allows high value recoverable chunk",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofLive,
+				OutputBytes: codexLatencyChunkDedupProbeMinBytes, MinBytes: 1, LatencyBudgetExceeded: true,
+			},
+			action: CodexPolicyAllow, reason: "latency_budget_high_value_recoverable_chunk_dedup", note: true,
+		},
+		{
+			name: "latency high value chunk keeps host budget guard",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, Proof: CodexProofLive,
+				OutputBytes: codexLatencyChunkDedupProbeMinBytes, MinBytes: 1,
+				LatencyBudgetExceeded: true, HostBudgetExceeded: true,
+			},
+			action: CodexPolicyFullPass, reason: "host_budget_full_context",
+		},
+		{
 			name: "latency budget keeps lossless exact reducers",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
@@ -452,6 +473,26 @@ func TestDecideCodexToolOutputLatencyBudgetKeepsLosslessReducers(t *testing.T) {
 		actionForMechanism(got.Mechanisms, CodexMechanismRepeatedOutput) != CodexPolicyAllow ||
 		actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyFullPass {
 		t.Fatalf("latency budget mechanism actions mismatch: %+v", got.Mechanisms)
+	}
+}
+
+func TestDecideCodexToolOutputLatencyBudgetAllowsLargeRecoverableChunk(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     string(CodexModeAuto),
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		ChunkProof:               CodexProofLive,
+		OutputBytes:              codexLatencyChunkDedupProbeMinBytes,
+		ChunkMinBytes:            1,
+		LatencyBudgetExceeded:    true,
+	})
+	if got.Loosened || !got.ReadDelta || !got.RepeatedOutput || !got.ChunkDedup ||
+		!got.NeedsRecoveryNote || got.Reason != "latency_budget_high_value_recoverable_chunk_dedup" {
+		t.Fatalf("large archive-backed chunk candidate should stay enabled under latency budget: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyAllow {
+		t.Fatalf("chunk mechanism should be allowed for high-value latency probe: %+v", got.Mechanisms)
 	}
 }
 

@@ -934,6 +934,14 @@ read-delta and exact repeated-output reducers may still run. Cross-send seeding 
 encountered inside the same model-facing output stay verbatim and only seed
 future overlap; references are emitted only for chunks that were known before the
 current output started.
+The latency budget remains a guard for broad recoverable work, but it no longer
+blanket-demotes high-value chunk candidates. When latency demotion is active,
+archive-backed chunk dedup may still run for outputs of at least 64 KiB if the
+normal recovery proof, archive availability, min-byte, density, edit, host,
+negative-savings, retry, route, and session-integrity guards all pass. Smaller
+outputs and any output carrying another hard guard still full-pass under the
+latency budget; lossless read-delta and exact repeated-output remain separately
+allowed as before.
 Commands such as
 `apply_patch`, `patch`, `diff`, `colordiff`, patch/diff file reads,
 `git diff`, `git show`, `git log -p`, `git apply`, `git am`,

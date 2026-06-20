@@ -2076,6 +2076,54 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupLatencyBudgetAllowsLargeRecoverableOverlap(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("latency budget high value shared recoverable chunk line\n", 1400)
+	messagesFor := func(id, path, tail string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "Read", ToolInput: `{"path":"` + path + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: shared + tail}}},
+		}
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:                 codexLayer0RouteWSSPhaseF,
+			Messages:              messages,
+			SessionID:             "sess-latency-high-value-chunks",
+			ChunkDedupEnabled:     true,
+			ChunkDedupProof:       savingspolicy.CodexProofLive,
+			ChunkDedupMinBytes:    1,
+			ChunkDedupMaxRefPct:   100,
+			ChunkStore:            store,
+			ArchiveRecovery:       true,
+			LatencyBudgetExceeded: true,
+			PolicyMode:            "auto",
+		}
+	}
+
+	seed := reduceCodexLayer0(req(messagesFor("read-lat-a", "a.go", "tail a\n")))
+	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 ||
+		actionForMechanism(seed.Stats.PolicyDecisions, savingspolicy.CodexMechanismChunkDedup) != savingspolicy.CodexPolicyAllow {
+		t.Fatalf("first large latency-budget output should seed recoverable chunks only: %+v", seed.Stats)
+	}
+	out := reduceCodexLayer0(req(messagesFor("read-lat-b", "b.go", "tail b\n")))
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		actionForMechanism(out.Stats.PolicyDecisions, savingspolicy.CodexMechanismChunkDedup) != savingspolicy.CodexPolicyAllow ||
+		!hasEvidenceDecision(out.Stats.EvidenceDecisions, proxyLayer0MechanismChunkDedup, "positive_net_savings", evidence.ActionApplied) ||
+		!strings.Contains(text, "[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(text, "tail b") {
+		t.Fatalf("second large latency-budget output should chunk-dedup recoverable overlap: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupHighFootprintScalesMinBytes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

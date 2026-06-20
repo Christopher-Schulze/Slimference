@@ -89,6 +89,8 @@ const (
 	CodexPolicyBlock    CodexPolicyAction = "block"
 )
 
+const codexLatencyChunkDedupProbeMinBytes = 64 * 1024
+
 type CodexMechanismInput struct {
 	Mode                      string
 	Route                     CodexRoute
@@ -233,7 +235,7 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 		decision.ChunkDedup = chunk.Action == CodexPolicyAllow
 		if decision.ChunkDedup {
 			decision.NeedsRecoveryNote = true
-			decision.Reason = "explicit_chunk_dedup"
+			decision.Reason = toolOutputChunkReason(chunk.Reason, "explicit_chunk_dedup")
 		}
 		decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 		return decision
@@ -242,10 +244,10 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 	if chunk.Action == CodexPolicyAllow {
 		decision.ChunkDedup = true
 		decision.NeedsRecoveryNote = true
-		decision.Reason = "auto_recoverable_chunk_dedup"
+		decision.Reason = toolOutputChunkReason(chunk.Reason, "auto_recoverable_chunk_dedup")
 	}
 	if mode == CodexModeMax && decision.ChunkDedup {
-		decision.Reason = "max_recoverable_chunk_dedup"
+		decision.Reason = toolOutputChunkReason(chunk.Reason, "max_recoverable_chunk_dedup")
 	}
 	decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 	return decision
@@ -281,6 +283,18 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 	if in.NegativeSavingsHistory && in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
 		return allow(base, "lossless_or_exact_reducer_negative_savings", false)
 	}
+	if in.LatencyBudgetExceeded && in.Mechanism == CodexMechanismChunkDedup &&
+		in.Risk == CodexRiskRecoverable && in.Recovery == CodexRecoveryArchive &&
+		in.OutputBytes >= codexLatencyChunkDedupProbeMinBytes &&
+		!in.RecentlyEdited && !in.PostCollapseReRead && !in.SessionIntegrityBudgetHit &&
+		!in.QualitySpike && !in.ArchiveRecoveryLoop && !in.MissingToolRetry &&
+		!in.DegradedRoute && !in.HostBudgetExceeded && !in.NegativeSavingsHistory {
+		decision := decideChunkDedup(base, in, mode)
+		if decision.Action == CodexPolicyAllow {
+			decision.Reason = "latency_budget_high_value_recoverable_chunk_dedup"
+		}
+		return decision
+	}
 	if reason, ok := mechanismDemotionReason(in); ok {
 		return fullPass(base, reason)
 	}
@@ -315,6 +329,13 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 		return shadow(base, "drawdown_proof_required")
 	}
 	return block(base, "unsupported_policy_shape")
+}
+
+func toolOutputChunkReason(mechanismReason, fallback string) string {
+	if mechanismReason == "latency_budget_high_value_recoverable_chunk_dedup" {
+		return mechanismReason
+	}
+	return fallback
 }
 
 func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanismInput {
