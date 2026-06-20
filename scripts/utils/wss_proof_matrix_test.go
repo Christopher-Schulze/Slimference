@@ -158,6 +158,43 @@ func TestWSSProofMatrixFunctionCallMinimaGate(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixFullHistoryMinimaGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofControlFrames(t, framesPath, "full-history-minima")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:             "full-history-minima",
+		Client:         "cli",
+		WorkloadClass:  "desktop_reconnect",
+		FramesPath:     framesPath,
+		MinFullHistory: 1,
+		LiveDelta:      proofMatrixLiveDelta(false),
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"desktop_reconnect"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("full-history minima failure should fail capture: %+v", report)
+	}
+	if report.CaptureReports[0].MinFullHistory != 1 {
+		t.Fatalf("capture report missing full-history minimum: %+v", report.CaptureReports[0])
+	}
+	failures := strings.Join(report.CaptureReports[0].GateFailures, "\n")
+	if !strings.Contains(failures, "full_history_request_shapes=0 below required minimum 1") {
+		t.Fatalf("missing full-history minima failure:\n%s", failures)
+	}
+}
+
 func TestWSSProofMatrixPrefixElisionRequiresToolUseOracle(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

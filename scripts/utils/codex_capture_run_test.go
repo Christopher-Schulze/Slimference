@@ -1079,6 +1079,98 @@ func TestRunCodexCaptureRunWritesMatrixBeforeExpectedReducerFailure(t *testing.T
 	}
 }
 
+func TestRunCodexCaptureRunFailsFullHistoryShapeRequirement(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	deps := codexCaptureRunDeps{
+		now:            func() time.Time { return time.Date(2026, 6, 20, 20, 0, 0, 0, time.UTC) },
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error { return nil },
+		startDaemon: func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error) {
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error { return nil },
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			return codexCaptureAdminSnapshot{}, nil
+		},
+		runCodex:   func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error { return nil },
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
+		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
+			return wssABReplayReport{
+				Path:          flags.path,
+				Frames:        3,
+				RequestTurns:  1,
+				RequestShapes: replayShapeCounts{Delta: 1},
+				GatePassed:    true,
+			}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--matrix-row", matrixPath,
+		"--id", "full-history-negative",
+		"--workload-class", "desktop_reconnect",
+		"--min-full-history-requests", "1",
+		"--", "Run reconnect workload",
+	}, &stdout, &stderr, deps)
+	if code != 3 || !strings.Contains(stderr.String(), "validate request shapes") ||
+		!strings.Contains(stderr.String(), "full_history_request_shapes=0 below required minimum 1") {
+		t.Fatalf("expected full-history shape failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "shapes:        root=0 delta=1 full_history=0") {
+		t.Fatalf("summary missing observed request shapes:\n%s", stdout.String())
+	}
+	records, err := readWSSProofMatrixRecords(matrixPath)
+	if err != nil {
+		t.Fatalf("read matrix row: %v", err)
+	}
+	if len(records) != 1 || records[0].ID != "full-history-negative" || records[0].MinFullHistory != 1 {
+		t.Fatalf("matrix row missing negative shape evidence: %+v", records)
+	}
+}
+
+func TestRunCodexCaptureRunPassesFullHistoryShapeRequirement(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	capturePath := filepath.Join(dir, "capture.jsonl")
+	deps := codexCaptureRunDeps{
+		now:            func() time.Time { return time.Date(2026, 6, 20, 20, 5, 0, 0, time.UTC) },
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error { return nil },
+		startDaemon: func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error) {
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error { return nil },
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			return codexCaptureAdminSnapshot{}, nil
+		},
+		runCodex:   func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error { return nil },
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
+		replay: func(flags wssABReplayFlags) (wssABReplayReport, error) {
+			return wssABReplayReport{
+				Path:          flags.path,
+				Frames:        4,
+				RequestTurns:  2,
+				RequestShapes: replayShapeCounts{FullHistory: 1, Delta: 1},
+				GatePassed:    true,
+			}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--min-full-history-requests=1",
+		"--", "Run reconnect workload",
+	}, &stdout, &stderr, deps)
+	if code != 0 {
+		t.Fatalf("expected full-history shape success, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "shapes:        root=0 delta=1 full_history=1") {
+		t.Fatalf("summary missing observed full-history shape:\n%s", stdout.String())
+	}
+}
+
 func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	state, err := parseCodexCaptureAdminStateJSON([]byte(`{
 	  "savings": {

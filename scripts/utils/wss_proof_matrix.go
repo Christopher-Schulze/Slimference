@@ -73,6 +73,7 @@ type wssProofMatrixCapture struct {
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings,omitempty"`
 	MinFunctionCalls    int                    `json:"min_function_calls,omitempty"`
 	MinFunctionOutputs  int                    `json:"min_function_call_outputs,omitempty"`
+	MinFullHistory      int                    `json:"min_full_history_requests,omitempty"`
 	ExpectedReducerHits map[string]int64       `json:"expected_reducer_hits,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	Replay              wssABReplayReport      `json:"replay"`
@@ -120,6 +121,7 @@ type wssProofMatrixRecord struct {
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings"`
 	MinFunctionCalls    int                    `json:"min_function_calls,omitempty"`
 	MinFunctionOutputs  int                    `json:"min_function_call_outputs,omitempty"`
+	MinFullHistory      int                    `json:"min_full_history_requests,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	SearchCapProof      *searchCapProofReport  `json:"search_cap_proof,omitempty"`
 	GatePassed          bool                   `json:"gate_passed,omitempty"`
@@ -423,6 +425,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			ExpectedZeroSavings: record.ExpectedZeroSavings,
 			MinFunctionCalls:    record.MinFunctionCalls,
 			MinFunctionOutputs:  record.MinFunctionOutputs,
+			MinFullHistory:      record.MinFullHistory,
 			LiveDelta:           record.LiveDelta,
 			GatePassed:          true,
 		}
@@ -449,6 +452,7 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			if !replay.GatePassed {
 				capture.GateFailures = append(capture.GateFailures, replay.GateFailures...)
 			}
+			capture.GateFailures = append(capture.GateFailures, validateWSSProofShapeMinima(capture)...)
 			if capture.WorkloadClass == "search_loop" {
 				searchCapMutationProof := false
 				if len(options.searchCapCandidates) > 0 {
@@ -799,6 +803,16 @@ func validateWSSProofFunctionCallMinima(capture wssProofMatrixCapture) []string 
 		failures = append(failures, fmt.Sprintf("wire_function_call_output_items=%d below required minimum %d", capture.LiveDelta.WireFunctionCallOutputs, capture.MinFunctionOutputs))
 	}
 	return failures
+}
+
+func validateWSSProofShapeMinima(capture wssProofMatrixCapture) []string {
+	if capture.MinFullHistory <= 0 {
+		return nil
+	}
+	if capture.Replay.RequestShapes.FullHistory < capture.MinFullHistory {
+		return []string{fmt.Sprintf("full_history_request_shapes=%d below required minimum %d", capture.Replay.RequestShapes.FullHistory, capture.MinFullHistory)}
+	}
+	return nil
 }
 
 func validateWSSProofPrefixElisionOracle(capture wssProofMatrixCapture, expected []string) []string {

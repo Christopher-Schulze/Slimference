@@ -49,6 +49,7 @@ type codexCaptureRunFlags struct {
 	exitMarkerCount               int
 	minFunctionCalls              int
 	minFunctionCallOutputs        int
+	minFullHistoryRequests        int
 	quietCodexOutput              bool
 	restartAfterCompletion        int
 	restartAfterMutatedCompletion int
@@ -339,6 +340,9 @@ Flags:
   --min-function-call-outputs N
                              Fail the capture unless at least N client-side
                              function_call_output input items were observed
+  --min-full-history-requests N
+                             Fail the capture unless replay observes at least N
+                             full-history request shapes
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
   --restart-after-completion N
                              Lab/proof only: restart the managed daemon after
@@ -531,6 +535,11 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 			return 1
 		}
 	}
+	if failures := validateCodexCaptureShapeRequirements(flags, result.Replay); len(failures) > 0 {
+		fmt.Fprintf(stderr, "validate request shapes: %s\n", strings.Join(failures, "; "))
+		writeCodexCaptureRunSummary(stdout, result)
+		return 3
+	}
 	if failures := validateCodexCaptureExpectedReducers(flags.expectedReducers, result.LiveDelta); len(failures) > 0 {
 		fmt.Fprintf(stderr, "validate expected reducers: %s\n", strings.Join(failures, "; "))
 		writeCodexCaptureRunSummary(stdout, result)
@@ -575,6 +584,14 @@ func validateCodexCaptureLiveRequirements(flags codexCaptureRunFlags, live *code
 	}
 	if flags.minFunctionCallOutputs > 0 && live.WireFunctionCallOutputs < int64(flags.minFunctionCallOutputs) {
 		failures = append(failures, fmt.Sprintf("wire_function_call_output_items=%d below required minimum %d", live.WireFunctionCallOutputs, flags.minFunctionCallOutputs))
+	}
+	return failures
+}
+
+func validateCodexCaptureShapeRequirements(flags codexCaptureRunFlags, replay wssABReplayReport) []string {
+	var failures []string
+	if flags.minFullHistoryRequests > 0 && replay.RequestShapes.FullHistory < flags.minFullHistoryRequests {
+		failures = append(failures, fmt.Sprintf("full_history_request_shapes=%d below required minimum %d", replay.RequestShapes.FullHistory, flags.minFullHistoryRequests))
 	}
 	return failures
 }
@@ -948,6 +965,7 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			arg == "--model", arg == "--ab-pair-id", arg == "--ab-variant",
 			arg == "--exit-marker", arg == "--resource-profile-proof",
 			arg == "--min-function-calls", arg == "--min-function-call-outputs",
+			arg == "--min-full-history-requests",
 			arg == "--search-cap-proof-lab", arg == "--search-cap-min-retained-pct":
 			if i+1 >= len(args) {
 				return flags, fmt.Errorf("%s requires a value", arg)
@@ -1174,6 +1192,15 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 			return fmt.Errorf("--min-function-call-outputs must be > 0")
 		}
 		flags.minFunctionCallOutputs = n
+	case "--min-full-history-requests":
+		n, err := parseNonNegativeIntFlag("--min-full-history-requests", value)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("--min-full-history-requests must be > 0")
+		}
+		flags.minFullHistoryRequests = n
 	case "--search-cap-proof-lab":
 		return setCodexCaptureSearchCapProofLab(flags, value)
 	case "--search-cap-min-retained-pct":
@@ -2405,6 +2432,7 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		ExpectedZeroSavings: flags.expectedZeroSavings,
 		MinFunctionCalls:    flags.minFunctionCalls,
 		MinFunctionOutputs:  flags.minFunctionCallOutputs,
+		MinFullHistory:      flags.minFullHistoryRequests,
 		LiveDelta:           result.LiveDelta,
 	}
 	f, err := os.OpenFile(flags.matrixPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
