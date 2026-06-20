@@ -888,6 +888,28 @@ func TestWSSRequestDebugFactsExposePrefixByteMetrics(t *testing.T) {
 		facts["wss.output_reduce_reason"] != "prompt_cache_prefix_full_pass" {
 		t.Fatalf("prefix facts missing: %+v", facts)
 	}
+	for _, key := range []string{
+		"wss.non_prefix_bytes",
+		"wss.non_prefix_estimated_tokens",
+		"wss.raw_input_bytes",
+		"wss.raw_input_message_bytes",
+		"wss.raw_input_user_message_bytes",
+	} {
+		if n, err := strconv.Atoi(facts[key]); err != nil || n <= 0 {
+			t.Fatalf("%s=%q err=%v", key, facts[key], err)
+		}
+	}
+	for _, key := range []string{
+		"wss.raw_input_assistant_message_bytes",
+		"wss.raw_input_function_call_bytes",
+		"wss.raw_input_function_call_output_bytes",
+		"wss.raw_input_reasoning_bytes",
+		"wss.raw_input_other_bytes",
+	} {
+		if n, err := strconv.Atoi(facts[key]); err != nil || n != 0 {
+			t.Fatalf("%s=%q err=%v", key, facts[key], err)
+		}
+	}
 	if n, err := strconv.Atoi(facts["wss.tool_definition_bytes"]); err != nil || n <= 0 {
 		t.Fatalf("tool_definition_bytes=%q err=%v", facts["wss.tool_definition_bytes"], err)
 	}
@@ -948,14 +970,50 @@ func TestWSSRawInputShapeFactsFromRawCountsContentFreeItemTypes(t *testing.T) {
 
 	facts := wssRawInputShapeFactsFromRaw(raw)
 	if facts.Items != 7 ||
+		facts.InputBytes <= 0 ||
 		facts.MessageItems != 3 ||
+		facts.MessageBytes <= 0 ||
 		facts.UserMessages != 2 ||
+		facts.UserMessageBytes <= 0 ||
 		facts.AssistantMessages != 1 ||
+		facts.AssistantMessageBytes <= 0 ||
 		facts.FunctionCalls != 1 ||
+		facts.FunctionCallBytes <= 0 ||
 		facts.FunctionCallOutputs != 1 ||
+		facts.FunctionCallOutputBytes <= 0 ||
 		facts.ReasoningItems != 1 ||
-		facts.OtherItems != 1 {
+		facts.ReasoningBytes <= 0 ||
+		facts.OtherItems != 1 ||
+		facts.OtherBytes <= 0 {
 		t.Fatalf("bad raw input shape facts: %+v", facts)
+	}
+}
+
+func TestWSSRawInputShapeFactsFromRawFailsClosedForMissingOrMalformedInput(t *testing.T) {
+	t.Parallel()
+
+	for name, raw := range map[string]map[string]json.RawMessage{
+		"missing":   {},
+		"malformed": {"input": json.RawMessage(`[{`)},
+		"object":    {"input": json.RawMessage(`{"type":"message"}`)},
+	} {
+		if facts := wssRawInputShapeFactsFromRaw(raw); facts != (wssRawInputShapeFacts{}) {
+			t.Fatalf("%s facts=%+v, want zero", name, facts)
+		}
+	}
+}
+
+func TestWSSNonNegativeDeltaClampsPrefixAccounting(t *testing.T) {
+	t.Parallel()
+
+	if got := wssNonNegativeDelta(100, 40); got != 60 {
+		t.Fatalf("delta=%d, want 60", got)
+	}
+	if got := wssNonNegativeDelta(100, 100); got != 0 {
+		t.Fatalf("equal delta=%d, want 0", got)
+	}
+	if got := wssNonNegativeDelta(100, 140); got != 0 {
+		t.Fatalf("oversized delta=%d, want 0", got)
 	}
 }
 

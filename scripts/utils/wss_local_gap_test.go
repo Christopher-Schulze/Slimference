@@ -689,6 +689,89 @@ func TestWSSLocalGapNoEvidenceActionClassifiesDefaultKeepPrefix(t *testing.T) {
 	}
 }
 
+func TestWSSLocalGapNoEvidenceActionClassifiesRootContextAfterPrefix(t *testing.T) {
+	t.Parallel()
+
+	category, source, policy, nextStep := wssLocalGapNoEvidenceAction(dbg.RequestSummary{
+		Tokens: dbg.TokenCounts{Original: 100000, Final: 100000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                      "root",
+			"wss.output_reduce_reason":               "prompt_cache_prefix_full_pass",
+			"wss.prefix_total_bytes":                 "40000",
+			"wss.prefix_estimated_tokens":            "10000",
+			"wss.instructions_bytes":                 "39964",
+			"wss.tool_definition_bytes":              "36",
+			"wss.tool_definition_default_keep":       "0",
+			"wss.tool_definition_default_keep_bytes": "0",
+			"wss.tool_definition_nondefault":         "0",
+			"wss.tool_definition_nondefault_bytes":   "0",
+			"wss.tool_results":                       "0",
+			"wss.tool_result_output_bytes":           "0",
+			"wss.source_tool_bytes":                  "0",
+		},
+	}, "fact")
+	if category != "root_context_ownership_required" ||
+		source != "no_evidence:root_context_after_prompt_cache_prefix" ||
+		!strings.Contains(policy, "root/context ownership") ||
+		!strings.Contains(nextStep, "T408/T417") {
+		t.Fatalf("root-context action mismatch: category=%q source=%q policy=%q next=%q", category, source, policy, nextStep)
+	}
+}
+
+func TestWSSLocalGapRootContextActionCarriesInputByteSplit(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "root-context-ledger",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 100000, Final: 100000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                        "root",
+			"wss.output_reduce_reason":                 "prompt_cache_prefix_full_pass",
+			"wss.prefix_total_bytes":                   "40000",
+			"wss.prefix_estimated_tokens":              "10000",
+			"wss.instructions_bytes":                   "39964",
+			"wss.tool_definition_bytes":                "36",
+			"wss.tool_definition_default_keep_bytes":   "0",
+			"wss.tool_definition_nondefault_bytes":     "0",
+			"wss.tool_results":                         "0",
+			"wss.tool_result_output_bytes":             "0",
+			"wss.source_tool_bytes":                    "0",
+			"wss.non_prefix_bytes":                     "360000",
+			"wss.non_prefix_estimated_tokens":          "90000",
+			"wss.raw_input_bytes":                      "355000",
+			"wss.raw_input_message_bytes":              "350000",
+			"wss.raw_input_function_call_bytes":        "1000",
+			"wss.raw_input_function_call_output_bytes": "2000",
+			"wss.raw_input_reasoning_bytes":            "1500",
+			"wss.raw_input_other_bytes":                "500",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.ActionablePotential) != 1 {
+		t.Fatalf("expected one actionable row, got %+v", report.ActionablePotential)
+	}
+	row := report.ActionablePotential[0]
+	if row.Category != "root_context_ownership_required" ||
+		row.NonPrefixBytes != 360000 ||
+		row.NonPrefixEstimatedTokens != 90000 ||
+		row.RawInputBytes != 355000 ||
+		row.RawInputMessageBytes != 350000 ||
+		row.RawInputFunctionCallBytes != 1000 ||
+		row.RawInputFunctionCallOutputBytes != 2000 ||
+		row.RawInputReasoningBytes != 1500 ||
+		row.RawInputOtherBytes != 500 {
+		t.Fatalf("bad root context byte split: %+v", row)
+	}
+}
+
 func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing.T) {
 	t.Parallel()
 
@@ -743,6 +826,78 @@ func TestWSSLocalGapDefaultKeepPrefixIsProtectedNotInstrumentationGap(t *testing
 	}
 	if !hasString(report.Notes, "No full-pass evidence decisions found; remaining gap is classified no-evidence mass outside the currently safe Layer-0 reducer surface.") {
 		t.Fatalf("classified no-evidence surface note missing: %+v", report.Notes)
+	}
+}
+
+func TestWSSLocalGapPrefixCapabilityLedgerRanksT407Surfaces(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path, dbg.RequestSummary{
+		RequestID: "prefix-ledger",
+		Path:      "/backend-api/codex/responses",
+		RouteMode: "websocket_phasef",
+		Tokens:    dbg.TokenCounts{Original: 10000, Final: 10000, Saved: 0},
+		DebugFacts: map[string]string{
+			"wss.request_shape":                                  "root",
+			"wss.output_reduce_reason":                           "prompt_cache_prefix_full_pass",
+			"wss.prefix_total_bytes":                             "168",
+			"wss.prefix_estimated_tokens":                        "42",
+			"wss.instructions_bytes":                             "45",
+			"wss.tool_definition_default_keep":                   "12",
+			"wss.tool_definition_default_keep_bytes":             "90",
+			"wss.tool_definition_default_keep_description_bytes": "30",
+			"wss.tool_definition_default_keep_parameters_bytes":  "24",
+			"wss.tool_definition_default_keep_names":             "exec_command,apply_patch",
+			"wss.tool_definition_nondefault":                     "4",
+			"wss.tool_definition_nondefault_bytes":               "30",
+			"wss.tool_definition_nondefault_description_bytes":   "21",
+			"wss.tool_definition_nondefault_parameters_bytes":    "17",
+			"wss.tool_definition_nondefault_names":               "request_user_input,get_goal",
+			"wss.tool_definition_unnamed":                        "1",
+			"wss.tool_definition_unnamed_bytes":                  "3",
+		},
+	})
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if len(report.PrefixCapabilityLedger) != 4 {
+		t.Fatalf("expected four prefix ledger rows, got %+v", report.PrefixCapabilityLedger)
+	}
+	defaultKeep := wssLocalGapPrefixRowBySurface(report.PrefixCapabilityLedger, "default_keep_tools")
+	if defaultKeep.RiskClass != "protected_critical_capability" ||
+		defaultKeep.Bytes != 90 ||
+		defaultKeep.EstimatedTokens != 23 ||
+		defaultKeep.ToolDefinitions != 12 ||
+		defaultKeep.DescriptionBytes != 30 ||
+		defaultKeep.ParametersBytes != 24 ||
+		!defaultKeep.CommandExecutionPresent ||
+		defaultKeep.ToolNames["exec_command"] != 1 ||
+		defaultKeep.RequestShapes["root"] != 1 ||
+		!strings.Contains(defaultKeep.Policy, "critical tool capability") ||
+		!strings.Contains(defaultKeep.NextStep, "command-execution-required A/B") {
+		t.Fatalf("bad default-keep prefix ledger row: %+v", defaultKeep)
+	}
+	nonDefault := wssLocalGapPrefixRowBySurface(report.PrefixCapabilityLedger, "nondefault_tools")
+	if nonDefault.RiskClass != "proof_candidate_capability" ||
+		nonDefault.Bytes != 30 ||
+		nonDefault.EstimatedTokens != 8 ||
+		nonDefault.ToolDefinitions != 4 ||
+		nonDefault.CommandExecutionPresent ||
+		nonDefault.ToolNames["request_user_input"] != 1 ||
+		!strings.Contains(nonDefault.NextStep, "scoped A/B") {
+		t.Fatalf("bad nondefault prefix ledger row: %+v", nonDefault)
+	}
+	if wssLocalGapPrefixRowBySurface(report.PrefixCapabilityLedger, "instructions").EstimatedTokens != 12 ||
+		wssLocalGapPrefixRowBySurface(report.PrefixCapabilityLedger, "unnamed_tools").EstimatedTokens != 1 {
+		t.Fatalf("bad proportional prefix token estimates: %+v", report.PrefixCapabilityLedger)
+	}
+	if !hasString(report.Notes, "T407 nondefault tool-schema candidate surface is ~8 tokens; product mutation still requires scoped tool-call, missing-tool, retry-cost, and cache-stability sentinels.") ||
+		!hasString(report.Notes, "T407 default-keep capability surface includes command execution; this is the high-risk sentinel and must stay byte-identical until A/B proves tool-call behavior unchanged.") {
+		t.Fatalf("prefix ledger notes missing: %+v", report.Notes)
 	}
 }
 
@@ -950,4 +1105,13 @@ func hasString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func wssLocalGapPrefixRowBySurface(rows []wssLocalGapPrefixRow, surface string) wssLocalGapPrefixRow {
+	for _, row := range rows {
+		if row.Surface == surface {
+			return row
+		}
+	}
+	return wssLocalGapPrefixRow{}
 }

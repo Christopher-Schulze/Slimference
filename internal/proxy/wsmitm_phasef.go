@@ -4010,6 +4010,7 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 	_, toolResultOutputBytes := wssToolResultOutputStats(factMessages)
 	sourceToolBytes, sourceToolMaxBytes := wssSourceToolResultBytes(factMessages)
 	prefixMetrics := wssRootPrefixMetrics(body)
+	nonPrefixBytes := wssNonNegativeDelta(len(body), prefixMetrics.TotalBytes)
 	deltaShape := wssRequestIsDeltaShape(factMessages)
 	facts := map[string]string{
 		"wss.original_bytes":                                 strconv.Itoa(len(body)),
@@ -4028,6 +4029,8 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.instructions_bytes":                             strconv.Itoa(prefixMetrics.InstructionBytes),
 		"wss.prefix_total_bytes":                             strconv.Itoa(prefixMetrics.TotalBytes),
 		"wss.prefix_estimated_tokens":                        strconv.Itoa(tokens.Estimate(prefixMetrics.TotalBytes)),
+		"wss.non_prefix_bytes":                               strconv.Itoa(nonPrefixBytes),
+		"wss.non_prefix_estimated_tokens":                    strconv.Itoa(tokens.Estimate(nonPrefixBytes)),
 		"wss.tool_definition_default_keep":                   strconv.Itoa(prefixMetrics.DefaultKeepTools),
 		"wss.tool_definition_default_keep_bytes":             strconv.Itoa(prefixMetrics.DefaultKeepBytes),
 		"wss.tool_definition_default_keep_description_bytes": strconv.Itoa(prefixMetrics.DefaultKeepDescriptionBytes),
@@ -4046,13 +4049,21 @@ func wssRequestDebugFacts(body []byte, mutated []byte, messages []types.Message,
 		"wss.request_shape_source":                           wssRequestShapeSource(meta, messages),
 		"wss.delta_shape":                                    strconv.FormatBool(deltaShape),
 		"wss.raw_input_items":                                strconv.Itoa(meta.InputShape.Items),
+		"wss.raw_input_bytes":                                strconv.Itoa(meta.InputShape.InputBytes),
 		"wss.raw_input_message_items":                        strconv.Itoa(meta.InputShape.MessageItems),
+		"wss.raw_input_message_bytes":                        strconv.Itoa(meta.InputShape.MessageBytes),
+		"wss.raw_input_user_message_bytes":                   strconv.Itoa(meta.InputShape.UserMessageBytes),
+		"wss.raw_input_assistant_message_bytes":              strconv.Itoa(meta.InputShape.AssistantMessageBytes),
 		"wss.raw_input_user_messages":                        strconv.Itoa(meta.InputShape.UserMessages),
 		"wss.raw_input_assistant_messages":                   strconv.Itoa(meta.InputShape.AssistantMessages),
 		"wss.raw_input_function_calls":                       strconv.Itoa(meta.InputShape.FunctionCalls),
+		"wss.raw_input_function_call_bytes":                  strconv.Itoa(meta.InputShape.FunctionCallBytes),
 		"wss.raw_input_function_call_outputs":                strconv.Itoa(meta.InputShape.FunctionCallOutputs),
+		"wss.raw_input_function_call_output_bytes":           strconv.Itoa(meta.InputShape.FunctionCallOutputBytes),
 		"wss.raw_input_reasoning_items":                      strconv.Itoa(meta.InputShape.ReasoningItems),
+		"wss.raw_input_reasoning_bytes":                      strconv.Itoa(meta.InputShape.ReasoningBytes),
 		"wss.raw_input_other_items":                          strconv.Itoa(meta.InputShape.OtherItems),
+		"wss.raw_input_other_bytes":                          strconv.Itoa(meta.InputShape.OtherBytes),
 		"wss.messages":                                       strconv.Itoa(len(messages)),
 		"wss.raw_partial_messages":                           strconv.Itoa(rawPartialMessages),
 		"wss.tool_results":                                   strconv.Itoa(toolResults),
@@ -4412,6 +4423,13 @@ func wssRootPrefixMetrics(body []byte) wssRootPrefixMetricsResult {
 		}
 	}
 	return result
+}
+
+func wssNonNegativeDelta(total, subtract int) int {
+	if subtract >= total {
+		return 0
+	}
+	return total - subtract
 }
 
 type wssToolDefinitionComponents struct {
@@ -5189,14 +5207,22 @@ func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
 }
 
 type wssRawInputShapeFacts struct {
-	Items               int
-	MessageItems        int
-	UserMessages        int
-	AssistantMessages   int
-	FunctionCalls       int
-	FunctionCallOutputs int
-	ReasoningItems      int
-	OtherItems          int
+	Items                   int
+	InputBytes              int
+	MessageItems            int
+	MessageBytes            int
+	UserMessages            int
+	UserMessageBytes        int
+	AssistantMessages       int
+	AssistantMessageBytes   int
+	FunctionCalls           int
+	FunctionCallBytes       int
+	FunctionCallOutputs     int
+	FunctionCallOutputBytes int
+	ReasoningItems          int
+	ReasoningBytes          int
+	OtherItems              int
+	OtherBytes              int
 }
 
 func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputShapeFacts {
@@ -5207,11 +5233,13 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 	if err := json.Unmarshal(raw["input"], &items); err != nil {
 		return wssRawInputShapeFacts{}
 	}
-	facts := wssRawInputShapeFacts{Items: len(items)}
+	facts := wssRawInputShapeFacts{Items: len(items), InputBytes: len(raw["input"])}
 	for _, itemRaw := range items {
+		itemBytes := len(itemRaw)
 		var item map[string]json.RawMessage
 		if json.Unmarshal(itemRaw, &item) != nil {
 			facts.OtherItems++
+			facts.OtherBytes += itemBytes
 			continue
 		}
 		itemType := strings.TrimSpace(rawJSONString(item["type"]))
@@ -5219,30 +5247,40 @@ func wssRawInputShapeFactsFromRaw(raw map[string]json.RawMessage) wssRawInputSha
 		switch itemType {
 		case "message":
 			facts.MessageItems++
+			facts.MessageBytes += itemBytes
 			switch role {
 			case "user":
 				facts.UserMessages++
+				facts.UserMessageBytes += itemBytes
 			case "assistant":
 				facts.AssistantMessages++
+				facts.AssistantMessageBytes += itemBytes
 			}
 		case "function_call":
 			facts.FunctionCalls++
+			facts.FunctionCallBytes += itemBytes
 		case "function_call_output":
 			facts.FunctionCallOutputs++
+			facts.FunctionCallOutputBytes += itemBytes
 		case "reasoning":
 			facts.ReasoningItems++
+			facts.ReasoningBytes += itemBytes
 		default:
 			if role != "" {
 				facts.MessageItems++
+				facts.MessageBytes += itemBytes
 				switch role {
 				case "user":
 					facts.UserMessages++
+					facts.UserMessageBytes += itemBytes
 				case "assistant":
 					facts.AssistantMessages++
+					facts.AssistantMessageBytes += itemBytes
 				}
 				continue
 			}
 			facts.OtherItems++
+			facts.OtherBytes += itemBytes
 		}
 	}
 	return facts
