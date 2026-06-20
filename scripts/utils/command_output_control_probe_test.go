@@ -54,6 +54,14 @@ func TestCommandOutputControlProbe_processLocalShellAndPathShim(t *testing.T) {
 	if !result.Observed.PathShims["probe-target"] {
 		t.Fatalf("path shim was not observed; findings=%v log=%s", result.Findings, readProbeLogForTest(t, result.LogPath))
 	}
+	assertProbeSeamForTest(t, result, "shell", "observed", false)
+	assertProbeSeamForTest(t, result, "path_shim", "observed", true)
+	assertProbeSeamForTest(t, result, "hook_replacement", "not_tested", false)
+	assertProbeSeamForTest(t, result, "pty_wrapper", "not_tested", false)
+	assertProbeSeamForTest(t, result, "app_server_mcp", "not_tested", false)
+	if !commandOutputProbeTestContainsString(result.Findings, "product_primary_seam:bash_env_path_shim") {
+		t.Fatalf("missing primary seam finding: %v", result.Findings)
+	}
 	if got := os.Getenv("SHELL"); got != "/bin/sh" {
 		t.Fatalf("parent SHELL changed to %q", got)
 	}
@@ -90,6 +98,7 @@ func TestCommandOutputControlProbe_bashEnvOptional(t *testing.T) {
 	if !result.Observed.BashEnv {
 		t.Fatalf("BASH_ENV was not observed; findings=%v log=%s", result.Findings, readProbeLogForTest(t, result.LogPath))
 	}
+	assertProbeSeamForTest(t, result, "bash_env", "observed", true)
 }
 
 func TestParseCommandOutputProbeFlags_requiresChildCommand(t *testing.T) {
@@ -129,6 +138,55 @@ func commandOutputProbeTestContainsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCommandOutputControlProbe_textIncludesSeamVerdicts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell probe is POSIX-only")
+	}
+
+	temp := t.TempDir()
+	fakeBin := filepath.Join(temp, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realProbeTarget := filepath.Join(fakeBin, "probe-target")
+	if err := os.WriteFile(realProbeTarget, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SHELL", "/bin/sh")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runCommandOutputControlProbe([]string{"--shim-command=probe-target", "--", "sh", "-c", "probe-target"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("probe exit=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{
+		"seam[path_shim]=observed primary=true",
+		"seam[pty_wrapper]=not_tested primary=false",
+		"seam[app_server_mcp]=not_tested primary=false",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in text output:\n%s", want, text)
+		}
+	}
+}
+
+func assertProbeSeamForTest(t *testing.T, result commandOutputProbeResult, seam, status string, primary bool) {
+	t.Helper()
+	verdict, ok := result.SeamVerdicts[seam]
+	if !ok {
+		t.Fatalf("missing seam verdict %q in %#v", seam, result.SeamVerdicts)
+	}
+	if verdict.Status != status || verdict.PrimaryProductEligible != primary {
+		t.Fatalf("seam %s got status=%s primary=%v want status=%s primary=%v reason=%s", seam, verdict.Status, verdict.PrimaryProductEligible, status, primary, verdict.Reason)
+	}
+	if strings.TrimSpace(verdict.Reason) == "" {
+		t.Fatalf("seam %s has empty reason", seam)
+	}
 }
 
 func TestNormalizeProbeShimCommands(t *testing.T) {

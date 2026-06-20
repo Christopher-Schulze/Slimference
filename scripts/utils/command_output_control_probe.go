@@ -38,6 +38,7 @@ type commandOutputProbeResult struct {
 	TimedOut        bool                              `json:"timed_out"`
 	Observed        commandOutputProbeObserved        `json:"observed"`
 	ShimCommands    map[string]commandOutputProbeShim `json:"shim_commands,omitempty"`
+	SeamVerdicts    map[string]commandOutputProbeSeam `json:"seam_verdicts"`
 	GeneratedEnv    commandOutputProbeGeneratedEnv    `json:"generated_env"`
 	RouteSafety     commandOutputProbeRouteSafety     `json:"route_safety"`
 	Findings        []string                          `json:"findings"`
@@ -54,6 +55,12 @@ type commandOutputProbeShim struct {
 	RealPath string `json:"real_path,omitempty"`
 	Created  bool   `json:"created"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+type commandOutputProbeSeam struct {
+	Status                 string `json:"status"`
+	PrimaryProductEligible bool   `json:"primary_product_eligible"`
+	Reason                 string `json:"reason"`
 }
 
 type commandOutputProbeGeneratedEnv struct {
@@ -277,6 +284,7 @@ func commandOutputControlProbe(flags commandOutputProbeFlags, stdout, stderr io.
 			}
 		}
 	}
+	result.SeamVerdicts = commandOutputProbeSeamVerdicts(result)
 	result.Findings = commandOutputProbeFindings(result)
 	if timedOut {
 		result.Findings = append(result.Findings, "child_timeout")
@@ -408,6 +416,9 @@ func commandOutputProbeFindings(result commandOutputProbeResult) []string {
 	} else {
 		findings = append(findings, "bash_env_not_observed")
 	}
+	if result.SeamVerdicts["bash_env"].PrimaryProductEligible || result.SeamVerdicts["path_shim"].PrimaryProductEligible {
+		findings = append(findings, "product_primary_seam:bash_env_path_shim")
+	}
 	var shimNames []string
 	for name := range result.Observed.PathShims {
 		shimNames = append(shimNames, name)
@@ -424,6 +435,67 @@ func commandOutputProbeFindings(result commandOutputProbeResult) []string {
 	return findings
 }
 
+func commandOutputProbeSeamVerdicts(result commandOutputProbeResult) map[string]commandOutputProbeSeam {
+	anyPathShimObserved := false
+	for _, observed := range result.Observed.PathShims {
+		if observed {
+			anyPathShimObserved = true
+			break
+		}
+	}
+
+	verdicts := map[string]commandOutputProbeSeam{
+		"shell": {
+			Status:                 commandOutputProbeObservedStatus(result.Observed.ShellWrapper),
+			PrimaryProductEligible: false,
+			Reason:                 "Process-local child visibility only. Current scoped Codex live proof uses bash -lc directly and does not treat SHELL as the primary tool-execution seam.",
+		},
+		"bash_env": {
+			Status:                 commandOutputProbeObservedStatus(result.Observed.BashEnv),
+			PrimaryProductEligible: result.Observed.BashEnv,
+			Reason:                 "Bash startup seam is process-local and can re-prepend scoped PATH inside bash -lc; product use still requires scoped route hygiene, fail-open, parser gates, and recovery accounting.",
+		},
+		"path_shim": {
+			Status:                 commandOutputProbeObservedStatus(anyPathShimObserved),
+			PrimaryProductEligible: anyPathShimObserved,
+			Reason:                 "PATH shim is process-local and preserves argv/cwd/exit code by execing the real binary; only allowlisted parser-positive command classes may replace output.",
+		},
+		"hook_replacement": {
+			Status:                 "not_tested",
+			PrimaryProductEligible: false,
+			Reason:                 "This process-local command probe does not prove whether Codex hook replacement becomes durable WSS history. Keep as recovery/UX unless a dedicated WSS history proof says otherwise.",
+		},
+		"pty_wrapper": {
+			Status:                 "not_tested",
+			PrimaryProductEligible: false,
+			Reason:                 "This probe does not classify PTY streams. PTY wrapping risks mixing UI/model/tool output and is not product-primary without exact stream-boundary proof.",
+		},
+		"app_server_mcp": {
+			Status:                 "not_tested",
+			PrimaryProductEligible: false,
+			Reason:                 "This CLI child probe does not touch Desktop app-server or MCP tool boundaries. Those need dedicated scoped Desktop/app-server proof before product use.",
+		},
+	}
+	if !result.Observed.BashEnv {
+		bash := verdicts["bash_env"]
+		bash.Reason = "BASH_ENV did not fire in this child command. Product command-output-first must not rely on it for this execution shape."
+		verdicts["bash_env"] = bash
+	}
+	if !anyPathShimObserved {
+		shim := verdicts["path_shim"]
+		shim.Reason = "No generated PATH shim was observed in this child command. Product command-output-first must not rely on PATH interception for this execution shape."
+		verdicts["path_shim"] = shim
+	}
+	return verdicts
+}
+
+func commandOutputProbeObservedStatus(observed bool) string {
+	if observed {
+		return "observed"
+	}
+	return "not_observed"
+}
+
 func printCommandOutputProbeText(w io.Writer, result commandOutputProbeResult) {
 	fmt.Fprintf(w, "Command-output control probe\n")
 	fmt.Fprintf(w, "child=%s exit=%d\n", result.ChildCommand, result.ChildExitCode)
@@ -437,6 +509,15 @@ func printCommandOutputProbeText(w io.Writer, result commandOutputProbeResult) {
 		fmt.Fprintf(w, "path_shim[%s]=%v\n", name, result.Observed.PathShims[name])
 	}
 	fmt.Fprintf(w, "process_local_only=%v\n", result.RouteSafety.ProcessLocalOnly)
+	var seams []string
+	for seam := range result.SeamVerdicts {
+		seams = append(seams, seam)
+	}
+	sort.Strings(seams)
+	for _, seam := range seams {
+		verdict := result.SeamVerdicts[seam]
+		fmt.Fprintf(w, "seam[%s]=%s primary=%v reason=%s\n", seam, verdict.Status, verdict.PrimaryProductEligible, verdict.Reason)
+	}
 	for _, finding := range result.Findings {
 		fmt.Fprintf(w, "finding=%s\n", finding)
 	}
