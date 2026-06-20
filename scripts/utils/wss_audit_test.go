@@ -379,6 +379,12 @@ func TestWSSShadowMirrorCandidateActionNamesCommandFamily(t *testing.T) {
 		!strings.Contains(action, "T418 command-output-first") {
 		t.Fatalf("command-family action should name T417/T418 ranking path, got %q", action)
 	}
+	action = wssShadowMirrorCandidateAction("full_history", "tool_result_command_git")
+	if !strings.Contains(action, "resolved tool-result command family") ||
+		!strings.Contains(action, "T417 Class-B continuation") ||
+		!strings.Contains(action, "T418 command-output-first") {
+		t.Fatalf("tool-result command-family action should name T417/T418 ranking path, got %q", action)
+	}
 }
 
 func TestWSSAuditShadowMirrorReferenceOnlyHeadroomIsNotPromotionOpen(t *testing.T) {

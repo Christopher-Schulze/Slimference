@@ -1673,6 +1673,8 @@ func wssShadowMirrorCandidateAction(shape, kind string) string {
 		return "rank for T417 Class-B continuation or T418 command-output-first recovery"
 	case shape == "full_history" && strings.HasPrefix(kind, "codex_exec_payload_command_"):
 		return "rank this exact command family for T417 Class-B continuation, then prefer T418 command-output-first if the same parser class is available"
+	case shape == "full_history" && strings.HasPrefix(kind, "tool_result_command_"):
+		return "rank this resolved tool-result command family for T417 Class-B continuation, then prefer T418 command-output-first if the same parser class is available"
 	case shape == "full_history":
 		return "rank for T417 exact lineage-scoped continuation"
 	case shape == "delta":

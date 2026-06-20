@@ -236,24 +236,26 @@ type normalizedSegment struct {
 
 func normalizedSegments(msgs []types.Message) []normalizedSegment {
 	var out []normalizedSegment
+	toolUses := toolUseIndexFromMessages(msgs)
 	blockIdx := 0
 	for _, msg := range msgs {
 		for _, b := range msg.Content {
 			if b.Text == "" {
 				continue
 			}
+			resolved := blockWithResolvedToolUse(b, toolUses)
 			if _, payload, ok := splitCodexExecEnvelope(b.Text); ok {
 				out = append(out, normalizedSegment{
 					Block:   blockIdx,
 					Segment: 0,
-					Kind:    normalizedCodexExecPayloadKind(b),
+					Kind:    normalizedCodexExecPayloadKind(resolved),
 					Text:    payload,
 				})
 			} else {
 				out = append(out, normalizedSegment{
 					Block:   blockIdx,
 					Segment: 0,
-					Kind:    normalizedSegmentKind(msg, b),
+					Kind:    normalizedSegmentKind(msg, resolved),
 					Text:    b.Text,
 				})
 			}
@@ -263,7 +265,51 @@ func normalizedSegments(msgs []types.Message) []normalizedSegment {
 	return out
 }
 
+func toolUseIndexFromMessages(msgs []types.Message) map[string]types.ContentBlock {
+	var out map[string]types.ContentBlock
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if strings.TrimSpace(block.Type) != "tool_use" {
+				continue
+			}
+			id := strings.TrimSpace(block.ToolUseID)
+			if id == "" {
+				continue
+			}
+			if out == nil {
+				out = make(map[string]types.ContentBlock)
+			}
+			out[id] = block
+		}
+	}
+	return out
+}
+
+func blockWithResolvedToolUse(block types.ContentBlock, toolUses map[string]types.ContentBlock) types.ContentBlock {
+	id := strings.TrimSpace(block.ToolResultID)
+	if id == "" || len(toolUses) == 0 {
+		return block
+	}
+	use, ok := toolUses[id]
+	if !ok {
+		return block
+	}
+	if strings.TrimSpace(block.ToolInput) == "" {
+		block.ToolInput = use.ToolInput
+	}
+	if strings.TrimSpace(block.ToolName) == "" {
+		block.ToolName = use.ToolName
+	}
+	if strings.TrimSpace(block.ToolUseID) == "" {
+		block.ToolUseID = use.ToolUseID
+	}
+	return block
+}
+
 func normalizedSegmentKind(msg types.Message, block types.ContentBlock) string {
+	if kind := normalizedToolResultKind(block); kind != "" {
+		return kind
+	}
 	if kind := strings.TrimSpace(block.Type); kind != "" {
 		return kind
 	}
@@ -271,6 +317,19 @@ func normalizedSegmentKind(msg types.Message, block types.ContentBlock) string {
 		return role
 	}
 	return "text"
+}
+
+func normalizedToolResultKind(block types.ContentBlock) string {
+	if strings.TrimSpace(block.Type) != "tool_result" {
+		return ""
+	}
+	if base := sanitizedCommandBase(commandLineFromToolInput(block.ToolInput)); base != "" {
+		return "tool_result_command_" + base
+	}
+	if tool := sanitizeKindSuffix(block.ToolName); tool != "" {
+		return "tool_result_tool_" + tool
+	}
+	return ""
 }
 
 func normalizedCodexExecPayloadKind(block types.ContentBlock) string {
@@ -342,9 +401,13 @@ func sanitizedCommandBase(commandLine string) string {
 		return ""
 	}
 	base := commandBaseFromFields(strings.Fields(commandLine))
-	base = strings.ToLower(base)
+	return sanitizeKindSuffix(base)
+}
+
+func sanitizeKindSuffix(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
 	var b strings.Builder
-	for _, r := range base {
+	for _, r := range value {
 		switch {
 		case r >= 'a' && r <= 'z':
 			b.WriteRune(r)

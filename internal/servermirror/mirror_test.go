@@ -98,6 +98,76 @@ func TestMirror_NormalizedCodexExecPayloadClassifiesCommandFamily(t *testing.T) 
 	}
 }
 
+func TestMirror_NormalizedToolResultClassifiesResolvedCommandFamily(t *testing.T) {
+	t.Parallel()
+	m := New()
+	payload := strings.Repeat("stable git status output\n", 20)
+	firstMsg := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: "call_git",
+			ToolName:  "exec_command",
+			ToolInput: `{"cmd":"git status --short"}`,
+		}}},
+		{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_git",
+			Text:         payload,
+		}}},
+	}
+	secondMsg := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: "call_git_again",
+			ToolName:  "exec_command",
+			ToolInput: `{"command":["/usr/bin/git","status","--short"]}`,
+		}}},
+		{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "call_git_again",
+			Text:         payload,
+		}}},
+	}
+	m.Observe("s", firstMsg)
+
+	rep := m.Predict("s", secondMsg)
+	kind := rep.NormalizedPotentialSavedBytesByKind["tool_result_command_git"]
+	if kind.Segments != 1 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
+		t.Fatalf("tool-result command-family accounting wrong: %+v", rep.NormalizedPotentialSavedBytesByKind)
+	}
+	if got := rep.NormalizedPredictions[0]; got.Kind != "tool_result_command_git" || !got.AlreadyForwarded {
+		t.Fatalf("tool-result command-family prediction wrong: %+v", got)
+	}
+}
+
+func TestMirror_NormalizedToolResultFallsBackWithoutResolvedCommand(t *testing.T) {
+	t.Parallel()
+	m := New()
+	payload := strings.Repeat("stable opaque tool output\n", 20)
+	firstMsg := []types.Message{{Role: "tool", Content: []types.ContentBlock{{
+		Type:         "tool_result",
+		ToolResultID: "missing_use",
+		ToolName:     "Read_File",
+		Text:         payload,
+	}}}}
+	secondMsg := []types.Message{{Role: "tool", Content: []types.ContentBlock{{
+		Type:         "tool_result",
+		ToolResultID: "still_missing",
+		ToolName:     "Read_File",
+		Text:         payload,
+	}}}}
+	m.Observe("s", firstMsg)
+
+	rep := m.Predict("s", secondMsg)
+	if _, ok := rep.NormalizedPotentialSavedBytesByKind["tool_result_command_read_file"]; ok {
+		t.Fatalf("tool name must not be misclassified as command: %+v", rep.NormalizedPotentialSavedBytesByKind)
+	}
+	kind := rep.NormalizedPotentialSavedBytesByKind["tool_result_tool_read_file"]
+	if kind.Segments != 1 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(payload) {
+		t.Fatalf("tool-result tool fallback accounting wrong: %+v", rep.NormalizedPotentialSavedBytesByKind)
+	}
+}
+
 func TestMirror_NormalizedNovelPayloadNotReferenceable(t *testing.T) {
 	t.Parallel()
 	m := New()
@@ -137,6 +207,9 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 	textFallback := normalizedSegmentKind(types.Message{}, types.ContentBlock{})
 	if textFallback != "text" {
 		t.Fatalf("text fallback kind wrong: %q", textFallback)
+	}
+	if kind := normalizedSegmentKind(types.Message{Role: "tool"}, types.ContentBlock{Type: "tool_result", ToolName: "Read_File"}); kind != "tool_result_tool_read_file" {
+		t.Fatalf("tool-result tool kind wrong: %q", kind)
 	}
 	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"git status --short"}`}); kind != "codex_exec_payload_command_git" {
 		t.Fatalf("codex exec command kind wrong: %q", kind)
