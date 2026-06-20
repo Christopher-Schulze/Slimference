@@ -324,6 +324,73 @@ func TestWSSClassDistributionT354ShapeTable(t *testing.T) {
 	}
 }
 
+func TestWSSClassDistributionRootContextLedger(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	fullHistory := wssClassDistributionTestSummary("f1", "full_history", 20000, 8000, 2000, 24000, 1000, 1)
+	fullHistory.DebugFacts["wss.non_prefix_bytes"] = "72000"
+	fullHistory.DebugFacts["wss.non_prefix_estimated_tokens"] = "18000"
+	fullHistory.DebugFacts["wss.raw_input_bytes"] = "70000"
+	fullHistory.DebugFacts["wss.raw_input_message_bytes"] = "40000"
+	fullHistory.DebugFacts["wss.raw_input_function_call_bytes"] = "8000"
+	fullHistory.DebugFacts["wss.raw_input_function_call_output_bytes"] = "16000"
+	fullHistory.DebugFacts["wss.raw_input_reasoning_bytes"] = "4000"
+	fullHistory.DebugFacts["wss.raw_input_other_bytes"] = "2000"
+	writeJSONLFile(t, path, fullHistory)
+
+	report, err := loadWSSClassDistribution(wssClassDistributionFlags{path: path})
+	if err != nil {
+		t.Fatalf("loadWSSClassDistribution() error = %v", err)
+	}
+	if len(report.RootContextLedger) != 6 {
+		t.Fatalf("root context ledger rows = %d, want 6: %+v", len(report.RootContextLedger), report.RootContextLedger)
+	}
+	messages := wssClassDistributionRootContextRowBySurface(report.RootContextLedger, "raw_input_messages")
+	if messages == nil ||
+		messages.RiskClass != "model_context_ownership_candidate" ||
+		messages.Bytes != 40000 ||
+		messages.EstimatedTokens != 10000 ||
+		messages.Requests != 1 ||
+		messages.RequestShapes["full_history"] != 1 ||
+		!strings.Contains(messages.NextStep, "T408/T417") {
+		t.Fatalf("bad messages ledger row: %+v", messages)
+	}
+	functionOutputs := wssClassDistributionRootContextRowBySurface(report.RootContextLedger, "raw_input_function_call_outputs")
+	if functionOutputs == nil ||
+		functionOutputs.RiskClass != "recoverable_tool_output_history_candidate" ||
+		functionOutputs.Bytes != 16000 ||
+		functionOutputs.EstimatedTokens != 4000 ||
+		!strings.Contains(functionOutputs.NextStep, "T419 recovery") {
+		t.Fatalf("bad function-output ledger row: %+v", functionOutputs)
+	}
+	envelope := wssClassDistributionRootContextRowBySurface(report.RootContextLedger, "non_input_envelope")
+	if envelope == nil ||
+		envelope.RiskClass != "request_envelope_ownership_candidate" ||
+		envelope.Bytes != 2000 ||
+		envelope.EstimatedTokens != 500 {
+		t.Fatalf("bad envelope ledger row: %+v", envelope)
+	}
+	if report.RootContextLedger[0].Surface != "raw_input_messages" {
+		t.Fatalf("ledger should sort by estimated tokens descending: %+v", report.RootContextLedger)
+	}
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "Root/context ledger") {
+		t.Fatalf("missing root/context note: %+v", report.Notes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWSSClassDistribution([]string{path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSClassDistribution text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Root/context ledger:") ||
+		!strings.Contains(stdout.String(), "surface=raw_input_messages") ||
+		!strings.Contains(stdout.String(), "surface=raw_input_function_call_outputs") ||
+		!strings.Contains(stdout.String(), "surface=non_input_envelope") {
+		t.Fatalf("text output missing root/context ledger:\n%s", stdout.String())
+	}
+}
+
 func TestWSSClassDistributionToolPruneDeltaGuardSurface(t *testing.T) {
 	t.Parallel()
 
@@ -469,6 +536,15 @@ func TestWSSClassDistributionFrameCaptureMode(t *testing.T) {
 func findT354ShapeRow(rows []wssClassDistributionT354Row, shape string) *wssClassDistributionT354Row {
 	for i := range rows {
 		if rows[i].RequestShape == shape {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+func wssClassDistributionRootContextRowBySurface(rows []wssLocalGapRootContextRow, surface string) *wssLocalGapRootContextRow {
+	for i := range rows {
+		if rows[i].Surface == surface {
 			return &rows[i]
 		}
 	}
