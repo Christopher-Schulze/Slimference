@@ -16,13 +16,14 @@ import (
 )
 
 type wssLocalGapFlags struct {
-	path          string
-	outputFormat  string
-	since         time.Time
-	sinceFile     string
-	minLocalRatio float64
-	minLocalSaved int
-	help          bool
+	path                string
+	outputFormat        string
+	since               time.Time
+	sinceFile           string
+	minLocalRatio       float64
+	minLocalSaved       int
+	requireInstrumented bool
+	help                bool
 }
 
 type wssLocalGapReport struct {
@@ -59,6 +60,13 @@ type wssLocalGapReport struct {
 	NoEvidenceProtected      int                          `json:"no_evidence_protected_original_tokens,omitempty"`
 	NoEvidenceKnownNonTarget int                          `json:"no_evidence_known_non_target_original_tokens,omitempty"`
 	NoEvidenceProofBlocked   int                          `json:"no_evidence_proof_blocked_or_candidate_original_tokens,omitempty"`
+	InstrumentedRequests     int                          `json:"instrumented_requests,omitempty"`
+	InstrumentedOrigTokens   int                          `json:"instrumented_original_tokens,omitempty"`
+	MissingInstrRequests     int                          `json:"missing_instrumentation_requests,omitempty"`
+	MissingInstrOrigTokens   int                          `json:"missing_instrumentation_original_tokens,omitempty"`
+	MissingShapeFacts        int                          `json:"missing_request_shape_fact_requests,omitempty"`
+	MissingPrefixFacts       int                          `json:"missing_prefix_metric_fact_requests,omitempty"`
+	MissingRawInputFacts     int                          `json:"missing_raw_input_fact_requests,omitempty"`
 	ErrorRequests            int                          `json:"error_requests"`
 	UpstreamErrorRequests    int                          `json:"upstream_error_requests"`
 	HTTP400ErrorRequests     int                          `json:"http_400_error_requests"`
@@ -273,6 +281,7 @@ Flags:
   --since-file=<path>               Read RFC3339 --since value from a marker file
   --min-local-ratio=<ratio>          Fail if S_local is below ratio, for example 0.48
   --min-local-saved=<tokens>         Fail if local saved tokens are below this floor
+  --require-instrumented             Fail if positive-token Phase-F rows lack current shape/prefix/raw-input facts
   --json                            Output JSON
 
 Reads content-free RequestSummary JSONL records. S_local is tokens.saved /
@@ -408,6 +417,8 @@ func parseWSSLocalGapFlags(args []string) (wssLocalGapFlags, error) {
 				return flags, err
 			}
 			flags.minLocalSaved = n
+		case arg == "--require-instrumented":
+			flags.requireInstrumented = true
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -514,6 +525,7 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 	if len(summary.Errors) > 0 {
 		a.report.ErrorRequests++
 	}
+	a.addInstrumentationCoverage(summary, original)
 	if wssAuditHasUpstreamError(summary) {
 		a.report.UpstreamErrorRequests++
 	}
@@ -552,6 +564,45 @@ func (a *wssLocalGapAccumulator) addPhaseF(summary dbg.RequestSummary) {
 		a.addDecision(decision, shape, toolCommandClasses, summary.DebugFacts)
 	}
 	a.addUnattributedGap(summary, shape, noEvidenceCategory, original, saved, protected, knownNonTarget)
+}
+
+func (a *wssLocalGapAccumulator) addInstrumentationCoverage(summary dbg.RequestSummary, original int) {
+	if a == nil || original <= 0 {
+		return
+	}
+	instrumented, missingShape, missingPrefix, missingRaw := wssLocalGapInstrumentationStatus(summary.DebugFacts)
+	if instrumented {
+		a.report.InstrumentedRequests++
+		a.report.InstrumentedOrigTokens += original
+		return
+	}
+	a.report.MissingInstrRequests++
+	a.report.MissingInstrOrigTokens += original
+	if missingShape {
+		a.report.MissingShapeFacts++
+	}
+	if missingPrefix {
+		a.report.MissingPrefixFacts++
+	}
+	if missingRaw {
+		a.report.MissingRawInputFacts++
+	}
+}
+
+func wssLocalGapInstrumentationStatus(facts map[string]string) (instrumented bool, missingShape bool, missingPrefix bool, missingRaw bool) {
+	if facts == nil {
+		return false, true, true, true
+	}
+	if strings.TrimSpace(facts["wss.request_shape"]) == "" {
+		missingShape = true
+	}
+	if _, ok := facts["wss.prefix_total_bytes"]; !ok {
+		missingPrefix = true
+	}
+	if _, ok := facts["wss.raw_input_bytes"]; !ok {
+		missingRaw = true
+	}
+	return !missingShape && !missingPrefix && !missingRaw, missingShape, missingPrefix, missingRaw
 }
 
 func (a *wssLocalGapAccumulator) addRequestGuardFacts(summary dbg.RequestSummary, shape, shapeSource string, original, saved int, noEvidence bool) {
@@ -1433,6 +1484,9 @@ func wssLocalGapNotes(report wssLocalGapReport) []string {
 	} else if report.NoEvidenceOrigTokens > 0 {
 		notes = append(notes, fmt.Sprintf("WSS Phase-F no-evidence mass is classified by content-free facts: protected=%d known_non_target=%d proof_blocked_or_candidate=%d; do not treat it as a generic instrumentation gap.", report.NoEvidenceProtected, report.NoEvidenceKnownNonTarget, report.NoEvidenceProofBlocked))
 	}
+	if report.MissingInstrRequests > 0 {
+		notes = append(notes, fmt.Sprintf("Instrumentation coverage gap: %d Phase-F rows / %d original tokens lack current request-shape, prefix, or raw-input ownership facts; use --since/--since-file or capture fresh rows before promoting T417/T408 savings.", report.MissingInstrRequests, report.MissingInstrOrigTokens))
+	}
 	if len(report.ActionablePotential) > 0 {
 		notes = append(notes, "Actionable-potential rows classify the next proof/engineering move; they are diagnostic and not a promise that guarded tokens are safely recoverable.")
 	}
@@ -1478,6 +1532,9 @@ func wssLocalGapGateFailures(report wssLocalGapReport, flags wssLocalGapFlags) [
 	}
 	if flags.minLocalSaved > 0 && report.LocalSavedTokens < flags.minLocalSaved {
 		failures = append(failures, fmt.Sprintf("local_saved_tokens=%d < min=%d", report.LocalSavedTokens, flags.minLocalSaved))
+	}
+	if flags.requireInstrumented && report.MissingInstrRequests > 0 {
+		failures = append(failures, fmt.Sprintf("missing_instrumentation_requests=%d original_tokens=%d; require current wss.request_shape, wss.prefix_total_bytes, and wss.raw_input_bytes facts", report.MissingInstrRequests, report.MissingInstrOrigTokens))
 	}
 	return failures
 }
@@ -2100,6 +2157,14 @@ func writeWSSLocalGapText(w io.Writer, report wssLocalGapReport) {
 			report.NoEvidenceProofBlocked,
 			report.NoEvidenceNeedsInstr)
 	}
+	fmt.Fprintf(w, "Instrumentation coverage:  instrumented=%d/%d tokens=%d/%d missing_shape=%d missing_prefix=%d missing_raw_input=%d\n",
+		report.InstrumentedRequests,
+		report.InstrumentedRequests+report.MissingInstrRequests,
+		report.InstrumentedOrigTokens,
+		report.InstrumentedOrigTokens+report.MissingInstrOrigTokens,
+		report.MissingShapeFacts,
+		report.MissingPrefixFacts,
+		report.MissingRawInputFacts)
 	fmt.Fprintf(w, "Errors/upstream/400:       %d / %d / %d\n",
 		report.ErrorRequests,
 		report.UpstreamErrorRequests,

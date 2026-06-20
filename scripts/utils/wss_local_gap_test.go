@@ -1139,6 +1139,61 @@ func TestWSSLocalGapResolvedLegacyShapeDoesNotBecomeShapeInstrumentationBlocker(
 	}
 }
 
+func TestWSSLocalGapInstrumentationCoverageGate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	writeJSONLFile(t, path,
+		dbg.RequestSummary{
+			RequestID: "legacy-row",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 9000, Final: 9000, Saved: 0},
+		},
+		dbg.RequestSummary{
+			RequestID: "instrumented-row",
+			Path:      "/backend-api/codex/responses",
+			RouteMode: "websocket_phasef",
+			Tokens:    dbg.TokenCounts{Original: 1000, Final: 1000, Saved: 0},
+			DebugFacts: map[string]string{
+				"wss.request_shape":        "delta",
+				"wss.prefix_total_bytes":   "0",
+				"wss.raw_input_bytes":      "4000",
+				"wss.output_reduce_reason": "disabled",
+				"wss.tool_results":         "0",
+				"wss.source_tool_bytes":    "0",
+			},
+		},
+	)
+
+	report, err := loadWSSLocalGapReport(wssLocalGapFlags{path: path, requireInstrumented: true})
+	if err != nil {
+		t.Fatalf("loadWSSLocalGapReport() error = %v", err)
+	}
+	if report.InstrumentedRequests != 1 ||
+		report.InstrumentedOrigTokens != 1000 ||
+		report.MissingInstrRequests != 1 ||
+		report.MissingInstrOrigTokens != 9000 ||
+		report.MissingShapeFacts != 1 ||
+		report.MissingPrefixFacts != 1 ||
+		report.MissingRawInputFacts != 1 ||
+		report.GatePassed ||
+		len(report.GateFailures) != 1 ||
+		!strings.Contains(report.GateFailures[0], "missing_instrumentation_requests=1") {
+		t.Fatalf("bad instrumentation coverage gate: %+v", report)
+	}
+	if !hasString(report.Notes, "Instrumentation coverage gap: 1 Phase-F rows / 9000 original tokens lack current request-shape, prefix, or raw-input ownership facts; use --since/--since-file or capture fresh rows before promoting T417/T408 savings.") {
+		t.Fatalf("missing coverage note: %+v", report.Notes)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSLocalGap([]string{path, "--require-instrumented", "--json"}, &stdout, &stderr)
+	if code != 3 {
+		t.Fatalf("runWSSLocalGap require instrumented code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 	t.Parallel()
 
