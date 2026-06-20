@@ -223,7 +223,18 @@ type wssShadowMirrorCandidate struct {
 	CandidateLocalTokensEstimate   int                               `json:"candidate_local_tokens_estimate"`
 	IncrementalLocalTokensHeadroom int                               `json:"incremental_local_tokens_headroom"`
 	ProviderInputTokens            int                               `json:"provider_input_tokens"`
+	ProviderCachedTokens           int                               `json:"provider_cached_tokens"`
+	ProviderOutputTokens           int                               `json:"provider_output_tokens"`
 	LocalSavedTokens               int                               `json:"local_saved_tokens"`
+	PreviousResponseIDUsed         int                               `json:"previous_response_id_used"`
+	DetachedPreviousResponse       int                               `json:"detached_previous_response_requests"`
+	StatelessContinuation          int                               `json:"stateless_continuation_requests"`
+	FullHistoryStatelessFollowup   int                               `json:"full_history_stateless_followup_requests"`
+	StructuredMutationGuarded      int                               `json:"structured_mutation_guarded_requests"`
+	HistoryRecoveryGuarded         int                               `json:"history_recovery_guarded_requests"`
+	CacheBustDemoted               int                               `json:"cache_bust_demoted_requests"`
+	EffectiveMutationGuards        map[string]int                    `json:"effective_mutation_guards,omitempty"`
+	BySocketSeq                    map[string]int                    `json:"by_socket_seq,omitempty"`
 	ErrorRequests                  int                               `json:"error_requests"`
 	UpstreamErrorRequests          int                               `json:"upstream_error_requests"`
 	HTTP400ErrorRequests           int                               `json:"http_400_error_requests"`
@@ -236,17 +247,28 @@ type wssShadowMirrorCandidate struct {
 }
 
 type wssShadowMirrorCandidateSession struct {
-	SessionID                      string `json:"session_id"`
-	Requests                       int    `json:"requests"`
-	ReferenceableBytes             int    `json:"referenceable_bytes"`
-	CandidateLocalTokensEstimate   int    `json:"candidate_local_tokens_estimate"`
-	IncrementalLocalTokensHeadroom int    `json:"incremental_local_tokens_headroom"`
-	LocalSavedTokens               int    `json:"local_saved_tokens"`
-	ErrorRequests                  int    `json:"error_requests"`
-	UpstreamErrorRequests          int    `json:"upstream_error_requests"`
-	HTTP400ErrorRequests           int    `json:"http_400_error_requests"`
-	ErrorFree                      bool   `json:"error_free"`
-	NextProofGate                  string `json:"next_proof_gate"`
+	SessionID                      string         `json:"session_id"`
+	Requests                       int            `json:"requests"`
+	ReferenceableBytes             int            `json:"referenceable_bytes"`
+	CandidateLocalTokensEstimate   int            `json:"candidate_local_tokens_estimate"`
+	IncrementalLocalTokensHeadroom int            `json:"incremental_local_tokens_headroom"`
+	ProviderInputTokens            int            `json:"provider_input_tokens"`
+	ProviderCachedTokens           int            `json:"provider_cached_tokens"`
+	LocalSavedTokens               int            `json:"local_saved_tokens"`
+	PreviousResponseIDUsed         int            `json:"previous_response_id_used"`
+	DetachedPreviousResponse       int            `json:"detached_previous_response_requests"`
+	StatelessContinuation          int            `json:"stateless_continuation_requests"`
+	FullHistoryStatelessFollowup   int            `json:"full_history_stateless_followup_requests"`
+	StructuredMutationGuarded      int            `json:"structured_mutation_guarded_requests"`
+	HistoryRecoveryGuarded         int            `json:"history_recovery_guarded_requests"`
+	CacheBustDemoted               int            `json:"cache_bust_demoted_requests"`
+	EffectiveMutationGuards        map[string]int `json:"effective_mutation_guards,omitempty"`
+	BySocketSeq                    map[string]int `json:"by_socket_seq,omitempty"`
+	ErrorRequests                  int            `json:"error_requests"`
+	UpstreamErrorRequests          int            `json:"upstream_error_requests"`
+	HTTP400ErrorRequests           int            `json:"http_400_error_requests"`
+	ErrorFree                      bool           `json:"error_free"`
+	NextProofGate                  string         `json:"next_proof_gate"`
 }
 
 type wssShadowMirrorCandidateAccumulator struct {
@@ -1111,6 +1133,8 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	row.Segments += maxInt(0, segments)
 	row.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
 	row.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	row.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
+	row.ProviderOutputTokens += maxInt(0, summary.ProviderOutputTokens)
 	row.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
 	if len(summary.Errors) > 0 {
 		row.ErrorRequests++
@@ -1133,7 +1157,10 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	session.Requests++
 	session.ReferenceableBytes += refBytes
 	session.CandidateLocalTokensEstimate += tokens.Estimate(refBytes)
+	session.ProviderInputTokens += maxInt(0, summary.ProviderInputTokens)
+	session.ProviderCachedTokens += maxInt(0, summary.ProviderCachedTokens)
 	session.LocalSavedTokens += maxInt(0, summary.Tokens.Saved)
+	addWSSShadowMirrorCandidateSignals(summary, row, session)
 	if len(summary.Errors) > 0 {
 		session.ErrorRequests++
 	}
@@ -1143,6 +1170,44 @@ func (a *wssShadowMirrorCandidateAccumulator) addRow(summary dbg.RequestSummary,
 	if wssAuditHasHTTP400Error(summary) {
 		session.HTTP400ErrorRequests++
 	}
+}
+
+func addWSSShadowMirrorCandidateSignals(summary dbg.RequestSummary, row *wssShadowMirrorCandidate, session *wssShadowMirrorCandidateSession) {
+	if row == nil || session == nil {
+		return
+	}
+	if summary.PreviousResponseIDUsed || parseBoolFact(summary.DebugFacts["wss.previous_response_id"]) {
+		row.PreviousResponseIDUsed++
+		session.PreviousResponseIDUsed++
+	}
+	if parseBoolFact(summary.DebugFacts["wss.full_history_detached_previous_response"]) {
+		row.DetachedPreviousResponse++
+		session.DetachedPreviousResponse++
+	}
+	if parseBoolFact(summary.DebugFacts["wss.stateless_history_continuation"]) {
+		row.StatelessContinuation++
+		session.StatelessContinuation++
+	}
+	if parseBoolFact(summary.DebugFacts["wss.full_history_stateless_followup"]) {
+		row.FullHistoryStatelessFollowup++
+		session.FullHistoryStatelessFollowup++
+	}
+	if strings.TrimSpace(summary.DebugFacts["wss.structured_mutation_guard"]) != "" {
+		row.StructuredMutationGuarded++
+		session.StructuredMutationGuarded++
+	}
+	if parseBoolFact(summary.DebugFacts["wss.history_mutation_recovery_guard"]) {
+		row.HistoryRecoveryGuarded++
+		session.HistoryRecoveryGuarded++
+	}
+	if strings.TrimSpace(summary.DebugFacts["wss.cache_bust_demoted_mechanisms"]) != "" {
+		row.CacheBustDemoted++
+		session.CacheBustDemoted++
+	}
+	addWSSAuditCount(&row.EffectiveMutationGuards, summary.DebugFacts["wss.effective_mutation_guard"])
+	addWSSAuditCount(&session.EffectiveMutationGuards, summary.DebugFacts["wss.effective_mutation_guard"])
+	addWSSAuditCountWithMissing(&row.BySocketSeq, summary.DebugFacts["wss.socket_seq"])
+	addWSSAuditCountWithMissing(&session.BySocketSeq, summary.DebugFacts["wss.socket_seq"])
 }
 
 func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandidate {
@@ -1715,7 +1780,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider_in=%d saved=%d errors=%d error_free=%v lane=%s gate=%s top_sessions=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s top_sessions=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
@@ -1727,7 +1792,18 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.Segments,
 				row.Requests,
 				row.ProviderInputTokens,
+				row.ProviderCachedTokens,
+				row.ProviderOutputTokens,
 				row.LocalSavedTokens,
+				row.PreviousResponseIDUsed,
+				row.DetachedPreviousResponse,
+				row.StatelessContinuation,
+				row.FullHistoryStatelessFollowup,
+				row.StructuredMutationGuarded,
+				row.HistoryRecoveryGuarded,
+				row.CacheBustDemoted,
+				formatWSSAuditCounts(row.EffectiveMutationGuards),
+				formatWSSAuditCounts(row.BySocketSeq),
 				row.ErrorRequests,
 				row.ErrorFree,
 				row.CandidateLane,
@@ -1765,10 +1841,19 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 	}
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
-		parts = append(parts, fmt.Sprintf("%s:%d/%d/%v/%s",
+		parts = append(parts, fmt.Sprintf("%s:%d/%d/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/sockets=%s/ok=%v/%s",
 			truncateMiddle(row.SessionID, 24),
 			row.IncrementalLocalTokensHeadroom,
 			row.ReferenceableBytes,
+			row.ProviderInputTokens,
+			row.ProviderCachedTokens,
+			row.PreviousResponseIDUsed,
+			row.DetachedPreviousResponse,
+			row.StatelessContinuation,
+			row.FullHistoryStatelessFollowup,
+			row.StructuredMutationGuarded+row.HistoryRecoveryGuarded,
+			row.CacheBustDemoted,
+			formatWSSAuditCounts(row.BySocketSeq),
 			row.ErrorFree,
 			row.NextProofGate))
 	}

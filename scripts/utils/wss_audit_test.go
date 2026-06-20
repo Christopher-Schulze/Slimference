@@ -61,6 +61,10 @@ func TestWSSAuditReport(t *testing.T) {
 				"wss.remaining_turns_estimate":                        "70",
 				"wss.socket_seq":                                      "2",
 				"wss.socket_close_initiator":                          "client_eof",
+				"wss.full_history_detached_previous_response":         "true",
+				"wss.full_history_stateless_followup":                 "true",
+				"wss.effective_mutation_guard":                        "wss_full_history_downstream_delta_proof_gate",
+				"wss.cache_bust_demoted_mechanisms":                   "stale_read",
 				"wss.shadow_mirror_blocks":                            "2",
 				"wss.shadow_mirror_bytes":                             "1000",
 				"wss.shadow_mirror_referenceable_blocks":              "1",
@@ -156,8 +160,27 @@ func TestWSSAuditReport(t *testing.T) {
 		got.Bytes != 1000 ||
 		got.ReferenceableBytePct != 40 ||
 		got.ProviderInputTokens != 90 ||
+		got.ProviderCachedTokens != 20 ||
+		got.ProviderOutputTokens != 7 ||
+		got.PreviousResponseIDUsed != 1 ||
+		got.DetachedPreviousResponse != 1 ||
+		got.FullHistoryStatelessFollowup != 1 ||
+		got.CacheBustDemoted != 1 ||
+		got.EffectiveMutationGuards["wss_full_history_downstream_delta_proof_gate"] != 1 ||
+		got.BySocketSeq["2"] != 1 ||
 		got.CandidateLane != "t417_class_b_server_state" {
 		t.Fatalf("bad top shadow mirror candidate: %+v", got)
+	}
+	if got := report.ShadowMirrorCandidates[0].TopSessions; len(got) != 1 ||
+		got[0].ProviderInputTokens != 90 ||
+		got[0].ProviderCachedTokens != 20 ||
+		got[0].PreviousResponseIDUsed != 1 ||
+		got[0].DetachedPreviousResponse != 1 ||
+		got[0].FullHistoryStatelessFollowup != 1 ||
+		got[0].CacheBustDemoted != 1 ||
+		got[0].EffectiveMutationGuards["wss_full_history_downstream_delta_proof_gate"] != 1 ||
+		got[0].BySocketSeq["2"] != 1 {
+		t.Fatalf("bad top shadow mirror candidate sessions: %+v", got)
 	}
 	if got := report.ShadowMirrorCandidates[1]; got.RequestShape != "full_history" ||
 		got.Kind != "codex_exec_payload" ||
@@ -641,9 +664,12 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "lane=t417_class_b_server_state") ||
 		!strings.Contains(stdout.String(), "candidate_tokens=") ||
 		!strings.Contains(stdout.String(), "headroom=") ||
+		!strings.Contains(stdout.String(), "provider=44/22/6") ||
+		!strings.Contains(stdout.String(), "prev_id=0") ||
+		!strings.Contains(stdout.String(), "sockets=3:1") ||
 		!strings.Contains(stdout.String(), "error_free=false") ||
 		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
-		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/false/fix_or_exclude_erroring_lineage_before_promotion") ||
+		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
