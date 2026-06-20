@@ -775,6 +775,11 @@ func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 			want: "go test",
 		},
 		{
+			name: "go_test_package_lines",
+			text: "Process exited with code 0\nOutput:\nok  github.com/Christopher-Schulze/Slimference/internal/proxy 0.123s\n?   github.com/Christopher-Schulze/Slimference/cmd/slimference [no test files]\nok  github.com/Christopher-Schulze/Slimference/internal/servermirror 0.045s\n",
+			want: "go test",
+		},
+		{
 			name: "search",
 			text: "Process exited with code 0\nOutput:\ninternal/a.go:10:needle\ninternal/b.go:20:needle\npkg/c.go:30:needle\n",
 			want: "rg",

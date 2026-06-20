@@ -2076,15 +2076,32 @@ func proxyInferCommandLineFromToolResult(text string) string {
 }
 
 func proxyLooksLikeGoTestOutput(payload string) bool {
-	if !strings.Contains(payload, "=== RUN") {
-		return false
-	}
-	for _, marker := range []string{"\n--- PASS:", "\n--- FAIL:", "\nFAIL\t", "\nPASS\n", "\nFAIL\n"} {
-		if strings.Contains(payload, marker) {
-			return true
+	if strings.Contains(payload, "=== RUN") {
+		for _, marker := range []string{"\n--- PASS:", "\n--- FAIL:", "\nFAIL\t", "\nPASS\n", "\nFAIL\n"} {
+			if strings.Contains(payload, marker) {
+				return true
+			}
 		}
 	}
-	return false
+
+	nonEmpty := 0
+	matches := 0
+	for _, line := range strings.Split(payload, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && (fields[0] == "ok" || fields[0] == "?" || fields[0] == "FAIL") &&
+			strings.Contains(fields[1], "/") {
+			matches++
+		}
+		if nonEmpty >= 24 {
+			break
+		}
+	}
+	return matches >= 2 && matches*2 >= nonEmpty
 }
 
 func proxyLooksLikeSearchOutput(payload string) bool {

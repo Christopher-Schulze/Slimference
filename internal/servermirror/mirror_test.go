@@ -211,16 +211,16 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 	if kind := normalizedSegmentKind(types.Message{Role: "tool"}, types.ContentBlock{Type: "tool_result", ToolName: "Read_File"}); kind != "tool_result_tool_read_file" {
 		t.Fatalf("tool-result tool kind wrong: %q", kind)
 	}
-	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"git status --short"}`}); kind != "codex_exec_payload_command_git" {
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"git status --short"}`}, ""); kind != "codex_exec_payload_command_git" {
 		t.Fatalf("codex exec command kind wrong: %q", kind)
 	}
-	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"command":["/opt/homebrew/bin/bash","-lc","go test ./..."]}`}); kind != "codex_exec_payload_command_go" {
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"command":["/opt/homebrew/bin/bash","-lc","go test ./..."]}`}, ""); kind != "codex_exec_payload_command_go" {
 		t.Fatalf("codex exec array command kind wrong: %q", kind)
 	}
-	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"env GIT_OPTIONAL_LOCKS=0 git status --short"}`}); kind != "codex_exec_payload_command_git" {
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"env GIT_OPTIONAL_LOCKS=0 git status --short"}`}, ""); kind != "codex_exec_payload_command_git" {
 		t.Fatalf("codex exec env-wrapped command kind wrong: %q", kind)
 	}
-	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"!!!"}`}); kind != "codex_exec_payload" {
+	if kind := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"!!!"}`}, ""); kind != "codex_exec_payload" {
 		t.Fatalf("unsafe command kind should fall back, got %q", kind)
 	}
 	commandInputs := map[string]string{
@@ -237,15 +237,143 @@ func TestMirror_NormalizedHelpersCoverFallbacksAndMalformedEnvelopes(t *testing.
 		``:                                                 "codex_exec_payload",
 	}
 	for input, want := range commandInputs {
-		if got := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: input}); got != want {
+		if got := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: input}, ""); got != want {
 			t.Fatalf("command input %q classified as %q, want %q", input, got, want)
 		}
+	}
+	payloadInputs := map[string]string{
+		"ok  github.com/Christopher-Schulze/Slimference/internal/proxy 0.123s\nok  github.com/Christopher-Schulze/Slimference/internal/servermirror 0.045s\n":                                                                                        "codex_exec_payload_command_go",
+		"internal/proxy/layer0_proxy.go:2048:\tif proxyLooksLikeGoTestOutput(payload) {\ninternal/proxy/layer0_proxy.go:2049:\t\treturn \"go test\"\ninternal/servermirror/mirror.go:305:func payloadLooksLikeGoTestOutput(payload string) bool {\n": "codex_exec_payload_command_rg",
+		" M internal/servermirror/mirror.go\n?? docs/todo/t418.md\n M internal/proxy/layer0_proxy.go\n":                                                                                                                                              "codex_exec_payload_command_git",
+		"internal/servermirror/mirror.go      | 42 +++++++++++++++++++++\ninternal/servermirror/mirror_test.go | 31 +++++++++++++++\n2 files changed, 73 insertions(+)\n":                                                                            "codex_exec_payload_command_git",
+		"commit abcdef1234567890abcdef1234567890abcdef12\nAuthor: Test <test@example.com>\n\n    sample\n\ninternal/servermirror/mirror.go | 10 +++++-----\n1 file changed, 5 insertions(+), 5 deletions(-)\n":                                       "codex_exec_payload_command_git",
+		"M\tinternal/servermirror/mirror.go\nA\tinternal/servermirror/mirror_test.go\nD\tdocs/old.md\n":                                                                                                                                              "codex_exec_payload_command_git",
+		"abcdef1 TASK T418: rank WSS shadow opportunities\n1234567 TASK T417: server state continuation\nfedcba9 TASK T419: archive recovery gate\n":                                                                                                 "codex_exec_payload_command_git",
+		"  120 internal/servermirror/mirror.go\n   87 internal/servermirror/mirror_test.go\n":                                                                                                                                                        "codex_exec_payload_command_wc",
+		"internal/servermirror/mirror.go\ninternal/servermirror/mirror_test.go\ninternal/proxy/layer0_proxy.go\ndocs/todo/t418.md\ncmd/slimference/gain.go\n":                                                                                        "codex_exec_payload_command_find",
+		"warning:12:looks like line syntax but no file path\ntrace:34:also not a grep path\nplain:56:still ambiguous\n":                                                                                                                              "codex_exec_payload",
+		"this is just ambiguous prose\nwith multiple stable lines\nbut no command shape\n":                                                                                                                                                           "codex_exec_payload",
+	}
+	for payload, want := range payloadInputs {
+		if got := normalizedCodexExecPayloadKind(types.ContentBlock{}, payload); got != want {
+			t.Fatalf("payload %q classified as %q, want %q", payload, got, want)
+		}
+	}
+	if got := normalizedCodexExecPayloadKind(types.ContentBlock{ToolInput: `{"cmd":"npm install"}`}, "ok  github.com/example/project 0.123s\nok  github.com/example/other 0.123s\n"); got != "codex_exec_payload_command_npm" {
+		t.Fatalf("tool input must win over payload inference, got %q", got)
 	}
 
 	m := New()
 	m.Observe("", msg("must not attach to an empty session"))
 	if rep := m.Predict("non-empty", msg("must not attach to an empty session")); rep.ReferenceableBlocks != 0 {
 		t.Fatalf("empty-session observe must not seed another session: %+v", rep)
+	}
+}
+
+func TestMirror_PayloadInferenceBoundaries(t *testing.T) {
+	t.Parallel()
+
+	if got := inferCommandLineFromCodexExecPayload(" \n\t "); got != "" {
+		t.Fatalf("empty payload inferred as %q", got)
+	}
+	if got := inferCommandLineFromCodexExecPayload("=== RUN   TestThing\n--- PASS: TestThing (0.00s)\nPASS\n"); got != "go test" {
+		t.Fatalf("verbose go test payload inferred as %q", got)
+	}
+	showStat := "commit abcdef1234567890abcdef1234567890abcdef12\nAuthor: Test <test@example.com>\n\n    sample\n\ninternal/servermirror/mirror.go | 10 +++++-----\n1 file changed, 5 insertions(+), 5 deletions(-)\n"
+	if got := inferCommandLineFromCodexExecPayload(showStat); got != "git show --stat" {
+		t.Fatalf("git show stat payload inferred as %q", got)
+	}
+	if got := commandBaseFromFields(nil); got != "" {
+		t.Fatalf("empty command fields returned %q", got)
+	}
+	if payloadLooksLikeGoTestOutput("ok  github.com/example/one 0.1s\nplain line\n") {
+		t.Fatal("single go-test-like package line plus prose must not classify")
+	}
+	if payloadLooksLikeGoTestOutput("ok  github.com/example/one 0.1s\n\nplain line\n") {
+		t.Fatal("go-test sparse output with prose must not classify")
+	}
+	if payloadLooksLikeSearchOutput("Total output lines: 2\nplain:12:not/a/path\nother:34:still/no/path\n") {
+		t.Fatal("colon prose without path must not classify as search")
+	}
+	for _, line := range []string{"no-colon", "file.go:x:needle", "file.go:12:"} {
+		if payloadLooksLikeSearchResultLine(line) {
+			t.Fatalf("invalid search line classified: %q", line)
+		}
+	}
+	if gitStatusXY("M") || gitStatusXY("ZZ") {
+		t.Fatal("invalid git status XY classified")
+	}
+	if payloadLooksLikeGitDiffNameStatusOutput("M\tone.go\nplain\n") {
+		t.Fatal("sparse name-status-like output must not classify")
+	}
+	if payloadLooksLikeGitDiffNameStatusOutput("M\tone.go\n\nplain\n") {
+		t.Fatal("name-status-like output with blank/prose must not classify")
+	}
+	if payloadLooksLikeGitLogOnelineOutput("nothex1 first\nnothex2 second\nnothex3 third\n") {
+		t.Fatal("non-hex log-like output must not classify")
+	}
+	if payloadLooksLikeGitLogOnelineOutput("abcdef1 first\n\nplain\n") {
+		t.Fatal("sparse log-like output with prose must not classify")
+	}
+	if payloadLooksLikeWcOutput("abc file.go\n123\n") {
+		t.Fatal("mixed wc-like output must not classify")
+	}
+	if payloadLooksLikeWcOutput("123 file.go\n\nplain\n") {
+		t.Fatal("sparse wc-like output with prose must not classify")
+	}
+	if allDecimal("") || allDecimal("12x") {
+		t.Fatal("invalid decimal classified")
+	}
+	if payloadLooksLikePlainPathListOutput("key:value\nother:value\nthird:value\nfourth:value\nfifth:value\n") {
+		t.Fatal("colon-heavy output must not classify as plain path list")
+	}
+	if got := sanitizeKindSuffix("\u00dcber Cmd!*"); got != "bercmd" {
+		t.Fatalf("unicode unsafe suffix sanitized as %q", got)
+	}
+}
+
+func TestMirror_StateBoundaryBranches(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	full := make(map[string]struct{}, maxBlocksPerSession)
+	for i := 0; i < maxBlocksPerSession; i++ {
+		full[fmt.Sprintf("h-%d", i)] = struct{}{}
+	}
+	m.sessions["full"] = full
+	m.Observe("full", msg("new content must not fit"))
+	if _, ok := m.sessions["full"][hashContent("new content must not fit")]; ok {
+		t.Fatal("full exact mirror must not accept new content")
+	}
+
+	fullNormalized := make(map[string]struct{}, maxBlocksPerSession)
+	for i := 0; i < maxBlocksPerSession; i++ {
+		fullNormalized[fmt.Sprintf("nh-%d", i)] = struct{}{}
+	}
+	m.normalizedSessions["normalized-full"] = fullNormalized
+	m.Observe("normalized-full", msg("Process exited with code 0\nOutput:\nstable payload\n"))
+	if _, ok := m.normalizedSessions["normalized-full"][hashContent("stable payload\n")]; ok {
+		t.Fatal("full normalized mirror must not accept new content")
+	}
+
+	var nilM *Mirror
+	rep := nilM.Predict("s", msg("", "counted"))
+	if rep.Blocks != 1 {
+		t.Fatalf("nil predict should count only non-empty text blocks, got %+v", rep)
+	}
+
+	uses := toolUseIndexFromMessages([]types.Message{{Content: []types.ContentBlock{
+		{Type: "assistant", ToolUseID: "ignored"},
+		{Type: "tool_use"},
+	}}})
+	if len(uses) != 0 {
+		t.Fatalf("invalid tool uses indexed: %+v", uses)
+	}
+	block := blockWithResolvedToolUse(types.ContentBlock{ToolResultID: "missing", ToolInput: "keep"}, map[string]types.ContentBlock{
+		"other": {ToolInput: "replace"},
+	})
+	if block.ToolInput != "keep" {
+		t.Fatalf("missing tool use must leave block unchanged: %+v", block)
 	}
 }
 

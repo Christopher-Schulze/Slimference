@@ -248,7 +248,7 @@ func normalizedSegments(msgs []types.Message) []normalizedSegment {
 				out = append(out, normalizedSegment{
 					Block:   blockIdx,
 					Segment: 0,
-					Kind:    normalizedCodexExecPayloadKind(resolved),
+					Kind:    normalizedCodexExecPayloadKind(resolved, payload),
 					Text:    payload,
 				})
 			} else {
@@ -332,12 +332,43 @@ func normalizedToolResultKind(block types.ContentBlock) string {
 	return ""
 }
 
-func normalizedCodexExecPayloadKind(block types.ContentBlock) string {
+func normalizedCodexExecPayloadKind(block types.ContentBlock, payload string) string {
 	base := sanitizedCommandBase(commandLineFromToolInput(block.ToolInput))
+	if base == "" {
+		base = sanitizedCommandBase(inferCommandLineFromCodexExecPayload(payload))
+	}
 	if base == "" {
 		return "codex_exec_payload"
 	}
 	return "codex_exec_payload_command_" + base
+}
+
+func inferCommandLineFromCodexExecPayload(payload string) string {
+	if strings.TrimSpace(payload) == "" {
+		return ""
+	}
+	switch {
+	case payloadLooksLikeGoTestOutput(payload):
+		return "go test"
+	case payloadLooksLikeSearchOutput(payload):
+		return "rg"
+	case payloadLooksLikeGitStatusOutput(payload):
+		return "git status --short"
+	case payloadLooksLikeGitShowStatOutput(payload):
+		return "git show --stat"
+	case payloadLooksLikeGitDiffStatOutput(payload):
+		return "git diff --stat"
+	case payloadLooksLikeGitDiffNameStatusOutput(payload):
+		return "git diff --name-status"
+	case payloadLooksLikeGitLogOnelineOutput(payload):
+		return "git log --oneline"
+	case payloadLooksLikeWcOutput(payload):
+		return "wc -l"
+	case payloadLooksLikePlainPathListOutput(payload):
+		return "find"
+	default:
+		return ""
+	}
 }
 
 func commandLineFromToolInput(input string) string {
@@ -459,4 +490,242 @@ func splitCodexExecEnvelope(text string) (header, payload string, ok bool) {
 		return header, payload, payload != ""
 	}
 	return "", "", false
+}
+
+func payloadLooksLikeGoTestOutput(payload string) bool {
+	if strings.Contains(payload, "=== RUN") {
+		for _, marker := range []string{"\n--- PASS:", "\n--- FAIL:", "\nFAIL\t", "\nPASS\n", "\nFAIL\n"} {
+			if strings.Contains(payload, marker) {
+				return true
+			}
+		}
+	}
+
+	nonEmpty := 0
+	matches := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && (fields[0] == "ok" || fields[0] == "?" || fields[0] == "FAIL") &&
+			strings.Contains(fields[1], "/") {
+			matches++
+		}
+	}
+	return matches >= 2 && matches*2 >= nonEmpty
+}
+
+func payloadLooksLikeSearchOutput(payload string) bool {
+	nonEmpty := 0
+	matches := 0
+	for len(payload) > 0 && nonEmpty < 12 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Total output lines:") {
+			continue
+		}
+		nonEmpty++
+		if payloadLooksLikeSearchResultLine(line) {
+			matches++
+		}
+	}
+	return matches >= 3 && matches*2 >= nonEmpty
+}
+
+func payloadLooksLikeSearchResultLine(line string) bool {
+	first := strings.IndexByte(line, ':')
+	if first <= 0 {
+		return false
+	}
+	second := strings.IndexByte(line[first+1:], ':')
+	if second <= 0 {
+		return false
+	}
+	lineNo := line[first+1 : first+1+second]
+	if lineNo == "" {
+		return false
+	}
+	for _, ch := range lineNo {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	path := line[:first]
+	return strings.TrimSpace(line[first+1+second+1:]) != "" &&
+		(strings.Contains(path, "/") || strings.Contains(path, "."))
+}
+
+func payloadLooksLikeGitStatusOutput(payload string) bool {
+	nonEmpty := 0
+	statusLines := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		nonEmpty++
+		if len(line) >= 4 && gitStatusXY(line[:2]) && (line[2] == ' ' || line[2] == '\t') {
+			statusLines++
+		}
+	}
+	return statusLines >= 3 && statusLines*2 >= nonEmpty
+}
+
+func gitStatusXY(value string) bool {
+	if len(value) != 2 {
+		return false
+	}
+	return gitStatusChar(value[0]) && gitStatusChar(value[1])
+}
+
+func gitStatusChar(ch byte) bool {
+	return ch == ' ' || ch == '?' || ch == '!' || ch == 'M' || ch == 'A' ||
+		ch == 'D' || ch == 'R' || ch == 'C' || ch == 'U' || ch == 'T'
+}
+
+func payloadLooksLikeGitDiffStatOutput(payload string) bool {
+	return strings.Contains(payload, " | ") &&
+		(strings.Contains(payload, " changed") || strings.Contains(payload, " insertion") || strings.Contains(payload, " deletion"))
+}
+
+func payloadLooksLikeGitShowStatOutput(payload string) bool {
+	return (strings.HasPrefix(payload, "commit ") || strings.Contains(payload, "\ncommit ")) &&
+		payloadLooksLikeGitDiffStatOutput(payload)
+}
+
+func payloadLooksLikeGitDiffNameStatusOutput(payload string) bool {
+	nonEmpty := 0
+	matches := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		if len(line) >= 3 && strings.ContainsRune("MADRCUT", rune(line[0])) && (line[1] == '\t' || line[1] == ' ') {
+			matches++
+		}
+	}
+	return matches >= 3 && matches*2 >= nonEmpty
+}
+
+func payloadLooksLikeGitLogOnelineOutput(payload string) bool {
+	nonEmpty := 0
+	matches := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && len(fields[0]) >= 7 && isHex(fields[0]) {
+			matches++
+		}
+	}
+	return matches >= 3 && matches*2 >= nonEmpty
+}
+
+func isHex(value string) bool {
+	for _, ch := range value {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func payloadLooksLikeWcOutput(payload string) bool {
+	nonEmpty := 0
+	matches := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		nonEmpty++
+		if allDecimal(fields[0]) {
+			matches++
+		}
+	}
+	return matches >= 2 && matches*2 >= nonEmpty
+}
+
+func allDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func payloadLooksLikePlainPathListOutput(payload string) bool {
+	nonEmpty := 0
+	pathLike := 0
+	for len(payload) > 0 && nonEmpty < 24 {
+		line := payload
+		if idx := strings.IndexByte(payload, '\n'); idx >= 0 {
+			line = payload[:idx]
+			payload = payload[idx+1:]
+		} else {
+			payload = ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.ContainsAny(line, "\t:") || strings.Contains(line, " | ") {
+			continue
+		}
+		nonEmpty++
+		if strings.Contains(line, "/") || strings.Contains(line, ".") {
+			pathLike++
+		}
+	}
+	return pathLike >= 5 && pathLike*2 >= nonEmpty
 }
