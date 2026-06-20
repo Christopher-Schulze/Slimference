@@ -28,26 +28,61 @@ type wssSocketDebugArgs struct {
 }
 
 type wssSocketReport struct {
-	DecisionsLog                            string             `json:"decisions_log,omitempty"`
-	RequestLimit                            int                `json:"request_limit"`
-	SessionFilter                           string             `json:"session_filter,omitempty"`
-	Since                                   time.Time          `json:"since,omitempty"`
-	RequestsScanned                         int                `json:"requests_scanned"`
-	RequestsFiltered                        int                `json:"requests_filtered"`
-	WSSRequests                             int                `json:"wss_requests"`
-	SocketCount                             int                `json:"socket_count"`
-	ClosedSockets                           int                `json:"closed_sockets"`
-	CloseInitiators                         map[string]int     `json:"close_initiators,omitempty"`
-	CauseClasses                            map[string]int     `json:"cause_classes,omitempty"`
-	ActionableSockets                       int                `json:"actionable_sockets"`
-	ProviderInputTokens                     int                `json:"provider_input_tokens"`
-	ProviderCachedTokens                    int                `json:"provider_cached_tokens"`
-	LocalSavedTokens                        int                `json:"local_saved_tokens"`
-	FullHistoryRequests                     int                `json:"full_history_requests"`
-	FullHistoryProviderInputTokens          int                `json:"full_history_provider_input_tokens"`
-	ReconnectFullHistoryRequests            int                `json:"reconnect_full_history_requests"`
-	ReconnectFullHistoryProviderInputTokens int                `json:"reconnect_full_history_provider_input_tokens"`
-	Sockets                                 []wssSocketSummary `json:"sockets"`
+	DecisionsLog                            string                     `json:"decisions_log,omitempty"`
+	RequestLimit                            int                        `json:"request_limit"`
+	SessionFilter                           string                     `json:"session_filter,omitempty"`
+	Since                                   time.Time                  `json:"since,omitempty"`
+	RequestsScanned                         int                        `json:"requests_scanned"`
+	RequestsFiltered                        int                        `json:"requests_filtered"`
+	WSSRequests                             int                        `json:"wss_requests"`
+	SocketCount                             int                        `json:"socket_count"`
+	ClosedSockets                           int                        `json:"closed_sockets"`
+	CloseInitiators                         map[string]int             `json:"close_initiators,omitempty"`
+	CauseClasses                            map[string]int             `json:"cause_classes,omitempty"`
+	ActionableSockets                       int                        `json:"actionable_sockets"`
+	ProviderInputTokens                     int                        `json:"provider_input_tokens"`
+	ProviderCachedTokens                    int                        `json:"provider_cached_tokens"`
+	LocalSavedTokens                        int                        `json:"local_saved_tokens"`
+	FullHistoryRequests                     int                        `json:"full_history_requests"`
+	FullHistoryProviderInputTokens          int                        `json:"full_history_provider_input_tokens"`
+	ReconnectFullHistoryRequests            int                        `json:"reconnect_full_history_requests"`
+	ReconnectFullHistoryProviderInputTokens int                        `json:"reconnect_full_history_provider_input_tokens"`
+	ReconnectFullHistoryByCause             []wssReconnectCauseSummary `json:"reconnect_full_history_by_cause,omitempty"`
+	T417ReconnectHandoff                    []wssReconnectT417Handoff  `json:"t417_reconnect_handoff,omitempty"`
+	Sockets                                 []wssSocketSummary         `json:"sockets"`
+}
+
+type wssReconnectCauseSummary struct {
+	Cause                string   `json:"cause"`
+	Sockets              int      `json:"sockets"`
+	Requests             int      `json:"requests"`
+	ProviderInputTokens  int      `json:"provider_input_tokens"`
+	ProviderCachedTokens int      `json:"provider_cached_tokens"`
+	LocalSavedTokens     int      `json:"local_saved_tokens"`
+	ReconnectInputTokens int      `json:"reconnect_input_tokens"`
+	RetryResendCost      int      `json:"retry_resend_cost_tokens"`
+	PreviousInitiators   []string `json:"previous_initiators,omitempty"`
+	Candidates           []string `json:"continuation_candidates,omitempty"`
+}
+
+type wssReconnectT417Handoff struct {
+	SocketKey             string         `json:"socket_key"`
+	SessionID             string         `json:"session_id,omitempty"`
+	Cause                 string         `json:"cause"`
+	RequestShapes         map[string]int `json:"request_shapes,omitempty"`
+	Requests              int            `json:"requests"`
+	FullHistoryRequests   int            `json:"full_history_requests"`
+	ProviderInputTokens   int            `json:"provider_input_tokens"`
+	ProviderCachedTokens  int            `json:"provider_cached_tokens"`
+	LocalSavedTokens      int            `json:"local_saved_tokens"`
+	ReconnectInputTokens  int            `json:"reconnect_input_tokens"`
+	RetryResendCost       int            `json:"retry_resend_cost_tokens"`
+	PreviousSocketKey     string         `json:"previous_socket_key,omitempty"`
+	PreviousClose         string         `json:"previous_close_initiator,omitempty"`
+	ReconnectGapMillis    int64          `json:"reconnect_gap_ms,omitempty"`
+	Attribution           string         `json:"attribution,omitempty"`
+	ContinuationCandidate string         `json:"continuation_candidate"`
+	RecommendedAction     string         `json:"recommended_action,omitempty"`
 }
 
 type wssSocketSummary struct {
@@ -332,6 +367,8 @@ func buildWSSSocketReportWithOptions(path string, summaries []dbg.RequestSummary
 	if len(report.CauseClasses) == 0 {
 		report.CauseClasses = nil
 	}
+	report.ReconnectFullHistoryByCause = buildWSSReconnectCauseSummaries(report.Sockets)
+	report.T417ReconnectHandoff = buildWSSReconnectT417Handoff(report.Sockets)
 	return report
 }
 
@@ -632,6 +669,120 @@ func evaluateWSSSocketGate(report wssSocketReport, opts wssSocketDebugArgs) []st
 	return violations
 }
 
+func buildWSSReconnectCauseSummaries(sockets []wssSocketSummary) []wssReconnectCauseSummary {
+	byCause := make(map[string]*wssReconnectCauseSummary)
+	previousInitiators := make(map[string]map[string]bool)
+	candidates := make(map[string]map[string]bool)
+	for _, socket := range sockets {
+		if !socket.ReconnectFullHistory {
+			continue
+		}
+		cause := socket.Cause
+		if strings.TrimSpace(cause) == "" {
+			cause = "unknown"
+		}
+		summary := byCause[cause]
+		if summary == nil {
+			summary = &wssReconnectCauseSummary{Cause: cause}
+			byCause[cause] = summary
+			previousInitiators[cause] = make(map[string]bool)
+			candidates[cause] = make(map[string]bool)
+		}
+		summary.Sockets++
+		summary.Requests += socket.FullHistoryRequests
+		summary.ProviderInputTokens += socket.ProviderInputTokens
+		summary.ProviderCachedTokens += socket.ProviderCachedTokens
+		summary.LocalSavedTokens += socket.LocalSavedTokens
+		summary.ReconnectInputTokens += socket.ReconnectFullHistoryProviderInput
+		summary.RetryResendCost += socket.ReconnectFullHistoryProviderInput
+		if socket.ReconnectPreviousCloseInitiator != "" {
+			previousInitiators[cause][socket.ReconnectPreviousCloseInitiator] = true
+		}
+		candidate := wssReconnectContinuationCandidate(socket.Cause)
+		if candidate != "" {
+			candidates[cause][candidate] = true
+		}
+	}
+	out := make([]wssReconnectCauseSummary, 0, len(byCause))
+	for cause, summary := range byCause {
+		summary.PreviousInitiators = sortedStringSet(previousInitiators[cause])
+		summary.Candidates = sortedStringSet(candidates[cause])
+		out = append(out, *summary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ReconnectInputTokens != out[j].ReconnectInputTokens {
+			return out[i].ReconnectInputTokens > out[j].ReconnectInputTokens
+		}
+		return out[i].Cause < out[j].Cause
+	})
+	return out
+}
+
+func buildWSSReconnectT417Handoff(sockets []wssSocketSummary) []wssReconnectT417Handoff {
+	out := make([]wssReconnectT417Handoff, 0)
+	for _, socket := range sockets {
+		if !socket.ReconnectFullHistory {
+			continue
+		}
+		out = append(out, wssReconnectT417Handoff{
+			SocketKey:             socket.SocketKey,
+			SessionID:             socket.SessionID,
+			Cause:                 socket.Cause,
+			RequestShapes:         cloneWSSSocketShapeCounts(socket.RequestShapes),
+			Requests:              socket.Requests,
+			FullHistoryRequests:   socket.FullHistoryRequests,
+			ProviderInputTokens:   socket.ProviderInputTokens,
+			ProviderCachedTokens:  socket.ProviderCachedTokens,
+			LocalSavedTokens:      socket.LocalSavedTokens,
+			ReconnectInputTokens:  socket.ReconnectFullHistoryProviderInput,
+			RetryResendCost:       socket.ReconnectFullHistoryProviderInput,
+			PreviousSocketKey:     socket.ReconnectPreviousSocketKey,
+			PreviousClose:         socket.ReconnectPreviousCloseInitiator,
+			ReconnectGapMillis:    socket.ReconnectGapMillis,
+			Attribution:           socket.ReconnectAttribution,
+			ContinuationCandidate: wssReconnectContinuationCandidate(socket.Cause),
+			RecommendedAction:     socket.RecommendedAction,
+		})
+	}
+	return out
+}
+
+func wssReconnectContinuationCandidate(cause string) string {
+	switch cause {
+	case "local_full_history_reconnect":
+		return "t420_local_lifecycle_fix"
+	case "upstream_full_history_reconnect", "upstream_error_full_history_reconnect":
+		return "t420_upstream_keepalive_or_recovery"
+	case "client_full_history_reconnect", "client_error_full_history_reconnect", "full_history_reconnect":
+		return "t417_stateless_or_lineage_reroute"
+	default:
+		return "classify_before_reroute"
+	}
+}
+
+func sortedStringSet(values map[string]bool) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func cloneWSSSocketShapeCounts(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 func positiveInt(v int) int {
 	if v < 0 {
 		return 0
@@ -675,6 +826,12 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 	if len(report.CauseClasses) > 0 {
 		fmt.Printf("causes=%s actionable=%d\n", formatWSSSocketShapeCounts(report.CauseClasses), report.ActionableSockets)
 	}
+	if len(report.ReconnectFullHistoryByCause) > 0 {
+		fmt.Printf("t417_handoff rows=%d reconnect_input=%d causes=%s\n",
+			len(report.T417ReconnectHandoff),
+			report.ReconnectFullHistoryProviderInputTokens,
+			formatWSSReconnectCauseSummaries(report.ReconnectFullHistoryByCause))
+	}
 	for _, socket := range report.Sockets {
 		fmt.Printf("socket=%s seq=%d session=%s close=%s cause=%s age_ms=%d requests=%d shapes=%s input=%d cached=%d full_history_input=%d reconnect_prev=%s reconnect_prev_close=%s reconnect_gap_ms=%d turns=%d\n",
 			socket.SocketKey,
@@ -692,6 +849,19 @@ func printWSSSocketReport(report wssSocketReport, jsonOut bool) {
 			emptyDash(socket.ReconnectPreviousCloseInitiator),
 			socket.ReconnectGapMillis,
 			socket.TurnsCompleted)
+	}
+	for _, row := range report.T417ReconnectHandoff {
+		fmt.Printf("handoff socket=%s cause=%s reconnect_input=%d cached=%d local_saved=%d retry_resend_cost=%d prev=%s prev_close=%s gap_ms=%d candidate=%s\n",
+			row.SocketKey,
+			row.Cause,
+			row.ReconnectInputTokens,
+			row.ProviderCachedTokens,
+			row.LocalSavedTokens,
+			row.RetryResendCost,
+			emptyDash(row.PreviousSocketKey),
+			emptyDash(row.PreviousClose),
+			row.ReconnectGapMillis,
+			row.ContinuationCandidate)
 	}
 }
 
@@ -714,6 +884,17 @@ func formatWSSSocketShapeCounts(counts map[string]int) string {
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		parts = append(parts, fmt.Sprintf("%s:%d", key, counts[key]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatWSSReconnectCauseSummaries(summaries []wssReconnectCauseSummary) string {
+	if len(summaries) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		parts = append(parts, fmt.Sprintf("%s:%d/%d", summary.Cause, summary.Requests, summary.ReconnectInputTokens))
 	}
 	return strings.Join(parts, ",")
 }

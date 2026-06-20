@@ -125,6 +125,31 @@ func TestBuildWSSSocketReportCorrelatesReconnectFullHistory(t *testing.T) {
 	if report.Sockets[1].RootRequests != 1 || report.Sockets[1].DeltaRequests != 1 || report.Sockets[1].C2SFrames != 2 {
 		t.Fatalf("socket 1 aggregation mismatch: %+v", report.Sockets[1])
 	}
+	if len(report.ReconnectFullHistoryByCause) != 1 {
+		t.Fatalf("missing reconnect cause summary: %+v", report.ReconnectFullHistoryByCause)
+	}
+	cause := report.ReconnectFullHistoryByCause[0]
+	if cause.Cause != "client_full_history_reconnect" ||
+		cause.Requests != 1 ||
+		cause.ReconnectInputTokens != 9000 ||
+		cause.RetryResendCost != 9000 ||
+		!containsString(cause.PreviousInitiators, "client_eof") ||
+		!containsString(cause.Candidates, "t417_stateless_or_lineage_reroute") {
+		t.Fatalf("reconnect cause summary mismatch: %+v", cause)
+	}
+	if len(report.T417ReconnectHandoff) != 1 {
+		t.Fatalf("missing T417 reconnect handoff: %+v", report.T417ReconnectHandoff)
+	}
+	handoff := report.T417ReconnectHandoff[0]
+	if handoff.SocketKey != "codex-wss:thread#2.1" ||
+		handoff.PreviousSocketKey != "codex-wss:thread#1.1" ||
+		handoff.PreviousClose != "client_eof" ||
+		handoff.ReconnectInputTokens != 9000 ||
+		handoff.RetryResendCost != 9000 ||
+		handoff.ContinuationCandidate != "t417_stateless_or_lineage_reroute" ||
+		handoff.RequestShapes["full_history"] != 1 {
+		t.Fatalf("T417 reconnect handoff mismatch: %+v", handoff)
+	}
 }
 
 func TestBuildWSSSocketReportSplitsReusedSocketSeqAfterClose(t *testing.T) {
@@ -336,6 +361,102 @@ func TestWSSSocketSmallHelpers(t *testing.T) {
 	if socketHasOnlyRootDeltaShapes(&mixed) {
 		t.Fatal("full_history shape should not be root/delta safe")
 	}
+	if got := cloneWSSSocketShapeCounts(nil); got != nil {
+		t.Fatalf("nil shape clone should stay nil: %+v", got)
+	}
+	if got := formatWSSReconnectCauseSummaries(nil); got != "-" {
+		t.Fatalf("empty reconnect cause formatting=%q", got)
+	}
+}
+
+func TestBuildWSSReconnectHandoffRanksCausesAndCandidates(t *testing.T) {
+	sockets := []wssSocketSummary{
+		{
+			SocketKey:                         "local#3.1",
+			SessionID:                         "local",
+			RequestShapes:                     map[string]int{"full_history": 2},
+			Requests:                          2,
+			FullHistoryRequests:               2,
+			ProviderInputTokens:               15000,
+			ProviderCachedTokens:              1000,
+			LocalSavedTokens:                  250,
+			ReconnectFullHistory:              true,
+			ReconnectFullHistoryProviderInput: 15000,
+			ReconnectPreviousSocketKey:        "local#2.1",
+			ReconnectPreviousCloseInitiator:   "our_error",
+			ReconnectGapMillis:                42,
+			ReconnectAttribution:              "observed_previous_socket",
+			Cause:                             "local_full_history_reconnect",
+			RecommendedAction:                 "fix local close path",
+		},
+		{
+			SocketKey:                         "upstream#2.1",
+			SessionID:                         "upstream",
+			RequestShapes:                     map[string]int{"full_history": 1},
+			Requests:                          1,
+			FullHistoryRequests:               1,
+			ProviderInputTokens:               7000,
+			ProviderCachedTokens:              0,
+			LocalSavedTokens:                  70,
+			ReconnectFullHistory:              true,
+			ReconnectFullHistoryProviderInput: 7000,
+			ReconnectPreviousCloseInitiator:   "upstream_error",
+			Cause:                             "upstream_error_full_history_reconnect",
+		},
+		{
+			SocketKey:                         "unknown#2.1",
+			SessionID:                         "unknown",
+			RequestShapes:                     map[string]int{"full_history": 1},
+			Requests:                          1,
+			FullHistoryRequests:               1,
+			ProviderInputTokens:               100,
+			ReconnectFullHistory:              true,
+			ReconnectFullHistoryProviderInput: 100,
+			Cause:                             "unexpected_future_class",
+		},
+		{
+			SocketKey: "delta#1.1",
+			Cause:     "client_delta_safe_close",
+		},
+	}
+
+	summaries := buildWSSReconnectCauseSummaries(sockets)
+	if len(summaries) != 3 {
+		t.Fatalf("summaries=%+v", summaries)
+	}
+	if summaries[0].Cause != "local_full_history_reconnect" ||
+		summaries[0].Requests != 2 ||
+		summaries[0].RetryResendCost != 15000 ||
+		!containsString(summaries[0].PreviousInitiators, "our_error") ||
+		!containsString(summaries[0].Candidates, "t420_local_lifecycle_fix") {
+		t.Fatalf("local summary mismatch: %+v", summaries[0])
+	}
+	if summaries[1].Cause != "upstream_error_full_history_reconnect" ||
+		!containsString(summaries[1].Candidates, "t420_upstream_keepalive_or_recovery") {
+		t.Fatalf("upstream summary mismatch: %+v", summaries[1])
+	}
+	if summaries[2].Cause != "unexpected_future_class" ||
+		!containsString(summaries[2].Candidates, "classify_before_reroute") {
+		t.Fatalf("unknown summary mismatch: %+v", summaries[2])
+	}
+	if got := formatWSSReconnectCauseSummaries(summaries); !strings.Contains(got, "local_full_history_reconnect:2/15000") {
+		t.Fatalf("formatted summaries missing local mass: %q", got)
+	}
+
+	handoff := buildWSSReconnectT417Handoff(sockets)
+	if len(handoff) != 3 {
+		t.Fatalf("handoff=%+v", handoff)
+	}
+	if handoff[0].ContinuationCandidate != "t420_local_lifecycle_fix" ||
+		handoff[0].RetryResendCost != 15000 ||
+		handoff[0].RequestShapes["full_history"] != 2 ||
+		handoff[0].RecommendedAction != "fix local close path" {
+		t.Fatalf("local handoff mismatch: %+v", handoff[0])
+	}
+	handoff[0].RequestShapes["full_history"] = 99
+	if sockets[0].RequestShapes["full_history"] != 2 {
+		t.Fatalf("handoff mutated source request shapes: %+v", sockets[0].RequestShapes)
+	}
 }
 
 func TestEvaluateWSSSocketGate(t *testing.T) {
@@ -388,6 +509,9 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 		"seq=2",
 		"reconnect_full_history=1",
 		"cause=client_full_history_reconnect",
+		"t417_handoff rows=1 reconnect_input=8000",
+		"handoff socket=codex-wss:thread#2.1 cause=client_full_history_reconnect",
+		"candidate=t417_stateless_or_lineage_reroute",
 		"reconnect_prev=codex-wss:thread#1.1",
 		"shapes=full_history:1",
 	} {
@@ -409,6 +533,14 @@ func TestHandleDebugWSSSocketsTextAndJSON(t *testing.T) {
 	}
 	if report.Sockets[0].ReconnectPreviousCloseInitiator != "client_eof" {
 		t.Fatalf("json reconnect attribution mismatch: %+v", report.Sockets[0])
+	}
+	if len(report.ReconnectFullHistoryByCause) != 1 ||
+		report.ReconnectFullHistoryByCause[0].ReconnectInputTokens != 8000 {
+		t.Fatalf("json reconnect cause summary mismatch: %+v", report.ReconnectFullHistoryByCause)
+	}
+	if len(report.T417ReconnectHandoff) != 1 ||
+		report.T417ReconnectHandoff[0].ContinuationCandidate != "t417_stateless_or_lineage_reroute" {
+		t.Fatalf("json T417 handoff mismatch: %+v", report.T417ReconnectHandoff)
 	}
 }
 
@@ -507,6 +639,15 @@ func cloneWSSSocketShapes(in map[string]int) map[string]int {
 		out[key] = value
 	}
 	return out
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func strconvFormatUint(v uint64) string {
