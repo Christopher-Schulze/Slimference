@@ -269,6 +269,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "glab", args: []string{"pipeline", "list"}},
 		{command: "aws", args: []string{"sts", "get-caller-identity"}},
 		{command: "jq", args: []string{".", "package.json"}},
+		{command: "curl", args: []string{"-sS", "https://api.example.com/data"}},
+		{command: "wget", args: []string{"-qO-", "https://api.example.com/data"}},
+		{command: "http", args: []string{"GET", "https://api.example.com/data"}},
+		{command: "https", args: []string{"api.example.com/data"}},
 		{command: "gradle", args: []string{"build"}},
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "meson", args: []string{"compile", "-C", "build"}},
@@ -377,6 +381,10 @@ func TestCommandOutputFirstAllowCaptureKeepsPlainDiffOut(t *testing.T) {
 		{command: "aws", args: []string{"configure"}},
 		{command: "aws", args: []string{"sso", "login"}},
 		{command: "aws", args: []string{"ecr", "get-login-password"}},
+		{command: "curl", args: []string{"-o", "body.json", "https://api.example.com/data"}},
+		{command: "curl", args: []string{"--no-buffer", "https://api.example.com/events"}},
+		{command: "wget", args: []string{"https://api.example.com/data"}},
+		{command: "http", args: []string{"--download", "https://api.example.com/data"}},
 		{command: "gradle", args: []string{"assemble"}},
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run", "web:test"}},
@@ -1478,6 +1486,151 @@ func TestCommandOutputFirstShimJQNonJSONFullPasses(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimNetworkJSONExactCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	var raw strings.Builder
+	raw.WriteString("{\n  \"items\": [\n")
+	for i := 0; i < 72; i++ {
+		comma := ","
+		if i == 71 {
+			comma = ""
+		}
+		fmt.Fprintf(&raw, "    {\"id\": %d, \"name\": \"object-%03d\", \"value\": \"%s\"}%s\n", i, i, strings.Repeat("xyz", 8), comma)
+	}
+	raw.WriteString("  ]\n}\n")
+	realCurl := writeFakeCommand(t, "curl", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=curl", "--real-bin=" + realCurl, "--", "-sS", "https://api.example.com/data"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if strings.Contains(got, "\n  ") {
+		t.Fatalf("curl JSON should be minified, got %q", got[:min(len(got), 160)])
+	}
+	for _, want := range []string{`"object-071"`, `"value":"xyzxyzxyzxyzxyzxyzxyzxyz"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("exact network JSON compact output lost %q in %q", want, got[:min(len(got), 220)])
+		}
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing command-output-first archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand command-output-first archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("\n  \"items\"")) || !bytes.Contains(archived, []byte("object-071")) {
+		t.Fatalf("archive did not preserve raw network response: %q", archived[:min(len(archived), 220)])
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if !strings.Contains(run.Command, "[command-output-first:curl] curl -sS https://api.example.com/data") {
+		t.Fatalf("command label=%q", run.Command)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimNetworkNonJSONFullPasses(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	raw := "INFO boot\nINFO boot\nINFO boot\n"
+	realHTTP := writeFakeCommand(t, "http", "#!/bin/sh\nprintf 'INFO boot\\nINFO boot\\nINFO boot\\n'\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=http", "--real-bin=" + realHTTP, "--", "GET", "https://api.example.com/logs"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	if got := stdout.String(); got != raw {
+		t.Fatalf("http non-json must full-pass\ngot=%q\nwant=%q", got, raw)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+	if uri := commandOutputFirstArchiveURI(stdout.String()); uri != "" {
+		t.Fatalf("non-json full-pass must not archive: %q", stdout.String())
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if run, ok, err := filter.LastFilterRun(db); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("network non-json full-pass must not record accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstNetworkResponseHelperBoundaries(t *testing.T) {
+	allowed := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "curl url flag", command: "curl", args: []string{"--url", "https://api.example.com/data"}},
+		{name: "curl request with data", command: "curl", args: []string{"-X", "POST", "-H", "content-type: application/json", "-d", "{\"ok\":true}", "https://api.example.com/data"}},
+		{name: "wget split stdout", command: "wget", args: []string{"-q", "-O", "-", "https://api.example.com/data"}},
+		{name: "wget compact stdout", command: "wget", args: []string{"-qO-", "https://api.example.com/data"}},
+		{name: "wget long stdout", command: "wget", args: []string{"--output-document=-", "https://api.example.com/data"}},
+		{name: "httpie localhost", command: "http", args: []string{"localhost:8990/status"}},
+		{name: "httpie relative local", command: "http", args: []string{":8990/status"}},
+		{name: "httpie dotted host", command: "https", args: []string{"api.example.com/data"}},
+	}
+	for _, tc := range allowed {
+		if !commandOutputFirstNetworkResponseAllowed(tc.command, tc.args) {
+			t.Fatalf("%s: %s %v should be network-response allowed", tc.name, tc.command, tc.args)
+		}
+	}
+
+	denied := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "unknown command", command: "ftp", args: []string{"https://api.example.com/data"}},
+		{name: "empty args", command: "curl", args: nil},
+		{name: "curl blank arg", command: "curl", args: []string{""}},
+		{name: "curl no url", command: "curl", args: []string{"-sS"}},
+		{name: "curl missing header value", command: "curl", args: []string{"-H"}},
+		{name: "curl output file", command: "curl", args: []string{"--output=body.json", "https://api.example.com/data"}},
+		{name: "curl upload file", command: "curl", args: []string{"--upload-file=body.json", "https://api.example.com/data"}},
+		{name: "curl include headers", command: "curl", args: []string{"-i", "https://api.example.com/data"}},
+		{name: "wget blank arg", command: "wget", args: []string{""}},
+		{name: "wget no stdout", command: "wget", args: []string{"https://api.example.com/data"}},
+		{name: "wget missing output value", command: "wget", args: []string{"-O"}},
+		{name: "wget output file", command: "wget", args: []string{"-O", "body.json", "https://api.example.com/data"}},
+		{name: "wget recursive", command: "wget", args: []string{"-r", "-qO-", "https://api.example.com/data"}},
+		{name: "httpie blank arg", command: "http", args: []string{""}},
+		{name: "httpie no target", command: "http", args: []string{"GET"}},
+		{name: "httpie missing auth value", command: "http", args: []string{"--auth"}},
+		{name: "httpie download", command: "http", args: []string{"--download", "https://api.example.com/data"}},
+		{name: "httpie headers", command: "http", args: []string{"--headers", "https://api.example.com/data"}},
+		{name: "httpie print headers", command: "https", args: []string{"-pH", "api.example.com/data"}},
+	}
+	for _, tc := range denied {
+		if commandOutputFirstNetworkResponseAllowed(tc.command, tc.args) {
+			t.Fatalf("%s: %s %v must not be network-response allowed", tc.name, tc.command, tc.args)
+		}
+	}
+}
+
 func TestCommandOutputFirstInfraJSONEdges(t *testing.T) {
 	allowed := []struct {
 		command string
@@ -1496,6 +1649,9 @@ func TestCommandOutputFirstInfraJSONEdges(t *testing.T) {
 		{command: "cargo", args: []string{"metadata", "--format-version", "1"}},
 		{command: "go", args: []string{"env", "-json"}},
 		{command: "npm", args: []string{"view", "react", "--json"}},
+		{command: "curl", args: []string{"--url", "https://api.example.com/data"}},
+		{command: "wget", args: []string{"-q", "-O", "-", "https://api.example.com/data"}},
+		{command: "http", args: []string{"localhost:8990/status"}},
 	}
 	for _, tc := range allowed {
 		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
@@ -1519,6 +1675,10 @@ func TestCommandOutputFirstInfraJSONEdges(t *testing.T) {
 		{command: "go", args: []string{"env"}},
 		{command: "npm", args: []string{"install", "--json"}},
 		{command: "cargo", args: []string{"install", "ripgrep", "--json"}},
+		{command: "curl", args: []string{"-I", "https://api.example.com/data"}},
+		{command: "curl", args: []string{"--output=body.json", "https://api.example.com/data"}},
+		{command: "wget", args: []string{"-r", "-qO-", "https://api.example.com/data"}},
+		{command: "http", args: []string{"--headers", "https://api.example.com/data"}},
 	}
 	for _, tc := range denied {
 		if commandOutputFirstAllowCapture(tc.command, tc.args) {

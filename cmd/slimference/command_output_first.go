@@ -74,6 +74,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"swift", "buf", "ko", "moon", "pack",
 		"docker", "podman", "nerdctl", "docker-compose", "kubectl", "oc", "helm",
 		"terraform", "tofu", "tf", "gh", "glab", "aws", "jq",
+		"curl", "wget", "http", "https",
 	} {
 		realBin, err := exec.LookPath(command)
 		if err != nil || strings.TrimSpace(realBin) == "" {
@@ -303,6 +304,8 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return commandOutputFirstAwsJSONAllowed(args)
 	case "jq":
 		return true
+	case "curl", "wget", "http", "https":
+		return commandOutputFirstNetworkResponseAllowed(command, args)
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -863,6 +866,210 @@ func commandOutputFirstAwsOptionConsumesValue(arg string) bool {
 	}
 }
 
+func commandOutputFirstNetworkResponseAllowed(command string, args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch command {
+	case "curl":
+		return commandOutputFirstCurlResponseAllowed(args)
+	case "wget":
+		return commandOutputFirstWgetResponseAllowed(args)
+	case "http", "https":
+		return commandOutputFirstHTTPieResponseAllowed(args)
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstCurlResponseAllowed(args []string) bool {
+	hasURL := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if commandOutputFirstCurlDenyCaptureFlag(arg) {
+			return false
+		}
+		if commandOutputFirstCurlOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+			if arg == "--url" && commandOutputFirstNetworkURLLike(strings.TrimSpace(args[i])) {
+				hasURL = true
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if commandOutputFirstNetworkURLLike(arg) {
+			hasURL = true
+		}
+	}
+	return hasURL
+}
+
+func commandOutputFirstCurlDenyCaptureFlag(arg string) bool {
+	switch arg {
+	case "-N", "--no-buffer", "-I", "--head", "-i", "--include", "-O", "--remote-name",
+		"-J", "--remote-header-name", "--raw":
+		return true
+	default:
+		return strings.HasPrefix(arg, "--output=") ||
+			strings.HasPrefix(arg, "--upload-file=") ||
+			strings.HasPrefix(arg, "-o")
+	}
+}
+
+func commandOutputFirstCurlOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-o", "--output", "-D", "--dump-header", "-H", "--header", "-A", "--user-agent",
+		"-X", "--request", "-d", "--data", "--data-raw", "--data-binary", "--data-urlencode",
+		"-F", "--form", "--form-string", "-u", "--user", "--url", "--connect-to", "--resolve",
+		"--cacert", "--cert", "--key", "--trace", "--trace-ascii", "--upload-file":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstWgetResponseAllowed(args []string) bool {
+	hasURL := false
+	writesStdout := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if commandOutputFirstWgetDenyCaptureFlag(arg) {
+			return false
+		}
+		if commandOutputFirstWgetOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+			if arg == "-O" || arg == "--output-document" {
+				writesStdout = strings.TrimSpace(args[i]) == "-"
+			}
+			continue
+		}
+		if strings.HasSuffix(arg, "O-") && strings.HasPrefix(arg, "-") {
+			writesStdout = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-O") && len(arg) > 2 {
+			writesStdout = arg == "-O-"
+			continue
+		}
+		if strings.HasPrefix(arg, "--output-document=") {
+			writesStdout = strings.TrimPrefix(arg, "--output-document=") == "-"
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if commandOutputFirstNetworkURLLike(arg) {
+			hasURL = true
+		}
+	}
+	return hasURL && writesStdout
+}
+
+func commandOutputFirstWgetDenyCaptureFlag(arg string) bool {
+	switch arg {
+	case "-r", "--recursive", "-m", "--mirror", "--spider", "-S", "--server-response":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstWgetOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "-O", "--output-document", "-o", "--output-file", "-P", "--directory-prefix",
+		"--header", "--user", "--password", "--post-data", "--post-file", "--method",
+		"--body-data", "--body-file":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstHTTPieResponseAllowed(args []string) bool {
+	hasTarget := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			return false
+		}
+		if commandOutputFirstHTTPieDenyCaptureFlag(arg) {
+			return false
+		}
+		if commandOutputFirstHTTPieOptionConsumesValue(arg) {
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" {
+				return false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if commandOutputFirstHTTPMethod(arg) {
+			continue
+		}
+		if commandOutputFirstNetworkURLLike(arg) || commandOutputFirstHTTPieTargetLike(arg) {
+			hasTarget = true
+		}
+	}
+	return hasTarget
+}
+
+func commandOutputFirstHTTPieDenyCaptureFlag(arg string) bool {
+	switch arg {
+	case "--download", "--stream", "--headers", "-h", "--print=H", "--print=h", "-pH", "-ph":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstHTTPieOptionConsumesValue(arg string) bool {
+	switch arg {
+	case "--session", "--session-read-only", "--auth", "-a", "--proxy", "--verify",
+		"--cert", "--cert-key", "--timeout", "--style", "--pretty", "--print", "-p",
+		"--format-options":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstHTTPMethod(arg string) bool {
+	switch strings.ToUpper(arg) {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstNetworkURLLike(arg string) bool {
+	return strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://")
+}
+
+func commandOutputFirstHTTPieTargetLike(arg string) bool {
+	return strings.HasPrefix(arg, ":") ||
+		strings.HasPrefix(arg, "localhost/") ||
+		strings.HasPrefix(arg, "localhost:") ||
+		strings.HasPrefix(arg, "127.0.0.1") ||
+		strings.Contains(arg, ".")
+}
+
 func commandOutputFirstMoonBuildAllowed(args []string) bool {
 	if commandOutputFirstFirstNonOption(args) != "run" {
 		return false
@@ -1133,6 +1340,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "jq":
 		compacted, ok := filter.TryCompactJQJSONExact(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "curl", "wget", "http", "https":
+		compacted, ok := filter.TryCompactNetworkResponse(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	default:
 		if commandOutputFirstDirectTestAllowed(command, args) {
