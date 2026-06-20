@@ -174,6 +174,8 @@ func TestWSSAuditReport(t *testing.T) {
 		got.PromotionStage != "t417_lineage_candidate_needs_engineering" ||
 		!stringSliceContains(got.PromotionBlockers, "mixed_previous_response_state_requires_exact_lineage_split") ||
 		!stringSliceContains(got.PromotionBlockers, "cache_bust_demotion_present_exact_class_scope") ||
+		got.PromotionBlockerHeadroom["mixed_previous_response_state_requires_exact_lineage_split"] != got.IncrementalLocalTokensHeadroom ||
+		got.PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != got.IncrementalLocalTokensHeadroom ||
 		got.CacheBustDemotedScopes["wss_phasef|full_history|prefix-a"] != 1 ||
 		got.CacheBustDemotedClassKeys["stale_read:git_status"] != 1 {
 		t.Fatalf("bad top shadow mirror candidate: %+v", got)
@@ -190,6 +192,8 @@ func TestWSSAuditReport(t *testing.T) {
 		got[0].PromotionStage != "t417_lineage_candidate_needs_engineering" ||
 		!stringSliceContains(got[0].PromotionBlockers, "mixed_previous_response_state_requires_exact_lineage_split") ||
 		!stringSliceContains(got[0].PromotionBlockers, "cache_bust_demotion_present_exact_class_scope") ||
+		got[0].PromotionBlockerHeadroom["mixed_previous_response_state_requires_exact_lineage_split"] != got[0].IncrementalLocalTokensHeadroom ||
+		got[0].PromotionBlockerHeadroom["cache_bust_demotion_present_exact_class_scope"] != got[0].IncrementalLocalTokensHeadroom ||
 		got[0].CacheBustDemotedScopes["wss_phasef|full_history|prefix-a"] != 1 ||
 		got[0].CacheBustDemotedClassKeys["stale_read:git_status"] != 1 {
 		t.Fatalf("bad top shadow mirror candidate sessions: %+v", got)
@@ -683,7 +687,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		!strings.Contains(stdout.String(), "gate=fix_or_exclude_erroring_shape_before_promotion") ||
 		!strings.Contains(stdout.String(), "stage=not_safe_erroring") ||
 		!strings.Contains(stdout.String(), "blockers=erroring_shape") ||
-		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|missing_detached_or_stateless_followup_signal") ||
+		!strings.Contains(stdout.String(), "top_sessions=codex-wss:s1:27/120/open=0req/0tok/0headroom/pi=44/pc=22/prev=0/det=0/stateless=0/followup=0/guard=0/cache_bust=0/cache_classes=-/sockets=3:1/ok=false/fix_or_exclude_erroring_lineage_before_promotion/stage=not_safe_erroring/blockers=erroring_lineage|missing_detached_or_stateless_followup_signal/blocker_headroom=erroring_lineage:27,missing_detached_or_stateless_followup_signal:27") ||
 		!strings.Contains(stdout.String(), "codex_exec_payload") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())

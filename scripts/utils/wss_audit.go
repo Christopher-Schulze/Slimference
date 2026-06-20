@@ -250,6 +250,7 @@ type wssShadowMirrorCandidate struct {
 	NextProofGate                   string                            `json:"next_proof_gate"`
 	PromotionStage                  string                            `json:"promotion_stage"`
 	PromotionBlockers               []string                          `json:"promotion_blockers,omitempty"`
+	PromotionBlockerHeadroom        map[string]int                    `json:"promotion_blocker_headroom_tokens,omitempty"`
 	RecommendedAction               string                            `json:"recommended_action"`
 	TopSessions                     []wssShadowMirrorCandidateSession `json:"top_sessions,omitempty"`
 	sessionRows                     map[string]*wssShadowMirrorCandidateSession
@@ -287,6 +288,7 @@ type wssShadowMirrorCandidateSession struct {
 	NextProofGate                   string         `json:"next_proof_gate"`
 	PromotionStage                  string         `json:"promotion_stage"`
 	PromotionBlockers               []string       `json:"promotion_blockers,omitempty"`
+	PromotionBlockerHeadroom        map[string]int `json:"promotion_blocker_headroom_tokens,omitempty"`
 }
 
 type wssShadowMirrorCandidateAccumulator struct {
@@ -1285,6 +1287,7 @@ func (a *wssShadowMirrorCandidateAccumulator) finalize() []wssShadowMirrorCandid
 		candidate.ErrorFree = candidate.ErrorRequests == 0 && candidate.UpstreamErrorRequests == 0 && candidate.HTTP400ErrorRequests == 0
 		candidate.NextProofGate = wssShadowMirrorCandidateProofGate(candidate)
 		candidate.PromotionBlockers = wssShadowMirrorCandidatePromotionBlockers(candidate)
+		candidate.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(candidate.PromotionBlockers, candidate.IncrementalLocalTokensHeadroom)
 		candidate.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, candidate.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && candidate.PromotionOpenHeadroom > 0 && len(candidate.PromotionBlockers) > 0 {
 			candidate.PromotionStage = "t417_partial_product_candidate"
@@ -1323,6 +1326,7 @@ func finalizeWSSShadowMirrorCandidateSessions(candidate wssShadowMirrorCandidate
 		session.ErrorFree = session.ErrorRequests == 0 && session.UpstreamErrorRequests == 0 && session.HTTP400ErrorRequests == 0
 		session.NextProofGate = wssShadowMirrorCandidateSessionProofGate(candidate, session)
 		session.PromotionBlockers = wssShadowMirrorCandidateSessionPromotionBlockers(candidate, session)
+		session.PromotionBlockerHeadroom = wssShadowMirrorBlockerHeadroom(session.PromotionBlockers, session.IncrementalLocalTokensHeadroom)
 		session.PromotionStage = wssShadowMirrorPromotionStage(candidate.CandidateLane, session.PromotionBlockers)
 		if candidate.CandidateLane == "t417_class_b_server_state" && session.PromotionOpenHeadroom > 0 && len(session.PromotionBlockers) > 0 {
 			session.PromotionStage = "t417_partial_product_candidate"
@@ -1460,6 +1464,24 @@ func wssShadowMirrorClassBPromotionBlockers(previousResponseIDUsed, structuredMu
 		blockers = append(blockers, "missing_detached_or_stateless_followup_signal")
 	}
 	return blockers
+}
+
+func wssShadowMirrorBlockerHeadroom(blockers []string, headroom int) map[string]int {
+	if len(blockers) == 0 || headroom <= 0 {
+		return nil
+	}
+	out := make(map[string]int, len(blockers))
+	for _, blocker := range blockers {
+		blocker = strings.TrimSpace(blocker)
+		if blocker == "" {
+			continue
+		}
+		out[blocker] = headroom
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func wssShadowMirrorPromotionStage(lane string, blockers []string) string {
@@ -1993,7 +2015,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.ShadowMirrorCandidates) > 0 {
 		fmt.Fprintln(w, "\nShadow mirror candidates:")
 		for _, row := range report.ShadowMirrorCandidates {
-			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d open=%dreq/%dtok/%dheadroom segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d cache_scopes=%s cache_classes=%s eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s stage=%s blockers=%s top_sessions=%s action=%s\n",
+			fmt.Fprintf(w, "  shape=%-12s kind=%-20s ref=%d/%d bytes %.2f%% candidate_tokens=%d headroom=%d open=%dreq/%dtok/%dheadroom segments=%d/%d requests=%d provider=%d/%d/%d saved=%d prev_id=%d detached=%d stateless=%d followup=%d struct_guard=%d recovery_guard=%d cache_bust=%d cache_scopes=%s cache_classes=%s eff_guards=%s sockets=%s errors=%d error_free=%v lane=%s gate=%s stage=%s blockers=%s blocker_headroom=%s top_sessions=%s action=%s\n",
 				row.RequestShape,
 				row.Kind,
 				row.ReferenceableBytes,
@@ -2028,6 +2050,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 				row.NextProofGate,
 				row.PromotionStage,
 				formatStringList(row.PromotionBlockers),
+				formatWSSAuditCounts(row.PromotionBlockerHeadroom),
 				formatWSSShadowMirrorCandidateSessions(row.TopSessions),
 				row.RecommendedAction)
 		}
@@ -2061,7 +2084,7 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 	}
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
-		parts = append(parts, fmt.Sprintf("%s:%d/%d/open=%dreq/%dtok/%dheadroom/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/cache_classes=%s/sockets=%s/ok=%v/%s/stage=%s/blockers=%s",
+		parts = append(parts, fmt.Sprintf("%s:%d/%d/open=%dreq/%dtok/%dheadroom/pi=%d/pc=%d/prev=%d/det=%d/stateless=%d/followup=%d/guard=%d/cache_bust=%d/cache_classes=%s/sockets=%s/ok=%v/%s/stage=%s/blockers=%s/blocker_headroom=%s",
 			truncateMiddle(row.SessionID, 24),
 			row.IncrementalLocalTokensHeadroom,
 			row.ReferenceableBytes,
@@ -2081,7 +2104,8 @@ func formatWSSShadowMirrorCandidateSessions(rows []wssShadowMirrorCandidateSessi
 			row.ErrorFree,
 			row.NextProofGate,
 			row.PromotionStage,
-			formatStringList(row.PromotionBlockers)))
+			formatStringList(row.PromotionBlockers),
+			formatWSSAuditCounts(row.PromotionBlockerHeadroom)))
 	}
 	return strings.Join(parts, ",")
 }
