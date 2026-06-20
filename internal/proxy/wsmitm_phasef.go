@@ -473,12 +473,16 @@ func attachShadowMirrorDebugFacts(meta *wssRequestMeta, rep servermirror.Report,
 }
 
 func formatShadowMirrorStatefulSafeDensityReport(meta *wssRequestMeta, rep servermirror.Report, messages []types.Message) string {
+	return formatShadowMirrorKindDensityReport(shadowMirrorStatefulSafeReports(meta, rep, messages))
+}
+
+func shadowMirrorStatefulSafeReports(meta *wssRequestMeta, rep servermirror.Report, messages []types.Message) map[string]servermirror.SegmentKindReport {
 	if meta == nil || len(messages) == 0 || len(rep.NormalizedPredictions) == 0 {
-		return ""
+		return nil
 	}
 	blocks := wssNonEmptyTextBlocks(messages)
 	if len(blocks) == 0 {
-		return ""
+		return nil
 	}
 	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), meta.ToolUseIndex)
 	byKind := make(map[string]servermirror.SegmentKindReport)
@@ -512,7 +516,7 @@ func formatShadowMirrorStatefulSafeDensityReport(meta *wssRequestMeta, rep serve
 		row.PotentialSavedBytes += prediction.Bytes
 		byKind[kind] = row
 	}
-	return formatShadowMirrorKindDensityReport(byKind)
+	return byKind
 }
 
 func wssNonEmptyTextBlocks(messages []types.Message) []types.ContentBlock {

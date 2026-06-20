@@ -10,6 +10,7 @@
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils codex-capture-run [flags] -- <codex run args...>
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
+//	go run ./scripts/utils wss-shadow-mirror-replay <frames.jsonl> [--json] [--socket-seq=N]
 //	go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json]
 //	go run ./scripts/utils wss-first-read-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-dependency-trace]
 //	go run ./scripts/utils wss-post-edit-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-exact-state]
@@ -53,7 +54,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-proof-pack, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe, command-output-control-probe, recovery-contract-matrix")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-shadow-mirror-replay, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-proof-pack, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe, command-output-control-probe, recovery-contract-matrix")
 		os.Exit(1)
 	}
 
@@ -126,6 +127,8 @@ func main() {
 		os.Exit(runCodexCaptureRun(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-audit":
 		os.Exit(runWSSAudit(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-shadow-mirror-replay":
+		os.Exit(runWSSShadowMirrorReplay(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-reference-inventory":
 		os.Exit(runWSSReferenceInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-first-read-inventory":
