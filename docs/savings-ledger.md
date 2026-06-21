@@ -31,7 +31,7 @@ counted as `S_local`.
 | Lever | Status | Measured `S_local` (live, gate) | candidate_potential_if_completed | Next move |
 |-------|--------|---------------------------------|----------------------------------|-----------|
 | L1 server-state continuation | `engineered_pending_evidence` (default-off, unproven handbrake) | not measured | +15 to +30 | Phase 3: prove `previous_response_id` acceptance + fail-open |
-| L2 command-output-first | `engineered_pending_evidence` (default-on, gate-wired, no sidecar captures yet) | 0% in gate (no sidecar data yet) | +15 to +25 | Phase 2: sharpen compaction + capture real sidecar data |
+| L2 command-output-first | `engineered_pending_evidence` (default-on, gate-wired, sidecar tested, no live captures yet) | 0% in gate (no sidecar data yet) | +15 to +25 | Needs live Codex session with T418 active + sidecar capture. Compaction code is comprehensive (git, rg, grep, go, cargo, pytest, npm, docker, kubectl, terraform, etc.). Next: run a real tool-heavy session, collect sidecar, verify gate moves. |
 | L3 WSS history mutation | `parked` | n/a | safe subset +3 to +8 | Phase 4 only after L1+L2 proven |
 
 ---
