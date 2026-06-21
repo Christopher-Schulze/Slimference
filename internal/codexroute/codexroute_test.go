@@ -309,6 +309,18 @@ func TestWriteAtomicPreservesExistingFileMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeOptionsDefaultsEmptyTransport(t *testing.T) {
+	t.Parallel()
+	got := normalizeOptions(Options{})
+	if got.Transport != TransportHTTP {
+		t.Fatalf("empty transport should default to HTTP, got %q", got.Transport)
+	}
+	got = normalizeOptions(Options{Transport: TransportWSS})
+	if got.Transport != TransportWSS {
+		t.Fatalf("explicit transport should be preserved, got %q", got.Transport)
+	}
+}
+
 func TestFenceAndLegacyEdgeHelpers(t *testing.T) {
 	t.Run("unterminated fence drops managed tail", func(t *testing.T) {
 		got := stripFence("model = \"gpt-5\"\n\n" + markerStart + "\npartial\n")
