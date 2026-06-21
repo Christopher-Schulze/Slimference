@@ -1,6 +1,10 @@
 package proxy
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestProxyCommandLineContainsSearchTool(t *testing.T) {
 	t.Parallel()
@@ -46,6 +50,44 @@ func TestProxyLayer0RouteCounters_SnapshotNil(t *testing.T) {
 	if got.ToolResultBlocks != 0 {
 		t.Fatalf("nil snapshot should be zero value, got %+v", got)
 	}
+}
+
+func TestSaveCodexLayer0LatencyBudgetState(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> no-op.
+	var p *Proxy
+	p.saveCodexLayer0LatencyBudgetState()
+
+	// home error -> no-op.
+	origHome := proxyUserHomeDir
+	t.Cleanup(func() { proxyUserHomeDir = origHome })
+	proxyUserHomeDir = func() (string, error) { return "", os.ErrNotExist }
+	p2 := &Proxy{}
+	p2.saveCodexLayer0LatencyBudgetState()
+
+	// empty home -> no-op.
+	proxyUserHomeDir = func() (string, error) { return "", nil }
+	p3 := &Proxy{}
+	p3.saveCodexLayer0LatencyBudgetState()
+
+	// valid home with strikes clamping.
+	tmp := t.TempDir()
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	p4 := &Proxy{}
+	p4.codexLayer0LatencyStrikes.Store(-5)
+	p4.codexLayer0LatencyExceeded.Store(true)
+	p4.saveCodexLayer0LatencyBudgetState()
+
+	// Verify file was written.
+	statePath := filepath.Join(tmp, ".slimference", "runtime-budget", "codex-layer0-latency.json")
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("state file should exist: %v", err)
+	}
+
+	// Strikes above limit -> clamped.
+	p5 := &Proxy{}
+	p5.codexLayer0LatencyStrikes.Store(codexLayer0LatencyStrikeLimit + 100)
+	p5.saveCodexLayer0LatencyBudgetState()
 }
 
 func TestProxyChunkDedupUniformPriorityScore(t *testing.T) {
