@@ -121,3 +121,61 @@ func TestRedactDecisionClonesSlices(t *testing.T) {
 func hasSignal(signals []Signal, want Signal) bool {
 	return slices.Contains(signals, want)
 }
+
+func TestCommandContains(t *testing.T) {
+	t.Parallel()
+	if !commandContains([]string{"git", "status"}, "status") {
+		t.Fatal("commandContains should find 'status'")
+	}
+	if !commandContains([]string{"git", "STATUS"}, "status") {
+		t.Fatal("commandContains should be case-insensitive")
+	}
+	if !commandContains([]string{"git", "  status  "}, "status") {
+		t.Fatal("commandContains should trim whitespace")
+	}
+	if commandContains([]string{"git", "log"}, "status") {
+		t.Fatal("commandContains should not find 'status' in git log")
+	}
+	if commandContains([]string{}, "status") {
+		t.Fatal("commandContains should return false for empty argv")
+	}
+}
+
+func TestCloneSignals(t *testing.T) {
+	t.Parallel()
+	// Empty input -> nil.
+	if got := cloneSignals(nil); got != nil {
+		t.Fatalf("cloneSignals(nil) = %v, want nil", got)
+	}
+	if got := cloneSignals([]Signal{}); got != nil {
+		t.Fatalf("cloneSignals([]) = %v, want nil", got)
+	}
+	// Non-empty input -> cloned slice.
+	in := []Signal{SignalPath, SignalWarning}
+	got := cloneSignals(in)
+	if len(got) != 2 || got[0] != SignalPath || got[1] != SignalWarning {
+		t.Fatalf("cloneSignals = %v, want %v", got, in)
+	}
+	// Modifying the clone should not affect the original.
+	got[0] = SignalErrorKeyword
+	if in[0] != SignalPath {
+		t.Fatal("modifying clone should not affect original")
+	}
+}
+
+func TestCloneStrings(t *testing.T) {
+	t.Parallel()
+	// Empty input -> nil.
+	if got := cloneStrings(nil); got != nil {
+		t.Fatalf("cloneStrings(nil) = %v, want nil", got)
+	}
+	if got := cloneStrings([]string{}); got != nil {
+		t.Fatalf("cloneStrings([]) = %v, want nil", got)
+	}
+	// Non-empty input -> cloned slice.
+	in := []string{"a", "b"}
+	got := cloneStrings(in)
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("cloneStrings = %v, want %v", got, in)
+	}
+}
