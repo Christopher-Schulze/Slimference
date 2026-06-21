@@ -25,6 +25,7 @@ import (
 	"github.com/Christopher-Schulze/Slimference/internal/outstop/repdet"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 	"github.com/Christopher-Schulze/Slimference/internal/qualityab"
+	"github.com/Christopher-Schulze/Slimference/internal/savingspolicy"
 	"github.com/Christopher-Schulze/Slimference/internal/servermirror"
 	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 	"github.com/Christopher-Schulze/Slimference/internal/staleread"
@@ -726,6 +727,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		fullHistoryHistoryMutationBlocked := false
 		customToolCallHistoryMutationBlocked := requestShape == "full_history" && wssMessagesContainCodexCustomToolCall(messages)
 		reconnectFullHistoryToolOutputMutationBlocked := meta.SocketSeq > 1 && requestShape == "full_history" && meta.PreviousResponseID != ""
+		searchCompactOptions := filter.SearchCompactOptions{
+			MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
+			MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
+			MinRetainedPct:    a.p.config.Compression.OutputReduce.CodexSearchCapMinRetainedPct,
+		}
+		reconnectFullHistorySearchOutputStatelessSafe := reconnectFullHistoryToolOutputMutationBlocked &&
+			wssFullHistorySearchOutputStatelessSafeWithToolUses(messages, mergedToolUses, searchCompactOptions)
 		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true
@@ -822,7 +830,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		} else if customToolCallHistoryMutationBlocked {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
-		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
+		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !reconnectFullHistorySearchOutputStatelessSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
@@ -941,7 +949,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		searchMutationFullHistoryAllowed := requestShape == "full_history"
 		if requestShape == "full_history" && reconnectFullHistoryToolOutputMutationBlocked &&
 			!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
-			searchMutationFullHistoryAllowed = searchCapProofed && searchCapStatefulFollowupProofed
+			searchMutationFullHistoryAllowed = reconnectFullHistorySearchOutputStatelessSafe ||
+				(searchCapProofed && searchCapStatefulFollowupProofed)
 		}
 		searchMutationAllowed := (searchMutationFullHistoryAllowed ||
 			a.p.config.Compression.OutputReduce.CodexWSSDeltaToolOutputMutationLabEnabled ||
@@ -975,9 +984,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			CachedPriceRatio:        a.p.config.Savings.CachedPriceRatio,
 			UniformChunkDedupBudget: a.p.wssABReplayUniformChunkBudget,
 			SearchCompactOptions: filter.SearchCompactOptions{
-				MaxFilesShown:     a.p.config.Compression.OutputReduce.CodexSearchCapMaxFiles,
-				MaxMatchesPerFile: a.p.config.Compression.OutputReduce.CodexSearchCapMaxMatchesPerFile,
-				MinRetainedPct:    a.p.config.Compression.OutputReduce.CodexSearchCapMinRetainedPct,
+				MaxFilesShown:     searchCompactOptions.MaxFilesShown,
+				MaxMatchesPerFile: searchCompactOptions.MaxMatchesPerFile,
+				MinRetainedPct:    searchCompactOptions.MinRetainedPct,
 			},
 			HostBudgetExceeded:           a.p.codexHostBudgetExceeded(),
 			LatencyBudgetExceeded:        a.p.codexLayer0LatencyExceeded.Load(),
@@ -2107,6 +2116,40 @@ func wssToolOutputResolutionStatsWithToolUses(messages []types.Message, toolUses
 		}
 	}
 	return total, resolved, inferred
+}
+
+func wssFullHistorySearchOutputStatelessSafeWithToolUses(messages []types.Message, toolUses map[string]types.ContentBlock, searchOptions filter.SearchCompactOptions) bool {
+	seenSearchOutput := false
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, resolved := proxyResolveToolUseDetailed(block, toolUses)
+			if !resolved {
+				return false
+			}
+			commandLine := proxyLayer0CommandLine(use)
+			if commandLine == "" || readRequestFromCommandLine(commandLine).FilePath != "" {
+				return false
+			}
+			if strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
+				return false
+			}
+			if !proxyWSSSearchOutputReducerEligible(commandLine) ||
+				!proxyWSSSearchOutputRisk(commandLine, block.Text, savingspolicy.CodexWorkloadSearch) {
+				return false
+			}
+			readCtx := proxyReadFileContext("", commandLine)
+			readCtx.SearchCompactOptions = searchOptions
+			compacted, changed := compactProxyLayer0CapturedOutputFirst(commandLine, block.Text, readCtx)
+			if !changed || len(compacted) >= len(block.Text) {
+				return false
+			}
+			seenSearchOutput = true
+		}
+	}
+	return seenSearchOutput
 }
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
