@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +55,34 @@ func TestWSSABReplayCapture_Record(t *testing.T) {
 	if info.Size() == 0 {
 		t.Fatal("capture file should not be empty")
 	}
+}
+
+func TestWrapRawScopedWSSListener(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> returns original listener.
+	var nilProxy *Proxy
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer ln.Close()
+	if got := nilProxy.wrapRawScopedWSSListener(ln); got != ln {
+		t.Fatal("nil proxy should return original listener")
+	}
+
+	// proxy without webSocketTunnel -> returns original listener.
+	p := &Proxy{}
+	if got := p.wrapRawScopedWSSListener(ln); got != ln {
+		t.Fatal("proxy without tunnel should return original listener")
+	}
+}
+
+func TestRecordRawScopedWSS(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> no-op.
+	var nilProxy *Proxy
+	nilProxy.recordRawScopedWSS("/path", []byte("header"))
+
+	// proxy without debugRecorder -> no-op.
+	p := &Proxy{}
+	p.recordRawScopedWSS("/path", []byte("header"))
 }
 
 func TestProxyCommandLineContainsSearchTool(t *testing.T) {
