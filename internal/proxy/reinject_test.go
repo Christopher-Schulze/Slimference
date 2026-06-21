@@ -298,3 +298,79 @@ func TestReinjectArchivedContent_PathFromDefaultDir(t *testing.T) {
 		t.Fatalf("default dir wrong: %s", got)
 	}
 }
+
+func TestReserveArchiveRecoveryNote_FirstCallWinsSecondNoop(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	const sid = "sess-reserve-1"
+	if !p.reserveArchiveRecoveryNote(sid, true) {
+		t.Fatal("first reserve must succeed")
+	}
+	if p.reserveArchiveRecoveryNote(sid, true) {
+		t.Fatal("second reserve for same session must be a no-op (false)")
+	}
+}
+
+func TestReserveArchiveRecoveryNote_DisabledReturnsFalse(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	if p.reserveArchiveRecoveryNote("sess-disabled", false) {
+		t.Fatal("disabled reserve must return false")
+	}
+}
+
+func TestReserveArchiveRecoveryNote_EmptySessionIDReturnsFalse(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	if p.reserveArchiveRecoveryNote("", true) {
+		t.Fatal("empty session id must return false")
+	}
+}
+
+func TestReserveArchiveRecoveryNote_NilProxyReturnsFalse(t *testing.T) {
+	t.Parallel()
+	var p *Proxy
+	if p.reserveArchiveRecoveryNote("sess-nil", true) {
+		t.Fatal("nil proxy must return false")
+	}
+}
+
+func TestForgetArchiveRecoveryNote_AllowsReReserve(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	const sid = "sess-forget-1"
+	if !p.reserveArchiveRecoveryNote(sid, true) {
+		t.Fatal("first reserve must succeed")
+	}
+	p.forgetArchiveRecoveryNote(sid)
+	if !p.reserveArchiveRecoveryNote(sid, true) {
+		t.Fatal("after forget, reserve must succeed again")
+	}
+}
+
+func TestForgetArchiveRecoveryNote_EmptySessionIDNoop(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.reserveArchiveRecoveryNote("sess-real", true)
+	p.forgetArchiveRecoveryNote("")
+	// forget with empty id is a no-op, so the real session must still be
+	// reserved — a second reserve must return false.
+	if p.reserveArchiveRecoveryNote("sess-real", true) {
+		t.Fatal("forget with empty id must not clear a real session's reservation")
+	}
+}
+
+func TestForgetArchiveRecoveryNote_NilProxyNoop(t *testing.T) {
+	t.Parallel()
+	var p *Proxy
+	p.forgetArchiveRecoveryNote("sess-nil") // must not panic
+}
+
+func TestForgetArchiveRecoveryNote_UnreservedSessionNoop(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.forgetArchiveRecoveryNote("never-reserved")
+	if !p.reserveArchiveRecoveryNote("never-reserved", true) {
+		t.Fatal("forget of unreserved session must not block first reserve")
+	}
+}
