@@ -237,6 +237,111 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestCodexFootprintFamily(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		family string
+		want   string
+	}{
+		{"empty", "", "unknown"},
+		{"whitespace", "  ", "unknown"},
+		{"lowercase", "git", "git"},
+		{"uppercase normalized", "GIT", "git"},
+		{"with spaces", "  Git  ", "git"},
+		{"mixed", "NPM", "npm"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := codexFootprintFamily(tc.family); got != tc.want {
+				t.Fatalf("codexFootprintFamily(%q) = %q, want %q", tc.family, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRecordCodexLayer0Stats(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> no-op.
+	var nilProxy *Proxy
+	nilProxy.recordCodexLayer0Stats(proxyLayer0Stats{})
+
+	// valid proxy -> no panic.
+	p := &Proxy{}
+	p.recordCodexLayer0Stats(proxyLayer0Stats{TotalLatencyNs: 1000})
+}
+
+func TestOpenAIPromptCacheRejectKey(t *testing.T) {
+	t.Parallel()
+	// empty model -> provider only.
+	if got := openAIPromptCacheRejectKey(types.CodexChatGPT, ""); got != types.CodexChatGPT.String() {
+		t.Fatalf("empty model should return provider string, got %q", got)
+	}
+	// with model -> provider + model.
+	got := openAIPromptCacheRejectKey(types.CodexChatGPT, "gpt-4")
+	if !strings.Contains(got, "gpt-4") {
+		t.Fatalf("should contain model, got %q", got)
+	}
+}
+
+func TestOpenAIPromptCacheFieldRejectKey(t *testing.T) {
+	t.Parallel()
+	// empty field -> empty string.
+	if got := openAIPromptCacheFieldRejectKey(types.CodexChatGPT, "gpt-4", ""); got != "" {
+		t.Fatalf("empty field should return empty, got %q", got)
+	}
+	// with field -> non-empty.
+	got := openAIPromptCacheFieldRejectKey(types.CodexChatGPT, "gpt-4", "tools")
+	if !strings.Contains(got, "tools") {
+		t.Fatalf("should contain field, got %q", got)
+	}
+}
+
+func TestOpenAIPromptCacheKeyRejectKey(t *testing.T) {
+	t.Parallel()
+	// empty key -> empty string.
+	if got := openAIPromptCacheKeyRejectKey(types.CodexChatGPT, "gpt-4", ""); got != "" {
+		t.Fatalf("empty key should return empty, got %q", got)
+	}
+	// with key -> non-empty.
+	got := openAIPromptCacheKeyRejectKey(types.CodexChatGPT, "gpt-4", "cache-key-123")
+	if !strings.Contains(got, "cache-key-123") {
+		t.Fatalf("should contain key, got %q", got)
+	}
+}
+
+func TestProxyLooksLikeGitStatusCode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		code string
+		want bool
+	}{
+		{"empty", "", false},
+		{"too short", "M", false},
+		{"too long", "MAD", false},
+		{"valid MM", "MM", true},
+		{"valid A ", "A ", true},
+		{"valid  M", " M", true},
+		{"valid D?", "D?", true},
+		{"valid R!", "R!", true},
+		{"valid CU", "CU", true},
+		{"invalid X", "X", false},
+		{"invalid XM", "XM", false},
+		{"invalid MX", "MX", false},
+		{"valid ??", "??", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyLooksLikeGitStatusCode(tc.code); got != tc.want {
+				t.Fatalf("proxyLooksLikeGitStatusCode(%q) = %v, want %v", tc.code, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWSSRequestShape(t *testing.T) {
 	t.Parallel()
 	historyMsgs := []types.Message{{Role: "assistant"}}
