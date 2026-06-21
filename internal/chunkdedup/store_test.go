@@ -590,3 +590,48 @@ func TestLineChunks_TooFewChunksAfterSplit(t *testing.T) {
 	// With a huge max, all lines likely stay in one block -> false.
 	// This is fine either way; the test validates the code path doesn't panic.
 }
+
+func TestRecordReferenceBudget_NilSession(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 50}, archiveFake(nil))
+	// Record budget for a session that doesn't exist yet — should return true.
+	if !store.recordReferenceBudget("nonexistent", 100) {
+		t.Fatal("recordReferenceBudget for nil session should return true")
+	}
+}
+
+func TestRecordReferenceBudget_BudgetExceeded(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 20}, archiveFake(nil))
+	// First, observe some input to create the session and set inBytes.
+	store.Observe("s1", []byte(strings.Repeat("x", 100)))
+	// Now try to record reference bytes that exceed the 20% budget.
+	// inBytes=100, limit=20%, so max ref = 20 bytes. 200 bytes should fail.
+	if store.recordReferenceBudget("s1", 200) {
+		t.Fatal("recordReferenceBudget should return false when budget exceeded")
+	}
+}
+
+func TestPruneExpiredLocked(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{TTL: time.Minute}, archiveFake(nil))
+	// Observe a session to create it.
+	store.Observe("s1", []byte("data"))
+	// Prune with a time after TTL — session should be deleted.
+	store.pruneExpiredLocked(store.now().Add(2 * time.Minute))
+	store.mu.Lock()
+	_, exists := store.sessions["s1"]
+	store.mu.Unlock()
+	if exists {
+		t.Fatal("expired session should be pruned")
+	}
+	// Observe again and prune with time before TTL — should survive.
+	store.Observe("s2", []byte("data"))
+	store.pruneExpiredLocked(store.now().Add(30 * time.Second))
+	store.mu.Lock()
+	_, exists = store.sessions["s2"]
+	store.mu.Unlock()
+	if !exists {
+		t.Fatal("non-expired session should survive pruning")
+	}
+}
