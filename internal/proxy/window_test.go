@@ -236,6 +236,32 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestWSSCompactedSARIFZeroResults(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		compacted string
+		want      bool
+	}{
+		{"empty", "", false},
+		{"no sarif prefix", "some output", false},
+		{"sarif with results", "[sarif: eslint] 5 results", false},
+		{"sarif zero results", "[sarif: eslint] 0 results", true},
+		{"sarif zero results with whitespace", "  [sarif: eslint] 0 results  ", true},
+		{"sarif no close bracket", "[sarif: eslint 0 results", false},
+		{"sarif empty after bracket", "[sarif: eslint]", false},
+		{"sarif only whitespace after bracket", "[sarif: eslint]   ", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssCompactedSARIFZeroResults([]byte(tc.compacted)); got != tc.want {
+				t.Fatalf("wssCompactedSARIFZeroResults(%q) = %v, want %v", tc.compacted, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCompactProxyInferredPlainPathList(t *testing.T) {
 	t.Parallel()
 	// No envelope -> false.
