@@ -237,6 +237,104 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestWSSPlannerModel(t *testing.T) {
+	t.Parallel()
+	// valid model.
+	if got := wssPlannerModel([]byte(`{"model":"gpt-4o"}`)); got != "gpt-4o" {
+		t.Fatalf("should return gpt-4o, got %q", got)
+	}
+	// invalid json -> empty.
+	if got := wssPlannerModel([]byte("not json")); got != "" {
+		t.Fatalf("invalid json should return empty, got %q", got)
+	}
+}
+
+func TestWSSPreviousResponseID(t *testing.T) {
+	t.Parallel()
+	// valid.
+	if got := wssPreviousResponseID([]byte(`{"previous_response_id":"resp-123"}`)); got != "resp-123" {
+		t.Fatalf("should return resp-123, got %q", got)
+	}
+	// invalid json -> empty.
+	if got := wssPreviousResponseID([]byte("not json")); got != "" {
+		t.Fatalf("invalid json should return empty, got %q", got)
+	}
+}
+
+func TestTruncateWSSUpstreamErrorMessage(t *testing.T) {
+	t.Parallel()
+	// short message -> unchanged.
+	if got := truncateWSSUpstreamErrorMessage("short error"); got != "short error" {
+		t.Fatalf("short message should be unchanged, got %q", got)
+	}
+	// newlines replaced with spaces.
+	if got := truncateWSSUpstreamErrorMessage("line1\nline2"); got != "line1 line2" {
+		t.Fatalf("newlines should be replaced, got %q", got)
+	}
+	// long message -> truncated.
+	long := strings.Repeat("a", 300)
+	got := truncateWSSUpstreamErrorMessage(long)
+	if !strings.HasSuffix(got, "...") {
+		t.Fatal("long message should be truncated with ...")
+	}
+	if len(got) > 243 {
+		t.Fatalf("truncated message too long: %d", len(got))
+	}
+}
+
+func TestWSSCodexExecEnvelopePayloadForStats(t *testing.T) {
+	t.Parallel()
+	// no exit code -> false.
+	if _, ok := wssCodexExecEnvelopePayloadForStats("no exit code here"); ok {
+		t.Fatal("should return false without exit code")
+	}
+	// with \nOutput:\n marker.
+	payload, ok := wssCodexExecEnvelopePayloadForStats("Process exited with code 0\nOutput:\nhello world")
+	if !ok || payload != "hello world" {
+		t.Fatalf("should return payload, got %q ok=%v", payload, ok)
+	}
+	// with \r\nOutput:\r\n marker.
+	payload, ok = wssCodexExecEnvelopePayloadForStats("Process exited with code 0\r\nOutput:\r\nhello")
+	if !ok || payload != "hello" {
+		t.Fatalf("should return payload with CRLF, got %q ok=%v", payload, ok)
+	}
+	// exit code but no Output marker -> false.
+	if _, ok := wssCodexExecEnvelopePayloadForStats("Process exited with code 0\nno output marker"); ok {
+		t.Fatal("should return false without Output marker")
+	}
+}
+
+func TestWSSCacheBustRequestShape(t *testing.T) {
+	t.Parallel()
+	// empty -> unknown.
+	if got := wssCacheBustRequestShape(""); got != "unknown" {
+		t.Fatalf("empty should return unknown, got %q", got)
+	}
+	// whitespace -> unknown.
+	if got := wssCacheBustRequestShape("  "); got != "unknown" {
+		t.Fatalf("whitespace should return unknown, got %q", got)
+	}
+	// valid shape -> returned.
+	if got := wssCacheBustRequestShape("full_history"); got != "full_history" {
+		t.Fatalf("should return full_history, got %q", got)
+	}
+}
+
+func TestCollapsedKeysDir(t *testing.T) {
+	t.Parallel()
+	// nil adapter with proxyUserHomeDir error -> empty.
+	a := &wsPhaseFAdapter{}
+	// This depends on proxyUserHomeDir; just verify it doesn't panic.
+	_ = a.collapsedKeysDir()
+}
+
+func TestToolUseCacheDir(t *testing.T) {
+	t.Parallel()
+	// nil adapter -> doesn't panic.
+	a := &wsPhaseFAdapter{}
+	_ = a.toolUseCacheDir()
+}
+
 func TestExtractAnthropicOutputTokens(t *testing.T) {
 	t.Parallel()
 	// message_delta with output_tokens -> reported.
