@@ -236,6 +236,50 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0DependencySensitiveCommand(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"empty", "", false},
+		{"unknown", "echo hello", false},
+		{"go", "go build", true},
+		{"cargo", "cargo build", true},
+		{"npm", "npm install", true},
+		{"pnpm", "pnpm install", true},
+		{"yarn", "yarn install", true},
+		{"bun", "bun install", true},
+		{"pytest", "pytest -x", true},
+		{"tox", "tox", true},
+		{"uv", "uv pip install", true},
+		{"pip", "pip install", true},
+		{"python", "python script.py", true},
+		{"python3", "python3 script.py", true},
+		{"node", "node script.js", true},
+		{"jest", "jest", true},
+		{"vitest", "vitest run", true},
+		{"tsc", "tsc --noEmit", true},
+		{"eslint", "eslint .", true},
+		{"npx with tool", "npx tsc --noEmit", true},
+		{"npx with unknown", "npx echo hello", false},
+		{"pnpm exec", "pnpm exec tsc", true},
+		{"yarn dlx", "yarn dlx tsc", true},
+		{"bun exec", "bun exec tsc", true},
+		{"full path go", "/usr/local/go/bin/go build", true},
+		{"ls", "ls -la", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyLayer0DependencySensitiveCommand(tc.cmd); got != tc.want {
+				t.Fatalf("proxyLayer0DependencySensitiveCommand(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWSSCompactedSARIFZeroResults(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
