@@ -1144,3 +1144,231 @@ func TestGroupSearchResults_notShorter(t *testing.T) {
 		t.Error("4 unique-file 1-match input: grouped adds overhead, want false, got true")
 	}
 }
+
+func TestTryCompactSearchOutputSingleFileNormalizes(t *testing.T) {
+	t.Parallel()
+	// rg with a single file argument outputs line:content (no file path prefix).
+	// The parser expects file:line:content, so without normalization the
+	// compaction fails. With normalization, the file path is prepended and
+	// grouping succeeds.
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+
+	// With MinRetainedPct=0 (allows match dropping), compaction should succeed.
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if !ok {
+		t.Fatalf("single-file rg output should compact with normalization: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "[rg]") {
+		t.Errorf("expected [rg] header in compacted output: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path in compacted output: %s", s[:min(len(s), 200)])
+	}
+	if len(s) >= len(input) {
+		t.Errorf("compacted output should be shorter: got %d vs input %d", len(s), len(input))
+	}
+}
+
+func TestTryCompactSearchOutputSingleFileFullRetentionPassthrough(t *testing.T) {
+	t.Parallel()
+	// With MinRetainedPct=100 (full retention), single-file grouping adds
+	// overhead (header + indentation) without removing any file path prefix.
+	// The compaction should fail because the grouped output is larger.
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+
+	_, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MinRetainedPct: 100,
+	})
+	if ok {
+		t.Error("single-file rg with full retention should not compact (grouping adds overhead)")
+	}
+}
+
+func TestTryCompactSearchOutputMultiFileNotAffectedByNormalization(t *testing.T) {
+	t.Parallel()
+	// Multi-file rg output already has file path prefixes. Normalization
+	// should not be triggered because the parser can handle the output directly.
+	var sb strings.Builder
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&sb, "src/handler.go:%d:func handler%d() { return nil }\n", i, i)
+	}
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&sb, "src/config.go:%d:func config%d() { return nil }\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/handler.go", "src/config.go"}
+
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MinRetainedPct: 100,
+	})
+	if !ok {
+		t.Fatalf("multi-file rg output should compact without normalization")
+	}
+	s := string(out)
+	if !strings.Contains(s, "40 match(es) in 2 file(s)") {
+		t.Errorf("expected 40 matches in 2 files: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputRejectsMultiFile(t *testing.T) {
+	t.Parallel()
+	// When argv has multiple file arguments, normalization should not trigger.
+	argv := []string{"rg", "-n", "func", "src/handler.go", "src/config.go"}
+	_, ok := normalizeSingleFileSearchOutput(argv, []byte("1:func test\n2:func test2\n"))
+	if ok {
+		t.Error("multi-file argv should not trigger single-file normalization")
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputRejectsAlreadyPrefixed(t *testing.T) {
+	t.Parallel()
+	// When output already has file path prefixes, normalization should not trigger.
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+	input := "src/handler.go:1:func test\nsrc/handler.go:2:func test2\n"
+	_, ok := normalizeSingleFileSearchOutput(argv, []byte(input))
+	if ok {
+		t.Error("output with file path prefixes should not trigger normalization")
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputRejectsNoFilePath(t *testing.T) {
+	t.Parallel()
+	// When argv has no file path (e.g., rg reading from stdin), normalization
+	// should not trigger.
+	argv := []string{"rg", "-n", "func"}
+	_, ok := normalizeSingleFileSearchOutput(argv, []byte("1:func test\n2:func test2\n"))
+	if ok {
+		t.Error("argv without file path should not trigger normalization")
+	}
+}
+
+func TestParseSingleFileSearchLine(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		line   string
+		wantOk bool
+	}{
+		{"30:func handleRequest() { return nil }", true},
+		{"100:case foo:", true},
+		{"1:return", true},
+		{"func not_a_match", false},
+		{"src/file.go:30:func test", false}, // file:line:content, not line:content
+		{"", false},
+	}
+	for _, tc := range cases {
+		_, _, ok := parseSingleFileSearchLine(tc.line)
+		if ok != tc.wantOk {
+			t.Errorf("parseSingleFileSearchLine(%q) = %v, want %v", tc.line, ok, tc.wantOk)
+		}
+	}
+}
+
+func TestSingleFileSearchPath(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"rg", "-n", "func", "src/handler.go"}, "src/handler.go"},
+		{[]string{"rg", "func", "src/handler.go"}, "src/handler.go"},
+		{[]string{"rg", "-n", "func", "src/handler.go", "src/config.go"}, ""}, // multiple files
+		{[]string{"rg", "-n", "func"}, ""},                                    // no file path
+		{[]string{"rg"}, ""},                                                  // too few args
+		{[]string{"grep", "-rn", "func", "src/handler.go"}, "src/handler.go"},
+		{[]string{"git", "grep", "-n", "func", "src/handler.go"}, "src/handler.go"},
+		{[]string{"rg", "-n", "func", "--", "src/handler.go"}, "src/handler.go"},
+		{[]string{"rg", "-n", "func", "--", "src/handler.go", "src/config.go"}, ""}, // multiple after --
+	}
+	for _, tc := range cases {
+		got := singleFileSearchPath(tc.argv)
+		if got != tc.want {
+			t.Errorf("singleFileSearchPath(%v) = %q, want %q", tc.argv, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputEmptyAndShort(t *testing.T) {
+	t.Parallel()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+	// Empty output should not trigger normalization.
+	_, ok := normalizeSingleFileSearchOutput(argv, []byte(""))
+	if ok {
+		t.Error("empty output should not trigger normalization")
+	}
+	// Short output (< minLinesForGrouped) should not trigger normalization.
+	_, ok = normalizeSingleFileSearchOutput(argv, []byte("1:func test\n"))
+	if ok {
+		t.Error("short output should not trigger normalization")
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputNoMatchLines(t *testing.T) {
+	t.Parallel()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+	// Output with lines that don't look like line:content should not trigger.
+	input := "func not_a_match\nfunc also_not_a_match\nfunc third\nfunc fourth\n"
+	_, ok := normalizeSingleFileSearchOutput(argv, []byte(input))
+	if ok {
+		t.Error("output without line:content format should not trigger normalization")
+	}
+}
+
+func TestNormalizeSingleFileSearchOutputWithNoiseLines(t *testing.T) {
+	t.Parallel()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+	// Output with a mix of noise lines and line:content lines should trigger
+	// and preserve noise lines as-is.
+	var sb strings.Builder
+	sb.WriteString("\n") // noise: empty line
+	for i := 1; i <= 10; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil }\n", i, i)
+	}
+	input := sb.String()
+	out, ok := normalizeSingleFileSearchOutput(argv, []byte(input))
+	if !ok {
+		t.Fatalf("expected normalization to trigger")
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/handler.go:1:") {
+		t.Errorf("expected file path prefix in normalized output: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputGitGrepSingleFile(t *testing.T) {
+	t.Parallel()
+	// git grep with a single file argument also omits the file path prefix.
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"git", "grep", "-n", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if !ok {
+		t.Fatalf("single-file git grep output should compact with normalization: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "[git grep]") {
+		t.Errorf("expected [git grep] header in compacted output: %s", s[:min(len(s), 200)])
+	}
+}

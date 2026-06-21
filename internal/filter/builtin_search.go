@@ -1022,6 +1022,19 @@ func TryCompactSearchOutputWithOptions(argv []string, stdout []byte, options Sea
 		if out, _, ok := groupSearchResultsWithOptions(stdout, tool, options); ok {
 			return out, true
 		}
+		// Single-file search tools (rg, grep, etc.) omit the file path prefix
+		// when searching one file. The parser expects file:line:content, so
+		// try prepending the file path from argv to each line and re-group.
+		if normalized, nok := normalizeSingleFileSearchOutput(argv, stdout); nok {
+			if out, _, gok := groupSearchResultsWithOptions(normalized, tool, options); gok {
+				// The grouping compares against the normalized (larger) input.
+				// Verify the result is also smaller than the original stdout
+				// to avoid returning a larger output than the raw command.
+				if len(out) < len(stdout) {
+					return out, true
+				}
+			}
+		}
 	}
 
 	return stdout, false
@@ -1032,7 +1045,165 @@ func SearchCompactProfile(argv []string, stdout []byte, options SearchCompactOpt
 		return SearchCompactStats{InputBytes: len(stdout), OutputBytes: len(stdout)}, false
 	}
 	_, stats, ok := groupSearchResultsWithOptions(stdout, searchToolName(argv), options)
+	if !ok {
+		if normalized, nok := normalizeSingleFileSearchOutput(argv, stdout); nok {
+			var out []byte
+			out, stats, ok = groupSearchResultsWithOptions(normalized, searchToolName(argv), options)
+			if ok && len(out) >= len(stdout) {
+				ok = false
+			}
+		}
+	}
 	return stats, ok
+}
+
+// normalizeSingleFileSearchOutput detects when a grep-style tool (rg, grep,
+// etc.) searched a single file and omitted the file path prefix from the
+// output. In that case, the output is in line:content format instead of
+// file:line:content, and the parser cannot extract the file path. This
+// function prepends the file path from argv to each line so the parser can
+// group matches by file.
+//
+// Returns the normalized output and true if the output was modified.
+// Returns the original output and false if no modification was needed or
+// if the conditions for single-file normalization are not met.
+func normalizeSingleFileSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
+	filePath := singleFileSearchPath(argv)
+	if filePath == "" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < minLinesForGrouped {
+		return stdout, false
+	}
+	// Check if any line already parses as file:line:content. If so, the
+	// output already has file path prefixes and normalization is not needed.
+	for _, line := range lines {
+		if _, ok := parseSearchMatchLine(line); ok {
+			return stdout, false
+		}
+	}
+	// Check if lines look like line:content (number followed by colon).
+	// This is the typical rg/grep single-file output format.
+	normalizedCount := 0
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || isSearchEnvelopeNoiseLine(line) {
+			continue
+		}
+		if _, _, ok := parseSingleFileSearchLine(line); ok {
+			normalizedCount++
+		}
+	}
+	if normalizedCount == 0 {
+		return stdout, false
+	}
+	// Prepend the file path to each line that looks like line:content.
+	var sb strings.Builder
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || isSearchEnvelopeNoiseLine(line) {
+			sb.WriteString(line + "\n")
+			continue
+		}
+		if _, _, ok := parseSingleFileSearchLine(line); ok {
+			sb.WriteString(filePath + ":" + line + "\n")
+		} else {
+			sb.WriteString(line + "\n")
+		}
+	}
+	return []byte(sb.String()), true
+}
+
+// parseSingleFileSearchLine checks if a line is in line:content format
+// (a number followed by a colon and content), which is the typical output
+// format when rg/grep searches a single file without --with-filename.
+func parseSingleFileSearchLine(line string) (string, string, bool) {
+	for i := 0; i < len(line); i++ {
+		if line[i] < '0' || line[i] > '9' {
+			break
+		}
+		if i+1 < len(line) && (line[i+1] == ':' || line[i+1] == '-') {
+			// Found a number followed by a separator. Check that what
+			// follows is not another number (which would be file:line).
+			if i+2 < len(line) && line[i+2] >= '0' && line[i+2] <= '9' {
+				continue // This might be file:line:content, skip
+			}
+			return line[:i+1], line[i+2:], true
+		}
+	}
+	return "", "", false
+}
+
+// singleFileSearchPath extracts the single file/directory path from a
+// grep-style search command's argv. Returns empty string if the command
+// has zero or multiple file/directory arguments, or if the arguments
+// contain flags that would change the output format.
+func singleFileSearchPath(argv []string) string {
+	if len(argv) < 2 {
+		return ""
+	}
+	// For git grep, the path comes after the pattern.
+	if gitGrepIndex(argv) >= 0 {
+		args := argv[gitGrepIndex(argv)+1:]
+		path := singleSearchPathFromArgs(args)
+		return path
+	}
+	// For rg/grep/etc., skip flags and the pattern to find file paths.
+	args := argv[1:]
+	path := singleSearchPathFromArgs(args)
+	return path
+}
+
+func singleSearchPathFromArgs(args []string) string {
+	paths := []string{}
+	skippedPattern := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			// Everything after -- is a path (not a flag).
+			for j := i + 1; j < len(args); j++ {
+				if looksLikeSearchFile(args[j]) {
+					paths = append(paths, args[j])
+				}
+			}
+			break
+		}
+		if strings.HasPrefix(arg, "-") {
+			// Skip flags and their values.
+			if kind := searchOptionKind(arg); kind.consumesValue && i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		// Non-flag argument: could be the pattern or a path.
+		// The first non-flag argument is the pattern; skip it if there are
+		// more positional args (which would be file paths).
+		if !skippedPattern {
+			skippedPattern = true
+			hasMorePositional := false
+			for j := i + 1; j < len(args); j++ {
+				if !strings.HasPrefix(args[j], "-") {
+					hasMorePositional = true
+					break
+				}
+			}
+			if hasMorePositional {
+				continue // Skip the pattern
+			}
+		}
+		if looksLikeSearchFile(arg) {
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) == 1 {
+		return paths[0]
+	}
+	return ""
 }
 
 func isPathListTool(argv []string) bool {
