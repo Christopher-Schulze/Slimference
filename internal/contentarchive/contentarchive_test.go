@@ -964,3 +964,83 @@ func mustTime(t *testing.T, s string) time.Time {
 	}
 	return v
 }
+
+func TestVerifyEntryPayload(t *testing.T) {
+	t.Parallel()
+	validBody := []byte("hello world")
+	validID := buildID(Input{
+		SessionID:    "s1",
+		MessageIndex: 0,
+		BlockIndex:   1,
+		SubLayer:     "test",
+		Original:     string(validBody),
+	})
+	validEntry := &Entry{
+		ID:           validID,
+		URI:          uriScheme + validID,
+		SessionID:    "s1",
+		MessageIndex: 0,
+		BlockIndex:   1,
+		SubLayer:     "test",
+		OriginalSize: len(validBody),
+	}
+
+	// nil entry -> error.
+	if err := verifyEntryPayload(nil, "", validBody); err == nil {
+		t.Fatal("nil entry should error")
+	}
+
+	// empty ID -> error.
+	emptyEntry := &Entry{ID: "", OriginalSize: len(validBody)}
+	if err := verifyEntryPayload(emptyEntry, "", validBody); err == nil {
+		t.Fatal("empty ID should error")
+	}
+
+	// ID mismatch with requestedID.
+	if err := verifyEntryPayload(validEntry, "wrong-id", validBody); err == nil {
+		t.Fatal("ID mismatch should error")
+	}
+
+	// URI mismatch.
+	uriMismatchEntry := &Entry{
+		ID:           validID,
+		URI:          uriScheme + "different-id",
+		SessionID:    "s1",
+		MessageIndex: 0,
+		BlockIndex:   1,
+		SubLayer:     "test",
+		OriginalSize: len(validBody),
+	}
+	if err := verifyEntryPayload(uriMismatchEntry, "", validBody); err == nil {
+		t.Fatal("URI mismatch should error")
+	}
+
+	// Size mismatch.
+	if err := verifyEntryPayload(validEntry, "", []byte("wrong size")); err == nil {
+		t.Fatal("size mismatch should error")
+	}
+
+	// Hash mismatch (correct size, wrong content).
+	wrongContentEntry := &Entry{
+		ID:           validID,
+		URI:          uriScheme + validID,
+		SessionID:    "s1",
+		MessageIndex: 0,
+		BlockIndex:   1,
+		SubLayer:     "test",
+		OriginalSize: len(validBody),
+	}
+	if err := verifyEntryPayload(wrongContentEntry, "", []byte("wrong content")); err == nil {
+		t.Fatal("hash mismatch should error")
+	}
+
+	// Valid entry -> no error.
+	if err := verifyEntryPayload(validEntry, validID, validBody); err != nil {
+		t.Fatalf("valid entry should not error: %v", err)
+	}
+
+	// Valid entry with empty requestedID -> no error.
+	if err := verifyEntryPayload(validEntry, "", validBody); err != nil {
+		t.Fatalf("valid entry with empty requestedID should not error: %v", err)
+	}
+}
