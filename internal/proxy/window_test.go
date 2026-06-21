@@ -236,6 +236,36 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestCodexTurnMetadataSessionID(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"empty", "", ""},
+		{"invalid json", "not json", ""},
+		{"no turn metadata", `{"other":"value"}`, ""},
+		{"turn metadata not a string", `{"x-codex-turn-metadata":123}`, ""},
+		{"turn metadata empty string", `{"x-codex-turn-metadata":""}`, ""},
+		{"turn metadata invalid json", `{"x-codex-turn-metadata":"not json"}`, ""},
+		{"thread_id", `{"x-codex-turn-metadata":"{\"thread_id\":\"thread-123\"}"}`, "thread-123"},
+		{"session_id", `{"x-codex-turn-metadata":"{\"session_id\":\"sess-456\"}"}`, "sess-456"},
+		{"thread_id wins over session_id", `{"x-codex-turn-metadata":"{\"thread_id\":\"thread\",\"session_id\":\"sess\"}"}`, "thread"},
+		{"empty thread_id falls to session_id", `{"x-codex-turn-metadata":"{\"thread_id\":\"\",\"session_id\":\"sess\"}"}`, "sess"},
+		{"both empty", `{"x-codex-turn-metadata":"{\"thread_id\":\"\",\"session_id\":\"\"}"}`, ""},
+		{"neither key", `{"x-codex-turn-metadata":"{\"other\":\"value\"}"}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := codexTurnMetadataSessionID(json.RawMessage(tc.raw)); got != tc.want {
+				t.Fatalf("codexTurnMetadataSessionID(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestProxyLayer0DependencySensitiveCommand(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
