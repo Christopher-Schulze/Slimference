@@ -31,7 +31,7 @@ counted as `S_local`.
 | Lever | Status | Measured `S_local` (live, gate) | candidate_potential_if_completed | Next move |
 |-------|--------|---------------------------------|----------------------------------|-----------|
 | L1 server-state continuation | `engineered_pending_evidence` (default-off, unproven handbrake) | not measured | +15 to +30 | Phase 3: prove `previous_response_id` acceptance + fail-open |
-| L2 command-output-first | `engineered_pending_evidence` (default-on, unmeasured by gate) | not in gate | +15 to +25 | Phase 0/2: wire into gate, then sharpen + live-prove |
+| L2 command-output-first | `engineered_pending_evidence` (default-on, gate-wired, no sidecar captures yet) | 0% in gate (no sidecar data yet) | +15 to +25 | Phase 2: sharpen compaction + capture real sidecar data |
 | L3 WSS history mutation | `parked` | n/a | safe subset +3 to +8 | Phase 4 only after L1+L2 proven |
 
 ---
@@ -41,6 +41,7 @@ counted as `S_local`.
 | Date | Lever | Slice | `S_local` before | `S_local` after | Provider-cache (separate) | Recovery cost (negative) | Drawdown checks | Commit |
 |------|-------|-------|------------------|-----------------|---------------------------|--------------------------|-----------------|--------|
 | _none yet under the new regime_ | | | | | | | | |
+| 2026-06-21 | L2 infra | T418 sidecar reader wired into corpus gate; T418 shim writes per-session JSONL sidecar | 6.05% (no L2 counted) | 6.05% (no sidecar captures yet — gate ready) | n/a | 0 | No sidecar → gate unchanged (test-proven); zero-savings sidecar → gate unchanged (test-proven); sidecar with savings → counted (test-proven) | _pending_ |
 
 ---
 

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,8 +21,9 @@ import (
 )
 
 const (
-	corpusCategoryMetadataFilename = "metadata.json"
-	outputReduceABReportFilename   = "output_reduce_ab_report.json"
+	corpusCategoryMetadataFilename    = "metadata.json"
+	outputReduceABReportFilename      = "output_reduce_ab_report.json"
+	commandOutputFirstSidecarFilename = "command_output_first.jsonl"
 )
 
 // CategoryMetadata is the minimal description a maintainer commits next
@@ -65,46 +67,48 @@ type CategoryMetadata struct {
 
 // CategoryResult is the per-category outcome of one gate evaluation.
 type CategoryResult struct {
-	Category                    string                               `json:"category"`
-	Path                        string                               `json:"path"`
-	Sessions                    int                                  `json:"sessions"`
-	Requests                    int                                  `json:"requests"`
-	OrigTokens                  int64                                `json:"orig_tokens"`
-	SavedTokens                 int64                                `json:"saved_tokens"`
-	SavingsRatio                float64                              `json:"savings_ratio"`
-	Layer0Saved                 int64                                `json:"layer0_saved"`
-	Layer1Saved                 int64                                `json:"layer1_saved"`
-	Layer2Saved                 int64                                `json:"layer2_saved"`
-	OutputTokens                int64                                `json:"output_tokens"`
-	ProviderCacheReadTokens     int64                                `json:"provider_cache_read_tokens"`
-	ProviderCacheCreateTokens   int64                                `json:"provider_cache_create_tokens"`
-	ProviderCachedTokens        int64                                `json:"provider_cached_tokens"`
-	OutputReduceApplied         int                                  `json:"output_reduce_applied"`
-	OutputReduceInputOverhead   int64                                `json:"output_reduce_input_overhead_tokens"`
-	OutputReduceNetObserved     int64                                `json:"output_reduce_net_observed_tokens"`
-	OutputReduceABPairs         int                                  `json:"output_reduce_ab_pairs"`
-	OutputReduceABPassedPairs   int                                  `json:"output_reduce_ab_passed_pairs"`
-	OutputReduceABOutputSaved   int64                                `json:"output_reduce_ab_output_tokens_saved"`
-	OutputReduceABNetSaved      int64                                `json:"output_reduce_ab_net_tokens_saved"`
-	OutputReduceABSavingsPctMin float64                              `json:"output_reduce_ab_savings_pct_min,omitempty"`
-	OutputReduceABFailures      []string                             `json:"output_reduce_ab_failures,omitempty"`
-	ToolPruneApplied            int                                  `json:"tool_prune_applied"`
-	ToolPruneSavedTokens        int64                                `json:"tool_prune_saved_tokens"`
-	ErrorCount                  int                                  `json:"error_count"`
-	ReReadCount                 int                                  `json:"reread_count"`
-	HostBudgetOKRows            int                                  `json:"host_budget_ok_rows"`
-	HostBudgetIssueRows         int                                  `json:"host_budget_issue_rows"`
-	LatencyP95Ms                float64                              `json:"latency_p95_ms"`
-	PlanReplay                  planReplayAggregate                  `json:"plan_replay"`
-	LayerCombinations           map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
-	EvidenceLevel               string                               `json:"evidence_level"`
-	Synthetic                   bool                                 `json:"synthetic"`
-	CurrentProductPath          bool                                 `json:"current_product_path"`
-	ClientFamily                string                               `json:"client_family,omitempty"`
-	WorkloadClass               string                               `json:"workload_class,omitempty"`
-	Failures                    []string                             `json:"failures,omitempty"`
-	GateConfigured              bool                                 `json:"gate_configured"`
-	Metadata                    *CategoryMetadata                    `json:"metadata,omitempty"`
+	Category                      string                               `json:"category"`
+	Path                          string                               `json:"path"`
+	Sessions                      int                                  `json:"sessions"`
+	Requests                      int                                  `json:"requests"`
+	OrigTokens                    int64                                `json:"orig_tokens"`
+	SavedTokens                   int64                                `json:"saved_tokens"`
+	SavingsRatio                  float64                              `json:"savings_ratio"`
+	Layer0Saved                   int64                                `json:"layer0_saved"`
+	Layer1Saved                   int64                                `json:"layer1_saved"`
+	Layer2Saved                   int64                                `json:"layer2_saved"`
+	OutputTokens                  int64                                `json:"output_tokens"`
+	ProviderCacheReadTokens       int64                                `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens     int64                                `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens          int64                                `json:"provider_cached_tokens"`
+	OutputReduceApplied           int                                  `json:"output_reduce_applied"`
+	OutputReduceInputOverhead     int64                                `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceNetObserved       int64                                `json:"output_reduce_net_observed_tokens"`
+	OutputReduceABPairs           int                                  `json:"output_reduce_ab_pairs"`
+	OutputReduceABPassedPairs     int                                  `json:"output_reduce_ab_passed_pairs"`
+	OutputReduceABOutputSaved     int64                                `json:"output_reduce_ab_output_tokens_saved"`
+	OutputReduceABNetSaved        int64                                `json:"output_reduce_ab_net_tokens_saved"`
+	OutputReduceABSavingsPctMin   float64                              `json:"output_reduce_ab_savings_pct_min,omitempty"`
+	OutputReduceABFailures        []string                             `json:"output_reduce_ab_failures,omitempty"`
+	ToolPruneApplied              int                                  `json:"tool_prune_applied"`
+	ToolPruneSavedTokens          int64                                `json:"tool_prune_saved_tokens"`
+	CommandOutputFirstOrigTokens  int64                                `json:"command_output_first_orig_tokens,omitempty"`
+	CommandOutputFirstSavedTokens int64                                `json:"command_output_first_saved_tokens,omitempty"`
+	ErrorCount                    int                                  `json:"error_count"`
+	ReReadCount                   int                                  `json:"reread_count"`
+	HostBudgetOKRows              int                                  `json:"host_budget_ok_rows"`
+	HostBudgetIssueRows           int                                  `json:"host_budget_issue_rows"`
+	LatencyP95Ms                  float64                              `json:"latency_p95_ms"`
+	PlanReplay                    planReplayAggregate                  `json:"plan_replay"`
+	LayerCombinations             map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
+	EvidenceLevel                 string                               `json:"evidence_level"`
+	Synthetic                     bool                                 `json:"synthetic"`
+	CurrentProductPath            bool                                 `json:"current_product_path"`
+	ClientFamily                  string                               `json:"client_family,omitempty"`
+	WorkloadClass                 string                               `json:"workload_class,omitempty"`
+	Failures                      []string                             `json:"failures,omitempty"`
+	GateConfigured                bool                                 `json:"gate_configured"`
+	Metadata                      *CategoryMetadata                    `json:"metadata,omitempty"`
 }
 
 // CorpusReport is the aggregate of all categories.
@@ -219,6 +223,10 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	if err != nil {
 		return CategoryResult{}, err
 	}
+	cofOrig, cofSaved, err := loadCategoryCommandOutputFirstSidecar(dir)
+	if err != nil {
+		return CategoryResult{}, err
+	}
 	agg, err := AggregateSessionsFromPath(dir, errOut)
 	if err != nil {
 		return CategoryResult{}, fmt.Errorf("aggregate %s: %w", dir, err)
@@ -235,43 +243,45 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		ratio = float64(agg.savedTokens) / float64(agg.origTokens)
 	}
 	res := CategoryResult{
-		Category:                    meta.Category,
-		Path:                        dir,
-		Sessions:                    sessions,
-		Requests:                    agg.requests,
-		OrigTokens:                  agg.origTokens,
-		SavedTokens:                 agg.savedTokens,
-		SavingsRatio:                ratio,
-		Layer0Saved:                 agg.layer0Saved,
-		Layer1Saved:                 agg.layer1Saved,
-		Layer2Saved:                 agg.layer2Saved,
-		OutputTokens:                agg.outputTokenSum,
-		ProviderCacheReadTokens:     agg.cacheReadSum,
-		ProviderCacheCreateTokens:   agg.cacheCreateSum,
-		ProviderCachedTokens:        agg.providerCachedSum,
-		OutputReduceApplied:         agg.outputReduceApplied,
-		OutputReduceInputOverhead:   agg.outputReduceInputOverhead,
-		OutputReduceNetObserved:     agg.outputTokenSum - agg.outputReduceInputOverhead,
-		OutputReduceABPairs:         abSummary.Pairs,
-		OutputReduceABPassedPairs:   abSummary.PassedPairs,
-		OutputReduceABOutputSaved:   abSummary.OutputSaved,
-		OutputReduceABNetSaved:      abSummary.NetSaved,
-		OutputReduceABSavingsPctMin: abSummary.SavingsPctMin,
-		OutputReduceABFailures:      append([]string(nil), abSummary.Failures...),
-		ToolPruneApplied:            agg.toolPruneApplied,
-		ToolPruneSavedTokens:        agg.toolPruneSaved,
-		ErrorCount:                  agg.errorCount,
-		ReReadCount:                 agg.reReadCount,
-		HostBudgetOKRows:            agg.hostBudgetOK,
-		HostBudgetIssueRows:         agg.hostBudgetIssues,
-		LatencyP95Ms:                percentileFloat64(agg.latenciesMs, 0.95),
-		PlanReplay:                  clonePlanReplayAggregate(agg.planReplay),
-		LayerCombinations:           cloneLayerCombinations(agg.layerCombinations),
-		EvidenceLevel:               normalizeEvidenceLevel(meta),
-		Synthetic:                   meta.Synthetic,
-		CurrentProductPath:          isCurrentProductPath(meta),
-		ClientFamily:                strings.TrimSpace(meta.ClientFamily),
-		WorkloadClass:               strings.TrimSpace(meta.WorkloadClass),
+		Category:                      meta.Category,
+		Path:                          dir,
+		Sessions:                      sessions,
+		Requests:                      agg.requests,
+		OrigTokens:                    agg.origTokens,
+		SavedTokens:                   agg.savedTokens,
+		SavingsRatio:                  ratio,
+		Layer0Saved:                   agg.layer0Saved,
+		Layer1Saved:                   agg.layer1Saved,
+		Layer2Saved:                   agg.layer2Saved,
+		OutputTokens:                  agg.outputTokenSum,
+		ProviderCacheReadTokens:       agg.cacheReadSum,
+		ProviderCacheCreateTokens:     agg.cacheCreateSum,
+		ProviderCachedTokens:          agg.providerCachedSum,
+		OutputReduceApplied:           agg.outputReduceApplied,
+		OutputReduceInputOverhead:     agg.outputReduceInputOverhead,
+		OutputReduceNetObserved:       agg.outputTokenSum - agg.outputReduceInputOverhead,
+		OutputReduceABPairs:           abSummary.Pairs,
+		OutputReduceABPassedPairs:     abSummary.PassedPairs,
+		OutputReduceABOutputSaved:     abSummary.OutputSaved,
+		OutputReduceABNetSaved:        abSummary.NetSaved,
+		OutputReduceABSavingsPctMin:   abSummary.SavingsPctMin,
+		OutputReduceABFailures:        append([]string(nil), abSummary.Failures...),
+		ToolPruneApplied:              agg.toolPruneApplied,
+		ToolPruneSavedTokens:          agg.toolPruneSaved,
+		CommandOutputFirstOrigTokens:  cofOrig,
+		CommandOutputFirstSavedTokens: cofSaved,
+		ErrorCount:                    agg.errorCount,
+		ReReadCount:                   agg.reReadCount,
+		HostBudgetOKRows:              agg.hostBudgetOK,
+		HostBudgetIssueRows:           agg.hostBudgetIssues,
+		LatencyP95Ms:                  percentileFloat64(agg.latenciesMs, 0.95),
+		PlanReplay:                    clonePlanReplayAggregate(agg.planReplay),
+		LayerCombinations:             cloneLayerCombinations(agg.layerCombinations),
+		EvidenceLevel:                 normalizeEvidenceLevel(meta),
+		Synthetic:                     meta.Synthetic,
+		CurrentProductPath:            isCurrentProductPath(meta),
+		ClientFamily:                  strings.TrimSpace(meta.ClientFamily),
+		WorkloadClass:                 strings.TrimSpace(meta.WorkloadClass),
 		GateConfigured: meta.ExpectedSavingsMin > 0 ||
 			meta.ExpectedRequestCount > 0 ||
 			meta.ExpectedLatencyP95MaxMs > 0 ||
@@ -371,6 +381,44 @@ func loadCategoryOutputReduceABReport(dir string) (categoryOutputReduceABSummary
 		summary.Failures = append(summary.Failures, fmt.Sprintf("output-reduce A/B passed_pairs=%d != pairs=%d", summary.PassedPairs, summary.Pairs))
 	}
 	return summary, nil
+}
+
+// commandOutputFirstSidecarRow is one JSON line in the
+// command_output_first.jsonl sidecar. It mirrors the fields written by
+// cmd/slimference/command_output_first.go recordCommandOutputFirstRun.
+type commandOutputFirstSidecarRow struct {
+	Timestamp    string `json:"ts"`
+	Command      string `json:"command"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	SavedTokens  int64  `json:"saved_tokens"`
+}
+
+// loadCategoryCommandOutputFirstSidecar reads the optional
+// command_output_first.jsonl sidecar from a corpus category directory.
+// Returns zero values when the file is absent (backward compatible).
+func loadCategoryCommandOutputFirstSidecar(dir string) (origTokens, savedTokens int64, err error) {
+	path := filepath.Join(dir, commandOutputFirstSidecarFilename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var row commandOutputFirstSidecarRow
+		if err := json.Unmarshal(line, &row); err != nil {
+			return 0, 0, fmt.Errorf("parse %s: %w", path, err)
+		}
+		origTokens += row.InputTokens
+		savedTokens += row.SavedTokens
+	}
+	return origTokens, savedTokens, nil
 }
 
 func countSessionFiles(dir string) (int, error) {
@@ -762,6 +810,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		if categoryCountsTowardRealCurrentLocalRatio(res) {
 			report.RealCurrentLocalOrigTokens += res.OrigTokens
 			report.RealCurrentLocalSavedTokens += res.SavedTokens
+			if res.CommandOutputFirstSavedTokens > 0 {
+				report.RealCurrentLocalOrigTokens += res.CommandOutputFirstOrigTokens
+				report.RealCurrentLocalSavedTokens += res.CommandOutputFirstSavedTokens
+			}
 		}
 		if res.Synthetic {
 			report.HasSynthetic = true
@@ -840,6 +892,9 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		if c.ToolPruneApplied > 0 || c.ToolPruneSavedTokens > 0 {
 			sb.WriteString(fmt.Sprintf("  tool-prune:   applied=%d saved=%d\n", c.ToolPruneApplied, c.ToolPruneSavedTokens))
+		}
+		if c.CommandOutputFirstSavedTokens > 0 {
+			sb.WriteString(fmt.Sprintf("  cmd-out-first: orig=%d saved=%d\n", c.CommandOutputFirstOrigTokens, c.CommandOutputFirstSavedTokens))
 		}
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))

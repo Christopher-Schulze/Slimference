@@ -593,6 +593,92 @@ func TestEvaluateCorpus_RealLocalSavingsExcludesProviderCacheAndDiagnostics(t *t
 	}
 }
 
+// writeCommandOutputFirstSidecar writes a command_output_first.jsonl sidecar
+// file into dir with the given rows.
+func writeCommandOutputFirstSidecar(t *testing.T, dir string, rows ...string) {
+	t.Helper()
+	var buf bytes.Buffer
+	for _, r := range rows {
+		buf.WriteString(r)
+		if !strings.HasSuffix(r, "\n") {
+			buf.WriteByte('\n')
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, commandOutputFirstSidecarFilename), buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+}
+
+func TestEvaluateCorpus_CommandOutputFirstSidecarCounted(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// Sidecar with 500 orig, 200 saved — should be added to the gate.
+	writeCommandOutputFirstSidecar(t, dir,
+		`{"ts":"2026-06-21T12:00:00Z","command":"rg","input_tokens":500,"output_tokens":300,"saved_tokens":200}`)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	// Expect orig = 1000 (session) + 500 (sidecar) = 1500
+	// Expect saved = 400 (session) + 200 (sidecar) = 600
+	if report.RealCurrentLocalOrigTokens != 1500 {
+		t.Fatalf("expected orig 1500, got %d", report.RealCurrentLocalOrigTokens)
+	}
+	if report.RealCurrentLocalSavedTokens != 600 {
+		t.Fatalf("expected saved 600, got %d", report.RealCurrentLocalSavedTokens)
+	}
+}
+
+func TestEvaluateCorpus_NoSidecarUnchanged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.RealCurrentLocalOrigTokens != 1000 || report.RealCurrentLocalSavedTokens != 400 {
+		t.Fatalf("expected orig=1000 saved=400 without sidecar, got orig=%d saved=%d",
+			report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
+	}
+}
+
+func TestEvaluateCorpus_ZeroSavingsSidecarUnchanged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// Sidecar with zero saved_tokens — should not affect the gate.
+	writeCommandOutputFirstSidecar(t, dir,
+		`{"ts":"2026-06-21T12:00:00Z","command":"cat","input_tokens":100,"output_tokens":100,"saved_tokens":0}`)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.RealCurrentLocalOrigTokens != 1000 || report.RealCurrentLocalSavedTokens != 400 {
+		t.Fatalf("expected orig=1000 saved=400 with zero-savings sidecar, got orig=%d saved=%d",
+			report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
+	}
+}
+
 func TestEvaluateRealLocalGate_PassAndFail(t *testing.T) {
 	t.Parallel()
 	report := CorpusReport{

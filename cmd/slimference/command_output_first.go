@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -2108,8 +2109,49 @@ func recordCommandOutputFirstRun(command string, args []string, rawOut, compacte
 	if inputTokens <= outputTokens {
 		return
 	}
-	savingsPct := float64(inputTokens-outputTokens) * 100 / float64(inputTokens)
+	savedTokens := inputTokens - outputTokens
+	savingsPct := float64(savedTokens) * 100 / float64(inputTokens)
 	_ = filter.RecordFilterRun(db, commandOutputFirstLabel(command, args), wd, inputTokens, outputTokens, savingsPct, time.Now())
+	recordCommandOutputFirstSidecar(command, args, int64(inputTokens), int64(outputTokens), int64(savedTokens))
+}
+
+// recordCommandOutputFirstSidecar appends one JSON line to a per-session
+// command_output_first_<session>.jsonl file in ~/.slimference/analytics/.
+// This sidecar is read by the corpus evaluator to count T418 savings in
+// the real_current_local_savings_ratio gate. Failures are silent (fail-open).
+func recordCommandOutputFirstSidecar(command string, args []string, inputTokens, outputTokens, savedTokens int64) {
+	sessionID := strings.TrimSpace(os.Getenv(commandOutputFirstSessionEnv))
+	if sessionID == "" {
+		return
+	}
+	homeDir, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return
+	}
+	dir := filepath.Join(homeDir, ".slimference", "analytics")
+	if err := osMkdirAll(dir, 0755); err != nil {
+		return
+	}
+	path := filepath.Join(dir, "command_output_first_"+sessionID+".jsonl")
+	row := struct {
+		Timestamp    string `json:"ts"`
+		Command      string `json:"command"`
+		InputTokens  int64  `json:"input_tokens"`
+		OutputTokens int64  `json:"output_tokens"`
+		SavedTokens  int64  `json:"saved_tokens"`
+	}{
+		Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
+		Command:      commandOutputFirstLabel(command, args),
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		SavedTokens:  savedTokens,
+	}
+	data, err := json.Marshal(row)
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+	_ = osAppendToFile(path, data, 0644)
 }
 
 func recordCommandOutputFirstObservation(command string, args []string, rawOut, rawErr []byte, outcome string) {

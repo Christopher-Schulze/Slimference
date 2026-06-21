@@ -91,6 +91,7 @@ var (
 	termIsTerminalFn             = term.IsTerminal
 	readStdinAll                 = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
 	osWriteFile                  = os.WriteFile
+	osAppendToFile               = appendToFile
 	testInterceptTimeout         = 60 * time.Second
 	testInterceptShutdownTimeout = 5 * time.Second
 	exitFn                       = os.Exit
@@ -693,6 +694,18 @@ func layer0PermissionCheck(cmdLine string) (exitCode int, msg string) {
 		return 3, "slimference: sudo requires SLIMFERENCE_CONFIRM_SUDO=1"
 	}
 	return 0, ""
+}
+
+// appendToFile opens path with O_CREATE|O_APPEND|O_WRONLY and writes data.
+// It is the testable indirection behind osAppendToFile.
+func appendToFile(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
 }
 
 func resolveFilterDBPath() (string, error) {
