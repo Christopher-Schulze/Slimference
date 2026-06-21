@@ -1865,3 +1865,29 @@ func TestTryCompactSearchOutputArchivedCapsAlignedWithStandardGrouping(t *testin
 			maxArchivedFilesShown, maxFilesShown)
 	}
 }
+
+func TestSearchCompactBudgetFootprint(t *testing.T) {
+	t.Parallel()
+	// Formula: files*max(matches,1) + files + matches
+	// Zero files or matches must still produce a positive footprint
+	// because max(matches,1) floors at 1.
+	if got := searchCompactBudgetFootprint(0, 0); got != 0 {
+		t.Fatalf("searchCompactBudgetFootprint(0,0)=%d want 0", got)
+	}
+	if got := searchCompactBudgetFootprint(0, 5); got != 5 {
+		t.Fatalf("searchCompactBudgetFootprint(0,5)=%d want 5", got)
+	}
+	if got := searchCompactBudgetFootprint(3, 0); got != 6 {
+		t.Fatalf("searchCompactBudgetFootprint(3,0)=%d want 6 (3*1+3+0)", got)
+	}
+	if got := searchCompactBudgetFootprint(10, 4); got != 54 {
+		t.Fatalf("searchCompactBudgetFootprint(10,4)=%d want 54 (10*4+10+4)", got)
+	}
+	// Monotonicity: more files or more matches must not decrease footprint
+	if searchCompactBudgetFootprint(5, 3) >= searchCompactBudgetFootprint(10, 3) {
+		t.Fatal("footprint must increase with more files")
+	}
+	if searchCompactBudgetFootprint(5, 3) >= searchCompactBudgetFootprint(5, 6) {
+		t.Fatal("footprint must increase with more matches")
+	}
+}

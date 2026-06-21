@@ -2,6 +2,81 @@ package filter
 
 import "testing"
 
+func TestReadRequestFromArgv_CatFullFile(t *testing.T) {
+	t.Parallel()
+	req, ok := ReadRequestFromArgv([]string{"cat", "/repo/file.go"})
+	if !ok {
+		t.Fatal("cat single file must parse")
+	}
+	if req.Path != "/repo/file.go" || req.Offset != 0 || req.Limit != 0 {
+		t.Fatalf("cat request mismatch: %+v", req)
+	}
+	if !req.IsFull() {
+		t.Fatal("cat with no range must be IsFull")
+	}
+}
+
+func TestReadRequestFromArgv_CatMultipleFilesFails(t *testing.T) {
+	t.Parallel()
+	if _, ok := ReadRequestFromArgv([]string{"cat", "a.go", "b.go"}); ok {
+		t.Fatal("cat with multiple files must not parse")
+	}
+}
+
+func TestReadRequestFromArgv_HeadWithLimit(t *testing.T) {
+	t.Parallel()
+	req, ok := ReadRequestFromArgv([]string{"head", "-n", "20", "/repo/file.go"})
+	if !ok {
+		t.Fatal("head -n 20 must parse")
+	}
+	if req.Path != "/repo/file.go" || req.Offset != 1 || req.Limit != 20 {
+		t.Fatalf("head request mismatch: %+v", req)
+	}
+}
+
+func TestReadRequestFromArgv_HeadDefaultLimit(t *testing.T) {
+	t.Parallel()
+	req, ok := ReadRequestFromArgv([]string{"head", "/repo/file.go"})
+	if !ok {
+		t.Fatal("head without -n must parse with default 10")
+	}
+	if req.Limit != 10 {
+		t.Fatalf("head default limit must be 10, got %d", req.Limit)
+	}
+}
+
+func TestReadRequestFromArgv_TailWithRange(t *testing.T) {
+	t.Parallel()
+	req, ok := ReadRequestFromArgv([]string{"tail", "-n", "50", "/repo/file.go"})
+	if !ok {
+		t.Fatal("tail -n 50 must parse")
+	}
+	if req.Path != "/repo/file.go" || req.Limit != 50 {
+		t.Fatalf("tail request mismatch: %+v", req)
+	}
+}
+
+func TestReadRequestFromArgv_UnknownCommandFails(t *testing.T) {
+	t.Parallel()
+	if _, ok := ReadRequestFromArgv([]string{"git", "status"}); ok {
+		t.Fatal("git status must not parse as read request")
+	}
+}
+
+func TestReadRequestFromArgv_EmptyArgvFails(t *testing.T) {
+	t.Parallel()
+	if _, ok := ReadRequestFromArgv(nil); ok {
+		t.Fatal("empty argv must not parse")
+	}
+}
+
+func TestReadRequestFromArgv_HeadBytesFails(t *testing.T) {
+	t.Parallel()
+	if _, ok := ReadRequestFromArgv([]string{"head", "-c", "1024", "/repo/file.go"}); ok {
+		t.Fatal("head -c (bytes mode) must not parse as line read")
+	}
+}
+
 func TestCountReadPaths(t *testing.T) {
 	t.Parallel()
 	if n := countReadPaths([]string{"head", "-n", "5", "x.go"}); n != 1 {
