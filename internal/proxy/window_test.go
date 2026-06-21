@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +233,30 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 		"wss.stateful_prefix_elision_bytes_saved": "not-a-number",
 	}); got != 0 {
 		t.Fatalf("invalid bytes should return 0, got %d", got)
+	}
+}
+
+func TestCompactProxyInferredPlainPathList(t *testing.T) {
+	t.Parallel()
+	// No envelope -> false.
+	if _, ok := compactProxyInferredPlainPathList("no envelope here"); ok {
+		t.Fatal("text without envelope should return false")
+	}
+	// Envelope with non-path-list payload -> false.
+	envelope := "Process exited with code 0\nOutput:\nhello world"
+	if _, ok := compactProxyInferredPlainPathList(envelope); ok {
+		t.Fatal("non-path-list payload should return false")
+	}
+	// Envelope with path list -> true (needs >= 8 paths, no spaces,
+	// and grouping must produce shorter output than original).
+	pathList := "very/long/deep/nested/path/a.go\nvery/long/deep/nested/path/b.go\nvery/long/deep/nested/path/c.go\nvery/long/deep/nested/path/d.go\nvery/long/deep/nested/path/e.go\nvery/long/deep/nested/path/f.go\nvery/long/deep/nested/path/g.go\nvery/long/deep/nested/path/h.go"
+	envelopeWithPathList := "Process exited with code 0\nOutput:\n" + pathList
+	out, ok := compactProxyInferredPlainPathList(envelopeWithPathList)
+	if !ok {
+		t.Fatal("path list payload should return true")
+	}
+	if !strings.Contains(out, "Process exited with code 0") {
+		t.Fatal("output should contain envelope header")
 	}
 }
 
