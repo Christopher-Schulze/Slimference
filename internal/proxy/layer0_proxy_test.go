@@ -3353,3 +3353,211 @@ func hasTokenNeutralEvidenceDecision(decisions []evidence.BlockDecision, mechani
 	}
 	return false
 }
+
+// proxyInferredSearchEnvelope builds a Codex exec envelope wrapping a
+// search-shaped payload with no tool_use binding (simulating an inferred
+// command line from proxyInferCommandLineFromToolResult).
+func proxyInferredSearchEnvelope(needle string, count int) string {
+	var payload strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&payload, "src/file_%03d.go:%d:%s with enough detail to compact %s\n", i, i+1, needle, strings.Repeat("context ", 20))
+	}
+	return "Chunk ID: inferred\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + payload.String()
+}
+
+func TestProxyLayer0InferredSearchContentKeyRejectsNonRg(t *testing.T) {
+	if key := proxyLayer0InferredSearchContentKey("git status", proxyInferredSearchEnvelope("x", 10)); key != "" {
+		t.Fatalf("non-rg command must not get inferred search content key: %q", key)
+	}
+	if key := proxyLayer0InferredSearchContentKey("rg -n TODO src", proxyInferredSearchEnvelope("x", 10)); key != "" {
+		t.Fatalf("real rg command line must not get inferred content key: %q", key)
+	}
+}
+
+func TestProxyLayer0InferredSearchContentKeyStableForSameMatchSet(t *testing.T) {
+	payload := proxyInferredSearchEnvelope("needle", 30)
+	key1 := proxyLayer0InferredSearchContentKey("rg", payload)
+	key2 := proxyLayer0InferredSearchContentKey("rg", payload)
+	if key1 == "" {
+		t.Fatalf("inferred rg payload must produce a content key")
+	}
+	if !strings.HasPrefix(key1, "search:inferred:content:") {
+		t.Fatalf("content key must have correct prefix: %q", key1)
+	}
+	if key1 != key2 {
+		t.Fatalf("same payload must produce same key: %q != %q", key1, key2)
+	}
+}
+
+func TestProxyLayer0InferredSearchContentKeyDiffersForChangedMatchSet(t *testing.T) {
+	payloadA := proxyInferredSearchEnvelope("needleA", 30)
+	payloadB := proxyInferredSearchEnvelope("needleB", 30)
+	keyA := proxyLayer0InferredSearchContentKey("rg", payloadA)
+	keyB := proxyLayer0InferredSearchContentKey("rg", payloadB)
+	if keyA == "" || keyB == "" {
+		t.Fatalf("both payloads must produce content keys")
+	}
+	if keyA == keyB {
+		t.Fatalf("different match sets must produce different keys: %q == %q", keyA, keyB)
+	}
+}
+
+func TestReduceCodexLayer0InferredSearchRepeatedSaves(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	original := proxyInferredSearchEnvelope("needle", 60)
+	messages := func(text string) []types.Message {
+		return []types.Message{
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-inferred-rg", Text: text}}},
+		}
+	}
+	sessionID := "sess-inferred-rg-repeat"
+
+	first := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteHTTP,
+		Messages:  messages(original),
+		SessionID: sessionID,
+	})
+	if first.Stats.RepeatedOutputBlocks != 0 {
+		t.Fatalf("first inferred rg payload should not save via repeated output: %+v", first.Stats)
+	}
+
+	second := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteHTTP,
+		Messages:  messages(original),
+		SessionID: sessionID,
+	})
+	if second.Stats.RepeatedOutputBlocks != 1 {
+		t.Fatalf("second identical inferred rg payload must save via repeated output: %+v", second.Stats)
+	}
+	if second.Messages[0].Content[0].Text == original {
+		t.Fatalf("second inferred rg payload must be replaced with archive reference")
+	}
+	if !strings.Contains(second.Messages[0].Content[0].Text, "context-elided") {
+		t.Fatalf("second inferred rg payload must contain elided marker: %q", second.Messages[0].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0InferredSearchChangedFullPass(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	payloadA := proxyInferredSearchEnvelope("needleA", 60)
+	payloadB := proxyInferredSearchEnvelope("needleB", 60)
+	messages := func(text string) []types.Message {
+		return []types.Message{
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-inferred-rg-changed", Text: text}}},
+		}
+	}
+	sessionID := "sess-inferred-rg-changed"
+
+	first := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteHTTP,
+		Messages:  messages(payloadA),
+		SessionID: sessionID,
+	})
+	if first.Stats.RepeatedOutputBlocks != 0 {
+		t.Fatalf("first inferred rg payload should not save via repeated output: %+v", first.Stats)
+	}
+
+	second := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteHTTP,
+		Messages:  messages(payloadB),
+		SessionID: sessionID,
+	})
+	if second.Stats.RepeatedOutputBlocks != 0 {
+		t.Fatalf("changed inferred rg payload must not save via repeated output: %+v", second.Stats)
+	}
+	if strings.Contains(second.Messages[0].Content[0].Text, "context-elided") {
+		t.Fatalf("changed inferred rg payload must not be replaced with archive reference: %q", second.Messages[0].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0InferredSearchUnscopedCommandStillRejected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	sessionID := "search-implicit-cwd-via-real-command"
+	command := "rg -n TODO src"
+	output := strings.Repeat("src/a.go:10:TODO repo context\n", 30)
+	if key := proxyLayer0QualityToolKey(command); key != "" {
+		t.Fatalf("implicit-cwd search must not receive a reusable cache key: %q", key)
+	}
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, command, output); ok || out != "" {
+		t.Fatalf("implicit-cwd search must full-pass instead of seeding/collapsing: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestReduceCodexLayer0WSSInferredSearchRepeatedUnchangedAllowed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	original := proxyInferredSearchEnvelope("needle", 60)
+	messages := func(text string) []types.Message {
+		return []types.Message{
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-inferred-rg", Text: text}}},
+		}
+	}
+	sessionID := "sess-wss-inferred-rg-repeat"
+
+	first := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages(original),
+		SessionID:                sessionID,
+		WSSSearchMutationAllowed: true,
+	})
+	if first.Stats.BlocksModified != 0 || first.Stats.TokensSaved != 0 {
+		t.Fatalf("first WSS inferred rg payload should seed only: %+v", first.Stats)
+	}
+
+	second := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages(original),
+		SessionID:                sessionID,
+		WSSSearchMutationAllowed: true,
+	})
+	if second.Stats.BlocksModified != 1 || second.Stats.TokensSaved <= 0 {
+		t.Fatalf("second identical WSS inferred rg payload must save via BlockKindUnchanged: %+v", second.Stats)
+	}
+	if !strings.Contains(second.Messages[0].Content[0].Text, "context-elided") {
+		t.Fatalf("second WSS inferred rg payload must contain elided marker: %q", second.Messages[0].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0WSSInferredSearchChangedFullPass(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	payloadA := proxyInferredSearchEnvelope("needleA", 60)
+	payloadB := proxyInferredSearchEnvelope("needleB", 60)
+	messages := func(text string) []types.Message {
+		return []types.Message{
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-wss-inferred-rg-changed", Text: text}}},
+		}
+	}
+	sessionID := "sess-wss-inferred-rg-changed"
+
+	first := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages(payloadA),
+		SessionID:                sessionID,
+		WSSSearchMutationAllowed: true,
+	})
+	if first.Stats.BlocksModified != 0 || first.Stats.TokensSaved != 0 {
+		t.Fatalf("first WSS inferred rg payload should seed only: %+v", first.Stats)
+	}
+
+	second := reduceCodexLayer0(codexLayer0Request{
+		Route:                    codexLayer0RouteWSSPhaseF,
+		Messages:                 messages(payloadB),
+		SessionID:                sessionID,
+		WSSSearchMutationAllowed: true,
+	})
+	if second.Stats.BlocksModified != 0 || second.Stats.TokensSaved != 0 {
+		t.Fatalf("changed WSS inferred rg payload must full-pass (no savings): %+v", second.Stats)
+	}
+	if second.Messages[0].Content[0].Text != payloadB {
+		t.Fatalf("changed WSS inferred rg payload must remain unchanged: %q", second.Messages[0].Content[0].Text)
+	}
+}

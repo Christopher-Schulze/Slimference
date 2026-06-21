@@ -630,6 +630,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
+			repeatedKey := toolKey
+			if repeatedKey == "" && !commandFromToolUse {
+				if inferredKey := proxyLayer0InferredSearchContentKey(commandLine, block.Text); inferredKey != "" {
+					repeatedKey = inferredKey
+				}
+			}
 			beforeTokens := -1
 			countBeforeTokens := func() int {
 				if beforeTokens < 0 {
@@ -822,7 +828,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if !readCommand && statefulDeltaBlockedForBlock && !statefulDeltaOutputMutationAllowed {
 				if policy.RepeatedOutput {
 					latencyStart := time.Now()
-					_, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
+					_, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, repeatedKey, commandLine, block.Text)
 					stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
 					action := proxyLayer0CacheMiss
 					if repeated {
@@ -886,7 +892,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				(workload == savingspolicy.CodexWorkloadSearch || wssSearchOutputBlocked) {
 				preFilterRepeated = true
 				latencyStart := time.Now()
-				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
+				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, repeatedKey, commandLine, block.Text)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
 				action := proxyLayer0CacheMiss
 				if repeated {
@@ -966,7 +972,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !readCommand && !preFilterRepeated && !wssSearchOutputBlocked && !statefulDeltaBlockedForBlock && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
-				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
+				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, repeatedKey, commandLine, candidateText)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
 				action := proxyLayer0CacheMiss
 				if repeated {
@@ -1783,6 +1789,38 @@ func compactStringSet(values []string) []string {
 
 func readDeltaEligible(sessionID, commandLine string) bool {
 	return strings.TrimSpace(sessionID) != "" && readRequestFromCommandLine(commandLine).FilePath != ""
+}
+
+// proxyLayer0InferredSearchContentKey returns a stable content-identity key for
+// inferred search-shaped tool-result payloads (commandLine == "rg" from
+// proxyInferCommandLineFromToolResult). The key is derived from the canonical
+// search match set of the payload, not from the volatile Codex exec envelope
+// header. It is only used for repeated-output cache identity, never for command
+// execution.
+//
+// Safety properties:
+//   - Exact repeat → same canonical match set → same hash → same key →
+//     BlockKindUnchanged → savings.
+//   - Changed output → different canonical match set → different hash →
+//     different key → new cache entry → full-pass.
+//   - Only activates for inferred "rg" commands (no tool_use binding), never
+//     for real unscoped command lines like "rg -n TODO src".
+//   - Key prefix "search:" ensures outputDeltaEligible and CanonicalSearchMatchSet
+//     are used by readcache.EvaluateObservedOutput for identity comparison.
+func proxyLayer0InferredSearchContentKey(commandLine, text string) string {
+	if strings.TrimSpace(commandLine) != "rg" {
+		return ""
+	}
+	_, payload, ok := splitCodexExecEnvelope(text)
+	if !ok || strings.TrimSpace(payload) == "" {
+		return ""
+	}
+	canonical, ok := filter.CanonicalSearchMatchSet([]byte(payload))
+	if !ok {
+		return ""
+	}
+	h := sha256.Sum256([]byte(canonical))
+	return "search:inferred:content:" + hex.EncodeToString(h[:16])
 }
 
 func proxyLayer0QualityToolKey(commandLine string) string {
