@@ -3561,3 +3561,146 @@ func TestReduceCodexLayer0WSSInferredSearchChangedFullPass(t *testing.T) {
 		t.Fatalf("changed WSS inferred rg payload must remain unchanged: %q", second.Messages[0].Content[0].Text)
 	}
 }
+
+func TestJJCommandProducesDiff(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"empty", []string{}, false},
+		{"only_jj", []string{"jj"}, false},
+		{"jj_diff", []string{"jj", "diff"}, true},
+		{"jj_show", []string{"jj", "show"}, true},
+		{"jj_log", []string{"jj", "log"}, false},
+		{"jj_diff_with_flags", []string{"jj", "--no-pager", "diff"}, true},
+		{"git_diff", []string{"git", "diff"}, false},
+		{"jj_path_diff", []string{"/usr/bin/jj", "diff"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jjCommandProducesDiff(tc.argv); got != tc.want {
+				t.Fatalf("jjCommandProducesDiff(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVCSSubcommand(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		bin  string
+		want string
+	}{
+		{"empty", []string{}, "jj", ""},
+		{"only_bin", []string{"jj"}, "jj", ""},
+		{"jj_diff", []string{"jj", "diff"}, "jj", "diff"},
+		{"jj_with_flags", []string{"jj", "--no-pager", "log"}, "jj", "log"},
+		{"jj_all_flags", []string{"jj", "--no-pager", "--color"}, "jj", ""},
+		{"wrong_bin", []string{"git", "diff"}, "jj", ""},
+		{"jj_path", []string{"/usr/bin/jj", "show"}, "jj", "show"},
+		{"jj_uppercase", []string{"JJ", "diff"}, "jj", "diff"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := vcsSubcommand(tc.argv, tc.bin); got != tc.want {
+				t.Fatalf("vcsSubcommand(%v, %q) = %q, want %q", tc.argv, tc.bin, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGitSubcommand(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"empty", []string{}, ""},
+		{"only_git", []string{"git"}, ""},
+		{"git_status", []string{"git", "status"}, "status"},
+		{"git_diff", []string{"git", "diff"}, "diff"},
+		{"git_with_C_flag", []string{"git", "-C", "/repo", "status"}, "status"},
+		{"git_with_c_flag", []string{"git", "-c", "core.safecrlf=true", "diff"}, "diff"},
+		{"git_with_git_dir_eq", []string{"git", "--git-dir=/repo/.git", "log"}, "log"},
+		{"git_with_work_tree_eq", []string{"git", "--work-tree=/repo", "status"}, "status"},
+		{"git_with_c_attached", []string{"git", "-cfoo.bar=1", "diff"}, "diff"},
+		{"git_all_flags", []string{"git", "--no-pager", "--color"}, ""},
+		{"git_empty_arg", []string{"git", "", "status"}, "status"},
+		{"git_path", []string{"/usr/bin/git", "log"}, "log"},
+		{"git_uppercase", []string{"GIT", "status"}, "status"},
+		{"not_git", []string{"jj", "diff"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := gitSubcommand(tc.argv); got != tc.want {
+				t.Fatalf("gitSubcommand(%v) = %q, want %q", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRawHasOrderedWords(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		raw   string
+		words []string
+		want  bool
+	}{
+		{"empty_raw", "", []string{"foo"}, false},
+		{"empty_words", "foo bar", []string{}, false},
+		{"single_word_match", "foo", []string{"foo"}, true},
+		{"single_word_no_match", "bar", []string{"foo"}, false},
+		{"ordered_match", "foo bar baz", []string{"foo", "bar"}, true},
+		{"ordered_all_match", "foo bar baz", []string{"foo", "bar", "baz"}, true},
+		{"ordered_partial", "foo bar baz", []string{"foo", "baz"}, true},
+		{"ordered_wrong", "bar foo", []string{"foo", "bar"}, false},
+		{"with_separators", "foo-bar baz_qux", []string{"foo-bar", "baz_qux"}, true},
+		{"with_numbers", "foo123 bar456", []string{"foo123", "bar456"}, true},
+		{"extra_words_between", "foo xxx bar", []string{"foo", "bar"}, true},
+		{"word_repeated", "foo foo bar", []string{"foo", "foo", "bar"}, true},
+		{"not_enough_words", "foo", []string{"foo", "bar"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := rawHasOrderedWords(tc.raw, tc.words...); got != tc.want {
+				t.Fatalf("rawHasOrderedWords(%q, %v) = %v, want %v", tc.raw, tc.words, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBytesEqualString(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		data []byte
+		text string
+		want bool
+	}{
+		{"equal", []byte("hello"), "hello", true},
+		{"empty_equal", []byte(""), "", true},
+		{"nil_vs_empty", nil, "", true},
+		{"different_length", []byte("hello"), "hi", false},
+		{"same_length_different", []byte("hello"), "world", false},
+		{"data_longer", []byte("hello world"), "hello", false},
+		{"text_longer", []byte("hi"), "hello", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := bytesEqualString(tc.data, tc.text); got != tc.want {
+				t.Fatalf("bytesEqualString(%q, %q) = %v, want %v", tc.data, tc.text, got, tc.want)
+			}
+		})
+	}
+}
