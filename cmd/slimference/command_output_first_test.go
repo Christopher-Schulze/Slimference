@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -4769,6 +4770,77 @@ func TestRecordCommandOutputFirstRunFailOpenAndMissingCWD(t *testing.T) {
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
 		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestRecordCommandOutputFirstSidecarWritten(t *testing.T) {
+	oldPath := resolveFilterDBPathFn
+	oldHome := osUserHomeDir
+	oldMkdir := osMkdirAll
+	oldAppend := osAppendToFile
+	t.Cleanup(func() {
+		resolveFilterDBPathFn = oldPath
+		osUserHomeDir = oldHome
+		osMkdirAll = oldMkdir
+		osAppendToFile = oldAppend
+	})
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	osMkdirAll = os.MkdirAll
+
+	dbPath := filepath.Join(t.TempDir(), "filter.db")
+	resolveFilterDBPathFn = func() (string, error) { return dbPath, nil }
+
+	var sidecarPath string
+	var sidecarData []byte
+	osAppendToFile = func(path string, data []byte, perm os.FileMode) error {
+		sidecarPath = path
+		sidecarData = data
+		return nil
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "test-session-42")
+
+	raw := []byte(strings.Repeat("raw-output-line\n", 80))
+	compacted := []byte("[compacted]\n")
+	recordCommandOutputFirstRun("rg", []string{"pattern"}, raw, compacted)
+
+	if sidecarPath == "" {
+		t.Fatal("expected sidecar write, got none")
+	}
+	if !strings.Contains(sidecarPath, "command_output_first_test-session-42.jsonl") {
+		t.Fatalf("sidecar path=%q", sidecarPath)
+	}
+	var row struct {
+		Timestamp    string `json:"ts"`
+		Command      string `json:"command"`
+		InputTokens  int64  `json:"input_tokens"`
+		OutputTokens int64  `json:"output_tokens"`
+		SavedTokens  int64  `json:"saved_tokens"`
+	}
+	if err := json.Unmarshal(sidecarData[:len(sidecarData)-1], &row); err != nil { // strip trailing \n
+		t.Fatalf("parse sidecar row: %v", err)
+	}
+	if row.Command == "" || row.InputTokens <= 0 || row.SavedTokens <= 0 {
+		t.Fatalf("bad sidecar row: %+v", row)
+	}
+}
+
+func TestRecordCommandOutputFirstSidecarNoSessionEnv(t *testing.T) {
+	oldAppend := osAppendToFile
+	t.Cleanup(func() { osAppendToFile = oldAppend })
+
+	called := false
+	osAppendToFile = func(string, []byte, os.FileMode) error {
+		called = true
+		return nil
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "")
+	recordCommandOutputFirstSidecar("rg", nil, 100, 50, 50)
+	if called {
+		t.Fatal("sidecar must not write when session env is unset")
 	}
 }
 
