@@ -1661,3 +1661,506 @@ codex_search_cap_proof_path = %q
 		t.Fatalf("expected missing schema version error, got %v", err)
 	}
 }
+
+func TestValidateCodexSearchCapProof(t *testing.T) {
+	t.Parallel()
+	// A fully-valid proof report that should produce zero issues.
+	validProof := codexSearchCapReleaseProofReport{
+		GatePassed:                  true,
+		MatrixPath:                  "/matrix",
+		MatrixFiles:                 1,
+		Rows:                        1,
+		PositiveEconomicTokenRows:   1,
+		ResourceProfileProofOK:      true,
+		ResourceProfileProofClients: []string{"cli", "desktop"},
+		HostBudgetIssueRows:         0,
+		ProofEventLossRows:          0,
+		SafetyIssueRows:             0,
+		ExpectedZeroLocalViolations: 0,
+		SearchCapProof: &codexSearchCapProofReport{
+			Path:                     "/search",
+			OK:                       true,
+			Captures:                 2,
+			CLI:                      1,
+			Desktop:                  1,
+			PositiveSavings:          2,
+			SelectedCandidate:        "candidate-1",
+			MaxFilesShown:            10,
+			MaxMatchesPerFile:        5,
+			TotalExtraReducerTokens:  100,
+			MinMatchRetentionPct:     50.0,
+			DeltaToolOutputProof:     true,
+			DownstreamStateProof:     true,
+			DownstreamNetSavedTokens: 200,
+			RequiredReducerHits:      map[string]int64{"captured_output": 1},
+		},
+		CodexRouteHygiene: &codexSearchCapRouteHygiene{
+			OK:     true,
+			Before: "/before",
+			After:  "/after",
+		},
+	}
+
+	// Helper: returns a deep copy of validProof with mutations applied.
+	clone := func(mut func(p *codexSearchCapReleaseProofReport)) codexSearchCapReleaseProofReport {
+		p := validProof
+		// Deep-copy pointer fields so mutations don't leak across cases.
+		if validProof.SearchCapProof != nil {
+			scp := *validProof.SearchCapProof
+			p.SearchCapProof = &scp
+		}
+		if validProof.CodexRouteHygiene != nil {
+			crh := *validProof.CodexRouteHygiene
+			p.CodexRouteHygiene = &crh
+		}
+		mut(&p)
+		return p
+	}
+
+	cases := []struct {
+		name           string
+		proof          codexSearchCapReleaseProofReport
+		wantIssueCount int
+		wantMaxFiles   int
+		wantMaxMatch   int
+		wantRetention  float64
+	}{
+		{
+			name:           "valid_proof_no_issues",
+			proof:          validProof,
+			wantIssueCount: 0,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "gate_not_passed",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.GatePassed = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "gate_passed_with_failures",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.GateFailures = []string{"warn1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_matrix_path",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.MatrixPath = ""
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "matrix_files_zero",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.MatrixFiles = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "rows_zero",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.Rows = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "no_positive_economic_rows",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.PositiveEconomicTokenRows = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "resource_profile_not_ok",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ResourceProfileProofOK = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "resource_profile_ok_with_issues",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ResourceProfileProofIssues = []string{"issue1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_cli_client",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ResourceProfileProofClients = []string{"desktop"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_desktop_client",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ResourceProfileProofClients = []string{"cli"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "host_budget_issue_rows",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.HostBudgetIssueRows = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "proof_event_loss_rows",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ProofEventLossRows = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "safety_issue_rows",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SafetyIssueRows = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "expected_zero_local_violations",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.ExpectedZeroLocalViolations = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_release_workloads",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.MissingReleaseWorkloads = []string{"wl1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_maxx_workloads",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.MissingMaxxWorkloads = []string{"maxx1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "nil_search_cap_proof",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof = nil
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   0,
+			wantMaxMatch:   0,
+			wantRetention:  0,
+		},
+		{
+			name: "nil_codex_route_hygiene",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.CodexRouteHygiene = nil
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   0,
+			wantMaxMatch:   0,
+			wantRetention:  0,
+		},
+		{
+			name: "search_proof_not_ok",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.OK = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "search_proof_ok_with_issues",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.Issues = []string{"issue1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_search_proof_path",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.Path = ""
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "route_hygiene_not_ok",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.CodexRouteHygiene.OK = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "route_hygiene_ok_with_issues",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.CodexRouteHygiene.Issues = []string{"issue1"}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_route_hygiene_before",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.CodexRouteHygiene.Before = ""
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_route_hygiene_after",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.CodexRouteHygiene.After = ""
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "captures_less_than_2",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.Captures = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_cli_capture",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.CLI = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_desktop_capture",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.Desktop = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "positive_savings_less_than_2",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.PositiveSavings = 1
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "retention_below_min",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.MinMatchRetentionPct = 10.0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  10.0,
+		},
+		{
+			name: "total_extra_reducer_tokens_zero",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.TotalExtraReducerTokens = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_delta_tool_output_proof",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.DeltaToolOutputProof = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_downstream_state_proof",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.DownstreamStateProof = false
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "downstream_net_saved_tokens_zero",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.DownstreamNetSavedTokens = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_required_reducer_hits",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.RequiredReducerHits = map[string]int64{}
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "missing_selected_candidate",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.SelectedCandidate = ""
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "invalid_max_files_shown",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.MaxFilesShown = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   0,
+			wantMaxMatch:   5,
+			wantRetention:  50.0,
+		},
+		{
+			name: "invalid_max_matches_per_file",
+			proof: clone(func(p *codexSearchCapReleaseProofReport) {
+				p.SearchCapProof.MaxMatchesPerFile = 0
+			}),
+			wantIssueCount: 1,
+			wantMaxFiles:   10,
+			wantMaxMatch:   0,
+			wantRetention:  50.0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			maxFiles, maxMatch, retention, issues := validateCodexSearchCapProof(tc.proof)
+			if len(issues) != tc.wantIssueCount {
+				t.Fatalf("validateCodexSearchCapProof(%s) issues=%d, want %d: %v",
+					tc.name, len(issues), tc.wantIssueCount, issues)
+			}
+			if maxFiles != tc.wantMaxFiles {
+				t.Fatalf("validateCodexSearchCapProof(%s) maxFiles=%d, want %d",
+					tc.name, maxFiles, tc.wantMaxFiles)
+			}
+			if maxMatch != tc.wantMaxMatch {
+				t.Fatalf("validateCodexSearchCapProof(%s) maxMatch=%d, want %d",
+					tc.name, maxMatch, tc.wantMaxMatch)
+			}
+			if retention != tc.wantRetention {
+				t.Fatalf("validateCodexSearchCapProof(%s) retention=%.2f, want %.2f",
+					tc.name, retention, tc.wantRetention)
+			}
+		})
+	}
+}
+
+func TestCodexSearchCapReleaseHasClient(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		clients []string
+		want    string
+		ok      bool
+	}{
+		{"empty_list", []string{}, "cli", false},
+		{"exact_match", []string{"cli", "desktop"}, "cli", true},
+		{"with_whitespace", []string{" cli ", "desktop"}, "cli", true},
+		{"no_match", []string{"desktop"}, "cli", false},
+		{"empty_want", []string{"", "cli"}, "", true},
+		{"nil_list", nil, "cli", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := codexSearchCapReleaseHasClient(tc.clients, tc.want); got != tc.ok {
+				t.Fatalf("codexSearchCapReleaseHasClient(%v, %q) = %v, want %v",
+					tc.clients, tc.want, got, tc.ok)
+			}
+		})
+	}
+}
