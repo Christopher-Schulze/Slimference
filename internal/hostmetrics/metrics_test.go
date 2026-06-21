@@ -78,3 +78,39 @@ func TestDirectorySizeBytesBoundedReportsIncompleteScan(t *testing.T) {
 		t.Fatalf("bounded scan size=%d ok=%v complete=%v, want partial known incomplete", size, ok, complete)
 	}
 }
+
+func TestDirectorySizeBytesBoundedDefaultMaxEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("xx"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// maxEntries <= 0 falls back to the 20_000 default; a small tree must complete.
+	size, ok, complete := DirectorySizeBytesBounded(dir, 0)
+	if !ok || !complete || size != 2 {
+		t.Fatalf("default maxEntries size=%d ok=%v complete=%v, want 2/true/true", size, ok, complete)
+	}
+}
+
+func TestParsePSRSSKilobytes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in        string
+		wantOK    bool
+		wantBytes int64
+	}{
+		{"", false, 0},
+		{"   \n  ", false, 0},
+		{"notanumber", false, 0},
+		{"0", false, 0},
+		{"-5", false, 0},
+		{"12345", true, 12345 * 1024},
+		{"  9876  extra  fields  ", true, 9876 * 1024},
+	}
+	for _, tc := range cases {
+		got, ok := parsePSRSSKilobytes(tc.in)
+		if ok != tc.wantOK || got != tc.wantBytes {
+			t.Fatalf("parsePSRSSKilobytes(%q) = (%d, %t), want (%d, %t)", tc.in, got, ok, tc.wantBytes, tc.wantOK)
+		}
+	}
+}
