@@ -380,6 +380,57 @@ func TestConciseChatEligibility(t *testing.T) {
 	if shape, reason := ConciseChatEligibility(types.OpenAI, body, ""); shape != ShapeExactReply || reason != "exact_reply" {
 		t.Fatalf("exact eligibility shape=%s reason=%q", shape, reason)
 	}
+	// Cover remaining branches via explicit shape input (no body detection needed).
+	if shape, reason := ConciseChatEligibility(types.OpenAI, nil, ShapeRepairFollowup); shape != ShapeRepairFollowup || reason != "repair_followup_low_roi" {
+		t.Fatalf("repair_followup eligibility shape=%s reason=%q", shape, reason)
+	}
+	if shape, reason := ConciseChatEligibility(types.OpenAI, nil, ShapeCommandRelay); shape != ShapeCommandRelay || reason != "command_output_relay_exact_output" {
+		t.Fatalf("command_relay eligibility shape=%s reason=%q", shape, reason)
+	}
+	if shape, reason := ConciseChatEligibility(types.OpenAI, nil, ShapeUnknown); shape != ShapeUnknown || reason != "unknown_shape_full_pass" {
+		t.Fatalf("unknown eligibility shape=%s reason=%q", shape, reason)
+	}
+	if shape, reason := ConciseChatEligibility(types.OpenAI, nil, ShapePlanning); shape != ShapePlanning || reason != "non_chat_shape_full_pass" {
+		t.Fatalf("planning eligibility shape=%s reason=%q", shape, reason)
+	}
+	if shape, reason := ConciseChatEligibility(types.OpenAI, nil, TaskShape("custom_unknown")); shape != TaskShape("custom_unknown") || reason != "non_chat_shape_full_pass" {
+		t.Fatalf("default eligibility shape=%s reason=%q", shape, reason)
+	}
+}
+
+func TestCompactStandardDirectiveForShape_AllShapes(t *testing.T) {
+	t.Parallel()
+	shapes := []TaskShape{
+		ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview,
+		ShapeDebugging, ShapeExplanation, ShapeToolReasoning,
+		ShapeCommandRelay, ShapePlanning, ShapeFinalSummary,
+	}
+	for _, shape := range shapes {
+		got := compactStandardDirectiveForShape(shape, DefaultMarker)
+		if got == "" {
+			t.Fatalf("compactStandardDirectiveForShape(%s) empty", shape)
+		}
+		if !strings.HasPrefix(got, DefaultMarker) {
+			t.Fatalf("compactStandardDirectiveForShape(%s) missing marker: %q", shape, got)
+		}
+	}
+	// Unknown shape falls through to DirectiveForShape's generic standard text.
+	if got := compactStandardDirectiveForShape(ShapeUnknown, DefaultMarker); got != "" {
+		t.Fatalf("compactStandardDirectiveForShape(unknown) should be empty (falls through), got %q", got)
+	}
+}
+
+func TestCompactCodexDirectiveForShape_PlanningAndDirectAnswer(t *testing.T) {
+	t.Parallel()
+	if got := compactCodexDirectiveForShape(ShapePlanning, DefaultMarker); got == "" || !strings.Contains(got, "Planning:") {
+		t.Fatalf("compactCodexDirectiveForShape(planning) = %q", got)
+	}
+	if got := compactCodexDirectiveForShape(ShapeDirectAnswer, DefaultMarker); got == "" || !strings.Contains(got, "Answer briefly") {
+		t.Fatalf("compactCodexDirectiveForShape(direct_answer) = %q", got)
+	}
+	if got := compactCodexDirectiveForShape(ShapeCodeEdit, DefaultMarker); got != "" {
+		t.Fatalf("compactCodexDirectiveForShape(code_edit) should be empty (falls through), got %q", got)
+	}
 }
 
 func TestInjectBody_SkipsUnprovenSafetySensitiveShapes(t *testing.T) {
