@@ -445,3 +445,53 @@ func TestStore_NoOps(t *testing.T) {
 		t.Fatal("empty data should be a no-op")
 	}
 }
+
+func TestReferenceBudgetAvailableAfterInput_NilAndNegativeInputs(t *testing.T) {
+	t.Parallel()
+	var nilStore *Store
+	if nilStore.ReferenceBudgetAvailableAfterInput("s", 100, 4096) {
+		t.Fatal("nil store should report no budget")
+	}
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 20}, archiveFake(nil))
+	if store.ReferenceBudgetAvailableAfterInput("", 100, 4096) {
+		t.Fatal("empty session id should report no budget")
+	}
+	// Negative inputBytes is clamped to 0.
+	store.EncodeWithReportWithMaxReferencePercent("s1", genBytes(64*1024, 71), 100)
+	if !store.ReferenceBudgetAvailableAfterInput("s1", -1, 1) {
+		t.Fatal("negative inputBytes should be clamped to 0 and still allow budget for small reference")
+	}
+}
+
+func TestNewLineChunkPlan_TooFewLines(t *testing.T) {
+	t.Parallel()
+	// Fewer than lineChunkMinLines newlines -> false.
+	data := []byte("line1\nline2\nline3\n")
+	if _, ok := newLineChunkPlan(data, Config{MinSize: 512, AvgSize: 1024, MaxSize: 2048}); ok {
+		t.Fatal("few lines should not produce a line chunk plan")
+	}
+}
+
+func TestPruneExpiredLocked_ChunkLevelExpiry(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(5000, 0)
+	store := NewStoreWithLimits(Config{}, StoreLimits{TTL: time.Minute}, archiveFake(nil))
+	store.now = func() time.Time { return now }
+
+	data := genBytes(32*1024, 81)
+	store.Encode("s1", data)
+	// Advance time so the session is still fresh but individual chunks seeded
+	// at the old time should expire. We need to seed a second chunk at a later
+	// time to keep the session alive while the first chunk expires.
+	now = now.Add(30 * time.Second)
+	store.Encode("s1", append(data, genBytes(16*1024, 82)...))
+
+	now = now.Add(40 * time.Second) // 70s total: first chunks are 70s old (>60s TTL), session is fresh
+	store.mu.Lock()
+	store.pruneExpiredLocked(now)
+	chunkCount := len(store.sessions["s1"].chunks)
+	store.mu.Unlock()
+	if chunkCount == 0 {
+		t.Fatalf("session should survive with fresh chunks, got 0 chunks")
+	}
+}
