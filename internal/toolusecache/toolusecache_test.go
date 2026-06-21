@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Christopher-Schulze/Slimference/internal/sessions"
 )
 
 func TestLoad_Missing(t *testing.T) {
@@ -334,6 +336,108 @@ func TestLoad_ReadFileNonNotExistError(t *testing.T) {
 	readFile = func(string) ([]byte, error) { return nil, errors.New("perm denied") }
 	if _, err := Load(t.TempDir(), "s"); err == nil {
 		t.Fatal("Load should surface non-NotExist readFile error")
+	}
+}
+
+func TestLoad_NilEntriesAfterUnmarshal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	if err := os.WriteFile(sessionPath(dir, sessions.SafeSessionID("s")), []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir, "s")
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("Load(null) = %v, %v; want non-nil empty map, nil", got, err)
+	}
+}
+
+func TestMerge_LoadError(t *testing.T) {
+
+	saved := readFile
+	t.Cleanup(func() { readFile = saved })
+	readFile = func(string) ([]byte, error) { return nil, errors.New("perm denied") }
+	if _, err := Merge(t.TempDir(), "s", map[string]Entry{"a": {}}); err == nil {
+		t.Fatal("Merge should surface Load error from mergeEntries")
+	}
+}
+
+func TestMergeAsync_EmptyAddIsLoadOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	got, err := MergeAsync(dir, "s", nil)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("MergeAsync(empty) = %v, %v; want empty, nil", got, err)
+	}
+}
+
+func TestMergeAsync_LoadError(t *testing.T) {
+
+	saved := readFile
+	t.Cleanup(func() { readFile = saved })
+	readFile = func(string) ([]byte, error) { return nil, errors.New("perm denied") }
+	if _, err := MergeAsync(t.TempDir(), "s", map[string]Entry{"a": {}}); err == nil {
+		t.Fatal("MergeAsync should surface Load error from mergeEntries")
+	}
+}
+
+func TestMergeEntries_EmptyIDSkipped(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	add := map[string]Entry{"": {ToolName: "x"}, "valid": {ToolName: "y"}}
+	merged, err := mergeEntries(dir, "s", add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := merged[""]; ok {
+		t.Fatal("empty id should be skipped")
+	}
+	if _, ok := merged["valid"]; !ok {
+		t.Fatal("valid id should be present")
+	}
+}
+
+func TestFlushAll_FlushSessionError(t *testing.T) {
+	t.Parallel()
+	resetMemoryForTest(t)
+	// Inject a session with an invalid dir to trigger FlushSession error.
+	key := memoryKey("/nonexistent/root", sessions.SafeSessionID("s"))
+	memory.mu.Lock()
+	memory.sessions[key] = &memoryEntry{
+		entries:  map[string]Entry{"a": {}},
+		dirty:    true,
+		lastUsed: time.Now(),
+	}
+	memory.mu.Unlock()
+	if err := FlushAll(); err == nil {
+		t.Fatal("FlushAll should surface FlushSession error")
+	}
+}
+
+func TestPrune_ReadDirNonNotExistError(t *testing.T) {
+
+	saved := readDir
+	t.Cleanup(func() { readDir = saved })
+	readDir = func(string) ([]os.DirEntry, error) { return nil, errors.New("perm denied") }
+	if _, err := Prune(t.TempDir(), 0, 0); err == nil {
+		t.Fatal("Prune should surface non-NotExist readDir error")
+	}
+}
+
+func TestPrune_SkipsDirectoriesAndNonJSON(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notjson.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pruned, err := Prune(dir, 0, 0)
+	if err != nil || pruned != 0 {
+		t.Fatalf("Prune with only dirs/txt = %d, %v; want 0, nil", pruned, err)
 	}
 }
 
