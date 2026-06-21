@@ -402,3 +402,72 @@ func TestReadCacheAdditionalErrorBranches(t *testing.T) {
 		t.Fatal("expected partial Evaluate save error")
 	}
 }
+
+func TestSplitMemorySessionKey(t *testing.T) {
+	t.Parallel()
+	// Normal case: dir\x00sessionID
+	dir, sid := splitMemorySessionKey("/repo/project\x00sess-123")
+	if dir != "/repo/project" || sid != "sess-123" {
+		t.Fatalf("normal split mismatch: dir=%q sid=%q", dir, sid)
+	}
+	// No separator: returns full key as dir, empty session
+	dir, sid = splitMemorySessionKey("no-separator")
+	if dir != "no-separator" || sid != "" {
+		t.Fatalf("no-sep split mismatch: dir=%q sid=%q", dir, sid)
+	}
+	// Empty key
+	dir, sid = splitMemorySessionKey("")
+	if dir != "" || sid != "" {
+		t.Fatalf("empty split mismatch: dir=%q sid=%q", dir, sid)
+	}
+	// Separator at start: empty dir
+	dir, sid = splitMemorySessionKey("\x00sess")
+	if dir != "" || sid != "sess" {
+		t.Fatalf("leading-sep split mismatch: dir=%q sid=%q", dir, sid)
+	}
+	// Separator at end: empty session
+	dir, sid = splitMemorySessionKey("/dir\x00")
+	if dir != "/dir" || sid != "" {
+		t.Fatalf("trailing-sep split mismatch: dir=%q sid=%q", dir, sid)
+	}
+}
+
+func TestNormalizeSessionState_NilSafe(t *testing.T) {
+	t.Parallel()
+	// Must not panic on nil
+	normalizeSessionState(nil)
+}
+
+func TestNormalizeSessionState_InitializesMaps(t *testing.T) {
+	t.Parallel()
+	state := &SessionState{SessionID: "  sess-1  ", CurrentTurnID: "turn-0"}
+	normalizeSessionState(state)
+	if state.Files == nil {
+		t.Fatal("Files map must be initialized")
+	}
+	if state.Outputs == nil {
+		t.Fatal("Outputs map must be initialized")
+	}
+	if state.SessionID != "sess-1" {
+		t.Fatalf("SessionID must be sanitized (trimmed): %q", state.SessionID)
+	}
+}
+
+func TestNormalizeSessionState_PreservesExistingMaps(t *testing.T) {
+	t.Parallel()
+	files := map[string]*FileEntry{"a.go": {}}
+	outputs := map[string]*OutputEntry{"out1": {}}
+	state := &SessionState{
+		SessionID:     "sess-2",
+		CurrentTurnID: "turn-1",
+		Files:         files,
+		Outputs:       outputs,
+	}
+	normalizeSessionState(state)
+	if len(state.Files) != 1 || state.Files["a.go"] == nil {
+		t.Fatal("existing Files map must be preserved")
+	}
+	if len(state.Outputs) != 1 || state.Outputs["out1"] == nil {
+		t.Fatal("existing Outputs map must be preserved")
+	}
+}

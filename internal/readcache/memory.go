@@ -142,27 +142,6 @@ func FlushDir(dir string) error {
 	return nil
 }
 
-func FlushAll() error {
-	readCacheMemory.mu.Lock()
-	type flushTarget struct {
-		dir       string
-		sessionID string
-	}
-	targets := make([]flushTarget, 0, len(readCacheMemory.sessions))
-	for key := range readCacheMemory.sessions {
-		dir, sessionID := splitMemorySessionKey(key)
-		targets = append(targets, flushTarget{dir: dir, sessionID: sessionID})
-	}
-	readCacheMemory.mu.Unlock()
-
-	for _, target := range targets {
-		if err := FlushSession(target.dir, target.sessionID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func rememberSessionClean(dir string, state *SessionState) {
 	if state == nil {
 		return
