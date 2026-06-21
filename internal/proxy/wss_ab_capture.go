@@ -240,10 +240,6 @@ func (c *wssABReplayCapture) Record(dir wsmitm.Direction, env *wsmitm.Envelope) 
 	c.record(dir, env, false, 0)
 }
 
-func (c *wssABReplayCapture) recordMutated(dir wsmitm.Direction, env *wsmitm.Envelope) {
-	c.record(dir, env, true, 0)
-}
-
 func (c *wssABReplayCapture) record(dir wsmitm.Direction, env *wsmitm.Envelope, mutated bool, socketSeq uint64) {
 	if c == nil || c.f == nil || env == nil {
 		return

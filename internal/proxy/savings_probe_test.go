@@ -194,4 +194,32 @@ func TestNoopIndistProbeReturnsZero(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0PolicySummary_EmptyReturnsNil(t *testing.T) {
+	t.Parallel()
+	if got := proxyLayer0PolicySummary(nil); got != nil {
+		t.Fatalf("nil input must return nil, got %+v", got)
+	}
+	if got := proxyLayer0PolicySummary([]ProxyLayer0PolicyEntry{}); got != nil {
+		t.Fatalf("empty input must return nil, got %+v", got)
+	}
+}
+
+func TestProxyLayer0PolicySummary_MapsAllFields(t *testing.T) {
+	t.Parallel()
+	entries := []ProxyLayer0PolicyEntry{
+		{Route: "codex_cli", Mechanism: "tool_prune", Action: "pruned", Reason: "unused", BlockReason: "", Count: 3},
+		{Route: "codex_desktop", Mechanism: "wss_delta", Action: "blocked", Reason: "guard", BlockReason: "no_wss_delta", Count: 1},
+	}
+	got := proxyLayer0PolicySummary(entries)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+	if got[0].Route != "codex_cli" || got[0].Mechanism != "tool_prune" || got[0].Action != "pruned" || got[0].Reason != "unused" || got[0].BlockReason != "" || got[0].Count != 3 {
+		t.Fatalf("entry 0 mismatch: %+v", got[0])
+	}
+	if got[1].Route != "codex_desktop" || got[1].Mechanism != "wss_delta" || got[1].Action != "blocked" || got[1].Reason != "guard" || got[1].BlockReason != "no_wss_delta" || got[1].Count != 1 {
+		t.Fatalf("entry 1 mismatch: %+v", got[1])
+	}
+}
+
 var _ qualityab.QualityABTelemetry // keep the import live regardless of inlining
