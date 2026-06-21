@@ -583,3 +583,70 @@ func TestSplitMemorySessionKey_NoSeparator(t *testing.T) {
 		t.Fatalf("no separator: dir=%q session=%q", dir, session)
 	}
 }
+
+func TestBuildPositionAwareDelta_EmptyStrings(t *testing.T) {
+	t.Parallel()
+	// Both empty — no diff.
+	if got := buildPositionAwareDelta("", "", 3); got != "" {
+		t.Fatalf("empty strings should return empty, got %q", got)
+	}
+}
+
+func TestBuildPositionAwareDelta_AllChanged(t *testing.T) {
+	t.Parallel()
+	// Completely different content — full replacement.
+	got := buildPositionAwareDelta("old1\nold2\n", "new1\nnew2\n", 1)
+	if !strings.Contains(got, "-old1") || !strings.Contains(got, "+new1") {
+		t.Fatalf("all-changed delta should contain -old1 and +new1, got %q", got)
+	}
+}
+
+func TestBuildPositionAwareDelta_WithContextLines(t *testing.T) {
+	t.Parallel()
+	// Change in the middle with context lines.
+	old := "line1\nline2\nline3\nline4\nline5\n"
+	new := "line1\nline2\nCHANGED\nline4\nline5\n"
+	got := buildPositionAwareDelta(old, new, 2)
+	// Should contain context lines before and after the change.
+	if !strings.Contains(got, " line1") || !strings.Contains(got, " line5") {
+		t.Fatalf("delta with context should contain surrounding lines, got %q", got)
+	}
+	if !strings.Contains(got, "-line3") || !strings.Contains(got, "+CHANGED") {
+		t.Fatalf("delta should contain -line3 and +CHANGED, got %q", got)
+	}
+}
+
+func TestSplitDeltaLines_EmptyString(t *testing.T) {
+	t.Parallel()
+	got := splitDeltaLines("")
+	if len(got) != 0 {
+		t.Fatalf("splitDeltaLines(\"\") = %v, want empty", got)
+	}
+}
+
+func TestCommonPrefixLines(t *testing.T) {
+	t.Parallel()
+	if got := commonPrefixLines([]string{"a", "b"}, []string{"a", "b"}); got != 2 {
+		t.Fatalf("commonPrefixLines identical = %d, want 2", got)
+	}
+	if got := commonPrefixLines([]string{"a", "b"}, []string{"a", "c"}); got != 1 {
+		t.Fatalf("commonPrefixLines partial = %d, want 1", got)
+	}
+	if got := commonPrefixLines([]string{}, []string{"a"}); got != 0 {
+		t.Fatalf("commonPrefixLines empty = %d, want 0", got)
+	}
+}
+
+func TestCommonSuffixLines(t *testing.T) {
+	t.Parallel()
+	if got := commonSuffixLines([]string{"a", "b"}, []string{"a", "b"}, 0); got != 2 {
+		t.Fatalf("commonSuffixLines identical = %d, want 2", got)
+	}
+	if got := commonSuffixLines([]string{"a", "b", "c"}, []string{"x", "b", "c"}, 0); got != 2 {
+		t.Fatalf("commonSuffixLines partial = %d, want 2", got)
+	}
+	// Prefix covers everything — suffix should be 0.
+	if got := commonSuffixLines([]string{"a", "b"}, []string{"a", "b"}, 2); got != 0 {
+		t.Fatalf("commonSuffixLines with full prefix = %d, want 0", got)
+	}
+}
