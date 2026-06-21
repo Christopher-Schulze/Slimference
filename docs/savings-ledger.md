@@ -30,7 +30,7 @@ counted as `S_local`.
 
 | Lever | Status | Measured `S_local` (live, gate) | candidate_potential_if_completed | Next move |
 |-------|--------|---------------------------------|----------------------------------|-----------|
-| L1 server-state continuation | `engineered_pending_evidence` (default-off, unproven handbrake) | not measured | +15 to +30 | Phase 3: prove `previous_response_id` acceptance + fail-open |
+| L1 server-state continuation | `engineered_pending_evidence` (default-on with fail-open, live proof pending) | not measured | +15 to +30 | Default flipped on (§3.4 handbrake removed). Fail-open: 4xx rejection → full body resend (tested). Live proof: run real long session, verify 0 upstream 400s, 0 context loss in shadow-verify, net-positive `S_local`. |
 | L2 command-output-first | `engineered_pending_evidence` (default-on, gate-wired, sidecar tested, no live captures yet) | 0% in gate (no sidecar data yet) | +15 to +25 | Needs live Codex session with T418 active + sidecar capture. Compaction code is comprehensive (git, rg, grep, go, cargo, pytest, npm, docker, kubectl, terraform, etc.). Next: run a real tool-heavy session, collect sidecar, verify gate moves. |
 | L3 WSS history mutation | `parked` | n/a | safe subset +3 to +8 | Phase 4 only after L1+L2 proven |
 
@@ -42,6 +42,7 @@ counted as `S_local`.
 |------|-------|-------|------------------|-----------------|---------------------------|--------------------------|-----------------|--------|
 | _none yet under the new regime_ | | | | | | | | |
 | 2026-06-21 | L2 infra | T418 sidecar reader wired into corpus gate; T418 shim writes per-session JSONL sidecar | 6.05% (no L2 counted) | 6.05% (no sidecar captures yet — gate ready) | n/a | 0 | No sidecar → gate unchanged (test-proven); zero-savings sidecar → gate unchanged (test-proven); sidecar with savings → counted (test-proven) | 64cba22 |
+| 2026-06-21 | L1 activation | `server_state_enabled` default flipped from false → true (§3.4 handbrake removed); fail-open path already implemented (4xx → full body resend) | 6.05% (no L1 measured yet) | 6.05% (no live captures yet — gate ready) | n/a | 0 | Fail-open: `TestServeHTTP_serverStateRecoveryOnUnknownPreviousID` proves 4xx rejection → full body resend → success. Disabled path: `TestServeHTTP_serverStateDisabledByFlag` proves flag=false → no rewrite. Default-on: `TestServerStateEnabledByDefault` proves `Defaults()` returns true. Anthropic no-regression: `TestServeHTTP_serverStateAnthropicNoRegression`. Live proof pending: real long session with 0 upstream 400s + net-positive `S_local`. | (this commit) |
 
 ---
 

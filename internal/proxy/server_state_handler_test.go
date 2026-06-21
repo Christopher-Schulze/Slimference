@@ -154,10 +154,11 @@ func TestServeHTTP_serverStateRecoveryOnUnknownPreviousID(t *testing.T) {
 	}
 }
 
-// TestServeHTTP_serverStateDisabledByDefault verifies the flag really
-// gates the behaviour: with ServerStateEnabled=false (default) the
-// upstream sees the full body and the store stays empty.
-func TestServeHTTP_serverStateDisabledByDefault(t *testing.T) {
+// TestServeHTTP_serverStateDisabledByFlag verifies the flag really
+// gates the behaviour: with ServerStateEnabled=false the upstream sees
+// the full body and the store stays empty, even though the default is
+// now on.
+func TestServeHTTP_serverStateDisabledByFlag(t *testing.T) {
 	t.Parallel()
 	var captured atomic.Value
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +175,7 @@ func TestServeHTTP_serverStateDisabledByDefault(t *testing.T) {
 	cfg.Compression.Layer1Enabled = false
 	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
-	// ServerStateEnabled stays false.
+	cfg.Proxy.ServerStateEnabled = false
 
 	p := New(cfg)
 	p.serverState.Set("conv-X", "resp_should_be_unused")
@@ -238,5 +239,17 @@ func TestServeHTTP_serverStateAnthropicNoRegression(t *testing.T) {
 	got := string(captured.Load().([]byte))
 	if strings.Contains(got, "previous_response_id") {
 		t.Fatalf("anthropic must never carry previous_response_id: %s", got)
+	}
+}
+
+// TestServerStateEnabledByDefault verifies the §3.4 handbrake removal:
+// config.Defaults() must return ServerStateEnabled=true so the L1 lever
+// is active without manual configuration. The fail-open path (tested
+// above) makes default-on safe.
+func TestServerStateEnabledByDefault(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	if !cfg.Proxy.ServerStateEnabled {
+		t.Fatal("ServerStateEnabled must default to true (AGENTS.md §3.4: no default-off without a proven drawdown vector)")
 	}
 }

@@ -108,7 +108,9 @@ type ProxyConfig struct {
 	// ServerStateEnabled gates the T78 server-side state lever: when on,
 	// the proxy rewrites follow-up requests to OpenAI Responses /
 	// CodexChatGPT to use `previous_response_id` instead of resending
-	// the prefix. Default off; flip per environment after live verify.
+	// the prefix. Default on with fail-open (4xx rejection → full body
+	// resend). Set to false only for providers that never accept
+	// previous_response_id.
 	ServerStateEnabled bool `toml:"server_state_enabled"`
 	// OpenAIPromptCache controls OpenAI prompt-cache routing fields for
 	// stable prefixes. It never applies to CodexChatGPT backend routes

@@ -12,6 +12,7 @@ func defaultsRaw() *Config {
 			ListenPort:                 8990,
 			IPv6:                       false,
 			DirectCodexWebSocketPolicy: "tunnel",
+			ServerStateEnabled:         true,
 			OpenAIPromptCache: OpenAIPromptCacheConfig{
 				Enabled:                    true,
 				PromptCacheKeyStrategy:     "model_stable_prefix",
@@ -180,9 +181,12 @@ ipv6 = false
 direct_codex_websocket_policy = "tunnel"
 # T78: when true, the proxy uses provider server-side state
 # (previous_response_id for OpenAI Responses / CodexChatGPT) on
-# follow-up turns instead of resending the full history. Default off
-# so traffic shape stays unchanged until you flip the switch.
-server_state_enabled = false
+# follow-up turns instead of resending the full history. Default on
+# with fail-open: on 4xx rejection (stale/unknown previous_response_id)
+# the proxy forgets the anchor and resends the full body, so the user
+# never sees a failure. Set to false only for environments where the
+# provider does not accept previous_response_id at all.
+server_state_enabled = true
 
 [proxy.openai_prompt_cache]
 # T136/T285: OpenAI API prompt-cache routing fields for stable prefixes.

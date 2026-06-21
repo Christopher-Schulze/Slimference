@@ -1763,8 +1763,10 @@ providers whose capability map sets `SupportsResponseID = true`
    `response not found`, or `conversation not found`, forgets the
    anchor, retries the original full body once, and continues.
 
-Anthropic stays untouched (capability says no). Default off so traffic
-shape stays identical until you opt in. Counters at
+Anthropic stays untouched (capability says no). Default on with
+fail-open: a 4xx rejection triggers a full-body resend so the user
+never sees a failure. Set `server_state_enabled = false` only for
+providers that never accept `previous_response_id`. Counters at
 `/admin/status.server_state.{sessions,skip_total,recover_total}`.
 Streaming response-id capture is deferred — SSE replies do not yet
 seed the next-turn anchor.

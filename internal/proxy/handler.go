@@ -820,7 +820,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	latencyStart := time.Now()
 	upstreamStart := latencyStart
 
-	// --- 8.5 Server-state lever (T78, default off) ---
+	// --- 8.5 Server-state lever (T78, default on with fail-open) ---
 	upstreamBody := newBody
 	serverStateKey := ""
 	serverStateUsed := false
