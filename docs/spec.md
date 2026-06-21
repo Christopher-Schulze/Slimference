@@ -166,8 +166,9 @@ Requirements:
   downgrade fail-open with per-model cooldown if upstream rejects the fields;
 - do not inject OpenAI prompt-cache keys into CodexChatGPT backend routes until
   live request acceptance is proven;
-- server-state reuse (`previous_response_id`) stays explicit/operator-controlled
-  until route-specific live proof promotes it.
+- server-state reuse (`previous_response_id`) is default-on with fail-open
+  (4xx rejection → full body resend); live proof of net-positive `S_local`
+  on a real long session is the remaining activation gate.
 
 ## 6. Layer 3
 
