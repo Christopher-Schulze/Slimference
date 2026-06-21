@@ -1,58 +1,11 @@
 package crosstool
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 )
-
-type State struct {
-	mu       sync.RWMutex
-	sessions map[string]*sessionState
-}
-
-type sessionState struct {
-	lists      map[string]gitPathList
-	lastUpdate time.Time
-}
-
-type gitPathList struct {
-	Source string
-	Paths  []string
-}
-
-type Result struct {
-	Output      []byte
-	Elided      bool
-	ElidedPaths int
-	Source      string
-	PathCount   int
-}
-
-func NewState() *State {
-	return &State{sessions: map[string]*sessionState{}}
-}
-
-func (s *State) ResetSession(sessionID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, sessionID)
-}
-
-func (s *State) ObserveGitStatus(sessionID string, output []byte) int {
-	paths := ExtractGitStatusPaths(output)
-	return s.observe(sessionID, "git status", paths)
-}
-
-func (s *State) ApplyGitNameOnly(sessionID string, output []byte) Result {
-	paths := ExtractGitNameOnlyPaths(output)
-	return s.apply(sessionID, "git name-only", output, paths)
-}
 
 func IsGitStatusArgv(argv []string) bool {
 	if !isGitArgv(argv) {
@@ -87,49 +40,6 @@ func Marker(count int, source string) string {
 		source = source[:120] + "..."
 	}
 	return "[Slimference: " + intString(count) + " git paths already shown by previous `" + source + "`]\n"
-}
-
-func (s *State) apply(sessionID, source string, output []byte, paths []string) Result {
-	result := Result{Output: output, PathCount: len(paths)}
-	if len(paths) == 0 {
-		return result
-	}
-
-	fp := fingerprint(paths)
-	s.mu.RLock()
-	session := s.sessions[sessionID]
-	var previous gitPathList
-	ok := false
-	if session != nil {
-		previous, ok = session.lists[fp]
-	}
-	s.mu.RUnlock()
-	if ok {
-		result.Output = []byte(Marker(len(paths), previous.Source))
-		result.Elided = true
-		result.ElidedPaths = len(paths)
-		result.Source = previous.Source
-		return result
-	}
-	s.observe(sessionID, source, paths)
-	return result
-}
-
-func (s *State) observe(sessionID, source string, paths []string) int {
-	if len(paths) == 0 {
-		return 0
-	}
-	fp := fingerprint(paths)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session := s.sessions[sessionID]
-	if session == nil {
-		session = &sessionState{lists: map[string]gitPathList{}}
-		s.sessions[sessionID] = session
-	}
-	session.lists[fp] = gitPathList{Source: source, Paths: append([]string(nil), paths...)}
-	session.lastUpdate = time.Now()
-	return len(paths)
 }
 
 func isGitArgv(argv []string) bool {
@@ -211,16 +121,6 @@ func sortedUnique(paths []string) []string {
 		out = append(out, path)
 	}
 	return out
-}
-
-func fingerprint(paths []string) string {
-	normalised := make([]string, 0, len(paths))
-	for _, path := range paths {
-		normalised = append(normalised, normalizeGitPath(path))
-	}
-	normalised = sortedUnique(normalised)
-	sum := sha256.Sum256([]byte(strings.Join(normalised, "\x00")))
-	return hex.EncodeToString(sum[:])
 }
 
 func intString(v int) string {
