@@ -114,3 +114,75 @@ func TestParsePSRSSKilobytes(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectorySizeBytesBounded_EmptyRoot(t *testing.T) {
+	t.Parallel()
+	size, ok, complete := DirectorySizeBytesBounded("", 100)
+	if size != 0 || ok || complete {
+		t.Fatalf("empty root = (%d, %v, %v), want (0, false, false)", size, ok, complete)
+	}
+}
+
+func TestDirectorySizeBytesBounded_NonExistentRoot(t *testing.T) {
+	t.Parallel()
+	size, ok, complete := DirectorySizeBytesBounded(filepath.Join(t.TempDir(), "missing"), 100)
+	// fs.WalkDir on non-existent root returns os.IsNotExist, which
+	// maps to (0, true, true) — known-empty.
+	if size != 0 || !ok || !complete {
+		t.Fatalf("non-existent root = (%d, %v, %v), want (0, true, true)", size, ok, complete)
+	}
+}
+
+func TestDirectorySizeBytesBounded_NestedDirs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("xx"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "b.txt"), []byte("yyy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "deep", "c.txt"), []byte("zzzz"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	size, ok, complete := DirectorySizeBytesBounded(dir, 100)
+	if !ok || !complete || size != 9 {
+		t.Fatalf("nested dirs = (%d, %v, %v), want (9, true, true)", size, ok, complete)
+	}
+}
+
+func TestDirectorySizeBytesBounded_UnreadableFile(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, permission test not meaningful")
+	}
+	dir := t.TempDir()
+	// Create a file, then make the parent directory unreadable so
+	// WalkDir's d.Info() fails. This covers the "err == nil" false
+	// branch in the Info() call.
+	subdir := filepath.Join(dir, "sub")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subdir, "a.txt"), []byte("xx"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Remove read permission from subdir.
+	if err := os.Chmod(subdir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(subdir, 0o755) })
+	// WalkDir handles errors gracefully (returns nil from the callback),
+	// so the scan should still complete but may not count the file.
+	size, ok, complete := DirectorySizeBytesBounded(dir, 100)
+	// The scan completes (WalkDir swallows errors), but the file in the
+	// unreadable subdir may or may not be counted depending on OS.
+	_ = size
+	if !ok {
+		t.Fatalf("unreadable subdir: ok should be true, got false")
+	}
+	_ = complete
+}
