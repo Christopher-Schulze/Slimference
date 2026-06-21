@@ -5133,6 +5133,200 @@ func TestCommandOutputFirstReadDeltaEdges(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimRepeatedGenericOutputCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	t.Setenv(commandOutputFirstSessionEnv, "cof-output-session")
+	var body strings.Builder
+	for i := 1; i <= 90; i++ {
+		fmt.Fprintf(&body, "plain repeated diagnostic block %03d with enough detail to matter\n", i)
+	}
+	raw := body.String()
+	realJQ := writeFakeCommand(t, "jq", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n")
+
+	var firstStdout, firstStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=jq", "--real-bin=" + realJQ, "--", "."}, &bytes.Buffer{}, &firstStdout, &firstStderr)
+	if rc != 0 || firstStderr.Len() != 0 {
+		t.Fatalf("first jq rc=%d stderr=%q", rc, firstStderr.String())
+	}
+	if firstStdout.String() != raw {
+		t.Fatalf("first repeated output seed must full-pass, got len=%d want=%d", firstStdout.Len(), len(raw))
+	}
+
+	var secondStdout, secondStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=jq", "--real-bin=" + realJQ, "--", "."}, &bytes.Buffer{}, &secondStdout, &secondStderr)
+	if rc != 0 || secondStderr.Len() != 0 {
+		t.Fatalf("second jq rc=%d stderr=%q", rc, secondStderr.String())
+	}
+	visible := commandOutputFirstVisibleOutput(secondStdout.String())
+	if !strings.Contains(visible, `[context-elided kind=tool-output status=unchanged command="jq ." archive=local-archive://`) ||
+		strings.Contains(visible, "diagnostic block 090") {
+		t.Fatalf("second generic output not compacted as unchanged archive reference: %q", secondStdout.String())
+	}
+	uri := commandOutputFirstArchiveURI(secondStdout.String())
+	if uri == "" {
+		t.Fatalf("missing repeated output archive URI in %q", secondStdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand repeated output archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("diagnostic block 090")) {
+		t.Fatalf("archive did not preserve raw repeated output: %q", archived)
+	}
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:jq] jq .") {
+		t.Fatalf("missing repeated output accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive repeated output accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimRepeatedSearchSameMatchSetCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	t.Setenv(commandOutputFirstSessionEnv, "cof-search-output-session")
+	var beforeLines []string
+	for i := 1; i <= 45; i++ {
+		beforeLines = append(beforeLines, fmt.Sprintf("src/b.go:%d:needle beta context %s", i+100, strings.Repeat("detail ", 18)))
+		beforeLines = append(beforeLines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 18)))
+	}
+	before := strings.Join(beforeLines, "\n") + "\n"
+	var afterLines []string
+	for i := 45; i >= 1; i-- {
+		afterLines = append(afterLines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 18)))
+		afterLines = append(afterLines, fmt.Sprintf("src/b.go:%d:needle beta context %s", i+100, strings.Repeat("detail ", 18)))
+	}
+	after := strings.Join(afterLines, "\n") + "\n"
+	marker := filepath.Join(t.TempDir(), "rg-repeat-seen")
+	realRG := writeFakeCommand(t, "rg", "#!/bin/sh\nif [ -f "+shellQuote(marker)+" ]; then\ncat <<'EOF'\n"+after+"EOF\nelse\n: > "+shellQuote(marker)+"\ncat <<'EOF'\n"+before+"EOF\nfi\n")
+
+	var firstStdout, firstStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRG, "--", "-n", "needle", "src"}, &bytes.Buffer{}, &firstStdout, &firstStderr)
+	if rc != 0 || firstStderr.Len() != 0 {
+		t.Fatalf("first rg rc=%d stderr=%q", rc, firstStderr.String())
+	}
+	if !strings.Contains(firstStdout.String(), "needle alpha context") {
+		t.Fatalf("first rg did not expose search evidence: %q", firstStdout.String())
+	}
+
+	var secondStdout, secondStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRG, "--", "-n", "needle", "src"}, &bytes.Buffer{}, &secondStdout, &secondStderr)
+	if rc != 0 || secondStderr.Len() != 0 {
+		t.Fatalf("second rg rc=%d stderr=%q", rc, secondStderr.String())
+	}
+	visible := commandOutputFirstVisibleOutput(secondStdout.String())
+	if !strings.Contains(visible, `[context-elided kind=search-output status=same-match-set command="rg -n needle src" archive=local-archive://`) ||
+		strings.Contains(visible, "needle beta context") {
+		t.Fatalf("second rg same-match-set not compacted: %q", secondStdout.String())
+	}
+	uri := commandOutputFirstArchiveURI(secondStdout.String())
+	if uri == "" {
+		t.Fatalf("missing repeated search archive URI in %q", secondStdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand repeated search archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("src/b.go:145:needle beta context")) {
+		t.Fatalf("archive did not preserve raw repeated search output: %q", archived)
+	}
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:rg] rg -n needle src") {
+		t.Fatalf("missing repeated search accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive repeated search accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstRepeatedOutputEdges(t *testing.T) {
+	if !commandOutputFirstReadCommand("sed") {
+		t.Fatal("sed must be treated as read command")
+	}
+	if commandOutputFirstReadCommand("rg") {
+		t.Fatal("rg must not be treated as read command")
+	}
+	if got := commandOutputFirstCommandLine("rg", []string{"-n", "needle", "src"}); got != "rg -n needle src" {
+		t.Fatalf("command line=%q", got)
+	}
+	if got := commandOutputFirstCommandLine("jq", nil); got != "jq" {
+		t.Fatalf("command line without args=%q", got)
+	}
+	if got := commandOutputFirstOutputKey("rg", []string{"-n", "needle", "src"}); !strings.HasPrefix(got, "search:rg\t") {
+		t.Fatalf("rg key=%q", got)
+	}
+	if got := commandOutputFirstOutputKey("git", []string{"grep", "-n", "needle"}); !strings.HasPrefix(got, "search:git\t") {
+		t.Fatalf("git grep key=%q", got)
+	}
+	if got := commandOutputFirstOutputKey("jq", []string{"."}); got != "command:jq ." {
+		t.Fatalf("jq key=%q", got)
+	}
+	if !commandOutputFirstSearchCommand("grep", []string{"-R", "needle", "."}) {
+		t.Fatal("grep should be search command")
+	}
+	if commandOutputFirstSearchCommand("git", []string{"status"}) {
+		t.Fatal("git status must not be search command")
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "")
+	if out, ok := compactCommandOutputFirstRepeatedOutput("jq", []string{"."}, []byte(strings.Repeat("line\n", 200))); ok || out != nil {
+		t.Fatalf("repeated output compacted without session: out=%q ok=%v", out, ok)
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "cof-output-edge")
+	if out, ok := compactCommandOutputFirstRepeatedOutput("sed", []string{"-n", "1,5p", "file.go"}, []byte(strings.Repeat("line\n", 200))); ok || out != nil {
+		t.Fatalf("read command used repeated output fallback: out=%q ok=%v", out, ok)
+	}
+	prevHome := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
+	if out, ok := compactCommandOutputFirstRepeatedOutput("jq", []string{"."}, []byte(strings.Repeat("line\n", 200))); ok || out != nil {
+		osUserHomeDir = prevHome
+		t.Fatalf("repeated output compacted with unavailable home: out=%q ok=%v", out, ok)
+	}
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
+	if out, ok := compactCommandOutputFirstRepeatedOutput("jq", []string{"."}, []byte("short\n")); ok || out != nil {
+		t.Fatalf("short repeated output compacted: out=%q ok=%v", out, ok)
+	}
+	if out, ok := compactCommandOutputFirstRepeatedOutput("jq", []string{"."}, []byte(strings.Repeat("first seed\n", 80))); ok || out != nil {
+		t.Fatalf("first output seed compacted: out=%q ok=%v", out, ok)
+	}
+	state, err := readcache.LoadSession(readcache.DefaultDir(home), "cof-output-edge")
+	if err != nil {
+		t.Fatalf("load flushed output session: %v", err)
+	}
+	if len(state.Outputs) == 0 {
+		t.Fatalf("first output did not flush seeded output state: %+v", state)
+	}
+}
+
 func TestCommandOutputFirstMixedCompactionRejectsNonPositiveAndUnknownStream(t *testing.T) {
 	if got, ok := commandOutputFirstMixedCompaction("stdout", []byte("short\n"), []byte("warn\n"), []byte("short\n")); ok {
 		t.Fatalf("non-positive mixed stdout compacted: %+v", got)

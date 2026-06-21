@@ -1730,6 +1730,11 @@ func compactCommandOutputFirstStreams(command, realBin string, args []string, st
 			}
 		}
 	}
+	if code == 0 && len(stdout) != 0 && len(stderr) == 0 {
+		if compacted, ok := compactCommandOutputFirstRepeatedOutput(command, args, stdout); ok {
+			return commandOutputFirstCompaction{stream: "stdout", raw: stdout, compacted: compacted}, true
+		}
+	}
 	compacted, ok := compactCommandOutputFirst(command, realBin, args, stdout, stderr, code)
 	if !ok {
 		return commandOutputFirstCompaction{}, false
@@ -1953,6 +1958,72 @@ func compactCommandOutputFirstReadDelta(command string, args []string, stdout []
 		return nil, false
 	}
 	return []byte(strings.TrimRight(decision.Reason, "\n") + "\n"), true
+}
+
+func compactCommandOutputFirstRepeatedOutput(command string, args []string, stdout []byte) ([]byte, bool) {
+	if commandOutputFirstReadCommand(command) {
+		return nil, false
+	}
+	sessionID := strings.TrimSpace(os.Getenv(commandOutputFirstSessionEnv))
+	if sessionID == "" {
+		return nil, false
+	}
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return nil, false
+	}
+	commandLine := commandOutputFirstCommandLine(command, args)
+	cacheDir := readcache.DefaultDir(home)
+	decision, err := readcache.EvaluateObservedOutput(cacheDir, readcache.OutputRequest{
+		SessionID:   sessionID,
+		TurnID:      fmt.Sprintf("cof-output-turn-%d", time.Now().UnixNano()),
+		Key:         commandOutputFirstOutputKey(command, args),
+		CommandLine: commandLine,
+	}, string(stdout), contentarchive.DefaultDir(home))
+	if err != nil {
+		return nil, false
+	}
+	if err := readcache.FlushSession(cacheDir, sessionID); err != nil {
+		return nil, false
+	}
+	if decision.Type != readcache.DecisionBlock || strings.TrimSpace(decision.Reason) == "" {
+		return nil, false
+	}
+	return []byte(strings.TrimRight(decision.Reason, "\n") + "\n"), true
+}
+
+func commandOutputFirstReadCommand(command string) bool {
+	switch command {
+	case "cat", "head", "sed", "awk":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstOutputKey(command string, args []string) string {
+	if commandOutputFirstSearchCommand(command, args) {
+		return "search:" + command + "\t" + strings.Join(args, "\t")
+	}
+	return "command:" + commandOutputFirstCommandLine(command, args)
+}
+
+func commandOutputFirstSearchCommand(command string, args []string) bool {
+	switch command {
+	case "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
+		return true
+	case "git":
+		return commandOutputFirstGitSubcommand(args) == "grep"
+	default:
+		return false
+	}
+}
+
+func commandOutputFirstCommandLine(command string, args []string) string {
+	if len(args) == 0 {
+		return command
+	}
+	return command + " " + strings.Join(args, " ")
 }
 
 func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte) ([]byte, bool) {
