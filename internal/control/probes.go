@@ -5,15 +5,11 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/control/apps"
@@ -59,97 +55,6 @@ func (p *FileCAProbe) ProbeCA(ctx context.Context) CAState {
 	}
 	if days := int(cert.NotAfter.Sub(now()).Hours() / 24); days > 0 {
 		state.DaysUntilExpiry = days
-	}
-	return state
-}
-
-// KeychainCAProbe wraps FileCAProbe and additionally consults the
-// macOS Keychain via `security find-certificate`. To remain testable
-// without touching the real Keychain, the probe accepts a Looker
-// function that returns true when the named cert is currently trusted.
-type KeychainCAProbe struct {
-	File   *FileCAProbe
-	Looker func(ctx context.Context, fingerprint string) bool
-}
-
-// ProbeCA implements CAProbe.
-func (p *KeychainCAProbe) ProbeCA(ctx context.Context) CAState {
-	state := CAState{}
-	if p.File != nil {
-		state = p.File.ProbeCA(ctx)
-	}
-	if !state.Installed || p.Looker == nil {
-		return state
-	}
-	state.InKeychain = p.Looker(ctx, state.Fingerprint)
-	return state
-}
-
-// HTTPDaemonProbe hits the daemon's `/admin/health` endpoint and
-// reports back. Quick TCP-level fallback if the HTTP probe fails:
-// presence on the listen port still indicates "something is bound,
-// just not healthy".
-type HTTPDaemonProbe struct {
-	BaseURL string // e.g. "http://127.0.0.1:8990"
-	Client  *http.Client
-	Version string // populated by the daemon at build time
-}
-
-// ProbeDaemon implements DaemonProbe.
-func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
-	state := DaemonState{Version: p.Version}
-	if p.BaseURL == "" {
-		return state
-	}
-	client := p.Client
-	if client == nil {
-		client = &http.Client{Timeout: 500 * time.Millisecond}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.BaseURL+"/admin/health", nil)
-	if err != nil {
-		return state
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return state
-	}
-	defer resp.Body.Close()
-	state.Running = true
-	state.HealthOK = resp.StatusCode == http.StatusOK
-	var body struct {
-		PID               int     `json:"pid"`
-		Version           string  `json:"version"`
-		RSSBytes          int64   `json:"rss_bytes"`
-		GoRetainedBytes   int64   `json:"go_retained_bytes"`
-		UptimeSec         int64   `json:"uptime_sec"`
-		CPUUserSeconds    float64 `json:"cpu_user_seconds"`
-		CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
-		CPUPercent        float64 `json:"cpu_percent"`
-		CPUWindowPercent  float64 `json:"cpu_window_percent"`
-		CPUWindowSeconds  float64 `json:"cpu_window_seconds"`
-		DiskReadOps       int64   `json:"disk_read_ops"`
-		DiskWriteOps      int64   `json:"disk_write_ops"`
-		DiskReadOpsDelta  int64   `json:"disk_read_ops_delta"`
-		DiskWriteOpsDelta int64   `json:"disk_write_ops_delta"`
-		StateBytes        int64   `json:"state_bytes"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&body)
-	state.PID = body.PID
-	state.RSSBytes = body.RSSBytes
-	state.GoRetainedBytes = body.GoRetainedBytes
-	state.UptimeSec = body.UptimeSec
-	state.CPUUserSeconds = body.CPUUserSeconds
-	state.CPUSystemSeconds = body.CPUSystemSeconds
-	state.CPUPercent = body.CPUPercent
-	state.CPUWindowPercent = body.CPUWindowPercent
-	state.CPUWindowSeconds = body.CPUWindowSeconds
-	state.DiskReadOps = body.DiskReadOps
-	state.DiskWriteOps = body.DiskWriteOps
-	state.DiskReadOpsDelta = body.DiskReadOpsDelta
-	state.DiskWriteOpsDelta = body.DiskWriteOpsDelta
-	state.StateBytes = body.StateBytes
-	if body.Version != "" {
-		state.Version = body.Version
 	}
 	return state
 }
@@ -316,37 +221,4 @@ func (p *AppsManagerProbe) ProbeApps(ctx context.Context) []AppEntry {
 		entries = append(entries, entry)
 	}
 	return entries
-}
-
-// MemoryAppCounters is an atomic in-memory implementation of
-// AppCounters. The proxy increments it on every routed / bypassed
-// connection.
-type MemoryAppCounters struct {
-	routed   sync.Map // map[apps.AppID]*atomic.Int64
-	bypassed sync.Map
-}
-
-// IncrementRouted bumps the routed counter for `id` by 1.
-func (c *MemoryAppCounters) IncrementRouted(id apps.AppID) { c.bump(&c.routed, id) }
-
-// IncrementBypassed bumps the bypassed counter for `id` by 1.
-func (c *MemoryAppCounters) IncrementBypassed(id apps.AppID) { c.bump(&c.bypassed, id) }
-
-// Routed implements AppCounters.
-func (c *MemoryAppCounters) Routed(id apps.AppID) int64 { return c.load(&c.routed, id) }
-
-// Bypassed implements AppCounters.
-func (c *MemoryAppCounters) Bypassed(id apps.AppID) int64 { return c.load(&c.bypassed, id) }
-
-func (c *MemoryAppCounters) bump(m *sync.Map, id apps.AppID) {
-	v, _ := m.LoadOrStore(id, &atomic.Int64{})
-	v.(*atomic.Int64).Add(1)
-}
-
-func (c *MemoryAppCounters) load(m *sync.Map, id apps.AppID) int64 {
-	v, ok := m.Load(id)
-	if !ok {
-		return 0
-	}
-	return v.(*atomic.Int64).Load()
 }

@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -111,149 +110,6 @@ func TestFileCAProbeExpiredCertReportsZeroDays(t *testing.T) {
 	state := probe.ProbeCA(context.Background())
 	if state.DaysUntilExpiry != 0 {
 		t.Errorf("expired cert: days=%d want 0", state.DaysUntilExpiry)
-	}
-}
-
-func TestKeychainCAProbeCombinesWithLooker(t *testing.T) {
-	dir := t.TempDir()
-	writeTestCert(t, dir, time.Now(), time.Now().Add(time.Hour))
-	probe := &KeychainCAProbe{
-		File: &FileCAProbe{Dir: dir},
-		Looker: func(ctx context.Context, fingerprint string) bool {
-			if fingerprint == "" {
-				t.Errorf("looker received empty fingerprint")
-			}
-			return true
-		},
-	}
-	state := probe.ProbeCA(context.Background())
-	if !state.InKeychain {
-		t.Errorf("InKeychain not set when looker returns true")
-	}
-}
-
-func TestKeychainCAProbeFileNotInstalledShortCircuits(t *testing.T) {
-	calls := 0
-	probe := &KeychainCAProbe{
-		File: &FileCAProbe{}, // Empty Dir → returns Installed=false
-		Looker: func(ctx context.Context, _ string) bool {
-			calls++
-			return true
-		},
-	}
-	state := probe.ProbeCA(context.Background())
-	if state.InKeychain {
-		t.Errorf("InKeychain should be false when file probe failed")
-	}
-	if calls != 0 {
-		t.Errorf("looker called %d times despite no file probe", calls)
-	}
-}
-
-func TestKeychainCAProbeNilFileAndLooker(t *testing.T) {
-	probe := &KeychainCAProbe{}
-	state := probe.ProbeCA(context.Background())
-	if state.Installed || state.InKeychain {
-		t.Errorf("nil sub-probes should yield zero state")
-	}
-}
-
-func TestKeychainCAProbeNilLooker(t *testing.T) {
-	dir := t.TempDir()
-	writeTestCert(t, dir, time.Now(), time.Now().Add(time.Hour))
-	probe := &KeychainCAProbe{File: &FileCAProbe{Dir: dir}}
-	if probe.ProbeCA(context.Background()).InKeychain {
-		t.Errorf("nil looker should leave InKeychain=false")
-	}
-}
-
-func TestHTTPDaemonProbeOK(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"pid":42,"version":"v9.9","rss_bytes":123456,"uptime_sec":77,"cpu_user_seconds":1.25,"cpu_system_seconds":0.5,"cpu_percent":2.5,"cpu_window_percent":4.5,"cpu_window_seconds":1.25,"disk_read_ops":3,"disk_write_ops":4,"disk_read_ops_delta":5,"disk_write_ops_delta":6,"state_bytes":999}`))
-	}))
-	defer srv.Close()
-	probe := &HTTPDaemonProbe{BaseURL: srv.URL}
-	state := probe.ProbeDaemon(context.Background())
-	if !state.Running || !state.HealthOK {
-		t.Errorf("expected healthy, got %+v", state)
-	}
-	if state.PID != 42 {
-		t.Errorf("PID=%d", state.PID)
-	}
-	if state.Version != "v9.9" {
-		t.Errorf("version=%q", state.Version)
-	}
-	if state.RSSBytes != 123456 || state.UptimeSec != 77 {
-		t.Errorf("resource fields rss=%d uptime=%d", state.RSSBytes, state.UptimeSec)
-	}
-	if state.CPUUserSeconds != 1.25 || state.CPUSystemSeconds != 0.5 || state.CPUPercent != 2.5 ||
-		state.CPUWindowPercent != 4.5 || state.CPUWindowSeconds != 1.25 ||
-		state.DiskReadOps != 3 || state.DiskWriteOps != 4 ||
-		state.DiskReadOpsDelta != 5 || state.DiskWriteOpsDelta != 6 || state.StateBytes != 999 {
-		t.Errorf("extended resource fields mismatch: %+v", state)
-	}
-}
-
-func TestHTTPDaemonProbeNon200(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(503)
-	}))
-	defer srv.Close()
-	probe := &HTTPDaemonProbe{BaseURL: srv.URL}
-	state := probe.ProbeDaemon(context.Background())
-	if !state.Running {
-		t.Errorf("running should be true on any HTTP response")
-	}
-	if state.HealthOK {
-		t.Errorf("503 should yield HealthOK=false")
-	}
-}
-
-func TestHTTPDaemonProbeDialFailure(t *testing.T) {
-	probe := &HTTPDaemonProbe{BaseURL: "http://127.0.0.1:1"}
-	state := probe.ProbeDaemon(context.Background())
-	if state.Running {
-		t.Errorf("connect refused should yield Running=false")
-	}
-}
-
-func TestHTTPDaemonProbeEmptyBaseURL(t *testing.T) {
-	probe := &HTTPDaemonProbe{}
-	if state := probe.ProbeDaemon(context.Background()); state.Running {
-		t.Errorf("empty URL should not be Running")
-	}
-}
-
-func TestHTTPDaemonProbeUsesProvidedVersionFallback(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"pid":7}`))
-	}))
-	defer srv.Close()
-	probe := &HTTPDaemonProbe{BaseURL: srv.URL, Version: "fallback"}
-	state := probe.ProbeDaemon(context.Background())
-	if state.Version != "fallback" {
-		t.Errorf("version fallback not honored: %q", state.Version)
-	}
-}
-
-func TestHTTPDaemonProbeMalformedJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("not json"))
-	}))
-	defer srv.Close()
-	probe := &HTTPDaemonProbe{BaseURL: srv.URL, Version: "ver"}
-	state := probe.ProbeDaemon(context.Background())
-	if !state.HealthOK {
-		t.Errorf("malformed JSON should still report healthy if status was 200")
-	}
-}
-
-func TestHTTPDaemonProbeRequestBuildFailure(t *testing.T) {
-	probe := &HTTPDaemonProbe{BaseURL: "://invalid-url"}
-	state := probe.ProbeDaemon(context.Background())
-	if state.Running {
-		t.Errorf("invalid URL should not produce Running")
 	}
 }
 
@@ -475,10 +331,9 @@ func TestAppsManagerProbeRespectsPolicy(t *testing.T) {
 
 func TestAppsManagerProbeWithCounters(t *testing.T) {
 	m, _ := cappapps.NewManager("")
-	counters := &MemoryAppCounters{}
-	counters.IncrementRouted(cappapps.AppCodexCLI)
-	counters.IncrementRouted(cappapps.AppCodexCLI)
-	counters.IncrementBypassed(cappapps.AppCodexCLI)
+	counters := &testAppCounters{routed: map[cappapps.AppID]int64{}, bypassed: map[cappapps.AppID]int64{}}
+	counters.routed[cappapps.AppCodexCLI] = 2
+	counters.bypassed[cappapps.AppCodexCLI] = 1
 	probe := &AppsManagerProbe{Manager: m, Counters: counters}
 	entries := probe.ProbeApps(context.Background())
 	var cli AppEntry
@@ -533,41 +388,12 @@ func TestAppsManagerProbeBinaryDetection(t *testing.T) {
 	}
 }
 
-func TestMemoryAppCountersZero(t *testing.T) {
-	c := &MemoryAppCounters{}
-	if c.Routed(cappapps.AppCodexCLI) != 0 {
-		t.Errorf("fresh counter not zero")
-	}
-	if c.Bypassed(cappapps.AppCodexCLI) != 0 {
-		t.Errorf("fresh bypassed not zero")
-	}
+type testAppCounters struct {
+	routed   map[cappapps.AppID]int64
+	bypassed map[cappapps.AppID]int64
 }
 
-func TestMemoryAppCountersConcurrent(t *testing.T) {
-	c := &MemoryAppCounters{}
-	const goroutines = 16
-	const perG = 100
-	var wg sync.WaitGroup
-	wg.Add(goroutines * 2)
-	for range goroutines {
-		go func() {
-			defer wg.Done()
-			for range perG {
-				c.IncrementRouted(cappapps.AppCodexCLI)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			for range perG {
-				c.IncrementBypassed(cappapps.AppCodexCLI)
-			}
-		}()
-	}
-	wg.Wait()
-	if got := c.Routed(cappapps.AppCodexCLI); got != goroutines*perG {
-		t.Errorf("Routed=%d want %d", got, goroutines*perG)
-	}
-	if got := c.Bypassed(cappapps.AppCodexCLI); got != goroutines*perG {
-		t.Errorf("Bypassed=%d want %d", got, goroutines*perG)
-	}
-}
+func (c *testAppCounters) IncrementRouted(id cappapps.AppID)   { c.routed[id]++ }
+func (c *testAppCounters) IncrementBypassed(id cappapps.AppID) { c.bypassed[id]++ }
+func (c *testAppCounters) Routed(id cappapps.AppID) int64      { return c.routed[id] }
+func (c *testAppCounters) Bypassed(id cappapps.AppID) int64    { return c.bypassed[id] }
