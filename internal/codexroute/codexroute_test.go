@@ -355,3 +355,29 @@ func TestPreviewAndIPv6ProxyURL(t *testing.T) {
 		t.Fatalf("IPv6 block not bracketed:\n%s", block)
 	}
 }
+
+func TestDetectTransport(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"empty", "", ""},
+		{"no_markers", "some config", ""},
+		{"start_only", markerStart + "\nsome content", ""},
+		{"end_before_start", markerEnd + markerStart, ""},
+		{"wss_true", markerStart + "\nsupports_websockets = true\n" + markerEnd, string(TransportWSS)},
+		{"wss_false", markerStart + "\nsupports_websockets = false\n" + markerEnd, string(TransportHTTP)},
+		{"block_without_setting", markerStart + "\nsome other setting\n" + markerEnd, ""},
+		{"wss_true_outside_block", "supports_websockets = true\n" + markerStart + "\nother\n" + markerEnd, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := detectTransport(tc.content); got != tc.want {
+				t.Fatalf("detectTransport(%q) = %q, want %q", tc.content, got, tc.want)
+			}
+		})
+	}
+}
