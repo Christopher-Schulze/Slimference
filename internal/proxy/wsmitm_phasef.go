@@ -1736,10 +1736,6 @@ func (a *wsPhaseFAdapter) recordWSSQualityOutcome(kind wsmitm.FrameKind) {
 
 func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
 	sessionID := wsCodexSessionID(body)
-	a.observeWSSRecentEditsForSession(sessionID, messages, rememberedToolUses)
-}
-
-func (a *wsPhaseFAdapter) observeWSSRecentEditsForSession(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
 	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
 	a.observeWSSRecentEditsForSessionWithToolUses(sessionID, messages, toolUses)
 }
@@ -1765,10 +1761,6 @@ func (a *wsPhaseFAdapter) observeWSSRecentEditsForSessionWithToolUses(sessionID 
 func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	sessionID := wsCodexSessionID(body)
 	turnID := wssPreviousResponseID(body)
-	return a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
-}
-
-func (a *wsPhaseFAdapter) observeWSSQualityToolKeysForSession(sessionID, turnID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	toolUses := mergedProxyToolUseIndex(proxyToolUseIndex(messages), rememberedToolUses)
 	return a.observeWSSQualityToolKeysForSessionWithToolUses(sessionID, turnID, messages, toolUses)
 }
@@ -4903,7 +4895,19 @@ func truncateWSSUpstreamErrorMessage(message string) string {
 }
 
 func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanisms(sessionID string) proxyLayer0MechanismMask {
-	return a.wssCacheBustDemotedMechanismsAggregate(sessionID)
+	if a == nil || sessionID == "" {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cacheBustSessions == nil {
+		return 0
+	}
+	session := a.cacheBustSessions[sessionID]
+	if session == nil {
+		return 0
+	}
+	return session.demoted
 }
 
 func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsForShape(sessionID string, requestShape string) proxyLayer0MechanismMask {
@@ -4964,22 +4968,6 @@ func (a *wsPhaseFAdapter) wssStatefulPrefixElisionCacheBustDemoted(sessionID str
 		return false
 	}
 	return session.statefulPrefixElisionDemotedForScope(requestShape, promptCacheKeyHash)
-}
-
-func (a *wsPhaseFAdapter) wssCacheBustDemotedMechanismsAggregate(sessionID string) proxyLayer0MechanismMask {
-	if a == nil || sessionID == "" {
-		return 0
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.cacheBustSessions == nil {
-		return 0
-	}
-	session := a.cacheBustSessions[sessionID]
-	if session == nil {
-		return 0
-	}
-	return session.demoted
 }
 
 func (a *wsPhaseFAdapter) observeWSSProviderCacheBust(sessionID string, inputTokens int, cachedTokens int, mutatedMechanisms proxyLayer0MechanismMask) wssProviderCacheBustEvent {
