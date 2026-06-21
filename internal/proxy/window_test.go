@@ -235,6 +235,57 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestSetWSSABCapture(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> error.
+	var nilProxy *Proxy
+	_, err := nilProxy.SetWSSABCapture("/path", 0)
+	if err == nil {
+		t.Fatal("nil proxy should return error")
+	}
+
+	// proxy without wssABCapture -> error.
+	p := &Proxy{}
+	_, err = p.SetWSSABCapture("/path", 0)
+	if err == nil {
+		t.Fatal("proxy without wssABCapture should return error")
+	}
+}
+
+func TestClearWSSABCapture(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> empty status.
+	var nilProxy *Proxy
+	got := nilProxy.ClearWSSABCapture()
+	if got.Enabled {
+		t.Fatal("nil proxy should return disabled status")
+	}
+
+	// proxy without wssABCapture -> empty status.
+	p := &Proxy{}
+	got = p.ClearWSSABCapture()
+	if got.Enabled {
+		t.Fatal("proxy without wssABCapture should return disabled status")
+	}
+}
+
+func TestWSSABCaptureStatus(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> empty status.
+	var nilProxy *Proxy
+	got := nilProxy.WSSABCaptureStatus()
+	if got.Enabled {
+		t.Fatal("nil proxy should return disabled status")
+	}
+
+	// proxy without wssABCapture -> empty status.
+	p := &Proxy{}
+	got = p.WSSABCaptureStatus()
+	if got.Enabled {
+		t.Fatal("proxy without wssABCapture should return disabled status")
+	}
+}
+
 func TestWSSNPXCommandClassSuffix(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
