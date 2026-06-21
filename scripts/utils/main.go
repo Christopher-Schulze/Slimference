@@ -115,8 +115,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case "structure-accuracy":
-		os.Exit(runStructureAccuracy(os.Args[2:], os.Stdout, os.Stderr))
 	case "leaf-audit":
 		os.Exit(runLeafAudit(os.Args[2:], os.Stdout, os.Stderr))
 	case "aggregate-savings":
