@@ -285,3 +285,18 @@ func TestUsageTracker_PrunedDef_EvictionUnderPressure(t *testing.T) {
 		t.Fatalf("newest session must survive: %v", got)
 	}
 }
+
+func TestForgetPrunedDefs_EdgeCases(t *testing.T) {
+	t.Parallel()
+	u := NewUsageTracker(20)
+	// Empty sessionID -> no-op.
+	u.ForgetPrunedDefs("", []string{"Bash"})
+	// Empty names -> no-op.
+	u.ForgetPrunedDefs("s", nil)
+	u.ForgetPrunedDefs("s", []string{})
+	// Unknown session -> no-op.
+	u.ForgetPrunedDefs("nonexistent", []string{"Bash"})
+	// Session exists but has no pruned defs -> no-op.
+	u.ObserveTurn("s2", []string{"Read"})
+	u.ForgetPrunedDefs("s2", []string{"Bash"})
+}

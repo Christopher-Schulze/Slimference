@@ -385,3 +385,54 @@ func TestLooksLikeMissingToolError(t *testing.T) {
 func containsString(values []string, needle string) bool {
 	return slices.Contains(values, needle)
 }
+
+func TestCommandFamilyAliases(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"bash", "Bash", []string{"bash", "shell", "exec", "terminal", "command"}},
+		{"shell", "ShellTool", []string{"bash", "shell", "exec", "terminal", "command"}},
+		{"exec", "ExecTool", []string{"bash", "shell", "exec", "terminal", "command"}},
+		{"terminal", "Terminal", []string{"bash", "shell", "exec", "terminal", "command"}},
+		{"grep", "GrepTool", []string{"grep", "rg", "search"}},
+		{"search", "SearchTool", []string{"grep", "rg", "search"}},
+		{"rg", "RGTool", []string{"grep", "rg", "search"}},
+		{"read", "ReadTool", []string{"read", "open", "view"}},
+		{"open", "OpenFile", []string{"read", "open", "view"}},
+		{"view", "ViewTool", []string{"read", "open", "view"}},
+		{"write", "WriteTool", []string{"write", "edit", "patch", "apply_patch"}},
+		{"edit", "EditTool", []string{"write", "edit", "patch", "apply_patch"}},
+		{"patch", "PatchTool", []string{"write", "edit", "patch", "apply_patch"}},
+		{"unknown", "UnknownTool", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := commandFamilyAliases(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("commandFamilyAliases(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("commandFamilyAliases(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestContainsToolAlias_NormalizedMatch(t *testing.T) {
+	t.Parallel()
+	// Test the normalizedAlias path (line 189-191): a long alias (>=6 chars)
+	// that matches in normalized text.
+	if !containsToolAlias("running bash command", "running bash command", "Bash") {
+		t.Fatal("containsToolAlias should find 'bash' in text")
+	}
+	// No match at all.
+	if containsToolAlias("nothing relevant here", "nothing relevant here", "Bash") {
+		t.Fatal("containsToolAlias should not find 'bash' in unrelated text")
+	}
+}
