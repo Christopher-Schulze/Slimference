@@ -270,6 +270,73 @@ func TestSplitMemoryKeyWithoutSeparator(t *testing.T) {
 	}
 }
 
+func TestSave_MkdirAllError(t *testing.T) {
+	saved := mkdirAll
+	t.Cleanup(func() { mkdirAll = saved })
+	mkdirAll = func(string, os.FileMode) error { return errors.New("mkdir fail") }
+	if err := save(t.TempDir(), "s", map[string]Entry{"c": {ToolUseID: "c"}}); err == nil {
+		t.Fatal("save should surface mkdirAll error")
+	}
+}
+
+func TestClear_RemoveAllError(t *testing.T) {
+	saved := removeAll
+	t.Cleanup(func() { removeAll = saved })
+	removeAll = func(string) error { return errors.New("remove fail") }
+	if err := Clear(t.TempDir()); err == nil {
+		t.Fatal("Clear should surface removeAll error")
+	}
+}
+
+func TestPrune_RemoveError(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "old.json")
+	if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mt := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(p, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+	saved := removeOne
+	t.Cleanup(func() { removeOne = saved })
+	removeOne = func(string) error { return errors.New("remove fail") }
+	if _, err := Prune(dir, 0, 14*24*time.Hour); err == nil {
+		t.Fatal("Prune should surface removeOne error on age-prune")
+	}
+}
+
+func TestPrune_RemoveErrorOnOverflow(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 3 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("s%d.json", i)), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := removeOne
+	t.Cleanup(func() { removeOne = saved })
+	calls := 0
+	removeOne = func(string) error {
+		calls++
+		if calls >= 2 {
+			return errors.New("remove fail")
+		}
+		return nil
+	}
+	if _, err := Prune(dir, 1, 0); err == nil {
+		t.Fatal("Prune should surface removeOne error on overflow-prune")
+	}
+}
+
+func TestLoad_ReadFileNonNotExistError(t *testing.T) {
+	saved := readFile
+	t.Cleanup(func() { readFile = saved })
+	readFile = func(string) ([]byte, error) { return nil, errors.New("perm denied") }
+	if _, err := Load(t.TempDir(), "s"); err == nil {
+		t.Fatal("Load should surface non-NotExist readFile error")
+	}
+}
+
 func resetMemoryForTest(t *testing.T) {
 	t.Helper()
 	memory.mu.Lock()
