@@ -49,7 +49,7 @@ counted as `S_local`.
 
 | Date | Lever / route | Ceiling proven | Evidence | Decision |
 |------|---------------|----------------|----------|----------|
-| _none yet_ | | | | |
+| 2026-06-21 | L1/L3 Desktop WSS delta | Root cause: WSS certification missing (not a code bug) | `~/.slimference/codex/` has no `wss_certification.json`, `wss_bridge_proof.json`, or `wss_recert_state.json`. `DecideAutoTransport` (`internal/codexroute/certification.go:272`) falls back to HTTP → `resolveCodexDesktopAppServerRoute` sets `SupportsWebSockets: false` → Desktop app never opens WSS → zero WSS counters → `no_wss_delta`. The 3 broad guards in `wsmitm_phasef.go` are irrelevant because traffic never reaches them. | Not a kill — route has a seam (app-server shim + cert path). Blocked on live `slimference codex recertify wss` with a real Codex Desktop session. L1/L3 stay parked until operational certification is done. Move to Phase 2 (L2 sharpen) for code-progress. |
 
 ---
 
