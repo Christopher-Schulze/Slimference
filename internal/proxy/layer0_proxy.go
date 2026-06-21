@@ -882,7 +882,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			preFilterRepeated := false
-			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && !wssSearchOutputBlocked && !statefulDeltaBlockedForBlock && policy.RepeatedOutput {
+			if !readCommand && !statefulDeltaBlockedForBlock && policy.RepeatedOutput &&
+				(workload == savingspolicy.CodexWorkloadSearch || wssSearchOutputBlocked) {
 				preFilterRepeated = true
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
@@ -896,7 +897,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					Action:    action,
 					Reason:    cacheReason,
 				})
-				if repeated {
+				searchRiskRepeatedAllowed := !wssSearchOutputBlocked || cacheReason == string(readcache.BlockKindUnchanged)
+				if repeated && searchRiskRepeatedAllowed {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut

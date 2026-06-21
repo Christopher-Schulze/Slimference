@@ -949,7 +949,7 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchSameMatchSetPassesThrough(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchSameMatchSetUsesRepeatedOutput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	command := `cd /repo/search && rg -n needle src`
@@ -989,11 +989,13 @@ func TestReduceCodexLayer0WSSSearchSameMatchSetPassesThrough(t *testing.T) {
 		SessionID: "sess-search-match-set",
 	})
 	text := out.Messages[1].Content[0].Text
-	if out.Stats.RepeatedOutputBlocks != 0 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved != 0 || out.Stats.BlocksModified != 0 ||
-		strings.Contains(text, "kind=search-output") ||
-		strings.Contains(text, "[rg]") ||
-		!strings.Contains(text, "src/a.go:1:needle alpha context") {
-		t.Fatalf("WSS same search match-set must remain original text: stats=%+v text=%q", out.Stats, text)
+	if out.Stats.RepeatedOutputBlocks != 1 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved <= 0 || out.Stats.BlocksModified != 1 ||
+		!strings.Contains(text, "kind=search-output") ||
+		!strings.Contains(text, "status=same-match-set") ||
+		!strings.Contains(text, "archive=local-archive://") ||
+		strings.Contains(text, "src/a.go:1:needle alpha context") ||
+		!proxyLayer0EvidenceHasReason(out.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
+		t.Fatalf("WSS same search match-set should use exact repeated-output while captured search stays guarded: stats=%+v text=%q evidence=%+v", out.Stats, text, out.Stats.EvidenceDecisions)
 	}
 }
 
@@ -1086,7 +1088,7 @@ func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsRiskGate(t *testing.T) {
 	}
 }
 
-func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsTextRiskGate(t *testing.T) {
+func TestReduceCodexLayer0WSSSearchLatencyBudgetAllowsExactRepeatedOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	original := proxyWSSSearchOutputFixture("needle", 80)
@@ -1109,11 +1111,13 @@ func TestReduceCodexLayer0WSSSearchLatencyBudgetKeepsTextRiskGate(t *testing.T) 
 	}
 
 	repeated := reduceCodexLayer0(req)
-	if repeated.Stats.BlocksModified != 0 || repeated.Stats.TokensSaved != 0 ||
-		repeated.Stats.RepeatedOutputBlocks != 0 ||
-		repeated.Messages[1].Content[0].Text != original ||
+	if repeated.Stats.BlocksModified != 1 || repeated.Stats.TokensSaved <= 0 ||
+		repeated.Stats.RepeatedOutputBlocks != 1 ||
+		!strings.Contains(repeated.Messages[1].Content[0].Text, "kind=tool-output") ||
+		!strings.Contains(repeated.Messages[1].Content[0].Text, "archive=local-archive://") ||
+		strings.Contains(repeated.Messages[1].Content[0].Text, "src/file_079.go:80:needle") ||
 		!proxyLayer0EvidenceHasReason(repeated.Stats.EvidenceDecisions, "wss_search_output_risk_gate") {
-		t.Fatalf("WSS search text-risk gate must also block latency repeated-output collapse: stats=%+v text=%q evidence=%+v",
+		t.Fatalf("WSS search text-risk gate should allow exact repeated-output under latency while captured output stays guarded: stats=%+v text=%q evidence=%+v",
 			repeated.Stats, repeated.Messages[1].Content[0].Text, repeated.Stats.EvidenceDecisions)
 	}
 }
