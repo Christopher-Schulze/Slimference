@@ -427,7 +427,13 @@ func TestMirror_PayloadInferenceBoundaries(t *testing.T) {
 	if payloadLooksLikeSearchOutput("Total output lines: 2\nplain:12:not/a/path\nother:34:still/no/path\n") {
 		t.Fatal("colon prose without path must not classify as search")
 	}
-	for _, line := range []string{"no-colon", "file.go:x:needle", "file.go:12:"} {
+	for _, line := range []string{"no-colon", "file.go:x:needle", "file.go:12:", "file.go::content", ":12:content", "file.go:12:content"} {
+		if line == "file.go:12:content" {
+			if !payloadLooksLikeSearchResultLine(line) {
+				t.Fatalf("valid search line not classified: %q", line)
+			}
+			continue
+		}
 		if payloadLooksLikeSearchResultLine(line) {
 			t.Fatalf("invalid search line classified: %q", line)
 		}
