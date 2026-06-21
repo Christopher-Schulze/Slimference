@@ -993,20 +993,6 @@ func wssT354SameCapturedSequence(previous *wssT354Turn, current wssT354Turn) boo
 	return previous.sequence == current.sequence
 }
 
-func wssT354FrameObject(payload []byte) (map[string]json.RawMessage, bool) {
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &root); err != nil {
-		return nil, false
-	}
-	if body, ok := root["body"]; ok {
-		var nested map[string]json.RawMessage
-		if err := json.Unmarshal(body, &nested); err == nil && len(nested) > 0 {
-			return nested, true
-		}
-	}
-	return root, true
-}
-
 func wssT354RequestBody(payload []byte) ([]byte, map[string]json.RawMessage, bool) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &root); err != nil {

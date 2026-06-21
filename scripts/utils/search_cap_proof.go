@@ -477,10 +477,6 @@ func searchCapDownstreamCandidateHasSafetyFailure(candidate wssT354CandidateProo
 	return wssT354CandidateHasSafetyFailure(candidate)
 }
 
-func searchCapDownstreamCandidateReasonHasSafetyFailure(candidate wssT354CandidateProof, reason string) bool {
-	return wssT354CandidateReasonHasSafetyFailure(candidate, reason)
-}
-
 func searchCapCurrentSearchOutputTurnMarkers(frames []proxy.WSSABReplayFrame, currentSearchMutations int) ([]bool, error) {
 	toolUses := make(map[string]searchCapProfileToolUse)
 	var markers []bool

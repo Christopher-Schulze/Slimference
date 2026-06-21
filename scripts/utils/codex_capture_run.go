@@ -624,10 +624,6 @@ func augmentCodexCaptureLiveDeltaFromWire(path string, live *codexCaptureLiveDel
 	return live
 }
 
-func codexCaptureWireOutputTokensObserved(path string) int64 {
-	return codexCaptureWireTokenUsageObserved(path).OutputTokens
-}
-
 type codexCaptureWireUsage struct {
 	InputTokens  int64
 	OutputTokens int64
@@ -816,10 +812,6 @@ func codexCaptureWireTokenUsageObserved(path string) codexCaptureWireUsage {
 func codexCaptureFrameFromServer(direction string) bool {
 	direction = strings.ToLower(strings.TrimSpace(direction))
 	return direction == "s2c" || direction == "server_to_client"
-}
-
-func codexCapturePayloadOutputTokens(payload json.RawMessage) int64 {
-	return codexCapturePayloadTokenUsage(payload).OutputTokens
 }
 
 func codexCapturePayloadTokenUsage(payload json.RawMessage) codexCaptureWireUsage {

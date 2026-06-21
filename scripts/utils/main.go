@@ -792,15 +792,6 @@ func formatNum(n int) string {
 	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 }
 
-func sortedKeys(m map[string]*providerStats) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func sortedProviderViewKeys(m map[string]providerStatsView) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
