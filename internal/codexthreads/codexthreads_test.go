@@ -313,3 +313,123 @@ func TestThreadColumnsNoIDReturnsEmpty(t *testing.T) {
 		t.Fatalf("threadColumns without id should return empty, got %v", columns)
 	}
 }
+
+// TestLookupWindow_EmptyColumnsNoID covers LookupWindow's len(columns)==0
+// early return (codexthreads.go:107-109): a threads table without an id
+// column makes threadColumns return empty, and LookupWindow must return
+// nil, nil without querying.
+func TestLookupWindow_EmptyColumnsNoID(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	db := openTestCodexDB(t, home)
+	execTestSQL(t, db, `CREATE TABLE threads (title TEXT)`)
+	db.Close()
+
+	got, err := LookupWindow(home, time.UnixMilli(0), time.UnixMilli(1))
+	if err != nil {
+		t.Fatalf("empty columns should not error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("empty columns should return nil, got %v", got)
+	}
+}
+
+// TestLookup_HomeIsFile covers Lookup's non-IsNotExist stat error
+// (codexthreads.go:36): when home points at a file rather than a
+// directory, os.Stat on the .codex/state_5.sqlite path underneath fails
+// with a non-IsNotExist error and must be propagated.
+func TestLookup_HomeIsFile(t *testing.T) {
+	t.Parallel()
+	// Create a regular file at the .codex path so os.Stat fails with
+	// "not a directory" rather than IsNotExist.
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.WriteFile(codexDir, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Lookup(home, []string{"thread-1"})
+	if err == nil {
+		t.Fatalf("home-is-file should propagate stat error, got nil err, result=%v", got)
+	}
+	if got != nil {
+		t.Fatalf("on error Lookup should return nil map, got %v", got)
+	}
+}
+
+// TestLookupWindow_HomeIsFile covers LookupWindow's non-IsNotExist stat
+// error (codexthreads.go:94): same shape as TestLookup_HomeIsFile.
+func TestLookupWindow_HomeIsFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.WriteFile(codexDir, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LookupWindow(home, time.UnixMilli(0), time.UnixMilli(1))
+	if err == nil {
+		t.Fatalf("home-is-file should propagate stat error, got nil err, result=%v", got)
+	}
+	if got != nil {
+		t.Fatalf("on error LookupWindow should return nil, got %v", got)
+	}
+}
+
+// TestQuery_ScanError covers query's non-ErrNoRows scan error path
+// (codexthreads.go:238-240): a threads table where updated_at_ms holds a
+// non-numeric TEXT value defeats COALESCE(updated_at_ms, 0) type coercion
+// and makes Scan into *int64 fail with a non-ErrNoRows error.
+func TestQuery_ScanError(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	db := openTestCodexDB(t, home)
+	execTestSQL(t, db, `
+CREATE TABLE threads (
+	id TEXT PRIMARY KEY,
+	title TEXT,
+	cwd TEXT,
+	source TEXT,
+	thread_source TEXT,
+	model TEXT,
+	first_user_message TEXT,
+	created_at_ms INTEGER,
+	updated_at_ms TEXT
+)`)
+	// Insert a row whose updated_at_ms is non-numeric TEXT. COALESCE
+	// passes the TEXT through (it is not NULL), and Scan into *int64
+	// fails.
+	execTestSQL(t, db, `INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, created_at_ms, updated_at_ms) VALUES ('thread-1', 'one', '/tmp', 'cli', 'cli', 'm', 'msg', 1, 'not-a-number')`)
+	db.Close()
+
+	got, err := Lookup(home, []string{"thread-1"})
+	if err == nil {
+		t.Fatalf("scan error should propagate, got nil err, result=%v", got)
+	}
+}
+
+// TestLookupWindow_ScanError covers LookupWindow's scanMetadata error
+// path (codexthreads.go:119-121): same shape as TestQuery_ScanError but
+// for the window query.
+func TestLookupWindow_ScanError(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	db := openTestCodexDB(t, home)
+	execTestSQL(t, db, `
+CREATE TABLE threads (
+	id TEXT PRIMARY KEY,
+	title TEXT,
+	cwd TEXT,
+	source TEXT,
+	thread_source TEXT,
+	model TEXT,
+	first_user_message TEXT,
+	created_at_ms INTEGER,
+	updated_at_ms TEXT
+)`)
+	execTestSQL(t, db, `INSERT INTO threads (id, title, cwd, source, thread_source, model, first_user_message, created_at_ms, updated_at_ms) VALUES ('thread-1', 'one', '/tmp', 'cli', 'cli', 'm', 'msg', 1, 'not-a-number')`)
+	db.Close()
+
+	got, err := LookupWindow(home, time.UnixMilli(0), time.UnixMilli(2))
+	if err == nil {
+		t.Fatalf("scan error should propagate, got nil err, result=%v", got)
+	}
+}
