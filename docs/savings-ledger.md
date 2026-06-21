@@ -41,7 +41,7 @@ counted as `S_local`.
 | Date | Lever | Slice | `S_local` before | `S_local` after | Provider-cache (separate) | Recovery cost (negative) | Drawdown checks | Commit |
 |------|-------|-------|------------------|-----------------|---------------------------|--------------------------|-----------------|--------|
 | _none yet under the new regime_ | | | | | | | | |
-| 2026-06-21 | L2 infra | T418 sidecar reader wired into corpus gate; T418 shim writes per-session JSONL sidecar | 6.05% (no L2 counted) | 6.05% (no sidecar captures yet — gate ready) | n/a | 0 | No sidecar → gate unchanged (test-proven); zero-savings sidecar → gate unchanged (test-proven); sidecar with savings → counted (test-proven) | _pending_ |
+| 2026-06-21 | L2 infra | T418 sidecar reader wired into corpus gate; T418 shim writes per-session JSONL sidecar | 6.05% (no L2 counted) | 6.05% (no sidecar captures yet — gate ready) | n/a | 0 | No sidecar → gate unchanged (test-proven); zero-savings sidecar → gate unchanged (test-proven); sidecar with savings → counted (test-proven) | 64cba22 |
 
 ---
 
