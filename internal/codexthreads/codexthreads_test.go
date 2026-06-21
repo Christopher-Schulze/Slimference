@@ -214,3 +214,102 @@ func TestLookupWindowDefault_EmptyHome(t *testing.T) {
 		t.Fatalf("empty home must return nil slice on error, got %v", got)
 	}
 }
+
+func TestLookup_EmptyHome(t *testing.T) {
+	t.Parallel()
+	got, err := Lookup("", []string{"s1"})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Lookup('', ...) = %v, %v; want empty, nil", got, err)
+	}
+}
+
+func TestLookup_DuplicateAndEmptySessionIDs(t *testing.T) {
+	t.Parallel()
+	got, err := Lookup("", []string{"", "s1", "s1", ""})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Lookup with empty home = %v, %v; want empty, nil", got, err)
+	}
+}
+
+func TestLookupWindow_EmptyHome(t *testing.T) {
+	t.Parallel()
+	got, err := LookupWindow("", time.Now(), time.Now())
+	if err != nil || got != nil {
+		t.Fatalf("LookupWindow('', ...) = %v, %v; want nil, nil", got, err)
+	}
+}
+
+func TestUpdatedAtSQL_AllCombinations(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		columns map[string]struct{}
+		want    string
+	}{
+		{"both", map[string]struct{}{"updated_at_ms": {}, "updated_at": {}}, "COALESCE(updated_at_ms, updated_at * 1000)"},
+		{"ms_only", map[string]struct{}{"updated_at_ms": {}}, "COALESCE(updated_at_ms, 0)"},
+		{"seconds_only", map[string]struct{}{"updated_at": {}}, "COALESCE(updated_at * 1000, 0)"},
+		{"neither", map[string]struct{}{}, "0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := updatedAtSQL(tc.columns); got != tc.want {
+				t.Fatalf("updatedAtSQL(%s) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreatedAtSQL_AllCombinations(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		columns map[string]struct{}
+		want    string
+	}{
+		{"both", map[string]struct{}{"created_at_ms": {}, "created_at": {}}, "COALESCE(created_at_ms, created_at * 1000)"},
+		{"ms_only", map[string]struct{}{"created_at_ms": {}}, "COALESCE(created_at_ms, 0)"},
+		{"seconds_only", map[string]struct{}{"created_at": {}}, "COALESCE(created_at * 1000, 0)"},
+		{"neither_falls_back_to_updated", map[string]struct{}{"updated_at_ms": {}, "updated_at": {}}, "COALESCE(updated_at_ms, updated_at * 1000)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := createdAtSQL(tc.columns); got != tc.want {
+				t.Fatalf("createdAtSQL(%s) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTextColumnSQL(t *testing.T) {
+	t.Parallel()
+	columns := map[string]struct{}{"title": {}, "cwd": {}}
+	if got := textColumnSQL(columns, "title"); got != "COALESCE(title, '')" {
+		t.Fatalf("textColumnSQL(title) = %q", got)
+	}
+	if got := textColumnSQL(columns, "missing"); got != "''" {
+		t.Fatalf("textColumnSQL(missing) = %q, want ''", got)
+	}
+}
+
+func TestThreadColumnsNoIDReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.sqlite")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// Create a threads table without an id column.
+	if _, err := db.Exec(`CREATE TABLE threads (title TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	columns, err := threadColumns(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 0 {
+		t.Fatalf("threadColumns without id should return empty, got %v", columns)
+	}
+}
