@@ -471,3 +471,36 @@ func TestNormalizeSessionState_PreservesExistingMaps(t *testing.T) {
 		t.Fatal("existing Outputs map must be preserved")
 	}
 }
+
+func TestBuildSearchSetDeltaSummary(t *testing.T) {
+	t.Parallel()
+	// No diff -> empty.
+	if got := buildSearchSetDeltaSummary("rg foo", "a\nb\n", "a\nb\n"); got != "" {
+		t.Fatalf("no-diff search delta should be empty, got %q", got)
+	}
+	// Diff with empty command -> default command label.
+	got := buildSearchSetDeltaSummary("", "a\nb\n", "a\nc\n")
+	if !strings.Contains(got, "removed=1") || !strings.Contains(got, "added=1") || !strings.Contains(got, "this search command") {
+		t.Fatalf("search delta with empty command: %q", got)
+	}
+	if !strings.Contains(got, "-b") || !strings.Contains(got, "+c") {
+		t.Fatalf("search delta should list removed/added lines: %q", got)
+	}
+	// Diff with explicit command.
+	got = buildSearchSetDeltaSummary("rg pattern", "x\ny\n", "x\nz\n")
+	if !strings.Contains(got, `command="rg pattern"`) || !strings.Contains(got, "-y") || !strings.Contains(got, "+z") {
+		t.Fatalf("search delta with command: %q", got)
+	}
+}
+
+func TestUnchangedOutputReference_EmptyCommand(t *testing.T) {
+	t.Parallel()
+	got := unchangedOutputReference("", "local-archive://abc")
+	if !strings.Contains(got, "this tool command") || !strings.Contains(got, "local-archive://abc") {
+		t.Fatalf("unchangedOutputReference with empty command: %q", got)
+	}
+	got = unchangedOutputReference("git status", "local-archive://def")
+	if !strings.Contains(got, `command="git status"`) || !strings.Contains(got, "local-archive://def") {
+		t.Fatalf("unchangedOutputReference with command: %q", got)
+	}
+}
