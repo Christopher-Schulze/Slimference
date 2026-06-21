@@ -235,6 +235,34 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestWSSCacheBustDemotedMechanisms(t *testing.T) {
+	t.Parallel()
+	// nil adapter -> 0.
+	var nilAdapter *wsPhaseFAdapter
+	if got := nilAdapter.wssCacheBustDemotedMechanisms("session"); got != 0 {
+		t.Fatalf("nil adapter should return 0, got %d", got)
+	}
+	// empty session -> 0.
+	a := &wsPhaseFAdapter{}
+	if got := a.wssCacheBustDemotedMechanisms(""); got != 0 {
+		t.Fatalf("empty session should return 0, got %d", got)
+	}
+	// nil cacheBustSessions -> 0.
+	if got := a.wssCacheBustDemotedMechanisms("session"); got != 0 {
+		t.Fatalf("nil cacheBustSessions should return 0, got %d", got)
+	}
+	// unknown session -> 0.
+	a.cacheBustSessions = map[string]*wssProviderCacheBustSession{}
+	if got := a.wssCacheBustDemotedMechanisms("unknown"); got != 0 {
+		t.Fatalf("unknown session should return 0, got %d", got)
+	}
+	// known session with demoted mask -> returns mask.
+	a.cacheBustSessions["known"] = &wssProviderCacheBustSession{demoted: 42}
+	if got := a.wssCacheBustDemotedMechanisms("known"); got != 42 {
+		t.Fatalf("known session should return 42, got %d", got)
+	}
+}
+
 func TestProxyGoRunInvokesReconc(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
