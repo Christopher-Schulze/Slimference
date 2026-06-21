@@ -374,3 +374,37 @@ func TestPlanResolverErrors(t *testing.T) {
 		t.Fatalf("Plan binary error=%v", err)
 	}
 }
+
+func TestNormalizeBinaryPath_Empty(t *testing.T) {
+	t.Parallel()
+	if _, err := normalizeBinaryPath("   "); err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("normalizeBinaryPath empty should error: %v", err)
+	}
+}
+
+func TestIsTemporaryGoBuildBinary(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/usr/local/bin/slimference", false},
+		{filepath.Join(os.TempDir(), "go-build123", "exe", "slimference"), true},
+		{"C:/T/go-build123/exe/slimference", true},
+		{"/tmp/not-go-build/slimference", false},
+	}
+	for _, tc := range cases {
+		if got := isTemporaryGoBuildBinary(tc.path); got != tc.want {
+			t.Errorf("isTemporaryGoBuildBinary(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestResolveBinary_ExecutableError(t *testing.T) {
+	prevExe := executableFn
+	t.Cleanup(func() { executableFn = prevExe })
+	executableFn = func() (string, error) { return "", errors.New("exe lookup failed") }
+	if _, err := resolveBinary(""); err == nil || !strings.Contains(err.Error(), "exe lookup failed") {
+		t.Fatalf("resolveBinary with exe error should propagate: %v", err)
+	}
+}
