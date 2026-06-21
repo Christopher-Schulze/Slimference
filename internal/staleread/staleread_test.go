@@ -377,3 +377,87 @@ func TestZeroMinTurnGapDefaults(t *testing.T) {
 		t.Errorf("expected aging with default gap, got %d", stats.BlocksReplaced)
 	}
 }
+
+func TestShellCommandInput(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		rawInput    string
+		wantCommand string
+		wantWorkdir string
+	}{
+		{"empty", "", "", ""},
+		{"whitespace_only", "   \n\t  ", "", ""},
+		{"plain_json_string", `"ls -la"`, "ls -la", ""},
+		{"plain_text_fallback", "ls -la /tmp", "ls -la /tmp", ""},
+		{"invalid_json_fallback", `{not valid json`, "{not valid json", ""},
+		{"json_with_command", `{"command":"git status","workdir":"/repo"}`, "git status", "/repo"},
+		{"json_with_cmd", `{"cmd":"npm test","workdir":"/project"}`, "npm test", "/project"},
+		{"json_with_command_line", `{"command_line":"make build"}`, "make build", ""},
+		{"json_with_cmdline", `{"cmdline":"cargo test"}`, "cargo test", ""},
+		{"json_with_commandLine", `{"commandLine":"go vet"}`, "go vet", ""},
+		{"json_with_shell_command", `{"shell_command":"rg pattern"}`, "rg pattern", ""},
+		{"json_with_shellCommand", `{"shellCommand":"grep foo"}`, "grep foo", ""},
+		{"json_with_workdir_only", `{"workdir":"/repo"}`, "", "/repo"},
+		{"json_empty_command", `{"command":"","workdir":"/repo"}`, "", "/repo"},
+		{"json_whitespace_command", `{"command":"   ","workdir":"/repo"}`, "", "/repo"},
+		{"json_first_key_wins", `{"command":"first","cmd":"second"}`, "first", ""},
+		{"json_no_keys", `{"other":"value"}`, "", ""},
+		{"json_with_empty_workdir", `{"command":"ls","workdir":""}`, "ls", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cmd, workdir := shellCommandInput(tc.rawInput)
+			if cmd != tc.wantCommand || workdir != tc.wantWorkdir {
+				t.Fatalf("shellCommandInput(%q) = (%q, %q), want (%q, %q)",
+					tc.rawInput, cmd, workdir, tc.wantCommand, tc.wantWorkdir)
+			}
+		})
+	}
+}
+
+func TestLooksLikeShellToolName(t *testing.T) {
+	t.Parallel()
+	shellTools := []string{"bash", "shell", "sh", "zsh", "exec", "exec_command",
+		"run_command", "terminal", "local_shell"}
+	for _, name := range shellTools {
+		if !looksLikeShellToolName(name) {
+			t.Fatalf("looksLikeShellToolName(%q) = false, want true", name)
+		}
+	}
+	nonShell := []string{"read", "write", "edit", "search", "", "unknown"}
+	for _, name := range nonShell {
+		if looksLikeShellToolName(name) {
+			t.Fatalf("looksLikeShellToolName(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestPathWithWorkdir(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		path    string
+		workdir string
+		want    string
+	}{
+		{"empty_path", "", "/repo", "."},
+		{"absolute_path", "/usr/bin/file", "/repo", "/usr/bin/file"},
+		{"relative_with_workdir", "src/file.go", "/repo", "/repo/src/file.go"},
+		{"relative_empty_workdir", "src/file.go", "", "src/file.go"},
+		{"relative_whitespace_workdir", "src/file.go", "  ", "src/file.go"},
+		{"dot_path", ".", "/repo", "/repo"},
+		{"dotdot_path", "..", "/repo", "/"},
+		{"path_with_trailing_slash", "dir/", "/repo", "/repo/dir"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := pathWithWorkdir(tc.path, tc.workdir); got != tc.want {
+				t.Fatalf("pathWithWorkdir(%q, %q) = %q, want %q",
+					tc.path, tc.workdir, got, tc.want)
+			}
+		})
+	}
+}
