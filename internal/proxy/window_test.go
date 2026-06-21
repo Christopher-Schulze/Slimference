@@ -1,10 +1,60 @@
 package proxy
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
+
+func TestWSSABReplayCapture_Record(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "ab.jsonl")
+	capture := newWSSABReplayCapture(path)
+	if capture == nil {
+		t.Fatal("newWSSABReplayCapture returned nil")
+	}
+
+	// nil capture -> no-op.
+	var nilCapture *wssABReplayCapture
+	nilCapture.record(wsmitm.DirClientToServer, nil, false, 0)
+
+	// nil env -> no-op.
+	capture.record(wsmitm.DirClientToServer, nil, false, 0)
+
+	// valid env, not mutated, with Raw.
+	validPayload := json.RawMessage(`{"type":"response","result":"ok"}`)
+	env := &wsmitm.Envelope{
+		Kind: wsmitm.FrameKindResponseCompleted,
+		Raw:  validPayload,
+	}
+	capture.record(wsmitm.DirClientToServer, env, false, 1)
+
+	// valid env, not mutated, empty Raw -> Marshal fallback.
+	env2 := &wsmitm.Envelope{
+		Kind: wsmitm.FrameKindResponseCompleted,
+	}
+	capture.record(wsmitm.DirServerToClient, env2, false, 2)
+
+	// valid env, mutated -> Marshal.
+	env3 := &wsmitm.Envelope{
+		Kind: wsmitm.FrameKindResponseCompleted,
+		Body: json.RawMessage(`{"data":"mutated"}`),
+	}
+	capture.record(wsmitm.DirClientToServer, env3, true, 3)
+
+	// Verify file was written.
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("capture file should exist: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("capture file should not be empty")
+	}
+}
 
 func TestProxyCommandLineContainsSearchTool(t *testing.T) {
 	t.Parallel()
