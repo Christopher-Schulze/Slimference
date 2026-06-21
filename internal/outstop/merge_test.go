@@ -360,6 +360,9 @@ func TestDecodeExistingStopVariants(t *testing.T) {
 		{"unparseable", `12345`, nil, false},
 		{"null", `null`, nil, false},
 		{"object", `{"value":"X"}`, nil, false},
+		{"malformed array", `["A"`, nil, false},
+		{"malformed string", `"unterminated`, nil, false},
+		{"array with non-string elements", `[1,2,3]`, nil, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
