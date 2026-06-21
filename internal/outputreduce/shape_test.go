@@ -1,6 +1,7 @@
 package outputreduce
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/types"
@@ -105,4 +106,204 @@ func TestDetectRepairSignal(t *testing.T) {
 	if signal = DetectRepairSignal(types.OpenAI, body); !signal.Repair || !signal.UserReask {
 		t.Fatalf("request signal=%+v", signal)
 	}
+}
+
+// TestDetectTaskShape_CommandRelayWithRepairComplaint covers the fallback
+// commandOutputRelayRequested branch (shape.go:72-73): when the text triggers
+// both commandOutputRelayRequested AND repairComplaintText but NOT
+// DetectRepairSignalText, the first command-relay case (line 41) is skipped
+// (because repairComplaintText is true), the repair case (line 43) is
+// skipped (because DetectRepairSignalText is false), and the fallback
+// command-relay case (line 72) fires.
+func TestDetectTaskShape_CommandRelayWithRepairComplaint(t *testing.T) {
+	t.Parallel()
+	// "nochmal" triggers repairComplaintText but NOT DetectRepairSignalText
+	// (which needs "nochmal ausführlicher" or "nochmal genauer").
+	// "show the output" triggers commandOutputRelayRequested.
+	body := []byte(`{"messages":[{"role":"user","content":"nochmal show the output from that command"}]}`)
+	if got := DetectTaskShape(types.OpenAI, body); got != ShapeCommandRelay {
+		t.Fatalf("shape=%s, want %s (fallback command-relay branch)", got, ShapeCommandRelay)
+	}
+}
+
+func TestLatestUserRequestText(t *testing.T) {
+	t.Parallel()
+	t.Run("non_map_root_returns_empty", func(t *testing.T) {
+		t.Parallel()
+		if got := latestUserRequestText("not a map"); got != "" {
+			t.Fatalf("non-map root should return empty, got %q", got)
+		}
+	})
+	t.Run("non_map_item_skipped", func(t *testing.T) {
+		t.Parallel()
+		// messages array with a non-map item (string) should be skipped.
+		root := map[string]any{
+			"messages": []any{"not a map", map[string]any{"role": "user", "content": "hello"}},
+		}
+		// TrimSpace removes the trailing newline added by walkInstructionText.
+		if got := latestUserRequestText(root); got != "hello" {
+			t.Fatalf("non-map item should be skipped, got %q", got)
+		}
+	})
+	t.Run("non_user_role_skipped", func(t *testing.T) {
+		t.Parallel()
+		// Only the last user message should be returned.
+		root := map[string]any{
+			"messages": []any{
+				map[string]any{"role": "assistant", "content": "response"},
+				map[string]any{"role": "user", "content": "question"},
+			},
+		}
+		if got := latestUserRequestText(root); got != "question" {
+			t.Fatalf("non-user role should be skipped, got %q", got)
+		}
+	})
+	t.Run("input_string_returns_directly", func(t *testing.T) {
+		t.Parallel()
+		root := map[string]any{"input": "direct text"}
+		if got := latestUserRequestText(root); got != "direct text" {
+			t.Fatalf("input string should return directly, got %q", got)
+		}
+	})
+	t.Run("no_user_messages_returns_empty", func(t *testing.T) {
+		t.Parallel()
+		root := map[string]any{
+			"messages": []any{
+				map[string]any{"role": "assistant", "content": "response"},
+			},
+		}
+		if got := latestUserRequestText(root); got != "" {
+			t.Fatalf("no user messages should return empty, got %q", got)
+		}
+	})
+}
+
+func TestWalkInstructionText(t *testing.T) {
+	t.Parallel()
+	t.Run("user_role_walks_content_and_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"role":    "user",
+			"content": "user content",
+			"text":    "user text",
+		}, &out, false)
+		// role-based walk uses allowContent=true regardless of the
+		// outer allowContent flag.
+		if out.String() != "user content\nuser text\n" {
+			t.Fatalf("user role walk = %q", out.String())
+		}
+	})
+	t.Run("system_role_walks_content_and_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"role":    "system",
+			"content": "system content",
+		}, &out, false)
+		if out.String() != "system content\n" {
+			t.Fatalf("system role walk = %q", out.String())
+		}
+	})
+	t.Run("developer_role_walks_content_and_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"role":    "developer",
+			"content": "dev content",
+		}, &out, false)
+		if out.String() != "dev content\n" {
+			t.Fatalf("developer role walk = %q", out.String())
+		}
+	})
+	t.Run("unknown_role_returns_early", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"role":    "assistant",
+			"content": "should not appear",
+		}, &out, true)
+		if out.String() != "" {
+			t.Fatalf("unknown role should return early, got %q", out.String())
+		}
+	})
+	t.Run("input_text_type_walks_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"type": "input_text",
+			"text": "typed text",
+		}, &out, false)
+		if out.String() != "typed text\n" {
+			t.Fatalf("input_text type walk = %q", out.String())
+		}
+	})
+	t.Run("text_type_walks_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"type": "text",
+			"text": "plain text",
+		}, &out, false)
+		if out.String() != "plain text\n" {
+			t.Fatalf("text type walk = %q", out.String())
+		}
+	})
+	t.Run("allow_content_walks_content_and_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		// No role, no type — falls through to messages/input walk,
+		// then system/instructions/prompt walk, then allowContent
+		// content/text walk.
+		walkInstructionText(map[string]any{
+			"content": "allowed content",
+			"text":    "allowed text",
+		}, &out, true)
+		if !strings.Contains(out.String(), "allowed content") || !strings.Contains(out.String(), "allowed text") {
+			t.Fatalf("allowContent walk should include content and text, got %q", out.String())
+		}
+	})
+	t.Run("no_allow_content_skips_content_and_text", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(map[string]any{
+			"content": "should not appear",
+			"text":    "should not appear",
+		}, &out, false)
+		if out.String() != "" {
+			t.Fatalf("no allowContent should skip content/text, got %q", out.String())
+		}
+	})
+	t.Run("string_with_allow_content", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText("hello world", &out, true)
+		if out.String() != "hello world\n" {
+			t.Fatalf("string with allowContent = %q", out.String())
+		}
+	})
+	t.Run("string_without_allow_content", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText("hello world", &out, false)
+		if out.String() != "" {
+			t.Fatalf("string without allowContent should be empty, got %q", out.String())
+		}
+	})
+	t.Run("array_recurses", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText([]any{"a", "b"}, &out, true)
+		if out.String() != "a\nb\n" {
+			t.Fatalf("array walk = %q", out.String())
+		}
+	})
+	t.Run("nil_value", func(t *testing.T) {
+		t.Parallel()
+		var out strings.Builder
+		walkInstructionText(nil, &out, true)
+		if out.String() != "" {
+			t.Fatalf("nil walk should be empty, got %q", out.String())
+		}
+	})
 }
