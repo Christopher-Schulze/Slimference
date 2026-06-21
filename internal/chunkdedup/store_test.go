@@ -495,3 +495,98 @@ func TestPruneExpiredLocked_ChunkLevelExpiry(t *testing.T) {
 		t.Fatalf("session should survive with fresh chunks, got 0 chunks")
 	}
 }
+
+func TestStoreLimits_NormalizedCapsAt100(t *testing.T) {
+	t.Parallel()
+	l := StoreLimits{MaxSessionRefPct: 200}.normalized()
+	if l.MaxSessionRefPct != 100 {
+		t.Fatalf("MaxSessionRefPct > 100 should be capped to 100, got %d", l.MaxSessionRefPct)
+	}
+}
+
+func TestRemainingReferenceBudgetLocked_NegativeReturnsZero(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 10}, archiveFake(nil))
+	session := &sessionChunks{
+		inBytes:  1000,
+		refBytes: 200, // 200 > 10% of 1000 = 100, so remaining is negative
+	}
+	if got := store.remainingReferenceBudgetLocked(session); got != 0 {
+		t.Fatalf("negative remaining should return 0, got %d", got)
+	}
+}
+
+func TestReferenceBudgetAvailableAfterInput_NegativeMinRef(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 20}, archiveFake(nil))
+	// minReferenceBytes <= 0 should be clamped to 1.
+	if !store.ReferenceBudgetAvailableAfterInput("new-session", 100, 0) {
+		t.Fatal("zero minReferenceBytes should be clamped to 1 and allow budget for new session")
+	}
+	if !store.ReferenceBudgetAvailableAfterInput("new-session", 100, -5) {
+		t.Fatal("negative minReferenceBytes should be clamped to 1 and allow budget for new session")
+	}
+}
+
+func TestRecordReferenceBudget_NilStoreAndEmptySession(t *testing.T) {
+	t.Parallel()
+	var nilStore *Store
+	if !nilStore.recordReferenceBudget("s", 100) {
+		t.Fatal("nil store should return true")
+	}
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 20}, archiveFake(nil))
+	if !store.recordReferenceBudget("", 100) {
+		t.Fatal("empty session should return true")
+	}
+	if !store.recordReferenceBudget("s", 0) {
+		t.Fatal("zero referencedBytes should return true")
+	}
+}
+
+func TestRecordReferenceBudget_NoLimitAlwaysSucceeds(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 0}, archiveFake(nil))
+	store.Encode("s1", genBytes(32*1024, 91))
+	// With MaxSessionRefPct=0 (no limit), recordReferenceBudget should always succeed.
+	if !store.recordReferenceBudget("s1", 1000) {
+		t.Fatal("no limit should always allow recording")
+	}
+}
+
+func TestDecodeReferences_BadSubmatch(t *testing.T) {
+	t.Parallel()
+	// A reference with a non-numeric length should not be expanded.
+	text := "local-archive://abc:notanumber"
+	out, changed := DecodeReferences(text, func(uri string) ([]byte, bool) {
+		return []byte("expanded"), true
+	})
+	if changed || out != text {
+		t.Fatalf("non-numeric length should not expand: out=%q changed=%v", out, changed)
+	}
+}
+
+func TestSelectReferenceIndexes_ZeroOrNegativeMax(t *testing.T) {
+	t.Parallel()
+	plan := newChunkPlan([][]byte{[]byte("chunk1"), []byte("chunk2")}, "")
+	if got := selectReferenceIndexes(plan, 0); got != nil {
+		t.Fatalf("zero max should return nil, got %v", got)
+	}
+	if got := selectReferenceIndexes(plan, -1); got != nil {
+		t.Fatalf("negative max should return nil, got %v", got)
+	}
+}
+
+func TestLineChunks_TooFewChunksAfterSplit(t *testing.T) {
+	t.Parallel()
+	// Generate data with enough lines but where all lines end up in one chunk.
+	// This is hard to control directly, so test the < 2 chunks path by
+	// using a very large max size so everything stays in one block.
+	data := []byte(strings.Repeat("short\n", 40))
+	chunks, ok := lineChunks(data, Config{MinSize: 512, AvgSize: 1024, MaxSize: 10 * 1024 * 1024})
+	if ok && len(chunks) < 2 {
+		// If we got fewer than 2 chunks, it should return false.
+		t.Fatalf("expected false for < 2 chunks, got ok=%v len=%d", ok, len(chunks))
+	}
+	// With a huge max, all lines likely stay in one block -> false.
+	// This is fine either way; the test validates the code path doesn't panic.
+}
