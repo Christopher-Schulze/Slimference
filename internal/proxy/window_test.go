@@ -2,6 +2,43 @@ package proxy
 
 import "testing"
 
+func TestProxyCommandLineContainsSearchTool(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"empty", "", false},
+		{"plain text", "echo hello world", false},
+		{"rg", "rg pattern", true},
+		{"grep", "grep pattern file", true},
+		{"ggrep", "ggrep pattern", true},
+		{"ag", "ag pattern", true},
+		{"ack", "ack pattern", true},
+		{"ack.pl", "ack.pl pattern", true},
+		{"ug", "ug pattern", true},
+		{"ugrep", "ugrep pattern", true},
+		{"sift", "sift pattern", true},
+		{"git grep", "git grep pattern", true},
+		{"git log", "git log", false},
+		{"git without grep arg", "git status", false},
+		{"quoted rg", `"rg" pattern`, true},
+		{"full path rg", "/usr/local/bin/rg pattern", true},
+		{"quoted full path", `"/usr/bin/grep" pattern file`, true},
+		{"rg in middle", "sudo rg pattern", true},
+		{"unknown command", "ls -la", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyCommandLineContainsSearchTool(tc.cmd); got != tc.want {
+				t.Fatalf("proxyCommandLineContainsSearchTool(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInputItemUserText(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
