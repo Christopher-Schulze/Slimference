@@ -1,6 +1,9 @@
 package filter
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestReadRequestFromArgv_CatFullFile(t *testing.T) {
 	t.Parallel()
@@ -276,6 +279,123 @@ func TestTailLineRange(t *testing.T) {
 			if ok != tc.wantOK || off != tc.wantOffset || lim != tc.wantLimit {
 				t.Fatalf("tailLineRange(%v) = (%d, %d, %v), want (%d, %d, %v)",
 					tc.argv, off, lim, ok, tc.wantOffset, tc.wantLimit, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestIsFullFileCat(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"empty", []string{}, false},
+		{"cat_lower", []string{"cat"}, true},
+		{"cat_upper", []string{"CAT"}, true},
+		{"cat_path", []string{"/usr/bin/cat"}, true},
+		{"cat_exe", []string{"cat.exe"}, false},
+		{"head", []string{"head"}, false},
+		{"tail", []string{"tail"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isFullFileCat(tc.argv); got != tc.want {
+				t.Fatalf("isFullFileCat(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSedLineRange(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		argv       []string
+		wantOffset int
+		wantLimit  int
+		wantOK     bool
+	}{
+		{"too_short", []string{"sed"}, 0, 0, false},
+		{"missing_n_flag", []string{"sed", "1,2p"}, 0, 0, false},
+		{"valid_range", []string{"sed", "-n", "10,20p"}, 10, 11, true},
+		{"single_line", []string{"sed", "-n", "5p"}, 5, 1, true},
+		{"no_p_suffix", []string{"sed", "-n", "10,20"}, 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			off, lim, ok := sedLineRange(tc.argv)
+			if ok != tc.wantOK || off != tc.wantOffset || lim != tc.wantLimit {
+				t.Fatalf("sedLineRange(%v) = (%d, %d, %v), want (%d, %d, %v)",
+					tc.argv, off, lim, ok, tc.wantOffset, tc.wantLimit, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestNLOptionConsumesNext(t *testing.T) {
+	t.Parallel()
+	consumes := []string{"-d", "-f", "-h", "-i", "-l", "-n", "-s", "-v", "-w",
+		"--section-delimiter", "--footer-numbering", "--header-numbering",
+		"--line-increment", "--join-blank-lines", "--number-format",
+		"--number-separator", "--starting-line-number", "--number-width"}
+	for _, arg := range consumes {
+		if !nlOptionConsumesNext(arg) {
+			t.Fatalf("nlOptionConsumesNext(%q) = false, want true", arg)
+		}
+	}
+	nonConsumes := []string{"-ba", "-b", "-p", "--no-renumber", "--body-numbering", "file.txt", ""}
+	for _, arg := range nonConsumes {
+		if nlOptionConsumesNext(arg) {
+			t.Fatalf("nlOptionConsumesNext(%q) = true, want false", arg)
+		}
+	}
+}
+
+func TestQuoteReadArg(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		arg  string
+		want string
+	}{
+		{"empty", "", `""`},
+		{"dollar_no_single_quote", "$HOME", "'$HOME'"},
+		{"dollar_with_single_quote", "$HOME and '", ""},
+		{"plain", "file.go", "file.go"},
+		{"with_space", "file with space.go", strconv.Quote("file with space.go")},
+		{"with_double_quote", `file"go`, strconv.Quote(`file"go`)},
+		{"with_backslash", `file\go`, strconv.Quote(`file\go`)},
+		{"with_pipe", "file|go", strconv.Quote("file|go")},
+		{"with_amp", "file&go", strconv.Quote("file&go")},
+		{"with_semicolon", "file;go", strconv.Quote("file;go")},
+		{"with_lt_gt", "file<go>txt", strconv.Quote("file<go>txt")},
+		{"with_star", "file*.go", strconv.Quote("file*.go")},
+		{"with_question", "file?.go", strconv.Quote("file?.go")},
+		{"with_parens", "file(go)", strconv.Quote("file(go)")},
+		{"with_backtick", "file`go", strconv.Quote("file`go")},
+		{"with_single_quote", "file'go", strconv.Quote("file'go")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := quoteReadArg(tc.arg)
+			// Special case: dollar+single-quote path returns a quoted
+			// form that strconv.Quote would also produce, but the
+			// function uses single-quote wrapping instead. Check the
+			// non-empty expectation for that case directly.
+			if tc.name == "dollar_with_single_quote" {
+				// strconv.Quote is the fallback path for $ + '.
+				if got != strconv.Quote(tc.arg) {
+					t.Fatalf("quoteReadArg(%q) = %q, want %q", tc.arg, got, strconv.Quote(tc.arg))
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("quoteReadArg(%q) = %q, want %q", tc.arg, got, tc.want)
 			}
 		})
 	}

@@ -1991,3 +1991,44 @@ func TestSearchOptionKind(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSearchEmptyResultTool(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"empty_argv", []string{}, false},
+		{"rg", []string{"rg", "foo"}, true},
+		{"rg_path", []string{"/usr/local/bin/rg", "foo"}, true},
+		{"grep", []string{"grep", "foo"}, true},
+		{"ggrep", []string{"ggrep", "foo"}, true},
+		{"fd", []string{"fd", "foo"}, true},
+		{"fdfind", []string{"fdfind", "foo"}, true},
+		{"find", []string{"find", "."}, true},
+		{"ag", []string{"ag", "foo"}, true},
+		{"ack", []string{"ack", "foo"}, true},
+		{"ack_pl", []string{"ack.pl", "foo"}, true},
+		{"ug", []string{"ug", "foo"}, true},
+		{"ugrep", []string{"ugrep", "foo"}, true},
+		{"sift", []string{"sift", "foo"}, true},
+		{"plocate", []string{"plocate", "foo"}, true},
+		{"locate", []string{"locate", "foo"}, true},
+		{"sk", []string{"sk", "foo"}, true},
+		{"rg_exe", []string{"rg.exe", "foo"}, true},
+		{"git_no_grep", []string{"git", "status"}, false},
+		{"git_grep", []string{"git", "grep", "foo"}, true},
+		{"git_grep_index", []string{"git", "grep", "-i", "foo"}, true},
+		{"unknown_tool", []string{"ls", "-la"}, false},
+		{"empty_first_arg", []string{""}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isSearchEmptyResultTool(tc.argv); got != tc.want {
+				t.Fatalf("isSearchEmptyResultTool(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
