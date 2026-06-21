@@ -63,7 +63,7 @@ func TestWSPhaseFKnownSourceDeltaToolOutputEmitsFullPassEvidence(t *testing.T) {
 	}
 }
 
-func TestAppendWSSSourceDeltaToolOutputFullPassEvidenceFillsNoEvidenceGap(t *testing.T) {
+func TestAppendWSSSourceToolOutputFullPassEvidenceFillsNoEvidenceGap(t *testing.T) {
 	messages := []types.Message{{
 		Role: "tool",
 		Content: []types.ContentBlock{{
@@ -72,7 +72,7 @@ func TestAppendWSSSourceDeltaToolOutputFullPassEvidenceFillsNoEvidenceGap(t *tes
 			Text:         strings.Repeat("package main\n\nfunc main() {\n\tprintln(\"slimference\")\n}\n", 180),
 		}},
 	}}
-	stats := appendWSSSourceDeltaToolOutputFullPassEvidence(proxyLayer0Stats{}, wssRequestMeta{
+	stats := appendWSSSourceToolOutputFullPassEvidence(proxyLayer0Stats{}, wssRequestMeta{
 		PreviousResponseID:     "resp-source-delta",
 		TurnSeq:                3,
 		RemainingTurnsEstimate: 8,
@@ -91,6 +91,43 @@ func TestAppendWSSSourceDeltaToolOutputFullPassEvidenceFillsNoEvidenceGap(t *tes
 		decision.NetTokens != 0 ||
 		decision.Recovery != "fail-open to original source output" {
 		t.Fatalf("bad source-like fallback evidence: %+v", decision)
+	}
+}
+
+func TestAppendWSSSourceToolOutputFullPassEvidenceCoversFullHistorySource(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			Content: []types.ContentBlock{{
+				Type:      "tool_use",
+				ToolUseID: "call_source",
+				ToolName:  "exec_command",
+				ToolInput: `{"cmd":"sed -n '1,220p' internal/proxy/wsmitm_phasef.go"}`,
+			}},
+		},
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:         "tool_result",
+				ToolResultID: "call_source",
+				Text:         strings.Repeat("package proxy\n\nfunc sourceContext() string {\n\treturn \"slimference\"\n}\n", 160),
+			}},
+		},
+	}
+	if wssRequestIsDeltaShape(messages) {
+		t.Fatal("test fixture must be full-history shaped")
+	}
+	stats := appendWSSSourceToolOutputFullPassEvidence(proxyLayer0Stats{}, wssRequestMeta{
+		PreviousResponseID:     "resp-source-full-history",
+		TurnSeq:                4,
+		RemainingTurnsEstimate: 7,
+	}, messages, 0.1)
+
+	if !hasEvidenceDecision(stats.EvidenceDecisions, proxyLayer0MechanismCapturedOut, "wss_source_tool_output_full_pass", evidence.ActionFullPass) {
+		t.Fatalf("full-history source-like no-evidence fallback missing: %+v", stats.EvidenceDecisions)
+	}
+	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks != 1 || stats.ToolResultBytes <= 0 {
+		t.Fatalf("full-history source fallback must be evidence-only: %+v", stats)
 	}
 }
 

@@ -1008,7 +1008,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
 		l0Stats = mergeWSSHistoryReducerStats(l0Stats, historyStats)
-		l0Stats = appendWSSSourceDeltaToolOutputFullPassEvidence(l0Stats, meta, stagedMessages, a.p.config.Savings.CachedPriceRatio)
+		l0Stats = appendWSSSourceToolOutputFullPassEvidence(l0Stats, meta, stagedMessages, a.p.config.Savings.CachedPriceRatio)
 		if l0Stats.TokensSaved > 0 && structuredMutationGuardReason != "" &&
 			!wssLayer0EvidenceHasFullPassReason(l0Stats.EvidenceDecisions, structuredMutationGuardReason) {
 			if effectiveMutationGuardReason == structuredMutationGuardReason {
@@ -3738,11 +3738,12 @@ func wssGuardedToolOutputFullPassEvidenceDecision(reason string, payloadBytes in
 	return decision
 }
 
-func appendWSSSourceDeltaToolOutputFullPassEvidence(stats proxyLayer0Stats, meta wssRequestMeta, messages []types.Message, cachedPriceRatio float64) proxyLayer0Stats {
+func appendWSSSourceToolOutputFullPassEvidence(stats proxyLayer0Stats, meta wssRequestMeta, messages []types.Message, cachedPriceRatio float64) proxyLayer0Stats {
 	if len(stats.EvidenceDecisions) > 0 || stats.BlocksModified > 0 || stats.TokensSaved > 0 {
 		return stats
 	}
-	if !wssRequestIsDeltaShape(messages) || !wssRiskyPreviousResponseSourceToolOutput(meta, messages) {
+	_, maxBytes := wssSourceToolResultBytes(messages)
+	if maxBytes < wssSourceToolResultFullPassMinBytes {
 		return stats
 	}
 	blocks, payloadBytes := wssToolResultPayloadStats(messages)
