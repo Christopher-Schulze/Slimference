@@ -12,13 +12,6 @@ func isDotnetBin(name string) bool {
 	return b == "dotnet" || b == "dotnet.exe"
 }
 
-func tryCompactDotnetOutput(argv []string) ([]byte, bool) {
-	if len(argv) < 2 || !isDotnetBin(argv[0]) {
-		return nil, false
-	}
-	return compactDotnetSubcommandOK(argv[1])
-}
-
 func compactDotnetSubcommandOK(sub string) ([]byte, bool) {
 	switch sub {
 	case "build":

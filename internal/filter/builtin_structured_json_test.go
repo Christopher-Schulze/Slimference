@@ -404,3 +404,22 @@ func TestStructuredJSONParsersPassThrough(t *testing.T) {
 		t.Fatal("terraform show without json should pass through")
 	}
 }
+
+func TestFirstNonEmptyLocal(t *testing.T) {
+	t.Parallel()
+	if got := firstNonEmptyLocal(); got != "" {
+		t.Fatalf("no args must return empty, got %q", got)
+	}
+	if got := firstNonEmptyLocal("", "  ", "\t"); got != "" {
+		t.Fatalf("all whitespace must return empty, got %q", got)
+	}
+	if got := firstNonEmptyLocal("", "hello", "world"); got != "hello" {
+		t.Fatalf("first non-empty must win, got %q", got)
+	}
+	if got := firstNonEmptyLocal("  trimmed  ", ""); got != "trimmed" {
+		t.Fatalf("must trim whitespace, got %q", got)
+	}
+	if got := firstNonEmptyLocal("", "", "", "last"); got != "last" {
+		t.Fatalf("last non-empty must win if earlier are empty, got %q", got)
+	}
+}

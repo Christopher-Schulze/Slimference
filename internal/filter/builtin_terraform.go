@@ -156,18 +156,6 @@ func isTerraformSubcommand(argv []string, sub string) bool {
 	return strings.ToLower(argv[1]) == sub
 }
 
-// isTerraformStateList matches `terraform state list [...]`, which is a
-// two-word subcommand: argv[1] = "state", argv[2] = "list".
-func isTerraformStateList(argv []string) bool {
-	if len(argv) < 3 {
-		return false
-	}
-	if !isTerraformBinary(argv[0]) {
-		return false
-	}
-	return strings.ToLower(argv[1]) == "state" && strings.ToLower(argv[2]) == "list"
-}
-
 // hasTerraformJSONFlag returns true when any argv element is `-json` or
 // `--json`. Used to skip compaction of structured-output variants where the
 // caller is parsing JSON downstream and shape changes would break them.
