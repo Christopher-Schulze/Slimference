@@ -235,6 +235,39 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestProxyGoRunInvokesReconc(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"empty", []string{}, false},
+		{"too short", []string{"go", "run"}, false},
+		{"not go", []string{"node", "run", "reconc"}, false},
+		{"not run", []string{"go", "build", "reconc"}, false},
+		{"reconc", []string{"go", "run", "reconc"}, true},
+		{"reconc with args", []string{"go", "run", "reconc", "--flag"}, true},
+		{"cmd/reconc", []string{"go", "run", "cmd/reconc"}, true},
+		{"path to reconc", []string{"go", "run", "./cmd/reconc"}, true},
+		{"full path to reconc", []string{"go", "run", "/home/user/repo/cmd/reconc"}, true},
+		{"not reconc", []string{"go", "run", "main.go"}, false},
+		{"with flags before reconc", []string{"go", "run", "-v", "reconc"}, true},
+		{"double dash stops", []string{"go", "run", "--", "reconc"}, false},
+		{"empty args skipped", []string{"go", "run", "", "reconc"}, true},
+		{"GO uppercase", []string{"GO", "run", "reconc"}, true},
+		{"go with spaces", []string{" go ", "run", "reconc"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyGoRunInvokesReconc(tc.argv); got != tc.want {
+				t.Fatalf("proxyGoRunInvokesReconc(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestScanWindowBlockFilePath(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
