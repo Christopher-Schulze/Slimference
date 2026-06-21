@@ -7660,6 +7660,116 @@ func TestWSPhaseFReconnectFullHistorySearchOutputDefaultDetachesPreviousResponse
 	}
 }
 
+func TestWSPhaseFReconnectFullHistoryInferredSearchOutputDefaultDetachesPreviousResponse(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := "Process exited with code 0\nOutput:\n" + proxyWSSSearchOutputFixture("needle", 90)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-inferred-search-reconnect-parent",
+		"prompt_cache_key":     "inferred-search-reconnect-full-history-session",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "review prior search output"},
+			{"type": "function_call", "call_id": "evicted-search-use", "name": "exec_command"},
+			{"type": "function_call_output", "call_id": "evicted-search-use", "output": searchOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("inferred reconnect full-history search output handle: %v", err)
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("inferred reconnect full-history search output rewritten body missing")
+	}
+	raw := string(body)
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !replace ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(raw, "[rg]") ||
+		strings.Contains(raw, "src/file_089.go:90:needle") {
+		t.Fatalf("inferred reconnect full-history search output should compact by default: replace=%v reason=%q facts=%+v", replace, summary.BypassReason, summary.DebugFacts)
+	}
+	if bytes.Contains(body, []byte("previous_response_id")) {
+		t.Fatalf("inferred reconnect full-history search output must detach previous_response_id: %s", body)
+	}
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed == 0 {
+		t.Fatalf("inferred reconnect full-history search output should save as detached stateless mutation: %+v", summary)
+	}
+}
+
+func TestWSPhaseFReconnectFullHistoryInferredSourceOutputKeepsDownstreamProofGate(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	sourceOutput := "Process exited with code 0\nOutput:\npackage proxy\n\nfunc sourceContextNeedle() string {\n\treturn \"needle\"\n}\n"
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-inferred-source-reconnect-parent",
+		"prompt_cache_key":     "inferred-source-reconnect-full-history-session",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "review prior source output"},
+			{"type": "function_call", "call_id": "evicted-source-use", "name": "exec_command"},
+			{"type": "function_call_output", "call_id": "evicted-source-use", "output": sourceOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("inferred reconnect full-history source output handle: %v", err)
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("inferred reconnect full-history source output body missing")
+	}
+	raw := string(body)
+	if replace ||
+		!strings.Contains(raw, "sourceContextNeedle") ||
+		!strings.Contains(raw, `return \"needle\"`) ||
+		!strings.Contains(raw, "previous_response_id") {
+		t.Fatalf("inferred source output must stay byte-visible and stateful: replace=%v raw=%s", replace, raw)
+	}
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.BypassReason != "wss_previous_response_tool_output_full_pass" ||
+		summary.Tokens.Saved != 0 ||
+		summary.MessagesCompressed != 0 {
+		t.Fatalf("inferred source output should remain guarded without savings: %+v", summary)
+	}
+}
+
 func TestWSPhaseFReconnectFullHistoryMixedSearchOutputKeepsDownstreamProofGate(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir

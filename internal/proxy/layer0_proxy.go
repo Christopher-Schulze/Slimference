@@ -362,11 +362,16 @@ type codexLayer0Request struct {
 	LatencyBudgetExceeded     bool
 	ChunkIntegrityBudgetHit   bool
 	StructuredMutationBlocked bool
-	// WSSSearchMutationAllowed opens only named, tool-use-bound search output
-	// after either the old full-history/lab proof or the final search-cap proof
-	// latch. The latch is intentionally narrower than broad tool-output delta
-	// mutation: non-search, inferred search, and unknown output stay guarded.
+	// WSSSearchMutationAllowed opens named, tool-use-bound search output after
+	// either the old full-history/lab proof or the final search-cap proof latch.
+	// The latch is intentionally narrower than broad tool-output delta mutation:
+	// non-search and unknown output stay guarded.
 	WSSSearchMutationAllowed bool
+	// WSSSearchInferredMutationAllowed is narrower still: Phase-F may set it only
+	// after the whole reconnect full-history request has been classified as
+	// stateless-safe inferred search output, so missing tool_use metadata does
+	// not waste an otherwise byte-recoverable search-compaction opportunity.
+	WSSSearchInferredMutationAllowed bool
 	// WSSSearchDeltaAllOrNothing is the final stateful search-cap delta path:
 	// if any search-like output in the same delta request is not proof-allowed,
 	// the whole request stays byte-identical instead of partially mutating and
@@ -654,7 +659,16 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
 			chunkMinBytes := proxyScaledChunkDedupMinBytes(req.ChunkDedupMinBytes, len(block.Text), req.TurnSeq, req.RemainingTurnsEstimate, req.CachedPriceRatio)
-			wssSearchProofAllowed, wssSearchProofReason := proxyWSSSearchOutputProofDecision(commandLine, use, commandFromToolUse, workload, req.WSSSearchMutationAllowed, req.StatefulDeltaMutationBlocked)
+			proofCommandFromToolUse := commandFromToolUse
+			proofUse := use
+			if !proofCommandFromToolUse &&
+				req.WSSSearchInferredMutationAllowed &&
+				workload == savingspolicy.CodexWorkloadSearch &&
+				proxyInferCommandLineFromToolResult(block.Text) == "rg" {
+				proofCommandFromToolUse = true
+				proofUse = types.ContentBlock{ToolName: "inferred_search_output", ToolInput: commandLine}
+			}
+			wssSearchProofAllowed, wssSearchProofReason := proxyWSSSearchOutputProofDecision(commandLine, proofUse, proofCommandFromToolUse, workload, req.WSSSearchMutationAllowed, req.StatefulDeltaMutationBlocked)
 			if wssSearchProofAllowed && searchDeltaProofRequestBlocked {
 				wssSearchProofAllowed = false
 				wssSearchProofReason = "mixed_search_delta_proof"

@@ -988,15 +988,16 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				MaxMatchesPerFile: searchCompactOptions.MaxMatchesPerFile,
 				MinRetainedPct:    searchCompactOptions.MinRetainedPct,
 			},
-			HostBudgetExceeded:           a.p.codexHostBudgetExceeded(),
-			LatencyBudgetExceeded:        a.p.codexLayer0LatencyExceeded.Load(),
-			StructuredMutationBlocked:    !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
-			WSSSearchMutationAllowed:     searchMutationAllowed,
-			WSSSearchDeltaAllOrNothing:   searchCapStatefulDeltaAllowed,
-			CacheBustDemotedMechanisms:   cacheBustDemoted,
-			CacheBustDemotedClassKeys:    cacheBustDemotedClassKeys,
-			HistoryMutationGuardReason:   downstreamStateMutationGuardReason,
-			StatefulDeltaMutationBlocked: statefulDeltaMutationBlocked,
+			HostBudgetExceeded:               a.p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded:            a.p.codexLayer0LatencyExceeded.Load(),
+			StructuredMutationBlocked:        !structuredMutationAllowed && !statefulToolOutputMutationSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled,
+			WSSSearchMutationAllowed:         searchMutationAllowed,
+			WSSSearchInferredMutationAllowed: reconnectFullHistorySearchOutputStatelessSafe,
+			WSSSearchDeltaAllOrNothing:       searchCapStatefulDeltaAllowed,
+			CacheBustDemotedMechanisms:       cacheBustDemoted,
+			CacheBustDemotedClassKeys:        cacheBustDemotedClassKeys,
+			HistoryMutationGuardReason:       downstreamStateMutationGuardReason,
+			StatefulDeltaMutationBlocked:     statefulDeltaMutationBlocked,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -2126,14 +2127,14 @@ func wssFullHistorySearchOutputStatelessSafeWithToolUses(messages []types.Messag
 				continue
 			}
 			use, resolved := proxyResolveToolUseDetailed(block, toolUses)
-			if !resolved {
-				return false
-			}
 			commandLine := proxyLayer0CommandLine(use)
+			if !resolved || commandLine == "" {
+				commandLine = wssInferredSearchOutputCommandLine(block.Text)
+			}
 			if commandLine == "" || readRequestFromCommandLine(commandLine).FilePath != "" {
 				return false
 			}
-			if strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
+			if resolved && strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
 				return false
 			}
 			if !proxyWSSSearchOutputReducerEligible(commandLine) ||
@@ -2150,6 +2151,13 @@ func wssFullHistorySearchOutputStatelessSafeWithToolUses(messages []types.Messag
 		}
 	}
 	return seenSearchOutput
+}
+
+func wssInferredSearchOutputCommandLine(text string) string {
+	if proxyInferCommandLineFromToolResult(text) != "rg" {
+		return ""
+	}
+	return "rg -n slimference-inferred-search ."
 }
 
 func wssSafeStatefulStatusToolOutput(toolUse types.ContentBlock, output string) bool {
