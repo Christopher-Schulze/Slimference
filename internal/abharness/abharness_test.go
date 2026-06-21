@@ -425,3 +425,87 @@ func TestAppendArchiveID(t *testing.T) {
 		t.Fatalf("empty ID should not add: %v", out)
 	}
 }
+
+func TestCompareTurnSegments(t *testing.T) {
+	t.Parallel()
+	// Test the "extra after blocks" branch: after has more blocks than
+	// before in a segment, triggering the extra-block elision path.
+	before := []string{"a", "b"}
+	after := []string{"a", "extra1", "extra2", "b"}
+	// No equal pairs — the entire arrays form one segment.
+	pairs := []equalPair{}
+	seenFull := map[string]struct{}{}
+	resolve := func(id string) ([]byte, error) { return nil, nil }
+
+	elisions := compareTurnSegments(0, before, after, pairs, seenFull, resolve)
+	// Should produce elisions for the extra blocks.
+	if len(elisions) == 0 {
+		t.Fatalf("expected elisions for extra after blocks, got 0")
+	}
+	hasExtra := false
+	for _, e := range elisions {
+		if e.Severity == SeverityExtra {
+			hasExtra = true
+		}
+	}
+	if !hasExtra {
+		t.Fatalf("expected at least one SeverityExtra elision, got %v", elisions)
+	}
+}
+
+func TestCompareTurnSegments_RemovedBeforeBlocks(t *testing.T) {
+	t.Parallel()
+	// Test the "removed before blocks" branch: before has more blocks than
+	// after in a segment, triggering the removed-block elision path.
+	before := []string{"a", "removed1", "removed2", "b"}
+	after := []string{"a", "b"}
+	pairs := []equalPair{
+		{before: 0, after: 0},
+		{before: 3, after: 1},
+	}
+	seenFull := map[string]struct{}{}
+	resolve := func(id string) ([]byte, error) { return nil, nil }
+
+	elisions := compareTurnSegments(0, before, after, pairs, seenFull, resolve)
+	// Should produce elisions for the removed blocks.
+	if len(elisions) == 0 {
+		t.Fatalf("expected elisions for removed before blocks, got 0")
+	}
+}
+
+func TestCompareTurnSegments_WhitespaceSkips(t *testing.T) {
+	t.Parallel()
+	// Test the whitespace-skip branches: empty/whitespace blocks in
+	// before and after should be skipped without producing elisions.
+	before := []string{"  ", "real"}
+	after := []string{"", "real"}
+	pairs := []equalPair{{before: 1, after: 1}}
+	seenFull := map[string]struct{}{}
+	resolve := func(id string) ([]byte, error) { return nil, nil }
+
+	elisions := compareTurnSegments(0, before, after, pairs, seenFull, resolve)
+	// The whitespace blocks should be skipped; the equal pair should
+	// produce no elision. So total elisions should be 0.
+	if len(elisions) != 0 {
+		t.Fatalf("expected 0 elisions for whitespace+equal, got %v", elisions)
+	}
+}
+
+func TestCompareTurnSegments_ExtraWithWhitespace(t *testing.T) {
+	t.Parallel()
+	// Test the extra-block path where the extra after block is whitespace
+	// only — it should be skipped (not produce an elision).
+	before := []string{"a"}
+	after := []string{"a", "  "}
+	pairs := []equalPair{{before: 0, after: 0}}
+	seenFull := map[string]struct{}{}
+	resolve := func(id string) ([]byte, error) { return nil, nil }
+
+	elisions := compareTurnSegments(0, before, after, pairs, seenFull, resolve)
+	// The whitespace extra block should not produce an elision.
+	for _, e := range elisions {
+		if e.Severity == SeverityExtra {
+			t.Fatalf("whitespace extra should not produce elision: %v", e)
+		}
+	}
+}
