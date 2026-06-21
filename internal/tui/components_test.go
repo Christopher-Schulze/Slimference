@@ -417,3 +417,53 @@ func TestRenderProgressBar_FilledClamp(t *testing.T) {
 		t.Errorf("expected 100%% in output, got: %s", got)
 	}
 }
+
+func TestRenderShortcutRow(t *testing.T) {
+	s := NewStyles()
+	got := renderShortcutRow(s, "q quit", "r refresh")
+	if got == "" {
+		t.Fatal("renderShortcutRow should return non-empty")
+	}
+	if !strings.Contains(got, "q quit") || !strings.Contains(got, "r refresh") {
+		t.Fatalf("renderShortcutRow should contain both items: %q", got)
+	}
+}
+
+func TestRenderMetricLine(t *testing.T) {
+	s := NewStyles()
+	got := renderMetricLine(s, "Tokens", "1.2k")
+	if got == "" {
+		t.Fatal("renderMetricLine should return non-empty")
+	}
+	if !strings.Contains(got, "Tokens") || !strings.Contains(got, "1.2k") {
+		t.Fatalf("renderMetricLine should contain key and value: %q", got)
+	}
+}
+
+func TestRenderMetricPair(t *testing.T) {
+	s := NewStyles()
+	got := renderMetricPair(s, "Saved", "1.2k", "Total", "5.0k", 80)
+	if got == "" {
+		t.Fatal("renderMetricPair should return non-empty")
+	}
+	if !strings.Contains(got, "Saved") || !strings.Contains(got, "Total") {
+		t.Fatalf("renderMetricPair should contain both keys: %q", got)
+	}
+}
+
+func TestRenderTable(t *testing.T) {
+	s := NewStyles()
+	headers := []string{"Name", "Value"}
+	rows := [][]string{{"alpha", "100"}, {"beta", "200"}}
+	colWidths := []int{10, 10}
+	got := renderTable(s, headers, rows, colWidths)
+	if got == "" {
+		t.Fatal("renderTable should return non-empty")
+	}
+	if !strings.Contains(got, "Name") || !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
+		t.Fatalf("renderTable should contain headers and row data: %q", got)
+	}
+	if !strings.Contains(got, "-+-") {
+		t.Fatalf("renderTable should contain separator: %q", got)
+	}
+}

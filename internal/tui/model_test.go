@@ -2383,3 +2383,65 @@ func TestView_MainRender_liveLog(t *testing.T) {
 		t.Errorf("main view should keep live log out of Launch, got: %s", output)
 	}
 }
+
+func TestSavingsState(t *testing.T) {
+	t.Parallel()
+	m := NewModel(newMockProxy())
+	if got := m.savingsState(); got != "no data" {
+		t.Fatalf("savingsState with no data: %q, want 'no data'", got)
+	}
+	m.latestSnap = analytics.AnalyticsSnapshot{SavedInputTokens: 1500}
+	if got := m.savingsState(); !strings.Contains(got, "saved") {
+		t.Fatalf("savingsState with data: %q, want 'saved'", got)
+	}
+}
+
+func TestRecertStatusSuffix(t *testing.T) {
+	t.Parallel()
+	m := NewModel(newMockProxy())
+	if got := m.recertStatusSuffix(); got != "" {
+		t.Fatalf("empty recert suffix: %q, want ''", got)
+	}
+	m.codexRouteStatus.RecertStatus = "running"
+	m.codexRouteStatus.RecertAttemptID = "att-1"
+	m.codexRouteStatus.RecertStartedAt = time.Now().Add(-5 * time.Minute)
+	m.codexRouteStatus.RecertLastError = "timeout"
+	m.codexRouteStatus.RecertLogPath = "/tmp/log"
+	got := m.recertStatusSuffix()
+	if !strings.Contains(got, "recert running") || !strings.Contains(got, "att-1") {
+		t.Fatalf("recert suffix should contain status and attempt: %q", got)
+	}
+	if !strings.Contains(got, "last error: timeout") || !strings.Contains(got, "log /tmp/log") {
+		t.Fatalf("recert suffix should contain error and log: %q", got)
+	}
+}
+
+func TestRelativeTime(t *testing.T) {
+	t.Parallel()
+	if got := relativeTime(time.Time{}); got != "" {
+		t.Fatalf("zero time should return empty, got %q", got)
+	}
+	past := time.Now().Add(-5 * time.Minute)
+	got := relativeTime(past)
+	if !strings.Contains(got, "ago") {
+		t.Fatalf("past time should contain 'ago': %q", got)
+	}
+	future := time.Now().Add(5 * time.Minute)
+	got = relativeTime(future)
+	if !strings.Contains(got, "in ") {
+		t.Fatalf("future time should contain 'in ': %q", got)
+	}
+}
+
+func TestRoundDuration(t *testing.T) {
+	t.Parallel()
+	if got := roundDuration(30 * time.Second); !strings.Contains(got, "30s") {
+		t.Fatalf("30s should round to seconds: %q", got)
+	}
+	if got := roundDuration(90 * time.Minute); !strings.Contains(got, "h") {
+		t.Fatalf("90m should round to hours: %q", got)
+	}
+	if got := roundDuration(-5 * time.Minute); !strings.Contains(got, "5m") {
+		t.Fatalf("negative should be absolute: %q", got)
+	}
+}
