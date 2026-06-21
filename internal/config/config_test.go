@@ -1550,3 +1550,44 @@ func TestValidate_PlannerLiveCorpusConfidence(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestApplyConfigAliases_LegacyLayer3Enabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	// Use the legacy layer3_enabled key without the new layer2_enabled key.
+	if err := os.WriteFile(configPath, []byte(`
+[compression]
+layer3_enabled = true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions: %v", err)
+	}
+	if !cfg.Compression.Layer2Enabled {
+		t.Fatal("legacy layer3_enabled should alias to layer2_enabled when layer2_enabled is absent")
+	}
+}
+
+func TestApplyConfigAliases_ExplicitLayer2Wins(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	// Both keys present: explicit layer2_enabled=false wins, layer3_enabled ignored.
+	if err := os.WriteFile(configPath, []byte(`
+[compression]
+layer2_enabled = false
+layer3_enabled = true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err != nil {
+		t.Fatalf("LoadWithOptions: %v", err)
+	}
+	if cfg.Compression.Layer2Enabled {
+		t.Fatal("explicit layer2_enabled=false must win over legacy layer3_enabled=true")
+	}
+}
