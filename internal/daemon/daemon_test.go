@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -493,6 +494,92 @@ func TestStopDaemon_ForceKillStillAlive(t *testing.T) {
 	}
 	if len(signals) != 2 || signals[0] != syscall.SIGTERM || signals[1] != syscall.SIGKILL {
 		t.Fatalf("unexpected signals: %v", signals)
+	}
+}
+
+func TestStopDaemon_ForceKillError(t *testing.T) {
+	mu.Lock()
+	origIsRunningFn := isRunningFn
+	origSendSignalFn := sendSignalFn
+	origSleepFn := sleepFn
+	origNow := timeNow
+	isRunningFn = func() (bool, *PIDFile, error) {
+		return true, &PIDFile{PID: 42, Port: 8990}, nil
+	}
+	sigKillErr := errors.New("permission denied")
+	sendSignalFn = func(pid int, sig syscall.Signal) error {
+		if sig == syscall.SIGKILL {
+			return sigKillErr
+		}
+		return nil
+	}
+	sleepFn = func(time.Duration) {}
+	nowSeq := []time.Time{
+		time.Unix(100, 0),
+		time.Unix(111, 0),
+	}
+	timeNow = func() time.Time {
+		v := nowSeq[0]
+		if len(nowSeq) > 1 {
+			nowSeq = nowSeq[1:]
+		}
+		return v
+	}
+	defer func() {
+		isRunningFn = origIsRunningFn
+		sendSignalFn = origSendSignalFn
+		sleepFn = origSleepFn
+		timeNow = origNow
+		mu.Unlock()
+	}()
+
+	err := StopDaemon()
+	if err == nil || !strings.Contains(err.Error(), "SIGKILL") {
+		t.Fatalf("expected SIGKILL error, got %v", err)
+	}
+}
+
+func TestStopDaemon_CheckAfterKillError(t *testing.T) {
+	mu.Lock()
+	origIsRunningFn := isRunningFn
+	origSendSignalFn := sendSignalFn
+	origSleepFn := sleepFn
+	origNow := timeNow
+	checkCalls := 0
+	isRunningFn = func() (bool, *PIDFile, error) {
+		checkCalls++
+		if checkCalls == 1 {
+			return true, &PIDFile{PID: 42, Port: 8990}, nil
+		}
+		// After SIGKILL, return an error.
+		return false, nil, errors.New("check failed")
+	}
+	sendSignalFn = func(pid int, sig syscall.Signal) error {
+		return nil
+	}
+	sleepFn = func(time.Duration) {}
+	nowSeq := []time.Time{
+		time.Unix(100, 0),
+		time.Unix(111, 0),
+	}
+	timeNow = func() time.Time {
+		v := nowSeq[0]
+		if len(nowSeq) > 1 {
+			nowSeq = nowSeq[1:]
+		}
+		return v
+	}
+	defer func() {
+		isRunningFn = origIsRunningFn
+		sendSignalFn = origSendSignalFn
+		sleepFn = origSleepFn
+		timeNow = origNow
+		mu.Unlock()
+	}()
+
+	err := StopDaemon()
+	if err == nil || !strings.Contains(err.Error(), "check daemon after SIGKILL") {
+		t.Fatalf("expected check-after-kill error, got %v", err)
 	}
 }
 
