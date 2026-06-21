@@ -123,8 +123,7 @@ func TestHandleSubcommand_stats_configLoadErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_stats_configLoadErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_STATS_BAD_CFG=1", "TP_STATS_BAD_CFG_FILE="+badPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -137,8 +136,7 @@ func TestHandleSubcommand_statsUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_statsUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_STATS_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -151,8 +149,7 @@ func TestHandleSubcommand_statsUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_statsUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_STATS_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

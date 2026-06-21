@@ -146,8 +146,7 @@ func TestHandleSubcommand_testUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_testUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TEST_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -160,8 +159,7 @@ func TestHandleSubcommand_testUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_testUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TEST_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -174,8 +172,7 @@ func TestHandleSubcommand_testInterceptUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_testInterceptUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TEST_ICPT=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -189,8 +186,7 @@ func TestTestUpstream_connRefusedExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestTestUpstream_connRefusedExits1")
 	cmd.Env = append(os.Environ(), "TP_UPSTREAM_FAIL=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -210,8 +206,7 @@ func TestHandleTestCmd_configLoadErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleTestCmd_configLoadErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_TESTCMD_CFG_BAD=1", "TP_BAD_CFG_FILE="+badPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

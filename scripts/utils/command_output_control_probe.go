@@ -290,8 +290,7 @@ func commandOutputControlProbe(flags commandOutputProbeFlags, stdout, stderr io.
 		result.Findings = append(result.Findings, "child_timeout")
 	}
 	if runErr != nil && exitCode == 1 && !timedOut {
-		var exitErr *exec.ExitError
-		if !errors.As(runErr, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](runErr); !ok {
 			return result, runErr
 		}
 	}
@@ -397,8 +396,7 @@ func commandOutputProbeExitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exitErr.ExitCode()
 	}
 	return 1

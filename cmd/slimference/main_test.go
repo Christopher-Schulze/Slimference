@@ -302,8 +302,7 @@ func TestHandleSubcommand_unknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_unknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_UNKNOWN=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

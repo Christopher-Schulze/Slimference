@@ -124,8 +124,7 @@ func TestHandleSubcommand_filter_nonZeroExit_teeRecovery(t *testing.T) {
 	)
 	cmd.Dir = t.TempDir()
 	out, err := cmd.CombinedOutput()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 7 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 7 {
 		t.Fatalf("want exit 7, got err=%v out=%s", err, out)
 	}
 	if !strings.Contains(string(out), "saved raw output") {
@@ -162,8 +161,7 @@ func TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TP_REWRITE_NOFIL=1")
 	cmd.Stdin = strings.NewReader(`{"command":"echo rewrite-ok"}`)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1 (no filter match), got err=%v", err)
 	}
 }
@@ -179,8 +177,7 @@ func TestHandleSubcommand_rewrite_stdinNoCommandExits1(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v stderr=%q", err, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), `"command"`) {
@@ -199,8 +196,7 @@ func TestHandleSubcommand_rewrite_stdinInvalidJSONExits1(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v stderr=%q", err, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "JSON") {
@@ -229,8 +225,7 @@ func TestHandleSubcommand_rewrite_usageTTYExits1(t *testing.T) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err = cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v stderr=%q", err, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "usage: slimference rewrite") {
@@ -251,8 +246,7 @@ func TestMustOpenFilterDB_invalidSQLiteExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMustOpenFilterDB_invalidSQLiteExits1")
 	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_BAD=1", "SLIMFERENCE_FILTER_DB="+dbPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -281,8 +275,7 @@ func TestMustOpenFilterDB_statNotExistVsOther(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMustOpenFilterDB_statNotExistVsOther")
 	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_STAT=1", "SLIMFERENCE_FILTER_DB="+dbPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -295,8 +288,7 @@ func TestHandleSubcommand_filterUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_filterUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_FILTER_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -309,8 +301,7 @@ func TestHandleSubcommand_rewriteLayer0DenyExits2(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_rewriteLayer0DenyExits2")
 	cmd.Env = append(os.Environ(), "TP_SUB_RW_DENY=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 2 {
 		t.Fatalf("want exit 2, got err=%v", err)
 	}
 }
@@ -324,8 +315,7 @@ func TestHandleSubcommand_rewriteSudoExits3(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_rewriteSudoExits3")
 	cmd.Env = append(os.Environ(), "TP_SUB_RW_SUDO=1", "SLIMFERENCE_CONFIRM_SUDO=")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 3 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 3 {
 		t.Fatalf("want exit 3, got err=%v", err)
 	}
 }
@@ -340,8 +330,7 @@ func TestHandleFilterCmd_deniedExits2(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleFilterCmd_deniedExits2")
 	cmd.Env = append(os.Environ(), "TP_FILTER_DENY=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 2 {
 		t.Fatalf("want exit 2 (deny), got err=%v", err)
 	}
 }
@@ -357,8 +346,7 @@ func TestHandleFilterCmd_sudoExits3(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleFilterCmd_sudoExits3")
 	cmd.Env = append(os.Environ(), "TP_FILTER_SUDO=1", "SLIMFERENCE_CONFIRM_SUDO=")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 3 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 3 {
 		t.Fatalf("want exit 3 (sudo ask), got err=%v", err)
 	}
 }
@@ -393,8 +381,7 @@ func TestHandleRewriteCmd_dashDashSkip_NoFilter(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleRewriteCmd_dashDashSkip_NoFilter")
 	cmd.Env = append(os.Environ(), "TP_RW_DASHDASH_NF=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1 (no filter), got err=%v", err)
 	}
 }
@@ -413,8 +400,7 @@ func TestHandleFilterCmd_prErrExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleFilterCmd_prErrExits1")
 	cmd.Env = append(os.Environ(), "TP_FILTER_PRERR=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

@@ -2402,8 +2402,7 @@ func ignoreExpectedProcessExit(err error) error {
 	if err == nil {
 		return nil
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
 		return nil
 	}
 	return err

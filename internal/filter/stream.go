@@ -86,8 +86,7 @@ func interpretExitError(waitErr error) (int, error) {
 	if waitErr == nil {
 		return 0, nil
 	}
-	var exitErr *exec.ExitError
-	if errors.As(waitErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		return exitErr.ExitCode(), nil
 	}
 	return 1, waitErr

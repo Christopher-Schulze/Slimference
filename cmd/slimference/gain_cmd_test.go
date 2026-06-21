@@ -1164,8 +1164,7 @@ func TestHandleSubcommand_gainBadPeriodExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_gainBadPeriodExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_GAIN_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1179,8 +1178,7 @@ func TestHandleGainCmd_parseErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleGainCmd_parseErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_GAIN_PARSE_ERR=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1194,8 +1192,7 @@ func TestHandleGainCmd_badPeriodExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleGainCmd_badPeriodExits1")
 	cmd.Env = append(os.Environ(), "TP_GAIN_BAD_PERIOD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1226,8 +1223,7 @@ func TestHandleGainCmd_statOtherErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleGainCmd_statOtherErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_GAIN_STAT_ERR=1", "TP_GAIN_DB_PATH="+dbPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1249,8 +1245,7 @@ func TestHandleGainCmd_queryErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleGainCmd_queryErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_GAIN_QUERY_ERR=1", "TP_GAIN_CORRUPT_DB="+corruptDB)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

@@ -120,8 +120,7 @@ func runCodexDesktopAppServerMediated(argv0 string, argv []string, env []string,
 		})
 		return 0
 	}
-	var exitErr *exec.ExitError
-	if errors.As(waitErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		if code := exitErr.ExitCode(); code >= 0 {
 			logger.Log(codexDesktopShimLogRecord{
 				Event:    "shim_exit",

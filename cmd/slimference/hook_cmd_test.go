@@ -101,8 +101,7 @@ func TestHandleSubcommand_hookUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -115,8 +114,7 @@ func TestHandleSubcommand_hookUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -129,8 +127,7 @@ func TestHandleSubcommand_hookInstallUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookInstallUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_IN_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -143,8 +140,7 @@ func TestHandleSubcommand_hookInstallUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookInstallUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_IN_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -157,8 +153,7 @@ func TestHandleSubcommand_hookRemoveUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookRemoveUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_RM_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -171,8 +166,7 @@ func TestHandleSubcommand_hookRemoveUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_hookRemoveUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_HOOK_RM_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -188,8 +182,7 @@ func TestHandleHookCmd_verifyNotOkExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_verifyNotOkExits1")
 	cmd.Env = append(os.Environ(), "TP_HOOK_VFY_FAIL=1", "TP_HOOK_VFY_HOME="+home)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1 (hooks missing), got err=%v", err)
 	}
 }
@@ -342,8 +335,7 @@ func TestHandleHookCmd_installClaude_parkedExits2(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_installClaude_parkedExits2")
 	cmd.Env = append(os.Environ(), "TP_HOOK_ICLAUDE_ERR=1", "TP_HOOK_ICLAUDE_HOME="+roHome)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 2 {
 		t.Fatalf("want exit 2 from parked Claude install, got err=%v", err)
 	}
 }
@@ -368,8 +360,7 @@ func TestHandleHookCmd_installCodex_errorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_installCodex_errorExits1")
 	cmd.Env = append(os.Environ(), "TP_HOOK_ICODEX_ERR=1", "TP_HOOK_ICODEX_HOME="+roHome)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1 from InstallCodex error, got err=%v", err)
 	}
 }
@@ -394,8 +385,7 @@ func TestHandleHookCmd_removeClaude_parkedExits2(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_removeClaude_parkedExits2")
 	cmd.Env = append(os.Environ(), "TP_HOOK_RCLAUDE_ERR=1", "TP_HOOK_RCLAUDE_HOME="+home)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 2 {
 		t.Fatalf("want exit 2 from parked Claude remove, got err=%v", err)
 	}
 }

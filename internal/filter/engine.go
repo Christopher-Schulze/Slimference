@@ -26,8 +26,7 @@ func RunCommand(ctx context.Context, workDir string, argv []string) (stdout, std
 	if err == nil {
 		return stdout, stderr, 0, nil
 	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		return stdout, stderr, ee.ExitCode(), nil
 	}
 	return stdout, stderr, -1, err

@@ -581,8 +581,7 @@ func TestHandleSubcommand_debugSummary_invalidPeriodExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugSummary_invalidPeriodExits1")
 	cmd.Env = append(os.Environ(), "TP_DEBUG_SUM_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -595,8 +594,7 @@ func TestHandleSubcommand_debugTail_unknownFlagExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugTail_unknownFlagExits1")
 	cmd.Env = append(os.Environ(), "TP_DEBUG_TAIL_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -609,8 +607,7 @@ func TestHandleSubcommand_debugReplay_usageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugReplay_usageExits1")
 	cmd.Env = append(os.Environ(), "TP_DEBUG_REPLAY_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -783,8 +780,7 @@ func TestHandleSubcommand_debugSummary_parseArgsErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugSummary_parseArgsErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_DEBUG_SUM_PARSE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -818,8 +814,7 @@ func TestHandleSubcommand_debugUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_DEBUG_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -832,8 +827,7 @@ func TestHandleSubcommand_debugUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_DEBUG_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -846,8 +840,7 @@ func TestHandleSubcommand_debugSummaryBadPeriodExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugSummaryBadPeriodExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_DEBUG_SUM_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -860,8 +853,7 @@ func TestHandleSubcommand_debugTailUnknownFlagExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugTailUnknownFlagExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TAIL_FLAG=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -874,8 +866,7 @@ func TestHandleSubcommand_debugTailBadLimitExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugTailBadLimitExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TAIL_N=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -888,8 +879,7 @@ func TestHandleSubcommand_debugTailExtraArgExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugTailExtraArgExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_TAIL_X=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -902,8 +892,7 @@ func TestHandleSubcommand_debugReplayUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_debugReplayUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_REPLAY=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1028,8 +1017,7 @@ func TestHandleDebugPaths_configLoadErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugPaths_configLoadErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_DEBUG_PATHS_CFG_BAD=1", "TP_BAD_CFG_PATH="+badPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1044,8 +1032,7 @@ func TestHandleDebugReplay_fileErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugReplay_fileErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_REPLAY_ERR=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1070,8 +1057,7 @@ func TestHandleDebugReplay_replayParseErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugReplay_replayParseErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_REPLAY_PARSE_ERR=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1155,8 +1141,7 @@ func TestHandleDebugSummary_queryErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugSummary_queryErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_DBG_SUM_QUERY_ERR=1", "TP_DBG_SUM_CORRUPT_DB="+corruptDB)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1178,8 +1163,7 @@ func TestHandleDebugTail_queryErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugTail_queryErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_DBG_TAIL_QUERY_ERR=1", "TP_DBG_TAIL_CORRUPT_DB="+corruptDB)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -1201,8 +1185,7 @@ func TestHandleDebugLast_queryErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleDebugLast_queryErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_DBG_LAST_QUERY_ERR=1", "TP_DBG_LAST_CORRUPT_DB="+corruptDB)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }

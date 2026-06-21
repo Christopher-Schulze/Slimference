@@ -131,8 +131,7 @@ func TestHandleSubcommand_doctor_invalidConfigExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_doctor_invalidConfigExits1")
 	cmd.Env = append(os.Environ(), "TP_DOCTOR_BAD_CFG=1", "SLIMFERENCE_CONFIG="+cfgPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -397,8 +396,7 @@ func TestHandleSubcommand_configShow_loadErrorExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configShow_loadErrorExits1")
 	cmd.Env = append(os.Environ(), "TP_CFG_SHOW_BAD=1", "TP_CFG_SHOW_BAD_FILE="+badPath)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -456,8 +454,7 @@ func TestHandleSubcommand_configUnknownExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUnknownExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_CFG_BAD=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -470,8 +467,7 @@ func TestHandleSubcommand_configUnknownSubcommandExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUnknownSubcommandExits1")
 	cmd.Env = append(os.Environ(), "TP_CFG_UNKNOWN_SUB=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -484,8 +480,7 @@ func TestHandleSubcommand_configUsageExits1(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUsageExits1")
 	cmd.Env = append(os.Environ(), "TP_SUB_CONFIG_USAGE=1")
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
@@ -513,8 +508,7 @@ func TestHandleConfigCmd_initMkdirErrorExits1(t *testing.T) {
 		"SLIMFERENCE_CONFIG=",
 	)
 	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
