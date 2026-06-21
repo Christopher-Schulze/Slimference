@@ -48,6 +48,58 @@ func TestProxyLayer0RouteCounters_SnapshotNil(t *testing.T) {
 	}
 }
 
+func TestProxyChunkDedupUniformPriorityScore(t *testing.T) {
+	t.Parallel()
+	const base = 1_000_000_000
+	cases := []struct {
+		name  string
+		order int
+		want  int
+	}{
+		{"negative", -1, base},
+		{"zero", 0, base},
+		{"small", 5, base - 5},
+		{"large", 999999, base - 999999},
+		{"at base", base, 1},
+		{"above base", base + 1, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := proxyChunkDedupUniformPriorityScore(tc.order); got != tc.want {
+				t.Fatalf("proxyChunkDedupUniformPriorityScore(%d) = %d, want %d", tc.order, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProxyChunkDedupCandidateBudgetBytes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		outputBytes   int
+		maxRefPercent int
+		want          int
+	}{
+		{"zero output", 0, 50, 1},
+		{"negative output", -10, 50, 1},
+		{"zero percent", 1000, 0, 1000},
+		{"negative percent", 1000, -5, 1000},
+		{"over 100 percent", 1000, 150, 1000},
+		{"normal", 1000, 50, 500},
+		{"100 percent", 1000, 100, 1000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := proxyChunkDedupCandidateBudgetBytes(tc.outputBytes, tc.maxRefPercent)
+			if got != tc.want {
+				t.Fatalf("proxyChunkDedupCandidateBudgetBytes(%d, %d) = %d, want %d", tc.outputBytes, tc.maxRefPercent, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInputItemUserText(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
