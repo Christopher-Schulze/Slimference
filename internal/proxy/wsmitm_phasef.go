@@ -734,6 +734,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		}
 		reconnectFullHistorySearchOutputStatelessSafe := reconnectFullHistoryToolOutputMutationBlocked &&
 			wssFullHistorySearchOutputStatelessSafeWithToolUses(messages, mergedToolUses, searchCompactOptions)
+		reconnectFullHistorySearchOnlyStatelessSafe := reconnectFullHistoryToolOutputMutationBlocked &&
+			!reconnectFullHistorySearchOutputStatelessSafe &&
+			wssFullHistorySearchOutputPartialStatelessSafeWithToolUses(messages, mergedToolUses, searchCompactOptions)
 		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true
@@ -830,7 +833,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		} else if customToolCallHistoryMutationBlocked {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
-		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !reconnectFullHistorySearchOutputStatelessSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
+		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !reconnectFullHistorySearchOutputStatelessSafe && !reconnectFullHistorySearchOnlyStatelessSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
@@ -864,6 +867,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		downstreamStateMutationGuardReason := ""
 		if statefulDeltaMutationBlocked {
 			downstreamStateMutationGuardReason = "wss_stateful_delta_mutation_proof_gate"
+		} else if reconnectFullHistorySearchOnlyStatelessSafe {
+			downstreamStateMutationGuardReason = "wss_full_history_search_only_non_search_guard"
 		}
 		effectiveMutationGuardReason := structuredMutationGuardReason
 		if statefulDeltaMutationBlocked {
@@ -950,6 +955,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		if requestShape == "full_history" && reconnectFullHistoryToolOutputMutationBlocked &&
 			!a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
 			searchMutationFullHistoryAllowed = reconnectFullHistorySearchOutputStatelessSafe ||
+				reconnectFullHistorySearchOnlyStatelessSafe ||
 				(searchCapProofed && searchCapStatefulFollowupProofed)
 		}
 		searchMutationAllowed := (searchMutationFullHistoryAllowed ||
@@ -2133,6 +2139,50 @@ func wssFullHistorySearchOutputStatelessSafeWithToolUses(messages []types.Messag
 			}
 			if commandLine == "" || readRequestFromCommandLine(commandLine).FilePath != "" {
 				return false
+			}
+			if resolved && strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
+				return false
+			}
+			if !proxyWSSSearchOutputReducerEligible(commandLine) ||
+				!proxyWSSSearchOutputRisk(commandLine, block.Text, savingspolicy.CodexWorkloadSearch) {
+				return false
+			}
+			readCtx := proxyReadFileContext("", commandLine)
+			readCtx.SearchCompactOptions = searchOptions
+			compacted, changed := compactProxyLayer0CapturedOutputFirst(commandLine, block.Text, readCtx)
+			if !changed || len(compacted) >= len(block.Text) {
+				return false
+			}
+			seenSearchOutput = true
+		}
+	}
+	return seenSearchOutput
+}
+
+func wssFullHistorySearchOutputPartialStatelessSafeWithToolUses(messages []types.Message, toolUses map[string]types.ContentBlock, searchOptions filter.SearchCompactOptions) bool {
+	seenSearchOutput := false
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, resolved := proxyResolveToolUseDetailed(block, toolUses)
+			commandLine := proxyLayer0CommandLine(use)
+			if !resolved || commandLine == "" {
+				commandLine = wssInferredSearchOutputCommandLine(block.Text)
+			}
+			if commandLine == "" {
+				if strings.TrimSpace(block.Text) == "" {
+					continue
+				}
+				return false
+			}
+			if readRequestFromCommandLine(commandLine).FilePath != "" {
+				continue
+			}
+			if !proxyWSSSearchOutputReducerEligible(commandLine) &&
+				!proxyWSSSearchOutputRisk(commandLine, block.Text, savingspolicy.CodexWorkloadSearch) {
+				continue
 			}
 			if resolved && strings.TrimSpace(use.ToolName) == "" && strings.TrimSpace(use.ToolInput) == "" {
 				return false

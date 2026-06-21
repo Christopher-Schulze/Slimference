@@ -7770,6 +7770,74 @@ func TestWSPhaseFReconnectFullHistoryInferredSourceOutputKeepsDownstreamProofGat
 	}
 }
 
+func TestWSPhaseFReconnectFullHistorySearchOnlyCompactsAndPreservesReadLikeSource(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	adapter.setSocketSeq(2)
+
+	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	sourceOutput := strings.Repeat("func preserveSourceContext() {\n\tprintln(\"needle\")\n}\n", 40)
+	env := parseWSJSON(t, map[string]any{
+		"model":                "gpt-5-codex",
+		"previous_response_id": "resp-search-reconnect-read-like-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-read-like-session",
+		"input": []map[string]any{
+			{"type": "function_call", "call_id": "search-reconnect-full-history-read-like", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-read-like", "output": searchOutput},
+			{"type": "function_call", "call_id": "mixed-reconnect-sed-source", "name": "exec_command", "arguments": map[string]any{"cmd": "sed -n '1,120p' internal/proxy/wsmitm_phasef.go"}},
+			{"type": "function_call_output", "call_id": "mixed-reconnect-sed-source", "output": sourceOutput},
+		},
+		"stream": true,
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("reconnect full-history search-only handle: %v", err)
+	}
+	body, _, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("reconnect full-history search-only body missing")
+	}
+	raw := string(body)
+	summary := p.DebugRecorder().Last(1, false)[0]
+	if !replace ||
+		!strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
+		!strings.Contains(raw, "[rg]") ||
+		strings.Contains(raw, "src/file_050.go:51:needle") ||
+		!strings.Contains(raw, "preserveSourceContext") ||
+		bytes.Contains(body, []byte("previous_response_id")) {
+		t.Fatalf("search should compact, source should stay visible, previous_response_id detached: replace=%v reason=%q facts=%+v raw=%s", replace, summary.BypassReason, summary.DebugFacts, raw)
+	}
+	if strings.Count(raw, "[context-archive kind=tool-output uri=local-archive://") != 1 {
+		t.Fatalf("only the search block should receive an archive marker: %s", raw)
+	}
+	if strings.Contains(raw, "[sed]") || strings.Contains(raw, "read delta") {
+		t.Fatalf("read-like source block must not be compacted: %s", raw)
+	}
+	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
+		summary.DebugFacts["wss.structured_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.effective_mutation_guard"] != "" ||
+		summary.DebugFacts["wss.downstream_state_mutation_guard"] != "wss_full_history_search_only_non_search_guard" ||
+		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "1" ||
+		summary.DebugFacts["wss.search_proof_blocked_blocks"] != "0" ||
+		summary.DebugFacts["wss.full_history_stateless_followup"] != "true" ||
+		summary.DebugFacts["wss.full_history_detached_previous_response"] != "true" ||
+		summary.Tokens.Saved <= 0 ||
+		summary.MessagesCompressed != 1 {
+		t.Fatalf("mixed reconnect full-history should save only proofed search output: %+v", summary)
+	}
+}
+
 func TestWSPhaseFReconnectFullHistoryMixedSearchOutputKeepsDownstreamProofGate(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
@@ -7786,29 +7854,30 @@ func TestWSPhaseFReconnectFullHistoryMixedSearchOutputKeepsDownstreamProofGate(t
 	adapter.setSocketSeq(2)
 
 	searchOutput := proxyWSSSearchOutputFixture("needle", 90)
+	nonCompactableSearchOutput := proxyWSSSearchOutputFixture("unsafe", 4)
 	env := parseWSJSON(t, map[string]any{
 		"model":                "gpt-5-codex",
-		"previous_response_id": "resp-search-reconnect-cap-only-parent",
-		"prompt_cache_key":     "search-reconnect-full-history-cap-only-session",
+		"previous_response_id": "resp-search-reconnect-mixed-search-parent",
+		"prompt_cache_key":     "search-reconnect-full-history-mixed-search-session",
 		"input": []map[string]any{
-			{"type": "function_call", "call_id": "search-reconnect-full-history-cap-only", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
-			{"type": "function_call_output", "call_id": "search-reconnect-full-history-cap-only", "output": searchOutput},
-			{"type": "function_call", "call_id": "mixed-reconnect-go-test", "name": "exec_command", "arguments": map[string]any{"cmd": "go test ./..."}},
-			{"type": "function_call_output", "call_id": "mixed-reconnect-go-test", "output": "Process exited with code 0\nOutput:\nok  example.test/pkg 0.01s\n"},
+			{"type": "function_call", "call_id": "search-reconnect-full-history-mixed-a", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n needle src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-mixed-a", "output": searchOutput},
+			{"type": "function_call", "call_id": "search-reconnect-full-history-mixed-b", "name": "exec_command", "arguments": map[string]any{"cmd": "cd /repo/search && rg -n unsafe src"}},
+			{"type": "function_call_output", "call_id": "search-reconnect-full-history-mixed-b", "output": nonCompactableSearchOutput},
 		},
 		"stream": true,
 	})
 
 	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
 	if err != nil {
-		t.Fatalf("reconnect full-history search-cap-only handle: %v", err)
+		t.Fatalf("reconnect full-history mixed-search handle: %v", err)
 	}
 	raw := string(env.Raw)
 	if replace ||
 		strings.Contains(raw, "[context-archive kind=tool-output uri=local-archive://") ||
 		strings.Contains(raw, "[rg]") ||
 		!strings.Contains(raw, "src/file_089.go:90:needle") {
-		t.Fatalf("search-cap without stateful follow-up proof must stay guarded: replace=%v raw=%s", replace, raw)
+		t.Fatalf("mixed compactable/non-compactable search must stay guarded: replace=%v raw=%s", replace, raw)
 	}
 	summary := p.DebugRecorder().Last(1, false)[0]
 	if summary.DebugFacts["wss.request_shape"] != "full_history" ||
@@ -7817,7 +7886,7 @@ func TestWSPhaseFReconnectFullHistoryMixedSearchOutputKeepsDownstreamProofGate(t
 		summary.DebugFacts["wss.search_proof_allowed_blocks"] != "0" ||
 		summary.Tokens.Saved != 0 ||
 		summary.MessagesCompressed != 0 {
-		t.Fatalf("mixed reconnect full-history must not save under the search-only stateless slice: %+v", summary)
+		t.Fatalf("mixed reconnect full-history must not save with a non-compactable search block: %+v", summary)
 	}
 }
 
