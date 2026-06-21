@@ -433,3 +433,55 @@ CREATE TABLE threads (
 		t.Fatalf("scan error should propagate, got nil err, result=%v", got)
 	}
 }
+
+// TestLookup_CorruptDB covers Lookup's sql.Open / threadColumns error
+// paths (codexthreads.go:39-41, 46-48): a file that exists but is not a
+// valid SQLite database causes threadColumns to fail, which propagates.
+func TestLookup_CorruptDB(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Write a non-SQLite file at the expected path.
+	if err := os.WriteFile(filepath.Join(dir, "state_5.sqlite"), []byte("not a sqlite file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Lookup(home, []string{"thread"}); err == nil {
+		t.Fatalf("corrupt db should produce error, got nil")
+	}
+}
+
+// TestLookupWindow_CorruptDB covers LookupWindow's threadColumns error
+// path (codexthreads.go:104-106): a file that exists but is not a valid
+// SQLite database causes threadColumns to fail.
+func TestLookupWindow_CorruptDB(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state_5.sqlite"), []byte("not a sqlite file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LookupWindow(home, time.UnixMilli(0), time.UnixMilli(2)); err == nil {
+		t.Fatalf("corrupt db should produce error, got nil")
+	}
+}
+
+// TestThreadColumns_ScanError covers threadColumns' rows.Scan error path
+// (codexthreads.go:144-146): a threads table with unexpected column types
+// can cause a scan error in PRAGMA table_info.
+func TestThreadColumns_RowsErr(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	db := openTestCodexDB(t, home)
+	// Create a valid threads table so threadColumns runs, but close
+	// the db first to trigger a rows.Err() error.
+	db.Close()
+	if _, err := threadColumns(db); err == nil {
+		t.Fatalf("closed db should produce error, got nil")
+	}
+}
