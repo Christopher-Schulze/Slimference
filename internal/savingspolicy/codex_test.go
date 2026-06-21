@@ -618,3 +618,21 @@ func actionForMechanism(decisions []CodexMechanismDecision, mechanism CodexMecha
 	}
 	return ""
 }
+
+func TestBytesCandidate_NegativeMinBytes(t *testing.T) {
+	t.Parallel()
+	// Negative minBytes is clamped to 0, so any non-negative output qualifies.
+	if !bytesCandidate(0, -1) {
+		t.Fatal("bytesCandidate(0, -1) should be true (minBytes clamped to 0)")
+	}
+	if !bytesCandidate(100, -100) {
+		t.Fatal("bytesCandidate(100, -100) should be true (minBytes clamped to 0)")
+	}
+	// Positive minBytes still works as a threshold.
+	if bytesCandidate(99, 100) {
+		t.Fatal("bytesCandidate(99, 100) should be false")
+	}
+	if !bytesCandidate(100, 100) {
+		t.Fatal("bytesCandidate(100, 100) should be true")
+	}
+}
