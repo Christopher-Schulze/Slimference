@@ -85,6 +85,48 @@ func TestRecordRawScopedWSS(t *testing.T) {
 	p.recordRawScopedWSS("/path", []byte("header"))
 }
 
+func TestWSSNPXCommandClassSuffix(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		argv      []string
+		want      []string
+		wantFound bool
+	}{
+		{"empty", []string{}, nil, false},
+		{"not npx", []string{"node", "script.js"}, nil, false},
+		{"npx bare", []string{"npx"}, nil, true},
+		{"npx with package", []string{"npx", "create-react-app"}, []string{"create-react-app"}, true},
+		{"npx -y", []string{"npx", "-y", "create-react-app"}, []string{"create-react-app"}, true},
+		{"npx --yes", []string{"npx", "--yes", "create-react-app"}, []string{"create-react-app"}, true},
+		{"npx -p package", []string{"npx", "-p", "pkg", "cmd"}, []string{"cmd"}, true},
+		{"npx --package", []string{"npx", "--package", "pkg", "cmd"}, []string{"cmd"}, true},
+		{"npx -c call", []string{"npx", "-c", "call", "cmd"}, []string{"cmd"}, true},
+		{"npx --call", []string{"npx", "--call", "call", "cmd"}, []string{"cmd"}, true},
+		{"npx -- separator", []string{"npx", "--", "cmd", "arg"}, []string{"cmd", "arg"}, true},
+		{"npx -- alone", []string{"npx", "--"}, nil, true},
+		{"npx unknown flag", []string{"npx", "--unknown", "cmd"}, []string{"cmd"}, true},
+		{"npx only flags", []string{"npx", "-y", "--yes"}, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, found := wssNPXCommandClassSuffix(tc.argv)
+			if found != tc.wantFound {
+				t.Fatalf("wssNPXCommandClassSuffix(%v) found=%v, want %v", tc.argv, found, tc.wantFound)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("wssNPXCommandClassSuffix(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("wssNPXCommandClassSuffix(%v)[%d] = %q, want %q", tc.argv, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestProxyCommandLineContainsSearchTool(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
