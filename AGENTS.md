@@ -311,6 +311,48 @@ exhausted, agents should continue down the optimization stack and compound
 smaller wins, including micro-optimizations, as long as each change remains
 measured, policy-safe, and net-positive.
 
+### 3.7 Loop Discipline and Anti-Rabbit-Hole Rules (Binding)
+
+These rules exist because a prior autonomous loop produced 1000+ commits and
+~44k lines of measurement tooling while the proven production `S_local` stayed
+frozen at ~6% against the 48% target. The work was green every cycle but never
+moved the product number. The following rules are binding to prevent that:
+
+1. **Single-Gate rule.** There is exactly one product success number: live
+   `S_local` (excluding provider-cache discount), measured by the standard
+   live-corpus / live-capture gate. Every lever must be measured by that one
+   gate. If a mechanism's savings are not counted by the gate, wiring it into
+   the gate is the first task, not an afterthought. Work that cannot move the
+   single gate is not product progress, regardless of how much code it adds.
+
+2. **No-New-Tooling rule.** Do not add a new measurement, proof, ranking,
+   inventory, or "headroom" tool without deleting or merging an equal-or-greater
+   amount of existing tooling. Proof/measurement infrastructure is engineering
+   cost, never a product deliverable. Estimating `candidate_potential` is
+   required (§3.3) but must be a short paragraph, not a new tool. When in doubt,
+   one consolidated live gate plus `docs/savings-ledger.md` is the only
+   sanctioned savings-measurement surface.
+
+3. **Loop-Termination rule.** A work cycle terminates successfully when EITHER
+   the single live `S_local` gate number rises (commit the slice) OR a concrete
+   root-cause ceiling is proven and recorded in `docs/savings-ledger.md` (close
+   the lane). A cycle must NOT be kept open merely because other unblocked tasks
+   exist. A disproven hypothesis is reverted in the same cycle, never
+   accumulated as dead code. No task may be defined as "always active".
+
+4. **Lever-Priority rule.** Attack levers in order of token-mass × safety, not
+   in order of how easy a commit is to make. The current ranking is fixed until
+   re-proven: (L1) server-state continuation, (L2) command-output-first, (L3)
+   WSS history mutation. Broad WSS history/structure mutation on delta turns and
+   all micro-optimization are forbidden as main-loop work until L1 and L2 are
+   live-proven on a real session.
+
+5. **Handbrake rule.** A savings mechanism may be default-off only with a named,
+   live-proven drawdown vector (§3.4). "Traffic shape stays unchanged until you
+   flip the switch" and similar are NOT proven vectors; they are unfinished
+   work. Default-off switches without a proven vector must be scheduled for
+   drawdown-safe activation, not treated as permanent.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
