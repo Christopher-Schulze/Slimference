@@ -355,3 +355,35 @@ func TestApplyShadowEstimateEdges(t *testing.T) {
 		t.Fatalf("no-savings blocker = %+v", noSavings.Shadow)
 	}
 }
+
+func TestJsonShapeType(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{"nil", nil, "null"},
+		{"bool_true", true, "bool"},
+		{"bool_false", false, "bool"},
+		{"string", "hello", "string"},
+		{"empty_string", "", "string"},
+		{"float64", 42.5, "number"},
+		{"float64_zero", 0.0, "number"},
+		{"array", []any{1, 2, 3}, "array"},
+		{"empty_array", []any{}, "array"},
+		{"object", map[string]any{"a": 1}, "object"},
+		{"empty_object", map[string]any{}, "object"},
+		{"int_unknown", 42, "unknown"},
+		{"int32_unknown", int32(42), "unknown"},
+		{"struct_unknown", struct{ X int }{X: 1}, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jsonShapeType(tc.value); got != tc.want {
+				t.Fatalf("jsonShapeType(%T %v) = %q, want %q", tc.value, tc.value, got, tc.want)
+			}
+		})
+	}
+}
