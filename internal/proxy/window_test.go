@@ -237,6 +237,131 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestExtractAnthropicOutputTokens(t *testing.T) {
+	t.Parallel()
+	// message_delta with output_tokens -> reported.
+	data := []byte(`{"type":"message_delta","usage":{"output_tokens":42}}`)
+	if got := extractAnthropicOutputTokens(data); got != 42 {
+		t.Fatalf("message_delta should return 42, got %d", got)
+	}
+	// content_block_delta with text -> estimated.
+	data = []byte(`{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello world"}}`)
+	if got := extractAnthropicOutputTokens(data); got <= 0 {
+		t.Fatalf("content_block_delta should return positive estimate, got %d", got)
+	}
+	// invalid json -> 0.
+	if got := extractAnthropicOutputTokens([]byte("not json")); got != 0 {
+		t.Fatalf("invalid json should return 0, got %d", got)
+	}
+}
+
+func TestExtractOpenAIOutputTokens(t *testing.T) {
+	t.Parallel()
+	// chunk with usage -> reported.
+	data := []byte(`{"usage":{"completion_tokens":10}}`)
+	if got := extractOpenAIOutputTokens(data); got != 10 {
+		t.Fatalf("usage chunk should return 10, got %d", got)
+	}
+	// chunk with delta content -> estimated.
+	data = []byte(`{"choices":[{"delta":{"content":"hello"}}]}`)
+	if got := extractOpenAIOutputTokens(data); got <= 0 {
+		t.Fatalf("delta content should return positive estimate, got %d", got)
+	}
+	// invalid json -> 0.
+	if got := extractOpenAIOutputTokens([]byte("not json")); got != 0 {
+		t.Fatalf("invalid json should return 0, got %d", got)
+	}
+}
+
+func TestExtractMetadataUserID(t *testing.T) {
+	t.Parallel()
+	// valid with user_id.
+	if got := extractMetadataUserID([]byte(`{"metadata":{"user_id":"user-123"}}`)); got != "user-123" {
+		t.Fatalf("should return user-123, got %q", got)
+	}
+	// invalid json -> empty.
+	if got := extractMetadataUserID([]byte("not json")); got != "" {
+		t.Fatalf("invalid json should return empty, got %q", got)
+	}
+	// no metadata -> empty.
+	if got := extractMetadataUserID([]byte(`{"other":"value"}`)); got != "" {
+		t.Fatalf("no metadata should return empty, got %q", got)
+	}
+}
+
+func TestWSSExactJSONWhitespaceMinified(t *testing.T) {
+	t.Parallel()
+	// matching compacted -> true.
+	original := []byte(`  {"a": 1, "b":  2}  `)
+	compacted := []byte(`{"a":1,"b":2}`)
+	if !wssExactJSONWhitespaceMinified(original, compacted) {
+		t.Fatal("should return true for matching compacted JSON")
+	}
+	// non-matching compacted -> false.
+	if wssExactJSONWhitespaceMinified(original, []byte(`{"a":1}`)) {
+		t.Fatal("should return false for non-matching compacted JSON")
+	}
+	// empty original -> false.
+	if wssExactJSONWhitespaceMinified([]byte(""), []byte("{}")) {
+		t.Fatal("empty original should return false")
+	}
+	// invalid JSON original -> false.
+	if wssExactJSONWhitespaceMinified([]byte("not json"), []byte("{}")) {
+		t.Fatal("invalid JSON should return false")
+	}
+}
+
+func TestWSSSafePlainPathListLine(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"valid path", "src/main.go", true},
+		{"valid deep path", "very/deep/nested/path.go", true},
+		{"empty", "", true},
+		{"has space", "src/main.go ", false},
+		{"has tab", "src\tmain.go", false},
+		{"has ://", "http://example.com", false},
+		{"starts with dash", "-flag", false},
+		{"has colon", "src:main.go", false},
+		{"has semicolon", "src;main.go", false},
+		{"has pipe", "src|main.go", false},
+		{"has backslash", "src\\main.go", false},
+		{"has quote", "src\"main.go", false},
+		{"has backtick", "src`main.go", false},
+		{"has dollar", "src$main.go", false},
+		{"has lt", "src<main.go", false},
+		{"has gt", "src>main.go", false},
+		{"has single quote", "src'main.go", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssSafePlainPathListLine(tc.line); got != tc.want {
+				t.Fatalf("wssSafePlainPathListLine(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestArchiveRecoveryNoteText(t *testing.T) {
+	t.Parallel()
+	// empty -> default.
+	if got := archiveRecoveryNoteText(""); got != defaultArchiveRecoveryNote {
+		t.Fatal("empty text should return default note")
+	}
+	// whitespace -> default.
+	if got := archiveRecoveryNoteText("   "); got != defaultArchiveRecoveryNote {
+		t.Fatal("whitespace text should return default note")
+	}
+	// custom text -> returned.
+	if got := archiveRecoveryNoteText("custom note"); got != "custom note" {
+		t.Fatalf("custom text should be returned, got %q", got)
+	}
+}
+
 func TestCodexFootprintFamily(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
