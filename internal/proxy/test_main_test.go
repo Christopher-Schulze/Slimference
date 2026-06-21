@@ -3,10 +3,13 @@ package proxy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
 func TestMain(m *testing.M) {
+	raiseFDLimit()
 	preserveExplicitEnv := os.Getenv("SLIMFERENCE_TEST_HOME_AUTO") == "1"
 	home := os.Getenv("HOME")
 	cleanupHome := ""
@@ -25,6 +28,30 @@ func TestMain(m *testing.M) {
 		_ = os.RemoveAll(cleanupHome)
 	}
 	os.Exit(code)
+}
+
+// raiseFDLimit raises the process file-descriptor limit so the test suite
+// does not hit "too many open files" on platforms with a low default soft
+// limit. The internal/proxy test binary opens many sockets, pipes, and
+// temp files across hundreds of tests; the Go runtime's default raise to
+// 10240 is insufficient on large test suites.
+func raiseFDLimit() {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return
+	}
+	var rlim syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim); err != nil {
+		return
+	}
+	const want = 65536
+	if rlim.Cur >= want {
+		return
+	}
+	rlim.Cur = want
+	if rlim.Max > 0 && rlim.Cur > rlim.Max {
+		rlim.Cur = rlim.Max
+	}
+	_ = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rlim)
 }
 
 func setTestHome(home string, preserveExplicitEnv bool) {

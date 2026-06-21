@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 )
 
 type step struct {
@@ -69,7 +71,32 @@ func defaultSteps() []step {
 }
 
 func main() {
+	raiseFDLimit()
 	os.Exit(run(defaultSteps(), os.Stdout, os.Stderr))
+}
+
+// raiseFDLimit raises the process file-descriptor limit so parallel test
+// packages that open many sockets/files do not hit "too many open files"
+// on platforms with a low default soft limit. The Go runtime already
+// raises the limit for the current process, but `go test` spawns child
+// test binaries that may inherit the original shell limit.
+func raiseFDLimit() {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return
+	}
+	var rlim syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim); err != nil {
+		return
+	}
+	const want = 65536
+	if rlim.Cur >= want {
+		return
+	}
+	rlim.Cur = want
+	if rlim.Max > 0 && rlim.Cur > rlim.Max {
+		rlim.Cur = rlim.Max
+	}
+	_ = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rlim)
 }
 
 // run executes the given steps with the supplied IO streams and returns the

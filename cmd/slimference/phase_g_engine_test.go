@@ -73,6 +73,8 @@ func TestEngineWithFakeDispatcherBridgesBytes(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		_ = ln.Close()
+		_ = upstreamLocal.Close()
+		_ = upstreamRemote.Close()
 	})
 
 	// Trust pool with our CA so the client accepts the leaf.
