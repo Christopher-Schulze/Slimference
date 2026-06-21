@@ -1143,6 +1143,102 @@ func TestCommandOutputFirstShimGrepStyleContextModeFullPasses(t *testing.T) {
 	}
 }
 
+func TestCommandOutputFirstShimRgArchivedCompactsLongMatchContent(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	// Single-file search output (line:content format, no file prefix).
+	// The standard grouping with 100% retention full-passes because the
+	// grouped header overhead exceeds the savings from stripping the file
+	// prefix. The archived variant truncates content and caps matches,
+	// producing a smaller summary that is recoverable via the archive.
+	var b strings.Builder
+	for i := 1; i <= 30; i++ {
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString(":func handler")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString("() { return someVeryLongPayloadThatExceedsTheTruncationLimitAndShouldBeCutOffSoThatTheArchivedSummaryIsSmallerThanTheOriginal() } // extra padding ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('\n')
+	}
+	rawOutput := b.String()
+	realRg := writeFakeCommand(t, "rg", "#!/bin/sh\ncat <<'EOF'\n"+rawOutput+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=rg", "--real-bin=" + realRg, "--", "-n", "func", "src/handler.go"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[rg] 30 match(es) in 1 file(s)") {
+		t.Fatalf("expected archived rg summary: %q", got)
+	}
+	if !strings.Contains(got, "src/handler.go") {
+		t.Fatalf("expected file path in archived summary: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Fatalf("expected truncation marker in archived summary: %q", got)
+	}
+	// Verify archive marker is present and raw output is recoverable.
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing rg archive marker in %q", stdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand rg archive: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("handler30")) {
+		t.Fatalf("archive did not preserve rg raw output: %q", raw)
+	}
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected command-output-first accounting row")
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimGrepArchivedCompactsLongMatchContent(t *testing.T) {
+	// Single-file search output (line:content format, no file prefix).
+	// The standard grouping full-passes; the archived variant truncates.
+	var b strings.Builder
+	for i := 1; i <= 30; i++ {
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString(":func handler")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString("() { return someVeryLongPayloadThatExceedsTheTruncationLimitAndShouldBeCutOffSoThatTheArchivedSummaryIsSmallerThanTheOriginal() }\n")
+	}
+	rawOutput := b.String()
+	realGrep := writeFakeCommand(t, "grep", "#!/bin/sh\ncat <<'EOF'\n"+rawOutput+"EOF\n")
+	var stdout, stderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=grep", "--real-bin=" + realGrep, "--", "-n", "func", "src/handler.go"}, &bytes.Buffer{}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+	}
+	got := commandOutputFirstVisibleOutput(stdout.String())
+	if !strings.Contains(got, "[grep] 30 match(es) in 1 file(s)") {
+		t.Fatalf("expected archived grep summary: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Fatalf("expected truncation marker in archived summary: %q", got)
+	}
+	uri := commandOutputFirstArchiveURI(stdout.String())
+	if uri == "" {
+		t.Fatalf("missing grep archive marker in %q", stdout.String())
+	}
+}
+
 func TestCommandOutputFirstShimRgFilesCompactsWithAccounting(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder

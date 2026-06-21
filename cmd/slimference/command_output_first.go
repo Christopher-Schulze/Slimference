@@ -1462,6 +1462,11 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			compacted, ok := filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
 				MinRetainedPct: 100,
 			})
+			if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+				return out, true
+			}
+			// Archive-backed search compaction for git grep.
+			compacted, ok = filter.TryCompactSearchOutputArchived(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
 			return nil, false
@@ -1474,11 +1479,25 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		compacted, ok = filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
 			MinRetainedPct: 100,
 		})
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		// Archive-backed search compaction: truncate match content and cap
+		// matches per file. The omitted bytes are recoverable via the
+		// command-output-first archive marker appended by the shim.
+		compacted, ok = filter.TryCompactSearchOutputArchived(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
 		compacted, ok := filter.TryCompactSearchOutputWithOptions(argv, stdout, filter.SearchCompactOptions{
 			MinRetainedPct: 100,
 		})
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		// Archive-backed search compaction: truncate match content and cap
+		// matches per file. The omitted bytes are recoverable via the
+		// command-output-first archive marker appended by the shim.
+		compacted, ok = filter.TryCompactSearchOutputArchived(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "fd", "fdfind", "find":
 		compacted, ok := filter.TryCompactPathListOutput(argv, stdout)

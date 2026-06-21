@@ -1549,3 +1549,238 @@ func TestTryCompactSearchOutputPatternViaEFlagCompacts(t *testing.T) {
 		t.Errorf("expected file path in compacted output: %s", s[:min(len(s), 200)])
 	}
 }
+
+func TestTryCompactSearchOutputArchivedSingleFileLongLines(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return someVeryLongPayloadThatExceedsTheTruncationLimitAndShouldBeCutOffSoThatTheArchivedSummaryIsSmallerThanTheOriginal() } // extra padding %d\n", i, i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if len(s) >= len(input) {
+		t.Fatalf("archived output should be smaller: out=%d in=%d", len(s), len(input))
+	}
+	if !strings.Contains(s, "[rg]") {
+		t.Errorf("expected [rg] header: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "30 match(es)") {
+		t.Errorf("expected 30 matches: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "…") {
+		t.Errorf("expected truncation marker: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedMultiFile(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for f := 1; f <= 5; f++ {
+		for i := 1; i <= 20; i++ {
+			fmt.Fprintf(&sb, "src/file%d.go:%d:func handler%d() { return someLongContentThatShouldBeTruncatedByTheArchivedCompactionFunction() }\n", f, i, i)
+		}
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "."}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg multi-file should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if len(s) >= len(input) {
+		t.Fatalf("archived output should be smaller: out=%d in=%d", len(s), len(input))
+	}
+	if !strings.Contains(s, "100 match(es)") {
+		t.Errorf("expected 100 total matches: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "5 file(s)") {
+		t.Errorf("expected 5 files: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedCapsMatchesPerFile(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 50; i++ {
+		fmt.Fprintf(&sb, "src/big.go:%d:func handler%d() { return nil }\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/big.go"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "50 match(es)") {
+		t.Errorf("expected 50 total matches: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "[+35 more matches]") {
+		t.Errorf("expected match cap marker: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedShortPassthrough(t *testing.T) {
+	t.Parallel()
+	input := "1:func handler() { return nil }\n"
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if ok {
+		t.Fatalf("short output should not compact: out=%q", out)
+	}
+}
+
+func TestTryCompactSearchOutputArchivedNonGrepTool(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "%d:some content line %d\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"ls", "-la"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if ok {
+		t.Fatalf("non-grep tool should not compact: out=%q", out)
+	}
+}
+
+func TestTryCompactSearchOutputArchivedGrepTool(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "src/file.go:%d:func handler%d() { return someLongContentThatShouldBeTruncatedByTheArchivedCompactionFunction() }\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"grep", "-rn", "func", "src/file.go"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived grep should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "[grep]") {
+		t.Errorf("expected [grep] header: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedGitGrep(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "src/file.go:%d:func handler%d() { return someLongContentThatShouldBeTruncatedByTheArchivedCompactionFunction() }\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"git", "grep", "-n", "func"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived git grep should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "[git grep]") {
+		t.Errorf("expected [git grep] header: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	t.Parallel()
+	if got := truncateRunes("hello", 10); got != "hello" {
+		t.Errorf("short string should not truncate: %q", got)
+	}
+	if got := truncateRunes("hello world", 5); got != "hello…" {
+		t.Errorf("long string should truncate: %q", got)
+	}
+	if got := truncateRunes("héllo wörld", 5); got != "héllo…" {
+		t.Errorf("unicode string should truncate: %q", got)
+	}
+	if got := truncateRunes("hello", 0); got != "hello" {
+		t.Errorf("max=0 should return original: %q", got)
+	}
+	if got := truncateRunes("hello", -1); got != "hello" {
+		t.Errorf("max<0 should return original: %q", got)
+	}
+}
+
+func TestTryCompactSearchOutputArchivedEmptyStdout(t *testing.T) {
+	t.Parallel()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(""))
+	if ok {
+		t.Fatalf("empty stdout should not compact: out=%q", out)
+	}
+}
+
+func TestTryCompactSearchOutputArchivedCapsFilesShown(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for f := 1; f <= 50; f++ {
+		for i := 1; i <= 5; i++ {
+			fmt.Fprintf(&sb, "src/file%02d.go:%d:func handler%d() { return nil }\n", f, i, i)
+		}
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "."}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "250 match(es)") {
+		t.Errorf("expected 250 total matches: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "50 file(s)") {
+		t.Errorf("expected 50 files: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "[+10 more files]") {
+		t.Errorf("expected file cap marker: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedSingleFileNormalization(t *testing.T) {
+	t.Parallel()
+	// Single-file output in line:content format (no file prefix).
+	// The archived variant should normalize and compact.
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return someLongContentThatShouldBeTruncatedByTheArchivedCompactionFunction() }\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg single-file should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path from normalization: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "30 match(es)") {
+		t.Errorf("expected 30 matches: %s", s[:min(len(s), 200)])
+	}
+}
+
+func TestTryCompactSearchOutputArchivedUnparsableOutput(t *testing.T) {
+	t.Parallel()
+	// Output that doesn't parse as search results should not compact.
+	input := "this is not a search result\nit is just random text\nwith no file:line:content format\n"
+	argv := []string{"rg", "-n", "func", "."}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if ok {
+		t.Fatalf("unparsable output should not compact: out=%q", out)
+	}
+}

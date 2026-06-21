@@ -1057,6 +1057,159 @@ func SearchCompactProfile(argv []string, stdout []byte, options SearchCompactOpt
 	return stats, ok
 }
 
+// TryCompactSearchOutputArchived produces a compact summary of grep-style
+// search output by truncating match content to a fixed width and capping
+// matches per file. Unlike TryCompactSearchOutputWithOptions, this function
+// is designed for archive-backed compaction: it deliberately omits bytes
+// (truncated content, omitted matches) that are recoverable through the
+// command-output-first archive mechanism.
+//
+// The summary preserves all file names and match counts so the model knows
+// what was found, but truncates each match's content to maxMatchContentRunes
+// and caps visible matches per file at maxArchivedMatchesPerFile. The
+// omitted bytes are recoverable via the archive marker appended by the
+// command-output-first shim.
+//
+// Returns the compact summary and true if the summary is smaller than the
+// original output. Returns the original output and false otherwise.
+func TryCompactSearchOutputArchived(argv []string, stdout []byte) ([]byte, bool) {
+	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) {
+		return stdout, false
+	}
+	tool := searchToolName(argv)
+	summary := compactSearchOutputArchived(argv, stdout, tool)
+	if len(summary) > 0 && len(summary) < len(stdout) {
+		return summary, true
+	}
+	return stdout, false
+}
+
+const (
+	maxArchivedMatchContentRunes = 120
+	maxArchivedMatchesPerFile    = 15
+	maxArchivedFilesShown        = 40
+)
+
+func compactSearchOutputArchived(argv []string, stdout []byte, toolName string) []byte {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < minLinesForGrouped {
+		return nil
+	}
+
+	// Try normal parsing first; if that fails, try single-file normalization.
+	fileOrder := []string{}
+	fileMatches := map[string][]searchMatchLine{}
+	parsedCount := 0
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" || isSearchEnvelopeNoiseLine(line) {
+			continue
+		}
+		parsed, ok := parseSearchMatchLine(line)
+		if !ok {
+			continue
+		}
+		parsedCount++
+		if _, seen := fileMatches[parsed.file]; !seen {
+			fileOrder = append(fileOrder, parsed.file)
+		}
+		fileMatches[parsed.file] = append(fileMatches[parsed.file], searchMatchLine{
+			lineNum: parsed.lineNum,
+			content: parsed.content,
+		})
+	}
+
+	// If normal parsing failed, try single-file normalization.
+	if parsedCount == 0 {
+		normalized, ok := normalizeSingleFileSearchOutput(argv, stdout)
+		if !ok {
+			return nil
+		}
+		ns := strings.TrimSpace(string(normalized))
+		if ns == "" {
+			return nil
+		}
+		nlines := strings.Split(ns, "\n")
+		for _, raw := range nlines {
+			line := strings.TrimRight(raw, "\r")
+			if line == "" || isSearchEnvelopeNoiseLine(line) {
+				continue
+			}
+			parsed, ok := parseSearchMatchLine(line)
+			if !ok {
+				continue
+			}
+			parsedCount++
+			if _, seen := fileMatches[parsed.file]; !seen {
+				fileOrder = append(fileOrder, parsed.file)
+			}
+			fileMatches[parsed.file] = append(fileMatches[parsed.file], searchMatchLine{
+				lineNum: parsed.lineNum,
+				content: parsed.content,
+			})
+		}
+	}
+
+	if parsedCount == 0 {
+		return nil
+	}
+
+	totalMatches := 0
+	for _, ms := range fileMatches {
+		totalMatches += len(ms)
+	}
+	if totalMatches == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
+
+	shownFiles := len(fileOrder)
+	if shownFiles > maxArchivedFilesShown {
+		shownFiles = maxArchivedFilesShown
+	}
+	for fi, file := range fileOrder {
+		if fi >= shownFiles {
+			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(fileOrder)-shownFiles))
+			break
+		}
+		ms := fileMatches[file]
+		sb.WriteString(fmt.Sprintf("  %s (%d match(es))\n", file, len(ms)))
+		shown := 0
+		for _, m := range ms {
+			if shown >= maxArchivedMatchesPerFile {
+				sb.WriteString(fmt.Sprintf("    [+%d more matches]\n", len(ms)-shown))
+				break
+			}
+			content := truncateRunes(m.content, maxArchivedMatchContentRunes)
+			if m.lineNum != "" {
+				sb.WriteString(fmt.Sprintf("    %s: %s\n", m.lineNum, strings.TrimSpace(content)))
+			} else {
+				sb.WriteString(fmt.Sprintf("    %s\n", strings.TrimSpace(content)))
+			}
+			shown++
+		}
+	}
+
+	return []byte(sb.String())
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
+}
+
 // normalizeSingleFileSearchOutput detects when a grep-style tool (rg, grep,
 // etc.) searched a single file and omitted the file path prefix from the
 // output. In that case, the output is in line:content format instead of
