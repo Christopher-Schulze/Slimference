@@ -113,6 +113,18 @@ type SegmentKindReport struct {
 	PotentialSavedBytes   int
 }
 
+// SameRequestExactReport summarizes text blocks that repeat inside one request.
+// It is shadow-only and stricter than the server-state mirror: a repeated block
+// is only counted after an earlier exact copy in the same request remains
+// model-visible.
+type SameRequestExactReport struct {
+	Blocks                    int
+	Bytes                     int
+	ReferenceableBlocks       int
+	PotentialSavedBytes       int
+	PotentialSavedBytesByKind map[string]SegmentKindReport
+}
+
 // Report summarises a Predict pass. PotentialSavedBytes is the byte total of
 // blocks the server already holds (referenceable losslessly); it is a SHADOW
 // estimate, no frame is changed.
@@ -207,6 +219,46 @@ func (m *Mirror) Predict(sessionID string, msgs []types.Message) Report {
 			kindReport.PotentialSavedBytes += len(segment.Text)
 		}
 		rep.NormalizedPotentialSavedBytesByKind[segment.Kind] = kindReport
+	}
+	return rep
+}
+
+// SameRequestExact reports exact text-block duplicates inside a single request.
+// It does not depend on backend state and never mutates content. A duplicate is
+// referenceable only if the same request already contained an exact earlier
+// copy, so a future product reducer can leave the first copy visible.
+func SameRequestExact(msgs []types.Message) SameRequestExactReport {
+	var rep SameRequestExactReport
+	seen := map[string]struct{}{}
+	toolUses := toolUseIndexFromMessages(msgs)
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if block.Text == "" {
+				continue
+			}
+			rep.Blocks++
+			rep.Bytes += len(block.Text)
+			hash := hashContent(block.Text)
+			_, duplicate := seen[hash]
+			seen[hash] = struct{}{}
+			kind := sameRequestExactKind(msg, blockWithResolvedToolUse(block, toolUses))
+			if kind == "" {
+				kind = "text"
+			}
+			if rep.PotentialSavedBytesByKind == nil {
+				rep.PotentialSavedBytesByKind = map[string]SegmentKindReport{}
+			}
+			kindReport := rep.PotentialSavedBytesByKind[kind]
+			kindReport.Segments++
+			kindReport.Bytes += len(block.Text)
+			if duplicate {
+				rep.ReferenceableBlocks++
+				rep.PotentialSavedBytes += len(block.Text)
+				kindReport.ReferenceableSegments++
+				kindReport.PotentialSavedBytes += len(block.Text)
+			}
+			rep.PotentialSavedBytesByKind[kind] = kindReport
+		}
 	}
 	return rep
 }
@@ -341,6 +393,13 @@ func normalizedCodexExecPayloadKind(block types.ContentBlock, payload string) st
 		return "codex_exec_payload"
 	}
 	return "codex_exec_payload_command_" + base
+}
+
+func sameRequestExactKind(msg types.Message, block types.ContentBlock) string {
+	if _, payload, ok := splitCodexExecEnvelope(block.Text); ok {
+		return normalizedCodexExecPayloadKind(block, payload)
+	}
+	return normalizedSegmentKind(msg, block)
 }
 
 func inferCommandLineFromCodexExecPayload(payload string) string {

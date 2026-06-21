@@ -30,6 +30,66 @@ func TestMirror_ObserveThenPredictReferenceable(t *testing.T) {
 	}
 }
 
+func TestSameRequestExactCountsOnlyLaterVisibleDuplicates(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("same visible block\n", 10)
+	report := SameRequestExact([]types.Message{
+		{
+			Role:    "tool",
+			Content: []types.ContentBlock{{Type: "tool_result", Text: content}},
+		},
+		{
+			Role:    "tool",
+			Content: []types.ContentBlock{{Type: "tool_result", Text: content}},
+		},
+		{
+			Role:    "tool",
+			Content: []types.ContentBlock{{Type: "tool_result", Text: "different"}},
+		},
+	})
+	if report.Blocks != 3 || report.Bytes != len(content)*2+len("different") {
+		t.Fatalf("bad same-request block accounting: %+v", report)
+	}
+	if report.ReferenceableBlocks != 1 || report.PotentialSavedBytes != len(content) {
+		t.Fatalf("only the second exact copy should be referenceable: %+v", report)
+	}
+	kind := report.PotentialSavedBytesByKind["tool_result"]
+	if kind.Segments != 3 || kind.ReferenceableSegments != 1 || kind.PotentialSavedBytes != len(content) {
+		t.Fatalf("bad same-request kind report: %+v", report.PotentialSavedBytesByKind)
+	}
+}
+
+func TestSameRequestExactDoesNotCountVolatileCodexExecEnvelope(t *testing.T) {
+	t.Parallel()
+	payload := strings.Repeat("ok  example.com/pkg 0.010s\n", 8)
+	first := "Chunk ID: first\nProcess exited with code 0\nOutput:\n" + payload
+	second := "Chunk ID: second\nProcess exited with code 0\nOutput:\n" + payload
+	report := SameRequestExact([]types.Message{
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:      "tool_result",
+				Text:      first,
+				ToolInput: `{"cmd":"go test ./..."}`,
+			}},
+		},
+		{
+			Role: "tool",
+			Content: []types.ContentBlock{{
+				Type:      "tool_result",
+				Text:      second,
+				ToolInput: `{"cmd":"go test ./..."}`,
+			}},
+		},
+	})
+	if report.ReferenceableBlocks != 0 || report.PotentialSavedBytes != 0 {
+		t.Fatalf("volatile full envelopes must not exact-match: %+v", report)
+	}
+	if got := report.PotentialSavedBytesByKind["codex_exec_payload_command_go"]; got.Segments != 2 || got.ReferenceableSegments != 0 {
+		t.Fatalf("same-request exact kind accounting changed: %+v", report.PotentialSavedBytesByKind)
+	}
+}
+
 func TestMirror_NovelContentNotReferenceable(t *testing.T) {
 	t.Parallel()
 	m := New()

@@ -85,6 +85,49 @@ func TestRunWSSShadowMirrorReplayRanksCommandPayloadAndSkipsMutated(t *testing.T
 	}
 }
 
+func TestRunWSSShadowMirrorReplayReportsSameRequestExactDuplicates(t *testing.T) {
+	duplicate := strings.Repeat("same request exact output\n", 12)
+	volatilePayload := strings.Repeat("ok  github.com/example/pkg 0.010s\n", 8)
+	firstVolatile := "Chunk ID: first\nProcess exited with code 0\nOutput:\n" + volatilePayload
+	secondVolatile := "Chunk ID: second\nProcess exited with code 0\nOutput:\n" + volatilePayload
+
+	frames := []WSSABReplayFrame{{
+		Direction: wsmitm.DirClientToServer,
+		Payload: wssShadowReplayTestPayload(t, map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "same-request-session",
+			"input": []map[string]any{
+				wssShadowReplayShellCall("call-1", "git status --short"),
+				wssShadowReplayShellOutput("call-1", "git status --short", duplicate),
+				wssShadowReplayShellCall("call-2", "git status --short"),
+				wssShadowReplayShellOutput("call-2", "git status --short", duplicate),
+				wssShadowReplayShellCall("call-3", "go test ./..."),
+				wssShadowReplayShellOutput("call-3", "go test ./...", firstVolatile),
+				wssShadowReplayShellCall("call-4", "go test ./..."),
+				wssShadowReplayShellOutput("call-4", "go test ./...", secondVolatile),
+			},
+			"stream": true,
+		}),
+	}}
+
+	report, err := RunWSSShadowMirrorReplay(frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SameRequestExact.ReferenceableBytes != len(duplicate) ||
+		report.SameRequestExact.Referenceable != 1 ||
+		report.SameRequestExact.CandidateTokensEstimate <= 0 {
+		t.Fatalf("same-request exact duplicate should be reported once: %+v", report.SameRequestExact)
+	}
+	row := wssShadowReplayFindRow(report.SameRequestRows, "tool_result_command_git")
+	if row == nil || row.RequestShape != "full_history" || row.ReferenceableBytes != len(duplicate) || row.ReferenceableRequests != 1 {
+		t.Fatalf("missing same-request git row: %+v", report.SameRequestRows)
+	}
+	if row := wssShadowReplayFindRow(report.SameRequestRows, "tool_result_command_go"); row != nil {
+		t.Fatalf("volatile Codex exec envelopes must not be same-request exact rows: %+v", report.SameRequestRows)
+	}
+}
+
 func TestRunWSSShadowMirrorReplayMissingSessionAndServerFrames(t *testing.T) {
 	frames := []WSSABReplayFrame{
 		{

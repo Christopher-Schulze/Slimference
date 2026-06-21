@@ -37,6 +37,7 @@ func TestWSSShadowMirrorReplayCommandReport(t *testing.T) {
 	for _, want := range []string{
 		"WSS shadow mirror replay",
 		"kind=codex_exec_payload_command_go",
+		"same_request_exact:",
 		"candidate_tokens=",
 	} {
 		if !strings.Contains(text, want) {
@@ -101,6 +102,63 @@ func TestWSSShadowMirrorReplayDirectoryAggregatesAndSkipsEmptyFiles(t *testing.T
 	}
 	if !strings.Contains(stdout.String(), "top_files:") || !strings.Contains(stdout.String(), "skipped_files:      1") {
 		t.Fatalf("directory text missing aggregate details:\n%s", stdout.String())
+	}
+}
+
+func TestWSSShadowMirrorReplayAggregatesSameRequestExact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	duplicate := strings.Repeat("same exact command output\n", 10)
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("client_to_server", map[string]any{
+			"type": "request",
+			"body": map[string]any{
+				"model":            "gpt-5-codex",
+				"prompt_cache_key": "same-request-cli",
+				"input": []map[string]any{
+					{
+						"type":    "local_shell_call",
+						"call_id": "call-1",
+						"command": []string{"bash", "-lc", "git status --short"},
+					},
+					{
+						"type":              "local_shell_call_output",
+						"call_id":           "call-1",
+						"command":           []string{"bash", "-lc", "git status --short"},
+						"aggregated_output": duplicate,
+					},
+					{
+						"type":    "local_shell_call",
+						"call_id": "call-2",
+						"command": []string{"bash", "-lc", "git status --short"},
+					},
+					{
+						"type":              "local_shell_call_output",
+						"call_id":           "call-2",
+						"command":           []string{"bash", "-lc", "git status --short"},
+						"aggregated_output": duplicate,
+					},
+				},
+				"stream": true,
+			},
+		}),
+	)
+
+	report, err := loadWSSShadowMirrorReplayReport(wssShadowMirrorReplayFlags{path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SameRequestExact.ReferenceableBytes != len(duplicate) || len(report.SameRequestRows) != 1 {
+		t.Fatalf("bad same-request aggregate: %+v", report)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWSSShadowMirrorReplay([]string{path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSShadowMirrorReplay code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "same_request_rows:") ||
+		!strings.Contains(stdout.String(), "kind=tool_result_command_git") {
+		t.Fatalf("same-request text missing row:\n%s", stdout.String())
 	}
 }
 

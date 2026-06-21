@@ -23,8 +23,10 @@ type WSSShadowMirrorReplayResult struct {
 	RequestShapes           WSSABReplayShapeCounts     `json:"request_shapes"`
 	Exact                   WSSShadowMirrorReplayExact `json:"exact"`
 	Normalized              WSSShadowMirrorReplayExact `json:"normalized"`
+	SameRequestExact        WSSShadowMirrorReplayExact `json:"same_request_exact"`
 	Rows                    []WSSShadowMirrorReplayRow `json:"rows,omitempty"`
 	StatefulSafeRows        []WSSShadowMirrorReplayRow `json:"stateful_safe_rows,omitempty"`
+	SameRequestRows         []WSSShadowMirrorReplayRow `json:"same_request_rows,omitempty"`
 	Notes                   []string                   `json:"notes,omitempty"`
 }
 
@@ -63,6 +65,7 @@ func RunWSSShadowMirrorReplay(frames []WSSABReplayFrame) (WSSShadowMirrorReplayR
 	out := WSSShadowMirrorReplayResult{Frames: len(frames)}
 	rows := map[string]*WSSShadowMirrorReplayRow{}
 	statefulRows := map[string]*WSSShadowMirrorReplayRow{}
+	sameRequestRows := map[string]*WSSShadowMirrorReplayRow{}
 
 	for i, frame := range frames {
 		if frame.Direction != wsmitm.DirClientToServer {
@@ -108,12 +111,17 @@ func RunWSSShadowMirrorReplay(frames []WSSABReplayFrame) (WSSShadowMirrorReplayR
 		out.Normalized.add(rep.NormalizedSegments, rep.NormalizedBytes, rep.NormalizedReferenceableSegments, rep.NormalizedPotentialSavedBytes)
 		addWSSShadowMirrorReplayRows(rows, shape, rep.NormalizedPotentialSavedBytesByKind)
 		addWSSShadowMirrorReplayRows(statefulRows, shape, shadowMirrorStatefulSafeReports(&meta, rep, messages))
+		sameRequest := servermirror.SameRequestExact(messages)
+		out.SameRequestExact.add(sameRequest.Blocks, sameRequest.Bytes, sameRequest.ReferenceableBlocks, sameRequest.PotentialSavedBytes)
+		addWSSShadowMirrorReplayRows(sameRequestRows, shape, sameRequest.PotentialSavedBytesByKind)
 	}
 
 	out.Exact.finalize()
 	out.Normalized.finalize()
+	out.SameRequestExact.finalize()
 	out.Rows = sortedWSSShadowMirrorReplayRows(rows)
 	out.StatefulSafeRows = sortedWSSShadowMirrorReplayRows(statefulRows)
+	out.SameRequestRows = sortedWSSShadowMirrorReplayRows(sameRequestRows)
 	if out.CapturedMutatedRequests > 0 {
 		out.Notes = append(out.Notes, "captured post-mutation request records were skipped; the preceding original request record carries the headroom surface")
 	}

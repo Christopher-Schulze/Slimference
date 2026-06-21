@@ -217,8 +217,10 @@ func addWSSShadowMirrorReplayResult(total *proxy.WSSShadowMirrorReplayResult, ne
 	total.RequestShapes.FullHistory += next.RequestShapes.FullHistory
 	addWSSShadowMirrorReplayExact(&total.Exact, next.Exact)
 	addWSSShadowMirrorReplayExact(&total.Normalized, next.Normalized)
+	addWSSShadowMirrorReplayExact(&total.SameRequestExact, next.SameRequestExact)
 	total.Rows = mergeWSSShadowMirrorReplayRows(total.Rows, next.Rows)
 	total.StatefulSafeRows = mergeWSSShadowMirrorReplayRows(total.StatefulSafeRows, next.StatefulSafeRows)
+	total.SameRequestRows = mergeWSSShadowMirrorReplayRows(total.SameRequestRows, next.SameRequestRows)
 	total.Notes = append(total.Notes, next.Notes...)
 }
 
@@ -263,8 +265,11 @@ func finalizeWSSShadowMirrorReplayResult(report *proxy.WSSShadowMirrorReplayResu
 	report.Exact.CandidateTokensEstimate = wssShadowMirrorReplayTokens(report.Exact.ReferenceableBytes)
 	report.Normalized.ReferenceableBytePct = wssShadowMirrorReplayPercent(report.Normalized.ReferenceableBytes, report.Normalized.Bytes)
 	report.Normalized.CandidateTokensEstimate = wssShadowMirrorReplayTokens(report.Normalized.ReferenceableBytes)
+	report.SameRequestExact.ReferenceableBytePct = wssShadowMirrorReplayPercent(report.SameRequestExact.ReferenceableBytes, report.SameRequestExact.Bytes)
+	report.SameRequestExact.CandidateTokensEstimate = wssShadowMirrorReplayTokens(report.SameRequestExact.ReferenceableBytes)
 	report.Rows = finalizeWSSShadowMirrorReplayRows(report.Rows)
 	report.StatefulSafeRows = finalizeWSSShadowMirrorReplayRows(report.StatefulSafeRows)
+	report.SameRequestRows = finalizeWSSShadowMirrorReplayRows(report.SameRequestRows)
 	report.Notes = dedupeWSSShadowMirrorReplayStrings(report.Notes)
 }
 
@@ -367,8 +372,14 @@ func writeWSSShadowMirrorReplayText(w io.Writer, report wssShadowMirrorReplayRep
 		report.Normalized.ReferenceableBytes,
 		report.Normalized.ReferenceableBytePct,
 		report.Normalized.CandidateTokensEstimate)
+	fmt.Fprintf(w, "  same_request_exact: bytes=%d referenceable_bytes=%d pct=%.2f candidate_tokens=%d\n",
+		report.SameRequestExact.Bytes,
+		report.SameRequestExact.ReferenceableBytes,
+		report.SameRequestExact.ReferenceableBytePct,
+		report.SameRequestExact.CandidateTokensEstimate)
 	writeWSSShadowMirrorReplayRows(w, "  rows:", report.Rows)
 	writeWSSShadowMirrorReplayRows(w, "  stateful_safe_rows:", report.StatefulSafeRows)
+	writeWSSShadowMirrorReplayRows(w, "  same_request_rows:", report.SameRequestRows)
 	if len(report.TopFiles) > 0 {
 		fmt.Fprintln(w, "  top_files:")
 		for _, row := range report.TopFiles {
