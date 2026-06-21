@@ -408,3 +408,49 @@ func TestResolveBinary_ExecutableError(t *testing.T) {
 		t.Fatalf("resolveBinary with exe error should propagate: %v", err)
 	}
 }
+
+func TestNormalizeBinaryPath_EmptyString(t *testing.T) {
+	t.Parallel()
+	if _, err := normalizeBinaryPath(""); err == nil {
+		t.Fatal("normalizeBinaryPath(\"\") should return error")
+	}
+	if _, err := normalizeBinaryPath("   "); err == nil {
+		t.Fatal("normalizeBinaryPath(\"   \") should return error")
+	}
+}
+
+func TestNormalizeBinaryPath_AbsolutePath(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeBinaryPath("/usr/local/bin/slimference")
+	if err != nil {
+		t.Fatalf("normalizeBinaryPath absolute: %v", err)
+	}
+	if got != "/usr/local/bin/slimference" {
+		t.Fatalf("got %q, want /usr/local/bin/slimference", got)
+	}
+}
+
+func TestNormalizeBinaryPath_RelativePath(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeBinaryPath("bin/slimference")
+	if err != nil {
+		t.Fatalf("normalizeBinaryPath relative: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("relative path should be resolved to absolute, got %q", got)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(got), "/bin/slimference") {
+		t.Fatalf("got %q, want suffix /bin/slimference", got)
+	}
+}
+
+func TestNormalizeBinaryPath_CleansPath(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeBinaryPath("/usr/local/bin/../bin/slimference")
+	if err != nil {
+		t.Fatalf("normalizeBinaryPath: %v", err)
+	}
+	if got != "/usr/local/bin/slimference" {
+		t.Fatalf("got %q, want /usr/local/bin/slimference (cleaned)", got)
+	}
+}
