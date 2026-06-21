@@ -353,6 +353,12 @@ moved the product number. The following rules are binding to prevent that:
    work. Default-off switches without a proven vector must be scheduled for
    drawdown-safe activation, not treated as permanent.
 
+6. **Commit-Hygiene rule.** Commit messages must never include a
+   "Generated with Devin" footer, a "Co-Authored-By: Devin" line, or any other
+   AI-attribution metadata. Commits are clean engineering commits with a
+   concise subject and optional body. After completing a task (not mid-task),
+   always commit AND push to origin unless the user explicitly says not to push.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
