@@ -329,7 +329,7 @@ func insertBeforeFirstTable(content, block string) string {
 
 func routeConflict(content string) string {
 	inTable := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
@@ -352,7 +352,7 @@ func routeConflict(content string) string {
 }
 
 func hasLegacyKeys(content string) bool {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			continue

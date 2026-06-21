@@ -112,7 +112,7 @@ func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
 	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}
 	fast := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyRecoveryBudget)}
 
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit-1; i++ {
+	for i := range codexLayer0LatencyStrikeLimit - 1 {
 		p.observeCodexLayer0LatencyBudget(slow)
 		if p.codexRuntimeBudgetExceeded() {
 			t.Fatalf("latency budget should tolerate initial spike %d", i)
@@ -122,7 +122,7 @@ func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
 	if !p.codexRuntimeBudgetExceeded() {
 		t.Fatal("repeated slow Layer-0 frames should demote managed Codex reducers")
 	}
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+	for range codexLayer0LatencyStrikeLimit {
 		p.observeCodexLayer0LatencyBudget(fast)
 	}
 	if p.codexRuntimeBudgetExceeded() {
@@ -137,7 +137,7 @@ func TestCodexLayer0LatencyBudgetProductivePassUsesHigherBudget(t *testing.T) {
 		TokensSaved:    1200,
 		TotalLatencyNs: int64(codexLayer0LatencyBudget + 10*time.Millisecond),
 	}
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit+2; i++ {
+	for range codexLayer0LatencyStrikeLimit + 2 {
 		p.observeCodexLayer0LatencyBudget(productiveSlow)
 	}
 	if p.codexRuntimeBudgetExceeded() {
@@ -152,7 +152,7 @@ func TestCodexLayer0LatencyBudgetProductivePassUsesHigherBudget(t *testing.T) {
 		TokensSaved:    1200,
 		TotalLatencyNs: int64(codexLayer0LatencyProductiveBudget + time.Millisecond),
 	}
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+	for range codexLayer0LatencyStrikeLimit {
 		p.observeCodexLayer0LatencyBudget(pathological)
 	}
 	if !p.codexRuntimeBudgetExceeded() {
@@ -169,7 +169,7 @@ func TestCodexLayer0LatencyBudgetScalesWithPayload(t *testing.T) {
 		ToolResultBytes: 128 * 1024,
 		TotalLatencyNs:  int64(60 * time.Millisecond),
 	}
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit+2; i++ {
+	for range codexLayer0LatencyStrikeLimit + 2 {
 		p.observeCodexLayer0LatencyBudget(heavyUnproductive)
 	}
 	if p.codexRuntimeBudgetExceeded() {
@@ -182,7 +182,7 @@ func TestCodexLayer0LatencyBudgetScalesWithPayload(t *testing.T) {
 		ToolResultBytes: 2 * 1024,
 		TotalLatencyNs:  int64(60 * time.Millisecond),
 	}
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+	for range codexLayer0LatencyStrikeLimit {
 		p.observeCodexLayer0LatencyBudget(slowSmall)
 	}
 	if !p.codexRuntimeBudgetExceeded() {
@@ -212,7 +212,7 @@ func TestCodexLayer0LatencyBudgetDeadZoneDecays(t *testing.T) {
 	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}
 	deadZone := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyRecoveryBudget + time.Millisecond)}
 
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+	for range codexLayer0LatencyStrikeLimit {
 		p.observeCodexLayer0LatencyBudget(slow)
 	}
 	if !p.codexRuntimeBudgetExceeded() {
@@ -224,7 +224,7 @@ func TestCodexLayer0LatencyBudgetDeadZoneDecays(t *testing.T) {
 		t.Fatalf("dead-zone sample right after a breach decayed strikes to %d", got)
 	}
 
-	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+	for range codexLayer0LatencyStrikeLimit {
 		p.codexLayer0LatencyLastBreach.Store(time.Now().Add(-codexLayer0LatencyDecayAfter - time.Second).UnixNano())
 		p.observeCodexLayer0LatencyBudget(deadZone)
 	}

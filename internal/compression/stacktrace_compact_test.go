@@ -19,7 +19,7 @@ func TestCompactSemanticTestFailureGoPanic(t *testing.T) {
 	sb.WriteString("\t/usr/local/go/src/testing/testing.go:1689 +0x120\n")
 	sb.WriteString("runtime.gopanic()\n")
 	sb.WriteString("\t/usr/local/go/src/runtime/panic.go:770 +0x124\n")
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		sb.WriteString("\t/usr/local/go/src/testing/testing.go:1689 +0x120\n")
 	}
 	sb.WriteString("ok  \tgithub.com/acme/project/internal/other\t0.01s\n")
@@ -55,7 +55,7 @@ func TestCompactSemanticTestFailureJavaScriptStack(t *testing.T) {
 	sb.WriteString("+ Received\n")
 	sb.WriteString("    at Button.test (src/button.test.tsx:17:12)\n")
 	sb.WriteString("    at renderWithProviders (src/test/render.tsx:9:3)\n")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("    at runTest (node_modules/vitest/dist/chunk-runtime.js:123:45)\n")
 	}
 	sb.WriteString("1 failed, 22 passed\n")
@@ -93,15 +93,15 @@ func TestCompactSemanticTestFailureOverflowMarkersAndBranches(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("thread 'worker' panicked at src/lib.rs:7:3\n")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("- expected line\n")
 		sb.WriteString("+ actual line\n")
 	}
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		sb.WriteString("at crate::module::case(src/lib.rs:12:3)\n")
 	}
 	sb.WriteString("at helper (/Users/example/project/node_modules/pkg/index.js:1:1)\n")
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		sb.WriteString("    repeated diagnostic context\n")
 	}
 	content := sb.String()
@@ -127,7 +127,7 @@ func TestFilterTestCompactUsesSemanticStacktraceCompaction(t *testing.T) {
 	sb.WriteString("--- FAIL: TestProxy (0.01s)\n")
 	sb.WriteString("AssertionError: expected route to be cached\n")
 	sb.WriteString("    at TestProxy (src/proxy.test.ts:10:2)\n")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("    at runTest (node_modules/vitest/dist/runtime.js:100:1)\n")
 	}
 	content := sb.String()
@@ -147,7 +147,7 @@ func TestCompactSemanticTestFailureNoKeptAndNoSavings(t *testing.T) {
 
 	var shortButStack strings.Builder
 	shortButStack.WriteString("    at x\n")
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		shortButStack.WriteString(fmt.Sprintf("ERROR case %d\n", i))
 	}
 	if got := compactSemanticTestFailure(shortButStack.String(), false); got != shortButStack.String() {

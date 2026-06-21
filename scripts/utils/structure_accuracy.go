@@ -123,7 +123,7 @@ func countSurvivedDeclarations(original, summary, lang string) (survived, total 
 	default:
 		keywords = []string{"function ", "def ", "class ", "fn "}
 	}
-	for _, line := range strings.Split(original, "\n") {
+	for line := range strings.SplitSeq(original, "\n") {
 		trimmed := strings.TrimSpace(line)
 		for _, kw := range keywords {
 			if strings.HasPrefix(trimmed, kw) {

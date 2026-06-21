@@ -82,10 +82,10 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if _, ok := numericValue("7"); ok {
 		t.Fatal("numericValue string should fail")
 	}
-	if got := findString([]interface{}{map[string]interface{}{"file_path": "x"}}, "file_path"); got != "x" {
+	if got := findString([]any{map[string]any{"file_path": "x"}}, "file_path"); got != "x" {
 		t.Fatalf("findString=%q", got)
 	}
-	if got := findInt([]interface{}{map[string]interface{}{"limit": 9.0}}, "limit"); got != 9 {
+	if got := findInt([]any{map[string]any{"limit": 9.0}}, "limit"); got != 9 {
 		t.Fatalf("findInt=%d", got)
 	}
 	if got := buildDeltaSummary("x", "same\nsame\n", "same\nsame\n"); got != "" {

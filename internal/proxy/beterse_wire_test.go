@@ -19,7 +19,7 @@ import (
 // resulting anthropic-shaped sessionID lands in the treatment
 // cohort. Returns (org, user, sessionID).
 func findTreatmentOrgUserPair(h *qualityab.Harness) (string, string, string) {
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		org := fmt.Sprintf("org-A%d", i)
 		user := fmt.Sprintf("user-B%d", i*3+1)
 		sid := "anthropic:" + org + ":" + user
@@ -31,7 +31,7 @@ func findTreatmentOrgUserPair(h *qualityab.Harness) (string, string, string) {
 }
 
 func findControlOrgUserPair(h *qualityab.Harness) (string, string, string) {
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		org := fmt.Sprintf("co-A%d", i)
 		user := fmt.Sprintf("cu-B%d", i*5+2)
 		sid := "anthropic:" + org + ":" + user

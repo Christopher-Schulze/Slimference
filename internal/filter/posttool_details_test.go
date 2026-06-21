@@ -50,12 +50,12 @@ func TestExtractPostToolDetailsFromHookJSON_FilePaths(t *testing.T) {
 
 func TestCollectPostToolFilePaths_Edges(t *testing.T) {
 	t.Parallel()
-	v := map[string]interface{}{
+	v := map[string]any{
 		"path": "bad\npath",
-		"items": []interface{}{
-			map[string]interface{}{"filePath": "."},
-			map[string]interface{}{"filepath": "z.go"},
-			map[string]interface{}{"file_path": "a.go"},
+		"items": []any{
+			map[string]any{"filePath": "."},
+			map[string]any{"filepath": "z.go"},
+			map[string]any{"file_path": "a.go"},
 		},
 	}
 	got := collectPostToolFilePaths(v, "*** Delete File: m.go")

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -32,7 +33,7 @@ type wssSocketReport struct {
 	DecisionsLog                            string                     `json:"decisions_log,omitempty"`
 	RequestLimit                            int                        `json:"request_limit"`
 	SessionFilter                           string                     `json:"session_filter,omitempty"`
-	Since                                   time.Time                  `json:"since,omitempty"`
+	Since                                   time.Time                  `json:"since"`
 	SinceFile                               string                     `json:"since_file,omitempty"`
 	RequestsScanned                         int                        `json:"requests_scanned"`
 	RequestsFiltered                        int                        `json:"requests_filtered"`
@@ -94,8 +95,8 @@ type wssSocketSummary struct {
 	SessionID                         string         `json:"session_id,omitempty"`
 	FirstRequestID                    string         `json:"first_request_id,omitempty"`
 	LastRequestID                     string         `json:"last_request_id,omitempty"`
-	FirstTimestamp                    time.Time      `json:"first_ts,omitempty"`
-	LastTimestamp                     time.Time      `json:"last_ts,omitempty"`
+	FirstTimestamp                    time.Time      `json:"first_ts"`
+	LastTimestamp                     time.Time      `json:"last_ts"`
 	Requests                          int            `json:"requests"`
 	RequestShapes                     map[string]int `json:"request_shapes,omitempty"`
 	RootRequests                      int            `json:"root_requests"`
@@ -181,8 +182,8 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			gotLimit = true
 			continue
 		}
-		if strings.HasPrefix(arg, "--session=") {
-			opts.SessionFilter = strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
+		if after, ok := strings.CutPrefix(arg, "--session="); ok {
+			opts.SessionFilter = strings.TrimSpace(after)
 			if opts.SessionFilter == "" {
 				return opts, fmt.Errorf("session filter must not be empty")
 			}
@@ -196,8 +197,8 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			opts.SessionFilter = strings.TrimSpace(args[i])
 			continue
 		}
-		if strings.HasPrefix(arg, "--since=") {
-			since, err := parseWSSSocketSince(strings.TrimPrefix(arg, "--since="), time.Now())
+		if after, ok := strings.CutPrefix(arg, "--since="); ok {
+			since, err := parseWSSSocketSince(after, time.Now())
 			if err != nil {
 				return opts, err
 			}
@@ -216,8 +217,8 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			opts.Since = since
 			continue
 		}
-		if strings.HasPrefix(arg, "--since-file=") {
-			sinceFile := strings.TrimSpace(strings.TrimPrefix(arg, "--since-file="))
+		if after, ok := strings.CutPrefix(arg, "--since-file="); ok {
+			sinceFile := strings.TrimSpace(after)
 			since, err := parseWSSSocketSinceFile(sinceFile)
 			if err != nil {
 				return opts, err
@@ -248,24 +249,24 @@ func parseWSSSocketDebugArgs(args []string) (wssSocketDebugArgs, error) {
 			opts.MaxReconnectFullHistoryRequests = 0
 			continue
 		}
-		if strings.HasPrefix(arg, "--max-actionable=") {
-			n, err := parseNonNegativeWSSSocketLimit("max-actionable", strings.TrimPrefix(arg, "--max-actionable="))
+		if after, ok := strings.CutPrefix(arg, "--max-actionable="); ok {
+			n, err := parseNonNegativeWSSSocketLimit("max-actionable", after)
 			if err != nil {
 				return opts, err
 			}
 			opts.MaxActionableSockets = n
 			continue
 		}
-		if strings.HasPrefix(arg, "--max-reconnect-full-history=") {
-			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history", strings.TrimPrefix(arg, "--max-reconnect-full-history="))
+		if after, ok := strings.CutPrefix(arg, "--max-reconnect-full-history="); ok {
+			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history", after)
 			if err != nil {
 				return opts, err
 			}
 			opts.MaxReconnectFullHistoryRequests = n
 			continue
 		}
-		if strings.HasPrefix(arg, "--max-reconnect-full-history-input=") {
-			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history-input", strings.TrimPrefix(arg, "--max-reconnect-full-history-input="))
+		if after, ok := strings.CutPrefix(arg, "--max-reconnect-full-history-input="); ok {
+			n, err := parseNonNegativeWSSSocketLimit("max-reconnect-full-history-input", after)
 			if err != nil {
 				return opts, err
 			}
@@ -824,9 +825,7 @@ func cloneWSSSocketShapeCounts(in map[string]int) map[string]int {
 		return nil
 	}
 	out := make(map[string]int, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 

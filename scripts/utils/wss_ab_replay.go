@@ -59,7 +59,7 @@ type wssABReplayReport struct {
 	CapturedMutatedRequests       int                              `json:"captured_mutated_requests,omitempty"`
 	RequestShapes                 replayShapeCounts                `json:"request_shapes"`
 	MutatedShapes                 replayShapeCounts                `json:"mutated_shapes"`
-	CapturedMutatedShapes         replayShapeCounts                `json:"captured_mutated_shapes,omitempty"`
+	CapturedMutatedShapes         replayShapeCounts                `json:"captured_mutated_shapes"`
 	PrefixSurfaces                []wssABReplayPrefixSurfaceRow    `json:"prefix_surfaces,omitempty"`
 	PrefixElisionProof            bool                             `json:"stateful_prefix_elision_proof_enabled,omitempty"`
 	PrefixElision                 *wssABReplayPrefixElisionReport  `json:"stateful_prefix_elision,omitempty"`

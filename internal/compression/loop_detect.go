@@ -144,7 +144,7 @@ func collectUserTexts(messages []types.Message) []string {
 // wordSet tokenises s on whitespace and returns a unique lowercase set.
 func wordSet(s string) map[string]struct{} {
 	out := make(map[string]struct{})
-	for _, w := range strings.Fields(strings.ToLower(s)) {
+	for w := range strings.FieldsSeq(strings.ToLower(s)) {
 		out[w] = struct{}{}
 	}
 	return out

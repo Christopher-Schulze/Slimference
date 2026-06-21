@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -348,12 +349,12 @@ func buildCodexDesktopLaunchEnv(overrideURL string, base []string, extra []strin
 
 	out := make([]string, 0, len(base)+len(codexDesktopEnvOverrideKeys)+len(extra))
 	for _, kv := range base {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		if _, hit := overrideKeys[kv[:eq]]; hit {
+		if _, hit := overrideKeys[before]; hit {
 			continue
 		}
 		out = append(out, kv)
@@ -380,12 +381,12 @@ func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) [
 
 	out := make([]string, 0, len(base)+len(codexDesktopProxyEnvKeys)+len(extra))
 	for _, kv := range base {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		if _, hit := overrideKeys[kv[:eq]]; hit {
+		if _, hit := overrideKeys[before]; hit {
 			continue
 		}
 		out = append(out, kv)
@@ -426,12 +427,12 @@ func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin str
 
 	out := make([]string, 0, len(base)+len(codexDesktopAppServerEnvKeys)+len(extra))
 	for _, kv := range base {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		if _, hit := overrideKeys[kv[:eq]]; hit {
+		if _, hit := overrideKeys[before]; hit {
 			continue
 		}
 		out = append(out, kv)
@@ -452,12 +453,12 @@ func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin str
 
 func appendCodexDesktopSafeExtraEnv(out []string, extra []string, blocked map[string]struct{}) []string {
 	for _, kv := range extra {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		key := kv[:eq]
+		key := before
 		if codexShouldDropInheritedEnvKey(key) || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
 			continue
 		}
@@ -472,12 +473,12 @@ func appendCodexDesktopSafeExtraEnv(out []string, extra []string, blocked map[st
 func sanitizeCodexDesktopBaseEnv(base []string) []string {
 	out := make([]string, 0, len(base))
 	for _, kv := range base {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		if codexDesktopShouldDropInheritedEnv(kv[:eq]) {
+		if codexDesktopShouldDropInheritedEnv(before) {
 			continue
 		}
 		out = append(out, kv)
@@ -489,12 +490,7 @@ func codexDesktopShouldDropInheritedEnv(key string) bool {
 	if codexShouldDropInheritedEnvKey(key) {
 		return true
 	}
-	for _, workspaceKey := range codexDesktopWorkspaceEnvKeys {
-		if key == workspaceKey {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(codexDesktopWorkspaceEnvKeys, key)
 }
 
 func codexDesktopDirectOpenEnv(base []string) []string {
@@ -504,9 +500,9 @@ func codexDesktopDirectOpenEnv(base []string) []string {
 	}
 	out := make([]string, 0, len(base))
 	for _, kv := range sanitizeCodexDesktopBaseEnv(base) {
-		eq := strings.IndexByte(kv, '=')
-		if eq >= 0 {
-			if _, hit := drop[kv[:eq]]; hit {
+		before, _, ok := strings.Cut(kv, "=")
+		if ok {
+			if _, hit := drop[before]; hit {
 				continue
 			}
 		}
@@ -522,12 +518,12 @@ func appendCodexDesktopCAEnv(env []string, caPath string, extra []string) []stri
 	}
 	out := make([]string, 0, len(env)+len(codexDesktopCAEnvKeys)+len(extra))
 	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		if _, hit := keys[kv[:eq]]; hit {
+		if _, hit := keys[before]; hit {
 			continue
 		}
 		out = append(out, kv)
@@ -551,11 +547,11 @@ func filterCodexDesktopOverrideEnv(env []string) []string {
 	}
 	var out []string
 	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		if _, hit := keys[kv[:eq]]; hit {
+		if _, hit := keys[before]; hit {
 			out = append(out, kv)
 		}
 	}
@@ -572,11 +568,11 @@ func filterCodexDesktopProxyEnv(env []string) []string {
 	}
 	var out []string
 	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		if _, hit := keys[kv[:eq]]; hit {
+		if _, hit := keys[before]; hit {
 			out = append(out, kv)
 		}
 	}
@@ -590,11 +586,11 @@ func filterCodexDesktopAppServerEnv(env []string) []string {
 	}
 	var out []string
 	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		if _, hit := keys[kv[:eq]]; hit {
+		if _, hit := keys[before]; hit {
 			out = append(out, kv)
 		}
 	}
@@ -608,7 +604,7 @@ type codexLaunchDesktopProbe struct {
 	OverrideURL string              `json:"override_url,omitempty"`
 	ProxyURL    string              `json:"proxy_url,omitempty"`
 	EnvOverride []string            `json:"env_override"`
-	CATrust     codexDesktopCAState `json:"ca_trust,omitempty"`
+	CATrust     codexDesktopCAState `json:"ca_trust"`
 }
 
 func emitCodexDesktopProbe(p installPrinter, binary string, args []string, transport, overrideURL, proxyURL string, env []string, ca codexDesktopCAState) int {
@@ -733,7 +729,7 @@ func runningCodexDesktopPIDs(binary string) ([]int, error) {
 	}
 	want := filepath.Clean(binary)
 	var pids []int
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -804,7 +800,7 @@ func joinDesktopPIDs(pids []int) string {
 
 func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error) {
 	f := codexLaunchDesktopFlags{host: "127.0.0.1", port: "8990", transport: codexDesktopTransportAppServer}
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		switch {
 		case a == "--help" || a == "-h":

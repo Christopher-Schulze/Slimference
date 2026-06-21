@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 )
@@ -180,12 +181,7 @@ func CapabilitiesFor(version string) []CodexCapability {
 // given capability. Returns false for unknown / unparseable versions so
 // callers default to the conservative legacy path.
 func HasCodexCapability(version string, cap CodexCapability) bool {
-	for _, c := range CapabilitiesFor(version) {
-		if c == cap {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(CapabilitiesFor(version), cap)
 }
 
 // SupportsTransparentRewrite is the canonical guard the script generator

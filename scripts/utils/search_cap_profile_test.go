@@ -324,7 +324,7 @@ func writeSearchCapProfileFixture(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "search.txt")
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 25; m++ {
 			msg := "ordinary function body content here with enough length"
 			if f == 17 && m == 13 {

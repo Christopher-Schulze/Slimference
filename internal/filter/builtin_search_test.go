@@ -225,7 +225,7 @@ func TestGroupSearchResults_nonGrepTool(t *testing.T) {
 func TestGroupPathListResults(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&sb, "src/generated/deep/package/file_%02d.go\n", i)
 	}
 	out, ok := TryCompactSearchOutput([]string{"fd", ".go"}, []byte(sb.String()))
@@ -262,14 +262,14 @@ func TestGroupPathListResults(t *testing.T) {
 func TestGroupPathListResultsFailOpen(t *testing.T) {
 	t.Parallel()
 	var leading strings.Builder
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		fmt.Fprintf(&leading, " src/path/file_%02d.go\n", i)
 	}
 	if _, ok := TryCompactSearchOutput([]string{"find", "."}, []byte(leading.String())); ok {
 		t.Fatal("ambiguous path list line should fail open")
 	}
 	var nul strings.Builder
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		fmt.Fprintf(&nul, "src/path/file_%02d.go\n", i)
 	}
 	withNUL := strings.Replace(nul.String(), "file_04.go", "file_04.go\x00", 1)
@@ -283,12 +283,12 @@ func TestGroupSearchResults_grepNoLineNum(t *testing.T) {
 	// grep without -n produces "file:content" (no line number column).
 	// Build a large enough input for grouping to save space.
 	var sb strings.Builder
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("src/internal/proxy/handler.go:func handleCompressibleRequest_step_")
 		sb.WriteString(strings.Repeat("a", 20))
 		sb.WriteByte('\n')
 	}
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		sb.WriteString("src/internal/config/defaults.go:func DefaultsInitializer_step_")
 		sb.WriteString(strings.Repeat("b", 20))
 		sb.WriteByte('\n')
@@ -622,7 +622,6 @@ func TestNormalizeSearchCommandLine(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := NormalizeSearchCommandLine(tc.command, tc.workdir); got != tc.want {
@@ -661,7 +660,6 @@ func TestSafeSearchHeadPipelineNormalizationBoundaries(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := NormalizeSearchCommandLine(tc.command, ""); got != tc.want {
@@ -696,7 +694,6 @@ func TestSafeSearchHeadPipelineRejectsUnsafeBoundaries(t *testing.T) {
 		`cd /repo/a && rg -l "needle" internal | head -20`,
 		`cd /repo/a && go test ./... | head -20`,
 	} {
-		command := command
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 			if got := NormalizeSearchCommandLine(command, ""); got != "" {
@@ -790,7 +787,7 @@ func TestSearchOutputAttachedGlobValueDoesNotTripOnlyMatchingGuard(t *testing.T)
 	t.Parallel()
 
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 4; m++ {
 			fmt.Fprintf(&sb, "internal/module/file_%02d.go:%d:needle search result with enough payload to group\n", f, m)
 		}
@@ -891,7 +888,7 @@ func TestGroupSearchResults_noLineNum(t *testing.T) {
 	// Use a long file path repeated many times to ensure grouped output is shorter.
 	longPath := "src/internal/some/deeply/nested/module/package/file.go"
 	var sb strings.Builder
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		sb.WriteString(longPath + ":matching function content here with more text\n")
 	}
 	input := []byte(sb.String())
@@ -920,7 +917,7 @@ func TestGroupSearchResults_manyMatchesPerFile(t *testing.T) {
 	t.Parallel()
 	// Generate >20 matches in a single file to trigger per-file truncation
 	var sb strings.Builder
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		sb.WriteString(fmt.Sprintf("src/big_file.go:%d: func doSomething() {}\n", i+1))
 	}
 	out, ok := groupSearchResults([]byte(sb.String()), "rg")
@@ -942,7 +939,7 @@ func TestGroupSearchResults_manyFiles(t *testing.T) {
 	// Build 35 unique files × 25 matches each so the compact output is shorter.
 	content := "function body content here with enough length to make grouping beneficial"
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 25; m++ {
 			fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%02d.go:%d:%s\n", f, m, content)
 		}
@@ -963,7 +960,7 @@ func TestTryCompactSearchOutputWithOptionsDefaultMatchesDefault(t *testing.T) {
 	t.Parallel()
 
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 25; m++ {
 			fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%02d.go:%d:function body content here with enough length\n", f, m)
 		}
@@ -991,7 +988,7 @@ func TestTryCompactSearchOutputWithOptionsAggressiveProfileSavesMoreButKeepsSign
 	t.Parallel()
 
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 25; m++ {
 			msg := "ordinary function body content here with enough length"
 			if f == 17 && m == 13 {
@@ -1033,7 +1030,7 @@ func TestTryCompactSearchOutputWithOptionsRetentionFloorWidensCap(t *testing.T) 
 	t.Parallel()
 
 	var sb strings.Builder
-	for f := 0; f < 100; f++ {
+	for f := range 100 {
 		fmt.Fprintf(&sb, "pkg/internal/module/sub/file_%03d.go:12:needle search result with enough payload to keep grouping shorter\n", f)
 	}
 	input := []byte(sb.String())
@@ -1057,7 +1054,7 @@ func TestSearchCompactOptionsFlowThroughFileReadContext(t *testing.T) {
 	t.Parallel()
 
 	var sb strings.Builder
-	for f := 0; f < 35; f++ {
+	for f := range 35 {
 		for m := 1; m <= 25; m++ {
 			msg := "ordinary function body content here with enough length"
 			if f == 17 && m == 13 {
@@ -1094,7 +1091,7 @@ func TestGroupSearchResults_nonDigitBetweenColons(t *testing.T) {
 	path := "src/internal/module/package/my_file.go"
 	matchContent := "funcname:some long content text that makes grouped output shorter here"
 	var sb strings.Builder
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		fmt.Fprintf(&sb, "%s:%s\n", path, matchContent)
 	}
 	out, ok := groupSearchResults([]byte(sb.String()), "grep")

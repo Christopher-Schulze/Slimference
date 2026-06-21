@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -238,10 +239,5 @@ func assertWSSReferenceFieldVerdict(t *testing.T, rows []wssReferenceFieldVerdic
 }
 
 func wssReferenceInventoryStringSliceContains(rows []string, want string) bool {
-	for _, row := range rows {
-		if row == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(rows, want)
 }

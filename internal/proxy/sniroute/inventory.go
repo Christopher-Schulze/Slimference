@@ -181,9 +181,9 @@ func LookupEndpoint(host, path string) (CodexEndpoint, bool) {
 		// or under it. Without the trailing slash we accept exact
 		// match or paths that have the prefix followed by "/".
 		prefix := ep.PathPrefix
-		if strings.HasSuffix(prefix, "/") {
+		if before, ok := strings.CutSuffix(prefix, "/"); ok {
 			if strings.HasPrefix(cleaned, prefix) ||
-				cleaned == strings.TrimSuffix(prefix, "/") {
+				cleaned == before {
 				return ep, true
 			}
 			continue

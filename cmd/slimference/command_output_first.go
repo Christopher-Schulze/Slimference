@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -238,7 +239,7 @@ type commandOutputFirstShimConfig struct {
 
 func parseCommandOutputFirstShimArgs(args []string) (commandOutputFirstShimConfig, []string, error) {
 	var cfg commandOutputFirstShimConfig
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := args[i]
 		if arg == "--" {
 			if cfg.command == "" || cfg.realBin == "" {
@@ -662,10 +663,8 @@ func commandOutputFirstNpxOptionConsumesValue(arg string) bool {
 
 func commandOutputFirstArgsContain(args []string, wants ...string) bool {
 	for _, arg := range args {
-		for _, want := range wants {
-			if arg == want {
-				return true
-			}
+		if slices.Contains(wants, arg) {
+			return true
 		}
 	}
 	return false
@@ -1170,8 +1169,8 @@ func commandOutputFirstOptionWithValuePresent(args []string, names ...string) bo
 			if arg == name {
 				return i+1 < len(args) && strings.TrimSpace(args[i+1]) != ""
 			}
-			if strings.HasPrefix(arg, name+"=") {
-				return strings.TrimSpace(strings.TrimPrefix(arg, name+"=")) != ""
+			if after, ok := strings.CutPrefix(arg, name+"="); ok {
+				return strings.TrimSpace(after) != ""
 			}
 		}
 	}
@@ -1261,8 +1260,8 @@ func commandOutputFirstWgetResponseAllowed(args []string) bool {
 			writesStdout = arg == "-O-"
 			continue
 		}
-		if strings.HasPrefix(arg, "--output-document=") {
-			writesStdout = strings.TrimPrefix(arg, "--output-document=") == "-"
+		if after, ok := strings.CutPrefix(arg, "--output-document="); ok {
+			writesStdout = after == "-"
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
@@ -1380,7 +1379,7 @@ func commandOutputFirstMoonBuildAllowed(args []string) bool {
 }
 
 func commandOutputFirstNoxTestAllowed(args []string) bool {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "-s" || arg == "--session":
@@ -1393,7 +1392,7 @@ func commandOutputFirstNoxTestAllowed(args []string) bool {
 }
 
 func commandOutputFirstToxTestAllowed(args []string) bool {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "-e" || arg == "--env":
@@ -2362,7 +2361,7 @@ func commandOutputFirstLocateDenyFlag(arg string) bool {
 
 func commandOutputFirstWcAllowed(args []string) bool {
 	hasExplicitInput := false
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := strings.TrimSpace(args[i])
 		if arg == "" {
 			return false

@@ -26,7 +26,7 @@ func compactDotnetSubcommandOK(sub string) ([]byte, bool) {
 	case "test":
 		return []byte("[dotnet test] ok\n"), true
 	case "publish", "pack":
-		return []byte(fmt.Sprintf("[dotnet %s] ok\n", sub)), true
+		return fmt.Appendf(nil, "[dotnet %s] ok\n", sub), true
 	default:
 		return nil, false
 	}
@@ -103,7 +103,7 @@ func extractDotnetErrors(s, sub string) string {
 	if strings.Contains(low, "build succeeded") || strings.Contains(low, "test run successful") {
 		// Count warnings/errors from summary.
 		warnings, errors := 0, 0
-		for _, line := range strings.Split(s, "\n") {
+		for line := range strings.SplitSeq(s, "\n") {
 			t := strings.TrimSpace(line)
 			if strings.HasSuffix(t, "Warning(s)") {
 				fmt.Sscanf(t, "%d", &warnings)
@@ -122,7 +122,7 @@ func extractDotnetErrors(s, sub string) string {
 
 	// Failure: extract error and warning lines.
 	var errLines []string
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		tLow := strings.ToLower(t)
 		if strings.Contains(tLow, "error") || strings.Contains(tLow, "failed") ||
@@ -147,7 +147,7 @@ func compactDotnetTestAllPass(s string) string {
 		total   int
 	}
 	var rows []row
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "Passed!") {
 			low := strings.ToLower(trimmed)
@@ -193,11 +193,11 @@ func compactDotnetTestAllPass(s string) string {
 }
 
 func dotnetSummaryInt(line, label string) (int, bool) {
-	idx := strings.Index(line, label)
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, label)
+	if !ok {
 		return 0, false
 	}
-	rest := strings.TrimSpace(line[idx+len(label):])
+	rest := strings.TrimSpace(after)
 	if rest == "" {
 		return 0, false
 	}

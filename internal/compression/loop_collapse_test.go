@@ -10,7 +10,7 @@ import (
 func makeLoopMessages(streakLen int) []types.Message {
 	msgs := make([]types.Message, 0, streakLen*2+2)
 	msgs = append(msgs, types.Message{Index: 0, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "initial response"}}})
-	for i := 0; i < streakLen; i++ {
+	for range streakLen {
 		msgs = append(msgs, types.Message{
 			Index: len(msgs),
 			Role:  "user",

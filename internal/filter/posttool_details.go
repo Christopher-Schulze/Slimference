@@ -19,7 +19,7 @@ type PostToolPayload struct {
 }
 
 func ExtractPostToolDetailsFromHookJSON(b []byte) (PostToolPayload, error) {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return PostToolPayload{}, fmt.Errorf("filter: JSON: %w", err)
 	}
@@ -50,7 +50,7 @@ func ExtractPostToolDetailsFromHookJSON(b []byte) (PostToolPayload, error) {
 	}, nil
 }
 
-func findPostToolResponse(v interface{}) (string, bool) {
+func findPostToolResponse(v any) (string, bool) {
 	for _, key := range []string{"tool_response", "toolResponse", "tool_output", "toolOutput", "stdout"} {
 		if s, ok := findStringForKey(v, key); ok {
 			return s, true
@@ -59,7 +59,7 @@ func findPostToolResponse(v interface{}) (string, bool) {
 	return "", false
 }
 
-func collectPostToolFilePaths(v interface{}, command string) []string {
+func collectPostToolFilePaths(v any, command string) []string {
 	seen := map[string]struct{}{}
 	add := func(path string) {
 		path = strings.TrimSpace(path)
@@ -91,19 +91,19 @@ func collectPostToolFilePaths(v interface{}, command string) []string {
 	return out
 }
 
-func findStringsForKey(v interface{}, key string) []string {
+func findStringsForKey(v any, key string) []string {
 	var out []string
-	var walk func(interface{})
-	walk = func(cur interface{}) {
+	var walk func(any)
+	walk = func(cur any) {
 		switch t := cur.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			if s, ok := t[key].(string); ok {
 				out = append(out, s)
 			}
 			for _, child := range t {
 				walk(child)
 			}
-		case []interface{}:
+		case []any:
 			for _, child := range t {
 				walk(child)
 			}
@@ -115,11 +115,11 @@ func findStringsForKey(v interface{}, key string) []string {
 
 func patchPathsFromText(s string) []string {
 	var out []string
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		for _, prefix := range []string{"*** Add File:", "*** Update File:", "*** Delete File:"} {
-			if strings.HasPrefix(line, prefix) {
-				out = append(out, strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+			if after, ok := strings.CutPrefix(line, prefix); ok {
+				out = append(out, strings.TrimSpace(after))
 			}
 		}
 	}

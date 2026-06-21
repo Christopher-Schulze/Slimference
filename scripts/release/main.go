@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -56,7 +57,7 @@ func resolveTargets(selector string) ([]target, error) {
 		return allTargets, nil
 	}
 	var out []target
-	for _, spec := range strings.Split(selector, ",") {
+	for spec := range strings.SplitSeq(selector, ",") {
 		spec = strings.TrimSpace(spec)
 		if spec == "" {
 			continue
@@ -78,12 +79,7 @@ func resolveTargets(selector string) ([]target, error) {
 }
 
 func isSupportedTarget(candidate target) bool {
-	for _, supported := range allTargets {
-		if candidate == supported {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allTargets, candidate)
 }
 
 func main() {

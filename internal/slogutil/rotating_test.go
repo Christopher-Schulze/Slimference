@@ -83,7 +83,7 @@ func TestRotatingWriter_MaxFilesOldestDropped(t *testing.T) {
 
 	line := strings.Repeat("a", 31) + "\n" // guaranteed to trigger rotation each write
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := rw.Write([]byte(line)); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}
@@ -107,16 +107,16 @@ func TestRotatingWriter_ConcurrentWrites(t *testing.T) {
 	defer rw.Close()
 
 	done := make(chan struct{})
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			defer func() { done <- struct{}{} }()
-			line := []byte(fmt.Sprintf(`{"id":%d}`+"\n", id))
+			line := fmt.Appendf(nil, `{"id":%d}`+"\n", id)
 			if _, err := rw.Write(line); err != nil {
 				t.Errorf("goroutine %d write: %v", id, err)
 			}
 		}(i)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

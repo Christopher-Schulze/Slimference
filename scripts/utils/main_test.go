@@ -31,7 +31,6 @@ func TestParseOutputFlag(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			gotFmt, gotRest, err := parseOutputFlag(tt.args)
@@ -176,7 +175,7 @@ func TestLoadCombinedReport(t *testing.T) {
 	}
 }
 
-func writeJSONLFile(t *testing.T, path string, values ...interface{}) {
+func writeJSONLFile(t *testing.T, path string, values ...any) {
 	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {

@@ -50,7 +50,7 @@ func TestFilterGitCompact_Aggressive(t *testing.T) {
 	// Build a large diff that would be dropped in aggressive mode
 	var sb strings.Builder
 	sb.WriteString("commit abc123\nAuthor: Test\nDate: Mon\n\n")
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		sb.WriteString("+added line\n")
 		sb.WriteString("-removed line\n")
 	}
@@ -122,7 +122,7 @@ func TestFilterBuildCompact_ErrorsKept(t *testing.T) {
 func TestFilterBuildCompact_Aggressive_LimitsErrors(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("file.go:10:1: error: something wrong\n")
 	}
 	content := sb.String()
@@ -148,7 +148,7 @@ func TestFilterLintCompact_ViolationsKept(t *testing.T) {
 func TestFilterLogCompact_DeduplicatesRepeatedLines(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("2026-04-12 10:00:00 INFO heartbeat\n")
 	}
 	sb.WriteString("2026-04-12 10:05:00 ERROR connection failed\n")
@@ -168,10 +168,10 @@ func TestFilterDirCompact_Aggressive_Summary(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("total 128\n")
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		sb.WriteString("-rw-r--r-- 1 user staff 1234 Jan 1 12:00 file.go\n")
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		sb.WriteString("drwxr-xr-x 2 user staff  64 Jan 1 12:00 subdir/\n")
 	}
 	content := sb.String()
@@ -184,7 +184,7 @@ func TestFilterDirCompact_Aggressive_Summary(t *testing.T) {
 func TestFilterSearchCompact_LimitsResults(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		sb.WriteString("src/file.go:10: matched content here\n")
 	}
 	content := sb.String()
@@ -201,7 +201,7 @@ func TestFilterSearchCompact_LimitsResults(t *testing.T) {
 func TestCompressToolOutput_LogOutput(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		sb.WriteString("2026-04-12 10:00:00 INFO request processed\n")
 	}
 	sb.WriteString("2026-04-12 10:05:00 ERROR connection failed\n")
@@ -216,10 +216,10 @@ func TestCompressToolOutput_DirListing(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("total 256\n")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("-rw-r--r-- 1 user staff 1234 Jan 1 12:00 file.go\n")
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		sb.WriteString("drwxr-xr-x 2 user staff  64 Jan 1 12:00 subdir/\n")
 	}
 	content := sb.String()
@@ -236,7 +236,7 @@ func TestCompressToolOutput_DirListing(t *testing.T) {
 func TestCompressToolOutput_SearchResult(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		sb.WriteString("src/file.go:10: matched content line here\n")
 	}
 	content := sb.String()
@@ -254,7 +254,7 @@ func TestFilterGitCompact_ModerateWithDiff(t *testing.T) {
 	sb.WriteString("--- a/foo.go\n")
 	sb.WriteString("+++ b/foo.go\n")
 	sb.WriteString("@@ -1,3 +1,3 @@\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		sb.WriteString("+new line\n")
 		sb.WriteString("-old line\n")
 	}
@@ -306,7 +306,7 @@ func TestCompressToolOutput_JSONData_Passthrough(t *testing.T) {
 func TestFilterLogCompact_Aggressive(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		sb.WriteString("2026-04-12 10:00:00 INFO line " + itoaTest(i) + "\n")
 	}
 	content := sb.String()
@@ -332,7 +332,7 @@ func TestFilterSearchCompact_Moderate_NoLimit(t *testing.T) {
 func TestFilterLintCompact_LimitHit(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		sb.WriteString("src/file.ts:" + itoaTest(i) + ":1: error no-unused-vars: x\n")
 	}
 	sb.WriteString("\n80 problems (80 errors, 0 warnings)\n")
@@ -346,7 +346,7 @@ func TestFilterLintCompact_LimitHit(t *testing.T) {
 func TestFilterLintCompact_Aggressive(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		sb.WriteString("src/file.ts:" + itoaTest(i) + ":1: error no-unused-vars: x\n")
 	}
 	content := sb.String()
@@ -373,7 +373,7 @@ func TestCompressToolOutput_Integration(t *testing.T) {
 	// Integration: git output with large diff, aggressive mode
 	var sb strings.Builder
 	sb.WriteString("On branch main\n")
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		sb.WriteString("+added line content here\n")
 		sb.WriteString("-removed line content here\n")
 	}
@@ -414,7 +414,7 @@ func TestCompressToolOutput_LintType(t *testing.T) {
 	t.Parallel()
 	// Lint output - exercises the ToolTypeLintOutput branch.
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("src/foo.go:10:1: warning: something wrong\n")
 	}
 	content := sb.String()
@@ -490,7 +490,7 @@ func TestFilterGitCompact_FileSummaryLines(t *testing.T) {
 	sb.WriteString("diff --git a/new.go b/new.go\n")
 	sb.WriteString("--- /dev/null\n")
 	sb.WriteString("+++ b/new.go\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		sb.WriteString("+added line content here\n")
 	}
 	sb.WriteString("create mode 100644 new.go\n")
@@ -515,7 +515,7 @@ func TestFilterTestCompact_NonAggressivePassLines(t *testing.T) {
 	t.Parallel()
 	// "=== RUN" lines are dropped; "--- PASS:" lines are kept in non-aggressive mode.
 	var sb strings.Builder
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("=== RUN   TestCase\n")
 		sb.WriteString("--- PASS: TestCase (0.01s)\n")
 	}

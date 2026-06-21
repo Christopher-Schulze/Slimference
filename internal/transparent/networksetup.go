@@ -184,7 +184,7 @@ func (m *Manager) defaultListServices(ctx context.Context) ([]string, error) {
 
 func parseServiceList(out string) []string {
 	var services []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -210,7 +210,7 @@ func parseServiceList(out string) []string {
 //	Port: 8990
 //	Authenticated Proxy Enabled: 0
 func parseGetWebProxy(out string) (enabled bool, server, port string) {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(line, "Enabled:"):

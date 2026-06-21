@@ -45,7 +45,7 @@ func TestTryCompactLs_manyEntries(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("total 80\n")
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		sb.WriteString("drwxr-xr-x  2 user group 4096 Jan 01 00:00 subdir")
 		sb.WriteString(string(rune('a' + i%26)))
 		sb.WriteString("\n")
@@ -60,7 +60,7 @@ func TestTryCompactLsLong(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("total 160\n")
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		fmt.Fprintf(&sb, "-rw-r--r--  1 user staff 1200 Jan 01 00:%02d generated_file_%02d.go\n", i%60, i)
 	}
 	out, ok := TryCompactLsLong([]string{"ls", "-lah", "generated"}, []byte(sb.String()))
@@ -84,7 +84,7 @@ func TestTryCompactLsLongMixedOwnerAndLongOptions(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("total 96\n")
-	for i := 0; i < 48; i++ {
+	for i := range 48 {
 		owner := "user"
 		if i%2 == 0 {
 			owner = "root"
@@ -181,7 +181,7 @@ func TestLsLongParserGuardHelpers(t *testing.T) {
 func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		sb.WriteString("src/generated/deep/package/file_")
 		if i < 10 {
 			sb.WriteByte('0')
@@ -217,7 +217,7 @@ func TestTryCompactPathListOutputRipgrepFiles(t *testing.T) {
 func TestTryCompactPlainPathListOutput(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&sb, "src/generated/deep/package/file_%02d.go\n", i)
 	}
 	out, ok := TryCompactPlainPathListOutput([]byte(sb.String()))
@@ -258,7 +258,7 @@ func TestTryCompactPlainPathListOutputFailOpen(t *testing.T) {
 func TestTryCompactPathListOutputFdPathLists(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		sb.WriteString("src/generated/deep/package/file_")
 		if i < 10 {
 			sb.WriteByte('0')
@@ -291,7 +291,7 @@ func TestTryCompactPathListOutputFdPathLists(t *testing.T) {
 func TestTryCompactPathListOutputFindPathLists(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		sb.WriteString(".reconc/audit/")
 		if i < 10 {
 			sb.WriteByte('0')
@@ -328,7 +328,7 @@ func TestTryCompactPathListOutputRipgrepFilesRootEntries(t *testing.T) {
 		sb.WriteString(path)
 		sb.WriteByte('\n')
 	}
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		sb.WriteString("internal/proxy/generated/deep/path/file_")
 		if i < 10 {
 			sb.WriteByte('0')
@@ -353,7 +353,7 @@ func TestTryCompactPathListOutputRipgrepFilesRootEntries(t *testing.T) {
 	}
 
 	var diagnostic strings.Builder
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		if i == 3 {
 			diagnostic.WriteString("warning: ambiguous path\n")
 			continue
@@ -386,7 +386,7 @@ func TestCompactCapturedOutputWithContextCDWrappedPathList(t *testing.T) {
 	t.Parallel()
 
 	var input strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString("src/generated/deep/package/file_")
 		if i < 10 {
 			input.WriteByte('0')
@@ -496,7 +496,7 @@ func TestTryCompactTree_withSummary(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString(".\n")
 	sb.WriteString("├── src\n")
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		connector := "│   ├── "
 		if i == 23 {
 			connector = "│   └── "
@@ -556,7 +556,7 @@ func TestTryCompactTreeArgvAndASCIIShapes(t *testing.T) {
 	t.Parallel()
 	var ascii strings.Builder
 	ascii.WriteString("internal/proxy\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		connector := "|-- "
 		if i == 39 {
 			connector = "`-- "

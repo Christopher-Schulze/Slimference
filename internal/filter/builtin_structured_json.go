@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -368,12 +369,7 @@ func isTerraformJSONOutputArgv(argv []string) bool {
 }
 
 func containsArg(args []string, want string) bool {
-	for _, arg := range args {
-		if arg == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, want)
 }
 
 func kubectlItemAttention(item map[string]json.RawMessage) bool {

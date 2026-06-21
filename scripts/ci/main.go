@@ -173,7 +173,7 @@ func runGofmtCheck(root string, stdout *os.File) error {
 		return nil
 	}
 	fmt.Fprintln(stdout, "gofmt drift:")
-	for _, line := range strings.Split(drift, "\n") {
+	for line := range strings.SplitSeq(drift, "\n") {
 		fmt.Fprintln(stdout, "  "+line)
 	}
 	return fmt.Errorf("gofmt drift in %d file(s); run `gofmt -w`", len(strings.Split(drift, "\n")))

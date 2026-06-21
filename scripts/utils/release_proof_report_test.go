@@ -79,7 +79,7 @@ func TestReleaseProofReportPassesWithCompleteMatrixAndProfile(t *testing.T) {
 	cliBundle := writeReleaseResourceProofBundle(t, dir, "cli")
 	desktopBundle := writeReleaseResourceProofBundle(t, dir, "desktop")
 
-	var rows []interface{}
+	var rows []any
 	for i, workload := range requiredWSSProofWorkloads {
 		rows = append(rows, releaseProofRow("release-"+workload, proofClientForIndex(i), workload, framesPath, &codexCaptureLiveDelta{
 			BillableInputTokensSaved: 1,
@@ -732,7 +732,7 @@ func proofClientForIndex(i int) string {
 
 func writeCompleteReleaseProofRows(t *testing.T, matrixPath, framesPath string) {
 	t.Helper()
-	var rows []interface{}
+	var rows []any
 	for i, workload := range requiredWSSProofWorkloads {
 		rows = append(rows, releaseProofRow("release-"+workload, proofClientForIndex(i), workload, framesPath, &codexCaptureLiveDelta{
 			BillableInputTokensSaved: 1,
@@ -833,7 +833,7 @@ func writeReleaseCodexStatusProof(t *testing.T, dir, name string, enabled, compl
 	return path
 }
 
-func appendJSONLFile(t *testing.T, path string, values ...interface{}) {
+func appendJSONLFile(t *testing.T, path string, values ...any) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {

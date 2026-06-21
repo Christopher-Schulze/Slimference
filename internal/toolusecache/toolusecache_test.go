@@ -61,7 +61,7 @@ func TestMerge_EmptyAddIsLoadOnly(t *testing.T) {
 func TestMerge_CapsPerSession(t *testing.T) {
 	dir := t.TempDir()
 	add := make(map[string]Entry, MaxEntriesPerSession+50)
-	for i := 0; i < MaxEntriesPerSession+50; i++ {
+	for i := range MaxEntriesPerSession + 50 {
 		id := fmt.Sprintf("call_%05d", i)
 		add[id] = Entry{ToolUseID: id, ToolName: "x"}
 	}

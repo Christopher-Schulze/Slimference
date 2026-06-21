@@ -51,11 +51,11 @@ func TestExtractCommandFromHookJSON_Array(t *testing.T) {
 func TestFindStringForKey_direct(t *testing.T) {
 	t.Parallel()
 	// empty string value should not match
-	if s, ok := findStringForKey(map[string]interface{}{"command": ""}, "command"); ok || s != "" {
+	if s, ok := findStringForKey(map[string]any{"command": ""}, "command"); ok || s != "" {
 		t.Fatalf("empty string: got %q %v", s, ok)
 	}
 	// nested array
-	v := []interface{}{map[string]interface{}{"command": "npm test"}}
+	v := []any{map[string]any{"command": "npm test"}}
 	if s, ok := findStringForKey(v, "command"); !ok || s != "npm test" {
 		t.Fatalf("nested array: got %q %v", s, ok)
 	}
@@ -68,9 +68,9 @@ func TestFindStringForKey_direct(t *testing.T) {
 func TestFindStringForKey_deterministicSiblingTraversal(t *testing.T) {
 	t.Parallel()
 	for range 50 {
-		v := map[string]interface{}{
-			"z": map[string]interface{}{"command": "z-last"},
-			"a": map[string]interface{}{"command": "a-first"},
+		v := map[string]any{
+			"z": map[string]any{"command": "z-last"},
+			"a": map[string]any{"command": "a-first"},
 		}
 		s, ok := findStringForKey(v, "command")
 		if !ok || s != "a-first" {
@@ -243,7 +243,6 @@ func TestRewriteCommand_BroadToolCommands(t *testing.T) {
 	}
 
 	for _, cmd := range tests {
-		cmd := cmd
 		t.Run(cmd, func(t *testing.T) {
 			t.Parallel()
 			got, ok := RewriteCommand(cmd, nil)
@@ -261,7 +260,6 @@ func TestRewriteCommand_RiskyArbitraryOutputCommandsStayUnrewritten(t *testing.T
 	t.Parallel()
 
 	for _, cmd := range []string{"dart run bin/app.dart", "deno run app.ts", "flutter run", "java -jar app.jar", "ssh host uptime"} {
-		cmd := cmd
 		t.Run(cmd, func(t *testing.T) {
 			t.Parallel()
 			if got, ok := RewriteCommand(cmd, nil); ok {

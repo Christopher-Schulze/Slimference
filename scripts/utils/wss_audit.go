@@ -64,8 +64,8 @@ type wssAuditSessionSummary struct {
 	ResolvedRequestShapes  map[string]int `json:"resolved_request_shapes,omitempty"`
 	ReReadCount            int            `json:"re_read_count"`
 	TokensSaved            int            `json:"tokens_saved"`
-	FirstSeen              time.Time      `json:"first_seen,omitempty"`
-	LastSeen               time.Time      `json:"last_seen,omitempty"`
+	FirstSeen              time.Time      `json:"first_seen"`
+	LastSeen               time.Time      `json:"last_seen"`
 }
 
 type wssFullHistoryClassBSummary struct {
@@ -722,7 +722,7 @@ func addWSSAuditCountWithMissing(counts *map[string]int, key string) {
 }
 
 func addDelimitedWSSAuditCounts(counts *map[string]int, value string) {
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		addWSSAuditCount(counts, part)
 	}
 }
@@ -1082,7 +1082,7 @@ func (a *wssShadowMirrorAccumulator) addKinds(encoded string) {
 	if a == nil || strings.TrimSpace(encoded) == "" {
 		return
 	}
-	for _, part := range strings.Split(encoded, ",") {
+	for part := range strings.SplitSeq(encoded, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -1657,7 +1657,7 @@ func parseWSSShadowMirrorKindRows(encoded string) []wssShadowMirrorKindSummary {
 		return nil
 	}
 	var rows []wssShadowMirrorKindSummary
-	for _, part := range strings.Split(encoded, ",") {
+	for part := range strings.SplitSeq(encoded, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

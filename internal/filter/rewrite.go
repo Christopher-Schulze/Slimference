@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -101,8 +102,8 @@ func RewriteCommand(cmd string, excluded []string) (string, bool) {
 		return cmd, false
 	}
 	// Caller explicitly opted out.
-	if strings.HasPrefix(trimmed, "SLIMFERENCE_DISABLED=1 ") {
-		rest := strings.TrimPrefix(trimmed, "SLIMFERENCE_DISABLED=1 ")
+	if after, ok := strings.CutPrefix(trimmed, "SLIMFERENCE_DISABLED=1 "); ok {
+		rest := after
 		return strings.TrimSpace(rest), false
 	}
 
@@ -230,12 +231,7 @@ func stageHasSubcommand(toks []ParsedToken, subs ...string) bool {
 	if len(args) < 2 {
 		return false
 	}
-	for _, sub := range subs {
-		if args[1] == sub {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(subs, args[1])
 }
 
 func stageArgValues(toks []ParsedToken) []string {
@@ -300,7 +296,7 @@ func renderSegTokens(toks []ParsedToken) string {
 // ExtractCommandFromHookJSON finds the first non-empty string value for key "command"
 // in a JSON object (recursive). Used for Claude Code PreToolUse hook stdin.
 func ExtractCommandFromHookJSON(b []byte) (string, error) {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return "", fmt.Errorf("filter: JSON: %w", err)
 	}
@@ -310,9 +306,9 @@ func ExtractCommandFromHookJSON(b []byte) (string, error) {
 	return "", fmt.Errorf("filter: no string field \"command\" in JSON")
 }
 
-func findStringForKey(v interface{}, key string) (string, bool) {
+func findStringForKey(v any, key string) (string, bool) {
 	switch t := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if s, ok := t[key].(string); ok && s != "" {
 			return s, true
 		}
@@ -326,7 +322,7 @@ func findStringForKey(v interface{}, key string) (string, bool) {
 				return s, true
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, e := range t {
 			if s, ok := findStringForKey(e, key); ok {
 				return s, true

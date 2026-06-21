@@ -29,7 +29,6 @@ func TestDecideCodexToolOutputLoosensForContextRisk(t *testing.T) {
 		{name: "recent edit", in: CodexToolOutputInput{Mode: "auto", Route: CodexRouteWSSPhaseF, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000, ChunkMinBytes: 1}},
 		{name: "post-collapse reread", in: CodexToolOutputInput{Mode: "auto", Route: CodexRouteWSSPhaseF, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000, ChunkMinBytes: 1}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := DecideCodexToolOutput(tc.in)
@@ -127,7 +126,6 @@ func TestDecideCodexToolOutputNeverEnablesFirstReadScan(t *testing.T) {
 		{name: "recent edit full-passes the read", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000}},
 		{name: "post-collapse reread full-passes the read", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := DecideCodexToolOutput(tc.in)
@@ -411,7 +409,6 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyBlock, reason: "unsupported_policy_shape",
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := DecideCodexMechanism(tc.in)
@@ -435,7 +432,6 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 		{name: "degraded route", mutate: func(in *CodexToolOutputInput) { in.DegradedRoute = true }, reason: "degraded_route_full_context"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			in := CodexToolOutputInput{

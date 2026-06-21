@@ -280,7 +280,6 @@ func TestInjectBody_UnknownShapePrecheckBranches(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out, stats, err := InjectBody(tc.provider, []byte(tc.body), Options{Enabled: true, Profile: "auto", InputTokens: 90000})

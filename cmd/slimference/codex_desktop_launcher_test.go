@@ -122,11 +122,11 @@ func TestBuildCodexDesktopLaunchEnvOverridesAndDeduplicates(t *testing.T) {
 		overrides[k] = 0
 	}
 	for _, kv := range got {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		key := kv[:eq]
+		key := before
 		if _, isOverride := overrides[key]; isOverride {
 			overrides[key]++
 			if kv != key+"="+want {

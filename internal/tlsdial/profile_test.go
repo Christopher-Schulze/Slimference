@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,6 @@ func TestResolveProfile_Aliases(t *testing.T) {
 		{name: "chrome_131", want: "chrome_131"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := ResolveProfile(tc.name)
@@ -394,10 +394,5 @@ func sameStrings(got, want []string) bool {
 }
 
 func containsString(values []string, want string) bool {
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

@@ -8,7 +8,7 @@ import (
 func TestApplyLayer0Filters_prefersDedicatedBuildBeforeGenericLog(t *testing.T) {
 	t.Parallel()
 	var in strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		in.WriteString("2026-05-29T00:00:00Z INFO compiling package\n")
 	}
 	in.WriteString("2026-05-29T00:00:01Z ERROR ./main.go:12: undefined: value\n")

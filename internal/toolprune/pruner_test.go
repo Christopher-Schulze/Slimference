@@ -2,6 +2,7 @@ package toolprune
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -278,17 +279,17 @@ func TestPruneToolDefinitions_NoToolsField(t *testing.T) {
 
 func TestPruneToolDefinitions_LargeBody_Savings(t *testing.T) {
 	t.Parallel()
-	var tools []map[string]interface{}
-	for i := 0; i < 20; i++ {
-		tools = append(tools, map[string]interface{}{
+	var tools []map[string]any
+	for i := range 20 {
+		tools = append(tools, map[string]any{
 			"name":        "Tool" + strings.Repeat("x", i+1),
 			"description": strings.Repeat("d", 500),
 		})
 	}
-	bodyMap := map[string]interface{}{
+	bodyMap := map[string]any{
 		"model":    "claude-3",
 		"tools":    tools,
-		"messages": []interface{}{},
+		"messages": []any{},
 	}
 	body, _ := json.Marshal(bodyMap)
 	toPrune := map[string]bool{}
@@ -382,10 +383,5 @@ func TestLooksLikeMissingToolError(t *testing.T) {
 }
 
 func containsString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, needle)
 }

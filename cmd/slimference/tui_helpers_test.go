@@ -289,11 +289,9 @@ func TestRunTUIAfterStart_signalPath(t *testing.T) {
 	p := &testTUIProxy{}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		runTUIAfterStart(p)
-	}()
+	})
 
 	time.Sleep(10 * time.Millisecond)
 

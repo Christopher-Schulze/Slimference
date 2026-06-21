@@ -239,7 +239,7 @@ func Tiny() int {
 
 func Huge() int {
 `)
-	for i := 0; i < hugeLines; i++ {
+	for range hugeLines {
 		sb.WriteString(`	fmt.Println("line")
 `)
 	}

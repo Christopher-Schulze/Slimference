@@ -264,11 +264,11 @@ func TestStreamcutWiredClosesUpstreamOnCommentary(t *testing.T) {
 		// Realistic: 15-20 small deltas of substantive content before
 		// the opener. Holdback drops the last few; the bulk of the
 		// substantive content reaches the client.
-		for i := 0; i < 18; i++ {
+		for range 18 {
 			writeAnthropicDelta("Substantive content line. ")
 		}
 		writeAnthropicDelta("\nHope this helps with your question.")
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			writeAnthropicDelta(" more trailing chatter here.")
 			time.Sleep(2 * time.Millisecond)
 		}
@@ -335,7 +335,7 @@ func TestStreamcutDisabledLetsTailThrough(t *testing.T) {
 		}
 		writeAnthropicDelta(strings.Repeat("Substantive content line. ", 4))
 		writeAnthropicDelta("\nHope this helps with your question.")
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			writeAnthropicDelta(" more trailing chatter here.")
 		}
 		fmt.Fprintf(w, "data: {\"type\":\"message_stop\"}\n\n")
@@ -375,7 +375,7 @@ func TestStreamcutSkipsCodeEditShape(t *testing.T) {
 		}
 		writeAnthropicDelta(strings.Repeat("Substantive patch explanation. ", 4))
 		writeAnthropicDelta("\nHope this helps with your patch.")
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			writeAnthropicDelta(" more trailing chatter here.")
 		}
 		fmt.Fprintf(w, "data: {\"type\":\"message_stop\"}\n\n")

@@ -2,6 +2,7 @@ package filter
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -34,10 +35,8 @@ func isLogReadingArgv(argv []string) bool {
 	if logReadingPrefixes[base] && len(argv) >= 2 {
 		last := argv[len(argv)-1]
 		ext := strings.ToLower(filepath.Ext(last))
-		for _, e := range logFileExtensions {
-			if ext == e {
-				return true
-			}
+		if slices.Contains(logFileExtensions, ext) {
+			return true
 		}
 	}
 	return false

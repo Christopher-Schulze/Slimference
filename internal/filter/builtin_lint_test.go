@@ -1301,7 +1301,7 @@ func TestTryCompactMypyDiagnosticsStrict(t *testing.T) {
 	t.Parallel()
 
 	var input strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		input.WriteString("src/app.py:10: error: Incompatible return value type\n")
 	}
 	input.WriteString("src/app.py:10: note: expected str\n")
@@ -1383,7 +1383,6 @@ func TestTryCompactCargoClippyCleanOutputGuards(t *testing.T) {
 		{name: "finished only", input: "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := TryCompactCargoClippy([]string{"cargo", "clippy"}, []byte(tt.input)); ok {
@@ -1476,7 +1475,6 @@ func TestTryCompactPreCommitGuards(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := TryCompactPreCommit(tt.argv, []byte(tt.input)); ok {
@@ -1491,7 +1489,7 @@ func TestTryCompactPreCommitGuards(t *testing.T) {
 
 func cargoClippyCleanFixture(packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "    Checking slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
@@ -1504,7 +1502,7 @@ func preCommitPassedFixture(hooks int) string {
 	out.WriteString("[INFO] Initializing environment for https://github.com/PyCQA/isort.\n")
 	out.WriteString("[INFO] Once installed this environment will be reused.\n")
 	out.WriteString("[INFO] This may take a few minutes...\n")
-	for i := 0; i < hooks; i++ {
+	for i := range hooks {
 		fmt.Fprintf(&out, "Hook %03d.................................................................Passed\n", i)
 	}
 	return out.String()

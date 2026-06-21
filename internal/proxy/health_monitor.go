@@ -120,7 +120,7 @@ func (h *healthMonitor) getStatusLocked(prov types.Provider) types.ProviderHealt
 	status := types.ProviderHealthHealthy
 	if r.count >= 3 {
 		allFailed := true
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			idx := (r.head - 1 - i + 20) % 20
 			if r.buf[idx] {
 				allFailed = false

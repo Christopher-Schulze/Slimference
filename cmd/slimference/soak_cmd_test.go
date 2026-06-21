@@ -90,7 +90,6 @@ func TestClassifyTrend(t *testing.T) {
 		{"improvement", []float64{0.4, 0.42, 0.6, 0.62}, "improvement"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := classifyTrend(tc.in); got != tc.want {
@@ -164,7 +163,7 @@ func TestComputeSoakReport_HappyPath_Stable(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		day := now.AddDate(0, 0, -i)
 		writeSnapshot(t, dir, day, analytics.AnalyticsSnapshot{
 			TotalRequests:           100,
@@ -203,7 +202,7 @@ func TestComputeSoakReport_Regression(t *testing.T) {
 		})
 	}
 	// Second half (newer): low prompt cache hit rate -> regression.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		writeSnapshot(t, dir, now.AddDate(0, 0, -i), analytics.AnalyticsSnapshot{
 			TotalRequests:           100,
 			PromptCacheReadRequests: 30,
@@ -226,7 +225,7 @@ func TestComputeSoakReport_T100UnsafeButT103Safe(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		writeSnapshot(t, dir, now.AddDate(0, 0, -i), analytics.AnalyticsSnapshot{
 			TotalRequests:           100,
 			Errors:                  0,

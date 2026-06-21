@@ -174,9 +174,9 @@ func fenceIsTopLevelWithBody(content, body string) bool {
 		return false
 	}
 	// Scope check: find first [table] before the fence.
-	fenceIdx := strings.Index(content, markerStart)
-	preFence := content[:fenceIdx]
-	for _, line := range strings.Split(preFence, "\n") {
+	before, _, _ := strings.Cut(content, markerStart)
+	preFence := before
+	for line := range strings.SplitSeq(preFence, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			return false // fence sits inside a table scope
@@ -199,7 +199,7 @@ func hasConflictingKeyOutsideFence(content string) bool {
 func stripConflictingTopLevelKeys(content string) string {
 	var out []string
 	inTable := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inTable = true
@@ -251,7 +251,7 @@ func hasDuplicateTopLevelKey(content string) bool {
 func countTopLevelKey(text, key string) int {
 	n := 0
 	inTable := false
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inTable = true

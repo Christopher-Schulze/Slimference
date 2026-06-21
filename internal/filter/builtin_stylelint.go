@@ -95,7 +95,7 @@ func TryCompactStylelintJSON(argv []string, stdout []byte) ([]byte, bool) {
 			return stdout, false
 		}
 	}
-	out := []byte(fmt.Sprintf("[stylelint] clean (%d file(s))\n", len(rows)))
+	out := fmt.Appendf(nil, "[stylelint] clean (%d file(s))\n", len(rows))
 	if len(out) >= len(stdout) {
 		return stdout, false
 	}

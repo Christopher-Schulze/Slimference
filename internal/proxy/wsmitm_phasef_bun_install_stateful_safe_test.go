@@ -103,7 +103,7 @@ func wssBunInstallCleanFixture(packages int, savedLockfile bool) string {
 		out.WriteString("Saved lockfile\n")
 	}
 	out.WriteString("\n")
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "+ bun-package-%03d@1.0.%d\n", i, i)
 	}
 	out.WriteString("\n")

@@ -11,7 +11,7 @@ import (
 func BenchmarkReduceCodexLayer0_WSSRepeatedGitStatus80Files(b *testing.B) {
 	b.Setenv("HOME", b.TempDir())
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&status, " M internal/pkg/file_%03d.go\n", i)
 	}
 	messages := []types.Message{

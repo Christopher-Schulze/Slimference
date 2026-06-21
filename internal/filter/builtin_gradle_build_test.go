@@ -54,7 +54,6 @@ func TestTryCompactGradleBuildCleanSuccessFailOpen(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if out, ok := TryCompactGradle([]string{"gradle", "build"}, []byte(tt.input)); ok {
@@ -106,7 +105,7 @@ func TestGradleBuildParserHelperEdges(t *testing.T) {
 func gradleBuildCleanSuccessFixture(tasks int) string {
 	var b strings.Builder
 	b.WriteString("Starting a Gradle Daemon, 1 busy Daemon could not be reused, use --status for details\n")
-	for i := 0; i < tasks; i++ {
+	for i := range tasks {
 		fmt.Fprintf(&b, "> Task :module%d:compileJava\n", i)
 	}
 	b.WriteString("BUILD SUCCESSFUL in 4s\n")

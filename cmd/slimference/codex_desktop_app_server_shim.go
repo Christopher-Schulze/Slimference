@@ -710,12 +710,12 @@ func parseCodexDesktopShimBoolEnv(env []string, key string, fallback bool) (bool
 func sanitizeCodexDesktopAppServerShimEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(kv, "=")
+		if !ok {
 			out = append(out, kv)
 			continue
 		}
-		key := kv[:eq]
+		key := before
 		if key == "CODEX_CLI_PATH" || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
 			continue
 		}
@@ -727,8 +727,8 @@ func sanitizeCodexDesktopAppServerShimEnv(env []string) []string {
 func envValue(env []string, key string) string {
 	prefix := key + "="
 	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], prefix) {
-			return strings.TrimPrefix(env[i], prefix)
+		if after, ok := strings.CutPrefix(env[i], prefix); ok {
+			return after
 		}
 	}
 	return ""

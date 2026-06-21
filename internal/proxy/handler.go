@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"strconv"
@@ -1083,9 +1084,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				DependencyPaths: dependencyPaths,
 			}
 			// Copy headers for cache.
-			for k, vv := range upstreamResp.Header {
-				entry.Headers[k] = vv
-			}
+			maps.Copy(entry.Headers, upstreamResp.Header)
 			p.responseCache.Set(cacheKey, entry)
 			// Register the Stage A pointer (T20) so the next identical
 			// original request can skip the compression pipeline entirely.
@@ -1515,10 +1514,7 @@ func parseRetryAfter(header string) time.Duration {
 		return 0
 	}
 	if secs, err := strconv.Atoi(header); err == nil {
-		d := time.Duration(secs) * time.Second
-		if d > 30*time.Second {
-			d = 30 * time.Second
-		}
+		d := min(time.Duration(secs)*time.Second, 30*time.Second)
 		return d
 	}
 	if t, err := http.ParseTime(header); err == nil {

@@ -263,7 +263,6 @@ func TestFrontendDiagnosticArgv(t *testing.T) {
 		{[]string{}, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
 			t.Parallel()
 			if got := isFrontendDiagnosticArgv(tt.argv); got != tt.want {
@@ -302,7 +301,6 @@ func TestPythonDiagnosticArgv(t *testing.T) {
 		{[]string{}, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
 			t.Parallel()
 			if got := isPythonDiagnosticArgv(tt.argv); got != tt.want {
@@ -332,7 +330,6 @@ func TestSQLDiagnosticArgv(t *testing.T) {
 		{[]string{}, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
 			t.Parallel()
 			if got := isSQLDiagnosticArgv(tt.argv); got != tt.want {
@@ -366,7 +363,6 @@ func TestPracticalEcosystemDiagnosticArgv(t *testing.T) {
 		{[]string{"not-a-build-tool", "x"}, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
 			t.Parallel()
 			if got := isPracticalEcosystemDiagnosticArgv(tt.argv); got != tt.want {
@@ -484,7 +480,7 @@ func paddedDiagnosticOutput(core string) string {
 	var sb strings.Builder
 	sb.WriteString(core)
 	sb.WriteByte('\n')
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("progress line that should be removed from compact diagnostics\n")
 	}
 	return sb.String()
@@ -494,7 +490,7 @@ func diagnosticOutputWithNeutralPadding(core string) string {
 	var sb strings.Builder
 	sb.WriteString(core)
 	sb.WriteByte('\n')
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("neutral padding line that should be removed from compact output\n")
 	}
 	return sb.String()

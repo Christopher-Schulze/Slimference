@@ -265,16 +265,16 @@ func parseTreeSummaryLine(line string) (int, int, bool) {
 func parseTreeEntryLine(line string) (int, string, bool) {
 	connectors := []string{"├── ", "└── ", "|-- ", "`-- ", "\\-- "}
 	for _, connector := range connectors {
-		idx := strings.Index(line, connector)
-		if idx < 0 {
+		before, after, ok := strings.Cut(line, connector)
+		if !ok {
 			continue
 		}
-		prefix := line[:idx]
+		prefix := before
 		depth, ok := treePrefixDepth(prefix)
 		if !ok {
 			return 0, "", false
 		}
-		name := line[idx+len(connector):]
+		name := after
 		if name == "" {
 			return 0, "", false
 		}
@@ -661,7 +661,7 @@ func plainPathListPayloadSafe(stdout []byte) bool {
 		return false
 	}
 	entries := 0
-	for _, raw := range strings.Split(strings.TrimRight(payload, "\n"), "\n") {
+	for raw := range strings.SplitSeq(strings.TrimRight(payload, "\n"), "\n") {
 		line := strings.TrimRight(raw, "\r")
 		if line == "" || len(line) > maxLineBytes || strings.ContainsAny(line, " \t:;|<>\"'`$\\") ||
 			strings.Contains(line, "://") || strings.HasPrefix(line, "-") || strings.TrimSpace(line) != line {
@@ -1005,7 +1005,7 @@ func TryCompactWc(argv []string, stdout []byte) ([]byte, bool) {
 
 func wcColumnsFromArgv(args []string) ([]wcColumn, bool) {
 	selected := map[wcColumn]bool{}
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := args[i]
 		if arg == "--" {
 			break

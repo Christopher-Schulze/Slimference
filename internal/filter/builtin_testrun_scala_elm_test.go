@@ -38,7 +38,6 @@ func TestTryCompactScalaAndElmTestAllPass(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := tt.parse(tt.argv, []byte(tt.stdout))
@@ -92,7 +91,6 @@ func TestTryCompactScalaAndElmTestUnsafeSignalsFailOpen(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := tt.parse(tt.argv, []byte(tt.stdout))
@@ -131,7 +129,6 @@ func TestTryCompactTestOutputIncludesScalaAndElmAllPass(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactTestOutput(tt.argv, []byte(tt.stdout))
@@ -151,7 +148,6 @@ func TestScalaElmParserFailOpenEdges(t *testing.T) {
 		t.Fatalf("parseCountAfterColon should accept numeric count")
 	}
 	for _, line := range []string{"Passed 7", "Passed:"} {
-		line := line
 		t.Run("elm count "+line, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseCountAfterColon(line); ok {
@@ -168,7 +164,6 @@ func TestScalaElmParserFailOpenEdges(t *testing.T) {
 		{"mill", "compile"},
 		{"npx", "mill", "compile"},
 	} {
-		argv := argv
 		t.Run("mill argv reject "+strings.Join(argv, " "), func(t *testing.T) {
 			t.Parallel()
 			if isMillTestArgv(argv) {
@@ -191,7 +186,6 @@ func TestScalaElmParserFailOpenEdges(t *testing.T) {
 		"[info] Tests: succeeded 1, failed 0\n[info] All tests passed.\n[success] Total time: 1 s\n",
 		"[info] Tests: succeeded 1, failed 0, canceled 0, ignored 0, pending 0\n[error] boom\n",
 	} {
-		stdout := stdout
 		t.Run("scala fail-open", func(t *testing.T) {
 			t.Parallel()
 			out, ok := compactScalaStyleTestAllPass([]byte(stdout), "sbt test")
@@ -205,7 +199,6 @@ func TestScalaElmParserFailOpenEdges(t *testing.T) {
 		t.Fatalf("expected aborted=0, got aborted=%d ok=%v", aborted, ok)
 	}
 	for _, line := range []string{"no suite summary", "Suites: completed 1, aborted nope"} {
-		line := line
 		t.Run("suite parse reject", func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseScalaStyleSuitesAborted(line); ok {
@@ -225,7 +218,7 @@ func filterScalaStyleAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("[info] Compiling 1 Scala source to /repo/target...\n")
 	out.WriteString("[info] ExampleSuite:\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "[info] - generated case %03d\n", i)
 	}
 	fmt.Fprintf(&out, "[info] Total number of tests run: %d\n", count)
@@ -245,7 +238,7 @@ func filterElmTestAllPassFixture(count int) string {
 	out.WriteString("elm-test 0.19.1-revision6\n")
 	out.WriteString("-------------------------\n\n")
 	fmt.Fprintf(&out, "Running %d tests. To reproduce these results, run: elm-test --fuzz 100 --seed 148067075282531\n", count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "generated case %03d passed\n", i)
 	}
 	out.WriteString("\nTEST RUN PASSED\n\n")

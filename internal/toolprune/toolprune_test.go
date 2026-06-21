@@ -109,7 +109,7 @@ func TestDecide_NoPruning(t *testing.T) {
 func TestDecide_PrunesIdleTools(t *testing.T) {
 	u := NewUsageTracker(2)
 	u.ObserveTurn("s", []string{"a", "b"})
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		u.ObserveTurn("s", []string{"a"}) // b drifts out of window
 	}
 	d := u.Decide("s", []string{"a", "b"}, 0)
@@ -157,7 +157,7 @@ func TestMarkMissCooldownIsOneDecisionEvenWithLongIdleThreshold(t *testing.T) {
 	u := NewUsageTracker(20)
 	const session = "s"
 	u.ObserveTurn(session, []string{"ColdTool", "AnotherColdTool"})
-	for i := 0; i < 22; i++ {
+	for range 22 {
 		u.ObserveTurn(session, []string{"Other"})
 	}
 	first := u.Decide(session, []string{"ColdTool", "AnotherColdTool"}, 0)
@@ -257,7 +257,7 @@ func TestDecide_MinKeepWithUnknownSession(t *testing.T) {
 func TestSnapshotBoundedAtCap(t *testing.T) {
 	u := NewUsageTracker(5)
 	u.maxSessions = 3
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		u.ObserveTurn("s-"+strconv.Itoa(i), []string{"x"})
 	}
 	if got := u.Snapshot().Sessions; got > 3 {

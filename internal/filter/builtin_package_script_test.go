@@ -29,7 +29,7 @@ func TestCompactPackageManagerBuildScriptTypeScriptFailureOutput(t *testing.T) {
 	var stdout strings.Builder
 	stdout.WriteString("> web@1.0.0 typecheck /repo\n")
 	stdout.WriteString("> tsc --noEmit\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		stdout.WriteString("tsc progress line\n")
 	}
 	stdout.WriteString("src/app.ts(7,3): error TS2322: Type 'string' is not assignable to type 'number'.\n")
@@ -60,7 +60,7 @@ func TestCompactPackageManagerBuildScriptMypyOutput(t *testing.T) {
 	var stdout strings.Builder
 	stdout.WriteString("> api@1.0.0 typecheck /repo\n")
 	stdout.WriteString("> mypy src\n")
-	for i := 0; i < 70; i++ {
+	for range 70 {
 		stdout.WriteString("src/app.py:10: error: Incompatible return value type\n")
 	}
 	stdout.WriteString("src/app.py:10: note: expected str\n")
@@ -276,7 +276,7 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	var stdout strings.Builder
 	stdout.WriteString("> web@1.0.0 lint /repo\n")
 	stdout.WriteString("> errcheck ./...\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		stdout.WriteString("internal/proxy/handler.go:164:15: Close() error return value is not checked\n")
 	}
 
@@ -297,7 +297,7 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	stdout.Reset()
 	stdout.WriteString("> api@1.0.0 lint /repo\n")
 	stdout.WriteString("> golangci-lint run ./...\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		stdout.WriteString("internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)\n")
 	}
 	out, ok = TryCompactLintOutput([]string{"npm", "run", "lint"}, []byte(stdout.String()))
@@ -317,7 +317,7 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	stdout.Reset()
 	stdout.WriteString("> api@1.0.0 lint /repo\n")
 	stdout.WriteString("> staticcheck ./...\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		stdout.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
 	}
 	out, ok = TryCompactLintOutput([]string{"pnpm", "run", "lint"}, []byte(stdout.String()))
@@ -337,7 +337,7 @@ func TestCompactPackageManagerLintScriptFailureOutput(t *testing.T) {
 	stdout.Reset()
 	stdout.WriteString("> api@1.0.0 lint /repo\n")
 	stdout.WriteString("> revive ./...\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		stdout.WriteString("internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _\n")
 	}
 	out, ok = TryCompactLintOutput([]string{"yarn", "lint"}, []byte(stdout.String()))

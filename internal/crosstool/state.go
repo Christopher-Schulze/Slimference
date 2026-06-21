@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -57,12 +58,7 @@ func IsGitStatusArgv(argv []string) bool {
 	if !isGitArgv(argv) {
 		return false
 	}
-	for _, arg := range argv[1:] {
-		if arg == "status" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "status")
 }
 
 func IsGitDiffNameOnlyArgv(argv []string) bool {

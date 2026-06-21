@@ -170,11 +170,11 @@ type controlledExitDummy struct{}
 func (controlledExitDummy) controlledExitMarker() {}
 
 func TestControlledExitMarker_IsSatisfied(t *testing.T) {
-	var v interface{} = ControlledExit{}
+	var v any = ControlledExit{}
 	if _, ok := v.(controlledExitMarker); !ok {
 		t.Fatalf("ControlledExit must satisfy controlledExitMarker")
 	}
-	var d interface{} = controlledExitDummy{}
+	var d any = controlledExitDummy{}
 	if _, ok := d.(controlledExitMarker); !ok {
 		t.Fatalf("controlledExitDummy must satisfy controlledExitMarker")
 	}

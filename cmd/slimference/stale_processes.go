@@ -54,7 +54,7 @@ func listStaleSlimferenceProcessesViaPS() ([]staleSlimferenceProcess, error) {
 
 func parseStaleSlimferenceProcesses(output string, selfPID int) []staleSlimferenceProcess {
 	var out []staleSlimferenceProcess
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue

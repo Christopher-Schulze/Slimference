@@ -1431,7 +1431,6 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := applyLayer0AfterANSI(dir, tc.argv, tc.stdout)

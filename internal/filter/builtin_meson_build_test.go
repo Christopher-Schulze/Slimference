@@ -74,7 +74,6 @@ func TestTryCompactMesonCompileCleanProgressFailOpen(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if out, ok := TryCompactMesonCompile(tt.argv, []byte(tt.stdout)); ok {
@@ -141,7 +140,7 @@ func TestMesonCompileHelperBranches(t *testing.T) {
 func mesonCompileCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("ninja: Entering directory `/repo/build'\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%d/%d] Compiling C object app.p/generated/object_%02d.c.o\n", i+1, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking target app\n", files+1, files+1)

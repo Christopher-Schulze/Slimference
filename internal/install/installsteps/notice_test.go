@@ -132,7 +132,6 @@ func TestNoticeApplyValidatesFields(t *testing.T) {
 		{"empty appname", Notice{Path: "/tmp/x.md", Title: "y"}},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.n.Apply(context.Background()); err == nil {
 				t.Errorf("expected error for %s", tc.name)

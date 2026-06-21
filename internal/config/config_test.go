@@ -219,10 +219,10 @@ func TestLoadWithOptions_CodexSearchCapProofPromotesSelectedCap(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 41.25, 120)
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,10 +258,10 @@ func TestLoadWithOptions_CodexSearchCapProofIgnoresUnversionedFinalReport(t *tes
 		omitProofSchemaVersion: true,
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -298,10 +298,10 @@ func TestLoadWithOptions_CodexSearchCapProofIgnoresOlderFinalReport(t *testing.T
 		proofSchemaVersion: 1,
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -325,10 +325,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsWeakReport(t *testing.T) {
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixture(t, dir, 25, 15, 39.5, 0)
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -360,10 +360,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsEnvelopeOnlyReducerProof(t *t
 		requiredReducerHits: map[string]int64{"codex_exec_envelope": 2},
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -394,10 +394,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsMissingDownstreamStateProof(t
 		downstreamStateExplicit: true,
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -428,10 +428,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsNegativeDownstreamNet(t *test
 		downstreamNetSavedTokensFixed: true,
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -479,10 +479,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsFocusedMatrixReport(t *testin
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,10 +500,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsBadRouteHygiene(t *testing.T)
 	dir := t.TempDir()
 	proofPath := writeCodexSearchCapProofFixtureWithRouteHygiene(t, dir, 25, 15, 41.25, 120, false, []string{"after: advanced shared Codex route enabled"})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -538,10 +538,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsContradictoryOKIssues(t *test
 		clients:            []string{"cli", "desktop"},
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -583,10 +583,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsThinPromotionFields(t *testin
 		clients:           []string{"cli", "desktop"},
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -622,10 +622,10 @@ func TestLoadWithOptions_CodexSearchCapProofRejectsThinFinalReport(t *testing.T)
 		clients:      []string{"cli"},
 	})
 	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
 [compression.output_reduce]
 codex_search_cap_proof_path = %q
-`, proofPath)), 0o600); err != nil {
+`, proofPath), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1042,7 +1042,6 @@ func TestListenAddr(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := Defaults()
@@ -1107,7 +1106,6 @@ func TestValidate_InvalidPort(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := Defaults()
@@ -1149,7 +1147,6 @@ func TestValidate_InvalidOpenAIPromptCacheConfig(t *testing.T) {
 		{"rate_limit", func(c *Config) { c.Proxy.OpenAIPromptCache.MaxRequestsPerKeyPerMinute = -1 }},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := Defaults()
@@ -1193,7 +1190,6 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"chunk_session_reference_percent_high", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 101 }},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := Defaults()
@@ -1231,7 +1227,6 @@ func TestValidate_InvalidTuning(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := Defaults()
@@ -1466,14 +1461,6 @@ func TestLoad_ValidateFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() with invalid config expected error, got nil")
 	}
-}
-
-// min is a local helper for config_test.go.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func TestLoad_InvalidTOML(t *testing.T) {

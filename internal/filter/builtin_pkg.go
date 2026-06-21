@@ -150,7 +150,7 @@ func TryCompactNpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return compactNpmInstallCleanSuccess(stdout, "npm "+argv[1])
 	}
-	return []byte(fmt.Sprintf("[npm %s] ok\n", argv[1])), true
+	return fmt.Appendf(nil, "[npm %s] ok\n", argv[1]), true
 }
 
 // TryCompactPnpmInstall summarizes empty stdout or strict clean success from `pnpm install` / `pnpm ci` / `pnpm update` (F12 partial).
@@ -173,7 +173,7 @@ func TryCompactPnpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return compactPnpmInstallCleanSuccess(stdout, "pnpm "+argv[1])
 	}
-	return []byte(fmt.Sprintf("[pnpm %s] ok\n", argv[1])), true
+	return fmt.Appendf(nil, "[pnpm %s] ok\n", argv[1]), true
 }
 
 // TryCompactYarnInstall summarizes empty stdout or strict Yarn Classic clean success from `yarn install` / `yarn upgrade` (F12 partial).
@@ -191,7 +191,7 @@ func TryCompactYarnInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return compactYarnClassicInstallCleanSuccess(stdout, "yarn "+argv[1], argv[1])
 	}
-	return []byte(fmt.Sprintf("[yarn %s] ok\n", argv[1])), true
+	return fmt.Appendf(nil, "[yarn %s] ok\n", argv[1]), true
 }
 
 func packageAuditJSONLabel(argv []string) (string, bool) {
@@ -441,7 +441,7 @@ func compactPoetryInstallSuccess(stdout []byte) ([]byte, bool) {
 	var installs, updates, removals int
 	var expectedOperations *int
 	var bulletOperations int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -516,7 +516,7 @@ func compactPipenvInstallSuccess(stdout []byte) ([]byte, bool) {
 	var installSucceeded bool
 	var lockUpdated bool
 	var successfullyInstalled string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -575,7 +575,7 @@ func compactComposerInstallSuccess(stdout []byte) ([]byte, bool) {
 	var operationRows int
 	var funding *int
 	var awaitingFundingPrompt bool
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -739,7 +739,7 @@ func compactMixDepsGetSuccess(stdout []byte) ([]byte, bool) {
 	var sawResolutionComplete bool
 	var upToDate bool
 	var dependencyRows int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -801,7 +801,7 @@ func compactGemInstallSuccess(stdout []byte) ([]byte, bool) {
 	var successRows int
 	var terminalCount *int
 	var documentationDone bool
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -924,7 +924,7 @@ func compactUvPackageSuccess(stdout []byte, label string) ([]byte, bool) {
 	text := string(stdout)
 	counts := map[string]int{}
 	rowOperations := 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -1100,7 +1100,7 @@ func compactPnpmInstallCleanSuccess(stdout []byte, label string) ([]byte, bool) 
 	var sawPackageDelta bool
 	var added, removed int
 	var dependencyRows int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -1282,7 +1282,7 @@ func compactYarnClassicInstallCleanSuccess(stdout []byte, label, command string)
 	var sawDependencySection bool
 	var dependencyRows int
 	var savedDependencies *int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -1418,7 +1418,7 @@ func compactBunInstallCleanSuccess(stdout []byte) ([]byte, bool) {
 	var sawDone bool
 	var packageRows int
 	var installedCount *int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -1524,7 +1524,7 @@ func compactNpmInstallCleanSuccess(stdout []byte, label string) ([]byte, bool) {
 	var sawAuditSummary bool
 	var sawZeroVulnerabilities bool
 	var awaitingFundingPrompt bool
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -1607,8 +1607,8 @@ func npmFundingPromptLineOK(line string) bool {
 
 func parseNpmInstallAuditSummaryLine(line string) ([]string, bool) {
 	const auditMarker = ", and audited "
-	if strings.HasPrefix(line, "up to date, audited ") {
-		audited, ok := parseNpmAuditedTail(strings.TrimPrefix(line, "up to date, audited "))
+	if after, ok := strings.CutPrefix(line, "up to date, audited "); ok {
+		audited, ok := parseNpmAuditedTail(after)
 		if !ok {
 			return nil, false
 		}
@@ -1734,22 +1734,22 @@ func TryCompactGoMod(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	if isGoModCompactArgv(argv) {
-		return []byte(fmt.Sprintf("[go mod %s] ok\n", argv[2])), true
+		return fmt.Appendf(nil, "[go mod %s] ok\n", argv[2]), true
 	}
 	if rest, ok := npxArgvSuffix(argv); ok && len(rest) >= 3 && isGoModCompactArgv(rest) {
-		return []byte(fmt.Sprintf("[go mod %s] ok\n", rest[2])), true
+		return fmt.Appendf(nil, "[go mod %s] ok\n", rest[2]), true
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if len(argv) >= 5 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
 		tail := argv[2:]
 		if isGoModCompactArgv(tail) {
-			return []byte(fmt.Sprintf("[go mod %s] ok\n", tail[2])), true
+			return fmt.Appendf(nil, "[go mod %s] ok\n", tail[2]), true
 		}
 	}
 	if len(argv) >= 4 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
 		tail := argv[1:]
 		if isGoModCompactArgv(tail) {
-			return []byte(fmt.Sprintf("[go mod %s] ok\n", tail[2])), true
+			return fmt.Appendf(nil, "[go mod %s] ok\n", tail[2]), true
 		}
 	}
 	return stdout, false
@@ -2017,7 +2017,7 @@ func extractPkgSummary(s, label string) (string, bool) {
 }
 
 func packageOutputHasErrorSummaryLine(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -2030,7 +2030,7 @@ func packageOutputHasErrorSummaryLine(s string) bool {
 }
 
 func packageOutputHasUnsafeSuccessMarker(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue

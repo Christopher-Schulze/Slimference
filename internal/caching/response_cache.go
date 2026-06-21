@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,7 +246,7 @@ func (c *ResponseCache) AgeSnapshot() AgeHistogram {
 	for _, entry := range c.entries {
 		ages = append(ages, now.Sub(entry.CreatedAt).Milliseconds())
 	}
-	sort.Slice(ages, func(i, j int) bool { return ages[i] < ages[j] })
+	slices.Sort(ages)
 	pct := func(p float64) int64 {
 		idx := int(float64(len(ages)-1) * p)
 		return ages[idx]
@@ -330,7 +331,7 @@ var jsonMarshalFn = json.Marshal
 // ExtractDependencyPaths returns normalized file-like paths found anywhere in the JSON body.
 // It scans string values recursively so request parameters like messages/system/tools are covered.
 func ExtractDependencyPaths(body []byte) []string {
-	var root interface{}
+	var root any
 	if err := json.Unmarshal(body, &root); err != nil {
 		return extractDependencyPathsFromString(string(body))
 	}
@@ -361,7 +362,7 @@ func IsRequestCacheSafeWithRoute(route string, body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
-	var root map[string]interface{}
+	var root map[string]any
 	if err := json.Unmarshal(body, &root); err != nil {
 		return false
 	}
@@ -389,7 +390,7 @@ func IsRequestCacheSafeWithRoute(route string, body []byte) bool {
 	return true
 }
 
-func responseCacheHasServerStateSideEffect(route string, root map[string]interface{}) bool {
+func responseCacheHasServerStateSideEffect(route string, root map[string]any) bool {
 	if nonEmptyJSONValue(root["previous_response_id"]) ||
 		nonEmptyJSONValue(root["conversation"]) ||
 		nonEmptyJSONValue(root["thread"]) ||
@@ -415,7 +416,7 @@ func responseCacheRouteCanStore(route string) bool {
 	return strings.Contains(route, "/v1/responses") || strings.Contains(route, "/responses")
 }
 
-func explicitFalseBool(v interface{}) bool {
+func explicitFalseBool(v any) bool {
 	switch current := v.(type) {
 	case bool:
 		return !current
@@ -426,7 +427,7 @@ func explicitFalseBool(v interface{}) bool {
 	}
 }
 
-func explicitDeterministicSampling(root map[string]interface{}) bool {
+func explicitDeterministicSampling(root map[string]any) bool {
 	temp, ok := numericValue(root["temperature"])
 	if !ok || temp != 0 {
 		return false
@@ -438,7 +439,7 @@ func explicitDeterministicSampling(root map[string]interface{}) bool {
 	return true
 }
 
-func requestCanProduceToolCalls(root map[string]interface{}) bool {
+func requestCanProduceToolCalls(root map[string]any) bool {
 	for _, key := range []string{"tools", "functions"} {
 		if value, ok := root[key]; ok && nonEmptyJSONValue(value) {
 			return true
@@ -453,23 +454,23 @@ func requestCanProduceToolCalls(root map[string]interface{}) bool {
 	return containsToolRole(root["messages"]) || containsToolRole(root["input"])
 }
 
-func nonEmptyJSONValue(value interface{}) bool {
+func nonEmptyJSONValue(value any) bool {
 	switch v := value.(type) {
 	case nil:
 		return false
 	case string:
 		return strings.TrimSpace(v) != "" && strings.TrimSpace(v) != "none"
-	case []interface{}:
+	case []any:
 		return len(v) > 0
-	case map[string]interface{}:
+	case map[string]any:
 		return len(v) > 0
 	default:
 		return true
 	}
 }
 
-func nonEmptyNestedJSONValue(root map[string]interface{}, parent string, keys ...string) bool {
-	obj, ok := root[parent].(map[string]interface{})
+func nonEmptyNestedJSONValue(root map[string]any, parent string, keys ...string) bool {
+	obj, ok := root[parent].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -481,15 +482,13 @@ func nonEmptyNestedJSONValue(root map[string]interface{}, parent string, keys ..
 	return false
 }
 
-func containsToolRole(value interface{}) bool {
+func containsToolRole(value any) bool {
 	switch v := value.(type) {
-	case []interface{}:
-		for _, item := range v {
-			if containsToolRole(item) {
-				return true
-			}
+	case []any:
+		if slices.ContainsFunc(v, containsToolRole) {
+			return true
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if role, ok := v["role"].(string); ok {
 			switch strings.ToLower(strings.TrimSpace(role)) {
 			case "tool", "function":
@@ -512,7 +511,7 @@ func containsToolRole(value interface{}) bool {
 }
 
 func canonicalizeJSON(body []byte) []byte {
-	var root interface{}
+	var root any
 	if err := json.Unmarshal(body, &root); err != nil {
 		return []byte(strings.TrimSpace(string(body)))
 	}
@@ -523,13 +522,13 @@ func canonicalizeJSON(body []byte) []byte {
 	return data
 }
 
-func collectDependencyPaths(v interface{}, paths map[string]struct{}) {
+func collectDependencyPaths(v any, paths map[string]struct{}) {
 	switch current := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for _, child := range current {
 			collectDependencyPaths(child, paths)
 		}
-	case []interface{}:
+	case []any:
 		for _, child := range current {
 			collectDependencyPaths(child, paths)
 		}
@@ -636,7 +635,7 @@ func normalizeCacheHeaderValues(name string, values []string) []string {
 			continue
 		}
 		if name == "anthropic-beta" || name == "openai-beta" {
-			for _, part := range strings.Split(trimmed, ",") {
+			for part := range strings.SplitSeq(trimmed, ",") {
 				token := strings.TrimSpace(part)
 				if token != "" {
 					normalized = append(normalized, token)
@@ -674,7 +673,7 @@ func hexDigest(sum [32]byte) string {
 	return string(out)
 }
 
-func truthyBool(v interface{}) bool {
+func truthyBool(v any) bool {
 	switch current := v.(type) {
 	case bool:
 		return current
@@ -685,7 +684,7 @@ func truthyBool(v interface{}) bool {
 	}
 }
 
-func numericValue(v interface{}) (float64, bool) {
+func numericValue(v any) (float64, bool) {
 	switch current := v.(type) {
 	case float64:
 		return current, true

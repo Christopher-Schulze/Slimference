@@ -86,7 +86,7 @@ func TestClassifyAnthropicVersion_UnknownBehaviorInvalidFallsBackToConservative(
 func TestClassifyAnthropicVersion_CounterMonotoneUnderRepeatedUnknowns(t *testing.T) {
 	ResetAnthropicVersionState()
 	cfg := &config.ProxyConfig{AnthropicVersions: []string{"2023-06-01"}}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		ClassifyAnthropicVersion("unknown-x", cfg)
 	}
 	if got := AnthropicUnknownVersionCount(); got != 5 {

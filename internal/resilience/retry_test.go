@@ -149,7 +149,7 @@ func TestExponentialBackoff(t *testing.T) {
 	// With jitter removed from the check, we verify growth direction only.
 	// Backoff at attempt 0 = initial, attempt 1 = 2*initial, attempt 2 = 4*initial.
 	prev := time.Duration(0)
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := range 5 {
 		got := ExponentialBackoff(attempt, initial, max)
 		if got > max {
 			t.Errorf("attempt %d: backoff %v exceeds max %v", attempt, got, max)
@@ -342,7 +342,6 @@ func TestIsContextOverflow(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			resp := &http.Response{StatusCode: tc.status}

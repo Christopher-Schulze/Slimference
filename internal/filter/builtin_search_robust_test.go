@@ -36,7 +36,7 @@ func TestGroupSearchResultsRobustToNoiseLines(t *testing.T) {
 	// Noise-dominated output (mostly colon-less) must stay literal, not be
 	// summarized into a wrong match count.
 	var noise strings.Builder
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		fmt.Fprintf(&noise, "just some prose line number %d with no structure\n", i)
 	}
 	noise.WriteString("one/real.go:5:match\n")

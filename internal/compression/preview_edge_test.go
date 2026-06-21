@@ -86,7 +86,7 @@ func TestStructurePreview_previewLongerThanInputReturnsFalse(t *testing.T) {
 // TestFormatJSONKey_arrayAndScalar covers the remaining branches.
 func TestFormatJSONKey_arrayAndScalar(t *testing.T) {
 	t.Parallel()
-	if got := formatJSONKey("arr", []interface{}{1, 2, 3}); !strings.Contains(got, "[3 items]") {
+	if got := formatJSONKey("arr", []any{1, 2, 3}); !strings.Contains(got, "[3 items]") {
 		t.Fatalf("array: %s", got)
 	}
 	if got := formatJSONKey("short", "small"); !strings.Contains(got, "\"small\"") {
@@ -110,7 +110,7 @@ func TestPreviewPaths_windowsStyle(t *testing.T) {
 	t.Parallel()
 	// Backslash-only paths (simulates Windows listing).
 	var sb strings.Builder
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		sb.WriteString("C:\\users\\alice\\project\\nested\\deep\\file_")
 		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(".txt\n")
@@ -142,8 +142,8 @@ func TestFormatJSONKey_genericMarshal(t *testing.T) {
 	t.Parallel()
 	// Arrays of primitives serialise to long JSON - trigger the
 	// "len > 80" branch in the default arm of formatJSONKey.
-	big := make([]interface{}, 0, 40)
-	for i := 0; i < 40; i++ {
+	big := make([]any, 0, 40)
+	for i := range 40 {
 		big = append(big, float64(i))
 	}
 	// We exercise the default arm by handing a non-string / non-list /

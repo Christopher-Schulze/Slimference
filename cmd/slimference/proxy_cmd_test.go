@@ -351,7 +351,6 @@ func TestProxyEnvCodex_RejectsBadArgs(t *testing.T) {
 		{"env", "codex", "--direct", "--bogus"},
 	}
 	for _, args := range cases {
-		args := args
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			t.Parallel()
 			env, _, _, _, _, _ := newProxyEnv(t)

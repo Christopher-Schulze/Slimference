@@ -39,7 +39,7 @@ func TestWSSStatefulSafePackageManagerPrettierCleanCheckCompactsFullHistoryTurn(
 	output.WriteString("Process exited with code 0\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&output, "> workspace format prelude %03d\n", i)
 	}
 	output.WriteString("> web@1.0.0 format:check /repo\n")

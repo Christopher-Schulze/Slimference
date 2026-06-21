@@ -77,7 +77,7 @@ func Build(ctx context.Context, p Probes) SetupState {
 		}
 		done <- struct{}{}
 	}()
-	for i := 0; i < 9; i++ {
+	for range 9 {
 		<-done
 	}
 	state.HostBudget = EvaluateHostBudget(state.Daemon, state.WSS)

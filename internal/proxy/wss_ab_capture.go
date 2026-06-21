@@ -30,7 +30,7 @@ type wssABReplayRuntimeCapture struct {
 type WSSABCaptureStatus struct {
 	Enabled   bool      `json:"enabled"`
 	Path      string    `json:"path,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type wssABReplayCaptureRecord struct {

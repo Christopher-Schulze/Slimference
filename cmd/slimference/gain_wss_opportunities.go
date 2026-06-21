@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -141,10 +142,7 @@ func (a *wssShadowMirrorOpportunityAccumulator) finalize(limit int) []gainOpport
 	}
 	rows := make([]gainOpportunityRow, 0, len(a.rows))
 	for _, row := range a.rows {
-		row.LocalTokensHeadroom = row.InputTokens - row.OutputTokens
-		if row.LocalTokensHeadroom < 0 {
-			row.LocalTokensHeadroom = 0
-		}
+		row.LocalTokensHeadroom = max(row.InputTokens-row.OutputTokens, 0)
 		row.PromotionBlockers = gainDedupeStrings(append(row.PromotionBlockers, gainWSSShadowMirrorLaneBlockers(row.CandidateLane, row.LocalTokensHeadroom)...))
 		row.NextProofGate = gainWSSShadowMirrorProofGate(row.CandidateLane, gainContainsString(row.PromotionBlockers, "erroring_shape"))
 		row.PromotionStage = gainWSSShadowMirrorPromotionStage(row.CandidateLane, row.PromotionBlockers)
@@ -195,7 +193,7 @@ func parseGainWSSShadowMirrorKindRows(encoded string) []gainWSSShadowMirrorKindR
 		return nil
 	}
 	var rows []gainWSSShadowMirrorKindRow
-	for _, part := range strings.Split(encoded, ",") {
+	for part := range strings.SplitSeq(encoded, ",") {
 		name, values, ok := strings.Cut(strings.TrimSpace(part), "=")
 		if !ok {
 			continue
@@ -406,12 +404,7 @@ func gainDedupeStrings(values []string) []string {
 }
 
 func gainContainsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func gainMaxInt(a, b int) int {

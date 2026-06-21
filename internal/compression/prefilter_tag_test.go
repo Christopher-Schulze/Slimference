@@ -24,7 +24,6 @@ func TestIsPreFiltered_GitMarkers(t *testing.T) {
 		{"random text", "some output from a tool", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := isPreFiltered(tc.content)
@@ -48,7 +47,6 @@ func TestIsPreFiltered_TOMLMarkers(t *testing.T) {
 		{"[full output: /tmp/tee-123.txt]\n", true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.content, func(t *testing.T) {
 			t.Parallel()
 			if got := isPreFiltered(tc.content); got != tc.want {

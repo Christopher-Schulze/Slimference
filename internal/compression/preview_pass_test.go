@@ -12,7 +12,7 @@ import (
 func largeJSONPayload() string {
 	var sb strings.Builder
 	sb.WriteString("{")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		if i > 0 {
 			sb.WriteString(",")
 		}

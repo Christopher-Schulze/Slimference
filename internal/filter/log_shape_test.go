@@ -8,7 +8,7 @@ import (
 func TestDetectLogShape_ISO8601(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("2024-01-15T10:00:00Z INFO request processed\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))
@@ -20,7 +20,7 @@ func TestDetectLogShape_ISO8601(t *testing.T) {
 func TestDetectLogShape_UnixTimestamp(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("1705312800.123456 INFO request ok\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))
@@ -32,7 +32,7 @@ func TestDetectLogShape_UnixTimestamp(t *testing.T) {
 func TestDetectLogShape_Syslog(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("Jan 15 10:00:00 myhost myapp[1234]: something happened\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))
@@ -44,7 +44,7 @@ func TestDetectLogShape_Syslog(t *testing.T) {
 func TestDetectLogShape_Bracketed(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString("[INFO] request processed successfully\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))
@@ -56,7 +56,7 @@ func TestDetectLogShape_Bracketed(t *testing.T) {
 func TestDetectLogShape_JSONLines(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		sb.WriteString(`{"level":"info","msg":"request processed","ts":1705312800}` + "\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))
@@ -68,7 +68,7 @@ func TestDetectLogShape_JSONLines(t *testing.T) {
 func TestDetectLogShape_SeverityFallback(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("INFO something happened\n")
 	}
 	shape, conf := DetectLogShape([]byte(sb.String()))

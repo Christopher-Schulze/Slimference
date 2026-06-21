@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1209,12 +1210,7 @@ func TestParseWSSLocalGapFlagsRejectsBadValues(t *testing.T) {
 }
 
 func hasString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func wssLocalGapPrefixRowBySurface(rows []wssLocalGapPrefixRow, surface string) wssLocalGapPrefixRow {

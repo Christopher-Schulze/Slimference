@@ -120,7 +120,7 @@ type AppEntry struct {
 	BinPath  string     `json:"bin_path,omitempty"`
 	Routed   int64      `json:"routed"`
 	Bypassed int64      `json:"bypassed"`
-	LastSeen time.Time  `json:"last_seen,omitempty"`
+	LastSeen time.Time  `json:"last_seen"`
 }
 
 // CodexRouteState reports the scoped, marker-owned Codex provider route.
@@ -153,10 +153,10 @@ type CodexRouteState struct {
 	RecertLogPath               string    `json:"recert_log_path,omitempty"`
 	RecertStatus                string    `json:"recert_status,omitempty"`
 	RecertAttemptID             string    `json:"recert_attempt_id,omitempty"`
-	RecertStartedAt             time.Time `json:"recert_started_at,omitempty"`
-	RecertFinishedAt            time.Time `json:"recert_finished_at,omitempty"`
-	RecertLastSuccessAt         time.Time `json:"recert_last_success_at,omitempty"`
-	RecertRetryAfter            time.Time `json:"recert_retry_after,omitempty"`
+	RecertStartedAt             time.Time `json:"recert_started_at"`
+	RecertFinishedAt            time.Time `json:"recert_finished_at"`
+	RecertLastSuccessAt         time.Time `json:"recert_last_success_at"`
+	RecertRetryAfter            time.Time `json:"recert_retry_after"`
 	RecertLastError             string    `json:"recert_last_error,omitempty"`
 	RecertCommand               string    `json:"recert_command,omitempty"`
 	FallbackReason              string    `json:"fallback_reason,omitempty"`

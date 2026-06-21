@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -1757,10 +1758,10 @@ func proxyPatchPathsFromText(patch, workdir string) []string {
 		}
 		out = append(out, proxyPathWithWorkdir(path, workdir))
 	}
-	for _, line := range strings.Split(patch, "\n") {
+	for line := range strings.SplitSeq(patch, "\n") {
 		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "+++ ", "--- "} {
-			if strings.HasPrefix(line, prefix) {
-				add(strings.TrimPrefix(line, prefix))
+			if after, ok := strings.CutPrefix(line, prefix); ok {
+				add(after)
 			}
 		}
 	}
@@ -2140,7 +2141,7 @@ func proxyLooksLikeGoTestOutput(payload string) bool {
 
 	nonEmpty := 0
 	matches := 0
-	for _, line := range strings.Split(payload, "\n") {
+	for line := range strings.SplitSeq(payload, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -2206,7 +2207,7 @@ func proxyLooksLikeSearchResultLine(line string) bool {
 func proxyLooksLikeGitStatusOutput(payload string) bool {
 	nonEmpty := 0
 	statusLines := 0
-	for _, line := range strings.Split(payload, "\n") {
+	for line := range strings.SplitSeq(payload, "\n") {
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "Total output lines:") {
 			continue
 		}
@@ -2734,18 +2735,14 @@ func mergedProxyToolUseIndex(index map[string]types.ContentBlock, remembered map
 			return nil
 		}
 		out := make(map[string]types.ContentBlock, len(remembered))
-		for id, use := range remembered {
-			out[id] = use
-		}
+		maps.Copy(out, remembered)
 		return out
 	}
 	if len(remembered) == 0 {
 		return index
 	}
 	out := make(map[string]types.ContentBlock, len(index)+len(remembered))
-	for id, use := range index {
-		out[id] = use
-	}
+	maps.Copy(out, index)
 	for id, use := range remembered {
 		if _, ok := out[id]; !ok {
 			out[id] = use
@@ -2896,12 +2893,12 @@ func normalizeLeadingCDCommand(commandLine string) string {
 }
 
 func splitLeadingCDCommand(commandLine string) (string, string, bool) {
-	idx := strings.Index(commandLine, "&&")
-	if idx < 0 {
+	before, after, ok := strings.Cut(commandLine, "&&")
+	if !ok {
 		return "", "", false
 	}
-	prefix := strings.TrimSpace(commandLine[:idx])
-	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
+	prefix := strings.TrimSpace(before)
+	rest := strings.TrimSpace(after)
 	if rest == "" {
 		return "", "", false
 	}

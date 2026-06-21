@@ -757,7 +757,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
 		termIsTerminalFn = func(int) bool { return false }
 		var statusOutput strings.Builder
-		for i := 0; i < 150; i++ {
+		for i := range 150 {
 			fmt.Fprintf(&statusOutput, " M file_%03d.go\n", i)
 		}
 		payload, err := json.Marshal(map[string]string{

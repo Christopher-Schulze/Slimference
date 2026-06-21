@@ -449,7 +449,7 @@ func unchangedOutputEvidenceSummary(commandLine, content string) string {
 
 func selectedUnchangedEvidenceLines(compacted string, prefixes ...string) []string {
 	lines := make([]string, 0, len(prefixes))
-	for _, raw := range strings.Split(strings.TrimSpace(compacted), "\n") {
+	for raw := range strings.SplitSeq(strings.TrimSpace(compacted), "\n") {
 		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
 		if line == "" {
 			continue

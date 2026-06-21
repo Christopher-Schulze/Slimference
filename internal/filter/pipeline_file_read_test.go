@@ -14,9 +14,9 @@ func TestLayer0PipelineDoesNotElideFirstFileRead(t *testing.T) {
 	var body strings.Builder
 	body.WriteString("package x\n\n")
 	body.WriteString("// this comment is real context and must remain\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		body.WriteString(fmt.Sprintf("func F%d(a int) int {\n", i))
-		for j := 0; j < 15; j++ {
+		for j := range 15 {
 			body.WriteString(fmt.Sprintf("\ta += %d // body detail %d\n", j, j))
 		}
 		body.WriteString("\treturn a\n}\n\n")

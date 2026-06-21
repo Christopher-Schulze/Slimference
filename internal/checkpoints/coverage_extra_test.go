@@ -293,7 +293,7 @@ func TestCheckpointCaptureAndRestoreAdditionalBranches(t *testing.T) {
 	}
 
 	trimDir := t.TempDir()
-	for i := 0; i < maxKeep; i++ {
+	for i := range maxKeep {
 		id := fmt.Sprintf("cp-%02d", i)
 		if err := saveCheckpoint(trimDir, &Checkpoint{ID: id, CreatedAt: time.Unix(int64(i), 0), Score: i, Body: id}); err != nil {
 			t.Fatal(err)
@@ -415,7 +415,6 @@ func TestCheckpointRenderingAndScoringHelpers(t *testing.T) {
 		{"none", types.AnalyticsEvent{Type: types.EventRequestProcessed, Model: "gpt-4o", InputTokensOrig: 1000, InputTokensComp: 900, CompressionRatio: 0.5}, ""},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if got := autoTrigger(tc.event); got != tc.want {
 				t.Fatalf("autoTrigger=%q want=%q", got, tc.want)

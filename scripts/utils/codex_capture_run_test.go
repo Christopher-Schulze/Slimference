@@ -247,7 +247,6 @@ func TestParseCodexCaptureRunFlagsRejectsBadRoute(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := parseCodexCaptureRunFlags(tt.args, now)
@@ -545,7 +544,7 @@ func TestRunCodexCaptureRunRestartsAfterCompletion(t *testing.T) {
 	}
 	startCount := 0
 	stopCount := 0
-	for _, call := range strings.Split(got, ",") {
+	for call := range strings.SplitSeq(got, ",") {
 		if call == "start" {
 			startCount++
 		}
@@ -670,7 +669,7 @@ func TestRunCodexCaptureRunRestartsAfterMutatedCompletion(t *testing.T) {
 	}
 	startCount := 0
 	stopCount := 0
-	for _, call := range strings.Split(got, ",") {
+	for call := range strings.SplitSeq(got, ",") {
 		if call == "start" {
 			startCount++
 		}

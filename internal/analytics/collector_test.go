@@ -11,7 +11,7 @@ import (
 func TestAnalytics_RecentRequests(t *testing.T) {
 	t.Parallel()
 	a := NewAnalytics()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		a.Record(makeRequestEvent(types.Anthropic, "m", 100, 80, 10, false, float64(10+i), nil))
 	}
 	last2 := a.RecentRequests(2)
@@ -414,10 +414,10 @@ func TestAnalytics_ConcurrentRecord(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < eventsEach; j++ {
+			for range eventsEach {
 				a.Record(makeRequestEvent(types.Anthropic, "m", 100, 80, 20, false, 10.0, nil))
 			}
 		}()

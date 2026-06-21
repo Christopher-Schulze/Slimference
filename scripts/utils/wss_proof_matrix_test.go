@@ -37,7 +37,7 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 		"no_savings_control",
 	}
 	matrixPath := filepath.Join(dir, "matrix.jsonl")
-	var records []interface{}
+	var records []any
 	for i, class := range classes {
 		framesPath := filepath.Join(dir, fmt.Sprintf("frames-%02d.jsonl", i))
 		expectedZero := class == "no_savings_control"
@@ -1264,7 +1264,7 @@ func TestRunWSSProofMatrixJSONFailure(t *testing.T) {
 func writeProofRepeatReadFrames(t *testing.T, path, session string) {
 	t.Helper()
 	var file strings.Builder
-	for i := 0; i < 140; i++ {
+	for i := range 140 {
 		fmt.Fprintf(&file, "proof matrix repeated content line %03d\n", i)
 	}
 	writeJSONLFile(t, path,

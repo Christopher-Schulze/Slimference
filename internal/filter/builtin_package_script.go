@@ -2,6 +2,7 @@ package filter
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -382,14 +383,9 @@ func packageManagerScriptNameHasTerm(script, term string) bool {
 	if script == term {
 		return true
 	}
-	for _, part := range strings.FieldsFunc(script, func(r rune) bool {
+	return slices.Contains(strings.FieldsFunc(script, func(r rune) bool {
 		return r == ':' || r == '-' || r == '_' || r == '.'
-	}) {
-		if part == term {
-			return true
-		}
-	}
-	return false
+	}), term)
 }
 
 func packageManagerScriptTranscriptCandidates(stdout []byte) []packageManagerScriptCandidate {
@@ -413,8 +409,8 @@ func packageManagerScriptTranscriptCandidates(stdout []byte) []packageManagerScr
 func packageManagerScriptTranscriptCommand(line string) (string, bool) {
 	trimmed := strings.TrimSpace(line)
 	for _, prefix := range []string{"> ", "$ "} {
-		if strings.HasPrefix(trimmed, prefix) {
-			command := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		if after, ok := strings.CutPrefix(trimmed, prefix); ok {
+			command := strings.TrimSpace(after)
 			return command, command != ""
 		}
 	}

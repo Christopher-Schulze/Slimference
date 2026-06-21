@@ -21,7 +21,7 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 
 	var file strings.Builder
-	for i := 0; i < 160; i++ {
+	for i := range 160 {
 		fmt.Fprintf(&file, "Replay fixture line %03d with stable content for comprehension comparison.\n", i)
 	}
 	frames := []WSSABReplayFrame{
@@ -67,7 +67,7 @@ func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
 
 	var before strings.Builder
 	var after strings.Builder
-	for i := 0; i < 160; i++ {
+	for i := range 160 {
 		line := fmt.Sprintf("Replay delta fixture line %03d with stable content for archive-backed comparison.\n", i)
 		before.WriteString(line)
 		if i == 80 {
@@ -441,7 +441,7 @@ func TestRunWSSPhaseFABReplayCountsMutatedFullHistoryShape(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled = true
 
 	var file strings.Builder
-	for i := 0; i < 160; i++ {
+	for i := range 160 {
 		fmt.Fprintf(&file, "Full-history fixture line %03d with stable content for shape accounting.\n", i)
 	}
 	frames := []WSSABReplayFrame{
@@ -1053,7 +1053,7 @@ func wssReplayArgumentsString(arguments map[string]any) string {
 
 func wssReplaySearchOutputFixture(needle string, count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
 	}
 	return out.String()

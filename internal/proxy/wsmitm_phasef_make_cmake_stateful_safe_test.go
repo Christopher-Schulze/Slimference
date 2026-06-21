@@ -185,7 +185,7 @@ func wssMakeCmakeCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("make[1]: Entering directory '/repo/build'\n")
 	b.WriteString("Consolidate compiler generated dependencies of target app\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%3d%%] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, i)
 	}
 	b.WriteString("[100%] Linking CXX executable app\n")
@@ -197,7 +197,7 @@ func wssMakeCmakeCleanProgressFixture(files int) string {
 func wssCmakeBuildCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("Consolidate compiler generated dependencies of target slimference\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%3d%%] Building C object src/CMakeFiles/slimference.dir/generated/object_%02d.c.o\n", i+1, i)
 	}
 	b.WriteString("[100%] Linking C executable slimference\n")
@@ -208,7 +208,7 @@ func wssCmakeBuildCleanProgressFixture(files int) string {
 func wssNinjaCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("ninja: Entering directory `build'\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)
@@ -218,7 +218,7 @@ func wssNinjaCleanProgressFixture(files int) string {
 func wssMesonCompileCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("ninja: Entering directory `/repo/build'\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%d/%d] Compiling C object app.p/generated/object_%02d.c.o\n", i+1, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking target app\n", files+1, files+1)

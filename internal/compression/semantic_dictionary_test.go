@@ -54,7 +54,7 @@ func TestApplySemanticDictionary_SkipsUnsafeOrUnprofitableInputs(t *testing.T) {
 func TestSemanticDictionaryCandidates_CapsEntries(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < pathDictionaryMaxEntries+2; i++ {
+	for i := range pathDictionaryMaxEntries + 2 {
 		path := fmt.Sprintf("/Users/example/project/pkg/%02d/deep/file.go", i)
 		b.WriteString(path + "\n" + path + "\n" + path + "\n")
 	}

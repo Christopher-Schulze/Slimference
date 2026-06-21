@@ -28,7 +28,7 @@ func TestToolOutputInWindowPass_CompactsLargeCurrentSearchOutput(t *testing.T) {
 	c := NewDeterministicCompressor(&cfg).WithRecorder(&toolOutputWindowRecorder{})
 
 	var output strings.Builder
-	for i := 0; i < 300; i++ {
+	for i := range 300 {
 		output.WriteString(fmt.Sprintf("internal/proxy/file_%03d.go:%d:func example%d() {}\n", i, i+1, i))
 	}
 	msgs := []types.Message{
@@ -117,7 +117,7 @@ func TestToolOutputInWindowPass_ArchivesOriginalWhenRecorderPresent(t *testing.T
 	c := NewDeterministicCompressor(&cfg).WithRecorder(recorder)
 
 	var output strings.Builder
-	for i := 0; i < 300; i++ {
+	for i := range 300 {
 		output.WriteString(fmt.Sprintf("internal/filter/file_%03d.go:%d:needle\n", i, i+1))
 	}
 	msgs := []types.Message{

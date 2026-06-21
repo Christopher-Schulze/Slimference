@@ -303,7 +303,6 @@ func TestWSSStatefulSafeStructuredKnownCLIJSONUsesExactMinify(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if !wssSafeStatefulStatusCommandOutput(tc.command, tc.body) {
 				t.Fatalf("%s should be classified as WSS stateful-safe exact JSON", tc.name)
@@ -343,7 +342,7 @@ func TestWSSStatefulSafeStructuredKnownCLIJSONUsesExactMinify(t *testing.T) {
 func wssNetworkJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"items\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -356,7 +355,7 @@ func wssNetworkJSONFixture(count int) string {
 func wssAWSJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"Reservations\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -369,7 +368,7 @@ func wssAWSJSONFixture(count int) string {
 func wssPrettyKubectlAttentionJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"kind\": \"List\",\n  \"items\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -382,14 +381,14 @@ func wssPrettyKubectlAttentionJSONFixture(count int) string {
 func wssPrettyCargoMetadataJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"packages\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
 		fmt.Fprintf(&out, "    {\"name\": \"crate%03d\", \"version\": \"0.1.%d\", \"id\": \"path+file:///repo/crate%03d#0.1.%d\"}", i, i, i, i)
 	}
 	out.WriteString("\n  ],\n  \"workspace_members\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -402,7 +401,7 @@ func wssPrettyCargoMetadataJSONFixture(count int) string {
 func wssPrettyTerraformShowJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n  \"format_version\": \"1.0\",\n  \"resource_changes\": [\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -415,7 +414,7 @@ func wssPrettyTerraformShowJSONFixture(count int) string {
 func wssPrettyDockerInspectJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("[\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -428,7 +427,7 @@ func wssPrettyDockerInspectJSONFixture(count int) string {
 func wssPrettyGoEnvJSONFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("{\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteString(",\n")
 		}
@@ -440,7 +439,7 @@ func wssPrettyGoEnvJSONFixture(count int) string {
 
 func wssPrettyPackageInfoJSONFixture(count int) string {
 	var versions []string
-	for i := 0; i < count; i++ {
+	for i := range count {
 		versions = append(versions, fmt.Sprintf("\"1.0.%d\"", i))
 	}
 	return "{\n  \"name\": \"react\",\n  \"versions\": [\n    " + strings.Join(versions, ",\n    ") + "\n  ]\n}\n"

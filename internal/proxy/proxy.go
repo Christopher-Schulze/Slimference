@@ -925,7 +925,7 @@ func shouldBridgeCodexConversationWSS(host string, r *http.Request) bool {
 		return true
 	}
 	for _, header := range protocols {
-		for _, part := range strings.Split(header, ",") {
+		for part := range strings.SplitSeq(header, ",") {
 			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(part)), "responses_websockets") {
 				return true
 			}

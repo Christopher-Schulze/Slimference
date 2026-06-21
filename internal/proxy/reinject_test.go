@@ -198,7 +198,7 @@ func TestReinjectArchivedContent_RespectsMaxBudget(t *testing.T) {
 	home := t.TempDir()
 	withArchiveHome(t, home)
 	ids := make([]string, 0, maxReinjectsPerRequest+3)
-	for i := 0; i < maxReinjectsPerRequest+3; i++ {
+	for range maxReinjectsPerRequest + 3 {
 		id := writeArchiveEntry(t, home, strings.Repeat("budget filler\n", 6))
 		// Each entry needs unique content for the archive id to differ.
 		ids = append(ids, id)
@@ -246,7 +246,7 @@ func TestReinjectArchivedContent_BudgetBreaksInnerLoop(t *testing.T) {
 	// Force the inner per-block break by supplying maxReinjectsPerRequest+1
 	// distinct ids inside a single content block.
 	ids := make([]string, 0, maxReinjectsPerRequest+1)
-	for i := 0; i < maxReinjectsPerRequest+1; i++ {
+	for i := range maxReinjectsPerRequest + 1 {
 		id := writeArchiveEntry(t, home, strings.Repeat("inner-content-payload-", 8)+strings.Repeat("x", i+1))
 		ids = append(ids, id)
 	}
@@ -270,7 +270,7 @@ func TestReinjectArchivedContent_BudgetBreaksOuterLoop(t *testing.T) {
 	// in the first message so the cross-message budget is exhausted
 	// before the next message is touched.
 	ids := make([]string, 0, maxReinjectsPerRequest)
-	for i := 0; i < maxReinjectsPerRequest; i++ {
+	for i := range maxReinjectsPerRequest {
 		id := writeArchiveEntry(t, home, strings.Repeat("uniq-content-", 8)+strings.Repeat("x", i+1))
 		ids = append(ids, id)
 	}

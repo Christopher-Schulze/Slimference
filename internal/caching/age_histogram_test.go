@@ -17,7 +17,7 @@ func TestAgeSnapshot_EmptyCache(t *testing.T) {
 func TestAgeSnapshot_PopulatedCache(t *testing.T) {
 	t.Parallel()
 	cache := NewResponseCache(10, time.Hour)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		var key [32]byte
 		key[0] = byte(i)
 		cache.Set(key, &CacheEntry{

@@ -18,7 +18,7 @@ func TestWSSABReplayReportReadDeltaRecoverable(t *testing.T) {
 	path := filepath.Join(dir, "frames.jsonl")
 
 	var file strings.Builder
-	for i := 0; i < 140; i++ {
+	for i := range 140 {
 		fmt.Fprintf(&file, "A/B replay line %03d with stable repeated content.\n", i)
 	}
 	writeJSONLFile(t, path,
@@ -863,7 +863,7 @@ func TestWSSABReplayAutoPolicyChunkDedupArchiveRecoverable(t *testing.T) {
 
 func wssABReplayLinePayload(prefix string, lines int) string {
 	var b strings.Builder
-	for i := 0; i < lines; i++ {
+	for i := range lines {
 		fmt.Fprintf(&b, "%s %04d with stable chunkable context and deterministic fixture bytes.\n", prefix, i)
 	}
 	return b.String()
@@ -1035,7 +1035,7 @@ func writeProofSearchFramesWithCount(t *testing.T, path, session string, lines i
 
 func wssABReplaySearchOutputFixture(needle string, count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", i%12, i+10, needle)
 	}
 	return out.String()
@@ -1043,7 +1043,7 @@ func wssABReplaySearchOutputFixture(needle string, count int) string {
 
 func wssABReplayBroadSearchOutputFixture(needle string, count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s broad match with enough surrounding deterministic context for compaction\n", i, i+10, needle)
 	}
 	return out.String()

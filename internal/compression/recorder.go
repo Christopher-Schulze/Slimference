@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
@@ -89,7 +90,7 @@ func (c *DeterministicCompressor) recordArchiveWriteLocked(subLayer string) {
 	if c.activeArchiveWrites == nil {
 		return
 	}
-	for _, part := range strings.Split(subLayer, ",") {
+	for part := range strings.SplitSeq(subLayer, ",") {
 		id := strings.TrimSpace(part)
 		if id == "" {
 			continue
@@ -116,9 +117,7 @@ func (c *DeterministicCompressor) snapshotArchiveWrites() map[string]int {
 		return nil
 	}
 	out := make(map[string]int, len(c.activeArchiveWrites))
-	for id, count := range c.activeArchiveWrites {
-		out[id] = count
-	}
+	maps.Copy(out, c.activeArchiveWrites)
 	return out
 }
 
@@ -129,9 +128,7 @@ func (c *DeterministicCompressor) snapshotLayer1Attempts() map[string]int {
 		return nil
 	}
 	out := make(map[string]int, len(c.activeAttempts))
-	for id, count := range c.activeAttempts {
-		out[id] = count
-	}
+	maps.Copy(out, c.activeAttempts)
 	return out
 }
 

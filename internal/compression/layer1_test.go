@@ -93,7 +93,7 @@ func TestCompress_JSONToolResult(t *testing.T) {
 	// Structural whitespace only (inside strings json.Compact cannot remove).
 	var jb strings.Builder
 	jb.WriteString("{\n  \"items\": [\n")
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		if i > 0 {
 			jb.WriteString(",\n")
 		}
@@ -278,7 +278,7 @@ func TestCompress_ToolResultDeltaUsesResolvedToolCallKey(t *testing.T) {
 	c := NewDeterministicCompressor(cfg)
 	var stable strings.Builder
 	stable.WriteString("On branch main\n")
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		stable.WriteString(fmt.Sprintf(" M pkg/file-%02d.go\n", i))
 	}
 	v1 := stable.String() + "?? tmp.txt\n"
@@ -325,7 +325,7 @@ func TestCompress_ToolCompressorUsesResolvedCodexToolInput(t *testing.T) {
 	cfg := defaultTestCfg(1)
 	c := testCompressorWithArchive(cfg)
 	var output strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		output.WriteString(fmt.Sprintf("internal/pkg/file_%02d.go:%d:TODO marker %02d\n", i, i+1, i))
 	}
 	msgs := []types.Message{
@@ -364,12 +364,12 @@ func TestCompress_DeltaTracksNormalizedCommentStrippedSource(t *testing.T) {
 	c := testCompressorWithArchive(cfg)
 
 	var comments strings.Builder
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		comments.WriteString("// noisy comment line that should be stripped\n")
 	}
 	var body strings.Builder
 	body.WriteString("package main\n\nfunc main() {\n")
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		body.WriteString(fmt.Sprintf("\tprintln(\"stable-%02d\")\n", i))
 	}
 	body.WriteString("}\n")
@@ -710,7 +710,7 @@ func TestCompress_GitDiffToolCompressor(t *testing.T) {
 	sb.WriteString("diff --git a/main.go b/main.go\n")
 	sb.WriteString("--- a/main.go\n")
 	sb.WriteString("+++ b/main.go\n")
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		sb.WriteString(fmt.Sprintf("+added line %d: some code that was added here in this commit\n", i))
 	}
 	sb.WriteString("1 file changed, 100 insertions(+)\n")

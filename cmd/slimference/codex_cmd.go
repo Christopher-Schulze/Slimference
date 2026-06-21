@@ -401,7 +401,7 @@ func parseCodexRunFlags(args []string) (codexRouteFlags, bool, []string) {
 	f := codexRouteFlags{host: "127.0.0.1", port: "8990", transport: "auto"}
 	direct := false
 	var codexArgs []string
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		switch {
 		case a == "--":
@@ -504,7 +504,7 @@ func defaultCodexCLIVersionOutput() ([]byte, error) {
 }
 
 func parseCodexCLIVersion(out []byte) (string, error) {
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue

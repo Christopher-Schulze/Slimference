@@ -143,12 +143,12 @@ func wssEslintStylishEnvelope(chunkID, scriptHeader string, repeats int, fixable
 	out.WriteString("Original token count: 10000\n")
 	out.WriteString("Output:\n")
 	if scriptHeader != "" {
-		for i := 0; i < repeats; i++ {
+		for i := range repeats {
 			fmt.Fprintf(&out, "eslint stylish prelude %03d\n", i)
 		}
 	}
 	out.WriteString(scriptHeader)
-	for i := 0; i < repeats; i++ {
+	for range repeats {
 		out.WriteString("\nsrc/app.js\n")
 		out.WriteString("  2:1   warning  Unexpected console statement         no-console\n")
 		out.WriteString("  2:20  error    Expected '===' and instead saw '=='  eqeqeq\n")

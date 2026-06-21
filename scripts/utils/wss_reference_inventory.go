@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -296,12 +297,7 @@ func walkWSSReferenceInventoryKeys(value any, fieldCounts map[string]int) {
 }
 
 func wssReferenceInventoryIsTrackedKey(key string) bool {
-	for _, tracked := range wssReferenceInventoryKeys {
-		if key == tracked {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(wssReferenceInventoryKeys, key)
 }
 
 func wssReferenceInventoryFiles(path string) ([]string, error) {

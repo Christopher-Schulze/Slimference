@@ -170,17 +170,16 @@ func TestConcurrentAccessRaceDetectorSmoke(t *testing.T) {
 	const reads = 200
 	var wg sync.WaitGroup
 	wg.Add(writers * 2)
-	for i := 0; i < writers; i++ {
-		i := i
+	for i := range writers {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < reads; j++ {
+			for j := range reads {
 				tr.RecordRead("s", "x.go", j+i*reads, []byte("body"))
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for j := 0; j < reads; j++ {
+			for j := range reads {
 				tr.RecordMutation("s", "x.go", j+i*reads, "Edit")
 			}
 		}()
@@ -188,7 +187,7 @@ func TestConcurrentAccessRaceDetectorSmoke(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < reads*2; i++ {
+		for range reads * 2 {
 			_, _ = tr.Get("s", "x.go")
 			_ = tr.All("s")
 			_ = tr.SessionCount()

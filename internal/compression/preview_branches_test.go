@@ -19,7 +19,7 @@ func TestDetectOutputShape_jsonSampleTruncation(t *testing.T) {
 	// leading valid JSON when given exactly a balanced slice).
 	var sb strings.Builder
 	sb.WriteString("[")
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -59,7 +59,7 @@ func TestPreviewJSON_sampleTruncation(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("[")
 	// >500k bytes
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -121,7 +121,7 @@ func TestPreviewJSON_outputExceedsCap(t *testing.T) {
 	// PreviewMaxOutputBytes (1500).
 	var sb strings.Builder
 	sb.WriteString("{")
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -159,7 +159,7 @@ func TestFormatJSONKey_defaultLongString(t *testing.T) {
 	t.Parallel()
 	// Pass a boolean inside a slice so marshal produces long JSON.
 	longNum := strings.Repeat("1234567890", 20) // 200 chars
-	var v interface{}
+	var v any
 	// int64 large value formats to a short string; use a byte slice
 	// marshal trick: any with a huge string value within a struct. For
 	// the default branch to emit > 80 chars we use a custom large value.
@@ -185,7 +185,7 @@ func TestPreviewPaths_dirSortTiebreak(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	// Equal counts for /z/ and /a/, /a/ must come first alphabetically.
-	for i := 0; i < 150; i++ {
+	for i := range 150 {
 		sb.WriteString("/z/deep/path/file_" + strconv.Itoa(i) + ".go\n")
 		sb.WriteString("/a/deep/path/file_" + strconv.Itoa(i) + ".go\n")
 	}
@@ -207,8 +207,8 @@ func TestPreviewPaths_moreThan10Dirs(t *testing.T) {
 	var sb strings.Builder
 	// 25 distinct directories × 10 files with long filenames so the
 	// preview of only the top 10 still triggers the ellipsis.
-	for i := 0; i < 25; i++ {
-		for j := 0; j < 10; j++ {
+	for i := range 25 {
+		for j := range 10 {
 			sb.WriteString("/dir_" + strconv.Itoa(i) + "/nested/deep/file_with_a_fairly_long_name_" + strconv.Itoa(j) + ".go\n")
 		}
 	}
@@ -239,9 +239,9 @@ func TestPreviewPaths_outputCappedAt1500(t *testing.T) {
 	var sb strings.Builder
 	// 10 dirs are kept, but make dir names very long so the preview
 	// balloons. 10 lines of 200+ chars each = 2000+ chars.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		bigDir := strings.Repeat("name_segment_", 20) + strconv.Itoa(i)
-		for j := 0; j < 5; j++ {
+		for j := range 5 {
 			sb.WriteString("/" + bigDir + "/file_" + strconv.Itoa(j) + ".go\n")
 		}
 	}
@@ -262,7 +262,7 @@ func TestPreviewTable_outputCappedAt1500(t *testing.T) {
 	header := strings.Repeat("H", 200)
 	sep := strings.Repeat("-", 200)
 	rows := []string{header, sep}
-	for i := 0; i < 11; i++ {
+	for range 11 {
 		rows = append(rows, strings.Repeat("v", 200))
 	}
 	in := strings.Join(rows, "\n") + "\n"

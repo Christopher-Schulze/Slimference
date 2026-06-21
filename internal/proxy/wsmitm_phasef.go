@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -236,7 +238,7 @@ func wssCacheBustScope(requestShape string, promptCacheKeyHash string) string {
 }
 
 func wssCacheBustPromptCacheKeyHashFromScope(scope string) string {
-	for _, part := range strings.Split(scope, "|") {
+	for part := range strings.SplitSeq(scope, "|") {
 		key, value, ok := strings.Cut(part, "=")
 		if ok && key == "prompt_cache_key" && value != "none" {
 			return value
@@ -599,9 +601,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	if a.toolUses == nil {
 		a.toolUses = make(map[string]types.ContentBlock)
 	}
-	for id, use := range toolUses {
-		a.toolUses[id] = use
-	}
+	maps.Copy(a.toolUses, toolUses)
 	a.mu.Unlock()
 	// T254 server-state mirror, SHADOW only: predict referenceable content the
 	// server already holds (pre-pipeline = full model intent) and record this
@@ -1274,9 +1274,7 @@ func (a *wsPhaseFAdapter) attachWSSOutputReduceDisabledFacts(meta *wssRequestMet
 	if meta.DebugFacts == nil {
 		meta.DebugFacts = make(map[string]string, len(facts))
 	}
-	for key, value := range facts {
-		meta.DebugFacts[key] = value
-	}
+	maps.Copy(meta.DebugFacts, facts)
 }
 
 func (a *wsPhaseFAdapter) wssOutputReduceDisabledFacts(body []byte, blockedByToolOrLayer0 bool, requestContainsToolOutput bool, l0Stats proxyLayer0Stats, factsKnown bool, meta wssRequestMeta) map[string]string {
@@ -1929,9 +1927,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		outputReduceSummary.Reason = "disabled"
 	}
 	debugFacts := wssRequestDebugFacts(body, mutated, messages, l0Stats, replaced, bypassReason, meta, outputReduceStats)
-	for k, v := range meta.DebugFacts {
-		debugFacts[k] = v
-	}
+	maps.Copy(debugFacts, meta.DebugFacts)
 	statefulPrefixElisionApplied := replaced && meta.DebugFacts["wss.stateful_prefix_elision_changed"] == "true"
 	if statefulPrefixElisionApplied && (len(meta.OriginalMessages) > 0 || len(messages) > 0) {
 		if prefixTokensSaved := wssStatefulPrefixElisionTokensSaved(meta.DebugFacts); prefixTokensSaved > 0 {
@@ -2443,7 +2439,7 @@ func wssPackageSuccessStatus(status string) bool {
 }
 
 func wssPackageOriginalHasUnsafeMarker(original string) bool {
-	for _, line := range strings.Split(strings.ToLower(original), "\n") {
+	for line := range strings.SplitSeq(strings.ToLower(original), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -2485,7 +2481,7 @@ func wssCompactedTerraformValidateSuccess(compacted []byte) bool {
 		return false
 	}
 	success := false
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -2510,7 +2506,7 @@ func wssCompactedTerraformInitSuccess(compacted []byte) bool {
 		return false
 	}
 	success := false
-	for _, raw := range strings.Split(text, "\n") {
+	for raw := range strings.SplitSeq(text, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -3112,7 +3108,7 @@ func wssSafeLogDuplicateRunsOutput(commandLine, payload string) bool {
 }
 
 func wssLogPayloadHasCodeLocation(payload string) bool {
-	for _, raw := range strings.Split(payload, "\n") {
+	for raw := range strings.SplitSeq(payload, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -3402,7 +3398,7 @@ func wssSafeBoundedPlainPathListPayload(payload string, maxBytes, maxEntries int
 		return false
 	}
 	entries := 0
-	for _, raw := range strings.Split(trimmed, "\n") {
+	for raw := range strings.SplitSeq(trimmed, "\n") {
 		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
 		if line == "" {
 			continue
@@ -3444,7 +3440,7 @@ func wssSafeGitNameStatusPathListPayload(payload string) bool {
 		return false
 	}
 	entries := 0
-	for _, raw := range strings.Split(trimmed, "\n") {
+	for raw := range strings.SplitSeq(trimmed, "\n") {
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -3629,7 +3625,7 @@ func wssSafeListingPayload(payload string) bool {
 		return false
 	}
 	entries := 0
-	for _, raw := range strings.Split(trimmed, "\n") {
+	for raw := range strings.SplitSeq(trimmed, "\n") {
 		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
 		if line == "" {
 			continue
@@ -3707,11 +3703,11 @@ func wssCodexExecEnvelopePayloadForStats(text string) (string, bool) {
 		return "", false
 	}
 	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
-		idx := strings.Index(text, marker)
-		if idx < 0 {
+		_, after, ok := strings.Cut(text, marker)
+		if !ok {
 			continue
 		}
-		return text[idx+len(marker):], true
+		return after, true
 	}
 	return "", false
 }
@@ -3783,21 +3779,11 @@ func wssRequestIsDeltaShape(messages []types.Message) bool {
 	if len(messages) == 0 {
 		return false
 	}
-	for _, message := range messages {
-		if wssMessageHasHistoryShape(message) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(messages, wssMessageHasHistoryShape)
 }
 
 func wssRequestHasHistoryShape(messages []types.Message) bool {
-	for _, message := range messages {
-		if wssMessageHasHistoryShape(message) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(messages, wssMessageHasHistoryShape)
 }
 
 func wssMessageHasHistoryShape(message types.Message) bool {
@@ -5156,9 +5142,7 @@ func (a *wsPhaseFAdapter) rememberToolUseItem(raw json.RawMessage) {
 	if a.toolUses == nil {
 		a.toolUses = make(map[string]types.ContentBlock, len(toolUses))
 	}
-	for id, use := range toolUses {
-		a.toolUses[id] = use
-	}
+	maps.Copy(a.toolUses, toolUses)
 }
 
 func (a *wsPhaseFAdapter) toolUseCacheDir() string {
@@ -5287,9 +5271,7 @@ func (a *wsPhaseFAdapter) loadToolUses() map[string]types.ContentBlock {
 		return nil
 	}
 	out := make(map[string]types.ContentBlock, len(a.toolUses))
-	for id, use := range a.toolUses {
-		out[id] = use
-	}
+	maps.Copy(out, a.toolUses)
 	return out
 }
 

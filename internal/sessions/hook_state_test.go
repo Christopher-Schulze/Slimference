@@ -108,7 +108,7 @@ func TestHookStateGitPathListRepeat(t *testing.T) {
 		t.Fatal("expected git path list observe error")
 	}
 
-	for i := 0; i < hookStateMaxFilesPerSet+2; i++ {
+	for i := range hookStateMaxFilesPerSet + 2 {
 		path := "file-" + strconvItoa(i) + ".go"
 		if _, _, err := ObserveHookGitPathList(dir, "sess-cap", "/repo", "git status", []string{path}); err != nil {
 			t.Fatal(err)
@@ -232,7 +232,7 @@ func TestHookStateEdgeBranches(t *testing.T) {
 		t.Fatalf("missing current turn should create a real turn: %+v", state)
 	}
 	state.Turns = nil
-	for i := 0; i < hookStateMaxTurns+2; i++ {
+	for i := range hookStateMaxTurns + 2 {
 		state.Turns = append(state.Turns, newHookTurn(strconvItoa(i+1), now.Add(time.Duration(i)*time.Second)))
 	}
 	trimHookTurns(&state)

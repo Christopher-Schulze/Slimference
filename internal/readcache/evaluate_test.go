@@ -654,7 +654,7 @@ func TestEvaluateObserved_InjectedErrorBranches(t *testing.T) {
 
 func readcacheDiffStatFixture(files int) string {
 	var out strings.Builder
-	for i := 0; i < files; i++ {
+	for i := range files {
 		out.WriteString(" internal/readcache/generated/very/deep/path/file_")
 		out.WriteString(strings.Repeat("x", 12))
 		out.WriteString(fmt.Sprintf("_%02d.go | %d +++++-----\n", i, i+1))

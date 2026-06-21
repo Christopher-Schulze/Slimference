@@ -27,7 +27,7 @@ func TestAnyProviderDegraded_SignalsDownAfterFailures(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
 	// Three consecutive failures on one provider trigger Down.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		p.healthMon.record(types.Anthropic, false)
 	}
 	if !p.AnyProviderDegraded() {
@@ -38,7 +38,7 @@ func TestAnyProviderDegraded_SignalsDownAfterFailures(t *testing.T) {
 func TestAnyProviderDegraded_HealthyDoesNotTrigger(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		p.healthMon.record(types.Anthropic, true)
 	}
 	if p.AnyProviderDegraded() {

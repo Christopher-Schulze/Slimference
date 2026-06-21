@@ -32,7 +32,6 @@ func TestMentionedTools(t *testing.T) {
 		{"command family intent", "run a shell command", []string{"BashTool"}, []string{"BashTool"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MentionedTools(tc.text, tc.candidates)

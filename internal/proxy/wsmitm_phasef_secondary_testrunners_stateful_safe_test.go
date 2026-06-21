@@ -170,7 +170,7 @@ func TestWSSStatefulUnsafeSecondaryTestRunnerSignalsDoNotBecomeAllPass(t *testin
 func wssPhpunitAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("PHPUnit 10.5.0 by Sebastian Bergmann and contributors.\n\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 && i%40 == 0 {
 			fmt.Fprintf(&out, " %d / %d (%d%%)\n", i, count, i*100/count)
 		}
@@ -185,7 +185,7 @@ func wssPhpunitAllPassFixture(count int) string {
 func wssGradleTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("> Task :compileJava\n> Task :testClasses\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "> Task :module%03d:test\n", i)
 	}
 	out.WriteString("BUILD SUCCESSFUL in 2s\n")
@@ -196,7 +196,7 @@ func wssGradleTestAllPassFixture(count int) string {
 func wssDartTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("00:00 +0: loading test/generated_000_test.dart\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "00:01 +%d: test/generated_%03d_test.dart: renders generated case %03d\n", i+1, i, i)
 	}
 	fmt.Fprintf(&out, "00:02 +%d: All tests passed!\n", count)
@@ -206,7 +206,7 @@ func wssDartTestAllPassFixture(count int) string {
 func wssFlutterTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("00:00 +0: loading test/widget_000_test.dart\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "00:02 +%d: test/widget_%03d_test.dart: paints generated widget %03d\n", i+1, i, i)
 	}
 	fmt.Fprintf(&out, "00:03 +%d: All tests passed!\n", count)
@@ -217,7 +217,7 @@ func wssDenoTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("Check file:///repo/generated_test.ts\n")
 	fmt.Fprintf(&out, "running %d tests from ./generated_test.ts\n", count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "generated_%03d ... ok (1ms)\n", i)
 	}
 	fmt.Fprintf(&out, "ok | %d passed | 0 failed (123ms)\n", count)
@@ -231,7 +231,7 @@ func wssSecondaryTestUnsafeEnvelope(label, tail string) string {
 	out.WriteString("Process exited with code 0\n")
 	out.WriteString("Original token count: 10000\n")
 	out.WriteString("Output:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&out, "unsafe %s prelude %03d\n", label, i)
 	}
 	out.WriteString(tail)

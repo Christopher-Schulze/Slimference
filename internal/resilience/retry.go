@@ -142,9 +142,6 @@ func ExponentialBackoff(attempt int, initial, max time.Duration) time.Duration {
 	}
 	// Add up to 20% jitter.
 	jitter := time.Duration(rand.Float64() * 0.2 * float64(backoff))
-	result := backoff + jitter
-	if result > max {
-		result = max
-	}
+	result := min(backoff+jitter, max)
 	return result
 }

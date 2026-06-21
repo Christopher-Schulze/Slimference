@@ -1490,10 +1490,7 @@ func (m *Model) moveSetupCursor(delta int) {
 	if len(steps) == 0 {
 		return
 	}
-	next := m.setupCursor + delta
-	if next < 0 {
-		next = 0
-	}
+	next := max(m.setupCursor+delta, 0)
 	if next >= len(steps) {
 		next = len(steps) - 1
 	}

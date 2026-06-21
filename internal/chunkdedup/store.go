@@ -198,10 +198,7 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	if s.archive == nil {
 		return EncodeResult{Data: data}
 	}
-	maxReferenceBytes := len(data) * maxReferencePercent / 100
-	if sessionReferenceLimit < maxReferenceBytes {
-		maxReferenceBytes = sessionReferenceLimit
-	}
+	maxReferenceBytes := min(sessionReferenceLimit, len(data)*maxReferencePercent/100)
 	if maxReferenceBytes <= 0 {
 		return EncodeResult{Data: data}
 	}

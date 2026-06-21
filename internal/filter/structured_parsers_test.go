@@ -10,7 +10,7 @@ func TestParseGoErrors_SingleError(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("# example.com/pkg\n")
 	sb.WriteString("./main.go:10:3: undefined: foo\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line with enough content to make output longer\n")
 	}
 	compact, hadFailures, ok := parseGoErrors(sb.String())
@@ -29,7 +29,7 @@ func TestParseGoErrors_MultipleErrors(t *testing.T) {
 	sb.WriteString("./main.go:10:3: undefined: foo\n")
 	sb.WriteString("./main.go:15:5: cannot use x as int\n")
 	sb.WriteString("./util.go:22:1: missing return\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseGoErrors(sb.String())
@@ -44,7 +44,7 @@ func TestParseGoErrors_MultipleErrors(t *testing.T) {
 func TestParseGoErrors_DeduplicatesConsecutiveDiagnostics(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		sb.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
 	}
 	compact, hadFailures, ok := parseGoErrorsForArgv([]string{"go", "vet", "./..."}, sb.String())
@@ -130,7 +130,7 @@ func TestParseGoErrors_TestFailure(t *testing.T) {
 	sb.WriteString("--- FAIL: TestFoo (0.00s)\n")
 	sb.WriteString("    main_test.go:12: expected 1 got 2\n")
 	sb.WriteString("FAIL\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseGoErrors(sb.String())
@@ -148,7 +148,7 @@ func TestParseGoErrors_Panic(t *testing.T) {
 	sb.WriteString("=== RUN   TestBar\n")
 	sb.WriteString("panic: runtime error: index out of range [1] with length 1\n")
 	sb.WriteString("goroutine 1 [running]:\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseGoErrors(sb.String())
@@ -178,7 +178,7 @@ func TestParseCargoErrors_SingleError(t *testing.T) {
 	sb.WriteString("4 |     foo\n")
 	sb.WriteString("  |     ^^^ not found in this scope\n")
 	sb.WriteString("\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseCargoErrors(sb.String())
@@ -195,7 +195,7 @@ func TestParseCargoErrors_Panic(t *testing.T) {
 	sb.WriteString("thread 'main' panicked at 'index out of bounds'\n")
 	sb.WriteString("stack backtrace:\n")
 	sb.WriteString("\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseCargoErrors(sb.String())
@@ -254,7 +254,7 @@ func TestParseGccClangErrors_SingleError(t *testing.T) {
 	sb.WriteString("main.c:10:5: error: 'foo' undeclared (first use in this function)\n")
 	sb.WriteString("   10 |     foo;\n")
 	sb.WriteString("      |     ^~~\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseGccClangErrors(sb.String())
@@ -273,7 +273,7 @@ func TestParseGccClangErrors_FatalError(t *testing.T) {
 	sb.WriteString("    5 | #include <stdio.h>\n")
 	sb.WriteString("      |   ^~~~~~~~~~~~~\n")
 	sb.WriteString("compilation terminated.\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, hadFailures, ok := parseGccClangErrors(sb.String())
@@ -371,7 +371,7 @@ func TestParseFailures_DispatchesCorrectly(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("./main.go:10:3: undefined: foo\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	compact, ok := ParseFailures([]string{"go", "build"}, sb.String())
@@ -495,7 +495,7 @@ func TestBuildOutputFallback_MakeFailure(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("make[1]: *** [target] Error 1\n")
 	sb.WriteString("make: *** [all] Error 2\n")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
 	out, ok := TryCompactBuildOutput([]string{"make"}, []byte(sb.String()))

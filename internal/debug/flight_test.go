@@ -148,7 +148,6 @@ func TestEnsureFlightDefaultsAndCacheDecisions(t *testing.T) {
 		{name: "output skipped", summary: RequestSummary{RequestID: "r4", OutputReduce: OutputReduceSummary{Reason: "below_min"}}, want: "skipped"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tc.summary.EnsureFlight()

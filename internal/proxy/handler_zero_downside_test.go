@@ -51,8 +51,8 @@ func TestServeHTTP_zeroDownsideRevertsBeforeForwarding(t *testing.T) {
 
 	var forwarded struct {
 		Messages []struct {
-			Role    string      `json:"role"`
-			Content interface{} `json:"content"`
+			Role    string `json:"role"`
+			Content any    `json:"content"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(capturedBody, &forwarded); err != nil {

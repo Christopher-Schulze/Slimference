@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -833,12 +834,7 @@ func codexDesktopLastProofOwnsRunningApp(last *codexDesktopProofOutput, runningP
 	if last == nil || last.LaunchPID <= 0 {
 		return false
 	}
-	for _, pid := range runningPIDs {
-		if pid == last.LaunchPID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(runningPIDs, last.LaunchPID)
 }
 
 func codexDesktopReusableProofAppActive(last *codexDesktopProofOutput, runningPIDs []int) bool {

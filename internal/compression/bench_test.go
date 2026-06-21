@@ -135,7 +135,7 @@ func BenchmarkStripComments_go(b *testing.B) {
 func largeBodyMessages(nPairs int, perBlock int) []types.Message {
 	body := "{\n" + strings.Repeat("  \"x\": \"value\",\n", perBlock/16) + "  \"end\": true\n}"
 	msgs := make([]types.Message, 0, nPairs*2+1)
-	for i := 0; i < nPairs; i++ {
+	for range nPairs {
 		msgs = append(msgs,
 			types.Message{Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
 			types.Message{Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ok"}}},

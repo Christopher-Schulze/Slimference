@@ -30,7 +30,6 @@ func TestExtractServerStateKey(t *testing.T) {
 		{"unknown provider", types.Provider(99), `{"id":"x"}`, ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractServerStateKey(tc.prov, []byte(tc.body))
@@ -125,7 +124,6 @@ func TestRewriteWithPreviousID_Failures(t *testing.T) {
 		{"input array no user turn", types.OpenAI, `{"input":[{"role":"system","content":"x"}]}`, "p"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, ok := rewriteWithPreviousID(tc.prov, []byte(tc.body), tc.prev)
@@ -171,7 +169,6 @@ func TestExtractResponseID(t *testing.T) {
 		{"openai no id", types.OpenAI, `{"object":"response"}`, ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractResponseID(tc.prov, []byte(tc.body))
@@ -201,7 +198,6 @@ func TestIsUnknownPreviousIDError(t *testing.T) {
 		{"4xx signal but no error word", 400, `{"detail":"previous_response_id stale only"}`, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := isUnknownPreviousIDError(tc.status, []byte(tc.body))

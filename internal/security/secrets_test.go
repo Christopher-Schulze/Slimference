@@ -144,7 +144,6 @@ func TestDetector_NoFalsePositives(t *testing.T) {
 	d := NewDetector("redact", nil, nil)
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			msgs := buildMessages(t, "user", tc.text)

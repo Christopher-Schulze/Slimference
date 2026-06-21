@@ -857,8 +857,7 @@ func TestSessionHandlerErrorClosesSession(t *testing.T) {
 			return false, fmt.Errorf("boom")
 		},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() { done <- session.Serve(ctx) }()
 

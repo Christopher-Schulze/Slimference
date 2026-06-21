@@ -59,7 +59,7 @@ func TryCompactVitestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	label := vitestLabelFromArgv(argv)
 	if r.NumFailedTests == 0 && r.NumFailedTestSuites == 0 {
-		return []byte(fmt.Sprintf("[%s] %d tests passed in %d suite(s)\n", label, r.NumTotalTests, r.NumTotalTestSuites)), true
+		return fmt.Appendf(nil, "[%s] %d tests passed in %d suite(s)\n", label, r.NumTotalTests, r.NumTotalTestSuites), true
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "[%s] FAILED %d/%d tests in %d/%d suite(s)\n", label, r.NumFailedTests, r.NumTotalTests, r.NumFailedTestSuites, r.NumTotalTestSuites)
@@ -138,7 +138,7 @@ func TryCompactPytestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	totalFail := r.Summary.Failed + r.Summary.Error
 	if totalFail == 0 {
-		return []byte(fmt.Sprintf("[pytest --json-report] %d tests passed in %.2fs\n", r.Summary.Total, r.Summary.Time)), true
+		return fmt.Appendf(nil, "[pytest --json-report] %d tests passed in %.2fs\n", r.Summary.Total, r.Summary.Time), true
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "[pytest --json-report] FAILED %d/%d tests\n", totalFail, r.Summary.Total)
@@ -217,7 +217,7 @@ func TryCompactCargoTestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	if suiteFinal.Event == "ok" || (suiteFinal.Event == "" && len(failedTests) == 0) {
 		passed := suiteFinal.Passed
 		failed := suiteFinal.Failed
-		return []byte(fmt.Sprintf("[cargo test --format json] ok %d passed, %d failed\n", passed, failed)), true
+		return fmt.Appendf(nil, "[cargo test --format json] ok %d passed, %d failed\n", passed, failed), true
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "[cargo test --format json] FAILED %d failed, %d passed\n", suiteFinal.Failed, suiteFinal.Passed)
@@ -329,7 +329,7 @@ func firstLines(s string, n int) []string {
 		return nil
 	}
 	out := make([]string, 0, n)
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" {
 			continue

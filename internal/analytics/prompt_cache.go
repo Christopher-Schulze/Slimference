@@ -70,14 +70,14 @@ func promptCachePaths(logDir, period string, now time.Time) ([]string, error) {
 		return []string{filepath.Join(logDir, now.Format(dateFormat)+".jsonl")}, nil
 	case "week":
 		paths := make([]string, 0, 7)
-		for i := 0; i < 7; i++ {
+		for i := range 7 {
 			day := now.AddDate(0, 0, -i)
 			paths = append(paths, filepath.Join(logDir, day.Format(dateFormat)+".jsonl"))
 		}
 		return paths, nil
 	case "month":
 		paths := make([]string, 0, 30)
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			day := now.AddDate(0, 0, -i)
 			paths = append(paths, filepath.Join(logDir, day.Format(dateFormat)+".jsonl"))
 		}

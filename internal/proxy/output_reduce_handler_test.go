@@ -385,7 +385,6 @@ func TestServeHTTP_OutputReduceRepairFollowupBreadthSignals(t *testing.T) {
 		{name: "malformed patch repair", repair: "apply_patch failed with invalid patch; the patch could not apply."},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			var capturedBodies []string
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

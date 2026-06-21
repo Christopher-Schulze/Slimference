@@ -3,7 +3,7 @@ package evidence
 import (
 	"encoding/json"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -304,7 +304,7 @@ func looksLikeCode(text string) bool {
 }
 
 func hasOutlierLine(text string) bool {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if len(line) >= 240 {
 			return true
 		}
@@ -314,7 +314,7 @@ func hasOutlierLine(text string) bool {
 
 func hasRepeatedLine(text string) bool {
 	counts := map[string]int{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if len(trimmed) < 8 {
 			continue
@@ -328,7 +328,7 @@ func hasRepeatedLine(text string) bool {
 }
 
 func hasPathSignal(text string) bool {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if hasPathishPrefix(line) || strings.Contains(line, ".go:") || strings.Contains(line, ".ts:") || strings.Contains(line, ".py:") {
 			return true
 		}
@@ -385,7 +385,7 @@ func firstSearchEvidenceSeparator(line string) int {
 
 func countColonFields(line string) int {
 	count := 0
-	for _, part := range strings.Split(line, ":") {
+	for part := range strings.SplitSeq(line, ":") {
 		if strings.TrimSpace(part) != "" {
 			count++
 		}
@@ -398,7 +398,7 @@ func startsWithDateLike(line string) bool {
 	if len(line) < 10 {
 		return false
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if !unicode.IsDigit(rune(line[i])) {
 			return false
 		}
@@ -407,18 +407,14 @@ func startsWithDateLike(line string) bool {
 }
 
 func appendSignal(signals []Signal, signal Signal) []Signal {
-	for _, existing := range signals {
-		if existing == signal {
-			return signals
-		}
+	if slices.Contains(signals, signal) {
+		return signals
 	}
 	return append(signals, signal)
 }
 
 func sortSignals(signals []Signal) {
-	sort.Slice(signals, func(i, j int) bool {
-		return signals[i] < signals[j]
-	})
+	slices.Sort(signals)
 }
 
 func cloneSignals(in []Signal) []Signal {

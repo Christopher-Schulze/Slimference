@@ -616,10 +616,7 @@ func (a *wssClassDistributionAccumulator) addFrameTurn(turn wssT354Turn, logRow 
 	if turn.capturedOriginalRequestTokens > 0 {
 		original = turn.capturedOriginalRequestTokens
 	}
-	saved := maxInt(0, turn.capturedLocalSavedTokens)
-	if saved > original {
-		saved = original
-	}
+	saved := min(maxInt(0, turn.capturedLocalSavedTokens), original)
 	reducibleTokens := saved
 	otherTokens := maxInt(0, original-reducibleTokens)
 
@@ -1240,14 +1237,8 @@ func wssClassDistributionSplit(summary dbg.RequestSummary, original, saved int) 
 	if original <= 0 {
 		return 0, 0, 0, 0
 	}
-	prefix = wssLocalGapFactInt(summary.DebugFacts, "wss.prefix_estimated_tokens")
-	if prefix > original {
-		prefix = original
-	}
-	prefixMutationSaved = wssLocalGapFactInt(summary.DebugFacts, "wss.stateful_prefix_elision_tokens_saved")
-	if prefixMutationSaved > saved {
-		prefixMutationSaved = saved
-	}
+	prefix = min(wssLocalGapFactInt(summary.DebugFacts, "wss.prefix_estimated_tokens"), original)
+	prefixMutationSaved = min(wssLocalGapFactInt(summary.DebugFacts, "wss.stateful_prefix_elision_tokens_saved"), saved)
 	toolOutputSaved := maxInt(0, saved-prefixMutationSaved)
 	remaining := tokens.Estimate(wssLocalGapFactInt(summary.DebugFacts, "wss.tool_result_output_bytes"))
 	// original and saved are exact o200k counts; prefix and remaining are
@@ -1269,14 +1260,8 @@ func wssClassDistributionSplit(summary dbg.RequestSummary, original, saved int) 
 	// remaining post-mutation tool-output bytes, bounded by the non-prefix mass
 	// (messages and reasoning are the rest). This over-counts non-reducible
 	// first reads, so it is an optimistic ceiling, never a floor.
-	reducible = toolOutputSaved + remaining
-	if reducible > nonPrefix {
-		reducible = nonPrefix
-	}
-	other = nonPrefix - reducible
-	if other < 0 {
-		other = 0
-	}
+	reducible = min(toolOutputSaved+remaining, nonPrefix)
+	other = max(nonPrefix-reducible, 0)
 	return prefix, reducible, other, prefixMutationSaved
 }
 

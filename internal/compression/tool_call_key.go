@@ -116,7 +116,7 @@ func topicFromToolInput(toolInput string) string {
 	if toolInput == "" {
 		return ""
 	}
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal([]byte(toolInput), &raw); err != nil {
 		return ""
 	}
@@ -138,7 +138,7 @@ func normalizeJSON(s string) string {
 	if s == "" {
 		return s
 	}
-	var v interface{}
+	var v any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
 		return s
 	}

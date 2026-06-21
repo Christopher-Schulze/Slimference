@@ -474,7 +474,6 @@ func TestRenderLiveCorpusMetadataSkeleton_WorkloadDefaults(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := renderLiveCorpusMetadataSkeleton(tt.category, "codex_cli")

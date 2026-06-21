@@ -19,7 +19,7 @@ func TryCompactAwsJSON(argv []string, stdout []byte) ([]byte, bool) {
 	if len(trimmed) == 0 || !json.Valid(trimmed) {
 		return stdout, false
 	}
-	var v interface{}
+	var v any
 	_ = json.Unmarshal(trimmed, &v)
 	v = stripAWSResponseMetadataValue(v)
 	out, _ := json.Marshal(v)
@@ -67,9 +67,9 @@ var awsJSONStripKeys = []string{
 	"SdkHttpMetadata",
 }
 
-func stripAWSResponseMetadataValue(v interface{}) interface{} {
+func stripAWSResponseMetadataValue(v any) any {
 	switch t := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for _, k := range awsJSONStripKeys {
 			delete(t, k)
 		}
@@ -77,7 +77,7 @@ func stripAWSResponseMetadataValue(v interface{}) interface{} {
 			t[k] = stripAWSResponseMetadataValue(val)
 		}
 		return t
-	case []interface{}:
+	case []any:
 		for i, val := range t {
 			t[i] = stripAWSResponseMetadataValue(val)
 		}

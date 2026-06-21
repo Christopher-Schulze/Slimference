@@ -42,7 +42,7 @@ type SoakReport struct {
 }
 
 func parseSoakArgs(args []string) (period string, f soakFlags, err error) {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		switch a {
 		case "--json", "-json":
@@ -100,7 +100,7 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 	// Collect a per-day prompt-cache hit-rate so we can detect drift.
 	hitRates := make([]float64, 0, days)
 
-	for i := 0; i < days; i++ {
+	for i := range days {
 		day := now.AddDate(0, 0, -i)
 		snaps, err := analytics.ReadDailyStats(logDir, day)
 		if err != nil {

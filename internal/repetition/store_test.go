@@ -236,7 +236,7 @@ func TestForget(t *testing.T) {
 
 func TestSnapshot(t *testing.T) {
 	db := openTestDB(t)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		_, _, _ = Record(db, Key{SessionID: "s", ToolName: "Bash", Output: "same"}, 1)
 	}
 	stats, err := Snapshot(db)

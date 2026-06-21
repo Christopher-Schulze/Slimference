@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"strconv"
 	"strings"
@@ -676,9 +677,7 @@ func (a *wsPhaseFAdapter) recordWSSRecoveryEvent(reason string, candidate *wssRe
 		"wss.recovery.tool_prune_pruned":    strconv.Itoa(candidate.ToolPrunePruned),
 		"wss.recovery.tool_prune_saved":     strconv.Itoa(candidate.ToolPruneSaved),
 	}
-	for k, v := range extra {
-		facts[k] = v
-	}
+	maps.Copy(facts, extra)
 	summary := dbg.RequestSummary{
 		RequestID:    newRequestIDFn(),
 		Timestamp:    time.Now(),

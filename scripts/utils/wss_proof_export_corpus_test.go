@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -699,12 +700,7 @@ func readFirstExportSummary(t *testing.T, path string) dbg.RequestSummary {
 }
 
 func containsString(items []string, want string) bool {
-	for _, item := range items {
-		if item == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(items, want)
 }
 
 func assertExportDebugFactsDoNotLeak(t *testing.T, facts map[string]string, raw string) {

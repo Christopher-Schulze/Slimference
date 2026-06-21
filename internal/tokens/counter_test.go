@@ -182,7 +182,7 @@ func TestTokenCountCache_EncodingScoped(t *testing.T) {
 
 func TestTokenCountCache_Bounded(t *testing.T) {
 	resetTokenCountCacheForTest()
-	for i := 0; i < tokenCountCacheMaxItems+8; i++ {
+	for i := range tokenCountCacheMaxItems + 8 {
 		text := "bounded token cache entry " + strconv.Itoa(i)
 		tokenCountCachePut("cl100k_base", text, i+1)
 	}

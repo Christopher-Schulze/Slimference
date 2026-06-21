@@ -1,7 +1,7 @@
 package analytics
 
 import (
-	"sort"
+	"slices"
 	"sync"
 	"time"
 )
@@ -102,7 +102,7 @@ func (h *PhaseHistogram) Snapshot() PhaseSnapshot {
 	if len(populated) == 0 {
 		return s
 	}
-	sort.Slice(populated, func(i, j int) bool { return populated[i] < populated[j] })
+	slices.Sort(populated)
 	s.P50Ms = nsToMs(percentile(populated, 0.50))
 	s.P95Ms = nsToMs(percentile(populated, 0.95))
 	return s

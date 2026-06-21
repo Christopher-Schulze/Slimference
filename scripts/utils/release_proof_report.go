@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1049,16 +1050,12 @@ func writeReleaseProofReportText(w io.Writer, report releaseProofReport) {
 
 func cloneInventoryIntMap(in map[string]int) map[string]int {
 	out := make(map[string]int, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
 func cloneInventoryInt64Map(in map[string]int64) map[string]int64 {
 	out := make(map[string]int64, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

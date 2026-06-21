@@ -509,7 +509,6 @@ func TestTryCompactMakeCmakeCleanProgressFailOpen(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if out, ok := tt.try(tt.argv, []byte(tt.stdout)); ok {
@@ -534,7 +533,6 @@ func TestTryCompactMakeCmakeCleanProgressWrapperAndNoWorkBranches(t *testing.T) 
 		{name: "pnpm cmake build", argv: []string{"pnpm", "exec", "cmake", "--build", "build"}, want: "[cmake --build] ok\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactBuildOutput(tt.argv, []byte(progress))
@@ -589,7 +587,6 @@ func TestTryCompactMvnCleanSuccessFailOpen(t *testing.T) {
 		{name: "arbitrary info log", input: mavenCleanSuccessFixture(4) + "[INFO] application bootstrap token refreshed\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if out, ok := TryCompactMvn([]string{"mvn", "test"}, []byte(tt.input)); ok {
@@ -652,7 +649,6 @@ func TestCmakeStyleCleanBuildProgressLineBranches(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.line, func(t *testing.T) {
 			t.Parallel()
 			gotOK, gotTerminal := cmakeStyleCleanBuildProgressLine(tt.line)
@@ -684,7 +680,6 @@ func TestCmakeStyleBuildOutputUnsafeAndBoundaryBranches(t *testing.T) {
 		"make[1]: Leaving directory with error '/repo/build'",
 	}
 	for _, marker := range unsafeMarkers {
-		marker := marker
 		t.Run(marker, func(t *testing.T) {
 			t.Parallel()
 			if !cmakeStyleBuildOutputHasUnsafeSignal(marker) {
@@ -725,7 +720,7 @@ func makeCmakeStyleCleanFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("make[1]: Entering directory '/repo/build'\n")
 	b.WriteString("Consolidate compiler generated dependencies of target app\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%3d%%] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, i)
 	}
 	b.WriteString("[100%] Linking CXX executable app\n")
@@ -737,7 +732,7 @@ func makeCmakeStyleCleanFixture(files int) string {
 func cmakeBuildCleanFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("Consolidate compiler generated dependencies of target slimference\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%3d%%] Building C object src/CMakeFiles/slimference.dir/generated/object_%02d.c.o\n", i+1, i)
 	}
 	b.WriteString("[100%] Linking C executable slimference\n")
@@ -761,7 +756,7 @@ func mavenCleanSuccessFixture(modules int) string {
 	b.WriteString("[INFO] -----------------------< com.example:demo >------------------------\n")
 	b.WriteString("[INFO] Building demo 1.0.0\n")
 	b.WriteString("[INFO] --------------------------------[ jar ]---------------------------------\n")
-	for i := 0; i < modules; i++ {
+	for i := range modules {
 		fmt.Fprintf(&b, "[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources-%02d) @ demo ---\n", i)
 		fmt.Fprintf(&b, "[INFO] Copying %d resources from src/main/resources to target/classes\n", i+1)
 	}
@@ -795,7 +790,7 @@ func nextBuildCleanFixture() string {
 	b.WriteString("Finalizing page optimization ...\n")
 	b.WriteString("Collecting build traces ...\n")
 	b.WriteString("Route (app)                              Size     First Load JS\n")
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		fmt.Fprintf(&b, "/dashboard/section-%02d                  2.%02d kB        110 kB\n", i, i)
 	}
 	return b.String()
@@ -808,7 +803,7 @@ func viteBuildCleanFixture() string {
 	b.WriteString("240 modules transformed.\n")
 	b.WriteString("rendering chunks...\n")
 	b.WriteString("computing gzip size...\n")
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		fmt.Fprintf(&b, "dist/assets/chunk-%02d.js                 %0.2f kB | gzip: %0.2f kB\n", i, float64(i)+12.4, float64(i)+3.1)
 	}
 	b.WriteString("built in 2.31s\n")
@@ -1225,7 +1220,6 @@ func TestTryCompactCargoBuildCleanProgressOutputGuards(t *testing.T) {
 		{name: "finished only", input: "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := TryCompactCargoBuild([]string{"cargo", "build"}, []byte(tt.input)); ok {
@@ -1240,7 +1234,7 @@ func TestTryCompactCargoBuildCleanProgressOutputGuards(t *testing.T) {
 
 func cargoBuildCleanProgressFixture(verb string, packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "    %s slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", verb, i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")

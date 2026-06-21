@@ -1,5 +1,7 @@
 package main
 
+import "slices"
+
 import "strings"
 
 // Codex sets process-local runtime variables when an agent launches tools.
@@ -20,12 +22,7 @@ var codexInheritedRuntimeEnvKeys = []string{
 }
 
 func codexShouldDropInheritedEnvKey(key string) bool {
-	for _, runtimeKey := range codexInheritedRuntimeEnvKeys {
-		if key == runtimeKey {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(codexInheritedRuntimeEnvKeys, key)
 }
 
 func codexRuntimeUnsetShellCommand() string {

@@ -86,7 +86,7 @@ func TestExtractMessages_CodexInputSkipsUnsupportedItemsLosslessly(t *testing.T)
 func TestExtractMessages_CodexResponseItemPayloadRoundTrip(t *testing.T) {
 	t.Parallel()
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		status.WriteString(" M internal/proxy/wrapped_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -735,28 +735,28 @@ func TestServeHTTP_CodexResponsesCompressionAndHeaders(t *testing.T) {
 func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
 	t.Parallel()
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString(" M internal/proxy/file_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
 	}
-	bodyMap := map[string]interface{}{
+	bodyMap := map[string]any{
 		"model": "codex-test",
-		"input": []interface{}{
-			map[string]interface{}{
+		"input": []any{
+			map[string]any{
 				"type": "message",
 				"role": "user",
-				"content": []interface{}{
-					map[string]interface{}{"type": "input_text", "text": "check git status"},
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "check git status"},
 				},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type":      "function_call",
 				"call_id":   "call_status",
 				"name":      "shell",
-				"arguments": map[string]interface{}{"command": "git status --short"},
+				"arguments": map[string]any{"command": "git status --short"},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type":    "function_call_output",
 				"call_id": "call_status",
 				"output":  status.String(),
@@ -851,23 +851,23 @@ func runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T, c
 	secondTail := uniqueProxyReadPayload("second http tail")
 	bodyFor := func(callID, command, output string) []byte {
 		t.Helper()
-		bodyMap := map[string]interface{}{
+		bodyMap := map[string]any{
 			"model": "codex-test",
-			"input": []interface{}{
-				map[string]interface{}{
+			"input": []any{
+				map[string]any{
 					"type": "message",
 					"role": "user",
-					"content": []interface{}{
-						map[string]interface{}{"type": "input_text", "text": "read file"},
+					"content": []any{
+						map[string]any{"type": "input_text", "text": "read file"},
 					},
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type":      "function_call",
 					"call_id":   callID,
 					"name":      "shell",
-					"arguments": map[string]interface{}{"command": command},
+					"arguments": map[string]any{"command": command},
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type":    "function_call_output",
 					"call_id": callID,
 					"output":  output,
@@ -963,27 +963,27 @@ func runServeHTTPCodexResponsesHTTPChunkDedupInjectsRecoveryNote(t *testing.T, c
 func TestServeHTTP_CodexResponsesProxyLayer0CompactsLocalShellEnvelope(t *testing.T) {
 	t.Parallel()
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString(" M internal/proxy/local_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
 	}
-	bodyMap := map[string]interface{}{
+	bodyMap := map[string]any{
 		"model": "codex-test",
-		"input": []interface{}{
-			map[string]interface{}{
+		"input": []any{
+			map[string]any{
 				"type": "message",
 				"role": "user",
-				"content": []interface{}{
-					map[string]interface{}{"type": "input_text", "text": "check git status"},
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "check git status"},
 				},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type":    "local_shell_call",
 				"call_id": "call_status",
-				"action":  map[string]interface{}{"command": "/opt/homebrew/bin/bash -lc 'git status --short .'"},
+				"action":  map[string]any{"command": "/opt/homebrew/bin/bash -lc 'git status --short .'"},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type":              "local_shell_call_output",
 				"call_id":           "call_status",
 				"command":           []string{"/opt/homebrew/bin/bash", "-lc", "git status --short ."},

@@ -31,10 +31,7 @@ func (p *Proxy) observePromptCacheStability(sessionID string, messages []types.M
 // boundary index itself. Tools/system blocks that appear in identical
 // byte form across turns produce identical hashes.
 func hashStablePrefix(messages []types.Message, stableBoundary int) [32]byte {
-	end := stableBoundary
-	if end > len(messages) {
-		end = len(messages)
-	}
+	end := min(stableBoundary, len(messages))
 	h := sha256.New()
 	// Length-delimit each section so adjacent fields can't collide
 	// (e.g. "ab"+"c" vs "a"+"bc").
@@ -55,7 +52,7 @@ func hashStablePrefix(messages []types.Message, stableBoundary int) [32]byte {
 		_, _ = h.Write([]byte(s))
 	}
 	writeLen(end)
-	for i := 0; i < end; i++ {
+	for i := range end {
 		m := messages[i]
 		writeStr(m.Role)
 		writeLen(len(m.Content))

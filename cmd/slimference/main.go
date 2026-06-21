@@ -350,7 +350,7 @@ var explicitConfigPath string
 // Unknown / absent flag yields ("", args).
 func extractConfigFlag(args []string) (string, []string) {
 	out := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		if a == "--config" {
 			if i+1 < len(args) {
@@ -363,8 +363,8 @@ func extractConfigFlag(args []string) (string, []string) {
 			out = append(out, args[i:]...)
 			return "", out
 		}
-		if strings.HasPrefix(a, "--config=") {
-			p := strings.TrimPrefix(a, "--config=")
+		if after, ok := strings.CutPrefix(a, "--config="); ok {
+			p := after
 			out = append(out, args[i+1:]...)
 			return p, out
 		}
@@ -1196,22 +1196,22 @@ func postToolFlightToolName(details filter.PostToolPayload) string {
 	return "PostToolUse"
 }
 
-func codexPostToolReplacement(context string) map[string]interface{} {
-	return map[string]interface{}{
+func codexPostToolReplacement(context string) map[string]any {
+	return map[string]any{
 		"continue":   false,
 		"stopReason": "Slimference compacted Bash output.",
-		"hookSpecificOutput": map[string]interface{}{
+		"hookSpecificOutput": map[string]any{
 			"hookEventName":     "PostToolUse",
 			"additionalContext": context,
 		},
 	}
 }
 
-func claudePostToolReplacement(output string) map[string]interface{} {
-	return map[string]interface{}{
-		"hookSpecificOutput": map[string]interface{}{
+func claudePostToolReplacement(output string) map[string]any {
+	return map[string]any{
+		"hookSpecificOutput": map[string]any{
 			"hookEventName": "PostToolUse",
-			"updatedToolOutput": map[string]interface{}{
+			"updatedToolOutput": map[string]any{
 				"stdout":      output,
 				"stderr":      "",
 				"interrupted": false,
@@ -1386,9 +1386,9 @@ func handleCodexSessionStartHook(payload []byte) {
 	if context == "" {
 		return
 	}
-	out := map[string]interface{}{
+	out := map[string]any{
 		"continue": true,
-		"hookSpecificOutput": map[string]interface{}{
+		"hookSpecificOutput": map[string]any{
 			"hookEventName":     "SessionStart",
 			"additionalContext": context,
 		},
@@ -1450,10 +1450,10 @@ func handleCodexPermissionRequestHook(payload []byte) {
 	}
 	if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
 		recordHookFlight("codex_permission_request", sessionID, toolName, "deny", len(payload), len(payload), nil, nil)
-		out := map[string]interface{}{
-			"hookSpecificOutput": map[string]interface{}{
+		out := map[string]any{
+			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
-				"decision": map[string]interface{}{
+				"decision": map[string]any{
 					"behavior": "deny",
 					"message":  msg,
 				},
@@ -1466,10 +1466,10 @@ func handleCodexPermissionRequestHook(payload []byte) {
 		return
 	}
 	recordHookFlight("codex_permission_request", sessionID, toolName, "allow", len(payload), len(payload), nil, nil)
-	out := map[string]interface{}{
-		"hookSpecificOutput": map[string]interface{}{
+	out := map[string]any{
+		"hookSpecificOutput": map[string]any{
 			"hookEventName": "PermissionRequest",
-			"decision": map[string]interface{}{
+			"decision": map[string]any{
 				"behavior": "allow",
 			},
 		},
@@ -1490,7 +1490,7 @@ func handleCodexStopHook(payload []byte) {
 	sessionID := extractJSONText(payload, "session_id", "conversation_id")
 	observeStopTurnState(sessionID)
 	recordHookFlight("codex_stop", sessionID, "Stop", "continue", len(payload), len(payload), nil, nil)
-	out := map[string]interface{}{"continue": true}
+	out := map[string]any{"continue": true}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
 		exitFn(1)
@@ -1518,7 +1518,7 @@ func handleCodexPreCompactHook(payload []byte) {
 	}
 	writeCompactionMarker("pre", sessionID, turnID, trigger)
 	recordHookFlight("codex_pre_compact", sessionID, "PreCompact", "trigger:"+trigger, len(payload), len(payload), nil, nil)
-	out := map[string]interface{}{"continue": true}
+	out := map[string]any{"continue": true}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
 		exitFn(1)
@@ -1539,7 +1539,7 @@ func handleCodexPostCompactHook(payload []byte) {
 	}
 	writeCompactionMarker("post", sessionID, turnID, trigger)
 	recordHookFlight("codex_post_compact", sessionID, "PostCompact", "trigger:"+trigger, len(payload), len(payload), nil, nil)
-	out := map[string]interface{}{"continue": true}
+	out := map[string]any{"continue": true}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
 		exitFn(1)
@@ -1560,7 +1560,7 @@ func writeCompactionMarker(phase, sessionID, turnID, trigger string) {
 }
 
 func extractJSONText(payload []byte, keys ...string) string {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(payload, &v); err != nil {
 		return ""
 	}
@@ -1572,9 +1572,9 @@ func extractJSONText(payload []byte, keys ...string) string {
 	return ""
 }
 
-func findJSONText(v interface{}, key string) (string, bool) {
+func findJSONText(v any, key string) (string, bool) {
 	switch t := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if s, ok := t[key].(string); ok && s != "" {
 			return s, true
 		}
@@ -1583,7 +1583,7 @@ func findJSONText(v interface{}, key string) (string, bool) {
 				return s, true
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, child := range t {
 			if s, ok := findJSONText(child, key); ok {
 				return s, true
@@ -1652,15 +1652,15 @@ func handleReadHookCmd(args []string) {
 		return
 	}
 
-	var out map[string]interface{}
+	var out map[string]any
 	if mode == "codex" {
-		out = map[string]interface{}{
+		out = map[string]any{
 			"decision": "block",
 			"reason":   decision.Reason,
 		}
 	} else {
-		out = map[string]interface{}{
-			"hookSpecificOutput": map[string]interface{}{
+		out = map[string]any{
+			"hookSpecificOutput": map[string]any{
 				"hookEventName":            "PreToolUse",
 				"permissionDecision":       "deny",
 				"permissionDecisionReason": decision.Reason,
@@ -1836,10 +1836,7 @@ func recordHookFlightEntries(source, sessionID, toolName, decision string, origi
 	if finalBytes == 0 && originalBytes > 0 {
 		finalTokens = originalTokens
 	}
-	saved := originalTokens - finalTokens
-	if saved < 0 {
-		saved = 0
-	}
+	saved := max(originalTokens-finalTokens, 0)
 	ratio := 1.0
 	if originalTokens > 0 {
 		ratio = float64(finalTokens) / float64(originalTokens)
@@ -2206,7 +2203,6 @@ func handleDoctorCmd() {
 	}
 
 	for _, prov := range []types.Provider{types.Anthropic, types.OpenAI, types.CodexChatGPT} {
-		prov := prov
 		check("Provider caps: "+prov.String(), func() (string, bool) {
 			caps := types.CapabilitiesFor(prov)
 			return fmt.Sprintf("seed=%v min_tokens=%v response_id=%v cached_prefix=%v",
@@ -2409,7 +2405,7 @@ func handleStatsCmd(args []string) {
 	case "month":
 		periodStart := statsPeriodStart(time.Now(), -29)
 		var allSnapshots []analytics.AnalyticsSnapshot
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			day := time.Now().AddDate(0, 0, -i)
 			snaps, err := analytics.ReadDailyStats(logDir, day)
 			if err == nil {
@@ -3533,10 +3529,7 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 		return nil
 	}
 	// Take last n lines.
-	start := len(lines) - n
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(lines)-n, 0)
 	tail := lines[start:]
 
 	// Parse newest first. A request id can appear in more than one line

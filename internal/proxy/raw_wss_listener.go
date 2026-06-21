@@ -82,7 +82,7 @@ func isRawScopedCodexWSS(h parsedHTTPRequestHeader) bool {
 	if path != "/backend-api/codex/responses" && path != "/backend-api/codex-bridge/responses" {
 		return false
 	}
-	for _, protocol := range strings.Split(h.subprotocol, ",") {
+	for protocol := range strings.SplitSeq(h.subprotocol, ",") {
 		if strings.HasPrefix(strings.TrimSpace(protocol), "responses_websockets") {
 			return true
 		}

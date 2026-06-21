@@ -649,7 +649,7 @@ func (d *PhaseFDispatcher) bridge(ctx context.Context, client, upstream net.Conn
 	}()
 	// Wait for both directions OR ctx cancellation.
 	var first error
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case err := <-errC:
 			if first == nil && err != nil && !errors.Is(err, io.EOF) {

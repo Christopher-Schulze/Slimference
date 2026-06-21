@@ -440,7 +440,7 @@ func TestServeHTTP_compressibleSecretsUnknownMode(t *testing.T) {
 func anthropicLongConversationJSON(nPairs int) string {
 	var b strings.Builder
 	b.WriteString(`{"model":"claude-3-5-sonnet-20241022","max_tokens":1024,"messages":[`)
-	for i := 0; i < nPairs; i++ {
+	for i := range nPairs {
 		if i > 0 {
 			b.WriteByte(',')
 		}
@@ -476,7 +476,7 @@ func anthropicConversationWithToolResults(nExchanges int, prettyJSON string) str
 
 	msgs := make([]message, 0, nExchanges*2+1)
 	// Old exchanges that will fall outside the sliding window.
-	for i := 0; i < nExchanges; i++ {
+	for range nExchanges {
 		msgs = append(msgs,
 			message{Role: "user", Content: []block{{Type: "tool_result", ToolUseID: "tu_old", Content: prettyJSON}}},
 			message{Role: "assistant", Content: []block{{Type: "text", Text: "ok"}}},
@@ -623,7 +623,7 @@ func anthropicConversationForCacheTest(nExchanges int, largeContent string) stri
 	}
 
 	msgs := make([]message, 0, nExchanges*2+1)
-	for i := 0; i < nExchanges; i++ {
+	for range nExchanges {
 		msgs = append(msgs,
 			message{Role: "user", Content: []block{{Type: "text", Text: largeContent}}},
 			message{Role: "assistant", Content: []block{{Type: "text", Text: "ok"}}},
@@ -680,7 +680,7 @@ func TestServeHTTPAnthropicPromptCacheHotBranch(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 	body := anthropicLongConversationJSON(4)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("anthropic-trace-id", "trace-hot")

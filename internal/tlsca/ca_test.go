@@ -337,10 +337,7 @@ func (f *failAfterReader) Read(p []byte) (int, error) {
 	if f.remaining <= 0 {
 		return 0, fmt.Errorf("entropy exhausted after threshold (test)")
 	}
-	n := len(p)
-	if n > f.remaining {
-		n = f.remaining
-	}
+	n := min(len(p), f.remaining)
 	read, err := cryptoRand.Read(p[:n])
 	f.remaining -= read
 	return read, err
@@ -397,7 +394,7 @@ func TestGenerateAndPersist_FailDuringDownstreamCrypto(t *testing.T) {
 	// of reads.
 	covered := false
 	for _, swap := range []int{1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 30, 50} {
-		for trial := 0; trial < 3; trial++ {
+		for range 3 {
 			prev := SetRandSource(&swapAfterCallsReader{
 				initial: cryptoRand.Reader,
 				after:   errReader{},
@@ -539,7 +536,7 @@ func TestSignLeafLocked_MidFailDownstream(t *testing.T) {
 	// trial where the swap lands AFTER the keygen completes.
 	covered := false
 	for _, swap := range []int{1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 30, 50} {
-		for trial := 0; trial < 3; trial++ {
+		for range 3 {
 			signer.cache = map[string]*cachedLeaf{}
 			signer.order = nil
 			prev := SetRandSource(&swapAfterCallsReader{

@@ -263,10 +263,7 @@ func (s *TurnStateStore) RecentlyEdited(sessionID, path string, previousTurns in
 	if previousTurns < 0 {
 		previousTurns = 0
 	}
-	start := len(turns) - 1 - previousTurns
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(turns)-1-previousTurns, 0)
 	for _, turn := range turns[start:] {
 		if _, ok := turn.fileEditIndex[target]; ok {
 			return true

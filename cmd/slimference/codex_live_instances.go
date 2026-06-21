@@ -30,7 +30,7 @@ func codexDesktopAppServerCount() int {
 
 func countScopedCodexCLILines(text string) int {
 	count := 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 3 {
 			continue
@@ -44,7 +44,7 @@ func countScopedCodexCLILines(text string) int {
 
 func countCodexDesktopAppServerLines(text string) int {
 	count := 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 2 {
 			continue

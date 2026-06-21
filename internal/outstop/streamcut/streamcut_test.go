@@ -13,7 +13,7 @@ import (
 // if it never did).
 func feedAnthropic(c *Cutter, segments ...string) int {
 	for i, seg := range segments {
-		line := []byte(fmt.Sprintf(`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":%q}}`, seg))
+		line := fmt.Appendf(nil, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":%q}}`, seg)
 		if c.Observe(line) {
 			return i
 		}
@@ -80,7 +80,7 @@ func TestCutterReportsFiredAfterTrigger(t *testing.T) {
 func TestCutterOpenAIChatDelta(t *testing.T) {
 	c := NewCutter("openai")
 	long := strings.Repeat("Substantive content. ", 5)
-	line1 := []byte(fmt.Sprintf(`data: {"choices":[{"delta":{"content":%q}}]}`, long))
+	line1 := fmt.Appendf(nil, `data: {"choices":[{"delta":{"content":%q}}]}`, long)
 	if c.Observe(line1) {
 		t.Fatal("fired prematurely")
 	}
@@ -93,7 +93,7 @@ func TestCutterOpenAIChatDelta(t *testing.T) {
 func TestCutterCodexChatGPTRouting(t *testing.T) {
 	c := NewCutter("codex_chatgpt")
 	long := strings.Repeat("Substantive content. ", 5)
-	c.Observe([]byte(fmt.Sprintf(`data: {"choices":[{"delta":{"content":%q}}]}`, long)))
+	c.Observe(fmt.Appendf(nil, `data: {"choices":[{"delta":{"content":%q}}]}`, long))
 	if !c.Observe([]byte(`data: {"choices":[{"delta":{"content":"\nWould you like more detail?"}}]}`)) {
 		t.Errorf("codex_chatgpt should match like openai")
 	}
@@ -102,7 +102,7 @@ func TestCutterCodexChatGPTRouting(t *testing.T) {
 func TestCutterOpenAIResponsesAPIDelta(t *testing.T) {
 	c := NewCutter("openai")
 	long := strings.Repeat("Substantive content. ", 5)
-	c.Observe([]byte(fmt.Sprintf(`data: {"type":"response.output_text.delta","delta":%q}`, long)))
+	c.Observe(fmt.Appendf(nil, `data: {"type":"response.output_text.delta","delta":%q}`, long))
 	if !c.Observe([]byte(`data: {"type":"response.output_text.delta","delta":"\nFeel free to ask."}`)) {
 		t.Errorf("Responses-API delta shape not recognised")
 	}
@@ -201,13 +201,13 @@ func TestSyntheticTerminatorUnknown(t *testing.T) {
 
 func deltaLine(text string) []byte {
 	b, _ := json.Marshal(text)
-	return []byte(fmt.Sprintf(`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":%s}}`, b))
+	return fmt.Appendf(nil, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":%s}}`, b)
 }
 
 func TestForwardHoldbackQueuesAndEmitsOldest(t *testing.T) {
 	c := NewCutterWithHoldback("anthropic", 3)
 	// First three lines are held back; nothing emitted yet.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		emit, term := c.Forward(deltaLine(fmt.Sprintf("delta-%d ", i)))
 		if term {
 			t.Fatalf("unexpected terminate at i=%d", i)
@@ -323,7 +323,7 @@ func TestForwardLegacyFireEmitsTerminator(t *testing.T) {
 func TestNewCutterUnknownProviderObserveNoop(t *testing.T) {
 	c := NewCutter("gemini")
 	// Cannot extract delta for unknown provider; Observe never accumulates.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if c.Observe([]byte(`data: {"choices":[{"delta":{"content":"x"}}]}`)) {
 			t.Errorf("unknown provider cutter should never fire")
 		}

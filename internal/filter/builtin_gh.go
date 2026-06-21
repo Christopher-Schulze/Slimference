@@ -38,7 +38,7 @@ func TryCompactGhList(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	s := strings.TrimSpace(string(stdout))
 	if s == "" {
-		return []byte(fmt.Sprintf("[gh %s list] empty\n", sub)), true
+		return fmt.Appendf(nil, "[gh %s list] empty\n", sub), true
 	}
 	// Non-empty: preserve healthy lists. For large diagnostic lists, keep the
 	// attention rows and a count.

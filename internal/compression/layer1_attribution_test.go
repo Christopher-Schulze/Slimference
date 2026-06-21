@@ -22,7 +22,6 @@ func TestJoinSubLayers(t *testing.T) {
 		{"three tags", []string{"comment_strip", "structure_extract", "delta"}, "comment_strip,structure_extract,delta"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := joinSubLayers(tc.in); got != tc.want {

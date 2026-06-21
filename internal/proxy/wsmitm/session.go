@@ -651,10 +651,7 @@ func writeCompressedDataFrames(dst io.Writer, original []wscompact.Frame, payloa
 		if remainingFrames == 1 {
 			size = remainingBytes
 		} else if remainingBytes > 0 {
-			size = len(frame.Payload)
-			if size > remainingBytes {
-				size = remainingBytes
-			}
+			size = min(len(frame.Payload), remainingBytes)
 		}
 		chunk := payload[offset : offset+size]
 		offset += size

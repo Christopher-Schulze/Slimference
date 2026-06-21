@@ -116,7 +116,7 @@ func TestTryCompactJSONMinify_schemaArray(t *testing.T) {
 	// Large JSON array.
 	var sb strings.Builder
 	sb.WriteString(`[`)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		if i > 0 {
 			sb.WriteByte(',')
 		}
@@ -167,11 +167,11 @@ func TestTryCompactJSONMinify_diagnosticKeysPreferValuePreservation(t *testing.T
 func TestJsonTypeName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		v    interface{}
+		v    any
 		want string
 	}{
-		{map[string]interface{}{"key": "val"}, "object"},
-		{[]interface{}{1.0, 2.0}, "array"},
+		{map[string]any{"key": "val"}, "object"},
+		{[]any{1.0, 2.0}, "array"},
 		{"hello", "string"},
 		{3.14, "number"},
 		{true, "bool"},
@@ -227,7 +227,7 @@ func TestSchemaOf_manyKeys(t *testing.T) {
 	// Build a JSON object with 45 keys.
 	var sb strings.Builder
 	sb.WriteByte('{')
-	for i := 0; i < 45; i++ {
+	for i := range 45 {
 		if i > 0 {
 			sb.WriteByte(',')
 		}

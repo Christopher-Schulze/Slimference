@@ -107,7 +107,7 @@ func wssMavenCleanSuccessFixture(modules int) string {
 	b.WriteString("[INFO] -----------------------< com.example:demo >------------------------\n")
 	b.WriteString("[INFO] Building demo 1.0.0\n")
 	b.WriteString("[INFO] --------------------------------[ jar ]---------------------------------\n")
-	for i := 0; i < modules; i++ {
+	for i := range modules {
 		fmt.Fprintf(&b, "[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources-%02d) @ demo ---\n", i)
 		fmt.Fprintf(&b, "[INFO] Copying %d resources from src/main/resources to target/classes\n", i+1)
 	}

@@ -161,7 +161,7 @@ func TestTryCompactContainerOutput_dockerPsTable(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES\n")
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		sb.WriteString(fmt.Sprintf("abc%010d   nginx     /nginx    5m ago    Up 5m     80/tcp    web%d\n", i, i))
 	}
 	input := sb.String()
@@ -175,7 +175,7 @@ func TestTryCompactContainerOutput_kubectlGetMany(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("NAME                    READY   STATUS    RESTARTS   AGE\n")
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		sb.WriteString(fmt.Sprintf("nginx-deployment-%05d   1/1     Running   0          5d\n", i))
 	}
 	input := sb.String()
@@ -189,7 +189,7 @@ func TestTryCompactContainerOutput_keepsAttentionRows(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("NAME                    READY   STATUS             RESTARTS   AGE\n")
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		status := "Running"
 		if i == 7 {
 			status = "CrashLoopBackOff"
@@ -211,7 +211,7 @@ func TestContainerTableRows_dockerImages(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("REPOSITORY          TAG       IMAGE ID       CREATED        SIZE\n")
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		sb.WriteString(fmt.Sprintf("nginx               latest    abc%05d       5 days ago     133MB\n", i))
 	}
 	label, rows := containerTableRows([]string{"docker", "images"}, []byte(sb.String()))

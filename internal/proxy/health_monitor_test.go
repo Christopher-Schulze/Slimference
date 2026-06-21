@@ -30,7 +30,7 @@ func TestHealthMonitor_healthy(t *testing.T) {
 	t.Parallel()
 	h := newHealthMonitor()
 	// All successes -> healthy.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		h.record(types.Anthropic, true)
 	}
 	info := h.getStatus(types.Anthropic)
@@ -49,10 +49,10 @@ func TestHealthMonitor_down(t *testing.T) {
 	t.Parallel()
 	h := newHealthMonitor()
 	// 5 successes then 3 failures -> last 3 consecutive failed -> down.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		h.record(types.Anthropic, true)
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		h.record(types.Anthropic, false)
 	}
 	info := h.getStatus(types.Anthropic)
@@ -65,7 +65,7 @@ func TestHealthMonitor_degraded(t *testing.T) {
 	t.Parallel()
 	h := newHealthMonitor()
 	// 6 successes, 4 errors = 40% error rate -> degraded.
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		h.record(types.OpenAI, true)
 	}
 	// 4 errors interleaved; last 3: false, true, false -> not all failed -> not down.
@@ -87,7 +87,7 @@ func TestHealthMonitor_downOverridesDegraded(t *testing.T) {
 	t.Parallel()
 	h := newHealthMonitor()
 	// 3 failures in a row with no prior successes -> count=3, 100% error rate and last-3 all failed -> down.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		h.record(types.Anthropic, false)
 	}
 	info := h.getStatus(types.Anthropic)
@@ -102,13 +102,13 @@ func TestHealthMonitor_ringBufferWrap(t *testing.T) {
 	t.Parallel()
 	h := newHealthMonitor()
 	// Fill with 20 failures.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		h.record(types.Anthropic, false)
 	}
 	// Now add 17 successes, which overwrites the oldest 17 failures.
 	// Remaining in window: 3 failures (oldest) + 17 successes = 20 total, 3/20 = 15% errors.
 	// But the last 3 are all successes so not down. 15% < 20% so should be healthy.
-	for i := 0; i < 17; i++ {
+	for range 17 {
 		h.record(types.Anthropic, true)
 	}
 	info := h.getStatus(types.Anthropic)
@@ -139,7 +139,7 @@ func TestHealthMonitor_concurrent(t *testing.T) {
 	h := newHealthMonitor()
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			h.record(types.Anthropic, i%3 != 0)
 		}
 		close(done)

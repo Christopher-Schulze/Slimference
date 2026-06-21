@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -185,7 +186,7 @@ type wssReadTraceSearchMatch struct {
 func wssReadTraceSearchMatches(payload string) ([]wssReadTraceSearchMatch, int) {
 	var matches []wssReadTraceSearchMatch
 	nonEmpty := 0
-	for _, rawLine := range strings.Split(payload, "\n") {
+	for rawLine := range strings.SplitSeq(payload, "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "Total output lines:") || line == "--" {
 			continue
@@ -253,10 +254,7 @@ func wssReadTraceRecentEdit(sessionID, path string, previousTurns int) wssReadTr
 	if err != nil {
 		return wssReadTraceRecentEditState{}
 	}
-	start := len(state.Turns) - 1 - previousTurns
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(state.Turns)-1-previousTurns, 0)
 	for i := len(state.Turns) - 1; i >= start; i-- {
 		turn := state.Turns[i]
 		for _, edited := range turn.FilesEdited {
@@ -324,11 +322,8 @@ func wssReadTraceChangedRangeForPath(messages []types.Message, toolUses map[stri
 	if len(ranges) == 0 {
 		return "full"
 	}
-	for _, r := range ranges {
-		if r == "full" {
-			unknownFull = true
-			break
-		}
+	if slices.Contains(ranges, "full") {
+		unknownFull = true
 	}
 	if unknownFull {
 		return "full"

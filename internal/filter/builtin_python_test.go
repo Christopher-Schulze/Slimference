@@ -172,7 +172,6 @@ func TestLooksLikeExceptionLine(t *testing.T) {
 		{"Error42: bad", true},     // digit in name (exercises `r >= '0' && r <= '9'` branch)
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
 			if got := looksLikeExceptionLine(tc.in); got != tc.want {

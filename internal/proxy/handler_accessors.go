@@ -54,7 +54,7 @@ func messageMentionsAnyPrunedTool(messages []types.Message, tracker *toolprune.U
 	if len(candidates) == 0 {
 		return nil
 	}
-	var text string
+	var text strings.Builder
 	for _, msg := range messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		if role != "user" && role != "system" && role != "developer" {
@@ -62,11 +62,11 @@ func messageMentionsAnyPrunedTool(messages []types.Message, tracker *toolprune.U
 		}
 		for _, b := range msg.Content {
 			if b.Text != "" {
-				text += b.Text + "\n"
+				text.WriteString(b.Text + "\n")
 			}
 		}
 	}
-	return toolprune.MentionedTools(text, candidates)
+	return toolprune.MentionedTools(text.String(), candidates)
 }
 
 // extractUsedToolNames returns the distinct tool names from tool_use

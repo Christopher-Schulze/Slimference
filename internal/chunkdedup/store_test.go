@@ -304,7 +304,7 @@ func TestStore_LineOrientedLogsDedupWithinReferenceBudget(t *testing.T) {
 
 func genLineOrientedLog(failure string) []byte {
 	var b strings.Builder
-	for i := 0; i < 520; i++ {
+	for i := range 520 {
 		if i == 260 {
 			fmt.Fprintf(&b, "FAIL package %s slow-path checksum mismatch\n", failure)
 			continue

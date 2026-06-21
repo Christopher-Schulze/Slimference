@@ -476,7 +476,7 @@ func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, ho
 	}
 	host = "127.0.0.1"
 	port = "8990"
-	for i := 0; i < len(rest); i++ {
+	for i := range rest {
 		a := rest[i]
 		if a == "--" {
 			codexArgs = append(codexArgs, rest[i+1:]...)

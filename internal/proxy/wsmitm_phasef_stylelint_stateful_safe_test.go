@@ -71,7 +71,7 @@ func TestWSSStatefulUnsafeStylelintJSONFindingsStayGuarded(t *testing.T) {
 func wssStylelintJSONCleanFixture(files int) string {
 	var out strings.Builder
 	out.WriteByte('[')
-	for i := 0; i < files; i++ {
+	for i := range files {
 		if i > 0 {
 			out.WriteByte(',')
 		}

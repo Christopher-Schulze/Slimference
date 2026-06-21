@@ -380,7 +380,7 @@ func TestWSPhaseFSearchCapStatefulDeltaDepthLimit(t *testing.T) {
 		t.Fatalf("root request should seed recovery only, replace=%v err=%v raw=%s", replace, err, root.Raw)
 	}
 
-	for i := 0; i < wssSearchCapStatefulDeltaMaxTurns+1; i++ {
+	for i := range wssSearchCapStatefulDeltaMaxTurns + 1 {
 		callID := fmt.Sprintf("search-depth-%d", i)
 		parentID := fmt.Sprintf("resp-search-depth-%d", i)
 		seedWSSDeltaStatelessToolCall(t, ctx, adapter, callID, "exec_command", map[string]any{"cmd": fmt.Sprintf("cd /repo/search && rg -n needle%d src", i)})
@@ -451,7 +451,7 @@ func completeWSSDeltaStatelessResponse(t *testing.T, ctx context.Context, adapte
 
 func deltaStatelessGoTestOutput() string {
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")

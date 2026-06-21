@@ -94,7 +94,7 @@ func wssGradleBuildEnvelope(id, output string) string {
 func wssGradleBuildCleanSuccessFixture(tasks int) string {
 	var b strings.Builder
 	b.WriteString("Starting a Gradle Daemon, 1 busy Daemon could not be reused, use --status for details\n")
-	for i := 0; i < tasks; i++ {
+	for i := range tasks {
 		fmt.Fprintf(&b, "> Task :module%d:compileJava\n", i)
 	}
 	b.WriteString("BUILD SUCCESSFUL in 4s\n")

@@ -22,7 +22,7 @@ func newProxyForQueueTest(t *testing.T, capacity int) *Proxy {
 
 func TestTrySendAnalytics_EnqueueCounter(t *testing.T) {
 	p := newProxyForQueueTest(t, 4)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed})
 	}
 	if got := p.analyticsEnqueued.Load(); got != 3 {
@@ -46,7 +46,7 @@ func TestTrySendAnalytics_EnqueueCounter(t *testing.T) {
 func TestTrySendAnalytics_DropCounter(t *testing.T) {
 	// Capacity 2, send 5 low-priority events, expect 2 enqueued + 3 dropped.
 	p := newProxyForQueueTest(t, 2)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 	}
 	if got := p.analyticsEnqueued.Load(); got != 2 {
@@ -110,7 +110,7 @@ func TestNoteAnalyticsDrop_WarnRateLimit(t *testing.T) {
 	// Fill the queue so subsequent sends drop.
 	p.analyticsQueue <- types.AnalyticsEvent{Type: types.EventRequestProcessed}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 	}
 	if got := p.analyticsDropped.Load(); got != 10 {
@@ -127,9 +127,9 @@ func TestTrySendAnalytics_ConcurrentSafe(t *testing.T) {
 	const workers = 16
 	const per = 100
 	var done int64
-	for w := 0; w < workers; w++ {
+	for range workers {
 		go func() {
-			for i := 0; i < per; i++ {
+			for range per {
 				p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed})
 			}
 			atomic.AddInt64(&done, 1)

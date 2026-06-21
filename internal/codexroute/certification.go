@@ -76,10 +76,10 @@ type RecertState struct {
 	AttemptID          string    `json:"attempt_id,omitempty"`
 	CodexVersion       string    `json:"codex_version,omitempty"`
 	SlimferenceVersion string    `json:"slimference_version,omitempty"`
-	StartedAt          time.Time `json:"started_at,omitempty"`
-	FinishedAt         time.Time `json:"finished_at,omitempty"`
-	LastSuccessAt      time.Time `json:"last_success_at,omitempty"`
-	RetryAfter         time.Time `json:"retry_after,omitempty"`
+	StartedAt          time.Time `json:"started_at"`
+	FinishedAt         time.Time `json:"finished_at"`
+	LastSuccessAt      time.Time `json:"last_success_at"`
+	RetryAfter         time.Time `json:"retry_after"`
 	PhaseFPassed       bool      `json:"phasef_passed"`
 	BridgePassed       bool      `json:"bridge_passed"`
 	BytesC2S           int64     `json:"bytes_c2s,omitempty"`
@@ -117,10 +117,10 @@ type AutoDecision struct {
 	RecertLogPath        string             `json:"recert_log_path,omitempty"`
 	RecertStatus         string             `json:"recert_status,omitempty"`
 	RecertAttemptID      string             `json:"recert_attempt_id,omitempty"`
-	RecertStartedAt      time.Time          `json:"recert_started_at,omitempty"`
-	RecertFinishedAt     time.Time          `json:"recert_finished_at,omitempty"`
-	RecertLastSuccessAt  time.Time          `json:"recert_last_success_at,omitempty"`
-	RecertRetryAfter     time.Time          `json:"recert_retry_after,omitempty"`
+	RecertStartedAt      time.Time          `json:"recert_started_at"`
+	RecertFinishedAt     time.Time          `json:"recert_finished_at"`
+	RecertLastSuccessAt  time.Time          `json:"recert_last_success_at"`
+	RecertRetryAfter     time.Time          `json:"recert_retry_after"`
 	RecertLastError      string             `json:"recert_last_error,omitempty"`
 	FallbackReason       string             `json:"fallback_reason,omitempty"`
 	LastWSSError         string             `json:"last_wss_error,omitempty"`

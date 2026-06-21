@@ -231,7 +231,7 @@ func buildDNSQuery(host string) ([]byte, error) {
 		0x00, 0x00, // arcount
 	)
 	// Question: name labels.
-	for _, label := range strings.Split(host, ".") {
+	for label := range strings.SplitSeq(host, ".") {
 		if label == "" {
 			buf = append(buf, 0x00)
 			continue
@@ -259,7 +259,7 @@ func parseDNSAnswer(msg []byte) (string, error) {
 	}
 	pos := 12
 	// Skip question section.
-	for i := uint16(0); i < qdcount; i++ {
+	for range qdcount {
 		var ok bool
 		pos, ok = skipName(msg, pos)
 		if !ok {
@@ -268,7 +268,7 @@ func parseDNSAnswer(msg []byte) (string, error) {
 		pos += 4 // QTYPE + QCLASS
 	}
 	// Walk answers.
-	for i := uint16(0); i < ancount; i++ {
+	for range ancount {
 		var ok bool
 		pos, ok = skipName(msg, pos)
 		if !ok {

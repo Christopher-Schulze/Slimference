@@ -31,10 +31,10 @@ type workdaySavingsBaseline struct {
 type workdaySavingsResult struct {
 	SchemaVersion int                    `json:"schema_version"`
 	BaselineFile  string                 `json:"baseline_file"`
-	StartedAt     time.Time              `json:"started_at,omitempty"`
+	StartedAt     time.Time              `json:"started_at"`
 	FinishedAt    time.Time              `json:"finished_at"`
 	Duration      string                 `json:"duration,omitempty"`
-	Baseline      aggregateSavingsReport `json:"baseline,omitempty"`
+	Baseline      aggregateSavingsReport `json:"baseline"`
 	Current       aggregateSavingsReport `json:"current"`
 	Delta         aggregateSavingsReport `json:"delta"`
 }

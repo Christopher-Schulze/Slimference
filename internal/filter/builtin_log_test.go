@@ -8,7 +8,7 @@ import (
 func TestTryCompactLogOutput_shapeDetection(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		sb.WriteString("2024-01-01T00:00:01Z DEBUG internal state dump key=val\n")
 	}
 	sb.WriteString("2024-01-01T00:00:02Z ERROR connection refused\n")
@@ -129,7 +129,7 @@ func TestTryCompactLogDedup_debugFiltering(t *testing.T) {
 	t.Parallel()
 	// Large docker log with many DEBUG lines interleaved with INFO/ERROR lines.
 	var sb strings.Builder
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		sb.WriteString("2024-01-01T00:00:01Z INFO request processed id=")
 		sb.WriteString(strings.Repeat("x", 10))
 		sb.WriteByte('\n')
@@ -170,7 +170,7 @@ func TestFilterLogOutput_TruncateLong(t *testing.T) {
 	t.Parallel()
 	// Generate >100 INFO lines (not debug/trace) to trigger truncation
 	var sb strings.Builder
-	for i := 0; i < 120; i++ {
+	for range 120 {
 		sb.WriteString("2024-01-01 INFO request processed\n")
 	}
 	input := sb.String()
@@ -189,7 +189,7 @@ func TestFilterLogOutput_TruncateLong(t *testing.T) {
 func TestFilterLogOutput_KeepsErrorPastHeadBudget(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 130; i++ {
+	for range 130 {
 		sb.WriteString("2024-01-01 INFO request processed\n")
 	}
 	sb.WriteString("2024-01-01 ERROR fatal: database connection refused\n")
@@ -208,7 +208,7 @@ func TestFilterLogOutput_KeepsErrorPastHeadBudget(t *testing.T) {
 func TestFilterLogOutput_KeepsOperationalFailurePastHeadBudget(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 130; i++ {
+	for range 130 {
 		sb.WriteString("2024-01-01 INFO request processed\n")
 	}
 	sb.WriteString("2024-01-01 WARN upstream unhealthy: connection refused\n")
@@ -223,7 +223,7 @@ func TestFilterLogOutput_KeepsOperationalFailurePastHeadBudget(t *testing.T) {
 func TestFilterLogOutput_KeepsRejectedPastHeadBudget(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 130; i++ {
+	for range 130 {
 		sb.WriteString("2024-01-01 INFO request processed\n")
 	}
 	sb.WriteString("2024-01-01 ERROR upstream rejected request\n")

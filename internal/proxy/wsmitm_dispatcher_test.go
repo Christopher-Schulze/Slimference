@@ -255,12 +255,10 @@ func TestDispatcherMITMConversationAlsoBridges(t *testing.T) {
 
 	var bridgeErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		bridgeErr = d.Handle(context.Background(), sniroute.MITMConversation,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	// Drain upstream so the c2s pump can proceed.
 	go func() { _, _ = io.Copy(io.Discard, upstreamRemote) }()

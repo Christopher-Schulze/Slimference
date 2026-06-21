@@ -86,7 +86,7 @@ func runPromptCache(base, model string, count int) int {
 	misses := 0
 	creates := 0
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		usage, err := postAnthropic(base, body)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "request %d failed: %v\n", i+1, err)

@@ -153,12 +153,12 @@ func TestObserve_ConcurrencySafe(t *testing.T) {
 	tr := NewTracker(100, time.Minute)
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			_ = tr.Observe("a", hashOf("p"))
 		}
 		close(done)
 	}()
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		_ = tr.Observe("b", hashOf("q"))
 	}
 	<-done

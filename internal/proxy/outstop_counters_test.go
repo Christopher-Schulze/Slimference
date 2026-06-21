@@ -305,10 +305,10 @@ func TestOutputReduceCountersConcurrent(t *testing.T) {
 	const perG = 100
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < perG; j++ {
+			for range perG {
 				c.RecordStopSeqInjection(1)
 				c.RecordStreamcutFire(10)
 				c.RecordRepdetRewrite(1, 5)

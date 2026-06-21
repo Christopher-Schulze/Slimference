@@ -188,10 +188,7 @@ func TestGet_TruncatedGzip(t *testing.T) {
 	}
 	// Keep enough bytes for gzip.NewReader to accept the header but cut the
 	// deflate payload so io.ReadAll fails mid-stream.
-	cut := len(contents) - 5
-	if cut < 12 {
-		cut = 12
-	}
+	cut := max(len(contents)-5, 12)
 	if err := os.WriteFile(payload, contents[:cut], 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +337,7 @@ func TestPut_EvictionWhenOverEntryLimit(t *testing.T) {
 
 	dir := t.TempDir()
 	limits := Limits{MaxEntries: 2}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		input := sampleInput()
 		input.MessageIndex = i
 		input.Original = fmt.Sprintf("content-%d-%s", i, strings.Repeat("x", 80))
@@ -369,7 +366,7 @@ func TestPut_EvictionWhenOverByteLimit(t *testing.T) {
 
 	dir := t.TempDir()
 	limits := Limits{MaxBytes: 1}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		input := sampleInput()
 		input.MessageIndex = i
 		input.Original = fmt.Sprintf("byte-cap-%d-%s", i, strings.Repeat("y", 200))
@@ -431,7 +428,7 @@ func TestPut_EvictionListError(t *testing.T) {
 func TestPut_SnapshotPathPreservesCounters(t *testing.T) {
 
 	dir := t.TempDir()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		in := sampleInput()
 		in.MessageIndex = i
 		if _, err := Put(dir, in, Limits{}); err != nil {
@@ -653,7 +650,7 @@ func TestSaveStats_MarshalError(t *testing.T) {
 func TestSnapshot_PopulatesDerivedFields(t *testing.T) {
 
 	dir := t.TempDir()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		in := sampleInput()
 		in.MessageIndex = i
 		if _, err := Put(dir, in, Limits{}); err != nil {

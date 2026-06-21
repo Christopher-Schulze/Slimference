@@ -113,8 +113,7 @@ func TestShutdown_ConcurrentCallsOnlyRunOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(8)
 	errs := make([]error, 8)
-	for i := 0; i < 8; i++ {
-		i := i
+	for i := range 8 {
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()

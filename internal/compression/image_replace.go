@@ -92,9 +92,9 @@ func describeBase64URI(uri string, msgIdx int) string {
 		format = "image"
 	}
 	// Extract the base64 payload
-	idx := strings.Index(uri, ",")
-	if idx >= 0 {
-		payload := uri[idx+1:]
+	_, after, ok := strings.Cut(uri, ",")
+	if ok {
+		payload := after
 		size := len(payload) * 3 / 4 // approximate decoded bytes
 		return fmt.Sprintf("[%s data removed from old message %d, ~%d bytes]", format, msgIdx, size)
 	}

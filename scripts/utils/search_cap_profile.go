@@ -479,11 +479,11 @@ func searchCapProfileToolOutputPayload(output string) string {
 		return output
 	}
 	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
-		idx := strings.Index(output, marker)
-		if idx < 0 {
+		_, after, ok := strings.Cut(output, marker)
+		if !ok {
 			continue
 		}
-		payload := output[idx+len(marker):]
+		payload := after
 		if payload != "" {
 			return payload
 		}
@@ -582,10 +582,7 @@ func buildSearchCapProfileRows(defaultRow searchCapProfileRow, candidates []sear
 func buildSearchCapProfileRow(name string, argv []string, data []byte, options filter.SearchCompactOptions) searchCapProfileRow {
 	stats, _ := filter.SearchCompactProfile(argv, data, options)
 	options = searchCapProfileOptionsWithDefaults(options)
-	savedBytes := stats.InputBytes - stats.OutputBytes
-	if savedBytes < 0 {
-		savedBytes = 0
-	}
+	savedBytes := max(stats.InputBytes-stats.OutputBytes, 0)
 	return searchCapProfileRow{
 		Name:              name,
 		MaxFilesShown:     options.MaxFilesShown,

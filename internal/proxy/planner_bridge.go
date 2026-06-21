@@ -95,10 +95,7 @@ func sessionHasRecentEditedFile(sessionID string, previousTurns int) bool {
 	if err != nil {
 		return false
 	}
-	start := len(state.Turns) - 1 - previousTurns
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(state.Turns)-1-previousTurns, 0)
 	for _, turn := range state.Turns[start:] {
 		if len(turn.FilesEdited) > 0 {
 			return true

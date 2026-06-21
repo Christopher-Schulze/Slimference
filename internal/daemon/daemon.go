@@ -496,7 +496,7 @@ func FormatStatus() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	status := map[string]interface{}{
+	status := map[string]any{
 		"running": running,
 	}
 	if pf != nil {
@@ -543,15 +543,15 @@ func launchctlInspectImpl(label string) (launchctlSnapshot, error) {
 // missing or unparseable.
 func parseLaunchctlList(text string) launchctlSnapshot {
 	s := launchctlSnapshot{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "\"PID\" = ") {
-			v := strings.TrimSuffix(strings.TrimPrefix(line, "\"PID\" = "), ";")
+		if after, ok := strings.CutPrefix(line, "\"PID\" = "); ok {
+			v := strings.TrimSuffix(after, ";")
 			n, _ := strconv.Atoi(v)
 			s.PID = n
 		}
-		if strings.HasPrefix(line, "\"LastExitStatus\" = ") {
-			v := strings.TrimSuffix(strings.TrimPrefix(line, "\"LastExitStatus\" = "), ";")
+		if after, ok := strings.CutPrefix(line, "\"LastExitStatus\" = "); ok {
+			v := strings.TrimSuffix(after, ";")
 			n, _ := strconv.Atoi(v)
 			s.LastExitStatus = n
 		}

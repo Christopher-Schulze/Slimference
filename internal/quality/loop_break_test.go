@@ -76,15 +76,13 @@ func TestLoopBreakTracker_Empty(t *testing.T) {
 func TestLoopBreakTracker_Concurrent(t *testing.T) {
 	tr := NewLoopBreakTracker()
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			tr.Record(LoopNudgeMeasurement{
 				LoopBroken:          true,
 				ObservedSavedTokens: 100,
 			}, "additive")
-		}()
+		})
 	}
 	wg.Wait()
 	stats := tr.Stats()

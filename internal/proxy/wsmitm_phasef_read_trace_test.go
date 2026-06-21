@@ -436,7 +436,7 @@ func TestWSSReadTraceHelpersNormalizeAndBoundHashLists(t *testing.T) {
 		t.Fatalf("nil hashes should not add facts: %+v", facts)
 	}
 	hashes := map[string]struct{}{}
-	for i := 0; i < wssReadTraceListLimit+3; i++ {
+	for i := range wssReadTraceListLimit + 3 {
 		hashes[wssReadTraceHash("value:"+string(rune('a'+i)))] = struct{}{}
 	}
 
@@ -619,7 +619,7 @@ func TestWSSPatchTraceHelpersClassifyAndBoundHashLists(t *testing.T) {
 		t.Fatalf("nil patch hashes should not add facts: %+v", facts)
 	}
 	hashes := map[string]struct{}{}
-	for i := 0; i < wssPatchTraceListLimit+2; i++ {
+	for i := range wssPatchTraceListLimit + 2 {
 		hashes[wssPatchTraceHash("patch:"+string(rune('a'+i)))] = struct{}{}
 	}
 	attachWSSPatchTraceHashFacts(facts, "list", "count", hashes)

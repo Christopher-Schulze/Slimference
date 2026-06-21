@@ -46,12 +46,10 @@ func TestMITMConversationRoutesThroughWSMITMSession(t *testing.T) {
 
 	var bridgeErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		bridgeErr = d.Handle(context.Background(), sniroute.MITMConversation,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	// Send one JSON envelope wrapped in a WS text frame.
 	raw := mustMarshal(map[string]string{"type": string(wsmitm.FrameKindRequest)})
@@ -106,12 +104,10 @@ func TestMITMConversationUsesRuntimeWSSCapture(t *testing.T) {
 	clientRemote, clientLocal := newPipe()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = d.Handle(context.Background(), sniroute.MITMConversation,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	frameBytes := wsFrameBytes(t, mustMarshal(map[string]string{"type": string(wsmitm.FrameKindRequest)}))
 	go func() { _, _ = clientRemote.Write(frameBytes) }()
@@ -147,12 +143,10 @@ func TestMITMConversationParseFailureDegrades(t *testing.T) {
 	clientRemote, clientLocal := newPipe()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = d.Handle(context.Background(), sniroute.MITMConversation,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	// Send WS-framed garbage JSON (the frame is valid; payload is not).
 	frameBytes := wsFrameBytes(t, []byte("garbage not json"))
@@ -193,12 +187,10 @@ func TestDispatcherInitialHTTPUpgradeReroutesToWSMITM(t *testing.T) {
 
 	var bridgeErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		bridgeErr = d.Handle(context.Background(), sniroute.PassthroughTLS,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	reqHeader := "GET /backend-api/codex/responses HTTP/1.1\r\n" +
 		"Host: chatgpt.com\r\n" +

@@ -73,7 +73,7 @@ func TestStreamingCompress_LargeStream_BoundedMemory(t *testing.T) {
 	const distinct = 200
 	var sb strings.Builder
 	sb.Grow(lines * 8)
-	for i := 0; i < lines; i++ {
+	for i := range lines {
 		sb.WriteString("L")
 		sb.WriteString(intToStr(i % distinct))
 		sb.WriteByte('\n')

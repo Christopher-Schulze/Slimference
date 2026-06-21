@@ -17,7 +17,7 @@ func TestStructurePreview_json(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("{")
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -45,7 +45,7 @@ func TestStructurePreview_jsonArray(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("[")
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -71,7 +71,7 @@ func TestStructurePreview_paths(t *testing.T) {
 	var sb strings.Builder
 	dirs := []string{"/a/b", "/a/b", "/a/b", "/c/d", "/c/d", "/e/f"}
 	// Need >= PreviewThresholdBytes raw input to exercise preview at all.
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		sb.WriteString(dirs[i%len(dirs)])
 		sb.WriteString("/nested/deep/file_with_a_fairly_long_name_")
 		sb.WriteString(strconv.Itoa(i))
@@ -94,7 +94,7 @@ func TestStructurePreview_table(t *testing.T) {
 		"----------  ----------  ------------  ----------",
 	}
 	// Need >= PreviewThresholdBytes raw input.
-	for i := 0; i < 250; i++ {
+	for range 250 {
 		rows = append(rows, "value_one   value_two   value_three   value_four")
 	}
 	in := strings.Join(rows, "\n") + "\n"
@@ -175,7 +175,7 @@ func TestFormatJSONKey_longString(t *testing.T) {
 
 func TestFormatJSONKey_nestedObject(t *testing.T) {
 	t.Parallel()
-	out := formatJSONKey("obj", map[string]interface{}{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6})
+	out := formatJSONKey("obj", map[string]any{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6})
 	if !strings.Contains(out, "...") {
 		t.Fatalf("expected more-than-5 ellipsis: %s", out)
 	}
@@ -183,7 +183,7 @@ func TestFormatJSONKey_nestedObject(t *testing.T) {
 
 func TestFormatJSONKey_shortNested(t *testing.T) {
 	t.Parallel()
-	out := formatJSONKey("obj", map[string]interface{}{"a": 1})
+	out := formatJSONKey("obj", map[string]any{"a": 1})
 	if strings.Contains(out, "...") {
 		t.Fatalf("short nested must not have ellipsis: %s", out)
 	}
@@ -191,15 +191,15 @@ func TestFormatJSONKey_shortNested(t *testing.T) {
 
 func TestSketchJSONItem(t *testing.T) {
 	t.Parallel()
-	s := sketchJSONItem(map[string]interface{}{"a": 1, "b": 2})
+	s := sketchJSONItem(map[string]any{"a": 1, "b": 2})
 	if !strings.HasPrefix(s, "{") {
 		t.Fatalf("obj sketch: %s", s)
 	}
-	s = sketchJSONItem(map[string]interface{}{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6})
+	s = sketchJSONItem(map[string]any{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6})
 	if !strings.Contains(s, "...") {
 		t.Fatalf("long obj sketch must have ...: %s", s)
 	}
-	s = sketchJSONItem([]interface{}{1, 2, 3})
+	s = sketchJSONItem([]any{1, 2, 3})
 	if len(s) == 0 {
 		t.Fatal("array sketch empty")
 	}

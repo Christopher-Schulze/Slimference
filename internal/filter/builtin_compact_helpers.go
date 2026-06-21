@@ -68,7 +68,7 @@ func extractBuildErrors(s, label string) (string, bool) {
 		return fmt.Sprintf("[%s] ok\n", label), true
 	}
 	var errLines []string
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" {
 			continue
@@ -96,7 +96,7 @@ func buildOutputHasNonZeroWarning(s string) bool {
 }
 
 func outputHasUnsafeSuccessSignal(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" {
 			continue
@@ -202,7 +202,7 @@ func extractTestFailures(s, label string) (string, bool) {
 
 	// go test: "PASS\n" as a line
 	if !isAllPass {
-		for _, line := range strings.Split(s, "\n") {
+		for line := range strings.SplitSeq(s, "\n") {
 			if strings.TrimSpace(line) == "PASS" {
 				isAllPass = true
 				break
@@ -220,7 +220,7 @@ func extractTestFailures(s, label string) (string, bool) {
 			return "", false
 		}
 		// Find a summary line with counts for the label
-		for _, line := range strings.Split(s, "\n") {
+		for line := range strings.SplitSeq(s, "\n") {
 			t := strings.TrimSpace(line)
 			tl := strings.ToLower(t)
 			if t == "" {
@@ -240,7 +240,7 @@ func extractTestFailures(s, label string) (string, bool) {
 		failLines = extractGoTestFailureLines(s)
 	}
 	if len(failLines) == 0 {
-		for _, line := range strings.Split(s, "\n") {
+		for line := range strings.SplitSeq(s, "\n") {
 			t := strings.TrimSpace(line)
 			if t == "" {
 				continue
@@ -276,7 +276,7 @@ func extractGoTestFailureLines(s string) []string {
 			failLines = append(failLines, line)
 		}
 	}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" {
 			continue
@@ -392,7 +392,7 @@ func cappedEvidenceIndexes(total, budget, tail int) []int {
 	}
 	head := budget - tail
 	out := make([]int, 0, budget)
-	for i := 0; i < head; i++ {
+	for i := range head {
 		out = append(out, i)
 	}
 	for i := total - tail; i < total; i++ {

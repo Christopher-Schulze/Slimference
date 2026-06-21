@@ -152,7 +152,7 @@ func TestSigner_ConcurrentAccessRaceClean(t *testing.T) {
 	s := newTestSigner(t, 32)
 	var wg sync.WaitGroup
 	hosts := []string{"a.example", "b.example", "c.example", "d.example", "e.example", "f.example"}
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

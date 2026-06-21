@@ -569,7 +569,7 @@ func TestCodexRecertifyForceDoesNotBypassActiveLock(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(fmt.Sprintf("pid=%d\n", os.Getpid())), 0o600); err != nil {
+	if err := os.WriteFile(path, fmt.Appendf(nil, "pid=%d\n", os.Getpid()), 0o600); err != nil {
 		t.Fatalf("write lock: %v", err)
 	}
 

@@ -52,7 +52,7 @@ func TestResponseStateStore_Eviction(t *testing.T) {
 func TestResponseStateStore_ManyEntriesBoundedByCap(t *testing.T) {
 	t.Parallel()
 	s := NewResponseStateStore(3)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		s.Set("sess-"+strconv.Itoa(i), "resp-"+strconv.Itoa(i))
 	}
 	if got := s.Snapshot().Sessions; got > 3 {

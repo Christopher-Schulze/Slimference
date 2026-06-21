@@ -34,7 +34,6 @@ func TestParseTLSProbeArgs(t *testing.T) {
 		{name: "missing reflector value", args: []string{"--reflector"}, wantErr: true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := parseTLSProbeArgs(tt.args)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -416,7 +417,7 @@ func compactPyrightJSONSuccess(stdout []byte) ([]byte, bool) {
 		len(report.GeneralDiagnostics) != 0 {
 		return nil, false
 	}
-	out := []byte(fmt.Sprintf("[pyright --outputjson] ok (%d files analyzed)\n", report.Summary.FilesAnalyzed))
+	out := fmt.Appendf(nil, "[pyright --outputjson] ok (%d files analyzed)\n", report.Summary.FilesAnalyzed)
 	if len(out) >= len(stdout) {
 		return nil, false
 	}
@@ -453,7 +454,7 @@ func compactPyrightTextSuccess(stdout string) ([]byte, bool) {
 	}
 	out := []byte("[pyright] ok\n")
 	if filesAnalyzed >= 0 {
-		out = []byte(fmt.Sprintf("[pyright] ok (%d files analyzed)\n", filesAnalyzed))
+		out = fmt.Appendf(nil, "[pyright] ok (%d files analyzed)\n", filesAnalyzed)
 	}
 	if len(out) >= len(stdout) {
 		return nil, false
@@ -915,7 +916,7 @@ func TryCompactPreCommit(argv []string, stdout []byte) ([]byte, bool) {
 	if hooks == 1 {
 		hookWord = "hook"
 	}
-	out := []byte(fmt.Sprintf("[pre-commit] ok (%d %s passed)\n", hooks, hookWord))
+	out := fmt.Appendf(nil, "[pre-commit] ok (%d %s passed)\n", hooks, hookWord)
 	if len(out) >= len(stdout) {
 		return stdout, false
 	}
@@ -928,7 +929,7 @@ func isPreCommitRunArgv(argv []string) bool {
 
 func countPreCommitPassedHooks(stdout string) (int, bool) {
 	count := 0
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -1338,18 +1339,18 @@ func compactBiomeCheckCleanOutput(stdout string, originalLen int) ([]byte, bool)
 	if err != nil || count <= 0 {
 		return nil, false
 	}
-	if strings.HasPrefix(rest, "file in ") {
-		if count != 1 || strings.TrimSpace(strings.TrimPrefix(rest, "file in ")) == "" {
+	if after, ok0 := strings.CutPrefix(rest, "file in "); ok0 {
+		if count != 1 || strings.TrimSpace(after) == "" {
 			return nil, false
 		}
-	} else if strings.HasPrefix(rest, "files in ") {
-		if count == 1 || strings.TrimSpace(strings.TrimPrefix(rest, "files in ")) == "" {
+	} else if after, ok0 := strings.CutPrefix(rest, "files in "); ok0 {
+		if count == 1 || strings.TrimSpace(after) == "" {
 			return nil, false
 		}
 	} else {
 		return nil, false
 	}
-	out := []byte(fmt.Sprintf("[biome check] ok (%d files checked)\n", count))
+	out := fmt.Appendf(nil, "[biome check] ok (%d files checked)\n", count)
 	if count == 1 {
 		out = []byte("[biome check] ok (1 file checked)\n")
 	}
@@ -1875,12 +1876,7 @@ func TryCompactDetekt(argv []string, stdout []byte) ([]byte, bool) {
 }
 
 func argvContainsToken(argv []string, tok string) bool {
-	for _, a := range argv[1:] {
-		if a == tok {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], tok)
 }
 
 // TryCompactLintOutput chains common linters with empty-success stdout.

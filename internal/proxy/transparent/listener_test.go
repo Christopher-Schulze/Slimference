@@ -439,12 +439,10 @@ func TestEngineMaxConcurrentSemaphore(t *testing.T) {
 	// Fire three handshakes in parallel; with MaxConcurrent=1 they
 	// must serialize.
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 3 {
+		wg.Go(func() {
 			_ = dialAndHandshake(t, l.Addr().String(), "x")
-		}()
+		})
 	}
 	wg.Wait()
 	// Give the dispatchers a beat to finish.
@@ -521,7 +519,6 @@ func TestPeekClientHelloSNISectionOverflows(t *testing.T) {
 		{name: "extension data overflow", body: clientHelloBodyWithTail([]byte{0x00, 0x02, 0x13, 0x01, 0x01, 0x00, 0x00, 0x04, 0x00, 0x10, 0x00, 0x08})},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if _, _, err := peekClientHelloSNI(bufRead(recordFromHandshakeBody(tc.body))); err == nil {
 				t.Fatal("expected parse error")

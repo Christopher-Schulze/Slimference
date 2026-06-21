@@ -207,7 +207,7 @@ func wssTypeScriptSummaryOnlyEnvelope() string {
 	output.WriteString("Process exited with code 2\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&output, "tsc progress %03d\n", i)
 	}
 	output.WriteString("Found 2 errors in 2 files.\n")

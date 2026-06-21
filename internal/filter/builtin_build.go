@@ -2,6 +2,7 @@ package filter
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -22,12 +23,7 @@ func isGoBuildArgv(argv []string) bool {
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if isGoBinary(argv[0]) {
-		for _, a := range argv[1:] {
-			if a == "build" {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(argv[1:], "build")
 	}
 	if b0 == "npx" || b0 == "npx.cmd" {
 		rest, ok := npxArgvSuffix(argv)
@@ -350,7 +346,7 @@ func compactMesonCompileCleanOutput(stdout string, originalLen int) ([]byte, boo
 	}
 	sawProgress := false
 	sawTerminal := false
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -620,7 +616,7 @@ func compactCmakeStyleCleanBuildOutput(stdout string, originalLen int, label str
 	}
 	sawProgress := false
 	sawTerminal := false
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -644,7 +640,7 @@ func cmakeStyleBuildOutputHasUnsafeSignal(stdout string) bool {
 	if webBuildCleanOutputHasUnsafeSignal(stdout) {
 		return true
 	}
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		lower := strings.ToLower(strings.TrimSpace(raw))
 		if lower == "" {
 			continue
@@ -900,7 +896,7 @@ func compactTsupCleanOutput(stdout string, originalLen int) ([]byte, bool) {
 func tsupHasCompleteSuccessfulPhaseSet(lower string) bool {
 	started := make(map[string]bool)
 	succeeded := make(map[string]bool)
-	for _, line := range strings.Split(lower, "\n") {
+	for line := range strings.SplitSeq(lower, "\n") {
 		line = strings.TrimSpace(line)
 		phase, ok := tsupLinePhase(line)
 		if !ok {
@@ -925,7 +921,7 @@ func tsupHasCompleteSuccessfulPhaseSet(lower string) bool {
 }
 
 func tsupHasArtifactSignal(lower string) bool {
-	for _, line := range strings.Split(lower, "\n") {
+	for line := range strings.SplitSeq(lower, "\n") {
 		line = strings.TrimSpace(line)
 		if !tsupLineHasPhasePrefix(line) ||
 			strings.Contains(line, "build start") ||
@@ -965,7 +961,7 @@ func tsupLineHasArtifactPath(line string) bool {
 }
 
 func tsupLineHasSizeUnit(line string) bool {
-	for _, field := range strings.Fields(line) {
+	for field := range strings.FieldsSeq(line) {
 		switch field {
 		case "b", "kb", "kib", "mb", "mib", "bytes":
 			return true
@@ -978,7 +974,7 @@ func webBuildCleanOutputHasUnsafeSignal(stdout string) bool {
 	if outputHasUnsafeSuccessSignal(stdout) {
 		return true
 	}
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		lower := strings.ToLower(strings.TrimSpace(line))
 		if lower == "" {
 			continue
@@ -1174,7 +1170,7 @@ func compactEsbuildCleanOutput(stdout string, originalLen int) ([]byte, bool) {
 }
 
 func webBuildHasArtifactSignal(lower string) bool {
-	for _, line := range strings.Split(lower, "\n") {
+	for line := range strings.SplitSeq(lower, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -1387,7 +1383,7 @@ func compactMvnCleanSuccessOutput(stdout string, originalLen int) ([]byte, bool)
 	sawTotalTime := false
 	sawRecognized := false
 	testSummary := ""
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -1423,7 +1419,7 @@ func compactMvnCleanSuccessOutput(stdout string, originalLen int) ([]byte, bool)
 }
 
 func mvnOutputHasUnsafeSignal(stdout string) bool {
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -1443,7 +1439,7 @@ func mvnOutputHasUnsafeSignal(stdout string) bool {
 }
 
 func mvnOutputContainsBuildSuccess(stdout string) bool {
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		payload, ok := mvnInfoPayload(strings.TrimSpace(raw))
 		if ok && strings.TrimSpace(payload) == "BUILD SUCCESS" {
 			return true
@@ -1500,16 +1496,14 @@ func mvnCleanSuccessPayloadAllowed(payload string) bool {
 		mvnZeroTestSummary(payload) {
 		return true
 	}
-	for _, exact := range []string{
+	if slices.Contains([]string{
 		"BUILD SUCCESS",
 		"No tests to run.",
 		"No sources to compile",
 		"No resources to copy",
 		"Results:",
-	} {
-		if payload == exact {
-			return true
-		}
+	}, payload) {
+		return true
 	}
 	for _, prefix := range []string{
 		"Scanning for projects",
@@ -1593,12 +1587,7 @@ func isGradleBuildArgv(argv []string) bool {
 	if b != "gradle" && b != "gradle.bat" && b != "gradlew" && b != "gradlew.bat" {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "build" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "build")
 }
 
 // TryCompactGradle replaces empty stdout and strict clean Gradle build success
@@ -1644,7 +1633,7 @@ func compactGradleBuildCleanOutput(stdout string, originalLen int) ([]byte, bool
 	sawSuccess := false
 	sawTaskOrSummary := false
 	summary := ""
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -1686,7 +1675,7 @@ func gradleBuildSuccessLine(line string) bool {
 }
 
 func gradleOutputContainsBuildSuccess(stdout string) bool {
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		if gradleBuildSuccessLine(strings.TrimSpace(raw)) {
 			return true
 		}
@@ -1716,14 +1705,12 @@ func gradleBuildActionableSummaryLine(line string) bool {
 }
 
 func gradleBuildNeutralLine(line string) bool {
-	for _, exact := range []string{
+	if slices.Contains([]string{
 		"Configuration cache entry stored.",
 		"Configuration cache entry reused.",
 		"Reusing configuration cache.",
-	} {
-		if line == exact {
-			return true
-		}
+	}, line) {
+		return true
 	}
 	for _, prefix := range []string{
 		"Starting a Gradle Daemon",

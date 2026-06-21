@@ -90,7 +90,7 @@ func TestAnthropicTokenizer_CountMessages(t *testing.T) {
 func TestObserveUpstreamUsage_CalibratesAnthropic(t *testing.T) {
 	defer resetForTest()
 	before := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 80, 100)
 	}
 	after := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
@@ -104,7 +104,7 @@ func TestObserveUpstreamUsage_ConvergesDownwards(t *testing.T) {
 	anthropic.bytesPerTokenX1000.Store(5000)
 	val, _ := anthropic.perModel.LoadOrStore("sonnet", &modelRatio{})
 	val.(*modelRatio).value.Store(5000)
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 120, 100)
 	}
 	after := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
@@ -115,13 +115,13 @@ func TestObserveUpstreamUsage_ConvergesDownwards(t *testing.T) {
 
 func TestObserveUpstreamUsage_ClampsToRange(t *testing.T) {
 	defer resetForTest()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 1, 1_000_000)
 	}
 	if r := anthropic.BytesPerTokenX1000ForModel("claude-sonnet"); r > 6000 {
 		t.Fatalf("ratio exceeded cap: %d", r)
 	}
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 1_000_000, 1)
 	}
 	if r := anthropic.BytesPerTokenX1000ForModel("claude-sonnet"); r < 1500 {

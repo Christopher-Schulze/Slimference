@@ -27,7 +27,6 @@ func TestExtractAnthropicCacheUsage(t *testing.T) {
 		{"no usage", `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`, 0, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r, c, _ := extractAnthropicCacheUsage([]byte(tc.line))
@@ -54,7 +53,6 @@ func TestExtractAnthropicCacheUsageFromBody(t *testing.T) {
 		{"with usage", `{"id":"m1","usage":{"cache_read_input_tokens":42,"cache_creation_input_tokens":7}}`, 42, 7},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			u := extractAnthropicCacheUsageFromBody([]byte(tc.body))
@@ -83,7 +81,6 @@ func TestExtractOpenAICacheUsage(t *testing.T) {
 		{"no usage", `data: {"choices":[{"delta":{"content":"hi"}}]}`, 0, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			read, input := extractOpenAICacheUsage([]byte(tc.line))

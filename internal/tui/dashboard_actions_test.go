@@ -429,7 +429,7 @@ func TestRenderMainView_DoesNotOverflowConfiguredWidth(t *testing.T) {
 	m.SetServiceControl(&mockServiceControl{running: true})
 
 	view := m.renderMainView()
-	for _, line := range strings.Split(view, "\n") {
+	for line := range strings.SplitSeq(view, "\n") {
 		if w := lipgloss.Width(line); w > m.width {
 			t.Fatalf("main view line width=%d > %d:\n%s\nfull view:\n%s", w, m.width, line, view)
 		}
@@ -793,7 +793,7 @@ func TestRenderMainView_RightColumnPaddingBranch(t *testing.T) {
 		TotalInputTokens: 5000,
 		SavedInputTokens: 1200,
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		proxy.recentReqs = append(proxy.recentReqs, types.RequestMetrics{
 			Timestamp:        time.Now().Add(-time.Duration(i) * time.Second),
 			Provider:         types.Anthropic,

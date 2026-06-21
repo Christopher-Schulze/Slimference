@@ -567,10 +567,7 @@ func wssProofPackTopActionable(rows []wssLocalGapActionableRow, limit int) []wss
 	if limit <= 0 || len(rows) == 0 {
 		return nil
 	}
-	capacity := limit
-	if len(rows) < capacity {
-		capacity = len(rows)
-	}
+	capacity := min(len(rows), limit)
 	out := make([]wssProofPackActionable, 0, capacity)
 	for i, row := range rows {
 		if i >= limit {

@@ -37,10 +37,7 @@ func resolveWindow(messages []types.Message, baseWindow int, enabled bool, wmin,
 		return windowDecision{Size: baseWindow, Reason: "too few messages", Min: wmin, Max: wmax}
 	}
 
-	recentStart := len(messages) - 10
-	if recentStart < 0 {
-		recentStart = 0
-	}
+	recentStart := max(len(messages)-10, 0)
 	score := windowComplexityScore(messages[recentStart:])
 	adjusted := baseWindow + int(math.Round(score*4)) - 2
 	if adjusted < wmin {
@@ -213,11 +210,11 @@ func structuredWindowPathFromFields(fields map[string]json.RawMessage, workdir s
 
 func scanWindowBlockFilePath(input string) string {
 	for _, key := range []string{`"path"`, `"file_path"`, `"filename"`, `"filepath"`, `"file"`} {
-		idx := strings.Index(input, key)
-		if idx < 0 {
+		_, after, ok := strings.Cut(input, key)
+		if !ok {
 			continue
 		}
-		rest := input[idx+len(key):]
+		rest := after
 		colonIdx := strings.Index(rest, ":")
 		if colonIdx < 0 {
 			continue
@@ -382,10 +379,10 @@ func contentHashSessionID(body []byte) string {
 func extractFirstUserText(body []byte) string {
 	var req struct {
 		Messages []struct {
-			Role    string      `json:"role"`
-			Content interface{} `json:"content"`
+			Role    string `json:"role"`
+			Content any    `json:"content"`
 		} `json:"messages"`
-		Input interface{} `json:"input"`
+		Input any `json:"input"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
@@ -398,14 +395,14 @@ func extractFirstUserText(body []byte) string {
 	return inputValueFirstUserText(req.Input)
 }
 
-func contentValueString(value interface{}) string {
+func contentValueString(value any) string {
 	switch content := value.(type) {
 	case string:
 		return content
-	case []interface{}:
+	case []any:
 		parts := make([]string, 0, len(content))
 		for _, item := range content {
-			if m, ok := item.(map[string]interface{}); ok {
+			if m, ok := item.(map[string]any); ok {
 				if text, ok := m["text"].(string); ok {
 					parts = append(parts, text)
 				}
@@ -417,11 +414,11 @@ func contentValueString(value interface{}) string {
 	}
 }
 
-func inputValueFirstUserText(value interface{}) string {
+func inputValueFirstUserText(value any) string {
 	switch input := value.(type) {
 	case string:
 		return input
-	case []interface{}:
+	case []any:
 		for _, item := range input {
 			if text := inputItemUserText(item); text != "" {
 				return text
@@ -431,8 +428,8 @@ func inputValueFirstUserText(value interface{}) string {
 	return ""
 }
 
-func inputItemUserText(value interface{}) string {
-	item, ok := value.(map[string]interface{})
+func inputItemUserText(value any) string {
+	item, ok := value.(map[string]any)
 	if !ok {
 		return ""
 	}

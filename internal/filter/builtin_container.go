@@ -32,7 +32,7 @@ func TryCompactDockerPsQuiet(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
-	return []byte(fmt.Sprintf("[%s ps] no containers\n", client)), true
+	return fmt.Appendf(nil, "[%s ps] no containers\n", client), true
 }
 
 // TryCompactDockerImagesQuiet summarizes empty stdout from `docker`/`nerdctl`/`podman images -q` / `--quiet` when no images match (F13 partial).
@@ -61,7 +61,7 @@ func TryCompactDockerImagesQuiet(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
-	return []byte(fmt.Sprintf("[%s images] empty\n", client)), true
+	return fmt.Appendf(nil, "[%s images] empty\n", client), true
 }
 
 // TryCompactDockerComposePsQuiet summarizes empty stdout from `docker compose ps -q` / `docker-compose ps -q` (F13 partial).
@@ -157,7 +157,7 @@ func TryCompactKubectlGet(argv []string, stdout []byte) ([]byte, bool) {
 	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
-	return []byte(fmt.Sprintf("[%s get] empty\n", client)), true
+	return fmt.Appendf(nil, "[%s get] empty\n", client), true
 }
 
 // TryCompactContainerOutput chains docker + kubectl empty-result summaries.

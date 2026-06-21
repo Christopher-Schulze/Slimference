@@ -259,20 +259,20 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 	}
 
 	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"],
-		map[string]interface{}{
+		map[string]any{
 			"matcher": "Bash",
-			"hooks": []interface{}{
-				map[string]interface{}{
+			"hooks": []any{
+				map[string]any{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", preScriptPath),
 					"statusMessage": "Output guard",
 				},
 			},
 		},
-		map[string]interface{}{
+		map[string]any{
 			"matcher": "Read",
-			"hooks": []interface{}{
-				map[string]interface{}{
+			"hooks": []any{
+				map[string]any{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", readScriptPath),
 					"statusMessage": "Read cache",
@@ -280,47 +280,47 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 			},
 		},
 	)
-	existing["SessionStart"] = mergeCodexHookEntries(existing["SessionStart"], map[string]interface{}{
+	existing["SessionStart"] = mergeCodexHookEntries(existing["SessionStart"], map[string]any{
 		"matcher": "startup|resume|clear",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexSessionStartHookScriptPath(home)),
 				"statusMessage": "Session boundary",
 			},
 		},
 	})
-	existing["PermissionRequest"] = mergeCodexHookEntries(existing["PermissionRequest"], map[string]interface{}{
+	existing["PermissionRequest"] = mergeCodexHookEntries(existing["PermissionRequest"], map[string]any{
 		"matcher": "Bash",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexPermissionHookScriptPath(home)),
 				"statusMessage": "Approval guard",
 			},
 		},
 	})
-	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]interface{}{
+	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]any{
 		"matcher": "Bash",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", postScriptPath),
 				"statusMessage": "Output compactor",
 			},
 		},
 	})
-	existing["UserPromptSubmit"] = mergeCodexHookEntries(existing["UserPromptSubmit"], map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{
+	existing["UserPromptSubmit"] = mergeCodexHookEntries(existing["UserPromptSubmit"], map[string]any{
+		"hooks": []any{
+			map[string]any{
 				"type":    "command",
 				"command": fmt.Sprintf("bash %s", CodexUserPromptHookScriptPath(home)),
 			},
 		},
 	})
-	existing["Stop"] = mergeCodexHookEntries(existing["Stop"], map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{
+	existing["Stop"] = mergeCodexHookEntries(existing["Stop"], map[string]any{
+		"hooks": []any{
+			map[string]any{
 				"type":    "command",
 				"command": fmt.Sprintf("bash %s", CodexStopHookScriptPath(home)),
 				"timeout": 30,
@@ -332,9 +332,9 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 	// (compaction is not tool-scoped). The script generator emits a
 	// lifecycle-style bash wrapper that pipes the JSON payload to
 	// `slimference codexhook pre-compact` / `post-compact`.
-	existing["PreCompact"] = mergeCodexHookEntries(existing["PreCompact"], map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{
+	existing["PreCompact"] = mergeCodexHookEntries(existing["PreCompact"], map[string]any{
+		"hooks": []any{
+			map[string]any{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexPreCompactHookScriptPath(home)),
 				"statusMessage": "Pre-compaction signal",
@@ -342,9 +342,9 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 			},
 		},
 	})
-	existing["PostCompact"] = mergeCodexHookEntries(existing["PostCompact"], map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{
+	existing["PostCompact"] = mergeCodexHookEntries(existing["PostCompact"], map[string]any{
+		"hooks": []any{
+			map[string]any{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexPostCompactHookScriptPath(home)),
 				"statusMessage": "Post-compaction marker",
@@ -429,17 +429,17 @@ func removeCodexHooksFeature(home string) error {
 	return os.WriteFile(configPath, []byte(strings.Join(filtered, "\n")), 0644)
 }
 
-func readExistingCodexHooksJSON(hooksPath string) (map[string]interface{}, error) {
+func readExistingCodexHooksJSON(hooksPath string) (map[string]any, error) {
 	_, hooksObj, err := readExistingCodexHooksRoot(hooksPath)
 	return hooksObj, err
 }
 
-func readExistingCodexHooksRoot(hooksPath string) (map[string]interface{}, map[string]interface{}, error) {
-	existing := make(map[string]interface{})
+func readExistingCodexHooksRoot(hooksPath string) (map[string]any, map[string]any, error) {
+	existing := make(map[string]any)
 	data, err := os.ReadFile(hooksPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]interface{}{}, existing, nil
+			return map[string]any{}, existing, nil
 		}
 		return nil, nil, err
 	}
@@ -453,15 +453,15 @@ func readExistingCodexHooksRoot(hooksPath string) (map[string]interface{}, map[s
 	return root, hooksObj, nil
 }
 
-func parseCodexHooksRoot(data []byte) (map[string]interface{}, map[string]interface{}, error) {
-	root := make(map[string]interface{})
+func parseCodexHooksRoot(data []byte) (map[string]any, map[string]any, error) {
+	root := make(map[string]any)
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil, nil, err
 	}
-	if nested, ok := root["hooks"].(map[string]interface{}); ok {
+	if nested, ok := root["hooks"].(map[string]any); ok {
 		return root, nested, nil
 	}
-	hooksObj := make(map[string]interface{})
+	hooksObj := make(map[string]any)
 	for key, value := range root {
 		if isCodexHookEvent(key) {
 			hooksObj[key] = value
@@ -682,9 +682,9 @@ func CodexPostCompactHookScriptPath(home string) string {
 	return filepath.Join(home, ".slimference", "hooks", "codex-post-compact.sh")
 }
 
-func mergeCodexHookEntries(existing interface{}, slimferenceEntries ...map[string]interface{}) []interface{} {
-	entries, _ := existing.([]interface{})
-	filtered := make([]interface{}, 0, len(entries)+len(slimferenceEntries))
+func mergeCodexHookEntries(existing any, slimferenceEntries ...map[string]any) []any {
+	entries, _ := existing.([]any)
+	filtered := make([]any, 0, len(entries)+len(slimferenceEntries))
 	for _, entry := range entries {
 		if codexEntryHasSlimferenceHook(entry) {
 			continue
@@ -697,9 +697,9 @@ func mergeCodexHookEntries(existing interface{}, slimferenceEntries ...map[strin
 	return filtered
 }
 
-func removeCodexHookEvent(existing map[string]interface{}, eventName string) {
-	entries, _ := existing[eventName].([]interface{})
-	filtered := make([]interface{}, 0, len(entries))
+func removeCodexHookEvent(existing map[string]any, eventName string) {
+	entries, _ := existing[eventName].([]any)
+	filtered := make([]any, 0, len(entries))
 	for _, entry := range entries {
 		if codexEntryHasSlimferenceHook(entry) {
 			continue
@@ -713,14 +713,14 @@ func removeCodexHookEvent(existing map[string]interface{}, eventName string) {
 	existing[eventName] = filtered
 }
 
-func codexEntryHasSlimferenceHook(entry interface{}) bool {
-	entryMap, ok := entry.(map[string]interface{})
+func codexEntryHasSlimferenceHook(entry any) bool {
+	entryMap, ok := entry.(map[string]any)
 	if !ok {
 		return false
 	}
-	hooksSlice, _ := entryMap["hooks"].([]interface{})
+	hooksSlice, _ := entryMap["hooks"].([]any)
 	for _, hook := range hooksSlice {
-		hookMap, ok := hook.(map[string]interface{})
+		hookMap, ok := hook.(map[string]any)
 		if !ok {
 			continue
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -263,9 +264,7 @@ func injectMessageList(messages []map[string]json.RawMessage, directive, roleNam
 
 func appendToMessageContent(msg map[string]json.RawMessage, directive string) map[string]json.RawMessage {
 	out := make(map[string]json.RawMessage, len(msg)+1)
-	for k, v := range msg {
-		out[k] = v
-	}
+	maps.Copy(out, msg)
 	if raw, ok := msg["content"]; ok {
 		var s string
 		if err := json.Unmarshal(raw, &s); err == nil {

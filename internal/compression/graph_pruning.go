@@ -64,7 +64,7 @@ func (g *FileOpGraph) PruneRedundantWithArchive(messages []types.Message, prefix
 
 	// Build file operation graph from conversation
 	fileOps := make(map[string][]FileOp)
-	for i := 0; i < prefixEnd; i++ {
+	for i := range prefixEnd {
 		for _, block := range messages[i].Content {
 			path, opType, content := extractFileOp(block)
 			if path == "" {
@@ -87,7 +87,7 @@ func (g *FileOpGraph) PruneRedundantWithArchive(messages []types.Message, prefix
 	var candidates []pruneCandidate
 
 	for path, ops := range fileOps {
-		for oi := 0; oi < len(ops); oi++ {
+		for oi := range ops {
 			if ops[oi].Type != FileOpRead {
 				continue
 			}

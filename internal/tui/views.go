@@ -168,10 +168,7 @@ func aggregateFlightTokens(flights []dbg.FlightRequestSummary) (original int, fi
 		cached += cache
 	}
 	if final == 0 && original > 0 {
-		final = original - saved
-		if final < 0 {
-			final = 0
-		}
+		final = max(original-saved, 0)
 	}
 	return original, final, saved, cached
 }
@@ -326,10 +323,7 @@ func flightTokenTotals(flight dbg.FlightRequestSummary) (original int, final int
 		original = final + saved
 	}
 	if final == 0 && original > 0 {
-		final = original - saved
-		if final < 0 {
-			final = 0
-		}
+		final = max(original-saved, 0)
 	}
 	return original, final, saved, cached
 }
@@ -845,8 +839,8 @@ func compactUserPath(value string) string {
 		if value == home {
 			return "~"
 		}
-		if strings.HasPrefix(value, home+"/") {
-			return "~/" + strings.TrimPrefix(value, home+"/")
+		if after, ok := strings.CutPrefix(value, home+"/"); ok {
+			return "~/" + after
 		}
 	}
 	return value
@@ -1435,10 +1429,7 @@ func (m *Model) renderHeader(innerWidth int) string {
 		bypassBadge = s.MenuWarn.Render("⚠ BYPASS")
 	}
 	right := bypassBadge
-	pad := innerWidth - lipgloss.Width(title) - lipgloss.Width(right) - 1
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(innerWidth-lipgloss.Width(title)-lipgloss.Width(right)-1, 1)
 	return " " + title + strings.Repeat(" ", pad) + right
 }
 
@@ -1724,7 +1715,7 @@ func extendLines(lines []string, target int, filler string) []string {
 	if missing <= 0 {
 		return lines
 	}
-	for i := 0; i < missing; i++ {
+	for range missing {
 		lines = append(lines, filler)
 	}
 	return lines

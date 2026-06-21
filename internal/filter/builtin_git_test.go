@@ -139,7 +139,7 @@ func TestTryCompactGitStatus_emptyAndEmptyLine(t *testing.T) {
 func TestTryCompactGitLsFilesPathList(t *testing.T) {
 	t.Parallel()
 	var input strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString("internal/proxy/generated/very/deep/path/file_")
 		input.WriteString(fmt.Sprintf("%02d.go\n", i))
 	}
@@ -190,7 +190,7 @@ func TestTryCompactGitLsFilesPathList(t *testing.T) {
 	}
 
 	var diagnostic strings.Builder
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if i == 3 {
 			diagnostic.WriteString("error: index corrupt\n")
 			continue
@@ -421,7 +421,7 @@ func TestTryCompactGitLogNameOnlyPathList(t *testing.T) {
 	input.WriteString("Author: Alice <alice@example.com>\n")
 	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	input.WriteString("    Feature branch sweep\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString("internal/proxy/generated/very/deep/path/file_")
 		input.WriteString(fmt.Sprintf("%02d.go\n", i))
 	}
@@ -460,7 +460,7 @@ func TestTryCompactGitLogNameStatusPathList(t *testing.T) {
 	input.WriteString("Author: Alice <alice@example.com>\n")
 	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	input.WriteString("    Status branch sweep\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		status := "M"
 		if i%3 == 0 {
 			status = "A"
@@ -564,7 +564,7 @@ index 111222..333444 100644
 func TestTryCompactGitDiffStat(t *testing.T) {
 	t.Parallel()
 	var input strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString(" internal/proxy/generated/very/deep/path/file_")
 		input.WriteString(strings.Repeat("x", 12))
 		input.WriteString(fmt.Sprintf("_%02d.go | %d +++++-----\n", i, i+1))
@@ -597,7 +597,7 @@ func TestTryCompactGitDiffStat(t *testing.T) {
 func TestTryCompactGitDiffNameOnlyPathList(t *testing.T) {
 	t.Parallel()
 	var input strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString("internal/proxy/generated/very/deep/path/file_")
 		input.WriteString(fmt.Sprintf("%02d.go\n", i))
 	}
@@ -638,7 +638,7 @@ func TestTryCompactGitDiffNameOnlyPathList(t *testing.T) {
 	}
 
 	var diagnostic strings.Builder
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if i == 3 {
 			diagnostic.WriteString("warning: ambiguous path\n")
 			continue
@@ -653,7 +653,7 @@ func TestTryCompactGitDiffNameOnlyPathList(t *testing.T) {
 func TestTryCompactGitDiffNameStatusPathList(t *testing.T) {
 	t.Parallel()
 	var input strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		status := "M"
 		if i%3 == 0 {
 			status = "A"
@@ -709,7 +709,7 @@ func TestTryCompactGitShowNameOnlyPathList(t *testing.T) {
 	input.WriteString("Author: Alice <alice@example.com>\n")
 	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	input.WriteString("    Metadata-only show\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		input.WriteString("internal/proxy/generated/very/deep/path/file_")
 		input.WriteString(fmt.Sprintf("%02d.go\n", i))
 	}
@@ -765,7 +765,7 @@ func TestTryCompactGitShowNameStatusPathList(t *testing.T) {
 	input.WriteString("Author: Alice <alice@example.com>\n")
 	input.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	input.WriteString("    Metadata-only show status\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		status := "M"
 		if i%4 == 0 {
 			status = "A"

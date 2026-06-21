@@ -21,10 +21,7 @@ func renderProgressBar(s Styles, ratio float64, totalWidth int) string {
 	}
 
 	label := fmt.Sprintf(" %d%%", int(math.Round(ratio*100)))
-	barWidth := totalWidth - len(label) - 2
-	if barWidth < 4 {
-		barWidth = 4
-	}
+	barWidth := max(totalWidth-len(label)-2, 4)
 
 	filled := int(math.Round(float64(barWidth) * ratio))
 	empty := barWidth - filled
@@ -127,10 +124,7 @@ func renderMenuRow(s Styles, width int, selected bool, label string, state strin
 		return padRight(left, width)
 	}
 	right := stateStyle.Render(state)
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	row := left + strings.Repeat(" ", gap) + right
 	if selected {
 		return s.MenuActive.Width(width).Render(row)
@@ -159,10 +153,7 @@ func renderMetricLine(s Styles, key string, value string) string {
 func renderMetricPair(s Styles, leftKey string, leftValue string, rightKey string, rightValue string, width int) string {
 	left := renderMetricLine(s, leftKey, leftValue)
 	right := renderMetricLine(s, rightKey, rightValue)
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 2 {
-		gap = 2
-	}
+	gap := max(width-lipgloss.Width(left)-lipgloss.Width(right), 2)
 	return left + strings.Repeat(" ", gap) + right
 }
 

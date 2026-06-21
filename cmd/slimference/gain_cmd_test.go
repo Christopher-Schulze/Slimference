@@ -892,7 +892,7 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 			SessionKeySet: true,
 		},
 	})
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
 			RequestID:            fmt.Sprintf("req-heat-%d", i),
 			Timestamp:            time.Now(),

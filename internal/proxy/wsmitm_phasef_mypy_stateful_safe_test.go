@@ -128,7 +128,7 @@ func wssMypyDiagnosticPayload(includeNotice bool, includeSource bool) string {
 	if includeNotice {
 		output.WriteString("Skipping analyzing 'requests': module is installed, but missing library stubs\n")
 	}
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		fmt.Fprintln(&output, "src/app.py:10: error: Incompatible return value type")
 	}
 	output.WriteString("src/app.py:10: note: expected str\n")

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -193,10 +194,8 @@ func hasInlineParserSignal(body *ast.BlockStmt) bool {
 }
 
 func appendUnique(xs []string, s string) []string {
-	for _, x := range xs {
-		if x == s {
-			return xs
-		}
+	if slices.Contains(xs, s) {
+		return xs
 	}
 	return append(xs, s)
 }
@@ -348,7 +347,7 @@ func runLeafAudit(args []string, stdout, stderr io.Writer) int {
 	check := false
 	jsonOut := false
 	mdOut := ""
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		switch {
 		case a == "--check":

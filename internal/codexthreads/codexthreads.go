@@ -250,7 +250,7 @@ func query(db *sql.DB, querySQL string, id string) (Metadata, bool, error) {
 }
 
 type metadataScanner interface {
-	Scan(dest ...interface{}) error
+	Scan(dest ...any) error
 }
 
 func scanMetadata(scanner metadataScanner) (Metadata, error) {

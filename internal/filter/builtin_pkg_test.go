@@ -576,7 +576,6 @@ func TestTryCompactPoetryInstallNonEmptyGuards(t *testing.T) {
 		{name: "non-shrinking", argv: []string{"poetry", "install"}, stdout: "No changes.\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactPoetryInstall(tt.argv, []byte(tt.stdout))
@@ -641,7 +640,6 @@ func TestTryCompactUvInstallNonEmptyGuards(t *testing.T) {
 		{name: "empty argv", argv: nil, stdout: ""},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactUvSync(tt.argv, []byte(tt.stdout))
@@ -667,7 +665,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"Package operations: 1 install, 0 updates, -1 removals",
 	}
 	for _, input := range badPoetryOperations {
-		input := input
 		t.Run("bad poetry operations "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, _, _, ok := parsePoetryPackageOperations(input); ok {
@@ -695,7 +692,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"Prepared 2 packages after 4ms",
 	}
 	for _, input := range badUvCounts {
-		input := input
 		t.Run("bad uv count "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseUvPackageCountLine(input, strings.Fields(input)[0]); ok {
@@ -741,7 +737,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 	}
 	badPnpmPackages := []string{"Packages:", "Packages: +0", "Packages: +x", "Packages: 3", "Packages: +2 ~1"}
 	for _, input := range badPnpmPackages {
-		input := input
 		t.Run("bad pnpm packages "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, _, ok := parsePnpmPackagesLine(input); ok {
@@ -760,7 +755,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"Progress: resolved 1, done now",
 	}
 	for _, input := range badPnpmProgress {
-		input := input
 		t.Run("bad pnpm progress "+input, func(t *testing.T) {
 			t.Parallel()
 			if pnpmProgressLineOK(input) {
@@ -803,7 +797,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"[1/4] Running custom hook...",
 	}
 	for _, input := range badYarnSteps {
-		input := input
 		t.Run("bad yarn step "+input, func(t *testing.T) {
 			t.Parallel()
 			if yarnClassicStepLineOK(input) {
@@ -824,7 +817,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"success Saved 1 dependency.",
 	}
 	for _, input := range badYarnSaved {
-		input := input
 		t.Run("bad yarn saved "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseYarnClassicSavedDependencyLine(input); ok {
@@ -854,7 +846,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"2 packages are looking for funding now",
 	}
 	for _, input := range badFunding {
-		input := input
 		t.Run("bad npm funding "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseNpmFundingLine(input); ok {
@@ -875,7 +866,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"2 packages in 4s extra",
 	}
 	for _, input := range badAudited {
-		input := input
 		t.Run("bad npm audited "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseNpmAuditedTail(input); ok {
@@ -895,7 +885,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"added 1 package quickly",
 	}
 	for _, input := range badOperations {
-		input := input
 		t.Run("bad npm operation "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseNpmInstallOperationPart(input); ok {
@@ -911,7 +900,6 @@ func TestPackageInstallParserHelpers(t *testing.T) {
 		"up to date, audited 1 packages in 1s",
 	}
 	for _, input := range badSummaries {
-		input := input
 		t.Run("bad npm summary "+input, func(t *testing.T) {
 			t.Parallel()
 			if _, ok := parseNpmInstallAuditSummaryLine(input); ok {
@@ -1033,7 +1021,6 @@ func TestTryCompactNpmInstallNonEmptyGuards(t *testing.T) {
 		{name: "non-shrinking", argv: []string{"npm", "install"}, stdout: "up to date, audited 1 package in 1s\nfound 0 vulnerabilities\n"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactNpmInstall(tt.argv, []byte(tt.stdout))
@@ -1103,7 +1090,6 @@ func TestTryCompactPnpmInstallNonEmptyGuards(t *testing.T) {
 		{name: "missing done", argv: []string{"pnpm", "install"}, stdout: strings.Replace(clean, "Done in 256ms using pnpm v10.13.1\n", "", 1)},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactPnpmInstall(tt.argv, []byte(tt.stdout))
@@ -1167,7 +1153,6 @@ func TestTryCompactYarnInstallNonEmptyGuards(t *testing.T) {
 		{name: "missing done", argv: []string{"yarn", "install"}, stdout: strings.Replace(clean, "Done in 0.04s.\n", "", 1)},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactYarnInstall(tt.argv, []byte(tt.stdout))
@@ -1231,7 +1216,6 @@ func TestTryCompactBunInstallNonEmptyGuards(t *testing.T) {
 		{name: "missing terminal", argv: []string{"bun", "install", "--ignore-scripts"}, stdout: strings.Replace(clean, "3 packages installed [9.00ms]\n", "", 1)},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactBunInstall(tt.argv, []byte(tt.stdout))
@@ -1469,7 +1453,6 @@ func TestTryCompactPackageAuditJSONRejectsUnsafeOrAmbiguousReports(t *testing.T)
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactPackageAuditJSON(tt.argv, []byte(tt.stdout))
@@ -1519,7 +1502,7 @@ func TestExtractPkgSummary(t *testing.T) {
 
 	// Error line cap keeps pathological resolver output bounded.
 	var capped strings.Builder
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		capped.WriteString("npm ERR! repeated resolver error\n")
 	}
 	out5, ok5 := extractPkgSummary(capped.String(), "npm install")
@@ -1538,7 +1521,7 @@ func TestExtractPkgSummary(t *testing.T) {
 
 func npmInstallCleanFixture(packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "npm http fetch GET 200 https://registry.npmjs.org/package_%03d 12%dms\n", i, i%10)
 		fmt.Fprintf(&out, "npm timing idealTree:node_modules/package_%03d Completed in %dms\n", i, i%20+1)
 	}
@@ -1558,7 +1541,7 @@ func pnpmInstallCleanFixture(packages int, includeDependencies bool) string {
 	fmt.Fprintf(&out, "Progress: resolved %d, reused %d, downloaded 0, added %d, done\n\n", packages, packages, packages)
 	if includeDependencies {
 		out.WriteString("dependencies:\n")
-		for i := 0; i < packages; i++ {
+		for i := range packages {
 			fmt.Fprintf(&out, "+ slimference-pnpm-package-%03d 1.0.%d\n", i, i)
 		}
 		out.WriteString("\n")
@@ -1591,7 +1574,7 @@ func yarnClassicUpgradeCleanFixture(packages int) string {
 	out.WriteString("success Saved lockfile.\n")
 	fmt.Fprintf(&out, "success Saved %d new %s.\n", packages, pluralWord(packages, "dependency", "dependencies"))
 	out.WriteString("info Direct dependencies\n")
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		prefix := "├─"
 		if i == packages-1 {
 			prefix = "└─"
@@ -1599,7 +1582,7 @@ func yarnClassicUpgradeCleanFixture(packages int) string {
 		fmt.Fprintf(&out, "%s slimference-yarn-package-%03d@1.0.%d\n", prefix, i, i)
 	}
 	out.WriteString("info All dependencies\n")
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		prefix := "├─"
 		if i == packages-1 {
 			prefix = "└─"
@@ -1617,7 +1600,7 @@ func bunInstallCleanFixture(packages int, savedLockfile bool) string {
 		out.WriteString("Saved lockfile\n")
 	}
 	out.WriteString("\n")
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "+ bun-package-%03d@1.0.%d\n", i, i)
 	}
 	out.WriteString("\n")
@@ -1629,7 +1612,7 @@ func poetryInstallCleanFixture(packages int) string {
 	var out strings.Builder
 	out.WriteString("Installing dependencies from lock file\n\n")
 	fmt.Fprintf(&out, "Package operations: %d %s, 0 updates, 0 removals\n\n", packages, pluralWord(packages, "install", "installs"))
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "  - Installing package-%03d (1.0.%d)\n", i, i)
 	}
 	out.WriteString("\nWriting lock file\n")
@@ -1642,7 +1625,7 @@ func uvPackageCleanFixture(packages int, audit bool) string {
 	fmt.Fprintf(&out, "Resolved %d %s in 23ms\n", packages, pluralWord(packages, "package", "packages"))
 	fmt.Fprintf(&out, "Prepared %d %s in 42ms\n", packages, pluralWord(packages, "package", "packages"))
 	fmt.Fprintf(&out, "Installed %d %s in 5ms\n", packages, pluralWord(packages, "package", "packages"))
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, " + uv-package-%03d==1.0.%d\n", i, i)
 	}
 	if audit {

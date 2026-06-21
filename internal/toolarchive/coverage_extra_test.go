@@ -179,7 +179,7 @@ func TestToolArchiveErrorAndTrimPaths(t *testing.T) {
 	}
 
 	dir = t.TempDir()
-	for i := 0; i < 102; i++ {
+	for i := range 102 {
 		id := "id-" + strings.Repeat("x", 8) + "-" + string(rune('a'+(i%26))) + "-" + string(rune('0'+(i%10)))
 		entry, err := Archive(dir, Input{
 			ToolName:  "Bash",
@@ -526,7 +526,7 @@ func TestToolArchiveAdditionalInjectedArchiveBranches(t *testing.T) {
 	}
 
 	archiveTrimDir := t.TempDir()
-	for i := 0; i < maxKeep; i++ {
+	for i := range maxKeep {
 		id := fmt.Sprintf("archive-trim-%03d", i)
 		if err := saveArchivedFixture(archiveTrimDir, id, time.Unix(int64(i), 0)); err != nil {
 			t.Fatal(err)
@@ -539,7 +539,7 @@ func TestToolArchiveAdditionalInjectedArchiveBranches(t *testing.T) {
 	}
 
 	trimDir := t.TempDir()
-	for i := 0; i < maxKeep; i++ {
+	for i := range maxKeep {
 		id := fmt.Sprintf("trim-extra-%03d", i)
 		if err := saveArchivedFixture(trimDir, id, time.Unix(int64(i), 0)); err != nil {
 			t.Fatal(err)

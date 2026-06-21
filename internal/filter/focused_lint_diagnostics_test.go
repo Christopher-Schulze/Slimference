@@ -9,7 +9,7 @@ func TestParseFailuresFocusedLintDiagnostics(t *testing.T) {
 	t.Parallel()
 
 	var repeated strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		repeated.WriteString("internal/proxy/handler.go:164:15: Close() error return value is not checked\n")
 	}
 	got, ok := ParseFailures([]string{"errcheck", "./..."}, repeated.String())

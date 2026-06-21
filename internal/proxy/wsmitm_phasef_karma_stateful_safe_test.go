@@ -47,7 +47,7 @@ func wssKarmaAllPassFixture(count int) string {
 	out.WriteString("18 06 2026 12:00:00.000:INFO [karma-server]: Karma v6.4.0 server started at http://localhost:9876/\n")
 	out.WriteString("18 06 2026 12:00:00.010:INFO [launcher]: Launching browsers ChromeHeadless with concurrency unlimited\n")
 	out.WriteString("18 06 2026 12:00:00.020:INFO [launcher]: Starting browser ChromeHeadless\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "Chrome Headless 126.0.0.0 (Mac OS 10.15.7): Executed %d of %d SUCCESS (0.%03d secs / 0.%03d secs)\n", count, count, i%1000, i%500)
 	}
 	fmt.Fprintf(&out, "TOTAL: %d SUCCESS\n", count)

@@ -109,7 +109,7 @@ func TestDocumentationTOCAnchorsResolve(t *testing.T) {
 
 func markdownHeadingAnchors(doc string) map[string]bool {
 	anchors := make(map[string]bool)
-	for _, line := range strings.Split(doc, "\n") {
+	for line := range strings.SplitSeq(doc, "\n") {
 		if !strings.HasPrefix(line, "#") {
 			continue
 		}

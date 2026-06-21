@@ -20,7 +20,7 @@ func TestTryCompactAwsJSON(t *testing.T) {
 	if !ok {
 		t.Fatal("expected strip")
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,11 @@ func TestTryCompactAwsJSON_nestedSliceAndExe(t *testing.T) {
 	if len(out) >= len(in) {
 		t.Fatal("output should shrink")
 	}
-	var v []interface{}
+	var v []any
 	if err := json.Unmarshal(out, &v); err != nil {
 		t.Fatal(err)
 	}
-	m := v[0].(map[string]interface{})
+	m := v[0].(map[string]any)
 	if _, ok := m["ResponseMetadata"]; ok {
 		t.Fatal("nested metadata should be stripped")
 	}
@@ -100,7 +100,7 @@ func TestTryCompactAwsJSONExactPreservesMetadata(t *testing.T) {
 	if !bytes.Contains(out, []byte(`"ResponseMetadata"`)) || !bytes.Contains(out, []byte(`"RequestId":"rid"`)) {
 		t.Fatalf("exact AWS JSON lost metadata: %s", out)
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatal(err)
 	}

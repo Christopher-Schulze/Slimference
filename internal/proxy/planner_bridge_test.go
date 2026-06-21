@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
@@ -378,10 +379,5 @@ func hasPlanAction(decisions []dbg.PlanDecisionSummary, layer, action, reason st
 }
 
 func hasString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

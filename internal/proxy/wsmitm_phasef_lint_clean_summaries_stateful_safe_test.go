@@ -148,7 +148,7 @@ func lintCleanSummaryEnvelope(name, tail string) string {
 	output.WriteString("Process exited with code 0\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&output, "> workspace lint prelude %03d\n", i)
 	}
 	output.WriteString("> web@1.0.0 lint /repo\n")
@@ -167,7 +167,7 @@ func preCommitCleanSummaryEnvelope(hooks int) string {
 	output.WriteString("[INFO] Initializing environment for https://github.com/PyCQA/isort.\n")
 	output.WriteString("[INFO] Once installed this environment will be reused.\n")
 	output.WriteString("[INFO] This may take a few minutes...\n")
-	for i := 0; i < hooks; i++ {
+	for i := range hooks {
 		fmt.Fprintf(&output, "Hook %03d.................................................................Passed\n", i)
 	}
 	return output.String()

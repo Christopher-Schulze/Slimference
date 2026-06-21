@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,7 +143,7 @@ func RemoveClaude(home string) error {
 }
 
 func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath, postToolScriptPath string) error {
-	var root map[string]interface{}
+	var root map[string]any
 	data, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -153,28 +154,28 @@ func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath, postToolScrip
 		}
 	}
 	if root == nil {
-		root = make(map[string]interface{})
+		root = make(map[string]any)
 	}
-	hooksObj, _ := root["hooks"].(map[string]interface{})
+	hooksObj, _ := root["hooks"].(map[string]any)
 	if hooksObj == nil {
-		hooksObj = make(map[string]interface{})
+		hooksObj = make(map[string]any)
 	}
-	entries, _ := hooksObj["PreToolUse"].([]interface{})
+	entries, _ := hooksObj["PreToolUse"].([]any)
 	entries = removeClaudeSlimferenceHooks(entries, scriptPath)
 	entries = removeClaudeSlimferenceHooks(entries, readScriptPath)
-	entries = append(entries, map[string]interface{}{
+	entries = append(entries, map[string]any{
 		"matcher": "Bash",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":    "command",
 				"command": "bash " + scriptPath,
 			},
 		},
 	})
-	entries = append(entries, map[string]interface{}{
+	entries = append(entries, map[string]any{
 		"matcher": "Read",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":    "command",
 				"command": "bash " + readScriptPath,
 			},
@@ -182,12 +183,12 @@ func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath, postToolScrip
 	})
 	hooksObj["PreToolUse"] = entries
 
-	postEntries, _ := hooksObj["PostToolUse"].([]interface{})
+	postEntries, _ := hooksObj["PostToolUse"].([]any)
 	postEntries = removeClaudeSlimferenceHooks(postEntries, postToolScriptPath)
-	postEntries = append(postEntries, map[string]interface{}{
+	postEntries = append(postEntries, map[string]any{
 		"matcher": "Bash",
-		"hooks": []interface{}{
-			map[string]interface{}{
+		"hooks": []any{
+			map[string]any{
 				"type":    "command",
 				"command": "bash " + postToolScriptPath,
 			},
@@ -214,15 +215,15 @@ func stripClaudeHooks(settingsPath string) error {
 		}
 		return err
 	}
-	var root map[string]interface{}
+	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
 		return err
 	}
-	hooksObj, ok := root["hooks"].(map[string]interface{})
+	hooksObj, ok := root["hooks"].(map[string]any)
 	if !ok {
 		return nil
 	}
-	entries, _ := hooksObj["PreToolUse"].([]interface{})
+	entries, _ := hooksObj["PreToolUse"].([]any)
 	entries = removeClaudeSlimferenceHooks(entries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-rewrite.sh"))
 	entries = removeClaudeSlimferenceHooks(entries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-read-cache.sh"))
 	if len(entries) == 0 {
@@ -230,7 +231,7 @@ func stripClaudeHooks(settingsPath string) error {
 	} else {
 		hooksObj["PreToolUse"] = entries
 	}
-	postEntries, _ := hooksObj["PostToolUse"].([]interface{})
+	postEntries, _ := hooksObj["PostToolUse"].([]any)
 	postEntries = removeClaudeSlimferenceHooks(postEntries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-posttool.sh"))
 	if len(postEntries) == 0 {
 		delete(hooksObj, "PostToolUse")
@@ -244,20 +245,20 @@ func stripClaudeHooks(settingsPath string) error {
 	return os.WriteFile(settingsPath, out, 0644)
 }
 
-func removeClaudeSlimferenceHooks(entries []interface{}, scriptPath string) []interface{} {
-	out := make([]interface{}, 0, len(entries))
+func removeClaudeSlimferenceHooks(entries []any, scriptPath string) []any {
+	out := make([]any, 0, len(entries))
 	for _, entry := range entries {
-		entryMap, ok := entry.(map[string]interface{})
+		entryMap, ok := entry.(map[string]any)
 		if !ok {
 			out = append(out, entry)
 			continue
 		}
-		hooksSlice, ok := entryMap["hooks"].([]interface{})
+		hooksSlice, ok := entryMap["hooks"].([]any)
 		if !ok {
 			out = append(out, entry)
 			continue
 		}
-		filteredHooks := make([]interface{}, 0, len(hooksSlice))
+		filteredHooks := make([]any, 0, len(hooksSlice))
 		for _, hook := range hooksSlice {
 			if isClaudeSlimferenceHook(hook, scriptPath) {
 				continue
@@ -267,18 +268,16 @@ func removeClaudeSlimferenceHooks(entries []interface{}, scriptPath string) []in
 		if len(filteredHooks) == 0 {
 			continue
 		}
-		cloned := make(map[string]interface{}, len(entryMap))
-		for key, value := range entryMap {
-			cloned[key] = value
-		}
+		cloned := make(map[string]any, len(entryMap))
+		maps.Copy(cloned, entryMap)
 		cloned["hooks"] = filteredHooks
 		out = append(out, cloned)
 	}
 	return out
 }
 
-func isClaudeSlimferenceHook(hook interface{}, scriptPath string) bool {
-	hookMap, ok := hook.(map[string]interface{})
+func isClaudeSlimferenceHook(hook any, scriptPath string) bool {
+	hookMap, ok := hook.(map[string]any)
 	if !ok {
 		return false
 	}

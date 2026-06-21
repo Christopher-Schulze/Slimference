@@ -73,10 +73,7 @@ func (t *UsageTracker) Record(provider types.Provider, orig, comp, output int) {
 		t.PerProvider[provider] = pu
 	}
 	pu.Messages++
-	saved := orig - comp
-	if saved < 0 {
-		saved = 0
-	}
+	saved := max(orig-comp, 0)
 	pu.TokensSaved += saved
 
 	// Update per-provider running average compression ratio using Welford's method.

@@ -80,7 +80,6 @@ func TestWSSCompactedTerraformInitSuccessRejectsDiagnosticsAndUnknownShapes(t *t
 		[]byte("Initializing provider plugins...\n- 2 provider(s) installed\n"),
 	}
 	for _, compacted := range rejects {
-		compacted := compacted
 		t.Run(string(compacted), func(t *testing.T) {
 			t.Parallel()
 			if wssCompactedTerraformInitSuccess(compacted) {
@@ -144,12 +143,12 @@ func TestWSSStatefulSafeTerraformInitWarningStaysGuarded(t *testing.T) {
 func wssTerraformInitSuccessFixture(providers, modules int) string {
 	var out strings.Builder
 	out.WriteString("Initializing modules...\n")
-	for i := 0; i < modules; i++ {
+	for i := range modules {
 		fmt.Fprintf(&out, "Downloading registry.terraform.io/example/module%03d/aws 1.%d.0 for module module%03d...\n", i, i, i)
 	}
 	out.WriteString("\nInitializing the backend...\n\n")
 	out.WriteString("Initializing provider plugins...\n")
-	for i := 0; i < providers; i++ {
+	for i := range providers {
 		fmt.Fprintf(&out, "- Finding hashicorp/provider%03d versions matching \"~> 1.%d\"...\n", i, i)
 		fmt.Fprintf(&out, "- Installing hashicorp/provider%03d v1.%d.0...\n", i, i)
 	}

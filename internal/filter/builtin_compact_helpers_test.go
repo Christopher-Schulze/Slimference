@@ -49,7 +49,7 @@ func TestExtractTestFailures(t *testing.T) {
 	// Generate enough failure lines so the compact is shorter than the input
 	var failLines strings.Builder
 	failLines.WriteString("running tests...\n")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		failLines.WriteString("--- FAIL: TestSomething (0.01s)\n")
 		failLines.WriteString("    Error: assertion failed at line 42\n")
 		failLines.WriteString("    Expected: foo\n")
@@ -103,7 +103,7 @@ func TestTruncateLintViolations(t *testing.T) {
 
 	// Short output (≤60 lines) → no truncation
 	var shortSb strings.Builder
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		shortSb.WriteString("src/app.ts:5:1: error no-unused-vars\n")
 	}
 	out, ok := truncateLintViolations(shortSb.String(), "eslint")
@@ -113,7 +113,7 @@ func TestTruncateLintViolations(t *testing.T) {
 
 	// Long output (>60 lines) → truncate to 60 + "+N more" suffix
 	var longSb strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		longSb.WriteString("src/app.ts:5:1: error no-unused-vars: variable 'x' is defined but never used\n")
 	}
 	inputStr := longSb.String()
@@ -246,7 +246,7 @@ func TestTruncateLintViolations_compactNotShorter(t *testing.T) {
 func TestTruncateLintViolations_KeepsErrorsOverWarnings(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 65; i++ {
+	for range 65 {
 		sb.WriteString("src/a.go:1:1: warning: unused import (govet)\n")
 	}
 	sb.WriteString("src/b.go:9:9: error: undefined: criticalSymbol (typecheck)\n")

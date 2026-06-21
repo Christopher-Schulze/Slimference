@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -51,7 +52,7 @@ func compactGitLog(s string) string {
 	// Track stat section parsing state.
 	var inBody, inStat bool
 
-	for _, raw := range strings.Split(s, "\n") {
+	for raw := range strings.SplitSeq(s, "\n") {
 		line := strings.TrimRight(raw, "\r")
 
 		if m := reGitLogCommitHeader.FindStringSubmatch(line); m != nil {
@@ -123,15 +124,15 @@ var reGitStatSummary = regexp.MustCompile(`\d+ file.* changed`)
 func parseGitStatSummary(line string) string {
 	var ins, del, files int
 	fmt.Sscanf(line, "%d file", &files)
-	if i := strings.Index(line, "insertion"); i >= 0 {
-		part := line[:i]
+	if before, _, ok := strings.Cut(line, "insertion"); ok {
+		part := before
 		fields := strings.Fields(part)
 		if len(fields) >= 2 {
 			fmt.Sscanf(fields[len(fields)-1], "%d", &ins)
 		}
 	}
-	if i := strings.Index(line, "deletion"); i >= 0 {
-		part := line[:i]
+	if before, _, ok := strings.Cut(line, "deletion"); ok {
+		part := before
 		fields := strings.Fields(part)
 		if len(fields) >= 2 {
 			fmt.Sscanf(fields[len(fields)-1], "%d", &del)
@@ -189,7 +190,7 @@ func compactGitDiff(s string) string {
 	var hasCur bool
 	var inHunk bool
 
-	for _, raw := range strings.Split(s, "\n") {
+	for raw := range strings.SplitSeq(s, "\n") {
 		line := strings.TrimRight(raw, "\r")
 
 		if strings.HasPrefix(line, "diff --git ") {
@@ -638,7 +639,7 @@ func compactGitLogEntryPaths(paths []string, nameStatus bool) (string, bool) {
 }
 
 func appendIndentedLines(sb *strings.Builder, text, indent string) {
-	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(text, "\n"), "\n") {
 		sb.WriteString(indent)
 		sb.WriteString(line)
 		sb.WriteByte('\n')
@@ -858,12 +859,7 @@ func isGitStatusArgv(argv []string) bool {
 	if filepath.Base(argv[0]) != "git" {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "status" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "status")
 }
 
 func isGitLsFilesPathListArgv(argv []string) bool {
@@ -956,12 +952,7 @@ func isGitLogArgv(argv []string) bool {
 	if !isGitArgv(argv) {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "log" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "log")
 }
 
 func isGitLogNameOnlyPathListArgv(argv []string) bool {
@@ -1046,12 +1037,7 @@ func isGitDiffArgv(argv []string) bool {
 	if !isGitArgv(argv) {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "diff" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "diff")
 }
 
 func isGitDiffStatArgv(argv []string) bool {
@@ -1251,12 +1237,7 @@ func isGitShowArgv(argv []string) bool {
 	if !isGitArgv(argv) {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "show" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "show")
 }
 
 var gitF05Subcommands = map[string]struct{}{
@@ -1297,7 +1278,7 @@ func TryCompactGitF05(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	s := strings.TrimSpace(string(stdout))
 	if s == "" {
-		return []byte(fmt.Sprintf("[git %s] ok\n", sub)), true
+		return fmt.Appendf(nil, "[git %s] ok\n", sub), true
 	}
 	low := strings.ToLower(s)
 	switch sub {
@@ -1311,7 +1292,7 @@ func TryCompactGitF05(argv []string, stdout []byte) ([]byte, bool) {
 		}
 	case "pull", "fetch":
 		if strings.Contains(low, "already up to date") {
-			return []byte(fmt.Sprintf("[git %s] up to date\n", sub)), true
+			return fmt.Appendf(nil, "[git %s] up to date\n", sub), true
 		}
 		// Successful fetch/pull: count updates and new branches/tags
 		if out := compactGitFetchOutput(s, sub); out != "" {
@@ -1324,7 +1305,7 @@ func TryCompactGitF05(argv []string, stdout []byte) ([]byte, bool) {
 		// Fast-forward merge
 		if strings.Contains(low, "fast-forward") || strings.Contains(low, "fast forward") {
 			if out := extractMergeStatLine(s); out != "" {
-				return []byte(fmt.Sprintf("[git merge] fast-forward (%s)\n", out)), true
+				return fmt.Appendf(nil, "[git merge] fast-forward (%s)\n", out), true
 			}
 			return []byte("[git merge] fast-forward\n"), true
 		}
@@ -1343,7 +1324,7 @@ func TryCompactGitF05(argv []string, stdout []byte) ([]byte, bool) {
 // Returns "" if nothing useful found or compact is not shorter.
 func compactGitPushOutput(s string) string {
 	var updates []string
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if rePushRefUpdate.MatchString(t) {
 			updates = append(updates, t)
@@ -1369,7 +1350,7 @@ func compactGitPushOutput(s string) string {
 // compactGitFetchOutput summarizes fetch/pull output with count of updates and new refs.
 func compactGitFetchOutput(s, sub string) string {
 	var updates, newRefs int
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if reFetchUpdate.MatchString(line) {
 			updates++
 		} else if reFetchNew.MatchString(line) {
@@ -1391,7 +1372,7 @@ func compactGitFetchOutput(s, sub string) string {
 
 // extractMergeStatLine finds the "N files changed" summary from merge output.
 func extractMergeStatLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if reGitStatSummary.MatchString(t) {
 			return parseGitStatSummary(t)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -165,16 +166,11 @@ func RecentlyEditedHookFile(dir, sessionID, path string, previousTurns int) (boo
 	}
 	var hit bool
 	err := inspectHookState(dir, sessionID, func(state *HookState) error {
-		start := len(state.Turns) - 1 - previousTurns
-		if start < 0 {
-			start = 0
-		}
+		start := max(len(state.Turns)-1-previousTurns, 0)
 		for _, turn := range state.Turns[start:] {
-			for _, edited := range turn.FilesEdited {
-				if edited == path {
-					hit = true
-					return nil
-				}
+			if slices.Contains(turn.FilesEdited, path) {
+				hit = true
+				return nil
 			}
 		}
 		return nil
@@ -346,10 +342,8 @@ func appendUniqueCapped(values []string, value string, capSize int) []string {
 	if value == "" {
 		return values
 	}
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
+	if slices.Contains(values, value) {
+		return values
 	}
 	values = append(values, value)
 	if capSize > 0 && len(values) > capSize {

@@ -52,7 +52,7 @@ func minHashSignatureFromText(text string) [minHashDim]uint64 {
 	if len(words) == 0 {
 		return sig
 	}
-	for i := 0; i < minHashDim; i++ {
+	for i := range minHashDim {
 		var minv uint64 = 1<<64 - 1
 		seed := uint64(i + 1)
 		if len(words) < 3 {
@@ -144,7 +144,7 @@ func hashWordSpanShingle(text string, words []wordSpan, start, end int, seed uin
 }
 
 func fnv64aSeed(h uint64, seed uint64) uint64 {
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		h = fnv64aByte(h, byte(seed>>(8*i)))
 	}
 	return h
@@ -158,7 +158,7 @@ func fnv64aByte(h uint64, b byte) uint64 {
 
 func minHashJaccardEstimate(a, b [minHashDim]uint64) float64 {
 	matches := 0
-	for i := 0; i < minHashDim; i++ {
+	for i := range minHashDim {
 		if a[i] == b[i] {
 			matches++
 		}

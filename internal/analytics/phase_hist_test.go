@@ -113,10 +113,10 @@ func TestPhaseHistogram_ConcurrentSafe(t *testing.T) {
 	const workers = 8
 	const per = 500
 	wg.Add(workers)
-	for w := 0; w < workers; w++ {
+	for range workers {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < per; i++ {
+			for i := range per {
 				h.Record(time.Microsecond * time.Duration(1+i%10))
 			}
 		}()

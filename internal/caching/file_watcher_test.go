@@ -251,7 +251,7 @@ func TestFileWatcher_maxWatchedDirs(t *testing.T) {
 	defer fw.Close()
 
 	// Fill up to the limit by watching distinct real directories.
-	for i := 0; i < maxWatchedDirs; i++ {
+	for i := range maxWatchedDirs {
 		dir := filepath.Join(base, fmt.Sprintf("d%d", i))
 		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
 			t.Fatalf("mkdir %s: %v", dir, mkErr)

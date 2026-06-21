@@ -31,7 +31,7 @@ func classifyToolResult(toolName string, content string) types.ToolResultType {
 
 	// JSON detection first (before other pattern checks that might false-match)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		var js interface{}
+		var js any
 		if json.Unmarshal([]byte(trimmed), &js) == nil {
 			return types.ToolTypeJSONData
 		}
@@ -81,7 +81,7 @@ func classifyToolInput(toolInput string) types.ToolResultType {
 	if strings.TrimSpace(toolInput) == "" {
 		return types.ToolTypeUnknown
 	}
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal([]byte(toolInput), &raw); err != nil {
 		return types.ToolTypeUnknown
 	}

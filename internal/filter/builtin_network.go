@@ -30,7 +30,7 @@ func isVCSHostJSONExactArgv(argv []string) bool {
 }
 
 func argvHasExplicitJSONOutput(args []string) bool {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := strings.ToLower(strings.TrimSpace(args[i]))
 		switch {
 		case arg == "--json" || strings.HasPrefix(arg, "--json="):

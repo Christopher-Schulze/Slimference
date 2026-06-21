@@ -242,7 +242,6 @@ func TestIsRequestCacheSafeWithRouteStatefulResponses(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := IsRequestCacheSafeWithRoute(tt.route, []byte(tt.body)); got != tt.want {
@@ -298,7 +297,7 @@ func TestCanonicalizeCacheHeaders(t *testing.T) {
 
 func TestCanonicalizeCacheHeaders_marshalError(t *testing.T) {
 	orig := jsonMarshalFn
-	jsonMarshalFn = func(v interface{}) ([]byte, error) {
+	jsonMarshalFn = func(v any) ([]byte, error) {
 		return nil, errors.New("boom")
 	}
 	t.Cleanup(func() {
@@ -329,7 +328,7 @@ func TestCachePrimitiveHelpers(t *testing.T) {
 
 	numericCases := []struct {
 		name  string
-		value interface{}
+		value any
 		want  float64
 		ok    bool
 	}{
@@ -345,7 +344,6 @@ func TestCachePrimitiveHelpers(t *testing.T) {
 	}
 
 	for _, tt := range numericCases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, ok := numericValue(tt.value)

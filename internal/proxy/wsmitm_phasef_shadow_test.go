@@ -139,7 +139,7 @@ func TestWSSShadowMirrorObservesRawFallbackMessages(t *testing.T) {
 
 	output := "Chunk ID: raw-shadow\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n" +
 		strings.Repeat("stable mirror payload\n", 60)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		env := parseWSJSON(t, map[string]any{
 			"model":                "gpt-5-codex",
 			"previous_response_id": "resp-raw-shadow",

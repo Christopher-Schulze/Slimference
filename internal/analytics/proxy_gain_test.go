@@ -166,7 +166,6 @@ func TestIsProviderProxyFlight(t *testing.T) {
 		{name: "hook source", flight: &dbg.FlightRequestSummary{Source: "hook_post", Provider: "codex_chatgpt"}, want: false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := isProviderProxyFlight(tt.flight); got != tt.want {

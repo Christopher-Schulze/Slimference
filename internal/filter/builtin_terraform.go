@@ -288,7 +288,7 @@ func compressTerraformInit(stdout []byte) []byte {
 }
 
 func terraformInitProviderAddress(line string) (string, bool) {
-	for _, raw := range strings.Fields(line) {
+	for raw := range strings.FieldsSeq(line) {
 		token := strings.Trim(raw, `"'(),:;[]`)
 		token = strings.TrimRight(token, ".")
 		token = strings.TrimPrefix(token, "registry.terraform.io/")

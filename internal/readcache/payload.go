@@ -6,7 +6,7 @@ import (
 )
 
 func ExtractRequest(raw []byte) (Request, error) {
-	var payload interface{}
+	var payload any
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return Request{}, fmt.Errorf("readhook: JSON: %w", err)
 	}
@@ -24,9 +24,9 @@ func ExtractRequest(raw []byte) (Request, error) {
 	return req, nil
 }
 
-func findString(v interface{}, key string) string {
+func findString(v any, key string) string {
 	switch x := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if val, ok := x[key].(string); ok && val != "" {
 			return val
 		}
@@ -35,7 +35,7 @@ func findString(v interface{}, key string) string {
 				return found
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, child := range x {
 			if found := findString(child, key); found != "" {
 				return found
@@ -45,9 +45,9 @@ func findString(v interface{}, key string) string {
 	return ""
 }
 
-func findInt(v interface{}, key string) int {
+func findInt(v any, key string) int {
 	switch x := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if val, ok := x[key]; ok {
 			if n, ok := numericValue(val); ok {
 				return n
@@ -58,7 +58,7 @@ func findInt(v interface{}, key string) int {
 				return found
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, child := range x {
 			if found, ok := nestedInt(child, key); ok {
 				return found
@@ -68,9 +68,9 @@ func findInt(v interface{}, key string) int {
 	return 0
 }
 
-func nestedInt(v interface{}, key string) (int, bool) {
+func nestedInt(v any, key string) (int, bool) {
 	switch x := v.(type) {
-	case map[string]interface{}, []interface{}:
+	case map[string]any, []any:
 		found := findInt(x, key)
 		return found, found != 0
 	default:
@@ -78,7 +78,7 @@ func nestedInt(v interface{}, key string) (int, bool) {
 	}
 }
 
-func numericValue(v interface{}) (int, bool) {
+func numericValue(v any) (int, bool) {
 	switch n := v.(type) {
 	case float64:
 		return int(n), true

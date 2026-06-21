@@ -231,7 +231,7 @@ func TestMergeIntoBodyUserShadowsOurPhrase(t *testing.T) {
 	}
 }
 
-func mustJSON(t *testing.T, v interface{}) string {
+func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)
 	if err != nil {

@@ -178,9 +178,9 @@ type RequestSummary struct {
 	ProviderCachedTokens   int                          `json:"provider_cached_tokens,omitempty"`
 	ProviderOutputTokens   int                          `json:"provider_output_tokens,omitempty"`
 	OutputTokens           int                          `json:"output_tokens,omitempty"`
-	PromptCache            PromptCacheSummary           `json:"prompt_cache,omitempty"`
-	ToolPrune              ToolPruneSummary             `json:"tool_prune,omitempty"`
-	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
+	PromptCache            PromptCacheSummary           `json:"prompt_cache"`
+	ToolPrune              ToolPruneSummary             `json:"tool_prune"`
+	OutputReduce           OutputReduceSummary          `json:"output_reduce"`
 	Mechanisms             []MechanismAccounting        `json:"mechanisms,omitempty"`
 	EvidenceDecisions      []evidence.BlockDecision     `json:"evidence_decisions,omitempty"`
 	DebugFacts             map[string]string            `json:"debug_facts,omitempty"`

@@ -158,10 +158,7 @@ func (c *Compactor) compactProse(prose string, tfidf *TFIDF) string {
 		}
 	}
 
-	keepN := int(float64(len(sentences)) * c.cfg.TargetRatio)
-	if keepN < c.cfg.MinSentences {
-		keepN = c.cfg.MinSentences
-	}
+	keepN := max(int(float64(len(sentences))*c.cfg.TargetRatio), c.cfg.MinSentences)
 	if keepN >= len(sentences) {
 		return prose
 	}

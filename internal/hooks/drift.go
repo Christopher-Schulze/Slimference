@@ -203,7 +203,7 @@ func splitSemver(s string) ([3]int, bool) {
 		return [3]int{}, false
 	}
 	var out [3]int
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		n, err := strconv.Atoi(parts[i])
 		if err != nil {
 			return [3]int{}, false
@@ -214,7 +214,7 @@ func splitSemver(s string) ([3]int, bool) {
 }
 
 func compareSemver(a, b [3]int) int {
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if a[i] < b[i] {
 			return -1
 		}

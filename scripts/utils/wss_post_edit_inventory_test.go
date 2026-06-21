@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -538,8 +539,6 @@ func TestWSSPostEditInventorySinceFileAndNoSurfaceText(t *testing.T) {
 
 func cloneStringMapForPostEditTest(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }

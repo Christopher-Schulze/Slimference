@@ -15,8 +15,7 @@ func TestStreamPump_DedupConsecutive(t *testing.T) {
 	var buf bytes.Buffer
 	p := newStreamPump(&buf, StreamOptions{DedupConsecutive: true, FlushInterval: time.Hour, WindowLines: 100})
 	in := strings.NewReader("a\na\na\nb\nb\nc\n")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan struct{})
 	go func() { p.run(ctx, in); close(done) }()
 	// Wait for scanner to finish.
@@ -88,8 +87,7 @@ func TestStreamPump_TickerFlush(t *testing.T) {
 	defer pr.Close()
 	var buf bytes.Buffer
 	p := newStreamPump(&buf, StreamOptions{FlushInterval: 30 * time.Millisecond, WindowLines: 1000})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan struct{})
 	go func() { p.run(ctx, pr); close(done) }()
 	_, _ = pw.Write([]byte("first\n"))

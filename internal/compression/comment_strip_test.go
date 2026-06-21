@@ -157,7 +157,6 @@ end`,
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := StripComments(tc.input, tc.lang)
@@ -290,7 +289,6 @@ func TestLanguageFromPath_extended(t *testing.T) {
 		"config.jsonnet": "jsonnet",
 	}
 	for path, want := range tests {
-		path, want := path, want
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			if got := LanguageFromPath(path); got != want {
@@ -443,7 +441,6 @@ Normal text stays.`,
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := StripComments(tc.input, tc.lang)
@@ -565,7 +562,6 @@ func TestMarkdownFenceLanguageAliases(t *testing.T) {
 		"```json5":             "json5",
 	}
 	for line, want := range tests {
-		line, want := line, want
 		t.Run(line, func(t *testing.T) {
 			t.Parallel()
 			got, ok := markdownFenceLanguage(line)

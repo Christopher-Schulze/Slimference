@@ -3,6 +3,7 @@ package reversibility
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 )
@@ -311,10 +312,5 @@ func equalSlice[T comparable](a, b []T) bool {
 }
 
 func contains[T comparable](a []T, v T) bool {
-	for _, x := range a {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a, v)
 }

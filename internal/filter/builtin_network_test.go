@@ -112,7 +112,6 @@ func TestTryCompactVCSHostJSONExact_JSONFlagForms(t *testing.T) {
 		{name: "short output pair", argv: []string{"glab", "mr", "list", "-o", "json"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactVCSHostJSONExact(tc.argv, body)

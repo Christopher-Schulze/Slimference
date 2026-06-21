@@ -75,7 +75,7 @@ func terminalTitleModel(codexArgs []string) string {
 }
 
 func terminalTitleModelFromArgs(args []string) string {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "--model" || arg == "-m":
@@ -106,7 +106,7 @@ func terminalTitleModelFromConfig() string {
 func parseTerminalTitleModelConfig(data []byte) string {
 	var model, effort string
 	section := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

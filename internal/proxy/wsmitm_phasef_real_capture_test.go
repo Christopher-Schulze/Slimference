@@ -43,7 +43,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var fileBody strings.Builder
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		fmt.Fprintf(&fileBody, "Synthetic markdown line %03d for the WSS Phase-F multi-read delta reducer regression test.\n", i)
 	}
 	rawFile := fileBody.String()
@@ -329,7 +329,7 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			promptCacheKey := "019e5220-t248-" + strings.ReplaceAll(fixture.name, "_", "-")
 			cleanupPhaseFTempHome(t, tmp, "codex-wss:"+promptCacheKey)
 			var fileBody strings.Builder
-			for i := 0; i < 260; i++ {
+			for i := range 260 {
 				fmt.Fprintf(&fileBody, "%s baseline line %03d for Codex WSS shape fixture coverage.\n", fixture.name, i)
 			}
 			before := fileBody.String()

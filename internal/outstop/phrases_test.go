@@ -54,7 +54,7 @@ func TestPhrasesTopNPreservesOrder(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("got len=%d want 3", len(got))
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got[i] != full[i] {
 			t.Errorf("TopN[%d]=%q want %q (declared order must be stable)", i, got[i], full[i])
 		}

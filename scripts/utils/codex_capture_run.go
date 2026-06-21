@@ -2008,7 +2008,7 @@ func codexCaptureHasCompletion(path string, target int) bool {
 		return false
 	}
 	completed := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -2040,7 +2040,7 @@ func codexCaptureHasMutatedCompletion(path string, target int) bool {
 	}
 	mutated := 0
 	armed := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -2288,7 +2288,7 @@ func countCodexCaptureServerMarker(data []byte, marker string) int {
 		return 0
 	}
 	count := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -2315,7 +2315,7 @@ func countCodexCaptureFunctionOutputMarker(data []byte, marker string) int {
 		return 0
 	}
 	count := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

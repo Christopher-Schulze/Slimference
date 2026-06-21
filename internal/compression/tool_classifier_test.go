@@ -127,7 +127,6 @@ func TestClassifyToolResult(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := classifyToolResult(tc.toolName, tc.content)
@@ -177,7 +176,6 @@ func TestClassifyToolResultWithInput_UsesCodexShellCommand(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := classifyToolResultWithInput(tc.toolName, tc.toolInput, tc.content)
@@ -230,7 +228,6 @@ func TestClassifyToolInput_Branches(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := classifyToolInput(tc.input); got != tc.want {

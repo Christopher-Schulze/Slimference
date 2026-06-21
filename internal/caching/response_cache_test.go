@@ -111,7 +111,7 @@ func TestResponseCache_Flush(t *testing.T) {
 	t.Parallel()
 
 	cache := NewResponseCache(10, time.Hour)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msgs := buildMessages(t, "user", string(rune('a'+i)))
 		key := cache.ComputeKey(msgs, "m")
 		cache.Set(key, makeEntry("body"))
@@ -120,7 +120,7 @@ func TestResponseCache_Flush(t *testing.T) {
 	cache.Flush()
 
 	// All entries must be gone.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msgs := buildMessages(t, "user", string(rune('a'+i)))
 		key := cache.ComputeKey(msgs, "m")
 		_, ok := cache.Get(key)

@@ -155,13 +155,11 @@ func TestTurnStateConcurrentObservationsAndFingerprints(t *testing.T) {
 	store.StartTurn("sess", "turn", "codex", "/repo", "")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			store.ObserveTool("sess", "turn", ToolObservation{Name: "Bash"})
 			store.ObserveFile("sess", "turn", FileObservation{Path: "/repo/file.go", Operation: "read"})
-		}()
+		})
 	}
 	wg.Wait()
 

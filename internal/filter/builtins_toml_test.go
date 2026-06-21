@@ -99,11 +99,11 @@ max_lines = 5
 `)},
 	})
 	var input strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		input.WriteString("progress line\n")
 	}
 	input.WriteString("2026-06-03 FATAL database connection refused\n")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		input.WriteString("more progress line\n")
 	}
 

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -659,9 +661,7 @@ func wssSocketTestSummary(reqID, sessionID string, socketSeq uint64, shape strin
 		"wss.socket_seq":    strconvFormatUint(socketSeq),
 		"wss.request_shape": shape,
 	}
-	for key, value := range extra {
-		facts[key] = value
-	}
+	maps.Copy(facts, extra)
 	return dbg.RequestSummary{
 		RequestID:            reqID,
 		Timestamp:            ts,
@@ -717,19 +717,12 @@ func wssClassifySocketBase() wssSocketSummary {
 
 func cloneWSSSocketShapes(in map[string]int) map[string]int {
 	out := make(map[string]int, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func strconvFormatUint(v uint64) string {

@@ -1200,7 +1200,7 @@ func TestInstallCodexToolHooksAreBashOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var root map[string]map[string][]map[string]interface{}
+	var root map[string]map[string][]map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
 		t.Fatal(err)
 	}
@@ -1523,7 +1523,6 @@ func TestCollectFeaturesSection(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

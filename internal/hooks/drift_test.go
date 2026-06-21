@@ -36,7 +36,6 @@ func TestParseCLIVersion(t *testing.T) {
 		{"1.2 incomplete", ""}, // two-part is not a semver triple
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
 			if got := parseCLIVersion(tc.in); got != tc.want {

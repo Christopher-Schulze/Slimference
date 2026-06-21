@@ -1,5 +1,7 @@
 package tui
 
+import "strings"
+
 import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keyboard shortcuts for the TUI.
@@ -218,9 +220,10 @@ func joinKeys(keys []string) string {
 	if len(keys) == 0 {
 		return ""
 	}
-	out := keys[0]
+	var out strings.Builder
+	out.WriteString(keys[0])
 	for _, k := range keys[1:] {
-		out += ", " + k
+		out.WriteString(", " + k)
 	}
-	return out
+	return out.String()
 }

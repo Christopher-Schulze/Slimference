@@ -52,7 +52,7 @@ func TestMinHashSignatureFromText_matchesLegacyJoin(t *testing.T) {
 	got := minHashSignatureFromText(text)
 	shingles := wordShingles(tokenizeWords(text), 3)
 	var want [minHashDim]uint64
-	for i := 0; i < minHashDim; i++ {
+	for i := range minHashDim {
 		var minv uint64 = 1<<64 - 1
 		seed := uint64(i + 1)
 		for _, sh := range shingles {

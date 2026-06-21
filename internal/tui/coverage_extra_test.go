@@ -403,7 +403,7 @@ func TestRenderMainView_PadsBothColumns(t *testing.T) {
 	}
 
 	proxy := newMockProxy()
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		proxy.recentReqs = append(proxy.recentReqs, types.RequestMetrics{
 			Timestamp:        time.Now(),
 			Provider:         types.Anthropic,

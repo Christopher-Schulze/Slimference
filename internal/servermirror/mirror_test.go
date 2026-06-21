@@ -469,7 +469,7 @@ func TestMirror_StateBoundaryBranches(t *testing.T) {
 
 	m := New()
 	full := make(map[string]struct{}, maxBlocksPerSession)
-	for i := 0; i < maxBlocksPerSession; i++ {
+	for i := range maxBlocksPerSession {
 		full[fmt.Sprintf("h-%d", i)] = struct{}{}
 	}
 	m.sessions["full"] = full
@@ -479,7 +479,7 @@ func TestMirror_StateBoundaryBranches(t *testing.T) {
 	}
 
 	fullNormalized := make(map[string]struct{}, maxBlocksPerSession)
-	for i := 0; i < maxBlocksPerSession; i++ {
+	for i := range maxBlocksPerSession {
 		fullNormalized[fmt.Sprintf("nh-%d", i)] = struct{}{}
 	}
 	m.normalizedSessions["normalized-full"] = fullNormalized
@@ -515,10 +515,10 @@ func TestMirror_StateBoundaryBranches(t *testing.T) {
 func TestMirror_NoFalseElisionProperty(t *testing.T) {
 	t.Parallel()
 	m := New()
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		m.Observe("s", msg(fmt.Sprintf("observed block number %d with filler", i)))
 	}
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		never := fmt.Sprintf("NEVER-FORWARDED unique content %d", i)
 		rep := m.Predict("s", msg(never))
 		if rep.ReferenceableBlocks != 0 || rep.Predictions[0].AlreadyForwarded {

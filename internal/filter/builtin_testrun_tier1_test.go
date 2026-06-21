@@ -85,15 +85,16 @@ func TestTryCompactVitestJSON_FailureExtractsTopFailures(t *testing.T) {
 }
 
 func TestTryCompactVitestJSON_TruncatesAfterMaxFailures(t *testing.T) {
-	suite := `{"name":"x.test.ts","status":"failed","assertionResults":[`
-	for i := 0; i < 8; i++ {
+	var suite strings.Builder
+	suite.WriteString(`{"name":"x.test.ts","status":"failed","assertionResults":[`)
+	for i := range 8 {
 		if i > 0 {
-			suite += ","
+			suite.WriteString(",")
 		}
-		suite += `{"status":"failed","fullName":"t` + string(rune('0'+i)) + `","failureMessages":["boom"]}`
+		suite.WriteString(`{"status":"failed","fullName":"t` + string(rune('0'+i)) + `","failureMessages":["boom"]}`)
 	}
-	suite += `]}`
-	in := `{"numTotalTests":8,"numFailedTests":8,"numTotalTestSuites":1,"numFailedTestSuites":1,"testResults":[` + suite + `]}`
+	suite.WriteString(`]}`)
+	in := `{"numTotalTests":8,"numFailedTests":8,"numTotalTestSuites":1,"numFailedTestSuites":1,"testResults":[` + suite.String() + `]}`
 	out, ok := TryCompactVitestJSON([]string{"vitest", "run", "--reporter=json"}, []byte(in))
 	if !ok {
 		t.Fatalf("expected match")
@@ -231,7 +232,7 @@ func TestTryCompactPytestJSON_Edges(t *testing.T) {
 	}
 
 	tests := make([]string, 0, 7)
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		outcome := "failed"
 		if i == 6 {
 			outcome = "error"
@@ -322,7 +323,7 @@ func TestTryCompactCargoTestJSON_Edges(t *testing.T) {
 	}
 
 	lines := []string{"not-json", `{"type":"test","event":"failed","name":"a"}`}
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		lines = append(lines, `{"type":"test","event":"failed","name":"f`+string(rune('0'+i))+`","stdout":"one\ntwo\nthree\nfour"}`)
 	}
 	lines = append(lines, `{"type":"suite","event":"failed","passed":1,"failed":8}`)

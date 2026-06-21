@@ -44,7 +44,6 @@ func TestDetectTaskShape(t *testing.T) {
 		{name: "ignores schema text", body: []byte(`{"tools":[{"description":"create file"}],"messages":[{"role":"user","content":"what is this"}]}`), want: ShapeDirectAnswer},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := DetectTaskShape(types.OpenAI, tt.body); got != tt.want {

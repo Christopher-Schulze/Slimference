@@ -126,7 +126,6 @@ func TestDeterministicCompressor_detectLanguage_extended(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := c.detectLanguage(types.ContentBlock{}, tc.text)
@@ -135,14 +134,6 @@ func TestDeterministicCompressor_detectLanguage_extended(t *testing.T) {
 			}
 		})
 	}
-}
-
-// min is a local helper for Go < 1.21 compat in this package.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // TestSignatureOnly_noBrace verifies that a line without an opening brace is returned unchanged.

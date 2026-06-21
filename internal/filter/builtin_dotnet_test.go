@@ -81,7 +81,7 @@ func TestTryCompactDotnet_nonEmptyTestAllPassSummary(t *testing.T) {
 	input.WriteString("VSTest version 17.10.0 (arm64)\n\n")
 	input.WriteString("Starting test execution, please wait...\n")
 	input.WriteString("A total of 1 test files matched the specified pattern.\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&input, "  Passed App.Tests.WidgetTests.Case%03d [1 ms]\n", i)
 	}
 	input.WriteString("Passed!  - Failed:     0, Passed:   120, Skipped:     0, Total:   120, Duration: 1 s - App.Tests.dll (net8.0)\n")

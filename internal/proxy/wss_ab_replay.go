@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -611,15 +612,15 @@ func wssReplayStripInstructionNote(text string, note string) (string, bool) {
 		return "", true
 	}
 	paragraph := "\n\n" + note
-	if strings.HasSuffix(text, paragraph) {
-		return strings.TrimSuffix(text, paragraph), true
+	if before, ok := strings.CutSuffix(text, paragraph); ok {
+		return before, true
 	}
 	trimmedRight := strings.TrimRight(text, " \t\r\n")
 	if trimmedRight != text && strings.HasSuffix(trimmedRight, paragraph) {
 		return strings.TrimSuffix(trimmedRight, paragraph), true
 	}
-	if strings.HasPrefix(text, note+"\n\n") {
-		return strings.TrimPrefix(text, note+"\n\n"), true
+	if after, ok := strings.CutPrefix(text, note+"\n\n"); ok {
+		return after, true
 	}
 	if strings.Contains(text, paragraph+"\n\n") {
 		return strings.Replace(text, paragraph, "", 1), true
@@ -747,7 +748,5 @@ func rememberReplayRequestState(adapter *wsPhaseFAdapter, messages []types.Messa
 	if adapter.toolUses == nil {
 		adapter.toolUses = make(map[string]types.ContentBlock)
 	}
-	for id, use := range proxyToolUseIndex(messages) {
-		adapter.toolUses[id] = use
-	}
+	maps.Copy(adapter.toolUses, proxyToolUseIndex(messages))
 }

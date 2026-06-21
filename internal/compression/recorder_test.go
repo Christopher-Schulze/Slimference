@@ -215,7 +215,7 @@ func TestCompress_Layer1CorpusArchiveRoundTripsEveryRecoverableMutation(t *testi
 
 	var commented strings.Builder
 	commented.WriteString("package main\n\n")
-	for i := 0; i < 24; i++ {
+	for range 24 {
 		commented.WriteString("// noisy implementation note that must be recoverable from archive\n")
 	}
 	commented.WriteString("func important() string {\n\treturn \"archive me\"\n}\n")
@@ -312,7 +312,7 @@ func TestCompress_Layer1CorpusArchiveRoundTripsEveryRecoverableMutation(t *testi
 }
 
 func archiveTagContains(tag string, subLayer string) bool {
-	for _, part := range strings.Split(tag, ",") {
+	for part := range strings.SplitSeq(tag, ",") {
 		if strings.TrimSpace(part) == subLayer {
 			return true
 		}
@@ -350,14 +350,15 @@ func TestCompressWithSession_PropagatesSessionID(t *testing.T) {
 	stub := &stubRecorder{id: "x"}
 	c := NewDeterministicCompressor(&cfg).WithRecorder(stub)
 
-	body := `{"items":[`
-	for i := 0; i < 200; i++ {
-		body += `{"k":"v","value":"line` + strconv.Itoa(i) + `"},`
+	var body strings.Builder
+	body.WriteString(`{"items":[`)
+	for i := range 200 {
+		body.WriteString(`{"k":"v","value":"line` + strconv.Itoa(i) + `"},`)
 	}
-	body += `{"k":"v"}]}`
+	body.WriteString(`{"k":"v"}]}`)
 	msgs := []types.Message{
 		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "u"}}},
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", Text: body.String()}}},
 		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "next"}}},
 	}
 	c.cfg.SlidingWindow = 1
@@ -386,16 +387,17 @@ func TestPreviewPass_StampsArchiveIDWhenRecorderActive(t *testing.T) {
 	c := NewDeterministicCompressor(&cfg).WithRecorder(stub)
 
 	// Build a JSON-shaped tool_result that StructurePreview will compress.
-	body := `{"items":[`
-	for i := 0; i < 200; i++ {
-		body += `{"k":"v","value":"line` + strconv.Itoa(i) + `"},`
+	var body strings.Builder
+	body.WriteString(`{"items":[`)
+	for i := range 200 {
+		body.WriteString(`{"k":"v","value":"line` + strconv.Itoa(i) + `"},`)
 	}
-	body += `{"k":"v"}]}`
+	body.WriteString(`{"k":"v"}]}`)
 	msgs := []types.Message{{
 		Role: "assistant",
 		Content: []types.ContentBlock{{
 			Type: "tool_result",
-			Text: body,
+			Text: body.String(),
 		}},
 	}}
 	saved := c.structurePreviewPass(msgs, 1)
@@ -467,7 +469,7 @@ func TestCompressMessage_ANSIOnlyDoesNotArchive(t *testing.T) {
 
 func repeatString(s string, n int) string {
 	out := make([]byte, 0, len(s)*n)
-	for i := 0; i < n; i++ {
+	for range n {
 		out = append(out, s...)
 	}
 	return string(out)

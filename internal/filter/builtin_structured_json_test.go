@@ -22,7 +22,7 @@ func TestTryCompactTscDiagnostics(t *testing.T) {
 func TestTryCompactKubectlJSONKeepsAttentionRows(t *testing.T) {
 	t.Parallel()
 	var items []string
-	for i := 0; i < 35; i++ {
+	for i := range 35 {
 		items = append(items, fmt.Sprintf(`{"kind":"Pod","metadata":{"namespace":"default","name":"ok-%02d"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true,"restartCount":0}]}}`, i))
 	}
 	items = append(items, `{"kind":"Pod","metadata":{"namespace":"prod","name":"bad"},"status":{"phase":"Pending","containerStatuses":[{"name":"app","ready":false,"restartCount":7,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}`)
@@ -42,7 +42,7 @@ func TestTryCompactKubectlJSONKeepsAttentionRows(t *testing.T) {
 func TestTryCompactKubectlJSONHealthyListPassesThrough(t *testing.T) {
 	t.Parallel()
 	var items []string
-	for i := 0; i < 35; i++ {
+	for i := range 35 {
 		items = append(items, fmt.Sprintf(`{"kind":"Pod","metadata":{"namespace":"default","name":"ok-%02d"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true,"restartCount":0}]}}`, i))
 	}
 	input := `{"kind":"List","items":[` + strings.Join(items, ",") + `]}`
@@ -54,7 +54,7 @@ func TestTryCompactKubectlJSONHealthyListPassesThrough(t *testing.T) {
 func TestTryCompactKubectlJSONKeepsLateAttentionRowsWithinCap(t *testing.T) {
 	t.Parallel()
 	var items []string
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		items = append(items, fmt.Sprintf(`{"kind":"Pod","metadata":{"namespace":"prod","name":"bad-%02d"},"status":{"phase":"Pending","containerStatuses":[{"name":"app","ready":false,"restartCount":%d,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}`, i, i+1))
 	}
 	input := `{"kind":"List","items":[` + strings.Join(items, ",") + `]}`
@@ -95,7 +95,7 @@ func TestTryCompactCargoMetadataJSONKeepsLateWorkspaceMembers(t *testing.T) {
 	t.Parallel()
 	var packages []string
 	var members []string
-	for i := 0; i < 24; i++ {
+	for i := range 24 {
 		id := fmt.Sprintf("path+file:///crate%02d#0.1.0", i)
 		packages = append(packages, fmt.Sprintf(`{"name":"crate%02d","version":"0.1.0","id":"%s"}`, i, id))
 		members = append(members, `"`+id+`"`)
@@ -144,7 +144,7 @@ func TestTryCompactTerraformShowJSONPlanAndState(t *testing.T) {
 func TestTryCompactTerraformShowJSONKeepsLateDestructiveChange(t *testing.T) {
 	t.Parallel()
 	var changes []string
-	for i := 0; i < 35; i++ {
+	for i := range 35 {
 		changes = append(changes, fmt.Sprintf(`{"address":"data.null_data_source.ok_%02d","change":{"actions":["no-op"]}}`, i))
 	}
 	changes = append(changes, `{"address":"aws_db_instance.prod","change":{"actions":["delete","create"]}}`)
@@ -165,7 +165,7 @@ func TestTryCompactTerraformShowJSONKeepsLateDestructiveChange(t *testing.T) {
 func TestTryCompactTerraformShowJSONKeepsLateSamePriorityChange(t *testing.T) {
 	t.Parallel()
 	var changes []string
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		changes = append(changes, fmt.Sprintf(`{"address":"aws_instance.replace_%02d","change":{"actions":["delete","create"]}}`, i))
 	}
 	plan := `{"format_version":"1.2","resource_changes":[` + strings.Join(changes, ",") + `]}`
@@ -185,7 +185,7 @@ func TestTryCompactTerraformShowJSONKeepsLateSamePriorityChange(t *testing.T) {
 func TestTryCompactTerraformShowJSONKeepsLateStateResource(t *testing.T) {
 	t.Parallel()
 	var resources []string
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		resources = append(resources, fmt.Sprintf(`{"address":"aws_instance.node_%02d"}`, i))
 	}
 	state := `{"values":{"root_module":{"resources":[` + strings.Join(resources, ",") + `]}}}`
@@ -279,7 +279,6 @@ func TestTryCompactKnownCLIJSONExact_ExactMinify(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactKnownCLIJSONExact(tc.argv, tc.body)
@@ -370,7 +369,6 @@ func TestTryCompactKnownCLIJSONExact_WrapperAndVariantBranches(t *testing.T) {
 		{name: "bun pm list json", argv: []string{"bun", "pm", "list", "--json"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := TryCompactKnownCLIJSONExact(tc.argv, body)

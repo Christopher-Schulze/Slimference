@@ -54,7 +54,7 @@ func prettierArgvHasCheck(argv []string) bool {
 func prettierCleanCheckOutput(trimmed string) bool {
 	seenChecking := false
 	seenClean := false
-	for _, raw := range strings.Split(trimmed, "\n") {
+	for raw := range strings.SplitSeq(trimmed, "\n") {
 		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
 		if line == "" {
 			continue
@@ -517,7 +517,7 @@ const formatFileListMax = 10
 // Returns ("", false) if the output is short enough to keep as-is.
 func compactFormatFilelist(s, label string) (string, bool) {
 	var nonEmpty []string
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if strings.TrimSpace(l) != "" {
 			nonEmpty = append(nonEmpty, strings.TrimSpace(l))
 		}

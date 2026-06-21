@@ -68,19 +68,19 @@ func TryCompactJQJSONExact(argv []string, stdout []byte) ([]byte, bool) {
 }
 
 func jsonHasDiagnosticKeys(data []byte) bool {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
 		return false
 	}
 	return valueHasDiagnosticKeys(v, 0)
 }
 
-func valueHasDiagnosticKeys(v interface{}, depth int) bool {
+func valueHasDiagnosticKeys(v any, depth int) bool {
 	if depth > 8 {
 		return false
 	}
 	switch val := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for k, child := range val {
 			if isDiagnosticJSONKey(k) {
 				return true
@@ -89,7 +89,7 @@ func valueHasDiagnosticKeys(v interface{}, depth int) bool {
 				return true
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, child := range val {
 			if valueHasDiagnosticKeys(child, depth+1) {
 				return true
@@ -111,7 +111,7 @@ func isDiagnosticJSONKey(key string) bool {
 // extractJSONSchema produces a compact structural representation of a JSON value.
 // Objects show key→type pairs; arrays show element type and length.
 func extractJSONSchema(data []byte) ([]byte, bool) {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
 		return nil, false
 	}
@@ -122,10 +122,10 @@ func extractJSONSchema(data []byte) ([]byte, bool) {
 
 // schemaOf writes a compact schema description for v at the given indent depth.
 // maxDepth limits recursion to keep output compact.
-func schemaOf(sb *strings.Builder, v interface{}, depth, maxDepth int) {
+func schemaOf(sb *strings.Builder, v any, depth, maxDepth int) {
 	indent := strings.Repeat("  ", depth)
 	switch val := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if depth == 0 {
 			sb.WriteString(fmt.Sprintf("{object, %d keys}\n", len(val)))
 		}
@@ -146,14 +146,14 @@ func schemaOf(sb *strings.Builder, v interface{}, depth, maxDepth int) {
 			sb.WriteString(fmt.Sprintf("%s  %q: %s", indent, k, childType))
 			if depth < maxDepth {
 				switch cv := child.(type) {
-				case map[string]interface{}:
+				case map[string]any:
 					sb.WriteString(fmt.Sprintf(" {%d keys}", len(cv)))
 					if len(cv) > 0 && depth+1 < maxDepth {
 						sb.WriteByte('\n')
 						schemaOf(sb, cv, depth+1, maxDepth)
 						continue
 					}
-				case []interface{}:
+				case []any:
 					sb.WriteString(fmt.Sprintf(" [%d]", len(cv)))
 					if len(cv) > 0 {
 						sb.WriteString(fmt.Sprintf(" elem:%s", jsonTypeName(cv[0])))
@@ -172,7 +172,7 @@ func schemaOf(sb *strings.Builder, v interface{}, depth, maxDepth int) {
 			}
 			sb.WriteByte('\n')
 		}
-	case []interface{}:
+	case []any:
 		if depth == 0 {
 			elemType := "?"
 			if len(val) > 0 {
@@ -180,7 +180,7 @@ func schemaOf(sb *strings.Builder, v interface{}, depth, maxDepth int) {
 			}
 			sb.WriteString(fmt.Sprintf("[array, %d items, elem:%s]\n", len(val), elemType))
 			if len(val) > 0 {
-				if obj, ok := val[0].(map[string]interface{}); ok {
+				if obj, ok := val[0].(map[string]any); ok {
 					schemaOf(sb, obj, depth, maxDepth)
 				}
 			}
@@ -205,11 +205,11 @@ func schemaOf(sb *strings.Builder, v interface{}, depth, maxDepth int) {
 }
 
 // jsonTypeName returns a short type label for a JSON-decoded value.
-func jsonTypeName(v interface{}) string {
+func jsonTypeName(v any) string {
 	switch v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return "object"
-	case []interface{}:
+	case []any:
 		return "array"
 	case string:
 		return "string"

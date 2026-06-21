@@ -135,12 +135,12 @@ func TestCacheMissSpikeDetector_TriggersOnDrop(t *testing.T) {
 	fixed := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	d.clock = func() time.Time { return fixed }
 	// Fill window with hits to set baseline = 1.0.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		d.Observe(true)
 	}
 	// Now feed misses to drag rolling rate below 0.75.
 	spike := false
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if d.Observe(false) {
 			spike = true
 		}
@@ -168,11 +168,11 @@ func TestCacheMissSpikeDetector_NoSpikeWhileFilling(t *testing.T) {
 func TestCacheMissSpikeDetector_BaselineDriftUp(t *testing.T) {
 	t.Parallel()
 	d := NewCacheMissSpikeDetector(4, 0.25)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		d.Observe(true)
 	}
 	// All-hits keep the baseline near 1.0; no spike.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if d.Observe(true) {
 			t.Fatal("steady state must not trigger")
 		}

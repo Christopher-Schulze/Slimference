@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -92,12 +93,7 @@ func isGoTestJSONArgv(argv []string) bool {
 	if !isGoTestArgv(argv) {
 		return false
 	}
-	for _, a := range argv[1:] {
-		if a == "-json" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], "-json")
 }
 
 func isGoBinary(name string) bool {
@@ -166,12 +162,7 @@ func isGoTestArgv(argv []string) bool {
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	if isGoBinary(argv[0]) {
-		for _, a := range argv[1:] {
-			if a == "test" {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(argv[1:], "test")
 	}
 	if b0 == "npx" || b0 == "npx.cmd" {
 		rest, ok := npxArgvSuffix(argv)
@@ -270,7 +261,7 @@ func compactCargoTestVerbosePass(stdout []byte) ([]byte, bool) {
 // allCargoFailureCountsZero accepts "test result: ok. N passed; 0 failed"
 // summary rows while rejecting any non-zero failure count.
 func allCargoFailureCountsZero(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if !strings.HasPrefix(t, "test result:") {
 			continue
@@ -527,7 +518,7 @@ func compactCtestAllPass(stdout []byte) ([]byte, bool) {
 			return stdout, false
 		}
 	}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		tl := strings.ToLower(t)
 		if strings.Contains(tl, "tests passed") && strings.Contains(tl, "0 tests failed") {
@@ -620,7 +611,7 @@ func compactPhpunitAllPass(stdout []byte) ([]byte, bool) {
 			return stdout, false
 		}
 	}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "OK (") && strings.HasSuffix(t, ")") {
 			summary := strings.TrimSuffix(strings.TrimPrefix(t, "OK ("), ")")
@@ -753,7 +744,7 @@ func compactKarmaAllPass(stdout []byte) ([]byte, bool) {
 	s := string(stdout)
 	totalLine := ""
 	totalCount := 0
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		lower := strings.ToLower(trimmed)
 		if karmaLineHasUnsafeMarker(trimmed, lower) {
@@ -1943,8 +1934,8 @@ func nxJSTestSuiteSummarySafe(line string) (seen, safe bool) {
 
 func nxSummaryCounts(summary string) (map[string]int, bool) {
 	counts := make(map[string]int)
-	parts := strings.Split(summary, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(summary, ",")
+	for part := range parts {
 		fields := strings.Fields(strings.TrimSpace(part))
 		if len(fields) < 2 || !asciiDecimal(fields[0]) {
 			continue
@@ -2151,7 +2142,7 @@ func turboCachedSummaryCounts(line string) (cached, total int, ok bool) {
 
 func turboSummaryCounts(summary string) (map[string]int, bool) {
 	counts := make(map[string]int)
-	for _, part := range strings.Split(summary, ",") {
+	for part := range strings.SplitSeq(summary, ",") {
 		fields := strings.Fields(strings.TrimSpace(part))
 		if len(fields) < 2 || !asciiDecimal(fields[0]) {
 			continue
@@ -2245,7 +2236,7 @@ func compactPythonUnittestAllPass(stdout []byte) ([]byte, bool) {
 
 	ranLine := ""
 	okLine := ""
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		lowerLine := strings.ToLower(trimmed)
 		if strings.HasPrefix(lowerLine, "ran ") && strings.Contains(lowerLine, " test") {
@@ -2543,7 +2534,7 @@ func compactDartFlutterAllPass(stdout []byte, label string) ([]byte, bool) {
 		}
 	}
 	summary := ""
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if strings.Contains(strings.ToLower(t), "all tests passed!") {
 			summary = t
@@ -2595,7 +2586,7 @@ func compactElmTestAllPass(stdout []byte) ([]byte, bool) {
 	passed := -1
 	failed := -1
 	sawPassed := false
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -2650,11 +2641,11 @@ func elmTestLineHasUnsafeMarker(lower string) bool {
 }
 
 func parseCountAfterColon(line string) (int, bool) {
-	idx := strings.IndexByte(line, ':')
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, ":")
+	if !ok {
 		return 0, false
 	}
-	fields := strings.Fields(line[idx+1:])
+	fields := strings.Fields(after)
 	if len(fields) == 0 {
 		return 0, false
 	}
@@ -2711,7 +2702,7 @@ func compactDenoTestAllPass(stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	summary := ""
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		lowLine := strings.ToLower(t)
 		if strings.HasPrefix(lowLine, "ok |") && strings.Contains(lowLine, " passed") && strings.Contains(lowLine, "0 failed") {
@@ -2779,7 +2770,7 @@ func compactGradleTestAllPass(stdout []byte) ([]byte, bool) {
 			return stdout, false
 		}
 	}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "BUILD SUCCESSFUL") {
 			out := fmt.Sprintf("[gradle test] ok (%s)\n", t)
@@ -2883,7 +2874,7 @@ func compactScalaStyleTestAllPass(stdout []byte, label string) ([]byte, bool) {
 	sawSummary := false
 	sawAllPassed := false
 	sawSuccess := false
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -2933,19 +2924,19 @@ func compactScalaStyleTestAllPass(stdout []byte, label string) ([]byte, bool) {
 
 func stripScalaLogPrefix(line string) string {
 	for _, prefix := range []string{"[info]", "[success]", "[warn]", "[error]"} {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return line
 }
 
 func parseScalaStyleSuitesAborted(line string) (int, bool) {
-	idx := strings.Index(line, "Suites:")
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, "Suites:")
+	if !ok {
 		return 0, false
 	}
-	fields := strings.FieldsFunc(line[idx+len("Suites:"):], func(r rune) bool {
+	fields := strings.FieldsFunc(after, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == ','
 	})
 	for i := 0; i < len(fields)-1; i++ {
@@ -2959,11 +2950,11 @@ func parseScalaStyleSuitesAborted(line string) (int, bool) {
 }
 
 func parseScalaStyleTestsSummary(line string) (map[string]int, bool) {
-	idx := strings.Index(line, "Tests:")
-	if idx < 0 {
+	_, after, ok := strings.Cut(line, "Tests:")
+	if !ok {
 		return nil, false
 	}
-	fields := strings.FieldsFunc(line[idx+len("Tests:"):], func(r rune) bool {
+	fields := strings.FieldsFunc(after, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == ','
 	})
 	counts := make(map[string]int)
@@ -3335,12 +3326,7 @@ func toxEnvLooksTestLike(env string) bool {
 }
 
 func argvHasExactToken(argv []string, token string) bool {
-	for _, a := range argv[1:] {
-		if a == token {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(argv[1:], token)
 }
 
 // TryCompactTestOutput chains common test runners with empty-success stdout.

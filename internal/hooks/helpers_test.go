@@ -12,20 +12,20 @@ func TestRemoveClaudeSlimferenceHooks(t *testing.T) {
 	t.Parallel()
 
 	scriptPath := "/tmp/slimference-rewrite.sh"
-	entries := []interface{}{
+	entries := []any{
 		"raw",
-		map[string]interface{}{"matcher": "Bash"},
-		map[string]interface{}{
+		map[string]any{"matcher": "Bash"},
+		map[string]any{
 			"matcher": "Bash",
-			"hooks": []interface{}{
-				map[string]interface{}{"command": "bash /tmp/other.sh"},
-				map[string]interface{}{"command": "bash " + scriptPath},
+			"hooks": []any{
+				map[string]any{"command": "bash /tmp/other.sh"},
+				map[string]any{"command": "bash " + scriptPath},
 			},
 		},
-		map[string]interface{}{
+		map[string]any{
 			"matcher": "Edit",
-			"hooks": []interface{}{
-				map[string]interface{}{"command": "bash /tmp/slimference-rewrite.sh"},
+			"hooks": []any{
+				map[string]any{"command": "bash /tmp/slimference-rewrite.sh"},
 			},
 		},
 	}
@@ -34,11 +34,11 @@ func TestRemoveClaudeSlimferenceHooks(t *testing.T) {
 	if len(filtered) != 3 {
 		t.Fatalf("unexpected filtered length: %d (%#v)", len(filtered), filtered)
 	}
-	last, ok := filtered[2].(map[string]interface{})
+	last, ok := filtered[2].(map[string]any)
 	if !ok {
 		t.Fatalf("expected third entry map, got %#v", filtered[2])
 	}
-	hooksSlice := last["hooks"].([]interface{})
+	hooksSlice := last["hooks"].([]any)
 	if len(hooksSlice) != 1 {
 		t.Fatalf("expected slimference hook removal, got %#v", hooksSlice)
 	}
@@ -50,13 +50,13 @@ func TestIsClaudeSlimferenceHook(t *testing.T) {
 	if isClaudeSlimferenceHook("not-a-map", "/tmp/slimference-rewrite.sh") {
 		t.Fatal("non-map hook should be false")
 	}
-	if isClaudeSlimferenceHook(map[string]interface{}{"command": ""}, "/tmp/slimference-rewrite.sh") {
+	if isClaudeSlimferenceHook(map[string]any{"command": ""}, "/tmp/slimference-rewrite.sh") {
 		t.Fatal("empty command should be false")
 	}
-	if isClaudeSlimferenceHook(map[string]interface{}{"command": "bash /tmp/other.sh"}, "/tmp/slimference-rewrite.sh") {
+	if isClaudeSlimferenceHook(map[string]any{"command": "bash /tmp/other.sh"}, "/tmp/slimference-rewrite.sh") {
 		t.Fatal("non-slimference command should be false")
 	}
-	if !isClaudeSlimferenceHook(map[string]interface{}{"command": "bash /tmp/slimference-rewrite.sh"}, "/tmp/custom/slimference-rewrite.sh") {
+	if !isClaudeSlimferenceHook(map[string]any{"command": "bash /tmp/slimference-rewrite.sh"}, "/tmp/custom/slimference-rewrite.sh") {
 		t.Fatal("basename match should be true")
 	}
 }
@@ -69,18 +69,18 @@ func TestInstallCodexHooksJSONWithScripts_ReplacesExistingSlimferenceEntries(t *
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0755); err != nil {
 		t.Fatal(err)
 	}
-	raw := map[string]interface{}{
-		"PreToolUse": []interface{}{
-			map[string]interface{}{
+	raw := map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
 				"matcher": "Bash",
-				"hooks": []interface{}{
-					map[string]interface{}{"command": "bash /old/codex-pre-tool.sh"},
+				"hooks": []any{
+					map[string]any{"command": "bash /old/codex-pre-tool.sh"},
 				},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"matcher": "Keep",
-				"hooks": []interface{}{
-					map[string]interface{}{"command": "bash /keep.sh"},
+				"hooks": []any{
+					map[string]any{"command": "bash /keep.sh"},
 				},
 			},
 		},
@@ -237,30 +237,30 @@ func TestRemoveCodexHooksJSON_InvalidJSONIsIgnored(t *testing.T) {
 func TestRemoveCodexHookEventAndMergeHelpers(t *testing.T) {
 	t.Parallel()
 
-	existing := map[string]interface{}{
-		"PreToolUse": []interface{}{
-			map[string]interface{}{
-				"hooks": []interface{}{
-					map[string]interface{}{"command": "bash /tmp/codex-pre-tool.sh"},
+	existing := map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
+				"hooks": []any{
+					map[string]any{"command": "bash /tmp/codex-pre-tool.sh"},
 				},
 			},
-			map[string]interface{}{
-				"hooks": []interface{}{
-					map[string]interface{}{"command": "bash /tmp/keep.sh"},
+			map[string]any{
+				"hooks": []any{
+					map[string]any{"command": "bash /tmp/keep.sh"},
 				},
 			},
 		},
 	}
 	removeCodexHookEvent(existing, "PreToolUse")
-	entries := existing["PreToolUse"].([]interface{})
+	entries := existing["PreToolUse"].([]any)
 	if len(entries) != 1 {
 		t.Fatalf("expected only non-slimference entry to remain, got %#v", entries)
 	}
 
-	merged := mergeCodexHookEntries([]interface{}{
-		map[string]interface{}{"hooks": []interface{}{map[string]interface{}{"command": "bash /tmp/codex-post-tool.sh"}}},
-		map[string]interface{}{"hooks": []interface{}{map[string]interface{}{"command": "bash /tmp/keep.sh"}}},
-	}, map[string]interface{}{"matcher": "Bash"})
+	merged := mergeCodexHookEntries([]any{
+		map[string]any{"hooks": []any{map[string]any{"command": "bash /tmp/codex-post-tool.sh"}}},
+		map[string]any{"hooks": []any{map[string]any{"command": "bash /tmp/keep.sh"}}},
+	}, map[string]any{"matcher": "Bash"})
 	if len(merged) != 2 {
 		t.Fatalf("unexpected merged entries: %#v", merged)
 	}
@@ -272,12 +272,12 @@ func TestCodexEntryHasSlimferenceHook(t *testing.T) {
 	if codexEntryHasSlimferenceHook("bad") {
 		t.Fatal("non-map entry should be false")
 	}
-	if codexEntryHasSlimferenceHook(map[string]interface{}{"hooks": []interface{}{"bad"}}) {
+	if codexEntryHasSlimferenceHook(map[string]any{"hooks": []any{"bad"}}) {
 		t.Fatal("non-map hook should be false")
 	}
-	if !codexEntryHasSlimferenceHook(map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{"statusMessage": "Slimference rewrite guard"},
+	if !codexEntryHasSlimferenceHook(map[string]any{
+		"hooks": []any{
+			map[string]any{"statusMessage": "Slimference rewrite guard"},
 		},
 	}) {
 		t.Fatal("status message should identify slimference hook")

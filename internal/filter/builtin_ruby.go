@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -162,12 +163,7 @@ func isMinitestRubyArgv(argv []string) bool {
 	if b != "ruby" && b != "ruby.exe" {
 		return false
 	}
-	for _, arg := range argv[1:] {
-		if minitestTestFileArg(arg) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(argv[1:], minitestTestFileArg)
 }
 
 func minitestTestFileArg(arg string) bool {

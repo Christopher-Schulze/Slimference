@@ -88,7 +88,6 @@ func TestRingBuffer_PushAndLast(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			rb := NewRingBuffer[int](tc.cap)
@@ -141,11 +140,10 @@ func TestRingBuffer_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
-		g := g
+	for g := range goroutines {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < pushesPerGoroutine; i++ {
+			for i := range pushesPerGoroutine {
 				rb.Push(g*1000 + i)
 				_ = rb.Last(5)
 			}
@@ -176,7 +174,6 @@ func TestRingBuffer_Len(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			rb := NewRingBuffer[int](tc.cap)

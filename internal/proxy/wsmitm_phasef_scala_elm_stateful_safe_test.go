@@ -42,7 +42,6 @@ func TestWSSStatefulSafeScalaElmAllPassCompactsFullHistoryTurn(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -122,7 +121,6 @@ func TestWSSStatefulUnsafeScalaElmSignalsDoNotBecomeAllPass(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -163,7 +161,6 @@ func TestWSSCompactedTestOutputOKEdges(t *testing.T) {
 		{name: "warning", compacted: "[elm-test] warning emitted\n", want: false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssCompactedTestOutputOK([]byte(tt.compacted)); got != tt.want {
@@ -177,7 +174,7 @@ func wssScalaStyleAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("[info] Compiling 1 Scala source to /repo/target...\n")
 	out.WriteString("[info] ExampleSuite:\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "[info] - generated case %03d\n", i)
 	}
 	fmt.Fprintf(&out, "[info] Total number of tests run: %d\n", count)
@@ -197,7 +194,7 @@ func wssElmTestAllPassFixture(count int) string {
 	out.WriteString("elm-test 0.19.1-revision6\n")
 	out.WriteString("-------------------------\n\n")
 	fmt.Fprintf(&out, "Running %d tests. To reproduce these results, run: elm-test --fuzz 100 --seed 148067075282531\n", count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "generated case %03d passed\n", i)
 	}
 	out.WriteString("\nTEST RUN PASSED\n\n")
@@ -214,7 +211,7 @@ func wssScalaElmUnsafeEnvelope(label, tail string) string {
 	out.WriteString("Process exited with code 0\n")
 	out.WriteString("Original token count: 12000\n")
 	out.WriteString("Output:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&out, "unsafe %s prelude %03d\n", label, i)
 	}
 	out.WriteString(tail)

@@ -660,7 +660,6 @@ func TestStructureExtractor_Extract_extendedLanguages(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.lang, func(t *testing.T) {
 			t.Parallel()
 			out, ok := e.Extract(tc.code, tc.lang)

@@ -60,7 +60,7 @@ func TestTryCompactEslintJSON_windowsShimArgv(t *testing.T) {
 func TestTryCompactEslintJSON_errorSurvivesPastWarningCap(t *testing.T) {
 	t.Parallel()
 	var msgs strings.Builder
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		msgs.WriteString(fmt.Sprintf(`{"ruleId":"semi","severity":1,"message":"Missing semicolon.","line":%d,"column":1},`, i+1))
 	}
 	// The single error sits AFTER 25 warnings; it must still be emitted because
@@ -83,7 +83,7 @@ func TestTryCompactEslintJSON_errorSurvivesPastWarningCap(t *testing.T) {
 func TestTryCompactEslintJSON_lateErrorSurvivesWithinErrorCap(t *testing.T) {
 	t.Parallel()
 	var msgs strings.Builder
-	for i := 0; i < 26; i++ {
+	for i := range 26 {
 		if i > 0 {
 			msgs.WriteString(",")
 		}
@@ -151,7 +151,7 @@ func TestTryCompactEslintStylishWarningOnly(t *testing.T) {
 	t.Parallel()
 
 	var input strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		input.WriteString("\nsrc/app.js\n")
 		input.WriteString("  1:1  warning  Unexpected console statement  no-console\n")
 	}
@@ -324,7 +324,7 @@ func TestEslintStylishParserHelpers(t *testing.T) {
 
 func eslintStylishFixture(path string, repeats int, fixable bool) string {
 	var b strings.Builder
-	for i := 0; i < repeats; i++ {
+	for range repeats {
 		b.WriteString("\n")
 		b.WriteString(path)
 		b.WriteString("\n")

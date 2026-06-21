@@ -89,8 +89,8 @@ type ContentBlock struct {
 	ToolUseID    string        `json:"tool_use_id,omitempty"`
 	ToolResultID string        `json:"tool_result_id,omitempty"`
 	ImageData    string        `json:"image_data,omitempty"`
-	ImageSource  interface{}   `json:"image_source,omitempty"` // preserved raw for passthrough
-	RawBlock     interface{}   `json:"raw_block,omitempty"`    // original parsed block for passthrough
+	ImageSource  any           `json:"image_source,omitempty"` // preserved raw for passthrough
+	RawBlock     any           `json:"raw_block,omitempty"`    // original parsed block for passthrough
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
 	// ArchiveID is set when a lossy Layer 1 sub-layer mutated this block. It
 	// references an internal/contentarchive entry that holds the original

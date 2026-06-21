@@ -66,7 +66,6 @@ func TestExtractToolCallKey_fromToolInputKnownKeys(t *testing.T) {
 		{`{"name":"something"}`, "tool:bash|something"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.input, func(t *testing.T) {
 			t.Parallel()
 			block := types.ContentBlock{ToolName: "Bash", ToolInput: tc.input}

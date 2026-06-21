@@ -257,7 +257,7 @@ func (p *HostsFileNetworkProbe) ProbeNetwork(ctx context.Context) NetworkState {
 // redirects `target` to a loopback address. Comments and lines that
 // don't reference `target` are ignored.
 func hostsFileContainsTarget(content, target string) bool {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue

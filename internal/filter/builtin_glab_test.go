@@ -124,7 +124,7 @@ func TestTryCompactGlabList_compactNotShorter(t *testing.T) {
 	t.Parallel()
 	// 16 rows of "a\n" = 32 chars; compact "[glab mr list] 16 items\n"+"a\n"*15+"... +1 more\n" ≈ 66+ chars > 32.
 	var sb strings.Builder
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		sb.WriteString("a\n")
 	}
 	_, ok := TryCompactGlabList([]string{"glab", "mr", "list"}, []byte(sb.String()))

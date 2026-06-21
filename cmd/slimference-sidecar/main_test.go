@@ -839,8 +839,7 @@ func TestRun_ServeFailureReturns1(t *testing.T) {
 	}
 	t.Cleanup(func() { listenFn = prevListen })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	var buf strings.Builder
 	code := run(ctx, []string{"--addr", "127.0.0.1:0", "--probe-interval", "1h", "--rpc-timeout", "1ms"}, &buf)
 	if code != 1 {

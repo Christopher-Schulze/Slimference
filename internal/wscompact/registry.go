@@ -3,6 +3,7 @@ package wscompact
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -151,12 +152,7 @@ func fallbackBehavior(summary FrameSummary) string {
 }
 
 func hasJSONKey(summary FrameSummary, want string) bool {
-	for _, key := range summary.JSONKeys {
-		if key == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(summary.JSONKeys, want)
 }
 
 func isCodexResponsesShapeRoute(route string) bool {

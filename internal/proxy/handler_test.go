@@ -698,10 +698,10 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	defer func() { newRequestIDFn = origNewReqID }()
 
 	p.toolPrune = toolprune.NewUsageTracker(2)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot", "GetWeather", "SendMail"})
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot"})
 	}
 

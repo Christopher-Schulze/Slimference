@@ -17,7 +17,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	diffStat := wssDiffStatFixture(36)
 	gitShowStat := wssGitShowStatFixture(36)
 	var nameStatusOutput strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		status := "M"
 		if i%3 == 0 {
 			status = "A"
@@ -28,7 +28,7 @@ func TestWSSStatefulToolOutputMutationSafeAdditionalEvidenceClasses(t *testing.T
 	}
 	var wcOutput strings.Builder
 	wcArgs := make([]string, 0, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		path := fmt.Sprintf("internal/proxy/generated/very/deep/path/file_%02d.go", i)
 		wcArgs = append(wcArgs, path)
 		wcOutput.WriteString(fmt.Sprintf("      %d %s\n", i+300, path))
@@ -548,7 +548,6 @@ func TestWSSStatefulSafePackageInstallCleanSuccessCompactsFullHistoryTurn(t *tes
 		{name: "uv pip install", command: "uv pip install requests", output: wssUvPipInstallCleanFixture(160), want: "[uv pip install] ok (resolved 160 packages", forbidden: "uv-package-159"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -612,7 +611,6 @@ func TestWSSCompactedPackageSuccessSummaryContract(t *testing.T) {
 		{name: "resolver original", original: []byte("ERR_PNPM_NO_MATCHING_VERSION missing\n"), compacted: []byte("[pnpm install] added 3 packages\n")},
 	}
 	for _, tt := range rejects {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if wssCompactedPackageSuccessSummary(tt.original, tt.compacted) {
@@ -922,7 +920,6 @@ func TestWSSStatefulSafeCargoBuildCleanCompactsFullHistoryTurn(t *testing.T) {
 		{name: "doc", command: "cargo doc --no-deps", output: wssCargoBuildCleanProgressFixture("Documenting", 120), want: "[cargo doc] ok"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -1246,7 +1243,7 @@ func TestWSSStatefulSafeGitDiffNameStatusCompactsFullHistoryTurn(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	var listing strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		status := "M"
 		if i%3 == 0 {
 			status = "A"
@@ -1561,7 +1558,6 @@ func TestWSSStatefulSafePytestWrappersAllPassCompactFullHistoryTurn(t *testing.T
 		{name: "tox", command: "tox -e py311", want: "[tox test] ok - 120 passed"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Compression.OutputReduce.StopSequencesEnabled = false
@@ -1674,7 +1670,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "not git", command: "status --short", want: false},
 	}
 	for _, tt := range gitStatusCases {
-		tt := tt
 		t.Run("git_status/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeGitStatusCommand(tt.command); got != tt.want {
@@ -1702,7 +1697,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "search shaped payload", command: "git log --oneline -n 1", payload: "internal/proxy/a.go:10:needle\n", want: false},
 	}
 	for _, tt := range gitLogCases {
-		tt := tt
 		t.Run("git_log/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeGitLogOnelineOutput(tt.command, tt.payload); got != tt.want {
@@ -1724,7 +1718,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "missing split diff filter", command: "git diff --stat --diff-filter", want: false},
 	}
 	for _, tt := range gitDiffStatCases {
-		tt := tt
 		t.Run("git_diff_stat/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeGitDiffStatCommand(tt.command); got != tt.want {
@@ -1746,7 +1739,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "patch flag", args: []string{"--stat", "--patch"}, want: false},
 	}
 	for _, tt := range gitShowStatCases {
-		tt := tt
 		t.Run("git_show_stat_args/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeGitShowStatArgs(tt.args); got != tt.want {
@@ -1767,7 +1759,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "unknown short flag", args: []string{"-lh"}, want: false},
 	}
 	for _, tt := range lsCases {
-		tt := tt
 		t.Run("ls/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeLsArgs(tt.args); got != tt.want {
@@ -1791,7 +1782,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "empty arg", args: []string{"internal", "-maxdepth", "2", ""}, want: false},
 	}
 	for _, tt := range findCases {
-		tt := tt
 		t.Run("find/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeFindArgs(tt.args); got != tt.want {
@@ -1815,7 +1805,6 @@ func TestWSSStatefulSafeGuardPredicateBoundaries(t *testing.T) {
 		{name: "empty separator rest", args: []string{"-L", "2", "--", ""}, want: false},
 	}
 	for _, tt := range treeCases {
-		tt := tt
 		t.Run("tree/"+tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wssSafeTreeArgs(tt.args); got != tt.want {
@@ -2200,7 +2189,7 @@ func TestReduceCodexLayer0StructuredMixedToolOutputsAllowsOnlySafeBlocks(t *test
 
 func wssDiffStatFixture(files int) string {
 	var out strings.Builder
-	for i := 0; i < files; i++ {
+	for i := range files {
 		out.WriteString(" internal/proxy/generated/very/deep/path/file_")
 		out.WriteString(strings.Repeat("x", 12))
 		out.WriteString(fmt.Sprintf("_%02d.go | %d +++++-----\n", i, i+1))
@@ -2233,7 +2222,7 @@ index 111..222 100644
 
 func wssMypySuccessFixture(noiseLines int) string {
 	var out strings.Builder
-	for i := 0; i < noiseLines; i++ {
+	for i := range noiseLines {
 		fmt.Fprintf(&out, "Using Python executable for module %03d: /tmp/slimference-venv/bin/python\n", i)
 	}
 	out.WriteString("Success: no issues found in 188 source files\n")
@@ -2243,7 +2232,7 @@ func wssMypySuccessFixture(noiseLines int) string {
 func wssPyrightJSONSuccessFixture(paddingLines int) string {
 	var out strings.Builder
 	out.WriteString("{\n")
-	for i := 0; i < paddingLines; i++ {
+	for range paddingLines {
 		out.WriteString("  \n")
 	}
 	out.WriteString(`  "version": "1.1.400",
@@ -2501,7 +2490,7 @@ func wssGitLogOnelineRequestBody(previousResponseID, callID, output string) map[
 
 func wssGoTestVerboseAllPassFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	out.WriteString("PASS\nok  \tslimtest/lib\t0.006s\n")
@@ -2510,7 +2499,7 @@ func wssGoTestVerboseAllPassFixture(count int) string {
 
 func wssGoTestVerboseFailureFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	out.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -2524,7 +2513,7 @@ func wssCargoTestVerboseAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("   Compiling slimtest v0.1.0\n    Finished test profile\n     Running unittests src/lib.rs\n\nrunning ")
 	fmt.Fprintf(&out, "%d tests\n", count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "test alpha::op_%03d ... ok\n", i)
 	}
 	fmt.Fprintf(&out, "\ntest result: ok. %d passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n", count)
@@ -2536,7 +2525,7 @@ func wssCargoNextestAllPassFixture(count int) string {
 	out.WriteString("    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n")
 	out.WriteString("------------\n")
 	fmt.Fprintf(&out, "    Starting %d tests across 1 binary\n", count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "        PASS [   0.%03ds] slimference::test_%03d\n", i%100, i)
 	}
 	out.WriteString("------------\n")
@@ -2557,7 +2546,7 @@ func wssCtestAllPassFixture(count int) string {
 
 func wssCargoClippyCleanFixture(packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "    Checking slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
@@ -2566,7 +2555,7 @@ func wssCargoClippyCleanFixture(packages int) string {
 
 func wssCargoBuildCleanProgressFixture(verb string, packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "    %s slimtest_%03d v0.1.0 (/repo/crates/slimtest_%03d)\n", verb, i, i)
 	}
 	out.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
@@ -2577,7 +2566,7 @@ func wssCargoTestJSONAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString(`{"type":"suite","event":"started"}`)
 	out.WriteByte('\n')
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, `{"type":"test","event":"ok","name":"alpha::op_%03d"}`+"\n", i)
 	}
 	fmt.Fprintf(&out, `{"type":"suite","event":"ok","passed":%d,"failed":0}`+"\n", count)
@@ -2601,7 +2590,7 @@ func wssGinkgoAllPassFixture(count int) string {
 func wssPytestVerboseAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("============================= test session starts ==============================\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "tests/test_alpha.py::test_op_%03d PASSED                                  [ %2d%%]\n", i, i)
 	}
 	fmt.Fprintf(&out, "============================== %d passed in 0.42s ===============================\n", count)
@@ -2610,7 +2599,7 @@ func wssPytestVerboseAllPassFixture(count int) string {
 
 func wssPythonUnittestAllPassFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		out.WriteByte('.')
 		if (i+1)%80 == 0 {
 			out.WriteByte('\n')
@@ -2628,7 +2617,7 @@ func wssPytestJSONAllPassFixture(count int) string {
 func wssJestVerboseAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("PASS src/alpha.test.ts\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  \u2713 renders op %03d (2 ms)\n", i)
 	}
 	fmt.Fprintf(&out, "\nTests: %d passed, %d total\nTime: 1.2 s\n", count, count)
@@ -2638,7 +2627,7 @@ func wssJestVerboseAllPassFixture(count int) string {
 func wssVitestJSONAllPassFixture(count int) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, `{"numTotalTestSuites":1,"numPassedTestSuites":1,"numFailedTestSuites":0,"numTotalTests":%d,"numPassedTests":%d,"numFailedTests":0,"testResults":[{"name":"src/widget.test.ts","status":"passed","assertionResults":[`, count, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			out.WriteByte(',')
 		}
@@ -2651,7 +2640,7 @@ func wssVitestJSONAllPassFixture(count int) string {
 func wssEslintJSONCleanFixture(files int) string {
 	var out strings.Builder
 	out.WriteByte('[')
-	for i := 0; i < files; i++ {
+	for i := range files {
 		if i > 0 {
 			out.WriteByte(',')
 		}
@@ -2664,7 +2653,7 @@ func wssEslintJSONCleanFixture(files int) string {
 func wssSARIFZeroResultsFixture(ruleCount int) string {
 	var out strings.Builder
 	out.WriteString(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"clippy","rules":[`)
-	for i := 0; i < ruleCount; i++ {
+	for i := range ruleCount {
 		if i > 0 {
 			out.WriteByte(',')
 		}
@@ -2678,7 +2667,7 @@ func wssSARIFZeroResultsFixture(ruleCount int) string {
 func wssMochaAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("  widget suite\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "    ✔ renders op %03d (2ms)\n", i)
 	}
 	fmt.Fprintf(&out, "\n  %d passing (95ms)\n", count)
@@ -2687,7 +2676,7 @@ func wssMochaAllPassFixture(count int) string {
 
 func wssAvaAllPassFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  ✔ renders op %03d\n", i)
 	}
 	fmt.Fprintf(&out, "\n  %d tests passed\n", count)
@@ -2720,7 +2709,7 @@ func wssCypressRunAllPassFixture(count int) string {
 	out.WriteString("  (Run Finished)\n\n")
 	out.WriteString("       Spec                                              Tests  Passing  Failing  Pending  Skipped\n")
 	out.WriteString("  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  │ ✔  cypress/e2e/generated_%03d.cy.ts              00:01        1        1        -        -        - │\n", i)
 	}
 	out.WriteString("  └────────────────────────────────────────────────────────────────────────────────────────────────┘\n")
@@ -2765,7 +2754,7 @@ func wssNxTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("> nx run web:test\n\n")
 	out.WriteString("PASS apps/web/src/app/app.spec.ts\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  ✓ renders op %03d (2 ms)\n", i)
 	}
 	out.WriteString("\n")
@@ -2834,7 +2823,7 @@ func wssRailsTestAllPassFixture(count int) string {
 
 func wssRspecAllPassFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "spec/models/widget_spec.rb:%03d: example_%03d passed\n", i+1, i)
 	}
 	out.WriteString("\nFinished in 0.12345 seconds (files took 1.234 seconds to load)\n")
@@ -2844,7 +2833,7 @@ func wssRspecAllPassFixture(count int) string {
 
 func wssDotnetTestAllPassFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  Passed Test%03d [1 ms]\n", i)
 	}
 	fmt.Fprintf(&out, "Passed!  - Failed: 0, Passed: %d, Skipped: 0, Total: %d, Duration: 1 s - Tests.dll (net8.0)\n", count, count)
@@ -2855,7 +2844,7 @@ func wssDotnetBuildSuccessFixture(projects, warnings int) string {
 	var out strings.Builder
 	out.WriteString("Microsoft (R) Build Engine version 17.8.0\n")
 	out.WriteString("  Determining projects to restore...\n")
-	for i := 0; i < projects; i++ {
+	for i := range projects {
 		fmt.Fprintf(&out, "  Project%03d -> /repo/bin/Debug/net8.0/Project%03d.dll\n", i, i)
 	}
 	out.WriteString("\nBuild succeeded.\n")
@@ -2871,7 +2860,7 @@ func wssDotnetBuildSuccessFixture(projects, warnings int) string {
 
 func wssNpmInstallCleanFixture(packages int) string {
 	var out strings.Builder
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "npm http fetch GET 200 https://registry.npmjs.org/package_%03d 12%dms\n", i, i%10)
 		fmt.Fprintf(&out, "npm timing idealTree:node_modules/package_%03d Completed in %dms\n", i, i%20+1)
 	}
@@ -2890,7 +2879,7 @@ func wssPnpmInstallCleanFixture(packages int) string {
 	out.WriteString("\n")
 	fmt.Fprintf(&out, "Progress: resolved %d, reused %d, downloaded 0, added %d, done\n\n", packages, packages, packages)
 	out.WriteString("dependencies:\n")
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "+ slimference-pnpm-package-%03d 1.0.%d\n", i, i)
 	}
 	out.WriteString("\nDone in 256ms using pnpm v10.13.1\n")
@@ -2915,7 +2904,7 @@ func wssPoetryInstallCleanFixture(packages int) string {
 	var out strings.Builder
 	out.WriteString("Installing dependencies from lock file\n\n")
 	fmt.Fprintf(&out, "Package operations: %d %s, 0 updates, 0 removals\n\n", packages, wssPluralWord(packages, "install", "installs"))
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, "  - Installing package-%03d (1.0.%d)\n", i, i)
 	}
 	out.WriteString("\nWriting lock file\n")
@@ -2936,7 +2925,7 @@ func wssUvPackageCleanFixture(packages int, audit bool) string {
 	fmt.Fprintf(&out, "Resolved %d %s in 23ms\n", packages, wssPluralWord(packages, "package", "packages"))
 	fmt.Fprintf(&out, "Prepared %d %s in 42ms\n", packages, wssPluralWord(packages, "package", "packages"))
 	fmt.Fprintf(&out, "Installed %d %s in 5ms\n", packages, wssPluralWord(packages, "package", "packages"))
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		fmt.Fprintf(&out, " + uv-package-%03d==1.0.%d\n", i, i)
 	}
 	if audit {
@@ -2955,7 +2944,7 @@ func wssPluralWord(count int, singular, plural string) string {
 func wssPipInstallCleanFixture(packages int) string {
 	var out strings.Builder
 	installed := make([]string, 0, packages)
-	for i := 0; i < packages; i++ {
+	for i := range packages {
 		name := fmt.Sprintf("package-%03d", i)
 		installed = append(installed, name+"-1.0.0")
 		fmt.Fprintf(&out, "Collecting %s\n", name)
@@ -2968,7 +2957,7 @@ func wssPipInstallCleanFixture(packages int) string {
 
 func wssLogDuplicateRunsFixture(entries int) string {
 	var out strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&out, "2026-06-18T10:%02d:00Z INFO worker heartbeat %03d\n", i%60, i)
 		fmt.Fprintf(&out, "2026-06-18T10:%02d:00Z INFO worker heartbeat %03d\n", i%60, i)
 		fmt.Fprintf(&out, "2026-06-18T10:%02d:01Z ERROR upstream timeout %03d\n", i%60, i)
@@ -2980,7 +2969,7 @@ func wssLogDuplicateRunsFixture(entries int) string {
 
 func wssListingFixture(files int) string {
 	var out strings.Builder
-	for i := 0; i < files; i++ {
+	for i := range files {
 		out.WriteString(fmt.Sprintf("internal/proxy/generated_listing_%03d.go\n", i))
 	}
 	return out.String()
@@ -2992,7 +2981,7 @@ func wssRgFilesRootListingFixture(files int) string {
 		out.WriteString(path)
 		out.WriteByte('\n')
 	}
-	for i := 0; i < files; i++ {
+	for i := range files {
 		out.WriteString(fmt.Sprintf("internal/proxy/generated/deep/path/file_%03d.go\n", i))
 	}
 	return out.String()
@@ -3001,7 +2990,7 @@ func wssRgFilesRootListingFixture(files int) string {
 func wssTreeFixture(files int) string {
 	var out strings.Builder
 	out.WriteString("internal/proxy\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		out.WriteString(fmt.Sprintf("|-- tree_file_%03d.go\n", i))
 	}
 	out.WriteString(fmt.Sprintf("\n1 directory, %d files\n", files))
@@ -3013,7 +3002,7 @@ func wssWcFixture(files int) (string, string) {
 	var output strings.Builder
 	command.WriteString("wc -l")
 	total := 0
-	for i := 0; i < files; i++ {
+	for i := range files {
 		path := fmt.Sprintf(" internal/proxy/generated/very/deep/path/file_%02d.go", i)
 		count := i + 100
 		total += count
@@ -3026,7 +3015,7 @@ func wssWcFixture(files int) (string, string) {
 
 func wssGitLogOnelineFixture(commits int) string {
 	var out strings.Builder
-	for i := 0; i < commits; i++ {
+	for i := range commits {
 		fmt.Fprintf(&out, "%07x commit subject %03d\n", i+1, i)
 	}
 	return out.String()

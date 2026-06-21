@@ -40,8 +40,8 @@ func isPreFiltered(content string) bool {
 	}
 	// Fast path: all current markers are ASCII and appear on the first line.
 	firstLine := content
-	if i := strings.IndexByte(content, '\n'); i >= 0 {
-		firstLine = content[:i]
+	if before, _, ok := strings.Cut(content, "\n"); ok {
+		firstLine = before
 	}
 	return rePreFilteredMarker.MatchString(firstLine)
 }

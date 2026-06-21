@@ -40,7 +40,7 @@ func TestObserveQualityToolKey_RoundTrip(t *testing.T) {
 func TestObserveQualityCacheHit_FeedsSpikeDetector(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		p.ObserveQualityCacheHit(true)
 	}
 	if p.QualitySnapshot().CacheMissSpike.Filled != 50 {

@@ -67,7 +67,7 @@ func TestTryCompactCargoNextest(t *testing.T) {
 	verbose.WriteString("    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n")
 	verbose.WriteString("────────────\n")
 	verbose.WriteString("    Starting 3 tests across 1 binary\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&verbose, "        PASS [   0.%03ds] slimference::test_%03d\n", i%100, i)
 	}
 	verbose.WriteString("────────────\n")
@@ -113,7 +113,7 @@ func TestTryCompactCargoNextest(t *testing.T) {
 func TestTryCompactGoTest_verboseAllPass(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&b, "=== RUN   TestAlpha%03d\n--- PASS: TestAlpha%03d (0.00s)\n", i, i)
 	}
 	b.WriteString("=== RUN   TestSkipped\n--- SKIP: TestSkipped (0.00s)\n")
@@ -308,7 +308,7 @@ func TestTryCompactTestOutput_goCargo(t *testing.T) {
 		t.Fatalf("yarn python -m unittest: %q", puUniYarn)
 	}
 	var unittestVerbose strings.Builder
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		unittestVerbose.WriteByte('.')
 		if (i+1)%80 == 0 {
 			unittestVerbose.WriteByte('\n')
@@ -1281,7 +1281,7 @@ func TestTryCompactTestOutput_nonEmptySecondaryAllPass(t *testing.T) {
 
 	var packageJest strings.Builder
 	packageJest.WriteString("PASS src/alpha.test.ts\n")
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		fmt.Fprintf(&packageJest, "  ✓ renders op %03d (2 ms)\n", i)
 	}
 	packageJest.WriteString("\nTests: 64 passed, 64 total\nTime: 1.2 s\n")
@@ -1431,7 +1431,7 @@ func TestTryCompactPackageManagerTestScript_directAllPassAndFailOpen(t *testing.
 
 	var packageJest strings.Builder
 	packageJest.WriteString("PASS src/alpha.test.ts\n")
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		fmt.Fprintf(&packageJest, "  ✓ renders op %03d (2 ms)\n", i)
 	}
 	packageJest.WriteString("\nTests: 64 passed, 64 total\nTime: 1.2 s\n")
@@ -1484,7 +1484,7 @@ func cypressRunAllPassFixture(specs int) string {
 	out.WriteString("  (Run Finished)\n\n")
 	out.WriteString("       Spec                                              Tests  Passing  Failing  Pending  Skipped\n")
 	out.WriteString("  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐\n")
-	for i := 0; i < specs; i++ {
+	for i := range specs {
 		fmt.Fprintf(&out, "  │ ✔  cypress/e2e/generated_%03d.cy.ts              00:01        1        1        -        -        - │\n", i)
 	}
 	out.WriteString("  └────────────────────────────────────────────────────────────────────────────────────────────────┘\n")
@@ -1529,7 +1529,7 @@ func nxTestAllPassFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("> nx run web:test\n\n")
 	out.WriteString("PASS apps/web/src/app/app.spec.ts\n")
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&out, "  ✓ renders op %03d (2 ms)\n", i)
 	}
 	out.WriteString("\n")
@@ -1734,7 +1734,7 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 
 	var cargo strings.Builder
 	cargo.WriteString("   Compiling slimtest v0.1.0\n    Finished test profile\n     Running unittests src/lib.rs\n\nrunning 80 tests\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&cargo, "test alpha::op_%03d ... ok\n", i)
 	}
 	cargo.WriteString("\ntest result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n")
@@ -1750,7 +1750,7 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 
 	var py strings.Builder
 	py.WriteString("============================= test session starts ==============================\n")
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&py, "tests/test_alpha.py::test_op_%03d PASSED                                  [ %2d%%]\n", i, i)
 	}
 	py.WriteString("============================== 90 passed in 0.42s ===============================\n")
@@ -1790,7 +1790,7 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 
 	var js strings.Builder
 	js.WriteString("PASS src/alpha.test.ts\n")
-	for i := 0; i < 70; i++ {
+	for i := range 70 {
 		fmt.Fprintf(&js, "  ✓ renders op %03d (2 ms)\n", i)
 	}
 	js.WriteString("\nTests: 70 passed, 70 total\nTime: 1.2 s\n")
@@ -1806,7 +1806,7 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 
 	var mocha strings.Builder
 	mocha.WriteString("  widget suite\n")
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		fmt.Fprintf(&mocha, "    ✔ renders op %03d (2ms)\n", i)
 	}
 	mocha.WriteString("\n  64 passing (95ms)\n")
@@ -1821,7 +1821,7 @@ func TestTryCompactTestRunners_verboseAllPass(t *testing.T) {
 	}
 
 	var ava strings.Builder
-	for i := 0; i < 52; i++ {
+	for i := range 52 {
 		fmt.Fprintf(&ava, "  ✔ renders op %03d\n", i)
 	}
 	ava.WriteString("\n  52 tests passed\n")

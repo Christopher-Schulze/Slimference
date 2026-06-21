@@ -316,7 +316,7 @@ func seedCodexRecertRepo(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("slimference recert\n"), 0o644); err != nil {
 		return err
 	}
-	for i := 0; i < 160; i++ {
+	for i := range 160 {
 		name := fmt.Sprintf("synthetic_%03d.go", i)
 		body := "package synthetic\n// RECERT_LAYER0_STATUS_SENTINEL\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -550,7 +550,7 @@ func readCodexRecertLockPID(path string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	for _, field := range strings.Fields(string(data)) {
+	for field := range strings.FieldsSeq(string(data)) {
 		if !strings.HasPrefix(field, "pid=") {
 			continue
 		}

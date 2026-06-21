@@ -308,7 +308,7 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	var bodyBuilder strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		bodyBuilder.WriteString("restored read line ")
 		bodyBuilder.WriteString(strconv.Itoa(i))
 		bodyBuilder.WriteString(" with enough stable content\n")
@@ -794,7 +794,7 @@ func TestWSPhaseFSearchCapStatefulDeltaBudgetHelpers(t *testing.T) {
 	if !adapter.wssSearchCapStatefulDeltaBudgetAvailable("session") {
 		t.Fatal("fresh session should have search-cap stateful delta budget")
 	}
-	for i := 0; i < wssSearchCapStatefulDeltaMaxTurns; i++ {
+	for range wssSearchCapStatefulDeltaMaxTurns {
 		adapter.recordWSSSearchCapStatefulDeltaMutation("session")
 	}
 	if adapter.wssSearchCapStatefulDeltaBudgetAvailable("session") {
@@ -1585,7 +1585,7 @@ func TestWSPhaseFOutputReduceSkipsLayer0CompactedResponseItemToolOutput(t *testi
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var status strings.Builder
-	for i := 0; i < 140; i++ {
+	for i := range 140 {
 		status.WriteString("?? synthetic_layer0_output_reduce_guard_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -2912,7 +2912,7 @@ func wssToolOutputBody(promptCacheKey, callID, toolName string, toolInput map[st
 func deterministicCodexExecEnvelope(chunkID string, passing bool) string {
 	var payload strings.Builder
 	exitCode := "1"
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	if passing {
@@ -4062,7 +4062,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	var sharedBuilder strings.Builder
-	for i := 0; i < 1600; i++ {
+	for i := range 1600 {
 		fmt.Fprintf(&sharedBuilder, "shared cross-file region %04d with stable content %08x\n", i, i*7919+17)
 	}
 	shared := sharedBuilder.String()
@@ -5774,7 +5774,7 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString(" M internal/proxy/wss_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -6021,7 +6021,7 @@ func TestWSPhaseFRepdetIndexesForwardedMessagesAfterMutation(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var originalStatus strings.Builder
-	for i := 0; i < 180; i++ {
+	for i := range 180 {
 		fmt.Fprintf(&originalStatus, " M internal/proxy/repdet_forwarded_original_%03d.go\n", i)
 	}
 	env := parseWSJSON(t, map[string]any{
@@ -6073,7 +6073,7 @@ func TestWSPhaseFResponseCreateInfersUnresolvedToolOutput(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -6125,7 +6125,7 @@ func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString(" M internal/proxy/wrapped_wss_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -6210,7 +6210,7 @@ func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) 
 	}
 
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString("?? synthetic_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -6275,7 +6275,7 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString("?? server_synthetic_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -6334,7 +6334,7 @@ func TestWSPhaseFDefaultGatesPreviousResponseGitStatusAfterServerToolCall(t *tes
 	}
 
 	var status strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		status.WriteString("?? previous_response_status_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -6473,7 +6473,7 @@ func TestWSPhaseFStatefulResolvedToolOutputCompactsWithArchiveWhenDeltaLabEnable
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -6523,7 +6523,7 @@ func TestWSPhaseFBroadToolOutputMutationFlagDoesNotBypassDeltaGate(t *testing.T)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -6575,7 +6575,7 @@ func TestWSPhaseFDefaultStatefulUnresolvedToolOutputKeepsGuard(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		fmt.Fprintf(&payload, "opaque worker line %03d without any tool shape markers\n", i)
 	}
 	envelope := "Chunk ID: unresolved\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n" + payload.String()
@@ -6612,7 +6612,7 @@ func TestWSPhaseFDefaultStatefulResolvedToolOutputKeepsGuard(t *testing.T) {
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("PASS\nok  \texample.test/liveproof\t0.015s\n")
@@ -6673,7 +6673,7 @@ func TestWSPhaseFStatefulInferredToolOutputCompactsWithArchiveWhenDeltaLabEnable
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -6819,7 +6819,7 @@ func TestWSPhaseFRawFallbackFactsSurvivePartialInputParseFailure(t *testing.T) {
 
 	var diffStat strings.Builder
 	diffStat.WriteString("Chunk ID: raw-fallback\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&diffStat, " internal/proxy/generated/file_%02d.go | %d +++++-----\n", i, i+1)
 	}
 	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
@@ -6884,7 +6884,7 @@ func TestWSPhaseFPreviousResponseMixedUnknownToolOutputObservesInferableDelta(t 
 
 	var testOutput strings.Builder
 	testOutput.WriteString("Chunk ID: mixed-observe\nWall time: 0.0000 seconds\nProcess exited with code 1\nOriginal token count: 10000\nOutput:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&testOutput, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	testOutput.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -6943,7 +6943,7 @@ func TestWSPhaseFPreviousResponseDeltaObservesInferredGitDiffStat(t *testing.T) 
 
 	var diffStat strings.Builder
 	diffStat.WriteString("Chunk ID: diffstat-observe\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 10000\nOutput:\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&diffStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
 	}
 	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
@@ -8082,7 +8082,7 @@ func codexWSObsoleteReadBody(oldOutput string) []byte {
 
 func codexWSStaleObsoleteLayer0Body() []byte {
 	var status strings.Builder
-	for i := 0; i < 180; i++ {
+	for i := range 180 {
 		status.WriteString(" M internal/proxy/single_reconstruct_")
 		status.WriteString(strconv.Itoa(i))
 		status.WriteString(".go\n")
@@ -8323,7 +8323,7 @@ func findCodexWSSTreatmentConversation(t *testing.T, p *Proxy) string {
 	if p.qualityAB == nil {
 		t.Fatal("nil qualityAB harness")
 	}
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		id := "conv-treatment-" + itoa(i)
 		if p.qualityAB.Cohort("codex-wss:"+id) == "treatment" {
 			return id
@@ -8347,12 +8347,10 @@ func TestMITMConversationForwardsResponsesRequestWithoutStop(t *testing.T) {
 	clientRemote, clientLocal := newPipe()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = d.Handle(context.Background(), sniroute.MITMConversation,
 			sniroute.Request{SNI: "chatgpt.com"}, clientLocal)
-	}()
+	})
 
 	raw := mustMarshal(map[string]any{
 		"type": string(wsmitm.FrameKindRequest),

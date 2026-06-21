@@ -28,7 +28,6 @@ func TestT63_ChildNonZeroPropagated(t *testing.T) {
 	}
 	cases := []int{1, 2, 7, 42, 127}
 	for _, want := range cases {
-		want := want
 		t.Run("", func(t *testing.T) {
 			pr := RunPipeline(context.Background(), "",
 				[]string{"sh", "-c", "exit " + itoaFilter(want)}, 0)

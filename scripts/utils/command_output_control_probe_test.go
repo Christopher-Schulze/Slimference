@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -132,12 +133,7 @@ func TestCommandOutputControlProbe_timeout(t *testing.T) {
 }
 
 func commandOutputProbeTestContainsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func TestCommandOutputControlProbe_textIncludesSeamVerdicts(t *testing.T) {

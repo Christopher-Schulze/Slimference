@@ -476,8 +476,8 @@ func awkLineRange(expr string) (int, int, bool) {
 
 func parseTailLineRange(raw string) (int, int, bool) {
 	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "+") {
-		n, ok := parsePositiveLineCount(strings.TrimPrefix(raw, "+"))
+	if after, ok := strings.CutPrefix(raw, "+"); ok {
+		n, ok := parsePositiveLineCount(after)
 		if !ok {
 			return 0, 0, false
 		}

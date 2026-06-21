@@ -175,10 +175,7 @@ func (a *Analytics) CompressionRatio() float64 {
 func (a *Analytics) EstExtraMessages(avgTokensPerReq int) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	denom := avgTokensPerReq
-	if denom < 1 {
-		denom = 1
-	}
+	denom := max(avgTokensPerReq, 1)
 	return a.SavedInputTokens / denom
 }
 

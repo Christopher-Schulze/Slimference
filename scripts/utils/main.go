@@ -239,8 +239,8 @@ type providerStats struct {
 type sessionReportOutput struct {
 	Path           string                       `json:"path"`
 	Source         string                       `json:"source"`
-	FirstTimestamp time.Time                    `json:"first_timestamp,omitempty"`
-	LastTimestamp  time.Time                    `json:"last_timestamp,omitempty"`
+	FirstTimestamp time.Time                    `json:"first_timestamp"`
+	LastTimestamp  time.Time                    `json:"last_timestamp"`
 	TotalRequests  int                          `json:"total_requests"`
 	OrigTokens     int                          `json:"orig_tokens"`
 	CompTokens     int                          `json:"comp_tokens"`

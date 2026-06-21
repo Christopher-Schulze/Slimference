@@ -43,7 +43,7 @@ func TestLatencyTracker_EMAConverges(t *testing.T) {
 	lt := NewLatencyTracker()
 
 	// Record several samples with the same value.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		lt.Record(LatencySample{
 			Provider: "anthropic",
 			TTFT:     1 * time.Second,
@@ -143,7 +143,7 @@ func TestLatencyTracker_ConcurrentRecord(t *testing.T) {
 	const goroutines = 50
 
 	done := make(chan struct{})
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			lt.Record(LatencySample{
@@ -154,7 +154,7 @@ func TestLatencyTracker_ConcurrentRecord(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		<-done
 	}
 

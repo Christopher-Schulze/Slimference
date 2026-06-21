@@ -532,10 +532,7 @@ func (p *Proxy) adminWSSCaptureHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		duration := defaultAdminWSSCaptureDuration
 		if req.DurationSeconds > 0 {
-			duration = time.Duration(req.DurationSeconds) * time.Second
-			if duration > maxAdminWSSCaptureDuration {
-				duration = maxAdminWSSCaptureDuration
-			}
+			duration = min(time.Duration(req.DurationSeconds)*time.Second, maxAdminWSSCaptureDuration)
 		}
 		status, err := p.SetWSSABCapture(req.Path, duration)
 		if err != nil {

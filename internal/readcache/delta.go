@@ -29,22 +29,10 @@ func buildPositionAwareDelta(oldContent, newContent string, contextLines int) st
 		return ""
 	}
 
-	hunkStartOld := prefix - contextLines
-	if hunkStartOld < 0 {
-		hunkStartOld = 0
-	}
-	hunkStartNew := prefix - contextLines
-	if hunkStartNew < 0 {
-		hunkStartNew = 0
-	}
-	hunkEndOld := oldChangeEnd + contextLines
-	if hunkEndOld > len(oldLines) {
-		hunkEndOld = len(oldLines)
-	}
-	hunkEndNew := newChangeEnd + contextLines
-	if hunkEndNew > len(newLines) {
-		hunkEndNew = len(newLines)
-	}
+	hunkStartOld := max(prefix-contextLines, 0)
+	hunkStartNew := max(prefix-contextLines, 0)
+	hunkEndOld := min(oldChangeEnd+contextLines, len(oldLines))
+	hunkEndNew := min(newChangeEnd+contextLines, len(newLines))
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", hunkStartOld+1, hunkEndOld-hunkStartOld, hunkStartNew+1, hunkEndNew-hunkStartNew)
@@ -79,10 +67,7 @@ func splitDeltaLines(content string) []string {
 }
 
 func commonPrefixLines(a, b []string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	i := 0
 	for i < n && a[i] == b[i] {
 		i++
@@ -93,10 +78,7 @@ func commonPrefixLines(a, b []string) int {
 func commonSuffixLines(a, b []string, prefix int) int {
 	maxA := len(a) - prefix
 	maxB := len(b) - prefix
-	n := maxA
-	if maxB < n {
-		n = maxB
-	}
+	n := min(maxB, maxA)
 	i := 0
 	for i < n && a[len(a)-1-i] == b[len(b)-1-i] {
 		i++

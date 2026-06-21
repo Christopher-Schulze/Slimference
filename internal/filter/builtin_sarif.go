@@ -3,6 +3,7 @@ package filter
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -101,13 +102,7 @@ func TryCompactSARIF(argv []string, stdout []byte) ([]byte, bool) {
 			name = "sarif"
 		}
 		// Track unique tool names per run.
-		dup := false
-		for _, n := range c.ToolNames {
-			if n == name {
-				dup = true
-				break
-			}
-		}
+		dup := slices.Contains(c.ToolNames, name)
 		if !dup {
 			c.ToolNames = append(c.ToolNames, name)
 		}
@@ -157,7 +152,7 @@ func TryCompactSARIF(argv []string, stdout []byte) ([]byte, bool) {
 	_ = isSARIFArgv(argv) // documented call site; not strictly required
 
 	if c.Total == 0 {
-		return []byte(fmt.Sprintf("[sarif: %s] 0 results\n", toolLabel)), true
+		return fmt.Appendf(nil, "[sarif: %s] 0 results\n", toolLabel), true
 	}
 
 	var out strings.Builder

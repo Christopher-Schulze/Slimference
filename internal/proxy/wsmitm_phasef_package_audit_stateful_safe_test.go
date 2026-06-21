@@ -125,7 +125,6 @@ func TestWSSCompactedPackageSuccessSummaryAcceptsOnlyExactAuditZero(t *testing.T
 		[]byte("[yarn audit] 0 vulnerabilities\n"),
 	}
 	for _, compacted := range rejects {
-		compacted := compacted
 		t.Run(string(compacted), func(t *testing.T) {
 			t.Parallel()
 			if wssCompactedPackageSuccessSummary(nil, compacted) {
@@ -152,7 +151,7 @@ func wssNpmAuditZeroJSONFixture(dependencies int) string {
 	b.WriteString(`  "metadata": {` + "\n")
 	b.WriteString(`    "vulnerabilities": {"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0},` + "\n")
 	b.WriteString(`    "dependencies": {` + "\n")
-	for i := 0; i < dependencies; i++ {
+	for i := range dependencies {
 		comma := ","
 		if i == dependencies-1 {
 			comma = ""
@@ -173,7 +172,7 @@ func wssPnpmAuditZeroJSONFixture(dependencies int) string {
 	b.WriteString(`  "metadata": {` + "\n")
 	b.WriteString(`    "vulnerabilities": {"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0},` + "\n")
 	b.WriteString(`    "dependencies": {` + "\n")
-	for i := 0; i < dependencies; i++ {
+	for i := range dependencies {
 		comma := ","
 		if i == dependencies-1 {
 			comma = ""

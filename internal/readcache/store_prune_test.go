@@ -48,7 +48,7 @@ func TestPruneSessions_RemovesByCount(t *testing.T) {
 	dir := t.TempDir()
 	// s0 is oldest (5h) ... s4 newest (1h). maxAge huge so only the count cap applies.
 	paths := make([]string, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		paths[i] = writeSessionFileWithAge(t, dir, fmt.Sprintf("s%d.json", i), time.Duration(5-i)*time.Hour)
 	}
 	n, err := PruneSessions(dir, 2, 365*24*time.Hour)
@@ -58,7 +58,7 @@ func TestPruneSessions_RemovesByCount(t *testing.T) {
 	if n != 3 {
 		t.Fatalf("pruned = %d, want 3", n)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := os.Stat(paths[i]); !os.IsNotExist(err) {
 			t.Fatalf("oldest session s%d should be pruned", i)
 		}

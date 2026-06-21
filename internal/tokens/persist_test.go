@@ -33,10 +33,10 @@ func TestModelFamily(t *testing.T) {
 
 func TestPerModelIsolation(t *testing.T) {
 	defer resetForTest()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-opus", 80, 100)
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 120, 100)
 	}
 	opusRatio := anthropic.BytesPerTokenX1000ForModel("claude-opus")
@@ -70,7 +70,7 @@ func TestCalibrationRoundtrip(t *testing.T) {
 	ResetCalibration()
 	LoadCalibrationFromDir(dir)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 90, 100)
 	}
 	ratioAfter := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
@@ -94,7 +94,7 @@ func TestCalibrationCap(t *testing.T) {
 	ResetCalibration()
 	LoadCalibrationFromDir(dir)
 
-	for i := 0; i < 1100; i++ {
+	for range 1100 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 90, 100)
 	}
 
@@ -113,7 +113,7 @@ func TestCalibrationCapOnLoad(t *testing.T) {
 	dir := t.TempDir()
 	ResetCalibration()
 	LoadCalibrationFromDir(dir)
-	for i := 0; i < 1100; i++ {
+	for range 1100 {
 		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 90, 100)
 	}
 

@@ -386,10 +386,7 @@ func writeDebugBundleFilterRuns(outDir string, opts debugBundleOptions, manifest
 	}
 	out := make([]debugBundleFilterRun, 0, len(runs))
 	for _, run := range runs {
-		saved := run.InputTokens - run.OutputTokens
-		if saved < 0 {
-			saved = 0
-		}
+		saved := max(run.InputTokens-run.OutputTokens, 0)
 		out = append(out, debugBundleFilterRun{
 			ID:           run.ID,
 			CommandHash:  debugBundleHash(run.Command),

@@ -179,7 +179,7 @@ func extractPath(rawInput string) string {
 	if rawInput == "" {
 		return ""
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal([]byte(rawInput), &m); err != nil {
 		return ""
 	}

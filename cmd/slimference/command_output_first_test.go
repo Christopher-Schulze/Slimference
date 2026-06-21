@@ -60,10 +60,10 @@ exit 2
 func TestCommandOutputFirstShimGitStatusLargeDirtyCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&b, " M internal/generated/very/deep/path/file_%03d.go\n", i)
 	}
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&b, "?? internal/generated/very/deep/path/new_%03d.go\n", i)
 	}
 	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
@@ -110,7 +110,7 @@ func TestCommandOutputFirstShimGitStatusLargeDirtyCompactsWithArchive(t *testing
 func TestCommandOutputFirstShimGitDiffStatCompacts(t *testing.T) {
 	withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		b.WriteString(" internal/proxy/file")
 		b.WriteString(string(rune('a' + (i % 20))))
 		b.WriteString(".go | 10 +++++-----\n")
@@ -135,7 +135,7 @@ func TestCommandOutputFirstShimGitShowMetadataCompacts(t *testing.T) {
 	b.WriteString("Author: Alice <alice@example.com>\n")
 	b.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	b.WriteString("    Metadata-only show\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		b.WriteString(" internal/proxy/generated/very/deep/path/file_")
 		b.WriteString(fmt.Sprintf("%02d.go | %d +++++-----\n", i, i+1))
 	}
@@ -190,7 +190,7 @@ func TestCommandOutputFirstShimGitShowMetadataCompacts(t *testing.T) {
 func TestCommandOutputFirstShimGitLogStatCompacts(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for commit := 0; commit < 16; commit++ {
+	for commit := range 16 {
 		b.WriteString("commit ")
 		b.WriteString(fmt.Sprintf("%040x", commit+1))
 		b.WriteString("\n")
@@ -199,7 +199,7 @@ func TestCommandOutputFirstShimGitLogStatCompacts(t *testing.T) {
 		b.WriteString("    Tighten command-output-first metadata path ")
 		b.WriteString(strconv.Itoa(commit))
 		b.WriteString("\n\n")
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			b.WriteString(" internal/proxy/generated/history/deep/path/commit_")
 			b.WriteString(fmt.Sprintf("%02d", commit))
 			b.WriteString("_file_")
@@ -264,7 +264,7 @@ func TestCommandOutputFirstShimGitLogNameOnlyCompactsWithArchive(t *testing.T) {
 	b.WriteString("Author: Alice <alice@example.com>\n")
 	b.WriteString("Date:   Mon Apr 7 10:30:00 2025 +0000\n\n")
 	b.WriteString("    Feature branch sweep\n\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&b, "internal/proxy/generated/very/deep/path/file_%02d.go\n", i)
 	}
 	realGit := writeFakeGit(t, "#!/bin/sh\ncat <<'EOF'\n"+b.String()+"EOF\n")
@@ -318,7 +318,7 @@ func TestCommandOutputFirstShimGitLogNameOnlyCompactsWithArchive(t *testing.T) {
 func TestCommandOutputFirstShimGitLsFilesCompacts(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		b.WriteString("internal/proxy/path/file")
 		b.WriteString(string(rune('a' + i)))
 		b.WriteString(".go\n")
@@ -359,7 +359,7 @@ func TestCommandOutputFirstShimGitLsFilesCompacts(t *testing.T) {
 func TestCommandOutputFirstShimLocatePathListCompacts(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 0; i < 48; i++ {
+	for i := range 48 {
 		b.WriteString("/Users/christopher/CODE/Slimference/internal/proxy/generated/deep/path/file_")
 		b.WriteString(fmt.Sprintf("%02d.go\n", i))
 	}
@@ -414,7 +414,7 @@ func TestCommandOutputFirstShimLsLongCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("total 320\n")
-	for i := 0; i < 48; i++ {
+	for i := range 48 {
 		fmt.Fprintf(&raw, "-rw-r--r--  1 user staff 4096 Jan 01 00:%02d generated_file_%02d.go\n", i%60, i)
 	}
 	realLs := writeFakeCommand(t, "ls", "#!/bin/sh\ncat <<'EOF'\n"+raw.String()+"EOF\n")
@@ -912,7 +912,7 @@ func TestCommandOutputFirstStructuredDiagnosticAllowed(t *testing.T) {
 func TestCommandOutputFirstShimSARIFNonzeroCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var results strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		if i > 0 {
 			results.WriteString(",")
 		}
@@ -1243,7 +1243,7 @@ func TestCommandOutputFirstShimGrepArchivedCompactsLongMatchContent(t *testing.T
 func TestCommandOutputFirstShimRgFilesCompactsWithAccounting(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var b strings.Builder
-	for i := 0; i < 48; i++ {
+	for i := range 48 {
 		b.WriteString("internal/filter/generated/deep/file_")
 		if i < 10 {
 			b.WriteByte('0')
@@ -1284,7 +1284,7 @@ func TestCommandOutputFirstShimRgFilesCompactsWithAccounting(t *testing.T) {
 
 func TestCommandOutputFirstShimFindAndWcCompact(t *testing.T) {
 	var paths strings.Builder
-	for i := 0; i < 44; i++ {
+	for i := range 44 {
 		paths.WriteString("docs/todo/generated/task_")
 		if i < 10 {
 			paths.WriteByte('0')
@@ -1307,7 +1307,7 @@ func TestCommandOutputFirstShimFindAndWcCompact(t *testing.T) {
 	var wcRows strings.Builder
 	totalLines := 0
 	totalWords := 0
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		lines := 30 + i
 		words := 90 + i
 		totalLines += lines
@@ -1918,7 +1918,7 @@ func TestCommandOutputFirstShimDotnetTestCompactsWithArchive(t *testing.T) {
 	raw.WriteString("VSTest version 17.10.0 (arm64)\n\n")
 	raw.WriteString("Starting test execution, please wait...\n")
 	raw.WriteString("A total of 1 test files matched the specified pattern.\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&raw, "  Passed App.Tests.WidgetTests.Case%03d [1 ms]\n", i)
 	}
 	raw.WriteString("Passed!  - Failed:     0, Passed:    80, Skipped:     0, Total:    80, Duration: 1 s - App.Tests.dll (net8.0)\n")
@@ -1955,7 +1955,7 @@ func TestCommandOutputFirstShimRspecCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("Randomized with seed 12345\n\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&raw, "Widget feature example %03d emits a very noisy success line that should not enter model context\n", i)
 	}
 	raw.WriteString("\nFinished in 2.3 seconds (files took 1.1 seconds to load)\n")
@@ -2004,7 +2004,7 @@ func TestCommandOutputFirstShimRspecCompactsWithArchive(t *testing.T) {
 func TestCommandOutputFirstShimBundleExecRspecNonzeroCompactsWithArchive(t *testing.T) {
 	var raw strings.Builder
 	raw.WriteString("Randomized with seed 999\n")
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&raw, "intermediate success noise line %03d that should be archived instead of forwarded\n", i)
 	}
 	raw.WriteString("\nFailures:\n\n")
@@ -2050,7 +2050,7 @@ func TestCommandOutputFirstShimRubyMinitestCompactsWithArchive(t *testing.T) {
 	var raw strings.Builder
 	raw.WriteString("Run options: --seed 4242\n\n")
 	raw.WriteString("# Running:\n\n")
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		raw.WriteString(strings.Repeat(".", 80))
 		raw.WriteByte('\n')
 	}
@@ -2087,7 +2087,7 @@ func TestCommandOutputFirstShimRubyMinitestCompactsWithArchive(t *testing.T) {
 
 func TestCommandOutputFirstShimBundleInstallCompactsWithArchive(t *testing.T) {
 	var raw strings.Builder
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		fmt.Fprintf(&raw, "Fetching gem noisy_dependency_%03d 1.2.%d\n", i, i)
 	}
 	raw.WriteString("Bundle complete! 12 Gemfile dependencies, 101 gems now installed.\n")
@@ -2161,7 +2161,7 @@ func TestCommandOutputFirstShimPackageManagerFrontierCompactsWithArchive(t *test
 				"Unchanged:\n" +
 				func() string {
 					var rows strings.Builder
-					for i := 0; i < 80; i++ {
+					for i := range 80 {
 						fmt.Fprintf(&rows, "plug_%03d 1.14.%d\n", i, i%10)
 					}
 					return rows.String()
@@ -2175,7 +2175,7 @@ func TestCommandOutputFirstShimPackageManagerFrontierCompactsWithArchive(t *test
 			args:    []string{"install", "rake", "--no-document"},
 			raw: func() string {
 				var rows strings.Builder
-				for i := 0; i < 40; i++ {
+				for i := range 40 {
 					fmt.Fprintf(&rows, "Successfully installed package_%03d-1.0.%d\n", i, i%10)
 					fmt.Fprintf(&rows, "Parsing documentation for package_%03d-1.0.%d\n", i, i%10)
 				}
@@ -2380,7 +2380,7 @@ func TestCommandOutputFirstShimContainerStatusCompactsWithArchive(t *testing.T) 
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("NAME                    READY   STATUS             RESTARTS   AGE\n")
-	for i := 0; i < 36; i++ {
+	for i := range 36 {
 		status := "Running"
 		if i == 7 {
 			status = "CrashLoopBackOff"
@@ -2669,7 +2669,7 @@ func TestCommandOutputFirstShimTerraformPlanCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("Terraform will perform the following actions:\n\n")
-	for i := 0; i < 36; i++ {
+	for i := range 36 {
 		fmt.Fprintf(&raw, "  # aws_s3_bucket.generated_%03d will be created\n", i)
 		fmt.Fprintf(&raw, "  + resource \"aws_s3_bucket\" \"generated_%03d\" {\n", i)
 		raw.WriteString("      + acl    = \"private\"\n")
@@ -2739,7 +2739,7 @@ func TestCommandOutputFirstShimVCSHostJSONExactCompactsWithArchive(t *testing.T)
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("{\n  \"items\": [\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		comma := ","
 		if i == 79 {
 			comma = ""
@@ -2820,7 +2820,7 @@ func TestCommandOutputFirstShimNetworkJSONExactCompactsWithArchive(t *testing.T)
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var raw strings.Builder
 	raw.WriteString("{\n  \"items\": [\n")
-	for i := 0; i < 72; i++ {
+	for i := range 72 {
 		comma := ","
 		if i == 71 {
 			comma = ""
@@ -3076,11 +3076,11 @@ func TestCommandOutputFirstInfraJSONHelperBoundaries(t *testing.T) {
 
 func TestCommandOutputFirstInfraJSONCompactionBranches(t *testing.T) {
 	var goVet strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		goVet.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
 	}
 	var terraformFmt strings.Builder
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		fmt.Fprintf(&terraformFmt, "modules/app_%02d/main.tf\n", i)
 	}
 	var ghRuns strings.Builder
@@ -3240,7 +3240,7 @@ Plan: 1 to add, 0 to change, 0 to destroy.
 
 func TestCommandOutputFirstShimNpxEsbuildCompacts(t *testing.T) {
 	var build strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		build.WriteString("dist/chunk")
 		build.WriteString(strconv.Itoa(i))
 		build.WriteString(".js 12.3 kb\n")
@@ -3293,7 +3293,7 @@ func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
 	var build strings.Builder
 	build.WriteString("make[1]: Entering directory '/repo/build'\n")
 	build.WriteString("Consolidate compiler generated dependencies of target app\n")
-	for i := 0; i < 24; i++ {
+	for range 24 {
 		build.WriteString("[ 50%] Building CXX object src/CMakeFiles/app.dir/generated/object.cpp.o\n")
 	}
 	build.WriteString("[100%] Linking CXX executable app\n")
@@ -3313,7 +3313,7 @@ func TestCommandOutputFirstShimMakeCompacts(t *testing.T) {
 func commandOutputFirstJSTestFixture(count int) string {
 	var out strings.Builder
 	out.WriteString("PASS src/app.test.ts\n")
-	for i := 0; i < count; i++ {
+	for range count {
 		out.WriteString("  \u2713 renders op ")
 		out.WriteString(strings.Repeat("x", 3))
 		out.WriteString(" (2 ms)\n")
@@ -3332,7 +3332,7 @@ func commandOutputFirstJSTestFixture(count int) string {
 
 func commandOutputFirstNpmInstallFixture(count int) string {
 	var out strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		out.WriteString("npm http fetch GET 200 https://registry.npmjs.org/package_")
 		if i < 10 {
 			out.WriteString("00")
@@ -3368,7 +3368,7 @@ func commandOutputFirstMavenFixture(modules int) string {
 	out.WriteString("[INFO] -----------------------< com.example:demo >------------------------\n")
 	out.WriteString("[INFO] Building demo 1.0.0\n")
 	out.WriteString("[INFO] --------------------------------[ jar ]---------------------------------\n")
-	for i := 0; i < modules; i++ {
+	for i := range modules {
 		out.WriteString("[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources-")
 		out.WriteString(strconv.Itoa(i))
 		out.WriteString(") @ demo ---\n")
@@ -3394,7 +3394,7 @@ func commandOutputFirstMavenFixture(modules int) string {
 func commandOutputFirstGradleBuildFixture(tasks int) string {
 	var out strings.Builder
 	out.WriteString("Starting a Gradle Daemon, 1 busy Daemon could not be reused, use --status for details\n")
-	for i := 0; i < tasks; i++ {
+	for i := range tasks {
 		out.WriteString("> Task :module")
 		out.WriteString(strconv.Itoa(i))
 		out.WriteString(":compileJava\n")
@@ -3435,7 +3435,7 @@ func TestCommandOutputFirstNpxToolEdges(t *testing.T) {
 
 func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
 	var hooks strings.Builder
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		hooks.WriteString("Hook check...............................................................Passed\n")
 	}
 	realPreCommit := writeFakeCommand(t, "pre-commit", "#!/bin/sh\ncat <<'EOF'\n"+hooks.String()+"EOF\n")
@@ -3465,7 +3465,7 @@ func TestCommandOutputFirstShimPreCommitAndPrettierCompact(t *testing.T) {
 func TestCommandOutputFirstShimFocusedLintNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		diagnostics.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
 	}
 	realStaticcheck := writeFakeCommand(t, "staticcheck", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
@@ -3524,7 +3524,7 @@ func TestCommandOutputFirstShimFocusedLintNonzeroDiagnosticsCompactWithArchive(t
 func TestCommandOutputFirstShimFocusedLintNonzeroStderrDiagnosticsCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 70; i++ {
+	for range 70 {
 		diagnostics.WriteString("internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)\n")
 	}
 	realGolangci := writeFakeCommand(t, "golangci-lint", "#!/bin/sh\ncat >&2 <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
@@ -3586,7 +3586,7 @@ func TestCommandOutputFirstShimFocusedLintNonzeroStderrDiagnosticsCompactWithArc
 func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStdout(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 72; i++ {
+	for range 72 {
 		diagnostics.WriteString("internal/app/app.go:22:7: this value of err is never used (SA4006)\n")
 	}
 	realStaticcheck := writeFakeCommand(t, "staticcheck", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nprintf 'warning: matched no packages\\n' >&2\nexit 1\n")
@@ -3642,7 +3642,7 @@ func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStdout
 func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStderr(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 72; i++ {
+	for range 72 {
 		diagnostics.WriteString("internal/app/app.go:10:2: unused-parameter: bad (revive)\n")
 	}
 	realGolangci := writeFakeCommand(t, "golangci-lint", "#!/bin/sh\nprintf 'lint runner note\\n'\ncat >&2 <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
@@ -3697,7 +3697,7 @@ func TestCommandOutputFirstShimFocusedLintNonzeroMixedStdoutStderrCompactsStderr
 func TestCommandOutputFirstShimStructuredNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		diagnostics.WriteString("src/app.ts:10:5 - error TS2322: Type 'string' is not assignable to type 'number'.\n")
 	}
 	realTSC := writeFakeCommand(t, "tsc", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 2\n")
@@ -3752,7 +3752,7 @@ func TestCommandOutputFirstShimStructuredNonzeroDiagnosticsCompactWithArchive(t 
 func TestCommandOutputFirstShimGoVetNonzeroDiagnosticsCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		diagnostics.WriteString("internal/app/app.go:10:5: fmt.Printf call needs 1 arg but has 2 args\n")
 	}
 	realGo := writeFakeCommand(t, "go", "#!/bin/sh\ncat <<'EOF'\n"+diagnostics.String()+"EOF\nexit 1\n")
@@ -3920,7 +3920,7 @@ exit 1
 func TestCommandOutputFirstShimMypyNonzeroStdoutCompactWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var diagnostics strings.Builder
-	for i := 0; i < 75; i++ {
+	for range 75 {
 		diagnostics.WriteString("src/app.py:10: error: Incompatible return value type\n")
 	}
 	diagnostics.WriteString("src/app.py:10: note: expected str\n")
@@ -3983,7 +3983,7 @@ func TestCommandOutputFirstShimMypyNonzeroStdoutCompactWithArchive(t *testing.T)
 
 func TestCommandOutputFirstShimPythonMypyNonzeroStderrCompactWithArchive(t *testing.T) {
 	var diagnostics strings.Builder
-	for i := 0; i < 65; i++ {
+	for range 65 {
 		diagnostics.WriteString("pkg/model.pyi:7: error: Missing return statement\n")
 	}
 	diagnostics.WriteString("Found 65 errors in 1 file\n")
@@ -4203,7 +4203,7 @@ func TestCommandOutputFirstShimEslintStylishAnsiFullPasses(t *testing.T) {
 
 func commandOutputFirstEslintStylishFixture(file string, count int) string {
 	var b strings.Builder
-	for i := 0; i < count; i++ {
+	for range count {
 		b.WriteString("\n")
 		b.WriteString(file)
 		b.WriteString("\n")
@@ -4262,7 +4262,7 @@ func TestCommandOutputFirstShimPackageLintAndFormatCompact(t *testing.T) {
 func TestCommandOutputFirstShimDirectFormatListCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var files strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&files, "internal/generated/pkg_%03d/file_%03d.go\n", i, i)
 	}
 	realGofmt := writeFakeCommand(t, "gofmt", "#!/bin/sh\ncat <<'EOF'\n"+files.String()+"EOF\n")
@@ -4317,7 +4317,7 @@ func TestCommandOutputFirstShimSQLTableCompactsWithArchive(t *testing.T) {
 	var table strings.Builder
 	table.WriteString(" id | name        | email\n")
 	table.WriteString("----+-------------+-----------------------------\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&table, " %3d | user_%03d    | user_%03d@example.com\n", i, i, i)
 	}
 	table.WriteString("(120 rows)\n")
@@ -4374,7 +4374,7 @@ func TestCommandOutputFirstShimSQLiteTableCompactsWithArchive(t *testing.T) {
 	dbPath := withCommandOutputFirstRecordingDB(t)
 	var table strings.Builder
 	table.WriteString("id  | name        | email\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&table, "%-3d | user_%03d    | user_%03d@example.com\n", i, i, i)
 	}
 	realSQLite := writeFakeCommand(t, "sqlite3", "#!/bin/sh\ncat <<'EOF'\n"+table.String()+"EOF\n")
@@ -4437,7 +4437,7 @@ func commandOutputFirstNextBuildFixture() string {
 	b.WriteString("Finalizing page optimization ...\n")
 	b.WriteString("Collecting build traces ...\n")
 	b.WriteString("Route (app)                              Size     First Load JS\n")
-	for i := 0; i < 24; i++ {
+	for range 24 {
 		b.WriteString("/dashboard/section                      2.00 kB        110 kB\n")
 	}
 	return b.String()
@@ -4492,7 +4492,7 @@ func TestCommandOutputFirstShimCargoTestCompactsWithAccounting(t *testing.T) {
 
 func TestCommandOutputFirstShimCargoBuildAndClippyCompact(t *testing.T) {
 	var build strings.Builder
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		build.WriteString("    Compiling slimtest v0.1.0 (/repo/crates/slimtest)\n")
 	}
 	build.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
@@ -4507,7 +4507,7 @@ func TestCommandOutputFirstShimCargoBuildAndClippyCompact(t *testing.T) {
 	}
 
 	var clippy strings.Builder
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		clippy.WriteString("    Checking slimtest v0.1.0 (/repo/crates/slimtest)\n")
 	}
 	clippy.WriteString("    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s\n")
@@ -4581,7 +4581,7 @@ func TestCommandOutputFirstShimPythonUnittestCompactsWithAccounting(t *testing.T
 func TestCommandOutputFirstShimPytestCompacts(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("============================= test session starts ==============================\n")
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		b.WriteString("tests/test_alpha.py::test_op PASSED                                  [ 10%]\n")
 	}
 	b.WriteString("============================== 80 passed in 0.42s ===============================\n")
@@ -5031,8 +5031,8 @@ func envValueInCommand(t *testing.T, command []string, key string) string {
 	t.Helper()
 	prefix := key + "="
 	for _, arg := range command {
-		if strings.HasPrefix(arg, prefix) {
-			return strings.TrimPrefix(arg, prefix)
+		if after, ok := strings.CutPrefix(arg, prefix); ok {
+			return after
 		}
 	}
 	t.Fatalf("%s not found in %#v", key, command)
@@ -5091,7 +5091,7 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 	var showStat strings.Builder
 	showStat.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		showStat.WriteString(fmt.Sprintf(" internal/proxy/generated/very/deep/path/file_%02d.go | 10 +++++-----\n", i))
 	}
 	showStat.WriteString(" 40 files changed, 200 insertions(+), 200 deletions(-)\n")
@@ -5100,7 +5100,7 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 	var showNameOnly strings.Builder
 	showNameOnly.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		showNameOnly.WriteString(fmt.Sprintf("internal/proxy/generated/very/deep/path/file_%02d.go\n", i))
 	}
 	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "--name-only", "HEAD"}, []byte(showNameOnly.String()), nil, 0); !ok || !strings.Contains(string(out), "[git show --name-only paths]") {
@@ -5108,7 +5108,7 @@ func TestCommandOutputFirstCompactRejectsWrongCommandAndUnknownSubcommand(t *tes
 	}
 	var showNameStatus strings.Builder
 	showNameStatus.WriteString("commit a1b2c3d4e5f6a7b8\n\n    Subject\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		showNameStatus.WriteString(fmt.Sprintf("M\tinternal/proxy/generated/very/deep/path/file_%02d.go\n", i))
 	}
 	if out, ok := compactCommandOutputFirst("git", "/usr/bin/git", []string{"show", "--name-status", "HEAD"}, []byte(showNameStatus.String()), nil, 0); !ok || !strings.Contains(string(out), "[git show --name-status paths]") {
@@ -5124,12 +5124,12 @@ func TestCommandOutputFirstShimTreeCompactsWithArchive(t *testing.T) {
 	var listing strings.Builder
 	listing.WriteString(".\n")
 	listing.WriteString("├── src\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&listing, "│   ├── generated_file_%02d.go\n", i)
 	}
 	listing.WriteString("│   └── service.go\n")
 	listing.WriteString("└── docs\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&listing, "    ├── guide_%02d.md\n", i)
 	}
 	listing.WriteString("    └── README.md\n\n")
@@ -6015,11 +6015,11 @@ func commandOutputFirstArchiveURI(output string) string {
 		return strings.TrimSpace(rest[:end])
 	}
 	marker := "uri="
-	idx := strings.Index(output, marker)
-	if idx < 0 {
+	_, after, ok := strings.Cut(output, marker)
+	if !ok {
 		return ""
 	}
-	rest := output[idx+len(marker):]
+	rest := after
 	end := strings.IndexAny(rest, " ]")
 	if end < 0 {
 		return strings.TrimSpace(rest)

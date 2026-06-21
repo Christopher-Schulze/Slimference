@@ -142,7 +142,7 @@ func TestGoWithRestart_PanicRecovery(t *testing.T) {
 func TestDrainChannel(t *testing.T) {
 	t.Parallel()
 	ch := make(chan int, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ch <- i
 	}
 

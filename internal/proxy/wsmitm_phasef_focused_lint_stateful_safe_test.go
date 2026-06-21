@@ -25,7 +25,7 @@ func TestWSSStatefulSafeFocusedLintDiagnosticsCompactFullHistoryTurn(t *testing.
 	payload.WriteString("Process exited with code 1\n")
 	payload.WriteString("Original token count: 10000\n")
 	payload.WriteString("Output:\n")
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		fmt.Fprintln(&payload, "internal/proxy/handler.go:164:15: Close() error return value is not checked")
 	}
 
@@ -69,7 +69,7 @@ func TestWSSStatefulSafeGolangciLintDiagnosticsCompactFullHistoryTurn(t *testing
 	payload.WriteString("Process exited with code 1\n")
 	payload.WriteString("Original token count: 10000\n")
 	payload.WriteString("Output:\n")
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		fmt.Fprintln(&payload, "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _ (revive)")
 	}
 
@@ -113,7 +113,7 @@ func TestWSSStatefulSafeStaticcheckDiagnosticsCompactFullHistoryTurn(t *testing.
 	payload.WriteString("Process exited with code 1\n")
 	payload.WriteString("Original token count: 10000\n")
 	payload.WriteString("Output:\n")
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		fmt.Fprintln(&payload, "internal/app/app.go:22:7: this value of err is never used (SA4006)")
 	}
 
@@ -157,7 +157,7 @@ func TestWSSStatefulSafeReviveDiagnosticsCompactFullHistoryTurn(t *testing.T) {
 	payload.WriteString("Process exited with code 1\n")
 	payload.WriteString("Original token count: 10000\n")
 	payload.WriteString("Output:\n")
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		fmt.Fprintln(&payload, "internal/app/app.go:10:2: unused-parameter: parameter ctx seems to be unused, consider removing or renaming it as _")
 	}
 

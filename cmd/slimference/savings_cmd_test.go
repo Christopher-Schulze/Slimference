@@ -684,7 +684,7 @@ func TestComputeSavingsLiveCompoundedEstimateUsesHistoricalSessionLength(t *test
 	}
 	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
 		out := make([]dbg.RequestSummary, 0, 7)
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			out = append(out, dbg.RequestSummary{
 				RequestID:    fmt.Sprintf("history-%d", i),
 				Timestamp:    startedAt.Add(time.Duration(-10+i) * time.Minute),

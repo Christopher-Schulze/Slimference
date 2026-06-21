@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -118,10 +119,5 @@ func TestRedactDecisionClonesSlices(t *testing.T) {
 }
 
 func hasSignal(signals []Signal, want Signal) bool {
-	for _, signal := range signals {
-		if signal == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(signals, want)
 }

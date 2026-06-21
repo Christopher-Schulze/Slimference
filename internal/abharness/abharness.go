@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Christopher-Schulze/Slimference/internal/types"
@@ -143,11 +144,7 @@ func lcsEqualPairs(before, after []string) []equalPair {
 				dp[i][j] = dp[i+1][j+1] + 1
 				continue
 			}
-			if dp[i+1][j] >= dp[i][j+1] {
-				dp[i][j] = dp[i+1][j]
-			} else {
-				dp[i][j] = dp[i][j+1]
-			}
+			dp[i][j] = max(dp[i+1][j], dp[i][j+1])
 		}
 	}
 	var pairs []equalPair
@@ -285,10 +282,8 @@ func classifyReplacement(before string, after string, afterContext []string, see
 		}
 		if !unresolved {
 			if expanded, ok := expandReferencedText(after, resolve); ok {
-				for _, stable := range beforeStable {
-					if expanded == stable {
-						return SeverityReferenced
-					}
+				if slices.Contains(beforeStable, expanded) {
+					return SeverityReferenced
 				}
 			}
 		}
@@ -311,10 +306,8 @@ func shouldUseContextArchiveIDs(before, after string) bool {
 }
 
 func archiveBodyMatchesStable(body string, beforeStable []string, resolve ArchiveResolver, seen map[string]struct{}, depth int) bool {
-	for _, stable := range beforeStable {
-		if body == stable {
-			return true
-		}
+	if slices.Contains(beforeStable, body) {
+		return true
 	}
 	if resolve == nil || depth >= 4 {
 		return false
@@ -351,11 +344,11 @@ func codexExecPayload(text string) (string, bool) {
 		return "", false
 	}
 	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
-		idx := strings.Index(text, marker)
-		if idx < 0 {
+		_, after, ok := strings.Cut(text, marker)
+		if !ok {
 			continue
 		}
-		payload := text[idx+len(marker):]
+		payload := after
 		return payload, payload != ""
 	}
 	return "", false

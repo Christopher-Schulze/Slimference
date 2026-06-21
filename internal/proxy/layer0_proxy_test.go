@@ -252,7 +252,7 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	}
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		status.WriteString(" M file")
 		status.WriteString(string(rune('a' + i%26)))
 		status.WriteString(".go\n")
@@ -283,7 +283,7 @@ func TestReduceCodexLayer0CopyOnWriteClonesOnlyMutatedMessage(t *testing.T) {
 	t.Parallel()
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&status, " M cow_file_%02d.go\n", i)
 	}
 	messages := []types.Message{
@@ -315,7 +315,7 @@ func TestApplyProxyLayer0WithRememberedToolUse(t *testing.T) {
 	t.Parallel()
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		status.WriteString("?? synthetic_")
 		status.WriteString(string(rune('a' + i%26)))
 		status.WriteString(".go\n")
@@ -339,7 +339,7 @@ func TestReduceCodexLayer0WSSCapturedOutputCarriesArchiveReference(t *testing.T)
 	t.Setenv("HOME", t.TempDir())
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&status, "?? synthetic_%02d.go\n", i)
 	}
 	messages := []types.Message{
@@ -364,7 +364,7 @@ func TestReduceCodexLayer0CacheBustDemotionNarrowsToClassKeys(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&status, "?? cache_bust_narrow_%02d.go\n", i)
 	}
 	commandLine := "git status --short"
@@ -494,7 +494,7 @@ func TestReduceCodexLayer0WSSCapturedOutputFailsOpenWithoutSession(t *testing.T)
 	t.Parallel()
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&status, "?? synthetic_%02d.go\n", i)
 	}
 	messages := []types.Message{
@@ -589,7 +589,7 @@ func TestCompactProxyLayer0TextCodexExecEnvelope(t *testing.T) {
 	t.Parallel()
 
 	var status strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		status.WriteString(" M internal/proxy/file_")
 		status.WriteString(string(rune('a' + i%26)))
 		status.WriteString(".go\n")
@@ -671,7 +671,7 @@ func TestReduceCodexLayer0InfersCodexEnvelopeCommandWhenToolUseMissing(t *testin
 	t.Setenv("HOME", t.TempDir())
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceFailure\n")
@@ -701,7 +701,7 @@ func TestReduceCodexLayer0InfersCodexEnvelopeCommandForResolvedWrapper(t *testin
 	t.Setenv("HOME", t.TempDir())
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("=== RUN   TestSlimferenceWrapperFailure\n")
@@ -743,20 +743,20 @@ func TestProxyInferCommandLineFromToolResult(t *testing.T) {
 	t.Parallel()
 
 	var diffStat strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&diffStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
 	}
 	diffStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
 
 	var showStat strings.Builder
 	showStat.WriteString("commit a1b2c3d4\nAuthor: A <a@example.com>\nDate:   Mon Apr 7 10:30:00 2025 +0000\n\n    change summary\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&showStat, " internal/proxy/generated/very/deep/path/file_%02d.go | %d +++++-----\n", i, i+1)
 	}
 	showStat.WriteString(" 40 files changed, 820 insertions(+), 410 deletions(-)\n")
 
 	var nameStatus strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		status := "M"
 		if i%3 == 0 {
 			status = "A"
@@ -884,7 +884,7 @@ func TestReduceCodexLayer0SuppressesCollapsedReadKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	var payload strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&payload, "suppression unique payload line %03d with nonrepeating value %08x\n", i, i*7919+17)
 	}
 	messages := proxyReadMessages(payload.String())
@@ -1047,7 +1047,7 @@ func TestReduceCodexLayer0WSSSearchOutputInferencePassesThrough(t *testing.T) {
 
 	var output strings.Builder
 	output.WriteString("Chunk ID: live-search\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n")
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		fmt.Fprintf(&output, "docs/tasks/TASK-%04d.md:%d:needle with enough detail to group\n", i, i+1)
 	}
 	original := output.String()
@@ -1129,7 +1129,7 @@ func TestReduceCodexLayer0WSSFindPathListCompactsWithoutSearchProof(t *testing.T
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	var output strings.Builder
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		fmt.Fprintf(&output, ".reconc/audit/%04d.jsonl\n", i)
 	}
 	original := output.String()
@@ -1170,7 +1170,7 @@ func TestReduceCodexLayer0WSSRgFilesPathListCompactsWithoutSearchProof(t *testin
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	var output strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&output, "internal/proxy/generated/deep/path/file_%03d.go\n", i)
 	}
 	original := output.String()
@@ -1206,7 +1206,7 @@ func TestReduceCodexLayer0WSSFdPathListCompactsWithoutSearchProof(t *testing.T) 
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	var output strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&output, "internal/proxy/generated/deep/path/file_%03d.go\n", i)
 	}
 	original := output.String()
@@ -1486,7 +1486,7 @@ func TestReduceCodexLayer0WSSSearchProofKeepsNonSearchEnvelopeDeltaBlocked(t *te
 	t.Setenv("HOME", t.TempDir())
 
 	var payload strings.Builder
-	for i := 0; i < 90; i++ {
+	for i := range 90 {
 		fmt.Fprintf(&payload, "=== RUN   TestPassing%03d\n--- PASS: TestPassing%03d (0.00s)\n", i, i)
 	}
 	payload.WriteString("PASS\nok\texample.test/nonsearch\t0.015s\n")
@@ -1539,7 +1539,7 @@ func TestReduceCodexLayer0WSSInferredPlainPathListCompactsWithoutSearchProof(t *
 	t.Setenv("HOME", t.TempDir())
 
 	var listing strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&listing, "internal/proxy/generated/deep/path/file_%03d.go\n", i)
 	}
 	original := "Chunk ID: inferred-paths\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + listing.String()
@@ -1572,7 +1572,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNonDeltaFindPathList(t *testing.T)
 	t.Setenv("HOME", t.TempDir())
 
 	var output strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&output, ".reconc/audit/%04d.jsonl\n", i)
 	}
 	original := output.String()
@@ -1611,7 +1611,7 @@ func TestReduceCodexLayer0WSSSearchProofAllowsNonDeltaFindPathList(t *testing.T)
 
 func proxyWSSSearchOutputFixture(needle string, count int) string {
 	var output strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&output, "src/file_%03d.go:%d:%s with enough detail to compact %s\n", i, i+1, needle, strings.Repeat("context ", 20))
 	}
 	return output.String()
@@ -1890,7 +1890,7 @@ func TestReduceCodexLayer0ReconcCommandsPassThrough(t *testing.T) {
 	}
 	routes := []codexLayer0Route{codexLayer0RouteUnspecified, codexLayer0RouteHTTP, codexLayer0RouteWSSPhaseF}
 	var output strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&output, "Decision:  pass\nRepo:      /repo\nLockfile:  .reconc/policy.lock.json\nDefault:   warn\nSummary:   policy pass row %03d\n\n", i)
 	}
 	original := output.String()
@@ -1962,7 +1962,7 @@ func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	var bodyBuilder strings.Builder
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&bodyBuilder, "visible partial file range line %03d with stable value %d\n", i, i*i)
 	}
 	body := bodyBuilder.String()
@@ -3017,7 +3017,7 @@ func TestProxyRepeatedOutputDiffStatUnchangedMarkerKeepsSummary(t *testing.T) {
 
 func uniqueProxyReadPayload(prefix string) string {
 	var b strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&b, "%s unique payload line %03d with nonrepeating value %08x\n", prefix, i, i*7919+17)
 	}
 	return b.String()
@@ -3359,7 +3359,7 @@ func hasTokenNeutralEvidenceDecision(decisions []evidence.BlockDecision, mechani
 // command line from proxyInferCommandLineFromToolResult).
 func proxyInferredSearchEnvelope(needle string, count int) string {
 	var payload strings.Builder
-	for i := 0; i < count; i++ {
+	for i := range count {
 		fmt.Fprintf(&payload, "src/file_%03d.go:%d:%s with enough detail to compact %s\n", i, i+1, needle, strings.Repeat("context ", 20))
 	}
 	return "Chunk ID: inferred\nWall time: 0.0001 seconds\nProcess exited with code 0\nOutput:\n" + payload.String()

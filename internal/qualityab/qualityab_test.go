@@ -8,7 +8,7 @@ import (
 func TestCohortStabilityForSameSessionID(t *testing.T) {
 	h := New(Options{})
 	first := h.Cohort("session-abc")
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		if got := h.Cohort("session-abc"); got != first {
 			t.Errorf("cohort flipped on call %d: got=%q want=%q", i, got, first)
 		}
@@ -19,7 +19,7 @@ func TestCohortDistributionAcrossManySessions(t *testing.T) {
 	h := New(Options{})
 	control := 0
 	treatment := 0
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		sid := "sess-" + string(rune('A'+i%26)) + string(rune('a'+i/26%26)) + string(rune('0'+i%10))
 		switch h.Cohort(sid) {
 		case CohortControl:
@@ -71,10 +71,10 @@ func TestRecordOutcomeAndSnapshot(t *testing.T) {
 
 func TestSnapshotFailureRateComputed(t *testing.T) {
 	h := New(Options{})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.RecordOutcome(CohortControl, OutcomeUpstreamError)
 	}
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		h.RecordOutcome(CohortControl, OutcomeSuccess)
 	}
 	snap := h.Snapshot()
@@ -94,14 +94,14 @@ func TestSnapshotEmptyDivisionByZeroSafe(t *testing.T) {
 func TestRollbackFiresOnHighTreatmentFailures(t *testing.T) {
 	h := New(Options{MinSamples: 10, FailureDelta: 0.1})
 	// Control: 100 requests, 5 failures = 5%
-	for i := 0; i < 95; i++ {
+	for range 95 {
 		h.RecordOutcome(CohortControl, OutcomeSuccess)
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		h.RecordOutcome(CohortControl, OutcomeUpstreamError)
 	}
 	// Treatment: 10 requests, all failures = 100%
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
 	snap := h.Snapshot()
@@ -116,10 +116,10 @@ func TestRollbackFiresOnHighTreatmentFailures(t *testing.T) {
 
 func TestRollbackBelowMinSamplesNoRollback(t *testing.T) {
 	h := New(Options{MinSamples: 50, FailureDelta: 0.05})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		h.RecordOutcome(CohortControl, OutcomeSuccess)
 	}
 	if h.Snapshot().RolledBack {
@@ -129,10 +129,10 @@ func TestRollbackBelowMinSamplesNoRollback(t *testing.T) {
 
 func TestRollbackBelowDeltaNoRollback(t *testing.T) {
 	h := New(Options{MinSamples: 10, FailureDelta: 0.5})
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		h.RecordOutcome(CohortControl, OutcomeSuccess)
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		h.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
 	// Treatment 100% - Control 0% = 1.0, but FailureDelta=0.5 means
@@ -144,13 +144,13 @@ func TestRollbackBelowDeltaNoRollback(t *testing.T) {
 
 	// Now a harness where the delta does NOT exceed threshold.
 	h2 := New(Options{MinSamples: 10, FailureDelta: 0.5})
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		h2.RecordOutcome(CohortControl, OutcomeSuccess)
 	}
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		h2.RecordOutcome(CohortTreatment, OutcomeSuccess)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h2.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
 	// Treatment failure rate = 0.1, control = 0, delta = 0.1 ≤ 0.5.
@@ -161,7 +161,7 @@ func TestRollbackBelowDeltaNoRollback(t *testing.T) {
 
 func TestRollbackOneWayLatch(t *testing.T) {
 	h := New(Options{MinSamples: 5, FailureDelta: 0.1})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.RecordOutcome(CohortControl, OutcomeSuccess)
 		h.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
@@ -169,7 +169,7 @@ func TestRollbackOneWayLatch(t *testing.T) {
 		t.Fatalf("setup: rollback should have fired")
 	}
 	// Subsequent successes don't undo the rollback.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		h.RecordOutcome(CohortTreatment, OutcomeSuccess)
 	}
 	if !h.Snapshot().RolledBack {
@@ -180,7 +180,7 @@ func TestRollbackOneWayLatch(t *testing.T) {
 func TestNoRollbackWhenControlHasNoData(t *testing.T) {
 	// Without control samples there's no baseline to compare against.
 	h := New(Options{MinSamples: 10, FailureDelta: 0.05})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		h.RecordOutcome(CohortTreatment, OutcomeUpstreamError)
 	}
 	if h.Snapshot().RolledBack {
@@ -231,17 +231,17 @@ func TestConcurrentRecordRaceClean(t *testing.T) {
 	const N = 500
 	var wg sync.WaitGroup
 	wg.Add(G * 2)
-	for i := 0; i < G; i++ {
+	for range G {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < N; j++ {
+			for range N {
 				h.RecordOutcome(CohortControl, OutcomeSuccess)
 				h.RecordOutcome(CohortTreatment, OutcomeRetryRequested)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for j := 0; j < N; j++ {
+			for range N {
 				_ = h.Cohort("session")
 				_ = h.Snapshot()
 			}

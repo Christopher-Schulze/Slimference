@@ -68,7 +68,7 @@ func wssSQLTableFixture(rows int) string {
 	var b strings.Builder
 	b.WriteString(" id  | name           | email\n")
 	b.WriteString("-----+----------------+----------------------\n")
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		fmt.Fprintf(&b, " %03d | user_%03d       | user_%03d@example.com\n", i, i, i)
 	}
 	fmt.Fprintf(&b, "(%d rows)\n", rows)
@@ -80,7 +80,7 @@ func wssMySQLTableFixture(rows int) string {
 	b.WriteString("+-----+----------------+----------------------+\n")
 	b.WriteString("| id  | name           | email                |\n")
 	b.WriteString("+-----+----------------+----------------------+\n")
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		fmt.Fprintf(&b, "| %03d | user_%03d       | user_%03d@example.com |\n", i, i, i)
 	}
 	b.WriteString("+-----+----------------+----------------------+\n")

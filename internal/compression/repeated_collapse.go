@@ -47,7 +47,7 @@ func (idx *ToolCallIndex) CollapseRepeated(messages []types.Message, prefixEnd i
 
 	// Second pass: for each tool_result, look up its tool_use and check for repeats.
 	saved := 0
-	for i := 0; i < prefixEnd; i++ {
+	for i := range prefixEnd {
 		newContent := make([]types.ContentBlock, len(messages[i].Content))
 		copy(newContent, messages[i].Content)
 		changed := false

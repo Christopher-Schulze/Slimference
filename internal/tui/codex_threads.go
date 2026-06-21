@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -61,9 +62,7 @@ func lookupCodexThreadMetadata(sessionIDs []string) map[string]codexThreadMetada
 		if codexThreadMetadataCacheData == nil {
 			codexThreadMetadataCacheData = map[string]codexThreadMetadata{}
 		}
-		for id, meta := range loaded {
-			codexThreadMetadataCacheData[id] = meta
-		}
+		maps.Copy(codexThreadMetadataCacheData, loaded)
 		codexThreadMetadataCacheAt = now
 	}
 	out, _ := cachedCodexThreads(unique)

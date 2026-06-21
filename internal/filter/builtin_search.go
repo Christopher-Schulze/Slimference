@@ -764,8 +764,8 @@ func safeHeadLineLimit(argv []string) (int, bool) {
 		if strings.HasPrefix(arg, "-") && len(arg) > 1 && allSearchDigits(arg[1:]) {
 			return parsePositiveSearchLineLimit(arg[1:])
 		}
-		if strings.HasPrefix(arg, "--lines=") {
-			return parsePositiveSearchLineLimit(strings.TrimPrefix(arg, "--lines="))
+		if after, ok := strings.CutPrefix(arg, "--lines="); ok {
+			return parsePositiveSearchLineLimit(after)
 		}
 	case 3:
 		if argv[1] == "-n" || argv[1] == "--lines" {
@@ -1166,8 +1166,8 @@ func compactSearchOutputArchived(argv []string, stdout []byte, toolName string) 
 		if ns == "" {
 			return nil
 		}
-		nlines := strings.Split(ns, "\n")
-		for _, raw := range nlines {
+		nlines := strings.SplitSeq(ns, "\n")
+		for raw := range nlines {
 			line := strings.TrimRight(raw, "\r")
 			if line == "" || isSearchEnvelopeNoiseLine(line) {
 				continue
@@ -1202,10 +1202,7 @@ func compactSearchOutputArchived(argv []string, stdout []byte, toolName string) 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
 
-	shownFiles := len(fileOrder)
-	if shownFiles > maxArchivedFilesShown {
-		shownFiles = maxArchivedFilesShown
-	}
+	shownFiles := min(len(fileOrder), maxArchivedFilesShown)
 	for fi, file := range fileOrder {
 		if fi >= shownFiles {
 			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(fileOrder)-shownFiles))
@@ -1794,12 +1791,12 @@ func searchOptionKind(arg string) searchOptionInfo {
 }
 
 func splitLeadingCDSearch(commandLine string) (workdir, inner string, ok bool) {
-	idx := strings.Index(commandLine, "&&")
-	if idx < 0 {
+	before, after, ok0 := strings.Cut(commandLine, "&&")
+	if !ok0 {
 		return "", "", false
 	}
-	prefix := strings.TrimSpace(commandLine[:idx])
-	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
+	prefix := strings.TrimSpace(before)
+	rest := strings.TrimSpace(after)
 	argv := primaryArgvForCapturedOutput(prefix)
 	if len(argv) != 2 || strings.ToLower(filepath.Base(argv[0])) != "cd" {
 		return "", "", false

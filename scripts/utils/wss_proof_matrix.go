@@ -313,7 +313,7 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 			if value == "" {
 				return flags, fmt.Errorf("--required-workloads requires a non-empty value")
 			}
-			for _, part := range strings.Split(value, ",") {
+			for part := range strings.SplitSeq(value, ",") {
 				workload := strings.TrimSpace(part)
 				if workload != "" {
 					flags.requiredWorkloads = append(flags.requiredWorkloads, workload)
@@ -1034,9 +1034,9 @@ func resolveProofPath(baseDir, path string) string {
 	if path == "" {
 		return ""
 	}
-	if strings.HasPrefix(path, "~/") {
+	if after, ok := strings.CutPrefix(path, "~/"); ok {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			return filepath.Join(home, after)
 		}
 	}
 	if filepath.IsAbs(path) {

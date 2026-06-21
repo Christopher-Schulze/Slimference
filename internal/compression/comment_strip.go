@@ -290,12 +290,12 @@ func stripHTMLComments(code string) string {
 		}
 		b.WriteString(remaining[:start])
 		after := remaining[start+4:]
-		end := strings.Index(after, "-->")
-		if end == -1 {
+		_, after0, ok := strings.Cut(after, "-->")
+		if !ok {
 			b.WriteString(remaining[start:])
 			break
 		}
-		remaining = after[end+3:]
+		remaining = after0
 	}
 	result := normalizeBlankLines(b.String())
 	return result
@@ -313,12 +313,12 @@ func stripCSSComments(code string) string {
 		}
 		b.WriteString(remaining[:start])
 		after := remaining[start+2:]
-		end := strings.Index(after, "*/")
-		if end == -1 {
+		_, after0, ok := strings.Cut(after, "*/")
+		if !ok {
 			b.WriteString(remaining[start:])
 			break
 		}
-		remaining = after[end+2:]
+		remaining = after0
 	}
 	return normalizeBlankLines(b.String())
 }

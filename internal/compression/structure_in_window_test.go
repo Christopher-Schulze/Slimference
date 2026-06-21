@@ -19,7 +19,7 @@ func buildInWindowCfg() *config.CompressionConfig {
 func goBody(repeat int) string {
 	var sb strings.Builder
 	sb.WriteString("package demo\n")
-	for i := 0; i < repeat; i++ {
+	for i := range repeat {
 		sb.WriteString("func F")
 		sb.WriteString(smallItoa(i))
 		sb.WriteString("() {\n    // a lot of body content here indeed\n    doWork()\n    doMore()\n    doEvenMore()\n}\n")
@@ -371,7 +371,7 @@ func TestStructureInWindow_extractNoShrinkSkipped(t *testing.T) {
 	// output that is not shorter than the input.
 	var sb strings.Builder
 	sb.WriteString("package demo\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		sb.WriteString("var V")
 		sb.WriteString(smallItoa(i))
 		sb.WriteString(" int\n")

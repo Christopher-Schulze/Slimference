@@ -396,7 +396,7 @@ func TestTryCompactTerraformValidate_emptyPassthrough(t *testing.T) {
 func TestTryCompactTerraformStateList_longPassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		b.WriteString("aws_s3_bucket.bucket_")
 		b.WriteString(strconvI(i))
 		b.WriteString("\n")
@@ -441,7 +441,7 @@ func TestTryCompactTerraformStateList_nonStateListPassthrough(t *testing.T) {
 func TestTryCompactTerraformOutput_longPassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		b.WriteString("output_")
 		b.WriteString(strconvI(i))
 		b.WriteString(" = \"value_")
@@ -458,7 +458,7 @@ func TestTryCompactTerraformOutput_longPassthrough(t *testing.T) {
 func TestTryCompactTerraformOutputKeepsLateDiagnosticOutputsByFullPass(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 45; i++ {
+	for i := range 45 {
 		b.WriteString("output_")
 		b.WriteString(strconvI(i))
 		b.WriteString(" = \"value_")
@@ -504,7 +504,7 @@ func TestTryCompactTerraformOutput_objectValuePassthrough(t *testing.T) {
 	b.WriteString("  key1 = \"a\"\n")
 	b.WriteString("  key2 = \"b\"\n")
 	b.WriteString("}\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		b.WriteString("entry_")
 		b.WriteString(strconvI(i))
 		b.WriteString(" = \"x\"\n")
@@ -527,7 +527,7 @@ func TestTryCompactTerraformOutput_objectValuePassthrough(t *testing.T) {
 func TestTryCompactTerraformOutput_jsonFlagPassthrough(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		b.WriteString("\"k_")
 		b.WriteString(strconvI(i))
 		b.WriteString("\":\"v\",\n")

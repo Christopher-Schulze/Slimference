@@ -2006,7 +2006,7 @@ func wssLocalGapFactListCounts(facts map[string]string, key string) map[string]i
 		return nil
 	}
 	var counts map[string]int
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		name := strings.TrimSpace(part)
 		if name == "" {
 			continue
@@ -2025,7 +2025,7 @@ func wssLocalGapFactCountPairs(facts map[string]string, key string) map[string]i
 		return nil
 	}
 	var counts map[string]int
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
 		name = strings.TrimSpace(name)
 		if name == "" {

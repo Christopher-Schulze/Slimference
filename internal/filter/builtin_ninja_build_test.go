@@ -38,7 +38,6 @@ func TestTryCompactNinjaCleanProgressFailOpen(t *testing.T) {
 		"digraph ninja {\n  \"app\" -> \"main.o\"\n}\n",
 	}
 	for _, input := range tests {
-		input := input
 		t.Run(strings.SplitN(input, "\n", 2)[0], func(t *testing.T) {
 			t.Parallel()
 			if out, ok := TryCompactNinja([]string{"ninja", "-C", "build"}, []byte(input)); ok {
@@ -51,7 +50,7 @@ func TestTryCompactNinjaCleanProgressFailOpen(t *testing.T) {
 func ninjaCleanProgressFixture(files int) string {
 	var b strings.Builder
 	b.WriteString("ninja: Entering directory `build'\n")
-	for i := 0; i < files; i++ {
+	for i := range files {
 		fmt.Fprintf(&b, "[%d/%d] Building CXX object src/CMakeFiles/app.dir/generated/object_%02d.cpp.o\n", i+1, files+1, i)
 	}
 	fmt.Fprintf(&b, "[%d/%d] Linking CXX executable app\n", files+1, files+1)

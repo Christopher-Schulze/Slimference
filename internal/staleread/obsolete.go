@@ -171,10 +171,10 @@ func patchMutationPaths(patchText, workdir string) []string {
 		path = strings.TrimPrefix(path, "b/")
 		out = append(out, pathWithWorkdir(path, workdir))
 	}
-	for _, line := range strings.Split(patchText, "\n") {
+	for line := range strings.SplitSeq(patchText, "\n") {
 		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "+++ ", "--- "} {
-			if strings.HasPrefix(line, prefix) {
-				add(strings.TrimPrefix(line, prefix))
+			if after, ok := strings.CutPrefix(line, prefix); ok {
+				add(after)
 			}
 		}
 	}

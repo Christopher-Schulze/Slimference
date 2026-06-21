@@ -22,7 +22,6 @@ func TestWantsHelp(t *testing.T) {
 		{"unknown flag", []string{"--weird"}, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wantsHelp(tc.args); got != tc.want {
@@ -46,7 +45,6 @@ func TestWantsVersion(t *testing.T) {
 		{"subcommand", []string{"doctor"}, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if got := wantsVersion(tc.args); got != tc.want {
@@ -75,7 +73,6 @@ func TestWantsHeadless(t *testing.T) {
 		{"terminator stops scan", []string{"--", "--no-tui"}, "", false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.env != "" {
 				t.Setenv("SLIMFERENCE_HEADLESS", tc.env)
@@ -172,7 +169,6 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 		"stats", "debug", "service", "daemon", "proxy",
 		"config", "test", "completion", "trust", "integrate", "bypass", "version"}
 	for _, topic := range topics {
-		topic := topic
 		t.Run(topic, func(t *testing.T) {
 			t.Parallel()
 			out := helpForSubcommand(topic)

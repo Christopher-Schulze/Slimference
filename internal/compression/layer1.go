@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -278,7 +279,7 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 		fan := make([]fanOut, prefixEnd)
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, runtime.GOMAXPROCS(0))
-		for i := 0; i < prefixEnd; i++ {
+		for i := range prefixEnd {
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(idx int) {
@@ -305,7 +306,7 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 			result.DictionarySaved += r.dict
 		}
 	} else {
-		for i := 0; i < prefixEnd; i++ {
+		for i := range prefixEnd {
 			msg := out[i]
 			msg, js, ds, nds, cs, ss, ds2, as, sc, ts, ims, dict := c.compressMessage(msg, i, prefixEnd, toolUses)
 			out[i] = msg
@@ -755,11 +756,12 @@ func joinSubLayers(layers []string) string {
 	if len(layers) == 1 {
 		return layers[0]
 	}
-	out := layers[0]
+	var out strings.Builder
+	out.WriteString(layers[0])
 	for _, l := range layers[1:] {
-		out += "," + l
+		out.WriteString("," + l)
 	}
-	return out
+	return out.String()
 }
 
 // Reset resets all stateful sub-components. Call on cache flush.
@@ -776,7 +778,7 @@ func extractFilepathFromToolResult(block types.ContentBlock) string {
 		return ""
 	}
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal([]byte(block.ToolInput), &raw); err != nil {
 		return ""
 	}
@@ -833,12 +835,7 @@ func (c *DeterministicCompressor) structureLangAllowed(lang string) bool {
 	if len(c.cfg.StructureLanguages) == 0 {
 		return true
 	}
-	for _, l := range c.cfg.StructureLanguages {
-		if l == lang {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.cfg.StructureLanguages, lang)
 }
 
 func formatDupeReference(firstIdx, currentIdx int) string {

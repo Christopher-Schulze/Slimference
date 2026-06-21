@@ -448,7 +448,7 @@ func TestTryCompactFormatOutput_manyFiles(t *testing.T) {
 	t.Parallel()
 	// prettier --write outputting 15 formatted filenames (>formatFileListMax=10) → compact
 	var sb strings.Builder
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		sb.WriteString(fmt.Sprintf("src/components/Component%d.tsx\n", i))
 	}
 	input := []byte(sb.String())
@@ -485,7 +485,7 @@ func TestTryCompactFormatOutput_gofmtManyFiles(t *testing.T) {
 	t.Parallel()
 	// gofmt -l with 12 files → compact
 	var sb strings.Builder
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		sb.WriteString(fmt.Sprintf("pkg/very/deep/generated/service/component/file%d_with_long_name.go\n", i))
 	}
 	out, ok := TryCompactFormatOutput([]string{"gofmt", "-l", "."}, []byte(sb.String()))
@@ -514,7 +514,7 @@ func TestTryCompactFormatOutput_unknownTool(t *testing.T) {
 	t.Parallel()
 	// unknown tool → pass-through even with many lines
 	var sb strings.Builder
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		sb.WriteString(fmt.Sprintf("file%d.txt\n", i))
 	}
 	_, ok := TryCompactFormatOutput([]string{"unknown-tool", "--write", "."}, []byte(sb.String()))

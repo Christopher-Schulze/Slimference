@@ -62,7 +62,7 @@ func IsWebSocketUpgrade(r *http.Request) bool {
 // Connection header may be a comma-separated list with mixed casing
 // (e.g. "keep-alive, Upgrade").
 func connectionHasUpgrade(connHeader string) bool {
-	for _, p := range strings.Split(connHeader, ",") {
+	for p := range strings.SplitSeq(connHeader, ",") {
 		if strings.EqualFold(strings.TrimSpace(p), "upgrade") {
 			return true
 		}
@@ -335,7 +335,7 @@ func rawHTTPHeaderValues(header []byte, name string) []string {
 		sep = "\n"
 	}
 	var values []string
-	for _, line := range strings.Split(text, sep) {
+	for line := range strings.SplitSeq(text, sep) {
 		field, value, ok := strings.Cut(line, ":")
 		if !ok || !strings.EqualFold(strings.TrimSpace(field), name) {
 			continue
@@ -379,8 +379,8 @@ func isCodexBridgePath(path string) bool {
 }
 
 func canonicalCodexBridgePath(path string) string {
-	if strings.HasPrefix(path, "/backend-api/codex-bridge/") {
-		return "/backend-api/codex/" + strings.TrimPrefix(path, "/backend-api/codex-bridge/")
+	if after, ok := strings.CutPrefix(path, "/backend-api/codex-bridge/"); ok {
+		return "/backend-api/codex/" + after
 	}
 	if path == "/backend-api/codex-bridge" {
 		return "/backend-api/codex"

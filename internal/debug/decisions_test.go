@@ -36,7 +36,7 @@ func TestRecorder_RecordAndLast(t *testing.T) {
 func TestRecorder_RingBufferOverflow(t *testing.T) {
 	t.Parallel()
 	r := NewRecorder(3, "")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		r.Record(RequestSummary{RequestID: "req-" + string(rune('0'+i))})
 	}
 	got := r.Last(10, false)
@@ -322,7 +322,7 @@ func TestNewRecorder_ZeroCapacityDefaults(t *testing.T) {
 	t.Parallel()
 	r := NewRecorder(0, "")
 	// capacity defaults to 100; record many entries to prove ring works
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		r.Record(RequestSummary{RequestID: "req"})
 	}
 	got := r.Last(50, false)

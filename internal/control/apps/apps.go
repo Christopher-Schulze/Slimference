@@ -14,8 +14,10 @@ package apps
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,12 +43,7 @@ var KnownApps = []AppID{AppCodexCLI, AppCodexDesktop, AppClaudeCode}
 
 // IsKnown reports whether `id` is in the recognised set.
 func (id AppID) IsKnown() bool {
-	for _, k := range KnownApps {
-		if k == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(KnownApps, id)
 }
 
 // Detection holds the heuristics that resolve a connection to one of
@@ -198,9 +195,7 @@ func (m *Manager) SetEnabled(id AppID, enabled bool) error {
 	m.mu.Lock()
 	cur := m.Policy()
 	newEnabled := make(map[AppID]bool, len(cur.Enabled))
-	for k, v := range cur.Enabled {
-		newEnabled[k] = v
-	}
+	maps.Copy(newEnabled, cur.Enabled)
 	newEnabled[id] = enabled
 	newEnabled[AppClaudeCode] = false
 	for _, k := range KnownApps {

@@ -179,7 +179,7 @@ func TestCompress_ParallelFanOut_RecorderConcurrentSafe(t *testing.T) {
 
 	jsonBody := "{\n" + strings.Repeat("  \"k\": \"v\",\n", 40) + "  \"last\": true\n}"
 	msgs := make([]types.Message, 10)
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		msgs[i] = buildMessage(t, i, "user", toolResultBlock(jsonBody))
 	}
 	msgs[9] = buildMessage(t, 9, "user", textBlock("tail"))

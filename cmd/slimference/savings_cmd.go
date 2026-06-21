@@ -96,7 +96,7 @@ type SavingsSummary struct {
 	DecisionEstimatedCostAfterUSD     float64                   `json:"decision_estimated_cost_after_usd"`
 	DecisionEstimatedCostSavedUSD     float64                   `json:"decision_estimated_cost_saved_usd"`
 	Mechanisms                        []SavingsMechanismSummary `json:"mechanisms,omitempty"`
-	Evidence                          SavingsEvidenceSummary    `json:"evidence,omitempty"`
+	Evidence                          SavingsEvidenceSummary    `json:"evidence"`
 	DecisionRoutes                    []SavingsRouteSummary     `json:"decision_routes,omitempty"`
 	DecisionSessions                  []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
 }
@@ -290,14 +290,14 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 			accumulateSnapshots(&out, snapshots)
 		}
 	case "month":
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			day := now.AddDate(0, 0, -i)
 			if snaps, err := analytics.ReadDailyStats(logDir, day); err == nil {
 				accumulateSnapshots(&out, snaps)
 			}
 		}
 	case "all":
-		for i := 0; i < 365; i++ {
+		for i := range 365 {
 			day := now.AddDate(0, 0, -i)
 			if snaps, err := analytics.ReadDailyStats(logDir, day); err == nil {
 				accumulateSnapshots(&out, snaps)
@@ -314,10 +314,7 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 	}
 
 	baseSavedTokens := out.Layer0SavedTokens + out.ProxySavedTokens
-	out.TotalSavedTokens = baseSavedTokens
-	if out.DecisionNetSavedTokens > out.TotalSavedTokens {
-		out.TotalSavedTokens = out.DecisionNetSavedTokens
-	}
+	out.TotalSavedTokens = max(out.DecisionNetSavedTokens, baseSavedTokens)
 	if out.DecisionNegativeEventTokens > 0 && out.TotalSavedTokens == baseSavedTokens {
 		out.TotalSavedTokens -= out.DecisionNegativeEventTokens
 	}
@@ -544,10 +541,7 @@ func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *confi
 	if out.DecisionRequests > 0 {
 		out.DecisionCacheHitRate = float64(out.DecisionCacheHitRequests) / float64(out.DecisionRequests)
 		decisionInputEquivalent := out.DecisionUncachedCounterfactual - out.DecisionLocalSavedTokens
-		decisionCacheRead := out.DecisionCacheReadTokens
-		if decisionCacheRead > decisionInputEquivalent {
-			decisionCacheRead = decisionInputEquivalent
-		}
+		decisionCacheRead := min(out.DecisionCacheReadTokens, decisionInputEquivalent)
 		out.DecisionCachedShare = savingsRate(decisionCacheRead, decisionInputEquivalent)
 		out.DecisionLocalSavingsRate = savingsRate(out.DecisionLocalSavedTokens, out.DecisionUncachedCounterfactual)
 		out.DecisionCombinedSavingsRate = savingsRate(out.DecisionCounterfactualTokens-out.DecisionEffectiveBilledTokens, out.DecisionCounterfactualTokens)
@@ -1333,10 +1327,7 @@ func savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cach
 	if inputTokens <= 0 {
 		inputTokens = 0
 	}
-	discountableRead := cacheReadTokens
-	if discountableRead > inputTokens {
-		discountableRead = inputTokens
-	}
+	discountableRead := min(cacheReadTokens, inputTokens)
 	effective := inputTokens - cacheReadDiscountEquivalent(discountableRead, cachedPriceRatio) + cacheCreateTokens + negativeEventTokens
 	if effective < 0 {
 		return 0
@@ -1346,10 +1337,7 @@ func savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cach
 
 func savingsBuildScorecard(providerInputTokens, fallbackInputTokens, localSavedTokens, cacheReadTokens, cacheCreateTokens, negativeEventTokens int64, cachedPriceRatio float64) SavingsScorecard {
 	inputTokens := savingsInputEquivalent(providerInputTokens, fallbackInputTokens)
-	inputWithoutLocal := inputTokens + localSavedTokens
-	if inputWithoutLocal < 0 {
-		inputWithoutLocal = 0
-	}
+	inputWithoutLocal := max(inputTokens+localSavedTokens, 0)
 	effective := savingsEffectiveBilledTokens(providerInputTokens, fallbackInputTokens, cacheReadTokens, cacheCreateTokens, negativeEventTokens, cachedPriceRatio)
 	counterfactual := savingsCacheAwareBilledTokens(inputWithoutLocal, cacheReadTokens, cacheCreateTokens, cachedPriceRatio)
 	uncachedCounterfactual := inputWithoutLocal
@@ -1439,10 +1427,7 @@ func savingsBuildRouteSummaries(sessions []SavingsSessionSummary, cachedPriceRat
 		row.Scorecard.CompoundedEstimateTokens = row.CompoundedEstimateTokens
 		row.EffectiveBilled = row.Scorecard.EffectiveBilledTokens
 		routeInputEquivalent := row.Scorecard.UncachedCounterfactual - row.LocalSaved
-		routeCacheRead := row.CacheReadTokens
-		if routeCacheRead > routeInputEquivalent {
-			routeCacheRead = routeInputEquivalent
-		}
+		routeCacheRead := min(row.CacheReadTokens, routeInputEquivalent)
 		row.CachedShare = savingsRate(routeCacheRead, routeInputEquivalent)
 		out = append(out, *row)
 	}
@@ -1471,10 +1456,7 @@ func savingsCacheAwareBilledTokens(inputTokens, cacheReadTokens, cacheCreateToke
 	if inputTokens < 0 {
 		inputTokens = 0
 	}
-	discountableRead := cacheReadTokens
-	if discountableRead > inputTokens {
-		discountableRead = inputTokens
-	}
+	discountableRead := min(cacheReadTokens, inputTokens)
 	effective := inputTokens - cacheReadDiscountEquivalent(discountableRead, cachedPriceRatio) + cacheCreateTokens
 	if effective < 0 {
 		return 0
@@ -1747,10 +1729,7 @@ func accumulateSnapshots(out *SavingsSummary, snapshots []analytics.AnalyticsSna
 		out.ProxyOrigTokens += int64(snap.TotalInputTokens)
 		// CompTokens approximates the on-the-wire size: original minus
 		// the saved input tokens reported by the snapshot.
-		comp := int64(snap.TotalInputTokens - snap.SavedInputTokens)
-		if comp < 0 {
-			comp = 0
-		}
+		comp := max(int64(snap.TotalInputTokens-snap.SavedInputTokens), 0)
 		out.ProxyCompTokens += comp
 		out.ProxySavedTokens += int64(snap.SavedInputTokens)
 		out.CacheHits += int64(snap.CacheHits)
@@ -2340,13 +2319,7 @@ func formatSignedInt64Plain(n int64) string {
 
 func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens, cacheCreateTokens int64, usdPerMillion float64) (float64, float64, float64) {
 	beforeTokens := inputTokens + outputTokens
-	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens, 0.10) - cacheCreateTokens
-	if savedEquivalentTokens < 0 {
-		savedEquivalentTokens = 0
-	}
-	if savedEquivalentTokens > beforeTokens {
-		savedEquivalentTokens = beforeTokens
-	}
+	savedEquivalentTokens := min(max(savedTokens+cacheReadDiscountEquivalent(cacheReadTokens, 0.10)-cacheCreateTokens, 0), beforeTokens)
 	afterTokens := beforeTokens - savedEquivalentTokens
 	return tokensToUSD(beforeTokens, usdPerMillion), tokensToUSD(afterTokens, usdPerMillion), tokensToUSD(savedEquivalentTokens, usdPerMillion)
 }

@@ -76,7 +76,7 @@ func detectOutputShape(raw string) outputShape {
 		if len(sample) > 100_000 {
 			sample = sample[:100_000]
 		}
-		var probe interface{}
+		var probe any
 		if err := json.Unmarshal([]byte(sample), &probe); err == nil {
 			return shapeJSON
 		}
@@ -130,35 +130,29 @@ func previewJSON(raw string) (string, bool) {
 	if len(sample) > 500_000 {
 		sample = sample[:500_000]
 	}
-	var data interface{}
+	var data any
 	if err := json.Unmarshal([]byte(sample), &data); err != nil {
 		return "", false
 	}
 	var parts []string
 	switch v := data.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for k := range v {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		parts = append(parts, fmt.Sprintf("JSON object (%d keys):", len(v)))
-		limit := 15
-		if len(keys) < limit {
-			limit = len(keys)
-		}
+		limit := min(len(keys), 15)
 		for _, k := range keys[:limit] {
 			parts = append(parts, formatJSONKey(k, v[k]))
 		}
 		if len(keys) > limit {
 			parts = append(parts, fmt.Sprintf("  ... (%d more keys)", len(keys)-limit))
 		}
-	case []interface{}:
+	case []any:
 		parts = append(parts, fmt.Sprintf("JSON array (%d items):", len(v)))
-		limit := 5
-		if len(v) < limit {
-			limit = len(v)
-		}
+		limit := min(len(v), 5)
 		for _, item := range v[:limit] {
 			parts = append(parts, "  "+sketchJSONItem(item))
 		}
@@ -179,11 +173,11 @@ func previewJSON(raw string) (string, bool) {
 }
 
 // formatJSONKey renders one key/value pair for the preview.
-func formatJSONKey(k string, v interface{}) string {
+func formatJSONKey(k string, v any) string {
 	switch vt := v.(type) {
-	case []interface{}:
+	case []any:
 		return fmt.Sprintf("  %s: [%d items]", k, len(vt))
-	case map[string]interface{}:
+	case map[string]any:
 		subkeys := make([]string, 0, len(vt))
 		for sk := range vt {
 			subkeys = append(subkeys, sk)
@@ -210,9 +204,9 @@ func formatJSONKey(k string, v interface{}) string {
 }
 
 // sketchJSONItem renders one array element.
-func sketchJSONItem(v interface{}) string {
+func sketchJSONItem(v any) string {
 	switch vt := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		keys := make([]string, 0, len(vt))
 		for k := range vt {
 			keys = append(keys, k)
@@ -271,10 +265,7 @@ func previewPaths(raw string) (string, bool) {
 		return sorted[i].dir < sorted[j].dir
 	})
 	parts := []string{fmt.Sprintf("%d paths across %d directories:", len(lines), len(dirs))}
-	limit := 10
-	if len(sorted) < limit {
-		limit = len(sorted)
-	}
+	limit := min(len(sorted), 10)
 	for _, e := range sorted[:limit] {
 		parts = append(parts, fmt.Sprintf("  %s/ (%d files)", e.dir, e.count))
 	}

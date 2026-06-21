@@ -62,10 +62,7 @@ func AggregateFromSnapshots(snapshots []analytics.AnalyticsSnapshot) SessionStat
 
 	inputTokensOrig := last.TotalInputTokens
 	tokensSaved := last.SavedInputTokens
-	inputTokensComp := inputTokensOrig - tokensSaved
-	if inputTokensComp < 0 {
-		inputTokensComp = 0
-	}
+	inputTokensComp := max(inputTokensOrig-tokensSaved, 0)
 
 	var compressionRatio float64
 	if inputTokensOrig > 0 {

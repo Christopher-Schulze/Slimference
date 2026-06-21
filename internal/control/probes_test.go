@@ -549,16 +549,16 @@ func TestMemoryAppCountersConcurrent(t *testing.T) {
 	const perG = 100
 	var wg sync.WaitGroup
 	wg.Add(goroutines * 2)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < perG; j++ {
+			for range perG {
 				c.IncrementRouted(cappapps.AppCodexCLI)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for j := 0; j < perG; j++ {
+			for range perG {
 				c.IncrementBypassed(cappapps.AppCodexCLI)
 			}
 		}()

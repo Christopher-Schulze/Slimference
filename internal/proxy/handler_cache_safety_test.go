@@ -390,7 +390,7 @@ func TestServeHTTP_layer2CacheHit_partitionsBeTerseCohorts(t *testing.T) {
 	p := New(cfg)
 	orgForCohort := func(want qualityab.Cohort) string {
 		t.Helper()
-		for i := 0; i < 2000; i++ {
+		for i := range 2000 {
 			org := "org-cache-policy-" + strconv.Itoa(i)
 			if p.qualityAB.Cohort("anthropic:"+org) == want {
 				return org
@@ -676,7 +676,7 @@ func TestServeHTTP_layer2CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *t
 	}
 	defer p.fileWatcher.Close()
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		dir := filepath.Join(base, "prefill-"+strconv.Itoa(i))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)

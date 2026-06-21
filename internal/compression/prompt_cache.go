@@ -146,12 +146,9 @@ func selectCacheBreakpointIndices(messages []types.Message, stableBoundary int) 
 		return candidates[i].index > candidates[j].index
 	})
 
-	pickCount := maxCacheBreakpoints
-	if pickCount > len(candidates) {
-		pickCount = len(candidates)
-	}
+	pickCount := min(maxCacheBreakpoints, len(candidates))
 	selected := make([]int, pickCount)
-	for i := 0; i < pickCount; i++ {
+	for i := range pickCount {
 		selected[i] = candidates[i].index
 	}
 	sort.Ints(selected)
@@ -165,10 +162,7 @@ func selectCacheBreakpointIndices(messages []types.Message, stableBoundary int) 
 // next request. Skips empty-content messages because Anthropic's
 // cache marker must attach to a real content block.
 func lateBreakpointIndices(messages []types.Message, stableBoundary int) []int {
-	end := stableBoundary
-	if end > len(messages) {
-		end = len(messages)
-	}
+	end := min(stableBoundary, len(messages))
 	var picked []int
 	for i := end - 1; i >= 0 && len(picked) < maxCacheBreakpoints; i-- {
 		if len(messages[i].Content) == 0 {

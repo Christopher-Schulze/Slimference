@@ -24,9 +24,9 @@ func TestReduceCodexLayer0NeverElidesFirstRead(t *testing.T) {
 	var body strings.Builder
 	body.WriteString("Process exited with code 0\nOutput:\n")
 	body.WriteString("package x\n\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		body.WriteString(fmt.Sprintf("func F%d(a int) int {\n", i))
-		for j := 0; j < 15; j++ {
+		for j := range 15 {
 			body.WriteString(fmt.Sprintf("\ta += %d\n", j))
 		}
 		body.WriteString("\treturn a\n}\n\n")
@@ -39,7 +39,6 @@ func TestReduceCodexLayer0NeverElidesFirstRead(t *testing.T) {
 	}
 
 	for _, mode := range []string{"auto", "max", "conservative"} {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			res := reduceCodexLayer0(codexLayer0Request{
 				Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s-" + mode,

@@ -140,11 +140,7 @@ func diffLines(old, new []string) []lineEdit {
 			} else {
 				a := dp[i+1][j]
 				b := dp[i][j+1]
-				if a >= b {
-					dp[i][j] = a
-				} else {
-					dp[i][j] = b
-				}
+				dp[i][j] = max(a, b)
 			}
 		}
 	}
@@ -191,10 +187,7 @@ func buildHunks(edits []lineEdit, oldTotal, newTotal, context int) []string {
 	i := 0
 	for i < len(changedIdx) {
 		// Start of hunk: context lines before first change.
-		start := changedIdx[i] - context
-		if start < 0 {
-			start = 0
-		}
+		start := max(changedIdx[i]-context, 0)
 
 		// Extend end to cover all changes within context reach.
 		end := changedIdx[i] + context

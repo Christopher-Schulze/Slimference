@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -92,12 +93,7 @@ func (k FrameKind) IsKnown() bool {
 	if k == FrameKindUnknown {
 		return false
 	}
-	for _, known := range KnownFrameKinds {
-		if known == k {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(KnownFrameKinds, k)
 }
 
 // IsTextDelta reports whether the frame carries a streamed text

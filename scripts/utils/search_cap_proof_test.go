@@ -525,7 +525,7 @@ func searchCapProofCapturedShadowRequest(session, suffix, previousResponseID str
 
 func searchCapProofDistributedSearchItems(session string, outputs, files, matchesPerFile int) []map[string]any {
 	items := make([]map[string]any, 0, outputs*2)
-	for outputIndex := 0; outputIndex < outputs; outputIndex++ {
+	for outputIndex := range outputs {
 		callID := fmt.Sprintf("%s-search-%d", session, outputIndex+1)
 		items = append(items,
 			map[string]any{
@@ -546,8 +546,8 @@ func searchCapProofDistributedSearchItems(session string, outputs, files, matche
 
 func searchCapProofDistributedSearchOutput(needle string, files, matchesPerFile int) string {
 	var out strings.Builder
-	for fileIndex := 0; fileIndex < files; fileIndex++ {
-		for matchIndex := 0; matchIndex < matchesPerFile; matchIndex++ {
+	for fileIndex := range files {
+		for matchIndex := range matchesPerFile {
 			fmt.Fprintf(&out, "src/pkg/file_%03d.go:%d:%s match with enough surrounding deterministic context for compaction\n", fileIndex, matchIndex+10, needle)
 		}
 	}

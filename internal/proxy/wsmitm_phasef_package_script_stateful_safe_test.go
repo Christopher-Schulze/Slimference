@@ -25,7 +25,7 @@ func TestWSSStatefulSafePackageManagerLintScriptCompactsFullHistoryTurn(t *testi
 	output.WriteString("Process exited with code 0\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&output, "> workspace lint prelude %03d\n", i)
 	}
 	output.WriteString("> web@1.0.0 lint /repo\n")
@@ -116,12 +116,12 @@ func TestWSSStatefulSafePackageManagerLintScriptFailureCompactsFullHistoryTurn(t
 	output.WriteString("Process exited with code 1\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		fmt.Fprintf(&output, "> workspace lint failure prelude %03d\n", i)
 	}
 	output.WriteString("> web@1.0.0 lint /repo\n")
 	output.WriteString("> errcheck ./...\n")
-	for i := 0; i < 90; i++ {
+	for range 90 {
 		output.WriteString("internal/proxy/handler.go:164:15: Close() error return value is not checked\n")
 	}
 
@@ -190,7 +190,7 @@ func packageManagerScriptUnsafeEnvelope(script, tail string) string {
 	output.WriteString("Process exited with code 0\n")
 	output.WriteString("Original token count: 10000\n")
 	output.WriteString("Output:\n")
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		fmt.Fprintf(&output, "> workspace unsafe prelude %03d\n", i)
 	}
 	fmt.Fprintf(&output, "> web@1.0.0 %s /repo\n", script)

@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -157,10 +158,8 @@ func TestFilterObservability_SnapshotEmpty(t *testing.T) {
 func TestFilterObservability_Concurrent(t *testing.T) {
 	o := NewFilterObservability(50)
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			o.Record(FilterStats{
 				Name:     "concurrent",
 				Elapsed:  time.Microsecond,
@@ -168,7 +167,7 @@ func TestFilterObservability_Concurrent(t *testing.T) {
 				InBytes:  100,
 				OutBytes: 50,
 			})
-		}()
+		})
 	}
 	wg.Wait()
 	snap := o.Snapshot()
@@ -217,10 +216,10 @@ func TestApplyLayer0FiltersRecordsEvidenceManifestFields(t *testing.T) {
 	globalObservability = NewFilterObservability(50)
 
 	var input strings.Builder
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		input.WriteString("src/internal/proxy/handler.go:10:func handleCompressibleRequest() { // compression step xxxxxxxxxxxxxxxxxxxx\n")
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		input.WriteString("src/internal/config/defaults.go:22:func Defaults() *Config { return &Config{ // defaults yyyyyyyyyyyyyyyyyyyy\n")
 	}
 	stdout := []byte(input.String())
@@ -241,10 +240,5 @@ func TestApplyLayer0FiltersRecordsEvidenceManifestFields(t *testing.T) {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

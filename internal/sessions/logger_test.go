@@ -38,7 +38,7 @@ func TestSessionLogger_Recent_LimitsOutput(t *testing.T) {
 	t.Parallel()
 	l := NewSessionLogger()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		l.Log("INFO", "test", "msg")
 	}
 
@@ -174,7 +174,7 @@ func TestSessionLogger_Subscribe_DropsOnFullBuffer(t *testing.T) {
 	defer l.Unsubscribe(ch)
 
 	// Fill the subscriber buffer (cap 50) without reading.
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		l.Log("INFO", "test", "fill buffer")
 	}
 
@@ -213,7 +213,7 @@ func TestSessionLogger_RingBufferOverflow(t *testing.T) {
 	t.Parallel()
 	l := NewSessionLogger()
 
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		l.Log("INFO", "test", "msg")
 	}
 

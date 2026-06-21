@@ -299,7 +299,7 @@ func TestWebBuildSignalHelpers(t *testing.T) {
 
 func jsBundlerWebpackCleanFixture(entries int) string {
 	var b strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] [minimized] (name: chunk-%02d)\n", i, 20+i, i)
 	}
 	b.WriteString("./src/index.ts 128 bytes [built] [code generated]\n")
@@ -309,7 +309,7 @@ func jsBundlerWebpackCleanFixture(entries int) string {
 
 func jsBundlerRspackCleanFixture(entries int) string {
 	var b strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] (name: chunk-%02d)\n", i, 18+i, i)
 	}
 	b.WriteString("Rspack compiled successfully in 820 ms\n")
@@ -318,7 +318,7 @@ func jsBundlerRspackCleanFixture(entries int) string {
 
 func jsBundlerParcelCleanFixture(entries int) string {
 	var b strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js    %d KB    20ms\n", i, 10+i)
 	}
 	b.WriteString("Built in 1.23s\n")
@@ -327,7 +327,7 @@ func jsBundlerParcelCleanFixture(entries int) string {
 
 func jsBundlerRollupCleanFixture(entries int) string {
 	var b strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js -> dist/chunk-%02d.min.js\n", i, i)
 	}
 	b.WriteString("created dist/index.js in 420ms\n")
@@ -336,7 +336,7 @@ func jsBundlerRollupCleanFixture(entries int) string {
 
 func jsBundlerEsbuildCleanFixture(entries int) string {
 	var b strings.Builder
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js  %d kb\n", i, 12+i)
 	}
 	b.WriteString("Done in 45ms\n")
@@ -352,7 +352,7 @@ func jsBundlerTsupCleanFixture(entries int) string {
 	b.WriteString("CLI Cleaning output folder\n")
 	b.WriteString("ESM Build start\n")
 	b.WriteString("CJS Build start\n")
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		fmt.Fprintf(&b, "ESM dist/chunk-%02d.mjs     %d.00 KB\n", i, 10+i)
 		fmt.Fprintf(&b, "CJS dist/chunk-%02d.js      %d.00 KB\n", i, 11+i)
 	}

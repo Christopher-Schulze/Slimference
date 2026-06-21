@@ -517,7 +517,7 @@ func TestHandlePostToolCmd_T93RepetitionMarkerOnThirdHit(t *testing.T) {
 	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		payload, err := json.Marshal(map[string]string{
 			"session_id":    "sess-rep",
 			"tool_name":     "Bash",

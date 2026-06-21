@@ -208,10 +208,10 @@ func TestUsageTracker_ConcurrentRecord(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < recordsEach; j++ {
+			for range recordsEach {
 				tr.Record(types.Anthropic, 100, 80, 10)
 			}
 		}()

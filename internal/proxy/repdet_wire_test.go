@@ -31,11 +31,8 @@ func (o *oversizedReader) Read(p []byte) (int, error) {
 	if o.remaining <= 0 {
 		return 0, io.EOF
 	}
-	n := len(p)
-	if n > o.remaining {
-		n = o.remaining
-	}
-	for i := 0; i < n; i++ {
+	n := min(len(p), o.remaining)
+	for i := range n {
 		p[i] = 'A'
 	}
 	o.remaining -= n

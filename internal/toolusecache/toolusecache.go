@@ -10,6 +10,7 @@ package toolusecache
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -276,9 +277,7 @@ func rememberClean(dir, sessionID string, entries map[string]Entry) {
 
 func cloneEntries(in map[string]Entry) map[string]Entry {
 	out := make(map[string]Entry, len(in))
-	for id, entry := range in {
-		out[id] = entry
-	}
+	maps.Copy(out, in)
 	return out
 }
 

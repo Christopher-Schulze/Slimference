@@ -114,7 +114,7 @@ func parseTypeScriptDiagnostics(stdout string) (string, bool, bool) {
 }
 
 func typeScriptDiagnosticsHaveConcreteDetail(compact string) bool {
-	for _, raw := range strings.Split(compact, "\n") {
+	for raw := range strings.SplitSeq(compact, "\n") {
 		line := strings.TrimSpace(raw)
 		lower := strings.ToLower(line)
 		if containsTypeScriptDiagnosticCode(line) &&
@@ -126,7 +126,7 @@ func typeScriptDiagnosticsHaveConcreteDetail(compact string) bool {
 }
 
 func typeScriptDiagnosticPayloadHasSourceContext(stdout string) bool {
-	for _, raw := range strings.Split(stdout, "\n") {
+	for raw := range strings.SplitSeq(stdout, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || isDiagnosticLine(line) || isDiagnosticSummary(line) {
 			continue

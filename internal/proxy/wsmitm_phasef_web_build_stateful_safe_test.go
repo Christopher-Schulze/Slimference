@@ -164,7 +164,7 @@ func wssNextBuildCleanFixture() string {
 	b.WriteString("Finalizing page optimization ...\n")
 	b.WriteString("Collecting build traces ...\n")
 	b.WriteString("Route (app)                              Size     First Load JS\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "/dashboard/section-%02d                  2.%02d kB        110 kB\n", i, i)
 	}
 	return b.String()
@@ -177,7 +177,7 @@ func wssViteBuildCleanFixture() string {
 	b.WriteString("240 modules transformed.\n")
 	b.WriteString("rendering chunks...\n")
 	b.WriteString("computing gzip size...\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "dist/assets/chunk-%02d.js                 %0.2f kB | gzip: %0.2f kB\n", i, float64(i)+12.4, float64(i)+3.1)
 	}
 	b.WriteString("built in 2.31s\n")
@@ -186,7 +186,7 @@ func wssViteBuildCleanFixture() string {
 
 func wssWebpackCleanFixture() string {
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] [minimized] (name: chunk-%02d)\n", i, 20+i, i)
 	}
 	b.WriteString("./src/index.ts 128 bytes [built] [code generated]\n")
@@ -196,7 +196,7 @@ func wssWebpackCleanFixture() string {
 
 func wssRspackCleanFixture() string {
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "asset chunk-%02d.js %d KiB [emitted] (name: chunk-%02d)\n", i, 18+i, i)
 	}
 	b.WriteString("Rspack compiled successfully in 820 ms\n")
@@ -205,7 +205,7 @@ func wssRspackCleanFixture() string {
 
 func wssParcelCleanFixture() string {
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js    %d KB    20ms\n", i, 10+i)
 	}
 	b.WriteString("Built in 1.23s\n")
@@ -214,7 +214,7 @@ func wssParcelCleanFixture() string {
 
 func wssRollupCleanFixture() string {
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js -> dist/chunk-%02d.min.js\n", i, i)
 	}
 	b.WriteString("created dist/index.js in 420ms\n")
@@ -223,7 +223,7 @@ func wssRollupCleanFixture() string {
 
 func wssEsbuildCleanFixture() string {
 	var b strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "dist/chunk-%02d.js  %d kb\n", i, 12+i)
 	}
 	b.WriteString("Done in 45ms\n")
@@ -239,7 +239,7 @@ func wssTsupCleanFixture() string {
 	b.WriteString("CLI Cleaning output folder\n")
 	b.WriteString("ESM Build start\n")
 	b.WriteString("CJS Build start\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, "ESM dist/chunk-%02d.mjs     %d.00 KB\n", i, 10+i)
 		fmt.Fprintf(&b, "CJS dist/chunk-%02d.js      %d.00 KB\n", i, 11+i)
 	}
