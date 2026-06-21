@@ -1610,6 +1610,8 @@ func TestTryCompactSearchOutputArchivedMultiFile(t *testing.T) {
 
 func TestTryCompactSearchOutputArchivedCapsMatchesPerFile(t *testing.T) {
 	t.Parallel()
+	// 50 matches in one file with cap=20 (aligned with maxMatchesPerFile).
+	// 30 matches should be omitted, shown as "[+30 more matches]".
 	var sb strings.Builder
 	for i := 1; i <= 50; i++ {
 		fmt.Fprintf(&sb, "src/big.go:%d:func handler%d() { return nil }\n", i, i)
@@ -1625,7 +1627,7 @@ func TestTryCompactSearchOutputArchivedCapsMatchesPerFile(t *testing.T) {
 	if !strings.Contains(s, "50 match(es)") {
 		t.Errorf("expected 50 total matches: %s", s[:min(len(s), 200)])
 	}
-	if !strings.Contains(s, "[+35 more matches]") {
+	if !strings.Contains(s, "[+30 more matches]") {
 		t.Errorf("expected match cap marker: %s", s[:min(len(s), 200)])
 	}
 }
@@ -1744,7 +1746,7 @@ func TestTryCompactSearchOutputArchivedCapsFilesShown(t *testing.T) {
 	if !strings.Contains(s, "50 file(s)") {
 		t.Errorf("expected 50 files: %s", s[:min(len(s), 200)])
 	}
-	if !strings.Contains(s, "[+10 more files]") {
+	if !strings.Contains(s, "[+20 more files]") {
 		t.Errorf("expected file cap marker: %s", s[:min(len(s), 200)])
 	}
 }
@@ -1782,5 +1784,87 @@ func TestTryCompactSearchOutputArchivedUnparsableOutput(t *testing.T) {
 	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
 	if ok {
 		t.Fatalf("unparsable output should not compact: out=%q", out)
+	}
+}
+
+// TestTryCompactSearchOutputArchivedDrawdownVectorBounded proves the
+// drawdown vector is bounded: content beyond the cap is truncated, matches
+// beyond the per-file cap are hidden (only a count is shown), and files
+// beyond the file cap are hidden (only a count is shown). This is the
+// "forbidden mutation" side — the compacted output must NOT contain the
+// omitted bytes, proving the drawdown vector is real and bounded.
+func TestTryCompactSearchOutputArchivedDrawdownVectorBounded(t *testing.T) {
+	t.Parallel()
+	// 50 files × 25 matches each, with unique content per match.
+	// Cap is 30 files, 20 matches/file, 120 runes content.
+	// Content lines exceed 120 runes to trigger content truncation.
+	var sb strings.Builder
+	for f := 1; f <= 50; f++ {
+		for i := 1; i <= 25; i++ {
+			fmt.Fprintf(&sb, "src/file%d.go:%d:UNIQUE_CONTENT_%d_%d_that_is_definitely_long_enough_to_exceed_the_one_hundred_and_twenty_rune_truncation_limit_for_sure_yes_indeed_it_absolutely_is_without_any_doubtwhatsoever\n", f, i, f, i)
+		}
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "UNIQUE_CONTENT", "."}
+
+	out, ok := TryCompactSearchOutputArchived(argv, []byte(input))
+	if !ok {
+		t.Fatalf("archived rg should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+
+	// Side 1: total counts are preserved (model knows the full scope).
+	if !strings.Contains(s, "1250 match(es)") {
+		t.Errorf("expected 1250 total matches: %s", s[:min(len(s), 200)])
+	}
+	if !strings.Contains(s, "50 file(s)") {
+		t.Errorf("expected 50 total files: %s", s[:min(len(s), 200)])
+	}
+
+	// Side 2: files beyond cap=30 are hidden (drawdown vector is real).
+	if strings.Contains(s, "src/file31.go") {
+		t.Errorf("file 31 should be hidden beyond file cap: see output")
+	}
+	if strings.Contains(s, "src/file50.go") {
+		t.Errorf("file 50 should be hidden beyond file cap: see output")
+	}
+	if !strings.Contains(s, "[+20 more files]") {
+		t.Errorf("expected [+20 more files] marker for 50-30=20 hidden files: %s", s[:min(len(s), 300)])
+	}
+
+	// Side 3: matches beyond cap=20 per file are hidden (drawdown vector is real).
+	// File 1 has 25 matches; matches 21-25 must not appear.
+	if strings.Contains(s, "UNIQUE_CONTENT_1_21") {
+		t.Errorf("match 21 in file 1 should be hidden beyond match cap: see output")
+	}
+	if strings.Contains(s, "UNIQUE_CONTENT_1_25") {
+		t.Errorf("match 25 in file 1 should be hidden beyond match cap: see output")
+	}
+	if !strings.Contains(s, "[+5 more matches]") {
+		t.Errorf("expected [+5 more matches] marker for 25-20=5 hidden matches: %s", s[:min(len(s), 300)])
+	}
+
+	// Side 4: content beyond 120 runes is truncated (drawdown vector is real).
+	// Verify a long content line is truncated with the ellipsis marker.
+	if !strings.Contains(s, "…") {
+		t.Errorf("expected truncation ellipsis in archived output: %s", s[:min(len(s), 300)])
+	}
+}
+
+// TestTryCompactSearchOutputArchivedCapsAlignedWithStandardGrouping
+// verifies that the archived path uses the SAME salience boundary as the
+// standard grouping path (maxMatchesPerFile, maxFilesShown), per the
+// evidence-basis documentation. This is a structural invariant test: if
+// either constant drifts, this test fails and forces a re-evaluation of
+// the drawdown vector evidence.
+func TestTryCompactSearchOutputArchivedCapsAlignedWithStandardGrouping(t *testing.T) {
+	t.Parallel()
+	if maxArchivedMatchesPerFile != maxMatchesPerFile {
+		t.Fatalf("archived match cap %d must equal standard cap %d (evidence basis: same salience boundary)",
+			maxArchivedMatchesPerFile, maxMatchesPerFile)
+	}
+	if maxArchivedFilesShown != maxFilesShown {
+		t.Fatalf("archived file cap %d must equal standard cap %d (evidence basis: same salience boundary)",
+			maxArchivedFilesShown, maxFilesShown)
 	}
 }

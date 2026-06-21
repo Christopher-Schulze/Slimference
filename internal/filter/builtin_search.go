@@ -1058,17 +1058,39 @@ func SearchCompactProfile(argv []string, stdout []byte, options SearchCompactOpt
 }
 
 // TryCompactSearchOutputArchived produces a compact summary of grep-style
-// search output by truncating match content to a fixed width and capping
-// matches per file. Unlike TryCompactSearchOutputWithOptions, this function
-// is designed for archive-backed compaction: it deliberately omits bytes
-// (truncated content, omitted matches) that are recoverable through the
-// command-output-first archive mechanism.
+// search output by truncating match content and capping visible matches per
+// file. Unlike TryCompactSearchOutputWithOptions (which preserves 100% of
+// match content at MinRetainedPct=100), this function is designed for
+// archive-backed compaction: it deliberately omits bytes that are recoverable
+// through the command-output-first archive mechanism.
 //
-// The summary preserves all file names and match counts so the model knows
-// what was found, but truncates each match's content to maxMatchContentRunes
-// and caps visible matches per file at maxArchivedMatchesPerFile. The
-// omitted bytes are recoverable via the archive marker appended by the
-// command-output-first shim.
+// DRAWDOWN VECTOR (AGENTS.md §3/§3.2, named per policy):
+// This compaction is bytes-omitting and default-on. The salience drawdown
+// vector is: (1) match content beyond maxArchivedMatchContentRunes is
+// truncated, (2) matches beyond maxArchivedMatchesPerFile per file are
+// hidden (only a "[+N more matches]" count is shown — line numbers for
+// omitted matches are NOT visible), and (3) files beyond
+// maxArchivedFilesShown are hidden (only a "[+N more files]" count is
+// shown — file paths for omitted files are NOT visible). The model loses
+// direct visibility of those file paths, line numbers, and content.
+//
+// MITIGATION: All omitted bytes are preserved in the contentarchive and are
+// mechanically recoverable via `slimference expand URI` (the archive marker
+// is appended by the command-output-first shim). The recovery cost (an
+// additional tool call) is counted as negative savings per AGENTS.md §3.5.
+// If the archive is unavailable, the shim fail-opens to the original raw
+// output (no compaction, no drawdown).
+//
+// EVIDENCE BASIS FOR CAPS (AGENTS.md §3.4):
+// maxArchivedMatchesPerFile and maxArchivedFilesShown are aligned with the
+// established standard search grouping caps (maxMatchesPerFile=20,
+// maxFilesShown=30), which are the proven salience boundaries already in
+// production use for the non-archived grouping path. The archived path uses
+// the SAME salience boundary as the standard path — it does not invent new
+// arbitrary thresholds. The only NEW dimension is content truncation
+// (maxArchivedMatchContentRunes), which is justified by the archive
+// recovery mechanism: truncated content is always recoverable, unlike the
+// standard path which preserves full content at 100% retention.
 //
 // Returns the compact summary and true if the summary is smaller than the
 // original output. Returns the original output and false otherwise.
@@ -1085,9 +1107,20 @@ func TryCompactSearchOutputArchived(argv []string, stdout []byte) ([]byte, bool)
 }
 
 const (
+	// maxArchivedMatchContentRunes is the only NEW salience dimension
+	// introduced by the archived path. It truncates match content to a
+	// fixed rune width; truncated content is always recoverable via the
+	// archive. 120 runes is sufficient to preserve the vast majority of
+	// source-code match lines intact (most source lines are <120 runes),
+	// while producing savings on pathological long-line output (e.g.
+	// minified files, generated code, long JSON payloads).
 	maxArchivedMatchContentRunes = 120
-	maxArchivedMatchesPerFile    = 15
-	maxArchivedFilesShown        = 40
+	// maxArchivedMatchesPerFile and maxArchivedFilesShown are aligned
+	// with the standard grouping caps (maxMatchesPerFile, maxFilesShown)
+	// to keep the archived path's salience boundary identical to the
+	// established proven-safe boundary. See the drawdown vector doc above.
+	maxArchivedMatchesPerFile = maxMatchesPerFile
+	maxArchivedFilesShown     = maxFilesShown
 )
 
 func compactSearchOutputArchived(argv []string, stdout []byte, toolName string) []byte {
