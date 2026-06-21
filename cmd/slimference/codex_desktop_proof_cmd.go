@@ -113,7 +113,7 @@ type codexDesktopProofSession struct {
 
 const codexDesktopProofStateTimeout = 10 * time.Second
 
-const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real search-loop coding-session proof workload: read AGENTS.md, docs/todo.md, docs/todo/roadmap-48pct-wss.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg searches with enough matching output, follow with sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
+const codexDesktopOwnerProofPrompt = "In the current Slimference repository, run a longer real search-loop coding-session proof workload: read AGENTS.md, docs/todo.md, inspect internal/proxy/wsmitm_phasef.go and internal/filter/builtin_testrun.go, run multiple rg searches with enough matching output, follow with sed/git/go test commands, and analyze WSS savings blockers without editing files. End with PROOF_DONE."
 
 const codexDesktopManualProofCommand = "slimference codex desktop prove --manual --json --duration=30s --keep-open"
 
