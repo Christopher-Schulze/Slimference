@@ -235,6 +235,37 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestScanWindowBlockFilePath(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty", "", ""},
+		{"no key", `{"data":"value"}`, ""},
+		{"path key", `{"path":"/src/main.go"}`, "/src/main.go"},
+		{"file_path key", `{"file_path":"test.go"}`, "test.go"},
+		{"filename key", `{"filename":"config.json"}`, "config.json"},
+		{"filepath key", `{"filepath":"/etc/hosts"}`, "/etc/hosts"},
+		{"file key", `{"file":"readme.md"}`, "readme.md"},
+		{"no colon", `{"path" "/src/main.go"}`, ""},
+		{"no quote", `{"path": /src/main.go}`, ""},
+		{"unclosed quote", `{"path":"/src/main.go`, ""},
+		{"empty after colon", `{"path":  `, ""},
+		{"whitespace after colon", `{"path":   "/src/main.go"}`, "/src/main.go"},
+		{"first key wins", `{"path":"/first","file":"/second"}`, "/first"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := scanWindowBlockFilePath(tc.input); got != tc.want {
+				t.Fatalf("scanWindowBlockFilePath(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSetWSSABCapture(t *testing.T) {
 	t.Parallel()
 	// nil proxy -> error.
