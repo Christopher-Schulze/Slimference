@@ -1188,6 +1188,8 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"chunk_reference_percent_high", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 101 }},
 		{"chunk_session_reference_percent_low", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = -1 }},
 		{"chunk_session_reference_percent_high", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 101 }},
+		{"search_cap_min_retained_pct_low", func(c *Config) { c.Compression.OutputReduce.CodexSearchCapMinRetainedPct = -1 }},
+		{"search_cap_min_retained_pct_high", func(c *Config) { c.Compression.OutputReduce.CodexSearchCapMinRetainedPct = 101 }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1589,5 +1591,73 @@ layer3_enabled = true
 	}
 	if cfg.Compression.Layer2Enabled {
 		t.Fatal("explicit layer2_enabled=false must win over legacy layer3_enabled=true")
+	}
+}
+
+func TestApplyCodexSearchCapProof_ReadError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Point to a non-existent file (not just missing, but in a path that will error).
+	proofPath := filepath.Join(dir, "nonexistent-proof.json")
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil || !strings.Contains(err.Error(), "read") {
+		t.Fatalf("expected read error, got %v", err)
+	}
+}
+
+func TestApplyCodexSearchCapProof_ParseError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	proofPath := filepath.Join(dir, "malformed-proof.json")
+	if err := os.WriteFile(proofPath, []byte("{bad json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil || !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestApplyCodexSearchCapProof_MissingSchemaVersionNonFinal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	proofPath := filepath.Join(dir, "no-schema-version.json")
+	// A proof report with schema_version=0 that doesn't look like a final release proof.
+	report := map[string]any{
+		"proof_schema_version": 0,
+		"matrix_path":          "",
+		"gate_passed":          false,
+	}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proofPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, fmt.Appendf(nil, `
+[compression.output_reduce]
+codex_search_cap_proof_path = %q
+`, proofPath), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = LoadWithOptions(LoadOptions{ExplicitPath: configPath, AllowLegacyWarn: true})
+	if err == nil || !strings.Contains(err.Error(), "missing proof_schema_version") {
+		t.Fatalf("expected missing schema version error, got %v", err)
 	}
 }
