@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
 
@@ -173,6 +174,64 @@ func TestRawScopedWSSRouteMode(t *testing.T) {
 	// Non-bridge path -> websocket_raw_phasef.
 	if got := rawScopedWSSRouteMode("/backend-api/codex/responses"); got != "websocket_raw_phasef" {
 		t.Fatalf("rawScopedWSSRouteMode(non-bridge) = %q", got)
+	}
+}
+
+func TestWSSLayer0EvidenceHasFullPassReason(t *testing.T) {
+	t.Parallel()
+	// empty reason -> false.
+	if wssLayer0EvidenceHasFullPassReason(nil, "") {
+		t.Fatal("empty reason should return false")
+	}
+	// nil decisions -> false.
+	if wssLayer0EvidenceHasFullPassReason(nil, "reason") {
+		t.Fatal("nil decisions should return false")
+	}
+	// matching decision -> true.
+	decisions := []evidence.BlockDecision{
+		{Action: evidence.ActionFullPass, Reason: "match"},
+		{Action: evidence.ActionSkipped, Reason: "other"},
+	}
+	if !wssLayer0EvidenceHasFullPassReason(decisions, "match") {
+		t.Fatal("matching full_pass decision should return true")
+	}
+	// no matching decision -> false.
+	if wssLayer0EvidenceHasFullPassReason(decisions, "nomatch") {
+		t.Fatal("non-matching reason should return false")
+	}
+	// wrong action -> false.
+	if wssLayer0EvidenceHasFullPassReason(decisions, "other") {
+		t.Fatal("non-full_pass action should return false")
+	}
+}
+
+func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
+	t.Parallel()
+	// nil facts -> 0.
+	if got := wssStatefulPrefixElisionTokensSaved(nil); got != 0 {
+		t.Fatalf("nil facts should return 0, got %d", got)
+	}
+	// missing key -> 0.
+	if got := wssStatefulPrefixElisionTokensSaved(map[string]string{}); got != 0 {
+		t.Fatalf("missing key should return 0, got %d", got)
+	}
+	// key not "true" -> 0.
+	if got := wssStatefulPrefixElisionTokensSaved(map[string]string{"wss.stateful_prefix_elision_changed": "false"}); got != 0 {
+		t.Fatalf("non-true value should return 0, got %d", got)
+	}
+	// valid with bytes saved -> positive.
+	if got := wssStatefulPrefixElisionTokensSaved(map[string]string{
+		"wss.stateful_prefix_elision_changed":     "true",
+		"wss.stateful_prefix_elision_bytes_saved": "1000",
+	}); got <= 0 {
+		t.Fatalf("valid facts should return positive, got %d", got)
+	}
+	// invalid bytes -> 0.
+	if got := wssStatefulPrefixElisionTokensSaved(map[string]string{
+		"wss.stateful_prefix_elision_changed":     "true",
+		"wss.stateful_prefix_elision_bytes_saved": "not-a-number",
+	}); got != 0 {
+		t.Fatalf("invalid bytes should return 0, got %d", got)
 	}
 }
 
