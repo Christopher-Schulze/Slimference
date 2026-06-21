@@ -305,3 +305,34 @@ func TestDefaultHintConstant(t *testing.T) {
 		t.Errorf("DefaultHint must not be empty")
 	}
 }
+
+func TestConciseChatHint(t *testing.T) {
+	t.Parallel()
+	if got := ConciseChatHint(""); got != DefaultConciseChatHint {
+		t.Fatalf("ConciseChatHint(\"\") = %q, want %q", got, DefaultConciseChatHint)
+	}
+	custom := "Be brief."
+	if got := ConciseChatHint(custom); got != custom {
+		t.Fatalf("ConciseChatHint(%q) = %q, want %q", custom, got, custom)
+	}
+}
+
+func TestRawString(t *testing.T) {
+	t.Parallel()
+	// Valid JSON string.
+	if got := rawString(json.RawMessage(`"hello"`)); got != "hello" {
+		t.Fatalf("rawString(\"hello\") = %q, want \"hello\"", got)
+	}
+	// Invalid JSON (number) — should return empty string.
+	if got := rawString(json.RawMessage(`42`)); got != "" {
+		t.Fatalf("rawString(42) = %q, want \"\"", got)
+	}
+	// Invalid JSON (object) — should return empty string.
+	if got := rawString(json.RawMessage(`{"a":1}`)); got != "" {
+		t.Fatalf("rawString({\"a\":1}) = %q, want \"\"", got)
+	}
+	// Empty raw — should return empty string.
+	if got := rawString(json.RawMessage(``)); got != "" {
+		t.Fatalf("rawString(\"\") = %q, want \"\"", got)
+	}
+}
