@@ -14,6 +14,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
 )
 
 func TestCommandOutputFirstShimGitStatusCleanFullPassesEmptyOutput(t *testing.T) {
@@ -4546,6 +4547,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 		if !strings.Contains(joined, "\x00"+commandOutputFirstActiveEnv+"=1\x00") {
 			t.Fatalf("%s missing active env in %#v", mode, got)
 		}
+		if !strings.Contains(joined, "\x00"+commandOutputFirstSessionEnv+"=cof-") {
+			t.Fatalf("%s missing command-output-first session env in %#v", mode, got)
+		}
 		if !strings.Contains(joined, "\x00BASH_ENV=") {
 			t.Fatalf("%s missing BASH_ENV in %#v", mode, got)
 		}
@@ -4586,6 +4590,9 @@ func TestCommandOutputFirstEnvInjectedOnlyForScopedProxiedRun(t *testing.T) {
 	}
 	if !strings.Contains(string(bashEnvContent), "export PATH=") || !strings.Contains(string(bashEnvContent), "${PATH:+:$PATH}") {
 		t.Fatalf("BASH_ENV does not re-prepend shim PATH: %q", bashEnvContent)
+	}
+	if !strings.Contains(string(bashEnvContent), "export "+commandOutputFirstSessionEnv+"=") {
+		t.Fatalf("BASH_ENV missing command-output-first session export: %q", bashEnvContent)
 	}
 }
 
@@ -5008,6 +5015,121 @@ func TestCommandOutputFirstShimTreeCompactsWithArchive(t *testing.T) {
 	}
 	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
 		t.Fatalf("non-positive tree accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstShimRepeatedSedReadCompactsWithArchive(t *testing.T) {
+	dbPath := withCommandOutputFirstRecordingDB(t)
+	t.Setenv(commandOutputFirstSessionEnv, "cof-read-session")
+	var body strings.Builder
+	for i := 1; i <= 220; i++ {
+		fmt.Fprintf(&body, "func sourceLine%03d() string { return \"line-%03d\" }\n", i, i)
+	}
+	raw := body.String()
+	realSed := writeFakeCommand(t, "sed", "#!/bin/sh\ncat <<'EOF'\n"+raw+"EOF\n")
+
+	var firstStdout, firstStderr bytes.Buffer
+	rc := runCommandOutputFirstShim([]string{"--command=sed", "--real-bin=" + realSed, "--", "-n", "1,220p", "internal/proxy/wsmitm_phasef.go"}, &bytes.Buffer{}, &firstStdout, &firstStderr)
+	if rc != 0 || firstStderr.Len() != 0 {
+		t.Fatalf("first sed rc=%d stderr=%q", rc, firstStderr.String())
+	}
+	if firstStdout.String() != raw {
+		t.Fatalf("first sed read must full-pass, got len=%d want=%d", firstStdout.Len(), len(raw))
+	}
+	if uri := commandOutputFirstArchiveURI(firstStdout.String()); uri != "" {
+		t.Fatalf("first read must not emit archive marker, got %q", firstStdout.String())
+	}
+
+	var secondStdout, secondStderr bytes.Buffer
+	rc = runCommandOutputFirstShim([]string{"--command=sed", "--real-bin=" + realSed, "--", "-n", "1,220p", "internal/proxy/wsmitm_phasef.go"}, &bytes.Buffer{}, &secondStdout, &secondStderr)
+	if rc != 0 || secondStderr.Len() != 0 {
+		t.Fatalf("second sed rc=%d stderr=%q", rc, secondStderr.String())
+	}
+	visible := commandOutputFirstVisibleOutput(secondStdout.String())
+	if !strings.Contains(visible, `[context-elided kind=file-read status=unchanged path="internal/proxy/wsmitm_phasef.go" archive=local-archive://`) ||
+		strings.Contains(visible, "sourceLine220") {
+		t.Fatalf("second sed read not compacted as unchanged archive reference: %q", secondStdout.String())
+	}
+	uri := commandOutputFirstArchiveURI(secondStdout.String())
+	if uri == "" {
+		t.Fatalf("missing repeated read archive URI in %q", secondStdout.String())
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), uri)
+	if err != nil {
+		t.Fatalf("expand repeated read archive: %v", err)
+	}
+	if !bytes.Contains(archived, []byte("sourceLine220")) {
+		t.Fatalf("archive did not preserve raw repeated read: %q", archived)
+	}
+
+	db, err := filter.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !strings.Contains(run.Command, "[command-output-first:sed] sed -n 1,220p internal/proxy/wsmitm_phasef.go") {
+		t.Fatalf("missing repeated read accounting row: ok=%v run=%+v", ok, run)
+	}
+	if run.InputTokens <= run.OutputTokens || run.SavingsPct <= 0 {
+		t.Fatalf("non-positive repeated read accounting row: %+v", run)
+	}
+}
+
+func TestCommandOutputFirstReadDeltaEdges(t *testing.T) {
+	if !commandOutputFirstReadAllowed("cat", []string{"internal/proxy/wsmitm_phasef.go"}) {
+		t.Fatal("cat file read was not allowed")
+	}
+	if !commandOutputFirstReadAllowed("head", []string{"-n", "20", "internal/proxy/wsmitm_phasef.go"}) {
+		t.Fatal("head range read was not allowed")
+	}
+	if !commandOutputFirstReadAllowed("awk", []string{"NR>=1&&NR<=5{print}", "internal/proxy/wsmitm_phasef.go"}) {
+		t.Fatal("awk range read was not allowed")
+	}
+	if commandOutputFirstReadAllowed("cat", []string{"app.log"}) {
+		t.Fatal("cat .log read was allowed")
+	}
+	if commandOutputFirstReadAllowed("cat", []string{"-"}) {
+		t.Fatal("stdin read was allowed")
+	}
+	if commandOutputFirstReadAllowed("sed", []string{"s/foo/bar/g", "internal/proxy/wsmitm_phasef.go"}) {
+		t.Fatal("non-read sed expression was allowed")
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "")
+	if out, ok := compactCommandOutputFirstReadDelta("sed", []string{"-n", "1,2p", "internal/proxy/wsmitm_phasef.go"}, []byte("line1\nline2\n")); ok || out != nil {
+		t.Fatalf("read delta compacted without session: out=%q ok=%v", out, ok)
+	}
+
+	t.Setenv(commandOutputFirstSessionEnv, "cof-read-edge")
+	if out, ok := compactCommandOutputFirstReadDelta("cat", []string{"app.log"}, []byte("line\n")); ok || out != nil {
+		t.Fatalf("log read delta compacted: out=%q ok=%v", out, ok)
+	}
+	prevHome := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
+	if out, ok := compactCommandOutputFirstReadDelta("cat", []string{"internal/proxy/wsmitm_phasef.go"}, []byte("line\n")); ok || out != nil {
+		osUserHomeDir = prevHome
+		t.Fatalf("read delta compacted with unavailable home: out=%q ok=%v", out, ok)
+	}
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
+	if out, ok := compactCommandOutputFirstReadDelta("cat", []string{"internal/proxy/wsmitm_phasef.go"}, []byte("first read\n")); ok || out != nil {
+		t.Fatalf("first read compacted: out=%q ok=%v", out, ok)
+	}
+	state, err := readcache.LoadSession(readcache.DefaultDir(home), "cof-read-edge")
+	if err != nil {
+		t.Fatalf("load flushed read session: %v", err)
+	}
+	if len(state.Files) == 0 {
+		t.Fatalf("first read did not flush seeded file state: %+v", state)
 	}
 }
 

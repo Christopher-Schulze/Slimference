@@ -14,11 +14,13 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/contentarchive"
 	"github.com/Christopher-Schulze/Slimference/internal/filter"
+	"github.com/Christopher-Schulze/Slimference/internal/readcache"
 )
 
 const (
 	commandOutputFirstDisableEnv             = "SLIMFERENCE_COMMAND_OUTPUT_FIRST_DISABLE"
 	commandOutputFirstActiveEnv              = "SLIMFERENCE_COMMAND_OUTPUT_FIRST"
+	commandOutputFirstSessionEnv             = "SLIMFERENCE_COMMAND_OUTPUT_FIRST_SESSION"
 	commandOutputFirstObservationScope       = "command_output_first"
 	commandOutputFirstObservationMinTokens   = 50
 	commandOutputFirstObservationFullPass    = "full_pass"
@@ -57,6 +59,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	shims := 0
 	for _, command := range []string{
+		"cat", "head", "sed", "awk",
 		"git", "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift",
 		"go", "npm", "pnpm", "yarn", "bun", "cargo",
 		"pytest", "py.test", "python", "python3", "uv", "poetry",
@@ -105,7 +108,9 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		return nil, func() {}, false
 	}
 	bashEnv := filepath.Join(dir, "bash_env")
+	sessionID := "cof-" + filepath.Base(dir)
 	bashEnvScript := "export " + commandOutputFirstActiveEnv + "=1\n" +
+		"export " + commandOutputFirstSessionEnv + "=" + shellQuote(sessionID) + "\n" +
 		"export PATH=" + shellQuote(dir) + "${PATH:+:$PATH}\n"
 	if err := os.WriteFile(bashEnv, []byte(bashEnvScript), 0644); err != nil {
 		cleanup()
@@ -119,6 +124,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		"PATH=" + path,
 		"BASH_ENV=" + bashEnv,
 		commandOutputFirstActiveEnv + "=1",
+		commandOutputFirstSessionEnv + "=" + sessionID,
 	}, cleanup, true
 }
 
@@ -262,6 +268,8 @@ type commandOutputFirstCompaction struct {
 
 func commandOutputFirstAllowCapture(command string, args []string) bool {
 	switch command {
+	case "cat", "head", "sed", "awk":
+		return commandOutputFirstReadAllowed(command, args)
 	case "git":
 		sub := commandOutputFirstGitSubcommand(args)
 		switch sub {
@@ -351,6 +359,25 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 			commandOutputFirstDirectTestAllowed(command, args) ||
 			commandOutputFirstDirectLintAllowed(command, args) ||
 			commandOutputFirstDirectFormatAllowed(command, args)
+	}
+}
+
+func commandOutputFirstReadAllowed(command string, args []string) bool {
+	argv := append([]string{command}, args...)
+	req, ok := filter.ReadRequestFromArgv(argv)
+	return ok && commandOutputFirstReadPathAllowed(req.Path)
+}
+
+func commandOutputFirstReadPathAllowed(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "-" {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".log":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -1402,6 +1429,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stdout)
 	}
 	switch command {
+	case "cat", "head", "sed", "awk":
+		compacted, ok := compactCommandOutputFirstReadDelta(command, args, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "git":
 		switch commandOutputFirstGitSubcommand(args) {
 		case "status":
@@ -1889,6 +1919,40 @@ func commandOutputFirstPythonModuleLintAllowed(command string, args []string) bo
 	default:
 		return false
 	}
+}
+
+func compactCommandOutputFirstReadDelta(command string, args []string, stdout []byte) ([]byte, bool) {
+	sessionID := strings.TrimSpace(os.Getenv(commandOutputFirstSessionEnv))
+	if sessionID == "" {
+		return nil, false
+	}
+	argv := append([]string{command}, args...)
+	req, ok := filter.ReadRequestFromArgv(argv)
+	if !ok || !commandOutputFirstReadPathAllowed(req.Path) {
+		return nil, false
+	}
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return nil, false
+	}
+	cacheDir := readcache.DefaultDir(home)
+	decision, err := readcache.EvaluateObserved(cacheDir, readcache.Request{
+		SessionID: sessionID,
+		TurnID:    fmt.Sprintf("cof-turn-%d", time.Now().UnixNano()),
+		FilePath:  req.Path,
+		Offset:    req.Offset,
+		Limit:     req.Limit,
+	}, string(stdout), contentarchive.DefaultDir(home), false)
+	if err != nil {
+		return nil, false
+	}
+	if err := readcache.FlushSession(cacheDir, sessionID); err != nil {
+		return nil, false
+	}
+	if decision.Type != readcache.DecisionBlock || strings.TrimSpace(decision.Reason) == "" {
+		return nil, false
+	}
+	return []byte(strings.TrimRight(decision.Reason, "\n") + "\n"), true
 }
 
 func commandOutputFirstPositiveCompaction(compacted []byte, ok bool, raw []byte) ([]byte, bool) {

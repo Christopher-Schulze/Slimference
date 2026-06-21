@@ -143,6 +143,13 @@ func readRequestFromArgv(argv []string) (ReadRequest, bool) {
 	}
 }
 
+// ReadRequestFromArgv returns the file/range read represented by a simple
+// command argv. It is the argv-safe variant of ReadRequestFromCommandLine for
+// process-local command shims where shell syntax has already been resolved.
+func ReadRequestFromArgv(argv []string) (ReadRequest, bool) {
+	return readRequestFromArgv(argv)
+}
+
 func isFullFileCat(argv []string) bool {
 	if len(argv) == 0 {
 		return false
