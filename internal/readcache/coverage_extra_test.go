@@ -504,3 +504,82 @@ func TestUnchangedOutputReference_EmptyCommand(t *testing.T) {
 		t.Fatalf("unchangedOutputReference with command: %q", got)
 	}
 }
+
+func TestBuildDeltaSummary_IdenticalContent(t *testing.T) {
+	t.Parallel()
+	if got := buildDeltaSummary("file.go", "same", "same"); got != "" {
+		t.Fatalf("identical content should return empty delta, got %q", got)
+	}
+}
+
+func TestBuildDeltaSummary_NoDiffAfterLineMatching(t *testing.T) {
+	t.Parallel()
+	// Content where prefix+suffix covers everything -> no diff
+	old := "line1\nline2\nline3"
+	new := "line1\nline2\nline3"
+	if got := buildDeltaSummary("file.go", old, new); got != "" {
+		t.Fatalf("identical content should return empty, got %q", got)
+	}
+}
+
+func TestCloneSessionState_NilInput(t *testing.T) {
+	t.Parallel()
+	got := cloneSessionState(nil)
+	if got == nil || got.Files == nil || got.Outputs == nil {
+		t.Fatalf("nil input should return initialized empty state: %+v", got)
+	}
+}
+
+func TestCloneSessionState_NilEntries(t *testing.T) {
+	t.Parallel()
+	in := &SessionState{
+		Files:   map[string]*FileEntry{"a": nil},
+		Outputs: map[string]*OutputEntry{"b": nil},
+	}
+	got := cloneSessionState(in)
+	if _, ok := got.Files["a"]; ok {
+		t.Fatal("nil file entry should be skipped")
+	}
+	if _, ok := got.Outputs["b"]; ok {
+		t.Fatal("nil output entry should be skipped")
+	}
+}
+
+func TestFlushSession_NotDirtyNoError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// Load a session (creates clean in-memory state), then flush should be no-op.
+	if _, err := LoadSession(dir, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := FlushSession(dir, "s1"); err != nil {
+		t.Fatalf("flush of clean session should not error: %v", err)
+	}
+}
+
+func TestFlushDir_EmptyAndNonExistent(t *testing.T) {
+	t.Parallel()
+
+	if err := FlushDir(t.TempDir()); err != nil {
+		t.Fatalf("flush of empty dir should not error: %v", err)
+	}
+	if err := FlushDir("/nonexistent/path"); err != nil {
+		t.Fatalf("flush of non-existent dir should not error: %v", err)
+	}
+}
+
+func TestRememberSessionClean_NilState(t *testing.T) {
+	t.Parallel()
+
+	// Should not panic on nil state.
+	rememberSessionClean(t.TempDir(), nil)
+}
+
+func TestSplitMemorySessionKey_NoSeparator(t *testing.T) {
+	t.Parallel()
+	dir, session := splitMemorySessionKey("noseparator")
+	if dir != "noseparator" || session != "" {
+		t.Fatalf("no separator: dir=%q session=%q", dir, session)
+	}
+}
