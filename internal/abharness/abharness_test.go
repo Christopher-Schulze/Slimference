@@ -289,3 +289,139 @@ func TestCompare_BytesAndTurns(t *testing.T) {
 type errArchiveMissing struct{}
 
 func (errArchiveMissing) Error() string { return "missing archive" }
+
+func TestShouldUseContextArchiveIDs(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		before, after string
+		want          bool
+	}{
+		{"", "x", false},
+		{"abc", "", true},
+		{"abc", "   ", true},
+		{"abc", "ab", true},
+		{"abc", "abcd", false},
+		{"abc", "abc", false},
+	}
+	for _, tc := range cases {
+		if got := shouldUseContextArchiveIDs(tc.before, tc.after); got != tc.want {
+			t.Errorf("shouldUseContextArchiveIDs(%q, %q) = %v, want %v", tc.before, tc.after, got, tc.want)
+		}
+	}
+}
+
+func TestArchiveBodyMatchesStable(t *testing.T) {
+	t.Parallel()
+	resolve := func(id string) ([]byte, error) {
+		if id == "good" {
+			return []byte("expanded-body"), nil
+		}
+		return nil, errArchiveMissing{}
+	}
+	// Direct match
+	if !archiveBodyMatchesStable("direct", []string{"direct"}, resolve, map[string]struct{}{}, 0) {
+		t.Fatal("direct match should return true")
+	}
+	// No match, nil resolver
+	if archiveBodyMatchesStable("x", []string{"y"}, nil, map[string]struct{}{}, 0) {
+		t.Fatal("nil resolver should return false")
+	}
+	// Depth limit
+	if archiveBodyMatchesStable("x", []string{"y"}, resolve, map[string]struct{}{}, 4) {
+		t.Fatal("depth >= 4 should return false")
+	}
+	// Nested resolution matches
+	body := "local-archive://good"
+	if !archiveBodyMatchesStable(body, []string{"expanded-body"}, resolve, map[string]struct{}{}, 0) {
+		t.Fatal("nested resolution should match stable text")
+	}
+	// Resolve error -> continue -> no match
+	if archiveBodyMatchesStable("local-archive://bad", []string{"y"}, resolve, map[string]struct{}{}, 0) {
+		t.Fatal("resolve error should not match")
+	}
+}
+
+func TestStableSeenFullTexts(t *testing.T) {
+	t.Parallel()
+	if got := stableSeenFullTexts(""); got != nil {
+		t.Fatalf("empty text should return nil, got %v", got)
+	}
+	if got := len(stableSeenFullTexts("plain text")); got != 1 {
+		t.Fatalf("plain text should return 1 entry, got %d", got)
+	}
+	// Codex exec payload should add a second entry
+	execText := "Process exited with code 0\nOutput:\ncommand result here"
+	if got := len(stableSeenFullTexts(execText)); got != 2 {
+		t.Fatalf("exec text should return 2 entries, got %d", got)
+	}
+}
+
+func TestCodexExecPayload(t *testing.T) {
+	t.Parallel()
+	if _, ok := codexExecPayload("no marker here"); ok {
+		t.Fatal("text without marker should return false")
+	}
+	if _, ok := codexExecPayload("Process exited with code 0\nOutput:\n"); ok {
+		t.Fatal("empty payload should return false")
+	}
+	if payload, ok := codexExecPayload("Process exited with code 0\nOutput:\nresult"); !ok || payload != "result" {
+		t.Fatalf("should extract payload, got %q ok=%v", payload, ok)
+	}
+	// Windows-style line endings
+	if payload, ok := codexExecPayload("Process exited with code 1\r\nOutput:\r\nwin-result"); !ok || payload != "win-result" {
+		t.Fatalf("should extract CRLF payload, got %q ok=%v", payload, ok)
+	}
+}
+
+func TestExpandReferencedText(t *testing.T) {
+	t.Parallel()
+	// Empty text or nil resolver
+	if _, ok := expandReferencedText("", func(id string) ([]byte, error) { return []byte("x"), nil }); ok {
+		t.Fatal("empty text should return false")
+	}
+	if _, ok := expandReferencedText("text", nil); ok {
+		t.Fatal("nil resolver should return false")
+	}
+	// Resolve error -> no change
+	if out, ok := expandReferencedText("[context-chunk status=unchanged uri=local-archive://bad bytes=10]", func(id string) ([]byte, error) {
+		return nil, errArchiveMissing{}
+	}); ok || out != "[context-chunk status=unchanged uri=local-archive://bad bytes=10]" {
+		t.Fatalf("resolve error should not change text: out=%q ok=%v", out, ok)
+	}
+	// Successful expansion
+	if out, ok := expandReferencedText("[context-chunk status=unchanged uri=local-archive://good bytes=5]", func(id string) ([]byte, error) {
+		return []byte("expanded"), nil
+	}); !ok || out != "expanded" {
+		t.Fatalf("successful expansion should change text: out=%q ok=%v", out, ok)
+	}
+}
+
+func TestArchiveIDs(t *testing.T) {
+	t.Parallel()
+	if got := archiveIDs("no archive refs here"); got != nil {
+		t.Fatalf("text without refs should return nil, got %v", got)
+	}
+	ids := archiveIDs("local-archive://abc and slim://archive/def and local-archive://abc")
+	if len(ids) != 2 {
+		t.Fatalf("should find 2 unique IDs, got %d: %v", len(ids), ids)
+	}
+}
+
+func TestAppendArchiveID(t *testing.T) {
+	t.Parallel()
+	seen := map[string]struct{}{}
+	out := appendArchiveID(nil, seen, "local-archive://abc")
+	if len(out) != 1 || out[0] != "abc" {
+		t.Fatalf("first append: %v", out)
+	}
+	// Duplicate should not add
+	out = appendArchiveID(out, seen, "slim://archive/abc")
+	if len(out) != 1 {
+		t.Fatalf("duplicate should not add: %v", out)
+	}
+	// Empty ID after trimming
+	out = appendArchiveID(out, seen, "local-archive://")
+	if len(out) != 1 {
+		t.Fatalf("empty ID should not add: %v", out)
+	}
+}
