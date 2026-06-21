@@ -1260,20 +1260,33 @@ func TestNormalizeSingleFileSearchOutputRejectsNoFilePath(t *testing.T) {
 func TestParseSingleFileSearchLine(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		line   string
-		wantOk bool
+		line     string
+		wantOk   bool
+		wantLine string
+		wantRest string
 	}{
-		{"30:func handleRequest() { return nil }", true},
-		{"100:case foo:", true},
-		{"1:return", true},
-		{"func not_a_match", false},
-		{"src/file.go:30:func test", false}, // file:line:content, not line:content
-		{"", false},
+		{"30:func handleRequest() { return nil }", true, "30", "func handleRequest() { return nil }"},
+		{"100:case foo:", true, "100", "case foo:"},
+		{"1:return", true, "1", "return"},
+		{"12345:content here", true, "12345", "content here"},
+		{"func not_a_match", false, "", ""},
+		{"src/file.go:30:func test", false, "", ""}, // file:line:content, not line:content
+		{"", false, "", ""},
+		{"123:456:content", false, "", ""}, // looks like file:line:content
+		{"123-456:content", false, "", ""}, // range, not line:content
+		{"0:empty line num", true, "0", "empty line num"},
+		{"999:", true, "999", ""}, // line with empty content after separator
 	}
 	for _, tc := range cases {
-		_, _, ok := parseSingleFileSearchLine(tc.line)
+		line, rest, ok := parseSingleFileSearchLine(tc.line)
 		if ok != tc.wantOk {
-			t.Errorf("parseSingleFileSearchLine(%q) = %v, want %v", tc.line, ok, tc.wantOk)
+			t.Errorf("parseSingleFileSearchLine(%q) ok = %v, want %v", tc.line, ok, tc.wantOk)
+		}
+		if ok && line != tc.wantLine {
+			t.Errorf("parseSingleFileSearchLine(%q) line = %q, want %q", tc.line, line, tc.wantLine)
+		}
+		if ok && rest != tc.wantRest {
+			t.Errorf("parseSingleFileSearchLine(%q) rest = %q, want %q", tc.line, rest, tc.wantRest)
 		}
 	}
 }
@@ -1293,6 +1306,24 @@ func TestSingleFileSearchPath(t *testing.T) {
 		{[]string{"git", "grep", "-n", "func", "src/handler.go"}, "src/handler.go"},
 		{[]string{"rg", "-n", "func", "--", "src/handler.go"}, "src/handler.go"},
 		{[]string{"rg", "-n", "func", "--", "src/handler.go", "src/config.go"}, ""}, // multiple after --
+		// Pattern that looks like a file path must NOT be treated as a file.
+		// rg -nI src/handler.go searches cwd for the literal string "src/handler.go".
+		{[]string{"rg", "-nI", "src/handler.go"}, ""},                               // pattern looks like file, no file arg
+		{[]string{"rg", "-n", "src/handler.go"}, ""},                                // pattern looks like file, no -I
+		{[]string{"rg", "-nI", "src/handler.go", "src/config.go"}, "src/config.go"}, // pattern + one file
+		// Pattern via -e flag, then a real file path.
+		{[]string{"rg", "-n", "-e", "src/handler.go", "src/config.go"}, "src/config.go"},
+		// Directory-like paths must be rejected.
+		{[]string{"rg", "-n", "func", "."}, ""},     // "." is a directory
+		{[]string{"rg", "-n", "func", ".."}, ""},    // ".." is a directory
+		{[]string{"rg", "-n", "func", "src/"}, ""},  // trailing slash is a directory
+		{[]string{"rg", "-nI", "func", "."}, ""},    // -I + "." directory
+		{[]string{"rg", "-nI", "func", "src/"}, ""}, // -I + "src/" directory
+		// -I with a real single file is valid (we know the file from argv).
+		{[]string{"rg", "-nI", "func", "src/handler.go"}, "src/handler.go"},
+		// --no-filename long flag with a real single file.
+		{[]string{"rg", "--no-filename", "-n", "func", "src/handler.go"}, "src/handler.go"},
+		{[]string{"rg", "--no-filename", "-n", "func", "."}, ""}, // --no-filename + directory
 	}
 	for _, tc := range cases {
 		got := singleFileSearchPath(tc.argv)
@@ -1370,5 +1401,151 @@ func TestTryCompactSearchOutputGitGrepSingleFile(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, "[git grep]") {
 		t.Errorf("expected [git grep] header in compacted output: %s", s[:min(len(s), 200)])
+	}
+}
+
+// TestTryCompactSearchOutputPatternLooksLikeFileRejectsNormalization is a
+// regression test for the bug where rg -nI <pattern-that-looks-like-a-file>
+// would wrongly identify the pattern as a file path and prepend it to every
+// output line. The model would then see incorrect file locations.
+func TestTryCompactSearchOutputPatternLooksLikeFileRejectsNormalization(t *testing.T) {
+	t.Parallel()
+	// rg -nI src/handler.go searches cwd for the literal string "src/handler.go".
+	// The output is line:content from various files in cwd. The pattern
+	// "src/handler.go" must NOT be treated as a file path.
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-nI", "src/handler.go"}
+
+	_, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if ok {
+		t.Error("rg -nI with pattern-looking-like-file must NOT compact: " +
+			"the pattern is not a file path, normalization would fabricate " +
+			"incorrect file locations visible to the model (drawdown)")
+	}
+}
+
+// TestTryCompactSearchOutputDirectoryPathRejectsNormalization verifies that
+// directory-like paths (., .., trailing /) are not treated as single files.
+// When rg searches a directory, matches come from multiple files within it,
+// so prepending the directory path to each line would be incorrect.
+func TestTryCompactSearchOutputDirectoryPathRejectsNormalization(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"dot directory", []string{"rg", "-nI", "func", "."}},
+		{"parent directory", []string{"rg", "-nI", "func", ".."}},
+		{"trailing slash", []string{"rg", "-nI", "func", "src/"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var sb strings.Builder
+			for i := 1; i <= 40; i++ {
+				fmt.Fprintf(&sb, "%d:func handler%d() { return nil }\n", i, i)
+			}
+			input := sb.String()
+			_, ok := TryCompactSearchOutputWithOptions(tc.argv, []byte(input), SearchCompactOptions{
+				MaxFilesShown:     25,
+				MaxMatchesPerFile: 15,
+				MinRetainedPct:    0,
+			})
+			if ok {
+				t.Errorf("%s: must NOT compact: directory path would fabricate "+
+					"incorrect file locations visible to the model (drawdown)", tc.name)
+			}
+		})
+	}
+}
+
+// TestTryCompactSearchOutputNoFilenameSingleFileCompacts verifies that
+// rg -nI with a genuine single file argument still compacts correctly.
+// We know the file from argv, so prepending it to line:content output is
+// correct and produces valid savings without drawdown.
+func TestTryCompactSearchOutputNoFilenameSingleFileCompacts(t *testing.T) {
+	t.Parallel()
+	// rg -nI func src/handler.go: -I suppresses the file prefix, but we
+	// know the single file from argv. Normalization is safe.
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-nI", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if !ok {
+		t.Fatalf("rg -nI with a genuine single file should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path in compacted output: %s", s[:min(len(s), 200)])
+	}
+	if len(s) >= len(input) {
+		t.Errorf("compacted output should be shorter: got %d vs input %d", len(s), len(input))
+	}
+}
+
+// TestTryCompactSearchOutputNoFilenameLongFlagSingleFileCompacts verifies
+// the --no-filename long flag variant also compacts for a genuine single file.
+func TestTryCompactSearchOutputNoFilenameLongFlagSingleFileCompacts(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "--no-filename", "-n", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if !ok {
+		t.Fatalf("rg --no-filename with a genuine single file should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path in compacted output: %s", s[:min(len(s), 200)])
+	}
+}
+
+// TestTryCompactSearchOutputPatternViaEFlagCompacts verifies that when the
+// pattern is supplied via -e (so patternSeen is set by the flag), the
+// subsequent positional argument is correctly identified as the file path.
+func TestTryCompactSearchOutputPatternViaEFlagCompacts(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&sb, "%d:func handler%d() { return nil } // match payload line\n", i, i)
+	}
+	input := sb.String()
+	argv := []string{"rg", "-n", "-e", "func", "src/handler.go"}
+
+	out, ok := TryCompactSearchOutputWithOptions(argv, []byte(input), SearchCompactOptions{
+		MaxFilesShown:     25,
+		MaxMatchesPerFile: 15,
+		MinRetainedPct:    0,
+	})
+	if !ok {
+		t.Fatalf("rg -e func src/handler.go should compact: input=%d bytes", len(input))
+	}
+	s := string(out)
+	if !strings.Contains(s, "src/handler.go") {
+		t.Errorf("expected file path in compacted output: %s", s[:min(len(s), 200)])
 	}
 }

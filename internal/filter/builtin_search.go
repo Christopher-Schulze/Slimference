@@ -1123,26 +1123,32 @@ func normalizeSingleFileSearchOutput(argv []string, stdout []byte) ([]byte, bool
 // (a number followed by a colon and content), which is the typical output
 // format when rg/grep searches a single file without --with-filename.
 func parseSingleFileSearchLine(line string) (string, string, bool) {
-	for i := 0; i < len(line); i++ {
-		if line[i] < '0' || line[i] > '9' {
-			break
-		}
-		if i+1 < len(line) && (line[i+1] == ':' || line[i+1] == '-') {
-			// Found a number followed by a separator. Check that what
-			// follows is not another number (which would be file:line).
-			if i+2 < len(line) && line[i+2] >= '0' && line[i+2] <= '9' {
-				continue // This might be file:line:content, skip
-			}
-			return line[:i+1], line[i+2:], true
-		}
+	// Consume all leading digits to get the full line number.
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
 	}
-	return "", "", false
+	if i == 0 {
+		return "", "", false
+	}
+	// Check if the character after the digits is a separator.
+	if i >= len(line) || (line[i] != ':' && line[i] != '-') {
+		return "", "", false
+	}
+	// If what follows the separator is another number, this is likely
+	// file:line:content format (e.g. "src/file.go:30:content"), not
+	// line:content format. Reject it.
+	if i+1 < len(line) && line[i+1] >= '0' && line[i+1] <= '9' {
+		return "", "", false
+	}
+	return line[:i], line[i+1:], true
 }
 
-// singleFileSearchPath extracts the single file/directory path from a
-// grep-style search command's argv. Returns empty string if the command
-// has zero or multiple file/directory arguments, or if the arguments
-// contain flags that would change the output format.
+// singleFileSearchPath extracts the single file path from a grep-style
+// search command's argv. Returns empty string if the command has zero or
+// multiple file arguments, if the arguments contain flags that would change
+// the output format, or if the identified path looks like a directory
+// (e.g. ".", "..", or trailing "/") rather than a specific file.
 func singleFileSearchPath(argv []string) string {
 	if len(argv) < 2 {
 		return ""
@@ -1161,42 +1167,36 @@ func singleFileSearchPath(argv []string) string {
 
 func singleSearchPathFromArgs(args []string) string {
 	paths := []string{}
-	skippedPattern := false
+	patternSeen := false
+	stopOptions := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--" {
-			// Everything after -- is a path (not a flag).
-			for j := i + 1; j < len(args); j++ {
-				if looksLikeSearchFile(args[j]) {
-					paths = append(paths, args[j])
-				}
-			}
-			break
+		if !stopOptions && arg == "--" {
+			stopOptions = true
+			continue
 		}
-		if strings.HasPrefix(arg, "-") {
-			// Skip flags and their values.
-			if kind := searchOptionKind(arg); kind.consumesValue && i+1 < len(args) {
+		if !stopOptions && strings.HasPrefix(arg, "-") {
+			kind := searchOptionKind(arg)
+			if kind.consumesValue && i+1 < len(args) {
+				if kind.patternValue {
+					patternSeen = true
+				}
 				i++
+			} else if kind.patternValue {
+				patternSeen = true
 			}
 			continue
 		}
-		// Non-flag argument: could be the pattern or a path.
-		// The first non-flag argument is the pattern; skip it if there are
-		// more positional args (which would be file paths).
-		if !skippedPattern {
-			skippedPattern = true
-			hasMorePositional := false
-			for j := i + 1; j < len(args); j++ {
-				if !strings.HasPrefix(args[j], "-") {
-					hasMorePositional = true
-					break
-				}
-			}
-			if hasMorePositional {
-				continue // Skip the pattern
-			}
+		// The first non-flag positional argument is always the search
+		// pattern. It must be skipped unconditionally — even if it looks
+		// like a file path (e.g. rg -nI src/handler.go searches cwd for
+		// the literal string "src/handler.go"). File paths only appear
+		// after the pattern.
+		if !patternSeen {
+			patternSeen = true
+			continue
 		}
-		if looksLikeSearchFile(arg) {
+		if looksLikeSingleFilePath(arg) {
 			paths = append(paths, arg)
 		}
 	}
@@ -1204,6 +1204,22 @@ func singleSearchPathFromArgs(args []string) string {
 		return paths[0]
 	}
 	return ""
+}
+
+// looksLikeSingleFilePath checks whether a string looks like a specific
+// file path rather than a directory reference. It rejects ".", "..", and
+// paths ending with "/" which are unambiguously directories. This is
+// stricter than looksLikeSearchFile because it is used to identify a
+// single file from argv (where the path is a search target, not parsed
+// from output).
+func looksLikeSingleFilePath(path string) bool {
+	if path == "" || path == "." || path == ".." {
+		return false
+	}
+	if strings.HasSuffix(path, "/") {
+		return false
+	}
+	return looksLikeSearchFile(path)
 }
 
 func isPathListTool(argv []string) bool {
