@@ -23,14 +23,6 @@ type Metadata struct {
 	UpdatedAt        time.Time
 }
 
-func LookupDefault(sessionIDs []string) (map[string]Metadata, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	return Lookup(home, sessionIDs)
-}
-
 func Lookup(home string, sessionIDs []string) (map[string]Metadata, error) {
 	home = strings.TrimSpace(home)
 	if home == "" {

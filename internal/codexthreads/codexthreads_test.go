@@ -185,3 +185,32 @@ func execTestSQL(t *testing.T, db *sql.DB, stmt string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLookupWindowDefault_MissingDB(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	start := time.Now().Add(-time.Hour)
+	end := time.Now()
+	got, err := LookupWindowDefault(start, end)
+	if err != nil {
+		t.Fatalf("missing db must not error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("missing db must return empty, got %d entries", len(got))
+	}
+}
+
+func TestLookupWindowDefault_EmptyHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	start := time.Now().Add(-time.Hour)
+	end := time.Now()
+	// os.UserHomeDir() returns an error when $HOME is unset, so
+	// LookupWindowDefault must propagate it.
+	got, err := LookupWindowDefault(start, end)
+	if err == nil {
+		t.Fatalf("empty home must return error from os.UserHomeDir, got nil")
+	}
+	if got != nil {
+		t.Fatalf("empty home must return nil slice on error, got %v", got)
+	}
+}
