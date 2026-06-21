@@ -11,6 +11,7 @@ import (
 
 	"github.com/Christopher-Schulze/Slimference/internal/evidence"
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func TestWSSABReplayCapture_Record(t *testing.T) {
@@ -233,6 +234,166 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 		"wss.stateful_prefix_elision_bytes_saved": "not-a-number",
 	}); got != 0 {
 		t.Fatalf("invalid bytes should return 0, got %d", got)
+	}
+}
+
+func TestWSSRequestShape(t *testing.T) {
+	t.Parallel()
+	historyMsgs := []types.Message{{Role: "assistant"}}
+	userMsgs := []types.Message{{Role: "user"}}
+	cases := []struct {
+		name     string
+		meta     wssRequestMeta
+		messages []types.Message
+		want     string
+	}{
+		{
+			name:     "history shape",
+			messages: historyMsgs,
+			want:     "full_history",
+		},
+		{
+			name: "raw input with assistant messages",
+			meta: wssRequestMeta{
+				InputShape: wssRawInputShapeFacts{Items: 1, AssistantMessages: 1},
+			},
+			want: "full_history",
+		},
+		{
+			name: "raw input root without previous response",
+			meta: wssRequestMeta{
+				InputShape: wssRawInputShapeFacts{Items: 1, MessageItems: 1},
+			},
+			want: "root",
+		},
+		{
+			name: "raw input delta with previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+				InputShape:         wssRawInputShapeFacts{Items: 1, MessageItems: 1},
+			},
+			want: "delta",
+		},
+		{
+			name: "raw input full history fallback",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+				InputShape:         wssRawInputShapeFacts{Items: 1},
+			},
+			want: "full_history",
+		},
+		{
+			name: "root without previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "",
+			},
+			messages: userMsgs,
+			want:     "root",
+		},
+		{
+			name: "delta with previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+			},
+			messages: userMsgs,
+			want:     "delta",
+		},
+		{
+			name: "full history fallback with previous response and history",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+			},
+			messages: historyMsgs,
+			want:     "full_history",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssRequestShape(tc.meta, tc.messages); got != tc.want {
+				t.Fatalf("wssRequestShape() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWSSRequestShapeSource(t *testing.T) {
+	t.Parallel()
+	historyMsgs := []types.Message{{Role: "assistant"}}
+	userMsgs := []types.Message{{Role: "user"}}
+	cases := []struct {
+		name     string
+		meta     wssRequestMeta
+		messages []types.Message
+		want     string
+	}{
+		{
+			name:     "history shape",
+			messages: historyMsgs,
+			want:     "message_history",
+		},
+		{
+			name: "raw input history",
+			meta: wssRequestMeta{
+				InputShape: wssRawInputShapeFacts{Items: 1, FunctionCalls: 1},
+			},
+			want: "raw_input_history",
+		},
+		{
+			name: "raw input root without previous response",
+			meta: wssRequestMeta{
+				InputShape: wssRawInputShapeFacts{Items: 1, MessageItems: 1},
+			},
+			want: "raw_input_root_without_previous_response",
+		},
+		{
+			name: "raw input delta with previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+				InputShape:         wssRawInputShapeFacts{Items: 1, FunctionCallOutputs: 1},
+			},
+			want: "raw_input_previous_response_delta_shape",
+		},
+		{
+			name: "raw input full history fallback",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+				InputShape:         wssRawInputShapeFacts{Items: 1},
+			},
+			want: "raw_input_previous_response_full_history_fallback",
+		},
+		{
+			name: "root without previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "",
+			},
+			messages: userMsgs,
+			want:     "root_without_previous_response",
+		},
+		{
+			name: "delta with previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+			},
+			messages: userMsgs,
+			want:     "previous_response_delta_shape",
+		},
+		{
+			name: "full history fallback with previous response",
+			meta: wssRequestMeta{
+				PreviousResponseID: "resp-123",
+			},
+			messages: historyMsgs,
+			want:     "message_history",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := wssRequestShapeSource(tc.meta, tc.messages); got != tc.want {
+				t.Fatalf("wssRequestShapeSource() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
