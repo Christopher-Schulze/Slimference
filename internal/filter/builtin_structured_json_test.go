@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -421,5 +422,34 @@ func TestFirstNonEmptyLocal(t *testing.T) {
 	}
 	if got := firstNonEmptyLocal("", "", "", "last"); got != "last" {
 		t.Fatalf("last non-empty must win if earlier are empty, got %q", got)
+	}
+}
+
+func TestRawString(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{"string_value", json.RawMessage(`"hello"`), "hello"},
+		{"empty_string", json.RawMessage(`""`), ""},
+		{"float_value", json.RawMessage(`42`), "42"},
+		{"float_zero", json.RawMessage(`0`), "0"},
+		{"float_large", json.RawMessage(`123456`), "123456"},
+		{"bool_true_invalid_for_string", json.RawMessage(`true`), ""},
+		{"null_invalid", json.RawMessage(`null`), ""},
+		{"object_invalid", json.RawMessage(`{"a":1}`), ""},
+		{"array_invalid", json.RawMessage(`[1,2,3]`), ""},
+		{"empty_invalid", json.RawMessage(``), ""},
+		{"garbage_invalid", json.RawMessage(`garbage`), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := rawString(tc.raw); got != tc.want {
+				t.Fatalf("rawString(%s) = %q, want %q", string(tc.raw), got, tc.want)
+			}
+		})
 	}
 }

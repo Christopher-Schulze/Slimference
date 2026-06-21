@@ -240,3 +240,43 @@ func TestNormalizeReadCommandLine(t *testing.T) {
 		})
 	}
 }
+
+func TestTailLineRange(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		argv       []string
+		wantOffset int
+		wantLimit  int
+		wantOK     bool
+	}{
+		{"default_no_args", []string{"tail"}, -10, 10, true},
+		{"n_separate", []string{"tail", "-n", "20"}, -20, 20, true},
+		{"lines_separate", []string{"tail", "--lines", "5"}, -5, 5, true},
+		{"n_attached", []string{"tail", "-n20"}, -20, 20, true},
+		{"lines_eq", []string{"tail", "--lines=15"}, -15, 15, true},
+		{"bare_number", []string{"tail", "-30"}, -30, 30, true},
+		{"n_separate_missing_value", []string{"tail", "-n"}, 0, 0, false},
+		{"lines_separate_missing_value", []string{"tail", "--lines"}, 0, 0, false},
+		{"bytes_short_disables_range", []string{"tail", "-c"}, 0, 0, false},
+		{"bytes_long_disables_range", []string{"tail", "--bytes"}, 0, 0, false},
+		{"bytes_attached_disables_range", []string{"tail", "-c100"}, 0, 0, false},
+		{"bytes_eq_disables_range", []string{"tail", "--bytes=100"}, 0, 0, false},
+		{"n_separate_non_numeric", []string{"tail", "-n", "abc"}, 0, 0, false},
+		{"n_attached_non_numeric", []string{"tail", "-nabc"}, 0, 0, false},
+		{"bare_non_numeric_falls_through_to_default", []string{"tail", "-abc"}, -10, 10, true},
+		{"plus_prefix", []string{"tail", "-n", "+5"}, 5, 0, true},
+		{"flag_then_n", []string{"tail", "-q", "-n", "7"}, -7, 7, true},
+		{"flag_then_bare", []string{"tail", "-q", "-42"}, -42, 42, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			off, lim, ok := tailLineRange(tc.argv)
+			if ok != tc.wantOK || off != tc.wantOffset || lim != tc.wantLimit {
+				t.Fatalf("tailLineRange(%v) = (%d, %d, %v), want (%d, %d, %v)",
+					tc.argv, off, lim, ok, tc.wantOffset, tc.wantLimit, tc.wantOK)
+			}
+		})
+	}
+}

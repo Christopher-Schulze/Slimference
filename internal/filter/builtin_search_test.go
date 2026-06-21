@@ -1891,3 +1891,103 @@ func TestSearchCompactBudgetFootprint(t *testing.T) {
 		t.Fatal("footprint must increase with more matches")
 	}
 }
+
+func TestSearchOptionKind(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name              string
+		arg               string
+		wantConsumesValue bool
+		wantPatternValue  bool
+	}{
+		{"regexp_short", "-e", true, true},
+		{"regexp_long", "--regexp", true, true},
+		{"regexp_attached", "-efoo", false, true},
+		{"regexp_eq", "--regexp=foo", false, true},
+		{"file_short", "-f", true, true},
+		{"file_long", "--file", true, true},
+		{"file_eq", "--file=pat", false, true},
+		{"glob_short", "-g", true, false},
+		{"glob_long", "--glob", true, false},
+		{"iglob", "--iglob", true, false},
+		{"type_short", "-t", true, false},
+		{"type_long", "--type", true, false},
+		{"type_not_short", "-T", true, false},
+		{"type_not_long", "--type-not", true, false},
+		{"type_add", "--type-add", true, false},
+		{"context_A", "-A", true, false},
+		{"context_B", "-B", true, false},
+		{"context_C", "-C", true, false},
+		{"context_long", "--context", true, false},
+		{"after_context", "--after-context", true, false},
+		{"before_context", "--before-context", true, false},
+		{"max_count_short", "-m", true, false},
+		{"max_count_long", "--max-count", true, false},
+		{"threads_short", "-j", true, false},
+		{"threads_long", "--threads", true, false},
+		{"include", "--include", true, false},
+		{"exclude", "--exclude", true, false},
+		{"exclude_dir", "--exclude-dir", true, false},
+		{"include_dir", "--include-dir", true, false},
+		{"exclude_from", "--exclude-from", true, false},
+		{"include_from", "--include-from", true, false},
+		{"path_separator", "--path-separator", true, false},
+		{"field_context_sep", "--field-context-separator", true, false},
+		{"field_match_sep", "--field-match-separator", true, false},
+		{"sort", "--sort", true, false},
+		{"sortr", "--sortr", true, false},
+		{"engine", "--engine", true, false},
+		{"pre", "--pre", true, false},
+		{"pre_glob", "--pre-glob", true, false},
+		{"replace", "--replace", true, false},
+		{"replace_short", "-r", true, false},
+		{"max_filesize", "--max-filesize", true, false},
+		{"dfa_size_limit", "--dfa-size-limit", true, false},
+		{"regex_size_limit", "--regex-size-limit", true, false},
+		{"hostname_bin", "--hostname-bin", true, false},
+		// =-attached forms resolve to no-consume (value is inline).
+		{"glob_eq", "--glob=*.go", false, false},
+		{"type_eq", "--type=go", false, false},
+		{"iglob_eq", "--iglob=*.go", false, false},
+		{"type_not_eq", "--type-not=go", false, false},
+		{"type_add_eq", "--type-add=go:foo", false, false},
+		{"context_eq", "--context=5", false, false},
+		{"after_context_eq", "--after-context=5", false, false},
+		{"before_context_eq", "--before-context=5", false, false},
+		{"max_count_eq", "--max-count=5", false, false},
+		{"threads_eq", "--threads=4", false, false},
+		{"include_eq", "--include=*.go", false, false},
+		{"exclude_eq", "--exclude=*.tmp", false, false},
+		{"exclude_dir_eq", "--exclude-dir=.git", false, false},
+		{"include_dir_eq", "--include-dir=src", false, false},
+		{"exclude_from_eq", "--exclude-from=skip", false, false},
+		{"include_from_eq", "--include-from=keep", false, false},
+		{"path_separator_eq", "--path-separator=/", false, false},
+		{"field_context_sep_eq", "--field-context-separator=:", false, false},
+		{"field_match_sep_eq", "--field-match-separator=,", false, false},
+		{"sort_eq", "--sort=path", false, false},
+		{"sortr_eq", "--sortr=path", false, false},
+		{"engine_eq", "--engine=default", false, false},
+		{"pre_eq", "--pre=cat", false, false},
+		{"pre_glob_eq", "--pre-glob=*.go", false, false},
+		{"replace_eq", "--replace=x", false, false},
+		{"max_filesize_eq", "--max-filesize=10M", false, false},
+		{"dfa_size_limit_eq", "--dfa-size-limit=10M", false, false},
+		{"regex_size_limit_eq", "--regex-size-limit=10M", false, false},
+		{"hostname_bin_eq", "--hostname-bin=/x", false, false},
+		// Unknown args and non-options are no-consume / no-pattern.
+		{"unknown_flag", "--zzz", false, false},
+		{"plain_pattern", "foo.go", false, false},
+		{"empty", "", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := searchOptionKind(tc.arg)
+			if got.consumesValue != tc.wantConsumesValue || got.patternValue != tc.wantPatternValue {
+				t.Fatalf("searchOptionKind(%q) = %+v, want consumes=%v pattern=%v",
+					tc.arg, got, tc.wantConsumesValue, tc.wantPatternValue)
+			}
+		})
+	}
+}
