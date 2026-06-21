@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/proxy/wsmitm"
 )
@@ -83,6 +84,96 @@ func TestRecordRawScopedWSS(t *testing.T) {
 	// proxy without debugRecorder -> no-op.
 	p := &Proxy{}
 	p.recordRawScopedWSS("/path", []byte("header"))
+}
+
+func TestShortChunkID(t *testing.T) {
+	t.Parallel()
+	if got := shortChunkID("short"); got != "short" {
+		t.Fatalf("shortChunkID(\"short\") = %q", got)
+	}
+	if got := shortChunkID("exactly12ch"); got != "exactly12ch" {
+		t.Fatalf("shortChunkID(\"exactly12ch\") = %q", got)
+	}
+	if got := shortChunkID("thisisaverylongid"); got != "thisisaveryl" {
+		t.Fatalf("shortChunkID(\"thisisaverylongid\") = %q, want \"thisisaveryl\"", got)
+	}
+}
+
+func TestUptimeSeconds(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> 0.
+	var nilProxy *Proxy
+	if got := nilProxy.uptimeSeconds(); got != 0 {
+		t.Fatalf("nil proxy uptime = %d, want 0", got)
+	}
+	// zero startedAt -> 0.
+	p := &Proxy{}
+	if got := p.uptimeSeconds(); got != 0 {
+		t.Fatalf("zero startedAt uptime = %d, want 0", got)
+	}
+	// valid startedAt -> positive.
+	p2 := &Proxy{startedAt: time.Now().Add(-5 * time.Second)}
+	if got := p2.uptimeSeconds(); got < 1 {
+		t.Fatalf("valid startedAt uptime = %d, want >= 1", got)
+	}
+}
+
+func TestCodexHostBudgetExceeded(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> false.
+	var nilProxy *Proxy
+	if nilProxy.codexHostBudgetExceeded() {
+		t.Fatal("nil proxy should return false")
+	}
+	// proxy with flag not set -> false.
+	p := &Proxy{}
+	if p.codexHostBudgetExceeded() {
+		t.Fatal("unset flag should return false")
+	}
+	// proxy with flag set -> true.
+	p2 := &Proxy{}
+	p2.hostBudgetExceeded.Store(true)
+	if !p2.codexHostBudgetExceeded() {
+		t.Fatal("set flag should return true")
+	}
+}
+
+func TestCodexRuntimeBudgetExceeded(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> false.
+	var nilProxy *Proxy
+	if nilProxy.codexRuntimeBudgetExceeded() {
+		t.Fatal("nil proxy should return false")
+	}
+	// proxy with no flags -> false.
+	p := &Proxy{}
+	if p.codexRuntimeBudgetExceeded() {
+		t.Fatal("no flags should return false")
+	}
+	// proxy with hostBudgetExceeded -> true.
+	p2 := &Proxy{}
+	p2.hostBudgetExceeded.Store(true)
+	if !p2.codexRuntimeBudgetExceeded() {
+		t.Fatal("hostBudgetExceeded should return true")
+	}
+	// proxy with codexLayer0LatencyExceeded -> true.
+	p3 := &Proxy{}
+	p3.codexLayer0LatencyExceeded.Store(true)
+	if !p3.codexRuntimeBudgetExceeded() {
+		t.Fatal("codexLayer0LatencyExceeded should return true")
+	}
+}
+
+func TestRawScopedWSSRouteMode(t *testing.T) {
+	t.Parallel()
+	// Bridge path -> websocket_raw_bridge.
+	if got := rawScopedWSSRouteMode("/backend-api/codex-bridge/responses"); got != "websocket_raw_bridge" {
+		t.Fatalf("rawScopedWSSRouteMode(bridge) = %q", got)
+	}
+	// Non-bridge path -> websocket_raw_phasef.
+	if got := rawScopedWSSRouteMode("/backend-api/codex/responses"); got != "websocket_raw_phasef" {
+		t.Fatalf("rawScopedWSSRouteMode(non-bridge) = %q", got)
+	}
 }
 
 func TestWSSNPXCommandClassSuffix(t *testing.T) {
