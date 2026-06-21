@@ -43,6 +43,7 @@ counted as `S_local`.
 | _none yet under the new regime_ | | | | | | | | |
 | 2026-06-21 | L2 infra | T418 sidecar reader wired into corpus gate; T418 shim writes per-session JSONL sidecar | 6.05% (no L2 counted) | 6.05% (no sidecar captures yet — gate ready) | n/a | 0 | No sidecar → gate unchanged (test-proven); zero-savings sidecar → gate unchanged (test-proven); sidecar with savings → counted (test-proven) | 64cba22 |
 | 2026-06-21 | L1 activation | `server_state_enabled` default flipped from false → true (§3.4 handbrake removed); fail-open path already implemented (4xx → full body resend) | 6.05% (no L1 measured yet) | 6.05% (no live captures yet — gate ready) | n/a | 0 | Fail-open: `TestServeHTTP_serverStateRecoveryOnUnknownPreviousID` proves 4xx rejection → full body resend → success. Disabled path: `TestServeHTTP_serverStateDisabledByFlag` proves flag=false → no rewrite. Default-on: `TestServerStateEnabledByDefault` proves `Defaults()` returns true. Anthropic no-regression: `TestServeHTTP_serverStateAnthropicNoRegression`. Live proof pending: real long session with 0 upstream 400s + net-positive `S_local`. | (this commit) |
+| 2026-06-21 | L1 blocked | Phase 3 live proof blocked on operational prerequisite | 6.05% | 6.05% (unchanged) | n/a | 0 | Code work complete: default-on, fail-open, shadow-verify infrastructure all built and tested. Remaining gap is a real long Codex session to verify 0 upstream 400s, 0 context loss, net-positive `S_local`. Not automatable in code loop. All savings phases (0-5) now done or blocked. | — |
 
 ---
 

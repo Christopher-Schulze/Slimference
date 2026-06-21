@@ -613,7 +613,7 @@ func TestEvaluateObserved_InjectedErrorBranches(t *testing.T) {
 	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{SessionID: "s1", FilePath: "main.go"}
-	content := strings.Repeat("line\n", 30)
+	content := strings.Repeat("line\n", 120)
 
 	origRead := readCacheReadFile
 	origSave := readCacheSaveSession
@@ -661,4 +661,107 @@ func readcacheDiffStatFixture(files int) string {
 	}
 	out.WriteString(fmt.Sprintf(" %d files changed, %d insertions(+), %d deletions(-)\n", files, files*12, files*6))
 	return out.String()
+}
+
+func TestEvaluateObservedOutput_MissingSessionAndKey(t *testing.T) {
+	t.Parallel()
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	content := strings.Repeat("line\n", 120)
+	if d, err := EvaluateObservedOutput(dir, OutputRequest{TurnID: "t1"}, content, archiveDir); err != nil || d.Type != DecisionAllow || d.Reason != "missing_session" {
+		t.Fatalf("missing session: d=%+v err=%v", d, err)
+	}
+	if d, err := EvaluateObservedOutput(dir, OutputRequest{SessionID: "s1", TurnID: "t1"}, content, archiveDir); err != nil || d.Type != DecisionAllow || d.Reason != "missing_key" {
+		t.Fatalf("missing key: d=%+v err=%v", d, err)
+	}
+}
+
+func TestEvaluateObservedOutput_ShortOutput(t *testing.T) {
+	t.Parallel()
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	if d, err := EvaluateObservedOutput(dir, OutputRequest{SessionID: "s1", TurnID: "t1", Key: "cmd"}, "short", archiveDir); err != nil || d.Type != DecisionAllow || d.Reason != "short_output" {
+		t.Fatalf("short output: d=%+v err=%v", d, err)
+	}
+}
+
+func TestEvaluateObservedOutput_LoadError(t *testing.T) {
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	origRead := readCacheReadFile
+	defer func() { readCacheReadFile = origRead }()
+	readCacheReadFile = func(string) ([]byte, error) { return nil, errors.New("load error") }
+	if _, err := EvaluateObservedOutput(dir, OutputRequest{SessionID: "s1", TurnID: "t1", Key: "cmd"}, strings.Repeat("x", 600), archiveDir); err == nil {
+		t.Fatal("expected load error")
+	}
+}
+
+func TestEvaluateObservedOutput_SaveErrorOnUnchanged(t *testing.T) {
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	content := strings.Repeat("line\n", 120)
+	req := OutputRequest{SessionID: "s1", TurnID: "t1", Key: "cmd", CommandLine: "test"}
+	if _, err := EvaluateObservedOutput(dir, req, content, archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	origSave := readCacheSaveSession
+	defer func() { readCacheSaveSession = origSave }()
+	readCacheSaveSession = func(string, *SessionState) error { return errors.New("save error") }
+	if _, err := EvaluateObservedOutput(dir, req, content, archiveDir); err == nil {
+		t.Fatal("expected save error on unchanged")
+	}
+}
+
+func TestEvaluateObservedOutput_SaveErrorOnChanged(t *testing.T) {
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	req := OutputRequest{SessionID: "s1", TurnID: "t1", Key: "cmd", CommandLine: "test"}
+	if _, err := EvaluateObservedOutput(dir, req, strings.Repeat("a", 600), archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	origSave := readCacheSaveSession
+	defer func() { readCacheSaveSession = origSave }()
+	readCacheSaveSession = func(string, *SessionState) error { return errors.New("save error") }
+	if _, err := EvaluateObservedOutput(dir, req, strings.Repeat("b", 600), archiveDir); err == nil {
+		t.Fatal("expected save error on changed")
+	}
+}
+
+func TestEvaluateObservedOutput_ArchiveUnavailableOnSearchIdentity(t *testing.T) {
+	t.Parallel()
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	searchKey := "search:grep"
+	content := strings.Repeat("result line\n", 60)
+	req := OutputRequest{SessionID: "s1", TurnID: "t1", Key: searchKey, CommandLine: "grep foo"}
+	if _, err := EvaluateObservedOutput(dir, req, content, archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	// Second call with different content and bad archive dir to trigger archive failure.
+	badArchive := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(badArchive, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := EvaluateObservedOutput(dir, req, strings.Repeat("different\n", 60), badArchive)
+	if err != nil || d.Type != DecisionAllow {
+		t.Fatalf("archive unavailable should fail open: d=%+v err=%v", d, err)
+	}
+}
+
+func TestEvaluateObservedOutput_PreviousContentUnavailableFullPass(t *testing.T) {
+	t.Parallel()
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	req := OutputRequest{SessionID: "s1", TurnID: "t1", Key: "cmd", CommandLine: "test"}
+	content := strings.Repeat("line\n", 120)
+	if _, err := EvaluateObservedOutput(dir, req, content, archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	// Now manually corrupt the archive so old content can't be retrieved.
+	// The second call with changed content should still allow with "previous_content_unavailable_full_pass"
+	// or similar reason since oldContent can't be loaded.
+	d, err := EvaluateObservedOutput(dir, req, strings.Repeat("changed\n", 120), "")
+	if err != nil || d.Type != DecisionAllow {
+		t.Fatalf("changed with no archive dir should allow: d=%+v err=%v", d, err)
+	}
 }
