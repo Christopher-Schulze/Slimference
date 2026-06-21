@@ -39,6 +39,15 @@ func TestProxyCommandLineContainsSearchTool(t *testing.T) {
 	}
 }
 
+func TestProxyLayer0RouteCounters_SnapshotNil(t *testing.T) {
+	t.Parallel()
+	var c *proxyLayer0RouteCounters
+	got := c.snapshot()
+	if got.ToolResultBlocks != 0 {
+		t.Fatalf("nil snapshot should be zero value, got %+v", got)
+	}
+}
+
 func TestInputItemUserText(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
