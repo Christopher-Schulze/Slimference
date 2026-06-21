@@ -236,3 +236,79 @@ func TestClassifyToolInput_Branches(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyBuildTestCommand(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		head   string
+		fields []string
+		want   types.ToolResultType
+	}{
+		// < 2 fields.
+		{"pytest_no_args", "pytest", []string{"pytest"}, types.ToolTypeTestOutput},
+		{"jest_no_args", "jest", []string{"jest"}, types.ToolTypeTestOutput},
+		{"vitest_no_args", "vitest", []string{"vitest"}, types.ToolTypeTestOutput},
+		{"playwright_no_args", "playwright", []string{"playwright"}, types.ToolTypeTestOutput},
+		{"rspec_no_args", "rspec", []string{"rspec"}, types.ToolTypeTestOutput},
+		{"rake_no_args", "rake", []string{"rake"}, types.ToolTypeTestOutput},
+		{"unknown_no_args", "unknown", []string{"unknown"}, types.ToolTypeUnknown},
+		// >= 2 fields.
+		{"pytest_with_args", "pytest", []string{"pytest", "-x"}, types.ToolTypeTestOutput},
+		{"jest_with_args", "jest", []string{"jest", "--coverage"}, types.ToolTypeTestOutput},
+		{"vitest_with_args", "vitest", []string{"vitest", "run"}, types.ToolTypeTestOutput},
+		{"playwright_with_args", "playwright", []string{"playwright", "test"}, types.ToolTypeTestOutput},
+		{"rspec_with_args", "rspec", []string{"rspec", "./spec"}, types.ToolTypeTestOutput},
+		{"rake_test", "rake", []string{"rake", "test"}, types.ToolTypeTestOutput},
+		{"rake_spec", "rake", []string{"rake", "spec"}, types.ToolTypeTestOutput},
+		{"rake_other", "rake", []string{"rake", "db:migrate"}, types.ToolTypeUnknown},
+		{"go_test", "go", []string{"go", "test"}, types.ToolTypeTestOutput},
+		{"go_build", "go", []string{"go", "build"}, types.ToolTypeBuildOutput},
+		{"go_vet", "go", []string{"go", "vet"}, types.ToolTypeBuildOutput},
+		{"go_generate", "go", []string{"go", "generate"}, types.ToolTypeBuildOutput},
+		{"go_other", "go", []string{"go", "run"}, types.ToolTypeUnknown},
+		{"cargo_test", "cargo", []string{"cargo", "test"}, types.ToolTypeTestOutput},
+		{"cargo_nextest", "cargo", []string{"cargo", "nextest"}, types.ToolTypeTestOutput},
+		{"cargo_build", "cargo", []string{"cargo", "build"}, types.ToolTypeBuildOutput},
+		{"cargo_check", "cargo", []string{"cargo", "check"}, types.ToolTypeBuildOutput},
+		{"cargo_clippy", "cargo", []string{"cargo", "clippy"}, types.ToolTypeBuildOutput},
+		{"cargo_other", "cargo", []string{"cargo", "run"}, types.ToolTypeUnknown},
+		{"dotnet_test", "dotnet", []string{"dotnet", "test"}, types.ToolTypeTestOutput},
+		{"dotnet_build", "dotnet", []string{"dotnet", "build"}, types.ToolTypeBuildOutput},
+		{"dotnet_publish", "dotnet", []string{"dotnet", "publish"}, types.ToolTypeBuildOutput},
+		{"dotnet_restore", "dotnet", []string{"dotnet", "restore"}, types.ToolTypeBuildOutput},
+		{"dotnet_other", "dotnet", []string{"dotnet", "run"}, types.ToolTypeUnknown},
+		{"gradle_test", "gradle", []string{"gradle", "test"}, types.ToolTypeTestOutput},
+		{"gradle_build", "gradle", []string{"gradle", "build"}, types.ToolTypeBuildOutput},
+		{"gradle_compile", "gradle", []string{"gradle", "compileJava"}, types.ToolTypeBuildOutput},
+		{"gradle_assemble", "gradle", []string{"gradle", "assemble"}, types.ToolTypeBuildOutput},
+		{"gradle_bootrun", "gradle", []string{"gradle", "bootRun"}, types.ToolTypeBuildOutput},
+		{"gradle_other", "gradle", []string{"gradle", "clean"}, types.ToolTypeUnknown},
+		{"gradlew_test", "gradlew", []string{"gradlew", "test"}, types.ToolTypeTestOutput},
+		{"mvn_test", "mvn", []string{"mvn", "test"}, types.ToolTypeTestOutput},
+		{"mvn_compile", "mvn", []string{"mvn", "compile"}, types.ToolTypeBuildOutput},
+		{"mvn_package", "mvn", []string{"mvn", "package"}, types.ToolTypeBuildOutput},
+		{"mvn_install", "mvn", []string{"mvn", "install"}, types.ToolTypeBuildOutput},
+		{"mvn_verify", "mvn", []string{"mvn", "verify"}, types.ToolTypeBuildOutput},
+		{"mvn_spring_boot_run", "mvn", []string{"mvn", "spring-boot:run"}, types.ToolTypeBuildOutput},
+		{"mvn_other", "mvn", []string{"mvn", "clean"}, types.ToolTypeUnknown},
+		{"swift_test", "swift", []string{"swift", "test"}, types.ToolTypeTestOutput},
+		{"swift_build", "swift", []string{"swift", "build"}, types.ToolTypeBuildOutput},
+		{"swift_package", "swift", []string{"swift", "package"}, types.ToolTypeBuildOutput},
+		{"swift_other", "swift", []string{"swift", "run"}, types.ToolTypeUnknown},
+		{"mix_test", "mix", []string{"mix", "test"}, types.ToolTypeTestOutput},
+		{"mix_compile", "mix", []string{"mix", "compile"}, types.ToolTypeBuildOutput},
+		{"mix_format", "mix", []string{"mix", "format"}, types.ToolTypeBuildOutput},
+		{"mix_deps_get", "mix", []string{"mix", "deps.get"}, types.ToolTypeBuildOutput},
+		{"mix_other", "mix", []string{"mix", "phx.server"}, types.ToolTypeUnknown},
+		{"unknown_with_args", "unknown", []string{"unknown", "arg"}, types.ToolTypeUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := classifyBuildTestCommand(tc.head, tc.fields); got != tc.want {
+				t.Fatalf("classifyBuildTestCommand(%q, %v) = %d, want %d", tc.head, tc.fields, got, tc.want)
+			}
+		})
+	}
+}
