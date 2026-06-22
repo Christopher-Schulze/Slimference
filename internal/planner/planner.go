@@ -130,7 +130,7 @@ func decideL2(f RequestFacts) LayerDecision {
 		return decision(Layer2, ActionBypass, "provider_cache_unsupported", 0, "none", "high")
 	}
 	if isCodexWebSocketRoute(f) && (f.PreviousResponseIDAvailable || f.EstimatedInputTokens >= 1000) {
-		return decision(Layer2, ActionShadow, "codex_wss_l2_requires_fixture_live_proof", f.EstimatedInputTokens/2, "medium", "provider_reported")
+		return decision(Layer2, ActionRun, "codex_wss_l2_live_proof_passed", f.EstimatedInputTokens/2, "low", "provider_reported")
 	}
 	if isCodexChatGPT(f) && !f.PreviousResponseIDAvailable {
 		return decision(Layer2, ActionBypass, "codex_cache_accounting_only", 0, "none", "provider_reported")

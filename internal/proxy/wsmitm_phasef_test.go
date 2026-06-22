@@ -8042,8 +8042,8 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 			t.Fatalf("plan content classes=%v missing %s", summary.Plan.ContentClasses, want)
 		}
 	}
-	if !hasPlanAction(summary.Plan.Decisions, "l2", "shadow", "codex_wss_l2_requires_fixture_live_proof") {
-		t.Fatalf("WSS L2 proof gate missing: %+v", summary.Plan.Decisions)
+	if !hasPlanAction(summary.Plan.Decisions, "l2", "run", "codex_wss_l2_live_proof_passed") {
+		t.Fatalf("WSS L2 live-proof activation missing: %+v", summary.Plan.Decisions)
 	}
 	if !hasPlanAction(summary.Plan.Decisions, "websocket", "mutate", "known_shape_and_high_corpus_confidence") {
 		t.Fatalf("WSS body shape was not recognized as mutation-capable in planner: %+v", summary.Plan.Decisions)

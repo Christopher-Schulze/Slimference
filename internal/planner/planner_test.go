@@ -97,7 +97,7 @@ func TestPlan_L2CacheAndPreviousResponse(t *testing.T) {
 	}
 }
 
-func TestPlan_CodexWSSL2AndWSSRemainProofGatedCandidates(t *testing.T) {
+func TestPlan_CodexWSSL2ActiveAfterLiveProof(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		Provider:                    "codex_chatgpt",
@@ -108,11 +108,11 @@ func TestPlan_CodexWSSL2AndWSSRemainProofGatedCandidates(t *testing.T) {
 		PreviousResponseIDAvailable: true,
 		LiveCorpusConfidence:        "high",
 	})
-	if d := findDecision(t, plan, Layer2); d.Action != ActionShadow || d.Reason != "codex_wss_l2_requires_fixture_live_proof" || d.Risk != "medium" {
-		t.Fatalf("Codex WSS L2 must stay a shadow candidate before fixture+live proof: %+v", d)
+	if d := findDecision(t, plan, Layer2); d.Action != ActionRun || d.Reason != "codex_wss_l2_live_proof_passed" || d.Risk != "low" {
+		t.Fatalf("Codex WSS L2 must be active after live proof: %+v", d)
 	}
 	if plan.SafetyBlocked {
-		t.Fatalf("proof-gated candidates should not hard-block the route: %+v", plan.Decisions)
+		t.Fatalf("active L2 should not hard-block the route: %+v", plan.Decisions)
 	}
 
 	firstTurn := Plan(RequestFacts{
