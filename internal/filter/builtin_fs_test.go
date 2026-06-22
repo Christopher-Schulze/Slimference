@@ -767,3 +767,546 @@ func TestTryCompactDu_EmptyOutput(t *testing.T) {
 		t.Fatalf("compacted should be [du] empty, got: %s", compacted)
 	}
 }
+
+// --- TryCompactDf tests ---
+
+func TestTryCompactDf_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("Filesystem     1K-blocks      Used Available Use% Mounted on\n")
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(&sb, "/dev/sda%d      1000000    500000    500000  50%% /mnt/fs%d\n", i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactDf([]string{"df", "-h"}, input)
+	if !ok {
+		t.Fatalf("TryCompactDf returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[df] 30 filesystems") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "Filesystem") {
+		t.Fatalf("compacted missing header")
+	}
+	if !strings.Contains(s, "[+15 more filesystems]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactDf_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("Filesystem  1K-blocks  Used Available Use% Mounted on\n/dev/sda1   1000000   500000   500000  50% /\n")
+	_, ok := TryCompactDf([]string{"df"}, input)
+	if ok {
+		t.Fatalf("TryCompactDf should return false for small output")
+	}
+}
+
+func TestTryCompactDf_NotDf(t *testing.T) {
+	t.Parallel()
+	input := []byte("Filesystem  1K-blocks\n")
+	_, ok := TryCompactDf([]string{"ls", "-la"}, input)
+	if ok {
+		t.Fatalf("TryCompactDf should return false for non-df argv")
+	}
+}
+
+func TestTryCompactDf_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactDf([]string{"df"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactDf should return true for empty output")
+	}
+	if string(compacted) != "[df] empty\n" {
+		t.Fatalf("compacted should be [df] empty, got: %s", compacted)
+	}
+}
+
+// --- TryCompactPs tests ---
+
+func TestTryCompactPs_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("  PID TTY          TIME CMD\n")
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&sb, "%5d pts/0    00:00:01 process%d\n", i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactPs([]string{"ps", "aux"}, input)
+	if !ok {
+		t.Fatalf("TryCompactPs returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[ps] 50 processes") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "PID TTY") {
+		t.Fatalf("compacted missing header")
+	}
+	if !strings.Contains(s, "[+30 more processes]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactPs_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("  PID TTY          TIME CMD\n    1 pts/0    00:00:01 bash\n")
+	_, ok := TryCompactPs([]string{"ps"}, input)
+	if ok {
+		t.Fatalf("TryCompactPs should return false for small output")
+	}
+}
+
+func TestTryCompactPs_NotPs(t *testing.T) {
+	t.Parallel()
+	input := []byte("  PID TTY\n")
+	_, ok := TryCompactPs([]string{"ls"}, input)
+	if ok {
+		t.Fatalf("TryCompactPs should return false for non-ps argv")
+	}
+}
+
+func TestTryCompactPs_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactPs([]string{"ps"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactPs should return true for empty output")
+	}
+	if string(compacted) != "[ps] empty\n" {
+		t.Fatalf("compacted should be [ps] empty, got: %s", compacted)
+	}
+}
+
+// --- TryCompactEnv tests ---
+
+func TestTryCompactEnv_SecretRedaction(t *testing.T) {
+	t.Parallel()
+	input := []byte("PATH=/usr/bin:/bin\nAPI_KEY=sk-1234567890abcdef\nHOME=/home/user\nTOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz\n")
+	compacted, ok := TryCompactEnv([]string{"env"}, input)
+	if !ok {
+		t.Fatalf("TryCompactEnv returned ok=false")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "sk-1234567890abcdef") {
+		t.Fatalf("API_KEY value not redacted: %s", s)
+	}
+	if strings.Contains(s, "ghp_1234567890abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("TOKEN value not redacted: %s", s)
+	}
+	if !strings.Contains(s, "API_KEY=[REDACTED]") {
+		t.Fatalf("API_KEY not redacted properly: %s", s)
+	}
+	if !strings.Contains(s, "TOKEN=[REDACTED]") {
+		t.Fatalf("TOKEN not redacted properly: %s", s)
+	}
+	if !strings.Contains(s, "PATH=/usr/bin:/bin") {
+		t.Fatalf("non-secret PATH value should be preserved: %s", s)
+	}
+	if !strings.Contains(s, "HOME=/home/user") {
+		t.Fatalf("non-secret HOME value should be preserved: %s", s)
+	}
+}
+
+func TestTryCompactEnv_LargeOutput(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&sb, "VAR_%d=value_%d\n", i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactEnv([]string{"env"}, input)
+	if !ok {
+		t.Fatalf("TryCompactEnv returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[env] 50 variables") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "[+20 more variables]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactEnv_NotEnv(t *testing.T) {
+	t.Parallel()
+	input := []byte("PATH=/usr/bin\n")
+	_, ok := TryCompactEnv([]string{"ls"}, input)
+	if ok {
+		t.Fatalf("TryCompactEnv should return false for non-env argv")
+	}
+}
+
+func TestTryCompactEnv_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactEnv([]string{"env"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactEnv should return true for empty output")
+	}
+	if string(compacted) != "[env] empty\n" {
+		t.Fatalf("compacted should be [env] empty, got: %s", compacted)
+	}
+}
+
+func TestTryCompactEnv_Printenv(t *testing.T) {
+	t.Parallel()
+	input := []byte("API_KEY=sk-1234567890abcdef1234567890abcdef\n")
+	compacted, ok := TryCompactEnv([]string{"printenv"}, input)
+	if !ok {
+		t.Fatalf("TryCompactEnv should work for printenv")
+	}
+	if strings.Contains(string(compacted), "sk-1234567890") {
+		t.Fatalf("printenv secret not redacted: %s", compacted)
+	}
+}
+
+func TestEnvKeyLooksSecret(t *testing.T) {
+	t.Parallel()
+	secretKeys := []string{
+		"API_KEY", "api_key", "SECRET_TOKEN", "PASSWORD", "PWD_HASH",
+		"ACCESS_KEY", "PRIVATE_KEY", "AUTH_TOKEN", "CREDENTIAL",
+		"CLIENT_SECRET", "REFRESH_TOKEN", "JWT_SECRET", "SIGNING_KEY",
+		"SSH_KEY", "VAULT_TOKEN", "AWS_SECRET_ACCESS_KEY",
+	}
+	for _, key := range secretKeys {
+		if !envKeyLooksSecret(key) {
+			t.Errorf("envKeyLooksSecret(%q) = false, want true", key)
+		}
+	}
+	nonSecretKeys := []string{
+		"PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "EDITOR",
+		"GOPATH", "GOROOT", "NODE_ENV", "DEBUG", "VERBOSE",
+	}
+	for _, key := range nonSecretKeys {
+		if envKeyLooksSecret(key) {
+			t.Errorf("envKeyLooksSecret(%q) = true, want false", key)
+		}
+	}
+}
+
+func TestEnvValueLooksSecret(t *testing.T) {
+	t.Parallel()
+	secretValues := []string{
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature",
+		"bearer abc123",
+		"AKIAIOSFODNN7EXAMPLE",
+		"ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+		"xoxb-1234567890abcdef",
+		strings.Repeat("a", 40),
+	}
+	for _, val := range secretValues {
+		if !envValueLooksSecret(val) {
+			t.Errorf("envValueLooksSecret(%q) = false, want true", val)
+		}
+	}
+	nonSecretValues := []string{
+		"/usr/bin:/bin", "/home/user", "bash", "xterm", "en_US.UTF-8",
+		"true", "1", "debug", "production",
+	}
+	for _, val := range nonSecretValues {
+		if envValueLooksSecret(val) {
+			t.Errorf("envValueLooksSecret(%q) = true, want false", val)
+		}
+	}
+}
+
+// --- TryCompactHexDump tests ---
+
+func TestTryCompactHexDump_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&sb, "%08x: 4865 6c6c 6f20 57or6c 6421 0a00 0000 0000  Hello World!.....\n", i*16)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactHexDump([]string{"xxd", "file.bin"}, input)
+	if !ok {
+		t.Fatalf("TryCompactHexDump returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[hexdump] 50 lines") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+}
+
+func TestTryCompactHexDump_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("00000000: 4865 6c6c 6f                              Hello\n")
+	_, ok := TryCompactHexDump([]string{"xxd"}, input)
+	if ok {
+		t.Fatalf("TryCompactHexDump should return false for small output")
+	}
+}
+
+func TestTryCompactHexDump_NotHexDump(t *testing.T) {
+	t.Parallel()
+	input := []byte("00000000: 4865\n")
+	_, ok := TryCompactHexDump([]string{"cat"}, input)
+	if ok {
+		t.Fatalf("TryCompactHexDump should return false for non-hexdump argv")
+	}
+}
+
+func TestTryCompactHexDump_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactHexDump([]string{"xxd"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactHexDump should return true for empty output")
+	}
+	if string(compacted) != "[hexdump] empty\n" {
+		t.Fatalf("compacted should be [hexdump] empty, got: %s", compacted)
+	}
+}
+
+func TestTryCompactHexDump_PreservesLastLines(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&sb, "%08x: %04x %04x line%d\n", i*16, i, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactHexDump([]string{"od", "-A", "x", "-t", "x2"}, input)
+	if !ok {
+		t.Fatalf("TryCompactHexDump returned ok=false")
+	}
+	s := string(compacted)
+	// Last 3 lines should be preserved.
+	if !strings.Contains(s, "line49") {
+		t.Fatalf("compacted missing last line: %s", s[len(s)-200:])
+	}
+	if !strings.Contains(s, "line48") {
+		t.Fatalf("compacted missing second-to-last line: %s", s[len(s)-200:])
+	}
+}
+
+// --- TryCompactDiff tests ---
+
+func TestTryCompactDiff_BasicCompact(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("--- a/file.go\n")
+	sb.WriteString("+++ b/file.go\n")
+	sb.WriteString("@@ -1,5 +1,5 @@\n")
+	sb.WriteString(" package main\n")
+	sb.WriteString(" \n")
+	sb.WriteString(" import \"fmt\"\n")
+	sb.WriteString("-old line\n")
+	sb.WriteString("+new line\n")
+	sb.WriteString(" \n")
+	sb.WriteString(" func main() {}\n")
+	input := []byte(sb.String())
+	compacted, ok := TryCompactDiff([]string{"diff", "-u", "a/file.go", "b/file.go"}, input)
+	if !ok {
+		t.Fatalf("TryCompactDiff returned ok=false")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[diff] 1 file(s)") {
+		t.Fatalf("compacted missing summary: %s", s)
+	}
+	if !strings.Contains(s, "+new line") {
+		t.Fatalf("compacted missing + line")
+	}
+	if !strings.Contains(s, "-old line") {
+		t.Fatalf("compacted missing - line")
+	}
+	// Context lines should be stripped.
+	if strings.Contains(s, "package main") {
+		t.Fatalf("context line 'package main' should be stripped: %s", s)
+	}
+}
+
+func TestTryCompactDiff_NotUnifiedDiff(t *testing.T) {
+	t.Parallel()
+	input := []byte("1c1\n< old\n---\n> new\n")
+	_, ok := TryCompactDiff([]string{"diff"}, input)
+	if ok {
+		t.Fatalf("TryCompactDiff should return false for non-unified diff")
+	}
+}
+
+func TestTryCompactDiff_NotDiff(t *testing.T) {
+	t.Parallel()
+	input := []byte("--- a/file.go\n+++ b/file.go\n")
+	_, ok := TryCompactDiff([]string{"cat"}, input)
+	if ok {
+		t.Fatalf("TryCompactDiff should return false for non-diff argv")
+	}
+}
+
+func TestTryCompactDiff_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactDiff([]string{"diff"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactDiff should return true for empty output")
+	}
+	if string(compacted) != "[diff] empty\n" {
+		t.Fatalf("compacted should be [diff] empty, got: %s", compacted)
+	}
+}
+
+func TestTryCompactDiff_MultipleFiles(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("--- a/file1.go\n")
+	sb.WriteString("+++ b/file1.go\n")
+	sb.WriteString("@@ -1,10 +1,10 @@\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&sb, " context_line_%d\n", i)
+	}
+	sb.WriteString("-old1\n")
+	sb.WriteString("+new1\n")
+	sb.WriteString("--- a/file2.go\n")
+	sb.WriteString("+++ b/file2.go\n")
+	sb.WriteString("@@ -1,10 +1,10 @@\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&sb, " context_line_%d\n", i)
+	}
+	sb.WriteString("-old2\n")
+	sb.WriteString("+new2\n")
+	input := []byte(sb.String())
+	compacted, ok := TryCompactDiff([]string{"diff", "-u"}, input)
+	if !ok {
+		t.Fatalf("TryCompactDiff returned ok=false")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[diff] 2 file(s)") {
+		t.Fatalf("compacted missing 2-file summary: %s", s)
+	}
+	if !strings.Contains(s, "file1.go") {
+		t.Fatalf("compacted missing file1")
+	}
+	if !strings.Contains(s, "file2.go") {
+		t.Fatalf("compacted missing file2")
+	}
+	if strings.Contains(s, "context_line_0") {
+		t.Fatalf("context lines should be stripped: %s", s)
+	}
+}
+
+// --- TryCompactLsof tests ---
+
+func TestTryCompactLsof_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("COMMAND     PID   USER   FD   TYPE DEVICE SIZE NODE NAME\n")
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&sb, "process    %5d user   %3d   REG  253,0  1000  123  /file%d\n", i, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactLsof([]string{"lsof"}, input)
+	if !ok {
+		t.Fatalf("TryCompactLsof returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[lsof] 100 entries") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "COMMAND") {
+		t.Fatalf("compacted missing header")
+	}
+	if !strings.Contains(s, "[+70 more entries]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactLsof_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("COMMAND  PID USER  FD  TYPE DEVICE SIZE NODE NAME\nbash    1234 user txt  REG  253,0 1000  123  /bin/bash\n")
+	_, ok := TryCompactLsof([]string{"lsof"}, input)
+	if ok {
+		t.Fatalf("TryCompactLsof should return false for small output")
+	}
+}
+
+func TestTryCompactLsof_NotLsof(t *testing.T) {
+	t.Parallel()
+	input := []byte("COMMAND  PID\n")
+	_, ok := TryCompactLsof([]string{"ps"}, input)
+	if ok {
+		t.Fatalf("TryCompactLsof should return false for non-lsof argv")
+	}
+}
+
+func TestTryCompactLsof_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactLsof([]string{"lsof"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactLsof should return true for empty output")
+	}
+	if string(compacted) != "[lsof] empty\n" {
+		t.Fatalf("compacted should be [lsof] empty, got: %s", compacted)
+	}
+}
+
+// --- TryCompactNetstat tests ---
+
+func TestTryCompactNetstat_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port\n")
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&sb, "tcp   ESTAB  0      0      127.0.0.1:%d    127.0.0.1:8080\n", 30000+i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactNetstat([]string{"ss", "-t"}, input)
+	if !ok {
+		t.Fatalf("TryCompactNetstat returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[netstat] 60 entries") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "Local Address") {
+		t.Fatalf("compacted missing header")
+	}
+	if !strings.Contains(s, "[+35 more entries]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactNetstat_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("Proto Local Address\n tcp   127.0.0.1:80\n")
+	_, ok := TryCompactNetstat([]string{"ss"}, input)
+	if ok {
+		t.Fatalf("TryCompactNetstat should return false for small output")
+	}
+}
+
+func TestTryCompactNetstat_NotNetstat(t *testing.T) {
+	t.Parallel()
+	input := []byte("Proto Local\n")
+	_, ok := TryCompactNetstat([]string{"ls"}, input)
+	if ok {
+		t.Fatalf("TryCompactNetstat should return false for non-ss/netstat argv")
+	}
+}
+
+func TestTryCompactNetstat_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactNetstat([]string{"ss"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactNetstat should return true for empty output")
+	}
+	if string(compacted) != "[netstat] empty\n" {
+		t.Fatalf("compacted should be [netstat] empty, got: %s", compacted)
+	}
+}

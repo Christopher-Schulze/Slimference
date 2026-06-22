@@ -1538,6 +1538,27 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "du":
 		compacted, ok := filter.TryCompactDu(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "df":
+		compacted, ok := filter.TryCompactDf(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "ps":
+		compacted, ok := filter.TryCompactPs(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "env", "printenv":
+		compacted, ok := filter.TryCompactEnv(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "xxd", "hexdump", "od":
+		compacted, ok := filter.TryCompactHexDump(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "diff", "diff3":
+		compacted, ok := filter.TryCompactDiff(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "lsof":
+		compacted, ok := filter.TryCompactLsof(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "ss", "netstat":
+		compacted, ok := filter.TryCompactNetstat(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		// go test -json produces verbose NDJSON events. Try the JSON
 		// compactor first — it replaces all-pass output with one line

@@ -27,6 +27,13 @@ counted as `S_local`.
   6. `TryCompactGoListJSON` — new compactor for `go list -json` NDJSON output (11% saved on single module, more for `./...`)
   7. Genuine L1 captures distributed to 11 previously uncovered categories (16/16 CLI categories now covered)
   8. Genuine L2 captures distributed to 5 previously uncovered categories (16/16 CLI categories now covered)
+  9. `TryCompactDf` — new compactor for `df` output (caps at 15 filesystem rows + header)
+  10. `TryCompactPs` — new compactor for `ps` output (caps at 20 process rows + header)
+  11. `TryCompactEnv` — new compactor for `env`/`printenv` with **secret redaction** (security win: redacts API keys, tokens, passwords, JWTs, AWS keys, GitHub tokens, Slack tokens before they enter model context; caps at 30 variables)
+  12. `TryCompactHexDump` — new compactor for `xxd`/`hexdump`/`od` output (caps at 20 lines + last 3, preserves file signature + end marker)
+  13. `TryCompactDiff` — new compactor for `diff`/`diff3` unified diff output (strips context lines, keeps +/- lines and hunk headers — same logic as `compactGitDiff` but for plain `diff -u`)
+  14. `TryCompactLsof` — new compactor for `lsof` output (caps at 30 rows + header)
+  15. `TryCompactNetstat` — new compactor for `ss`/`netstat` output (caps at 25 rows + header)
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS

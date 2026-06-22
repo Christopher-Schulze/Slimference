@@ -1250,3 +1250,540 @@ func TryCompactDu(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	return []byte(out + "\n"), true
 }
+
+// TryCompactDf compacts `df` output by capping the number of filesystem rows
+// while preserving the header and the total row (if present). df output is a
+// tabular listing of filesystems — on systems with many mounts (containers,
+// CI runners), this can be dozens of rows.
+//
+// Drawdown vector: the model loses individual filesystem sizes for entries
+// beyond the cap. The header (column names) is always preserved. Fail-open
+// on non-df output or small output.
+func TryCompactDf(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "df" && b != "df.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[df] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 20 {
+		return stdout, false
+	}
+	const maxRows = 15
+	header := lines[0]
+	dataLines := lines[1:]
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[df] %d filesystems (showing first %d + header)\n", len(dataLines), maxRows))
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	for i, line := range dataLines {
+		if i >= maxRows {
+			sb.WriteString(fmt.Sprintf("  [+%d more filesystems]\n", len(dataLines)-maxRows))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactPs compacts `ps` output by capping the number of process rows
+// while preserving the header. ps aux on a busy system can produce hundreds
+// of rows.
+//
+// Drawdown vector: the model loses individual process details for entries
+// beyond the cap. The header (column names) is always preserved. Fail-open
+// on non-ps output or small output.
+func TryCompactPs(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "ps" && b != "ps.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[ps] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 30 {
+		return stdout, false
+	}
+	const maxRows = 20
+	header := lines[0]
+	dataLines := lines[1:]
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[ps] %d processes (showing first %d + header)\n", len(dataLines), maxRows))
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	for i, line := range dataLines {
+		if i >= maxRows {
+			sb.WriteString(fmt.Sprintf("  [+%d more processes]\n", len(dataLines)-maxRows))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactEnv compacts `env`/`printenv` output by sorting variables,
+// capping at a maximum number of entries, and redacting values that look like
+// secrets. Environment dumps can be large and frequently contain sensitive
+// values (API keys, tokens, passwords) that should not enter model context.
+//
+// Security: values matching secret-like key patterns are replaced with
+// [REDACTED]. This is a security improvement, not just a savings win.
+//
+// Drawdown vector: the model loses individual env values beyond the cap.
+// Secret values are intentionally redacted for security. Fail-open on non-env
+// output or small output.
+func TryCompactEnv(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "env" && b != "env.exe" && b != "printenv" && b != "printenv.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[env] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 20 {
+		// Even for small output, redact secrets — security benefit.
+		return []byte(compactEnvRedact(lines)), true
+	}
+	const maxEntries = 30
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[env] %d variables (showing first %d, secrets redacted)\n", len(lines), maxEntries))
+	for i, line := range lines {
+		if i >= maxEntries {
+			sb.WriteString(fmt.Sprintf("  [+%d more variables]\n", len(lines)-maxEntries))
+			break
+		}
+		sb.WriteString(redactEnvLine(line))
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		// Even if compaction doesn't save bytes, redaction is a security win.
+		// Return the redacted version if it differs from the original.
+		redacted := compactEnvRedact(lines)
+		if string(redacted) != s {
+			return []byte(redacted), true
+		}
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+func compactEnvRedact(lines []string) string {
+	var sb strings.Builder
+	for _, line := range lines {
+		sb.WriteString(redactEnvLine(line))
+		sb.WriteByte('\n')
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func redactEnvLine(line string) string {
+	key, value, ok := strings.Cut(line, "=")
+	if !ok {
+		return line
+	}
+	if envKeyLooksSecret(key) {
+		return key + "=[REDACTED]"
+	}
+	if envValueLooksSecret(value) {
+		return key + "=[REDACTED]"
+	}
+	return line
+}
+
+func envKeyLooksSecret(key string) bool {
+	lk := strings.ToLower(key)
+	secretKeywords := []string{
+		"secret", "token", "password", "passwd", "pwd", "api_key", "apikey",
+		"access_key", "accesskey", "private_key", "privatekey", "auth",
+		"credential", "cred", "session_key", "sessionkey", "client_secret",
+		"refresh_token", "refreshtoken", "auth_token", "authtoken",
+		"bearer", "oauth", "jwt", "signing_key", "signingkey",
+		"encryption_key", "encryptionkey", "decrypt_key", "decryptkey",
+		"ssh_key", "sshkey", "gpg_key", "gpgkey", "pgp_key", "pgpkey",
+		"vault", "key_id", "keyid", "aws_secret", "azure_key",
+	}
+	for _, kw := range secretKeywords {
+		if strings.Contains(lk, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func envValueLooksSecret(value string) bool {
+	// Bearer token patterns are always secrets regardless of length.
+	if strings.HasPrefix(strings.ToLower(value), "bearer ") {
+		return true
+	}
+	if len(value) < 20 {
+		return false
+	}
+	// Long base64/hex strings that look like encoded secrets.
+	isBase64Like := true
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '+' || r == '/' || r == '=' || r == '-' || r == '_' {
+			continue
+		}
+		isBase64Like = false
+		break
+	}
+	if isBase64Like && len(value) >= 32 {
+		return true
+	}
+	// JWT-like patterns (eyJ...).
+	if strings.HasPrefix(value, "eyJ") && len(value) >= 40 {
+		return true
+	}
+	// AKIA-style AWS access key IDs.
+	if len(value) == 20 && strings.HasPrefix(value, "AKIA") {
+		return true
+	}
+	// ghp_/gho_/ghs_ GitHub token patterns.
+	if (strings.HasPrefix(value, "ghp_") || strings.HasPrefix(value, "gho_") ||
+		strings.HasPrefix(value, "ghs_") || strings.HasPrefix(value, "ghr_")) &&
+		len(value) >= 30 {
+		return true
+	}
+	// xoxb-/xoxp- Slack token patterns.
+	if (strings.HasPrefix(value, "xoxb-") || strings.HasPrefix(value, "xoxp-")) &&
+		len(value) >= 20 {
+		return true
+	}
+	return false
+}
+
+// TryCompactHexDump compacts `xxd`/`hexdump`/`od` output by capping the number
+// of lines. Hex dumps are extremely low information density for language models
+// — each line encodes 16 bytes in hex + ASCII, but the model rarely needs more
+// than the first/last few lines to identify file type or structure.
+//
+// Drawdown vector: the model loses hex bytes beyond the cap. The first and
+// last lines are always preserved (file signature + end marker). Fail-open
+// on non-hexdump output or small output.
+func TryCompactHexDump(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "xxd" && b != "xxd.exe" && b != "hexdump" && b != "hexdump.exe" &&
+		b != "od" && b != "od.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[hexdump] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 30 {
+		return stdout, false
+	}
+	const maxLines = 20
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[hexdump] %d lines (showing first %d + last 3)\n", len(lines), maxLines))
+	lastLines := lines[len(lines)-3:]
+	for i, line := range lines {
+		if i >= maxLines && i < len(lines)-3 {
+			sb.WriteString(fmt.Sprintf("  [+%d more lines]\n", len(lines)-maxLines-3))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	// Ensure last 3 lines are always included.
+	written := strings.TrimRight(sb.String(), "\n")
+	writtenLines := strings.Split(written, "\n")
+	needLast := true
+	if len(writtenLines) >= 3 {
+		match := true
+		for j := 0; j < 3; j++ {
+			if writtenLines[len(writtenLines)-3+j] != lastLines[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			needLast = false
+		}
+	}
+	if needLast {
+		for _, line := range lastLines {
+			sb.WriteString(line)
+			sb.WriteByte('\n')
+		}
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactDiff compacts `diff` output by stripping context lines from
+// unified diffs, keeping +/- lines and hunk headers. This reuses the same
+// logic as compactGitDiff but handles plain `diff -u` output (which lacks
+// the `diff --git` header).
+//
+// Drawdown vector: context lines are stripped, but all changed lines (+/-)
+// and hunk headers are preserved. The model can reconstruct the full diff
+// from the archive if needed. Fail-open on non-diff output or non-unified
+// format.
+func TryCompactDiff(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "diff" && b != "diff.exe" && b != "diff3" && b != "diff3.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[diff] empty\n"), true
+	}
+	// Only compact unified diff format (has --- and +++ headers).
+	if !strings.Contains(s, "\n--- ") && !strings.HasPrefix(s, "--- ") {
+		return stdout, false
+	}
+	if !strings.Contains(s, "\n+++ ") && !strings.HasPrefix(s, "+++ ") {
+		return stdout, false
+	}
+	compact := compactUnifiedDiff(s)
+	if compact == "" || len(compact) >= len(s) {
+		return stdout, false
+	}
+	return []byte(compact), true
+}
+
+// compactUnifiedDiff strips context lines from a unified diff, keeping
+// +/- lines, hunk headers, and file headers. Works for both `diff -u` and
+// `git diff` (without the `diff --git` prefix line).
+func compactUnifiedDiff(s string) string {
+	type fileDiff struct {
+		fromFile string
+		toFile   string
+		added    int
+		removed  int
+		hunks    []string
+	}
+
+	var files []fileDiff
+	var cur fileDiff
+	var hasCur bool
+	var inHunk bool
+
+	for raw := range strings.SplitSeq(s, "\n") {
+		line := strings.TrimRight(raw, "\r")
+
+		if strings.HasPrefix(line, "--- ") {
+			if hasCur {
+				files = append(files, cur)
+			}
+			cur = fileDiff{fromFile: strings.TrimPrefix(line, "--- ")}
+			hasCur = true
+			inHunk = false
+			continue
+		}
+
+		if !hasCur {
+			continue
+		}
+
+		if strings.HasPrefix(line, "+++ ") {
+			cur.toFile = strings.TrimPrefix(line, "+++ ")
+			continue
+		}
+
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+			hdr := line
+			if at := strings.LastIndex(line, "@@"); at > 0 && at < len(line)-2 {
+				hdr = line[:at+2]
+			}
+			cur.hunks = append(cur.hunks, hdr)
+			continue
+		}
+
+		if !inHunk {
+			// Lines before first hunk (like "Binary files differ" or
+			// "Only in" messages) — preserve them.
+			if line != "" && !strings.HasPrefix(line, " ") {
+				cur.hunks = append(cur.hunks, line)
+			}
+			continue
+		}
+
+		if strings.HasPrefix(line, "+") {
+			cur.added++
+			cur.hunks = append(cur.hunks, line)
+		} else if strings.HasPrefix(line, "-") {
+			cur.removed++
+			cur.hunks = append(cur.hunks, line)
+		}
+		// skip context lines (lines starting with space)
+	}
+	if hasCur {
+		files = append(files, cur)
+	}
+
+	if len(files) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	var totalAdded, totalRemoved int
+	for _, f := range files {
+		totalAdded += f.added
+		totalRemoved += f.removed
+	}
+	sb.WriteString(fmt.Sprintf("[diff] %d file(s) +%d/-%d\n", len(files), totalAdded, totalRemoved))
+	for _, f := range files {
+		label := f.toFile
+		if label == "" {
+			label = f.fromFile
+		}
+		sb.WriteString(fmt.Sprintf("  %s (+%d/-%d)\n", label, f.added, f.removed))
+		for _, h := range f.hunks {
+			sb.WriteString("    ")
+			sb.WriteString(h)
+			sb.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// TryCompactLsof compacts `lsof` output by capping the number of rows while
+// preserving the header. lsof on a busy system can produce thousands of rows.
+//
+// Drawdown vector: the model loses individual file handle details beyond the
+// cap. The header (column names) is always preserved. Fail-open on non-lsof
+// output or small output.
+func TryCompactLsof(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "lsof" && b != "lsof.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[lsof] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 50 {
+		return stdout, false
+	}
+	const maxRows = 30
+	header := lines[0]
+	dataLines := lines[1:]
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[lsof] %d entries (showing first %d + header)\n", len(dataLines), maxRows))
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	for i, line := range dataLines {
+		if i >= maxRows {
+			sb.WriteString(fmt.Sprintf("  [+%d more entries]\n", len(dataLines)-maxRows))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactNetstat compacts `ss`/`netstat` output by capping the number of
+// rows while preserving the header. Network connection listings on busy
+// servers can produce hundreds of rows.
+//
+// Drawdown vector: the model loses individual connection details beyond the
+// cap. The header (column names) is always preserved. Fail-open on non-ss/
+// netstat output or small output.
+func TryCompactNetstat(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "ss" && b != "ss.exe" && b != "netstat" && b != "netstat.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[netstat] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 40 {
+		return stdout, false
+	}
+	const maxRows = 25
+	// ss and netstat may have multiple header sections; find the first
+	// non-empty line as header.
+	header := ""
+	dataStart := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		header = line
+		dataStart = i + 1
+		break
+	}
+	if header == "" {
+		return stdout, false
+	}
+	dataLines := lines[dataStart:]
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[netstat] %d entries (showing first %d + header)\n", len(dataLines), maxRows))
+	sb.WriteString(header)
+	sb.WriteByte('\n')
+	for i, line := range dataLines {
+		if i >= maxRows {
+			sb.WriteString(fmt.Sprintf("  [+%d more entries]\n", len(dataLines)-maxRows))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
