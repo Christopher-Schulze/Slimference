@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -253,4 +254,106 @@ func TestWSSStatelessHistoryContinuationNilAdapter(t *testing.T) {
 		t.Fatalf("nil adapter must not rewrite ok=%v body=%s", ok, rewritten)
 	}
 	adapter.markWSSHistoryStatelessMode()
+}
+
+// TestRememberWSSResponseState_FIFOEviction verifies that the responseChains
+// map is capped at wssRecoveryMaxChains via FIFO eviction. This is a
+// regression guard for a bug where the existence check ran AFTER the map
+// insertion, so responseChainOrder was never populated and the map grew
+// unbounded (memory leak).
+func TestRememberWSSResponseState_FIFOEviction(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	// Insert well over wssRecoveryMaxChains distinct response IDs.
+	total := wssRecoveryMaxChains + 50
+	for i := 0; i < total; i++ {
+		adapter.mu.Lock()
+		adapter.pendingChain = wssResponseChain{
+			json.RawMessage(`{"type":"message","role":"user","content":"chain"}`),
+		}
+		adapter.mu.Unlock()
+		respID := "resp-" + strconv.Itoa(i)
+		env := parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindResponseCompleted),
+			"response": map[string]any{
+				"id":     respID,
+				"output": []any{},
+			},
+		})
+		adapter.rememberWSSResponseState(&env)
+	}
+
+	adapter.mu.Lock()
+	got := len(adapter.responseChains)
+	orderLen := len(adapter.responseChainOrder)
+	adapter.mu.Unlock()
+
+	if got > wssRecoveryMaxChains {
+		t.Fatalf("responseChains map grew unbounded: got %d, want <= %d (memory leak regression)", got, wssRecoveryMaxChains)
+	}
+	if orderLen > wssRecoveryMaxChains {
+		t.Fatalf("responseChainOrder grew unbounded: got %d, want <= %d", orderLen, wssRecoveryMaxChains)
+	}
+	if orderLen != got {
+		t.Fatalf("responseChainOrder len (%d) must match responseChains len (%d) — eviction bookkeeping is inconsistent", orderLen, got)
+	}
+
+	// The oldest entries (resp-0 .. resp-(total-wssRecoveryMaxChains-1)) must
+	// have been evicted; the most recent wssRecoveryMaxChains entries must
+	// remain.
+	adapter.mu.Lock()
+	firstEvicted := "resp-0"
+	lastKept := "resp-" + strconv.Itoa(total-1)
+	_, hasFirst := adapter.responseChains[firstEvicted]
+	_, hasLast := adapter.responseChains[lastKept]
+	adapter.mu.Unlock()
+	if hasFirst {
+		t.Fatalf("oldest entry %q should have been evicted by FIFO", firstEvicted)
+	}
+	if !hasLast {
+		t.Fatalf("most recent entry %q should still be present", lastKept)
+	}
+}
+
+// TestRememberWSSResponseState_FIFOEviction_OverwriteExisting verifies that
+// re-inserting an existing response ID updates the chain without appending a
+// duplicate entry to responseChainOrder (no double-counting).
+func TestRememberWSSResponseState_FIFOEviction_OverwriteExisting(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	insert := func(id string) {
+		adapter.mu.Lock()
+		adapter.pendingChain = wssResponseChain{
+			json.RawMessage(`{"type":"message","role":"user","content":"chain"}`),
+		}
+		adapter.mu.Unlock()
+		env := parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindResponseCompleted),
+			"response": map[string]any{
+				"id":     id,
+				"output": []any{},
+			},
+		})
+		adapter.rememberWSSResponseState(&env)
+	}
+
+	// Insert the same ID twice — should not duplicate the order entry.
+	insert("resp-dup")
+	insert("resp-dup")
+
+	adapter.mu.Lock()
+	got := len(adapter.responseChains)
+	orderLen := len(adapter.responseChainOrder)
+	adapter.mu.Unlock()
+
+	if got != 1 {
+		t.Fatalf("expected 1 chain in map, got %d", got)
+	}
+	if orderLen != 1 {
+		t.Fatalf("expected responseChainOrder len 1 (no duplicate), got %d", orderLen)
+	}
 }

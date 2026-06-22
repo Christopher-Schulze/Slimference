@@ -280,6 +280,13 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 		if a.responseChains == nil {
 			a.responseChains = make(map[string]wssResponseChain)
 		}
+		// Track insertion order for FIFO eviction BEFORE inserting into the
+		// map so the existence check is meaningful (otherwise the just-inserted
+		// key would always report exists=true and never be appended to the
+		// order slice, breaking eviction entirely).
+		if _, exists := a.responseChains[responseID]; !exists {
+			a.responseChainOrder = append(a.responseChainOrder, responseID)
+		}
 		a.responseChains[responseID] = chain
 		if a.pendingHistoryRecoveryGuarded {
 			a.markWSSHistoryMutationRecoveryLineageLocked(responseID)
@@ -287,10 +294,6 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 		if a.pendingStatelessChainExport {
 			exportResponseID = responseID
 			exportChain = wssResponseChain(cloneWSSRawItems(chain))
-		}
-		// Track insertion order for LRU eviction.
-		if _, exists := a.responseChains[responseID]; !exists {
-			a.responseChainOrder = append(a.responseChainOrder, responseID)
 		}
 		for len(a.responseChainOrder) > wssRecoveryMaxChains {
 			oldest := a.responseChainOrder[0]
