@@ -101,7 +101,7 @@ func readRequestFromArgv(argv []string) (ReadRequest, bool) {
 		return ReadRequest{}, false
 	}
 	switch strings.ToLower(filepath.Base(argv[0])) {
-	case "cat":
+	case "cat", "bat", "batcat":
 		if countReadPaths(argv) != 1 {
 			return ReadRequest{}, false
 		}
@@ -154,7 +154,8 @@ func isFullFileCat(argv []string) bool {
 	if len(argv) == 0 {
 		return false
 	}
-	return strings.EqualFold(filepath.Base(argv[0]), "cat")
+	name := strings.ToLower(filepath.Base(argv[0]))
+	return name == "cat" || name == "bat" || name == "batcat"
 }
 
 func countReadPaths(argv []string) int {

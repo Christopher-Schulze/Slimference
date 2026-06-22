@@ -1435,7 +1435,7 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return compactCommandOutputFirstNonzeroDiagnostic(command, args, argv, stdout)
 	}
 	switch command {
-	case "cat", "head", "sed", "awk":
+	case "cat", "head", "sed", "awk", "bat", "batcat":
 		// Try JSON minification first — cat of JSON files (package.json,
 		// tsconfig.json, etc.) is common and minification + schema
 		// extraction can produce large savings on pretty-printed JSON.
@@ -2039,7 +2039,7 @@ func compactCommandOutputFirstRepeatedOutput(command string, args []string, stdo
 
 func commandOutputFirstReadCommand(command string) bool {
 	switch command {
-	case "cat", "head", "sed", "awk":
+	case "cat", "head", "sed", "awk", "bat", "batcat":
 		return true
 	default:
 		return false
