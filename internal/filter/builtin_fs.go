@@ -1186,3 +1186,67 @@ func commonDirectoryPrefix(paths []string) string {
 	}
 	return ""
 }
+
+// TryCompactDu compacts `du` output by capping the number of lines and
+// truncating long paths. du output is lines of "size\tpath" — for large
+// directory trees, this can be thousands of lines.
+//
+// Drawdown vector: the model loses individual file/dir sizes for entries
+// beyond the cap. The total (last line) is always preserved. Fail-open
+// on non-du output or small output.
+func TryCompactDu(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "du" && b != "du.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[du] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 50 {
+		return stdout, false
+	}
+
+	// Cap at 40 lines, preserving the last line (total).
+	const maxLines = 40
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[du] %d entries (showing first %d + total)\n", len(lines), maxLines-1))
+
+	lastLine := lines[len(lines)-1]
+	shown := 0
+	for i, line := range lines {
+		if i >= maxLines-1 && i < len(lines)-1 {
+			sb.WriteString(fmt.Sprintf("  [+%d more entries]\n", len(lines)-maxLines))
+			break
+		}
+		if i == len(lines)-1 && shown > 0 {
+			// Always include the last line (total) even if beyond cap.
+		}
+		// Truncate long lines at 120 chars.
+		if len(line) > 120 {
+			line = line[:117] + "..."
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+		shown++
+	}
+	// Ensure the last line (total) is always included.
+	if !strings.HasSuffix(sb.String(), lastLine+"\n") {
+		if len(lastLine) > 120 {
+			lastLine = lastLine[:117] + "..."
+		}
+		sb.WriteString(lastLine)
+		sb.WriteByte('\n')
+	}
+
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}

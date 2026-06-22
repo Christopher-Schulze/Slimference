@@ -714,3 +714,56 @@ func TestTryCompactWcFailOpen(t *testing.T) {
 		t.Fatal("non-wc command must fail open")
 	}
 }
+
+func TestTryCompactDu_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&sb, "4.0K\t./dir%d/file%d.go\n", i, i)
+	}
+	sb.WriteString("3.5M\t.\n")
+	input := []byte(sb.String())
+	compacted, ok := TryCompactDu([]string{"du", "-a", "."}, input)
+	if !ok {
+		t.Fatalf("TryCompactDu returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[du] 101 entries") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "3.5M\t.") {
+		t.Fatalf("compacted missing total line")
+	}
+}
+
+func TestTryCompactDu_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("4.0K\t./src\n8.0K\t.\n")
+	_, ok := TryCompactDu([]string{"du", "."}, input)
+	if ok {
+		t.Fatalf("TryCompactDu should return false for small output")
+	}
+}
+
+func TestTryCompactDu_NotDu(t *testing.T) {
+	t.Parallel()
+	input := []byte("4.0K\t./src\n")
+	_, ok := TryCompactDu([]string{"ls", "-la"}, input)
+	if ok {
+		t.Fatalf("TryCompactDu should return false for non-du argv")
+	}
+}
+
+func TestTryCompactDu_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactDu([]string{"du", "."}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactDu should return true for empty output")
+	}
+	if string(compacted) != "[du] empty\n" {
+		t.Fatalf("compacted should be [du] empty, got: %s", compacted)
+	}
+}

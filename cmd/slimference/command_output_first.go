@@ -1535,6 +1535,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "tree":
 		compacted, ok := filter.TryCompactTree(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "du":
+		compacted, ok := filter.TryCompactDu(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		// go test -json produces verbose NDJSON events. Try the JSON
 		// compactor first — it replaces all-pass output with one line
