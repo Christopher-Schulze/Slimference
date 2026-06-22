@@ -1457,15 +1457,15 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			compacted, ok := filter.TryCompactGitDiff(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "show":
-			if !commandOutputFirstGitShowMetadataOnly(args) {
-				return nil, false
-			}
+			// Try compacting all git show output. compactGitShow extracts
+			// the commit header + stat and calls compactGitDiff on the diff
+			// section, stripping context lines.
 			compacted, ok := filter.TryCompactGitShow(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "log":
-			if !commandOutputFirstGitLogMetadataOnly(args) {
-				return nil, false
-			}
+			// Try compacting all git log output. compactGitLog extracts
+			// commit hash + subject + stat per entry, stripping full
+			// commit messages and diffs.
 			compacted, ok := filter.TryCompactGitLog(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "ls-files":
