@@ -237,6 +237,126 @@ func TestWSSStatefulPrefixElisionTokensSaved(t *testing.T) {
 	}
 }
 
+func TestAttachWSSOutputReduceDisabledFacts(t *testing.T) {
+	t.Parallel()
+	// nil meta -> no-op.
+	a := &wsPhaseFAdapter{}
+	a.attachWSSOutputReduceDisabledFacts(nil, nil, false, false, proxyLayer0Stats{}, false)
+}
+
+func TestPersistCollapsedKeys(t *testing.T) {
+	t.Parallel()
+	// nil adapter -> no-op.
+	var nilAdapter *wsPhaseFAdapter
+	nilAdapter.persistCollapsedKeys("session", []string{"key"})
+
+	// empty sessionID -> no-op.
+	a := &wsPhaseFAdapter{}
+	a.persistCollapsedKeys("", []string{"key"})
+
+	// empty keys -> no-op.
+	a.persistCollapsedKeys("session", nil)
+	a.persistCollapsedKeys("session", []string{})
+
+	// all empty key strings -> no-op.
+	a.persistCollapsedKeys("session", []string{"", ""})
+}
+
+func TestCodexReplayInstructions(t *testing.T) {
+	t.Parallel()
+	// valid instructions.
+	got, ok := codexReplayInstructions([]byte(`{"instructions":"do something"}`))
+	if !ok || got != "do something" {
+		t.Fatalf("should return instructions, got %q ok=%v", got, ok)
+	}
+	// invalid json -> false.
+	if _, ok := codexReplayInstructions([]byte("not json")); ok {
+		t.Fatal("invalid json should return false")
+	}
+	// no instructions key -> false.
+	if _, ok := codexReplayInstructions([]byte(`{"other":"value"}`)); ok {
+		t.Fatal("missing instructions key should return false")
+	}
+	// instructions not a string -> false.
+	if _, ok := codexReplayInstructions([]byte(`{"instructions":123}`)); ok {
+		t.Fatal("non-string instructions should return false")
+	}
+	// empty instructions -> false.
+	if _, ok := codexReplayInstructions([]byte(`{"instructions":""}`)); ok {
+		t.Fatal("empty instructions should return false")
+	}
+}
+
+func TestWSSRecoveryDebugFacts(t *testing.T) {
+	t.Parallel()
+	// nil adapter -> returns facts with adapter_nil reason.
+	var nilAdapter *wsPhaseFAdapter
+	facts := nilAdapter.wssRecoveryDebugFacts("400", "invalid_request", "error")
+	if facts["wss.recovery.no_retry_reason"] != "adapter_nil" {
+		t.Fatalf("nil adapter should have adapter_nil reason, got %q", facts["wss.recovery.no_retry_reason"])
+	}
+	// non-nil adapter, not retryable -> not_retryable reason.
+	a := &wsPhaseFAdapter{}
+	facts = a.wssRecoveryDebugFacts("200", "", "")
+	if facts["wss.recovery.no_retry_reason"] != "not_retryable" {
+		t.Fatalf("non-retryable should have not_retryable reason, got %q", facts["wss.recovery.no_retry_reason"])
+	}
+}
+
+func TestProxyLayer0ToolWorkdir(t *testing.T) {
+	t.Parallel()
+	// empty tool input -> empty.
+	block := types.ContentBlock{ToolInput: ""}
+	if got := proxyLayer0ToolWorkdir(block); got != "" {
+		t.Fatalf("empty input should return empty, got %q", got)
+	}
+	// whitespace tool input -> empty.
+	block = types.ContentBlock{ToolInput: "  "}
+	if got := proxyLayer0ToolWorkdir(block); got != "" {
+		t.Fatalf("whitespace input should return empty, got %q", got)
+	}
+	// string JSON -> empty (rawJSONString returns non-empty).
+	block = types.ContentBlock{ToolInput: `"some string"`}
+	if got := proxyLayer0ToolWorkdir(block); got != "" {
+		t.Fatalf("string JSON should return empty, got %q", got)
+	}
+	// invalid JSON -> empty.
+	block = types.ContentBlock{ToolInput: "not json"}
+	if got := proxyLayer0ToolWorkdir(block); got != "" {
+		t.Fatalf("invalid JSON should return empty, got %q", got)
+	}
+	// valid JSON with workdir.
+	block = types.ContentBlock{ToolInput: `{"workdir":"/src"}`}
+	if got := proxyLayer0ToolWorkdir(block); got != "/src" {
+		t.Fatalf("valid JSON with workdir should return /src, got %q", got)
+	}
+}
+
+func TestWSSResponseOutputItems(t *testing.T) {
+	t.Parallel()
+	// empty raw -> nil.
+	if got := wssResponseOutputItems(nil); got != nil {
+		t.Fatal("empty raw should return nil")
+	}
+	// invalid json -> nil.
+	if got := wssResponseOutputItems(json.RawMessage("not json")); got != nil {
+		t.Fatal("invalid json should return nil")
+	}
+	// no output key -> nil.
+	if got := wssResponseOutputItems(json.RawMessage(`{"other":"value"}`)); got != nil {
+		t.Fatal("missing output key should return nil")
+	}
+	// invalid output -> nil.
+	if got := wssResponseOutputItems(json.RawMessage(`{"output":"not array"}`)); got != nil {
+		t.Fatal("invalid output should return nil")
+	}
+	// valid output -> items.
+	got := wssResponseOutputItems(json.RawMessage(`{"output":[{"type":"text"},{"type":"text"}]}`))
+	if len(got) != 2 {
+		t.Fatalf("valid output should return 2 items, got %d", len(got))
+	}
+}
+
 func TestWSSPlannerModel(t *testing.T) {
 	t.Parallel()
 	// valid model.
