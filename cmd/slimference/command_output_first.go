@@ -1450,9 +1450,10 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			compacted, ok := filter.TryCompactGitStatus(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "diff":
-			if !commandOutputFirstGitDiffMetadataOnly(args) {
-				return nil, false
-			}
+			// Try compacting all git diff output, not just --stat/--name-only.
+			// compactGitDiff strips context lines from unified diffs, keeping
+			// +/- lines and hunk headers. For --stat/--name-only/--name-status,
+			// the dedicated path-list/stat compactors are used.
 			compacted, ok := filter.TryCompactGitDiff(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		case "show":
