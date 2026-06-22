@@ -58,8 +58,8 @@ func defaultSteps() []step {
 				"--check",
 				"--promotion-check",
 				"--maxx-check",
-				"--real-local-min-ratio=0.6240",
-				"--real-local-min-saved=9100000",
+				"--real-local-min-ratio=0.6290",
+				"--real-local-min-saved=9280000",
 			},
 		},
 		{
