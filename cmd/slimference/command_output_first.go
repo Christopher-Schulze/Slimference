@@ -59,6 +59,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		return nil, func() {}, false
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
+	sessionID := "cof-" + filepath.Base(dir)
 	shims := 0
 	for _, command := range []string{
 		"cat", "head", "sed", "awk",
@@ -99,7 +100,7 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		if err != nil || strings.TrimSpace(realBin) == "" {
 			continue
 		}
-		if err := writeCommandOutputFirstShim(filepath.Join(dir, command), self, realBin, command); err != nil {
+		if err := writeCommandOutputFirstShim(filepath.Join(dir, command), self, realBin, command, sessionID); err != nil {
 			cleanup()
 			return nil, func() {}, false
 		}
@@ -110,7 +111,6 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 		return nil, func() {}, false
 	}
 	bashEnv := filepath.Join(dir, "bash_env")
-	sessionID := "cof-" + filepath.Base(dir)
 	bashEnvScript := "export " + commandOutputFirstActiveEnv + "=1\n" +
 		"export " + commandOutputFirstSessionEnv + "=" + shellQuote(sessionID) + "\n" +
 		"export PATH=" + shellQuote(dir) + "${PATH:+:$PATH}\n"
@@ -130,8 +130,14 @@ func prepareCommandOutputFirstEnv() ([]string, func(), bool) {
 	}, cleanup, true
 }
 
-func writeCommandOutputFirstShim(path, slimferenceBin, realBin, command string) error {
+func writeCommandOutputFirstShim(path, slimferenceBin, realBin, command, sessionID string) error {
+	// Embed the sessionID directly in the shim script so it survives
+	// Codex's shell_environment_policy.include_only filtering. Without this,
+	// SLIMFERENCE_COMMAND_OUTPUT_FIRST_SESSION is stripped from the shell
+	// environment and recordCommandOutputFirstSidecar silently writes nothing.
 	script := "#!/bin/sh\n" +
+		"export " + commandOutputFirstActiveEnv + "=1\n" +
+		"export " + commandOutputFirstSessionEnv + "=" + shellQuote(sessionID) + "\n" +
 		"exec " + shellQuote(slimferenceBin) + " __command-output-first-shim --command=" + shellQuote(command) +
 		" --real-bin=" + shellQuote(realBin) + " -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {

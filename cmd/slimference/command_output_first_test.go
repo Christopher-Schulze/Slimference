@@ -4976,9 +4976,34 @@ func TestPrepareCommandOutputFirstEnvNoGit(t *testing.T) {
 }
 
 func TestWriteCommandOutputFirstShimWriteError(t *testing.T) {
-	err := writeCommandOutputFirstShim(filepath.Join(t.TempDir(), "missing", "git"), "/bin/slimference", "/usr/bin/git", "git")
+	err := writeCommandOutputFirstShim(filepath.Join(t.TempDir(), "missing", "git"), "/bin/slimference", "/usr/bin/git", "git", "cof-test-session")
 	if err == nil {
 		t.Fatal("expected write error for missing parent directory")
+	}
+}
+
+func TestWriteCommandOutputFirstShimEmbedsSessionID(t *testing.T) {
+	dir := t.TempDir()
+	shimPath := filepath.Join(dir, "git")
+	if err := writeCommandOutputFirstShim(shimPath, "/bin/slimference", "/usr/bin/git", "git", "cof-embedded-session-42"); err != nil {
+		t.Fatalf("writeCommandOutputFirstShim: %v", err)
+	}
+	data, err := os.ReadFile(shimPath)
+	if err != nil {
+		t.Fatalf("read shim: %v", err)
+	}
+	script := string(data)
+	if !strings.Contains(script, "SLIMFERENCE_COMMAND_OUTPUT_FIRST_SESSION=cof-embedded-session-42") {
+		t.Fatalf("shim must embed sessionID directly in script (survives shell_environment_policy filtering): %s", script)
+	}
+	if !strings.Contains(script, "SLIMFERENCE_COMMAND_OUTPUT_FIRST=1") {
+		t.Fatalf("shim must embed active env flag: %s", script)
+	}
+	if !strings.Contains(script, "__command-output-first-shim") {
+		t.Fatalf("shim must invoke the shim handler: %s", script)
+	}
+	if !strings.Contains(script, "--real-bin=/usr/bin/git") {
+		t.Fatalf("shim must embed real binary path: %s", script)
 	}
 }
 
