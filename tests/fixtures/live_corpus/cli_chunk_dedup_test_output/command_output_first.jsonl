@@ -1,0 +1,1 @@
+{"ts":"2026-06-22T10:32:56.003004Z","command":"[command-output-first:go] go test ./internal/proxy/ -run TestWSPhaseFPreExpansion -count=1 -v","input_tokens":424,"output_tokens":332,"saved_tokens":92}

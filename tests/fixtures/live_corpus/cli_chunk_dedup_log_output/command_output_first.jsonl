@@ -1,0 +1,1 @@
+{"ts":"2026-06-22T10:31:55.947721Z","command":"[command-output-first:find] find scripts -maxdepth 2 -type f -name *.go","input_tokens":773,"output_tokens":564,"saved_tokens":209}

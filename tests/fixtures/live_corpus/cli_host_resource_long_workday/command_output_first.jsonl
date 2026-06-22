@@ -1,0 +1,1 @@
+{"ts":"2026-06-22T10:30:40.060092Z","command":"[command-output-first:rg] rg -n func Test internal/proxy/wsmitm_phasef_test.go","input_tokens":3167,"output_tokens":446,"saved_tokens":2721}
