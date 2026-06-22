@@ -1,0 +1,2 @@
+{"ts":"2026-06-22T10:00:15Z","command":"[command-output-first:rg] rg CodexWSSToolOutputMutationEnabled internal/ --line-number","input_tokens":1194,"output_tokens":995,"saved_tokens":199}
+{"ts":"2026-06-22T10:03:12Z","command":"[command-output-first:rg] rg func.*apply.*WSS|func.*wss.*Mutation|func.*wss.*Guard internal/proxy/wsmitm_phasef.go --line-number","input_tokens":584,"output_tokens":473,"saved_tokens":111}

@@ -1,1 +1,2 @@
 {"ts":"2026-06-22T09:54:15Z","command":"[command-output-first:go] go test ./internal/planner/... -v -count=1","input_tokens":423,"output_tokens":54,"saved_tokens":369}
+{"ts":"2026-06-22T10:03:15Z","command":"[command-output-first:go] go test ./internal/proxy/... -run TestWSPhaseF -count=1","input_tokens":114,"output_tokens":26,"saved_tokens":88}

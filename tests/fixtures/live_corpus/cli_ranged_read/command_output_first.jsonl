@@ -1,0 +1,1 @@
+{"ts":"2026-06-22T10:00:10Z","command":"[command-output-first:git] git diff HEAD~5 --stat","input_tokens":155,"output_tokens":142,"saved_tokens":13}
