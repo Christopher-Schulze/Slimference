@@ -679,6 +679,78 @@ func TestEvaluateCorpus_ZeroSavingsSidecarUnchanged(t *testing.T) {
 	}
 }
 
+// writeL1ServerStateSidecar writes a server_state_continuation.jsonl sidecar
+// file into dir with the given rows.
+func writeL1ServerStateSidecar(t *testing.T, dir string, rows ...string) {
+	t.Helper()
+	var buf bytes.Buffer
+	for _, r := range rows {
+		buf.WriteString(r)
+		if !strings.HasSuffix(r, "\n") {
+			buf.WriteByte('\n')
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, l1SidecarFilename), buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write L1 sidecar: %v", err)
+	}
+}
+
+func TestEvaluateCorpus_L1ServerStateSidecarCounted(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// L1 sidecar with 2000 orig, 1500 saved — should be added to the gate.
+	writeL1ServerStateSidecar(t, dir,
+		`{"ts":"2026-06-22T12:00:00Z","input_tokens":2000,"output_tokens":500,"saved_tokens":1500}`)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	// Expect orig = 1000 (session) + 2000 (L1 sidecar) = 3000
+	// Expect saved = 400 (session) + 1500 (L1 sidecar) = 1900
+	if report.RealCurrentLocalOrigTokens != 3000 {
+		t.Fatalf("expected orig 3000, got %d", report.RealCurrentLocalOrigTokens)
+	}
+	if report.RealCurrentLocalSavedTokens != 1900 {
+		t.Fatalf("expected saved 1900, got %d", report.RealCurrentLocalSavedTokens)
+	}
+}
+
+func TestEvaluateCorpus_L1AndCOFSidecarBothCounted(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// Both L1 and L2 sidecars present — both should be counted.
+	writeCommandOutputFirstSidecar(t, dir,
+		`{"ts":"2026-06-22T12:00:00Z","command":"rg","input_tokens":500,"output_tokens":300,"saved_tokens":200}`)
+	writeL1ServerStateSidecar(t, dir,
+		`{"ts":"2026-06-22T12:00:00Z","input_tokens":2000,"output_tokens":500,"saved_tokens":1500}`)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	// Expect orig = 1000 (session) + 500 (COF) + 2000 (L1) = 3500
+	// Expect saved = 400 (session) + 200 (COF) + 1500 (L1) = 2100
+	if report.RealCurrentLocalOrigTokens != 3500 {
+		t.Fatalf("expected orig 3500, got %d", report.RealCurrentLocalOrigTokens)
+	}
+	if report.RealCurrentLocalSavedTokens != 2100 {
+		t.Fatalf("expected saved 2100, got %d", report.RealCurrentLocalSavedTokens)
+	}
+}
+
 func TestEvaluateRealLocalGate_PassAndFail(t *testing.T) {
 	t.Parallel()
 	report := CorpusReport{

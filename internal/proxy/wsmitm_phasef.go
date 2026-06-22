@@ -5135,12 +5135,18 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	// L1 local input savings.
 	inputOrig := usage.InputTokens
 	inputComp := usage.InputTokens
+	l1Active := false
 	if prevID != "" && requestShape == "delta" && bodyTokens > 0 && bodyTokens < usage.InputTokens {
 		inputComp = bodyTokens
+		l1Active = true
 	}
 	compressionRatio := 1.0
 	if inputOrig > 0 {
 		compressionRatio = float64(inputComp) / float64(inputOrig)
+	}
+	l1Layers := []int(nil)
+	if l1Active {
+		l1Layers = []int{1}
 	}
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
@@ -5150,10 +5156,15 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 		InputTokensComp:   inputComp,
 		OutputTokens:      usage.OutputTokens,
 		CompressionRatio:  compressionRatio,
+		Layers:            l1Layers,
 		CacheHit:          usage.ReadTokens > 0,
 		CacheReadTokens:   usage.ReadTokens,
 		CacheCreateTokens: usage.CreateTokens,
 	})
+	// Write L1 sidecar for gate aggregation (fail-open, silent on error).
+	if l1Active {
+		recordL1ServerStateSidecar(sessionID, int64(inputOrig), int64(inputComp), int64(inputOrig-inputComp))
+	}
 }
 
 func (a *wsPhaseFAdapter) rememberToolUsesFromResponse(env *wsmitm.Envelope) {

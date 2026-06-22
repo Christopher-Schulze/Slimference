@@ -24,6 +24,7 @@ const (
 	corpusCategoryMetadataFilename    = "metadata.json"
 	outputReduceABReportFilename      = "output_reduce_ab_report.json"
 	commandOutputFirstSidecarFilename = "command_output_first.jsonl"
+	l1SidecarFilename                 = "server_state_continuation.jsonl"
 )
 
 // CategoryMetadata is the minimal description a maintainer commits next
@@ -94,6 +95,8 @@ type CategoryResult struct {
 	ToolPruneSavedTokens          int64                                `json:"tool_prune_saved_tokens"`
 	CommandOutputFirstOrigTokens  int64                                `json:"command_output_first_orig_tokens,omitempty"`
 	CommandOutputFirstSavedTokens int64                                `json:"command_output_first_saved_tokens,omitempty"`
+	L1ServerStateOrigTokens       int64                                `json:"l1_server_state_orig_tokens,omitempty"`
+	L1ServerStateSavedTokens      int64                                `json:"l1_server_state_saved_tokens,omitempty"`
 	ErrorCount                    int                                  `json:"error_count"`
 	ReReadCount                   int                                  `json:"reread_count"`
 	HostBudgetOKRows              int                                  `json:"host_budget_ok_rows"`
@@ -227,6 +230,10 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	if err != nil {
 		return CategoryResult{}, err
 	}
+	l1Orig, l1Saved, err := loadCategoryL1ServerStateSidecar(dir)
+	if err != nil {
+		return CategoryResult{}, err
+	}
 	agg, err := AggregateSessionsFromPath(dir, errOut)
 	if err != nil {
 		return CategoryResult{}, fmt.Errorf("aggregate %s: %w", dir, err)
@@ -270,6 +277,8 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		ToolPruneSavedTokens:          agg.toolPruneSaved,
 		CommandOutputFirstOrigTokens:  cofOrig,
 		CommandOutputFirstSavedTokens: cofSaved,
+		L1ServerStateOrigTokens:       l1Orig,
+		L1ServerStateSavedTokens:      l1Saved,
 		ErrorCount:                    agg.errorCount,
 		ReReadCount:                   agg.reReadCount,
 		HostBudgetOKRows:              agg.hostBudgetOK,
@@ -412,6 +421,44 @@ func loadCategoryCommandOutputFirstSidecar(dir string) (origTokens, savedTokens 
 			continue
 		}
 		var row commandOutputFirstSidecarRow
+		if err := json.Unmarshal(line, &row); err != nil {
+			return 0, 0, fmt.Errorf("parse %s: %w", path, err)
+		}
+		origTokens += row.InputTokens
+		savedTokens += row.SavedTokens
+	}
+	return origTokens, savedTokens, nil
+}
+
+// l1ServerStateSidecarRow is one JSON line in the L1 server-state
+// continuation sidecar. It mirrors the fields written by
+// internal/proxy/l1_sidecar.go recordL1ServerStateSidecar.
+type l1ServerStateSidecarRow struct {
+	Timestamp    string `json:"ts"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	SavedTokens  int64  `json:"saved_tokens"`
+}
+
+// loadCategoryL1ServerStateSidecar reads the optional
+// server_state_continuation.jsonl sidecar from a corpus category
+// directory. Returns zero values when the file is absent (backward
+// compatible).
+func loadCategoryL1ServerStateSidecar(dir string) (origTokens, savedTokens int64, err error) {
+	path := filepath.Join(dir, l1SidecarFilename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var row l1ServerStateSidecarRow
 		if err := json.Unmarshal(line, &row); err != nil {
 			return 0, 0, fmt.Errorf("parse %s: %w", path, err)
 		}
@@ -814,6 +861,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 				report.RealCurrentLocalOrigTokens += res.CommandOutputFirstOrigTokens
 				report.RealCurrentLocalSavedTokens += res.CommandOutputFirstSavedTokens
 			}
+			if res.L1ServerStateSavedTokens > 0 {
+				report.RealCurrentLocalOrigTokens += res.L1ServerStateOrigTokens
+				report.RealCurrentLocalSavedTokens += res.L1ServerStateSavedTokens
+			}
 		}
 		if res.Synthetic {
 			report.HasSynthetic = true
@@ -895,6 +946,9 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		if c.CommandOutputFirstSavedTokens > 0 {
 			sb.WriteString(fmt.Sprintf("  cmd-out-first: orig=%d saved=%d\n", c.CommandOutputFirstOrigTokens, c.CommandOutputFirstSavedTokens))
+		}
+		if c.L1ServerStateSavedTokens > 0 {
+			sb.WriteString(fmt.Sprintf("  L1 server-state: orig=%d saved=%d\n", c.L1ServerStateOrigTokens, c.L1ServerStateSavedTokens))
 		}
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))

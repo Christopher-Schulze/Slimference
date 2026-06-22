@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1064,6 +1065,13 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				if origTokens > 0 {
 					compressionRatio = float64(compressedTokens) / float64(origTokens)
 				}
+				// Mark Layer 1 as applied for server-state continuation so
+				// analytics layer1_savings is populated, and write the L1
+				// sidecar for gate aggregation (fail-open, silent on error).
+				if !slices.Contains(appliedLayers, 1) {
+					appliedLayers = append(appliedLayers, 1)
+				}
+				recordL1ServerStateSidecar(sessionID, int64(origTokens), int64(compressedTokens), int64(totalSaved))
 			}
 		}
 	}
