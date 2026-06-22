@@ -3,36 +3,23 @@
 // Usage:
 //
 //	go run ./scripts/utils session-report <file.jsonl> [--json|--csv]
-//	go run ./scripts/utils decision-report <file.jsonl> [--json|--csv]
-//	go run ./scripts/utils filter-report <filter.db> [--json|--csv]
-//	go run ./scripts/utils combined-report <analytics.jsonl> <decisions.jsonl> <filter.db> [--json|--csv]
 //	go run ./scripts/utils aggregate-savings [--admin-url=... | --admin-state-file=...] [--filter-db=...] [--json]
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils codex-capture-run [flags] -- <codex run args...>
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
-//	go run ./scripts/utils wss-shadow-mirror-replay <frames.jsonl> [--json] [--socket-seq=N]
 //	go run ./scripts/utils wss-reference-inventory <jsonl-or-dir> [--json]
-//	go run ./scripts/utils wss-first-read-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-dependency-trace]
-//	go run ./scripts/utils wss-post-edit-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--require-exact-state]
 //	go run ./scripts/utils wss-local-gap <decisions.jsonl> [--json] [--since=<rfc3339>] [--min-local-ratio=<ratio>] [--min-local-saved=<tokens>]
-//	go run ./scripts/utils wss-local-gap-inventory <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>]
 //	go run ./scripts/utils wss-class-distribution <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--min-local-ratio=<ratio>] [--require-headroom]
 //	go run ./scripts/utils wss-proof-pack <dir-or-decisions.jsonl> [--json] [--since=<rfc3339>|--since-file=<path>] [--sockets-json=wss-sockets.json] [--audit-json=wss-audit.json] [--require-headroom]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--fail-on-upstream-error|--archive-recovery-note|--tool-output-mutation|--delta-tool-output-mutation-lab|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-t354-shape-proof <frames.jsonl-or-dir> [--json] [--t420-handoff-json=debug-wss-sockets.json]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 //	go run ./scripts/utils wss-proof-inventory <dir-or-matrix.jsonl> [--json]
-//	go run ./scripts/utils wss-proof-export-corpus <matrix.jsonl> <live-corpus-root>
-//	go run ./scripts/utils wss-proof-clean-matrix <dir-or-matrix.jsonl> <out.jsonl> [--json]
 //	go run ./scripts/utils wss-proof-live-row --matrix-row PATH --frames PATH --workload-class CLASS
-//	go run ./scripts/utils wss-savings-baseline <frames.jsonl-or-dir> [--json]
-//	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
 //	go run ./scripts/utils search-cap-profile (--command CMD --input stdout.txt | --frames frames.jsonl) [--candidate files:matches...] [--json]
 //	go run ./scripts/utils search-cap-proof --frames frames.jsonl [--candidate files:matches...] [--json]
 //	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
-//	go run ./scripts/utils local-artifact-hygiene [--json|--clean]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
-//	go run ./scripts/utils command-output-control-probe [--json] [--shim-command=git] -- <command> [args...]
 //	go run ./scripts/utils recovery-contract-matrix [--json|--fail-on-product-gaps]
 package main
 
@@ -47,14 +34,13 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/analytics"
-	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-shadow-mirror-replay, wss-reference-inventory, wss-first-read-inventory, wss-post-edit-inventory, wss-local-gap, wss-local-gap-inventory, wss-class-distribution, wss-proof-pack, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-savings-baseline, wss-output-reduce-ab-report, search-cap-profile, search-cap-proof, release-proof-report, local-artifact-hygiene, tls-probe, command-output-control-probe, recovery-contract-matrix")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-reference-inventory, wss-local-gap, wss-class-distribution, wss-proof-pack, wss-ab-replay, wss-t354-shape-proof, wss-proof-matrix, wss-proof-inventory, wss-proof-live-row, search-cap-profile, search-cap-proof, release-proof-report, tls-probe, recovery-contract-matrix")
 		os.Exit(1)
 	}
 
@@ -73,48 +59,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case "decision-report":
-		outputFormat, rest, err := parseOutputFlag(os.Args[2:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		if len(rest) != 1 {
-			fmt.Fprintln(os.Stderr, "Usage: decision-report <decisions.jsonl> [--json|--csv]")
-			os.Exit(1)
-		}
-		if err := decisionReport(rest[0], outputFormat); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	case "filter-report":
-		outputFormat, rest, err := parseOutputFlag(os.Args[2:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		if len(rest) != 1 {
-			fmt.Fprintln(os.Stderr, "Usage: filter-report <filter.db> [--json|--csv]")
-			os.Exit(1)
-		}
-		if err := filterReport(rest[0], outputFormat); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	case "combined-report":
-		outputFormat, rest, err := parseOutputFlag(os.Args[2:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		if len(rest) != 3 {
-			fmt.Fprintln(os.Stderr, "Usage: combined-report <analytics.jsonl> <decisions.jsonl> <filter.db> [--json|--csv]")
-			os.Exit(1)
-		}
-		if err := combinedReport(rest[0], rest[1], rest[2], outputFormat); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
 	case "leaf-audit":
 		os.Exit(runLeafAudit(os.Args[2:], os.Stdout, os.Stderr))
 	case "aggregate-savings":
@@ -125,18 +69,10 @@ func main() {
 		os.Exit(runCodexCaptureRun(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-audit":
 		os.Exit(runWSSAudit(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-shadow-mirror-replay":
-		os.Exit(runWSSShadowMirrorReplay(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-reference-inventory":
 		os.Exit(runWSSReferenceInventory(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-first-read-inventory":
-		os.Exit(runWSSFirstReadInventory(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-post-edit-inventory":
-		os.Exit(runWSSPostEditInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-local-gap":
 		os.Exit(runWSSLocalGap(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-local-gap-inventory":
-		os.Exit(runWSSLocalGapInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-class-distribution":
 		os.Exit(runWSSClassDistribution(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-pack":
@@ -149,28 +85,16 @@ func main() {
 		os.Exit(runWSSProofMatrix(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-inventory":
 		os.Exit(runWSSProofInventory(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-proof-export-corpus":
-		os.Exit(runWSSProofExportCorpus(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-proof-clean-matrix":
-		os.Exit(runWSSProofCleanMatrix(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-live-row":
 		os.Exit(runWSSProofLiveRow(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-savings-baseline":
-		os.Exit(runWSSSavingsBaseline(os.Args[2:], os.Stdout, os.Stderr))
-	case "wss-output-reduce-ab-report":
-		os.Exit(runOutputReduceABReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "search-cap-profile":
 		os.Exit(runSearchCapProfile(os.Args[2:], os.Stdout, os.Stderr))
 	case "search-cap-proof":
 		os.Exit(runSearchCapProof(os.Args[2:], os.Stdout, os.Stderr))
 	case "release-proof-report":
 		os.Exit(runReleaseProofReport(os.Args[2:], os.Stdout, os.Stderr))
-	case "local-artifact-hygiene":
-		os.Exit(runLocalArtifactHygiene(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
-	case "command-output-control-probe":
-		os.Exit(runCommandOutputControlProbe(os.Args[2:], os.Stdout, os.Stderr))
 	case "recovery-contract-matrix":
 		os.Exit(runRecoveryContractMatrix(os.Args[2:], os.Stdout, os.Stderr))
 	default:
@@ -468,228 +392,6 @@ func buildSessionReport(path, source string, stats *sessionStats) sessionReportO
 	return out
 }
 
-// --- decision-report: parses debug decision JSONL ---
-
-type decisionReportOutput struct {
-	Path             string         `json:"path"`
-	Requests         int            `json:"requests"`
-	InputTokensOrig  int            `json:"input_tokens_orig"`
-	InputTokensFinal int            `json:"input_tokens_final"`
-	TotalSaved       int            `json:"total_saved"`
-	RatioPct         float64        `json:"ratio_pct"`
-	SubLayerTotals   map[string]int `json:"sub_layer_totals,omitempty"`
-}
-
-func decisionReport(path string, outputFormat string) error {
-	report, err := loadDecisionReport(path)
-	if err != nil {
-		return err
-	}
-	if report.Requests == 0 {
-		fmt.Println("No request summaries found in file.")
-		return nil
-	}
-
-	switch outputFormat {
-	case outputJSON:
-		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-		return nil
-	case outputCSV:
-		return writeDecisionCSV(os.Stdout, report)
-	}
-
-	fmt.Printf("=== Decision Report: %s ===\n", filepath.Base(path))
-	fmt.Printf("Requests analyzed:  %d\n", report.Requests)
-	fmt.Printf("Input Tokens (orig): %s\n", formatNum(report.InputTokensOrig))
-	fmt.Printf("Input Tokens (final): %s\n", formatNum(report.InputTokensFinal))
-	fmt.Printf("Total Savings:      %s (%.1f%%)\n", formatNum(report.TotalSaved), report.RatioPct)
-
-	if len(report.SubLayerTotals) > 0 {
-		fmt.Println("\nPer Sub-Layer Breakdown:")
-		for _, name := range sortedStringKeys(report.SubLayerTotals) {
-			saved := report.SubLayerTotals[name]
-			fmt.Printf("  %-25s %s tokens (%.1f%%)\n", name, formatNum(saved), ratioPct(report.TotalSaved, saved))
-		}
-	}
-
-	return nil
-}
-
-func loadDecisionReport(path string) (decisionReportOutput, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return decisionReportOutput{}, fmt.Errorf("open %s: %w", path, err)
-	}
-	defer f.Close()
-
-	var summaries []dbg.RequestSummary
-	dec := json.NewDecoder(f)
-	for dec.More() {
-		var s dbg.RequestSummary
-		if err := dec.Decode(&s); err != nil {
-			continue
-		}
-		summaries = append(summaries, s)
-	}
-
-	totalOrig, totalFinal := 0, 0
-	subLayerTotals := make(map[string]int) // sub-layer name -> total saved tokens
-
-	for _, s := range summaries {
-		totalOrig += s.Tokens.Original
-		totalFinal += s.Tokens.Final
-		for name, bd := range s.Layer1Breakdown {
-			subLayerTotals[name] += bd.Saved
-		}
-	}
-
-	totalSaved := totalOrig - totalFinal
-	var ratio float64
-	if totalOrig > 0 {
-		ratio = float64(totalSaved) / float64(totalOrig) * 100
-	}
-
-	return decisionReportOutput{
-		Path:             path,
-		Requests:         len(summaries),
-		InputTokensOrig:  totalOrig,
-		InputTokensFinal: totalFinal,
-		TotalSaved:       totalSaved,
-		RatioPct:         ratio,
-		SubLayerTotals:   subLayerTotals,
-	}, nil
-}
-
-// --- filter-report: uses slimference gain infrastructure (requires filter.db) ---
-
-func filterReport(path string, outputFormat string) error {
-	report, err := loadFilterReport(path)
-	if err != nil {
-		return err
-	}
-
-	switch outputFormat {
-	case outputJSON:
-		data, err := analytics.FormatFilterGainReportJSON(report)
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-		return nil
-	case outputCSV:
-		return writeFilterCSV(os.Stdout, report)
-	}
-
-	summary := report.FilterGainSummary
-	fmt.Printf("=== Filter Report: %s ===\n", filepath.Base(path))
-	fmt.Printf("Runs:                %d\n", summary.Runs)
-	fmt.Printf("Input Tokens (est):  %s\n", formatNum(int(summary.InputTokens)))
-	fmt.Printf("Output Tokens (est): %s\n", formatNum(int(summary.OutputTokens)))
-	fmt.Printf("Tokens Saved (est):  %s\n", formatNum(int(summary.TokensSavedEst)))
-	if len(report.ByCommand) > 0 {
-		fmt.Println("\nBy Command:")
-		for _, row := range report.ByCommand {
-			fmt.Printf("  %-36s runs=%d saved=%s\n", row.Command, row.Runs, formatNum(int(row.TokensSavedEst)))
-		}
-	}
-	return nil
-}
-
-func loadFilterReport(path string) (analytics.FilterGainReport, error) {
-	report, err := analytics.QueryFilterGainReport(path, "all", time.Now(), true, "", 0)
-	if err != nil {
-		return analytics.FilterGainReport{}, fmt.Errorf("filter report: %w", err)
-	}
-	return report, nil
-}
-
-type combinedReportOutput struct {
-	Analytics              sessionReportOutput        `json:"analytics"`
-	Decisions              decisionReportOutput       `json:"decisions"`
-	Filter                 analytics.FilterGainReport `json:"filter"`
-	ProxySavedTokens       int                        `json:"proxy_saved_tokens"`
-	Layer0SavedTokensEst   int                        `json:"layer0_saved_tokens_est"`
-	CombinedInputTokensEst int                        `json:"combined_input_tokens_est"`
-	CombinedSavedTokensEst int                        `json:"combined_saved_tokens_est"`
-	CombinedRatioPct       float64                    `json:"combined_ratio_pct"`
-}
-
-func combinedReport(analyticsPath, decisionsPath, filterPath, outputFormat string) error {
-	report, err := loadCombinedReport(analyticsPath, decisionsPath, filterPath)
-	if err != nil {
-		return err
-	}
-
-	switch outputFormat {
-	case outputJSON:
-		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-		return nil
-	case outputCSV:
-		return writeCombinedCSV(os.Stdout, report)
-	}
-
-	fmt.Printf("=== Combined Report ===\n")
-	fmt.Printf("Analytics log:       %s\n", filepath.Base(analyticsPath))
-	fmt.Printf("Decisions log:       %s\n", filepath.Base(decisionsPath))
-	fmt.Printf("Filter DB:           %s\n", filepath.Base(filterPath))
-	fmt.Printf("Proxy requests:      %d\n", report.Analytics.TotalRequests)
-	fmt.Printf("Proxy savings:       %s (%.1f%%)\n", formatNum(report.ProxySavedTokens), ratioPct(report.Analytics.OrigTokens, report.ProxySavedTokens))
-	fmt.Printf("Layer 0 savings est: %s\n", formatNum(report.Layer0SavedTokensEst))
-	fmt.Printf("Combined savings est:%s (%.1f%%)\n", formatNum(report.CombinedSavedTokensEst), report.CombinedRatioPct)
-	if report.Decisions.Requests > 0 {
-		fmt.Printf("Decision requests:   %d\n", report.Decisions.Requests)
-	}
-
-	return nil
-}
-
-func loadCombinedReport(analyticsPath, decisionsPath, filterPath string) (combinedReportOutput, error) {
-	session, err := loadSessionReport(analyticsPath)
-	if err != nil {
-		return combinedReportOutput{}, err
-	}
-	if session.TotalRequests == 0 {
-		return combinedReportOutput{}, fmt.Errorf("combined report: analytics file has no request_processed data")
-	}
-
-	decisions, err := loadDecisionReport(decisionsPath)
-	if err != nil {
-		return combinedReportOutput{}, err
-	}
-	if decisions.Requests == 0 {
-		return combinedReportOutput{}, fmt.Errorf("combined report: decisions file has no request summaries")
-	}
-
-	filterReport, err := loadFilterReport(filterPath)
-	if err != nil {
-		return combinedReportOutput{}, err
-	}
-
-	proxySaved := session.OrigTokens - session.CompTokens
-	layer0Saved := int(filterReport.TokensSavedEst)
-	combinedInput := session.OrigTokens + int(filterReport.InputTokens)
-	combinedSaved := proxySaved + layer0Saved
-
-	return combinedReportOutput{
-		Analytics:              session,
-		Decisions:              decisions,
-		Filter:                 filterReport,
-		ProxySavedTokens:       proxySaved,
-		Layer0SavedTokensEst:   layer0Saved,
-		CombinedInputTokensEst: combinedInput,
-		CombinedSavedTokensEst: combinedSaved,
-		CombinedRatioPct:       ratioPct(combinedInput, combinedSaved),
-	}, nil
-}
-
 // --- helpers ---
 
 func writeSessionCSV(w *os.File, report sessionReportOutput) error {
@@ -718,55 +420,6 @@ func writeSessionCSV(w *os.File, report sessionReportOutput) error {
 			[]string{fmt.Sprintf("provider.%s.saved", prov), fmt.Sprintf("%d", ps.Saved)},
 			[]string{fmt.Sprintf("provider.%s.ratio_pct", prov), fmt.Sprintf("%.2f", ps.RatioPct)},
 		)
-	}
-	return writeMetricCSV(w, rows)
-}
-
-func writeDecisionCSV(w *os.File, report decisionReportOutput) error {
-	rows := [][]string{
-		{"metric", "value"},
-		{"path", report.Path},
-		{"requests", fmt.Sprintf("%d", report.Requests)},
-		{"input_tokens_orig", fmt.Sprintf("%d", report.InputTokensOrig)},
-		{"input_tokens_final", fmt.Sprintf("%d", report.InputTokensFinal)},
-		{"total_saved", fmt.Sprintf("%d", report.TotalSaved)},
-		{"ratio_pct", fmt.Sprintf("%.2f", report.RatioPct)},
-	}
-	for _, name := range sortedStringKeys(report.SubLayerTotals) {
-		rows = append(rows, []string{fmt.Sprintf("sub_layer.%s.saved", name), fmt.Sprintf("%d", report.SubLayerTotals[name])})
-	}
-	return writeMetricCSV(w, rows)
-}
-
-func writeFilterCSV(w *os.File, report analytics.FilterGainReport) error {
-	rows := [][]string{
-		{"metric", "value"},
-		{"period", report.Period},
-		{"runs", fmt.Sprintf("%d", report.Runs)},
-		{"input_tokens", fmt.Sprintf("%d", report.InputTokens)},
-		{"output_tokens", fmt.Sprintf("%d", report.OutputTokens)},
-		{"tokens_saved_est", fmt.Sprintf("%d", report.TokensSavedEst)},
-	}
-	for _, row := range report.ByCommand {
-		rows = append(rows,
-			[]string{fmt.Sprintf("command.%s.runs", row.Command), fmt.Sprintf("%d", row.Runs)},
-			[]string{fmt.Sprintf("command.%s.tokens_saved_est", row.Command), fmt.Sprintf("%d", row.TokensSavedEst)},
-		)
-	}
-	return writeMetricCSV(w, rows)
-}
-
-func writeCombinedCSV(w *os.File, report combinedReportOutput) error {
-	rows := [][]string{
-		{"metric", "value"},
-		{"proxy_saved_tokens", fmt.Sprintf("%d", report.ProxySavedTokens)},
-		{"layer0_saved_tokens_est", fmt.Sprintf("%d", report.Layer0SavedTokensEst)},
-		{"combined_input_tokens_est", fmt.Sprintf("%d", report.CombinedInputTokensEst)},
-		{"combined_saved_tokens_est", fmt.Sprintf("%d", report.CombinedSavedTokensEst)},
-		{"combined_ratio_pct", fmt.Sprintf("%.2f", report.CombinedRatioPct)},
-		{"analytics_requests", fmt.Sprintf("%d", report.Analytics.TotalRequests)},
-		{"decision_requests", fmt.Sprintf("%d", report.Decisions.Requests)},
-		{"filter_runs", fmt.Sprintf("%d", report.Filter.Runs)},
 	}
 	return writeMetricCSV(w, rows)
 }

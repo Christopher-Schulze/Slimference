@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/Christopher-Schulze/Slimference/internal/analytics"
-	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
-	"github.com/Christopher-Schulze/Slimference/internal/filter"
 	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
@@ -101,80 +99,6 @@ func TestLoadSessionReport_snapshotFallback(t *testing.T) {
 	}
 }
 
-func TestLoadCombinedReport(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	analyticsPath := filepath.Join(dir, "analytics.jsonl")
-	decisionsPath := filepath.Join(dir, "decisions.jsonl")
-	filterDBPath := filepath.Join(dir, "filter.db")
-	now := time.Date(2026, 4, 17, 15, 0, 0, 0, time.UTC)
-
-	analyticsEnv := struct {
-		Type      string               `json:"type"`
-		Timestamp time.Time            `json:"timestamp"`
-		Payload   types.AnalyticsEvent `json:"payload"`
-	}{
-		Type:      "analytics_event",
-		Timestamp: now,
-		Payload: types.AnalyticsEvent{
-			Type:             types.EventRequestProcessed,
-			Provider:         types.Anthropic,
-			InputTokensOrig:  1000,
-			InputTokensComp:  700,
-			OutputTokens:     120,
-			Layers:           []int{1, 2},
-			CompressionRatio: 0.7,
-		},
-	}
-	writeJSONLFile(t, analyticsPath, analyticsEnv)
-
-	decision := dbg.RequestSummary{
-		RequestID: "r1",
-		Tokens: dbg.TokenCounts{
-			Original: 1000,
-			Final:    700,
-			Saved:    300,
-			Ratio:    0.7,
-		},
-		Layer1Breakdown: map[string]dbg.SubLayerBreakdown{
-			"dedup": {Blocks: 2, Saved: 120},
-		},
-	}
-	writeJSONLFile(t, decisionsPath, decision)
-
-	db, err := filter.OpenDB(filterDBPath)
-	if err != nil {
-		t.Fatalf("OpenDB() error = %v", err)
-	}
-	if err := filter.RecordFilterRun(db, "[git] git status", dir, 400, 100, 75, now); err != nil {
-		t.Fatalf("RecordFilterRun() error = %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("db.Close() error = %v", err)
-	}
-
-	report, err := loadCombinedReport(analyticsPath, decisionsPath, filterDBPath)
-	if err != nil {
-		t.Fatalf("loadCombinedReport() error = %v", err)
-	}
-	if report.ProxySavedTokens != 300 {
-		t.Fatalf("ProxySavedTokens = %d, want 300", report.ProxySavedTokens)
-	}
-	if report.Layer0SavedTokensEst != 300 {
-		t.Fatalf("Layer0SavedTokensEst = %d, want 300", report.Layer0SavedTokensEst)
-	}
-	if report.CombinedInputTokensEst != 1400 {
-		t.Fatalf("CombinedInputTokensEst = %d, want 1400", report.CombinedInputTokensEst)
-	}
-	if report.CombinedSavedTokensEst != 600 {
-		t.Fatalf("CombinedSavedTokensEst = %d, want 600", report.CombinedSavedTokensEst)
-	}
-	if report.Decisions.SubLayerTotals["dedup"] != 120 {
-		t.Fatalf("dedup total = %d, want 120", report.Decisions.SubLayerTotals["dedup"])
-	}
-}
-
 func writeJSONLFile(t *testing.T, path string, values ...any) {
 	t.Helper()
 	f, err := os.Create(path)
@@ -192,5 +116,15 @@ func writeJSONLFile(t *testing.T, path string, values ...any) {
 		if err := enc.Encode(value); err != nil {
 			t.Fatalf("encode %s: %v", path, err)
 		}
+	}
+}
+
+func writeFileForLocalArtifactTest(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }

@@ -44,36 +44,21 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    It does not start capture or read private content; the operator still drives
    every live session and reviews every exported JSONL before commit.
 
-   Existing content-free WSS proof-matrix rows can be converted into
-   `benchmark-corpus` categories without copying raw frames, prompts, command
-   output, auth, file paths, or decisions logs:
+   Existing content-free WSS proof-matrix rows can be inspected without
+   copying raw frames, prompts, command output, auth, file paths, or decisions
+   logs:
 
    ```
    go run ./scripts/utils wss-proof-inventory ~/.slimference/captures --json
-   go run ./scripts/utils wss-proof-export-corpus ~/.slimference/captures tests/fixtures/live_corpus --json
-   go run ./scripts/utils wss-proof-export-corpus <empty-matrix.jsonl> tests/fixtures/live_corpus --search-cap-proof-report <focused-search-cap-proof.json> --json
-   go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures <clean-release-matrix.jsonl> --json
    go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> --resource-profile-proof <codex-cli-resource-proof-bundle-dir> --resource-profile-proof <codex-desktop-resource-proof-bundle-dir> --json > <final-release-proof.json>
    ```
 
-   The exporter writes only scrubbed `RequestSummary` counters and
-   `metadata.json` files. Existing category exports are loaded, deduplicated by
-   request id, and rewritten with incoming rows appended so a weaker new proof
-   cannot replace a stronger existing category gate. Focused search-cap proof
-   reports can be merged through `--search-cap-proof-report`, but extra reducer
-   tokens count only when the row gate, nested search-cap gate, release
-   thresholds, selected replay, and provider-input denominator are all present.
-   Rows with safety issues, unsupported workload classes, or no economic signal
-   are skipped rather than being turned into fake proof. Exported proof rows gate
-   on absolute live saved-token counters or mechanism-specific counters because
-   proof-matrix rows do not preserve every original-token denominator needed for
-   a real percentage claim.
-   `wss-proof-clean-matrix` is the release-claim exporter. It reads proof rows
-   only, normalizes stale expected-reducer labels only when the same row has
-   current live reducer evidence, and writes only rows with host budget OK, zero
-   safety counters, no expected-zero local-savings violation, and a positive
-   economic signal unless the row is an expected-zero control.
-   `release-proof-report` is the final content-free proof summary. Run it on
+   The `wss-proof-export-corpus` and `wss-proof-clean-matrix` tools were
+   removed as Goodhart proof tooling per the AGENTS.md §3 No-New-Tooling rule.
+   The corpus gate now reads T418 sidecar files directly
+   (`command_output_first.jsonl` per category) instead of requiring a
+   proof-matrix export step. `release-proof-report` is the final content-free
+   proof summary. Run it on
    that clean release matrix file or a focused release bundle, not on the whole
    historical capture archive. The generated JSON includes
    `proof_schema_version=2`; stale unversioned or pre-v2 final reports fail

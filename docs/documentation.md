@@ -1349,8 +1349,8 @@ A 2026-06-14 tool-only replay correction kept top-level `instructions`
 byte-equal and still failed the live tool-use oracle: the control run observed
 6 server `function_call` items and 3 client `function_call_output` items, while
 the proof-only tool-prefix-elided run saved 3,677 live input tokens but observed
-0 and 0. `codex-capture-run`, `wss-proof-matrix`, and
-`wss-proof-clean-matrix` now require stateful-prefix-elision proof rows to carry
+0 and 0. `codex-capture-run` and `wss-proof-matrix` now require
+stateful-prefix-elision proof rows to carry
 `min_function_calls` and `min_function_call_outputs`, then validate those minima
 against the live wire counters. This class of proof therefore cannot be captured,
 matrix-gated, or cleaned into release evidence by token savings alone.
@@ -3097,15 +3097,11 @@ sessions, and real `live_operator` coverage for `repeat_read`, `ranged_read`,
 re-read-canary budget, explicit latency budget, and a positive savings floor.
 This keeps unit tests and synthetic fixtures useful while preventing a default
 promotion from vague or one-sided evidence.
-`wss-proof-export-corpus` appends deduplicated content-free proof rows to
-existing categories and recalculates category gates from the combined records,
-so new weaker rows cannot replace stronger existing proof. When passed
-`--search-cap-proof-report`, it can also merge focused T359 search-cap proof
-rows, but selected-cap extra reducer tokens count only with a passing row gate,
-passing nested search-cap gate, release-grade retention/output/extra-token
-thresholds, selected replay mutation proof, and a known provider-input
-denominator; otherwise those counterfactual extra tokens remain excluded from
-`S_local`.
+The `wss-proof-export-corpus` and `wss-proof-clean-matrix` tools were removed
+as Goodhart proof tooling per the AGENTS.md §3 No-New-Tooling rule. The corpus
+gate now reads T418 sidecar files directly
+(`command_output_first.jsonl` per category) instead of requiring a
+proof-matrix export step.
 
 `go run ./scripts/verify -mode release-proof-plan` prints the deterministic
 operator ceremony for a release/default-on decision. The runbook starts from a
@@ -3113,7 +3109,7 @@ clean CI and synthetic-corpus baseline, opens a `workday-savings` window, lists
 the scoped CLI and Desktop product launch paths, expands every required
 live-corpus workload for both `codex_cli` and `codex_desktop`, then finishes
 with `wss-proof-matrix --require-live-token-delta`,
-`benchmark-corpus --promotion-check`, `wss-proof-clean-matrix`, and
+`benchmark-corpus --promotion-check`, and
 `release-proof-report`. The strict matrix mode requires real admin-state
 `live_delta` rows; replay bytes remain visible but cannot stand in for product
 token savings. The command is content-free and plan-only: it does not start
@@ -3219,13 +3215,9 @@ billable-input deletion, provider-cache read tokens, and output-side evidence
 stay separate in the proof row. It deliberately does not enable a pprof HTTP
 listener or open a new runtime surface; profiling stays operator-triggered and
 file-based.
-`go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures
-<clean-release-matrix.jsonl> --json` writes the explicit release-claim matrix.
-It reads proof rows only, never raw WSS frames, and skips historical diagnostic
-rows, host-budget issue rows, expected-zero rows with local savings, safety
-issue rows, and rows without an economic signal. It may normalize stale
-expected-reducer labels only when the same row has current live reducer
-evidence, so a release report cannot pass by aggregate count alone.
+The `wss-proof-clean-matrix` tool was removed as Goodhart proof tooling per
+the AGENTS.md §3 No-New-Tooling rule; the clean release matrix is now produced
+manually or retained from prior captures.
 `go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl>
 --resource-profile-proof <codex-cli-resource-proof-bundle-dir>
 --resource-profile-proof <codex-desktop-resource-proof-bundle-dir>
@@ -3294,19 +3286,13 @@ bundle are historical after T330; Codex WSS runtime now records
 `codex_wss_directive_disabled` instead of injecting model-facing output-reduce
 instructions. That WSS directive-injection path is experimental non-product
 lab/proof material, not a current product feature.
-`go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl>
---min-net-tokens=1 --json` is the content-free output-reduce counterfactual
-gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or
-`directive`), requires the same client and workload class, requires provider
-output-token observations in both rows, requires guarded output-reduce injection
-only in the directive row, subtracts directive input overhead, and fails on
-safety errors, output-reduce downgrades, host-budget violations, non-positive
-output-token reduction, net tokens below the configured floor, or an injected
-directive row that has no positive `output_reduce_input_overhead_tokens`.
-`codex-capture-run` and `wss-proof-live-row` can stamp those A/B fields into
-historical matrix rows; the report still reads only content-free proof
-counters, never raw prompts, model text, or tool output. These A/B rows no
-longer promote Codex WSS output-reduce into the product path.
+The `wss-output-reduce-ab-report` tool was removed as Goodhart proof tooling
+per the AGENTS.md §3 No-New-Tooling rule. The historical output-reduce A/B
+gate it provided is no longer needed because Codex WSS runtime no longer
+injects model-facing output-reduce directives after T330.
+`codex-capture-run` and `wss-proof-live-row` can still stamp A/B fields into
+historical matrix rows; these A/B rows no longer promote Codex WSS
+output-reduce into the product path.
 The first focused CLI direct-answer/status A/B passed on 2026-06-05 after
 fixing proof accounting to record general provider output tokens from WSS usage
 frames and model-facing directive overhead instead of JSON re-marshal byte

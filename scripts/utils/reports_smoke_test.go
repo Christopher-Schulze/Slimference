@@ -79,41 +79,6 @@ func TestSessionReport_JSONFormat(t *testing.T) {
 	}
 }
 
-func TestDecisionReport_MissingFile(t *testing.T) {
-	if err := decisionReport("/nope", "text"); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestDecisionReport_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "d.jsonl")
-	_ = os.WriteFile(path, []byte{}, 0o644)
-	_, err := captureStdout(t, func() error { return decisionReport(path, "text") })
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFilterReport_MissingDB(t *testing.T) {
-	if err := filterReport("/nope/does-not-exist.db", "text"); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestCombinedReport_MissingInputs(t *testing.T) {
-	dir := t.TempDir()
-	// Non-existent files.
-	if err := combinedReport(
-		filepath.Join(dir, "a.jsonl"),
-		filepath.Join(dir, "b.jsonl"),
-		filepath.Join(dir, "c.db"),
-		"text",
-	); err == nil {
-		t.Fatal("expected error on missing inputs")
-	}
-}
-
 func TestParseOutputFlag_Variants(t *testing.T) {
 	cases := map[string]string{
 		"--json": "json",

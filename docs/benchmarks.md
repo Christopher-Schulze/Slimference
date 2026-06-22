@@ -122,12 +122,15 @@ The latest strict content-free release proof was built from the local capture
 archive:
 
 ```bash
-go run ./scripts/utils wss-proof-clean-matrix ~/.slimference/captures /tmp/slimference-release-proof-t296-clean-matrix.jsonl --json
 go run ./scripts/utils release-proof-report /tmp/slimference-release-proof-t296-clean-matrix.jsonl \
   --resource-profile-proof ~/.slimference/captures/host-resource-codex_cli-auto-20260604T212018Z \
   --resource-profile-proof ~/.slimference/captures/host-resource-codex_desktop-20260604T212111Z \
   --json
 ```
+
+The `wss-proof-clean-matrix` tool was removed as Goodhart proof tooling per
+the AGENTS.md §3 No-New-Tooling rule; the clean matrix file is now produced
+manually or retained from prior captures.
 
 The 2026-06-14 refresh evaluated 189 clean release rows and the final report
 returned `gate_passed=true`, `resource_profile_proof_ok=true`,
