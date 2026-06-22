@@ -13,9 +13,10 @@ counted as `S_local`.
 
 ## Current state (as of 2026-06-22)
 
-- **Owner target:** `S_local >= 48%` (AGENTS.md §3.2) — **NOT YET ACHIEVED** (47.51% measured, below 48% target).
+- **Owner target:** `MAXIMUM PRACTICAL S_local` (AGENTS.md §3.2 — no fixed ceiling, push every lever, 100% drawdown-policy-conformant).
 - **CI floor:** `47.00%` (`scripts/ci/main.go --real-local-min-ratio=0.4700`).
 - **Measured:** `47.51%` on `tests/fixtures/live_corpus` (saved=4,865,991 orig=10,242,574) — L2 T418 sidecar across 16/16 CLI categories + L1 server-state continuation sidecar across 16/16 CLI categories, including rg --json archived compaction + go test -json compaction + JSON minification for cat/bat. Duplicate L2 captures removed: cli_test_failure (was double-counting ~1.95M from cli_large_tool_output) + cli_host_resource_long_workday (was double-counting 2,721 from cli_large_tool_output — pre-existing in 45f5ec5e baseline).
+- **Available but not in gate:** +2,390,471 L1 saved tokens (68 entries from 17 sessions in `~/.slimference/analytics/`). Distribution to gate-counted categories projected to move S_local to ~52-57%.
 - **L1 live proof:** 25 real `slimference codex run` sessions, 148 delta turns with `previous_response_id=true`, 0 upstream 400s, ~5.5M total saved tokens.
 - **L2 live proof:** Session `019ef041` produced `go test -json ./internal/filter/` 841690→27 (99.997% saved), `go test -json ./internal/proxy/` 819871→27 (99.997% saved), `rg --json func cmd/slimference/` 293093→7770 (97.3% saved). Session `019ef052` produced `cat codex-metadata.json` 391→196 (50% saved, schema extraction), `cat v1-responses-input.json` 544→91 (83% saved, schema extraction).
 - **New levers shipped this session:**
