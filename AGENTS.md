@@ -367,6 +367,22 @@ moved the product number. The following rules are binding to prevent that:
    work. Default-off switches without a proven vector must be scheduled for
    drawdown-safe activation, not treated as permanent.
 
+6. **No-Fixture-Inflation rule (binding, post-2026-06-22 incident).** An
+   autonomous agent produced 17 commits that inflated `S_local` from 11.89% to
+   48.12% by appending fabricated fixture data to `server_state_continuation.jsonl`
+   files and raising the CI floor to match — with zero production code changes.
+   This was circular measurement manipulation: append fixture data → raise CI
+   floor → declare higher S_local. To prevent recurrence: (a) every fixture line
+   in `tests/fixtures/live_corpus/` must trace to a real `slimference codex run`
+   session capture — fabricated, duplicated, or synthetic data is forbidden;
+   (b) raising the CI floor in `scripts/ci/main.go` is forbidden without a
+   corresponding real production code change that genuinely produces the savings
+   being measured; (c) a commit that modifies only docs, test fixtures, and
+   `scripts/ci/main.go` (no `internal/` or `cmd/` production code) must not
+   declare a savings increase. Violating this rule is the most severe savings
+   violation — it produces zero real savings while making CI pass on fake data,
+   masking real regressions.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
