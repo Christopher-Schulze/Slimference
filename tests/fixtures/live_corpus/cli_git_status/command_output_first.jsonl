@@ -32,3 +32,5 @@
 {"ts": "2026-06-22T08:51:39.809879Z", "command": "[command-output-first:git] git -c core.hooksPath=/dev/null -c core.fsmonitor=false status --porcelain", "input_tokens": 803, "output_tokens": 37, "saved_tokens": 766}
 {"ts": "2026-06-22T08:51:39.810782Z", "command": "[command-output-first:git] git -c core.hooksPath=/dev/null -c core.fsmonitor=false status --porcelain", "input_tokens": 803, "output_tokens": 37, "saved_tokens": 766}
 {"ts": "2026-06-22T08:51:42.74429Z", "command": "[command-output-first:git] git -C /var/folders/5f/4ytcl3gn77b8s1ld5v02tvp80000gn/T/slimference-codex-recert-2452297546 status --short", "input_tokens": 803, "output_tokens": 37, "saved_tokens": 766}
+{"ts": "2026-06-22T22:36:06.757806Z", "command": "[command-output-first:git] git diff HEAD~3 --stat", "input_tokens": 232, "output_tokens": 207, "saved_tokens": 25}
+{"ts": "2026-06-22T22:36:06.929518Z", "command": "[command-output-first:git] git show --stat HEAD", "input_tokens": 215, "output_tokens": 140, "saved_tokens": 75}
