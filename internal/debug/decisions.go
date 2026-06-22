@@ -178,6 +178,7 @@ type RequestSummary struct {
 	ProviderCachedTokens   int                          `json:"provider_cached_tokens,omitempty"`
 	ProviderOutputTokens   int                          `json:"provider_output_tokens,omitempty"`
 	OutputTokens           int                          `json:"output_tokens,omitempty"`
+	OutputWireSavings      int                          `json:"output_wire_savings,omitempty"`
 	PromptCache            PromptCacheSummary           `json:"prompt_cache"`
 	ToolPrune              ToolPruneSummary             `json:"tool_prune"`
 	OutputReduce           OutputReduceSummary          `json:"output_reduce"`

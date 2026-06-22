@@ -32,6 +32,7 @@ type ProxyFlightGainSummary struct {
 	ProviderCacheNegativeNetRequests int                  `json:"provider_cache_negative_net_requests"`
 	BillableInputSavingsEstimate     int                  `json:"billable_input_savings_estimate"`
 	WireSavingsEstimate              int                  `json:"wire_savings_estimate"`
+	OutputWireSavingsEstimate        int                  `json:"output_wire_savings_estimate"`
 	ToolPruneSavedTokens             int                  `json:"tool_prune_saved_tokens"`
 	ToolPrunePrunedTools             int                  `json:"tool_prune_pruned_tools"`
 	ToolPruneReattached              int                  `json:"tool_prune_reattached"`
@@ -100,6 +101,7 @@ func SummarizeProxyFlights(summaries []dbg.RequestSummary, period string, now ti
 		}
 		report.BillableInputSavingsEstimate += tokens.BillableSavingsEstimate + flight.ToolPrune.SavedTokens
 		report.WireSavingsEstimate += tokens.WireSavingsEstimate + flight.ToolPrune.SavedTokens
+		report.OutputWireSavingsEstimate += tokens.OutputWireSavingsEstimate
 		report.ToolPruneSavedTokens += flight.ToolPrune.SavedTokens
 		report.ToolPrunePrunedTools += flight.ToolPrune.PrunedTools
 		report.ToolPruneReattached += flight.ToolPrune.Reattached
@@ -221,6 +223,7 @@ func WriteProxyFlightGainCSV(w io.Writer, report ProxyFlightGainSummary) error {
 		"provider_cache_negative_net_requests",
 		"billable_input_savings_estimate",
 		"wire_savings_estimate",
+		"output_wire_savings_estimate",
 		"tool_prune_saved_tokens",
 		"tool_prune_pruned_tools",
 		"tool_prune_reattached",
@@ -255,6 +258,7 @@ func WriteProxyFlightGainCSV(w io.Writer, report ProxyFlightGainSummary) error {
 		fmt.Sprintf("%d", report.ProviderCacheNegativeNetRequests),
 		fmt.Sprintf("%d", report.BillableInputSavingsEstimate),
 		fmt.Sprintf("%d", report.WireSavingsEstimate),
+		fmt.Sprintf("%d", report.OutputWireSavingsEstimate),
 		fmt.Sprintf("%d", report.ToolPruneSavedTokens),
 		fmt.Sprintf("%d", report.ToolPrunePrunedTools),
 		fmt.Sprintf("%d", report.ToolPruneReattached),

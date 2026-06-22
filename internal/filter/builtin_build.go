@@ -2191,5 +2191,16 @@ func buildToolLabel(argv []string) string {
 			return t.label
 		}
 	}
+	// C/C++ compilers — no subcommand, just the binary.
+	if len(argv) >= 1 {
+		b0 := strings.ToLower(filepath.Base(argv[0]))
+		switch b0 {
+		case "gcc", "gcc.exe", "g++", "g++.exe", "clang", "clang.exe", "clang++",
+			"clang++.exe", "cc", "cc.exe", "c++", "c++.exe":
+			return "cc"
+		case "javac", "javac.exe":
+			return "javac"
+		}
+	}
 	return ""
 }

@@ -53,6 +53,7 @@ type wsPhaseFAdapter struct {
 	collapsedKeys                     map[string]struct{}
 	qualityCohort                     qualityab.Cohort
 	responseChains                    map[string]wssResponseChain
+	responseChainOrder                []string
 	pendingChain                      wssResponseChain
 	pendingOutput                     []json.RawMessage
 	pendingRecovery                   *wssRecoveryCandidate

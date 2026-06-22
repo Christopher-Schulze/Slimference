@@ -40,8 +40,8 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 		"--check",
 		"--promotion-check",
 		"--maxx-check",
-		"--real-local-min-ratio=0.0597",
-		"--real-local-min-saved=331802",
+		"--real-local-min-ratio=0.5500",
+		"--real-local-min-saved=6800000",
 	}
 	if !reflect.DeepEqual(steps[6].args, wantCorpusGate) {
 		t.Fatalf("live corpus gate args: got %v want %v", steps[6].args, wantCorpusGate)

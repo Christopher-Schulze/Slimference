@@ -718,7 +718,7 @@ func TestTryCompactWcFailOpen(t *testing.T) {
 func TestTryCompactDu_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		fmt.Fprintf(&sb, "4.0K\t./dir%d/file%d.go\n", i, i)
 	}
 	sb.WriteString("3.5M\t.\n")
@@ -731,7 +731,7 @@ func TestTryCompactDu_BasicCap(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[du] 101 entries") {
+	if !strings.Contains(s, "[du] 201 entries") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "3.5M\t.") {
@@ -774,7 +774,7 @@ func TestTryCompactDf_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("Filesystem     1K-blocks      Used Available Use% Mounted on\n")
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 60; i++ {
 		fmt.Fprintf(&sb, "/dev/sda%d      1000000    500000    500000  50%% /mnt/fs%d\n", i, i)
 	}
 	input := []byte(sb.String())
@@ -786,20 +786,20 @@ func TestTryCompactDf_BasicCap(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[df] 30 filesystems") {
+	if !strings.Contains(s, "[df] 60 filesystems") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "Filesystem") {
 		t.Fatalf("compacted missing header")
 	}
-	if !strings.Contains(s, "[+15 more filesystems]") {
+	if !strings.Contains(s, "[+20 more filesystems]") {
 		t.Fatalf("compacted missing truncation marker")
 	}
 }
 
 func TestTryCompactDf_SmallOutput(t *testing.T) {
 	t.Parallel()
-	input := []byte("Filesystem  1K-blocks  Used Available Use% Mounted on\n/dev/sda1   1000000   500000   500000  50% /\n")
+	input := []byte("Filesystem  1K-blocks  Used Available Use% Mounted on\n/dev/sda1   1000000   500000   500000  50% /\n/dev/sda2   2000000   500000   1500000  25% /home\n")
 	_, ok := TryCompactDf([]string{"df"}, input)
 	if ok {
 		t.Fatalf("TryCompactDf should return false for small output")
@@ -832,7 +832,7 @@ func TestTryCompactPs_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("  PID TTY          TIME CMD\n")
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		fmt.Fprintf(&sb, "%5d pts/0    00:00:01 process%d\n", i, i)
 	}
 	input := []byte(sb.String())
@@ -844,20 +844,20 @@ func TestTryCompactPs_BasicCap(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[ps] 50 processes") {
+	if !strings.Contains(s, "[ps] 100 processes") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "PID TTY") {
 		t.Fatalf("compacted missing header")
 	}
-	if !strings.Contains(s, "[+30 more processes]") {
+	if !strings.Contains(s, "[+50 more processes]") {
 		t.Fatalf("compacted missing truncation marker")
 	}
 }
 
 func TestTryCompactPs_SmallOutput(t *testing.T) {
 	t.Parallel()
-	input := []byte("  PID TTY          TIME CMD\n    1 pts/0    00:00:01 bash\n")
+	input := []byte("  PID TTY          TIME CMD\n    1 pts/0    00:00:01 bash\n    2 pts/0    00:00:01 ps\n")
 	_, ok := TryCompactPs([]string{"ps"}, input)
 	if ok {
 		t.Fatalf("TryCompactPs should return false for small output")
@@ -917,7 +917,7 @@ func TestTryCompactEnv_SecretRedaction(t *testing.T) {
 func TestTryCompactEnv_LargeOutput(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 70; i++ {
 		fmt.Fprintf(&sb, "VAR_%d=value_%d\n", i, i)
 	}
 	input := []byte(sb.String())
@@ -929,7 +929,7 @@ func TestTryCompactEnv_LargeOutput(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[env] 50 variables") {
+	if !strings.Contains(s, "[env] 70 variables") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "[+20 more variables]") {
@@ -1025,7 +1025,7 @@ func TestTryCompactHexDump_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	for i := 0; i < 50; i++ {
-		fmt.Fprintf(&sb, "%08x: 4865 6c6c 6f20 57or6c 6421 0a00 0000 0000  Hello World!.....\n", i*16)
+		fmt.Fprintf(&sb, "%08x: 4865 6c6c 6f20 576f 726c 6421 0a00 0000  Hello World!.....\n", i*16)
 	}
 	input := []byte(sb.String())
 	compacted, ok := TryCompactHexDump([]string{"xxd", "file.bin"}, input)
@@ -1201,7 +1201,7 @@ func TestTryCompactLsof_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("COMMAND     PID   USER   FD   TYPE DEVICE SIZE NODE NAME\n")
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 150; i++ {
 		fmt.Fprintf(&sb, "process    %5d user   %3d   REG  253,0  1000  123  /file%d\n", i, i, i)
 	}
 	input := []byte(sb.String())
@@ -1213,13 +1213,13 @@ func TestTryCompactLsof_BasicCap(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[lsof] 100 entries") {
+	if !strings.Contains(s, "[lsof] 150 entries") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "COMMAND") {
 		t.Fatalf("compacted missing header")
 	}
-	if !strings.Contains(s, "[+70 more entries]") {
+	if !strings.Contains(s, "[+50 more entries]") {
 		t.Fatalf("compacted missing truncation marker")
 	}
 }
@@ -1259,7 +1259,7 @@ func TestTryCompactNetstat_BasicCap(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port\n")
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 100; i++ {
 		fmt.Fprintf(&sb, "tcp   ESTAB  0      0      127.0.0.1:%d    127.0.0.1:8080\n", 30000+i)
 	}
 	input := []byte(sb.String())
@@ -1271,13 +1271,13 @@ func TestTryCompactNetstat_BasicCap(t *testing.T) {
 		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
 	}
 	s := string(compacted)
-	if !strings.Contains(s, "[netstat] 60 entries") {
+	if !strings.Contains(s, "[netstat] 100 entries") {
 		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 	if !strings.Contains(s, "Local Address") {
 		t.Fatalf("compacted missing header")
 	}
-	if !strings.Contains(s, "[+35 more entries]") {
+	if !strings.Contains(s, "[+40 more entries]") {
 		t.Fatalf("compacted missing truncation marker")
 	}
 }
@@ -1308,5 +1308,65 @@ func TestTryCompactNetstat_EmptyOutput(t *testing.T) {
 	}
 	if string(compacted) != "[netstat] empty\n" {
 		t.Fatalf("compacted should be [netstat] empty, got: %s", compacted)
+	}
+}
+
+// --- TryCompactTextUtility tests ---
+
+func TestTryCompactTextUtility_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&sb, "line_%d\n", i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactTextUtility([]string{"sort", "file.txt"}, input)
+	if !ok {
+		t.Fatalf("TryCompactTextUtility returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[sort] 200 lines") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "[+100 more lines]") {
+		t.Fatalf("compacted missing truncation marker")
+	}
+}
+
+func TestTryCompactTextUtility_SmallOutput(t *testing.T) {
+	t.Parallel()
+	input := []byte("line1\nline2\nline3\n")
+	_, ok := TryCompactTextUtility([]string{"sort"}, input)
+	if ok {
+		t.Fatalf("TryCompactTextUtility should return false for small output")
+	}
+}
+
+func TestTryCompactTextUtility_NotTextUtility(t *testing.T) {
+	t.Parallel()
+	input := []byte("line1\nline2\n")
+	_, ok := TryCompactTextUtility([]string{"cat", "file.txt"}, input)
+	if ok {
+		t.Fatalf("TryCompactTextUtility should return false for non-text-utility argv")
+	}
+}
+
+func TestTryCompactTextUtility_Uniq(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&sb, "unique_line_%d\n", i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactTextUtility([]string{"uniq", "-c"}, input)
+	if !ok {
+		t.Fatalf("TryCompactTextUtility returned ok=false for uniq")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[uniq] 200 lines") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
 	}
 }

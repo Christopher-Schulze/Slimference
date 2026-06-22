@@ -31,6 +31,7 @@ type FlightTokenAccounting struct {
 	EstimatedOutputTokens        int `json:"estimated_output_tokens,omitempty"`
 	BillableSavingsEstimate      int `json:"billable_savings_estimate"`
 	WireSavingsEstimate          int `json:"wire_savings_estimate"`
+	OutputWireSavingsEstimate    int `json:"output_wire_savings_estimate,omitempty"`
 }
 
 type FlightCacheAccounting struct {
@@ -154,6 +155,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			EstimatedOutputTokens:        outputTokens,
 			BillableSavingsEstimate:      s.Tokens.Saved,
 			WireSavingsEstimate:          s.Tokens.Saved,
+			OutputWireSavingsEstimate:    s.OutputWireSavings,
 		},
 		CacheAccounting: FlightCacheAccounting{
 			LocalResponseCacheHit:         s.CacheHit,

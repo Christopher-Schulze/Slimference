@@ -1352,4 +1352,42 @@ func TestBuildToolLabel_pnpmYarnNinjaBazelZig(t *testing.T) {
 	if got := buildToolLabel([]string{"npx", "bazel", "build", "//..."}); got != "bazel build" {
 		t.Errorf("npx bazel build: want 'bazel build', got %q", got)
 	}
+	// C/C++ compilers
+	if got := buildToolLabel([]string{"gcc", "-o", "bin", "src.c"}); got != "cc" {
+		t.Errorf("gcc: want 'cc', got %q", got)
+	}
+	if got := buildToolLabel([]string{"clang", "-c", "src.cpp"}); got != "cc" {
+		t.Errorf("clang: want 'cc', got %q", got)
+	}
+	if got := buildToolLabel([]string{"g++", "-std=c++17", "src.cpp"}); got != "cc" {
+		t.Errorf("g++: want 'cc', got %q", got)
+	}
+	// javac
+	if got := buildToolLabel([]string{"javac", "-d", "out", "src.java"}); got != "javac" {
+		t.Errorf("javac: want 'javac', got %q", got)
+	}
+}
+
+func TestTryCompactBuildOutput_CCompilerErrors(t *testing.T) {
+	t.Parallel()
+	input := strings.Join([]string{
+		"In file included from src/main.c:5:",
+		"src/main.c: In function 'main':",
+		"src/main.c:10:5: error: expected ';' before 'return'",
+		"  10 |     return 0;",
+		"     |     ^~~~~~",
+		"src/main.c:12:5: warning: implicit declaration of function 'printf'",
+		"compilation terminated due to -Wfatal-errors.",
+	}, "\n")
+	out, ok := TryCompactBuildOutput([]string{"gcc", "-Wall", "-o", "bin", "src/main.c"}, []byte(input))
+	if !ok {
+		t.Fatal("expected gcc build-error compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "[cc] FAILED") {
+		t.Fatalf("unexpected gcc compaction: %q", got)
+	}
+	if !strings.Contains(got, "error: expected") {
+		t.Fatalf("gcc compaction missing error line: %q", got)
+	}
 }

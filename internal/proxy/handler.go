@@ -968,6 +968,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var outputTokens int
 	var responseBody []byte
 	var upstreamCacheUsage cacheUsage
+	var outputWireSavings int
 
 	if isStreamingRequest(body) {
 		var cutter *streamcut.Cutter
@@ -983,6 +984,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if fire.Fired {
 			p.outputReduceCounters.RecordStreamcutFire(fire.BytesObserved)
 			log.Debug("streamcut terminated upstream", "bytes_observed", fire.BytesObserved)
+			outputWireSavings += int(fire.BytesObserved / 4)
 		}
 	} else {
 		// T167: for non-streaming responses we build a per-request
@@ -1159,6 +1161,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ProviderCachedTokens: providerCachedTokens,
 			ProviderOutputTokens: outputTokens,
 			OutputTokens:         outputTokens,
+			OutputWireSavings:    outputWireSavings,
 			PromptCache: dbg.PromptCacheSummary{
 				Applied:            promptCacheDecision.Applied,
 				Reason:             promptCacheDecision.Reason,

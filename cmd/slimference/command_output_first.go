@@ -437,6 +437,10 @@ func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 		return commandOutputFirstFirstNonOption(args) == "build"
 	case "moon":
 		return commandOutputFirstMoonBuildAllowed(args)
+	case "gcc", "g++", "clang", "clang++", "cc", "c++":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
+	case "javac":
+		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
 	default:
 		return false
 	}
@@ -1681,6 +1685,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "pipenv", "composer", "mix", "gem":
 		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "apt", "apt-get", "yum", "dnf", "brew", "pacman":
+		compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "bundle":
 		if commandOutputFirstPackageOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
@@ -1759,6 +1766,9 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "journalctl", "tail":
 		compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "sort", "uniq", "cut", "tr", "column", "paste", "join", "comm", "tsort":
+		compacted, ok := filter.TryCompactTextUtility(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb":
 		compacted, ok := filter.TryCompactPsql(argv, stdout)

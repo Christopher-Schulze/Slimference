@@ -1953,6 +1953,14 @@ func pkgToolLabel(argv []string) string {
 		return "uv sync"
 	case (b0 == "uv" || b0 == "uv.exe") && len(argv) >= 3 && argv[1] == "pip" && argv[2] == "install":
 		return "uv pip install"
+	case (b0 == "apt" || b0 == "apt-get") && len(argv) >= 2 && (argv[1] == "install" || argv[1] == "upgrade" || argv[1] == "update"):
+		return fmt.Sprintf("apt %s", argv[1])
+	case (b0 == "yum" || b0 == "dnf") && len(argv) >= 2 && (argv[1] == "install" || argv[1] == "upgrade" || argv[1] == "update"):
+		return fmt.Sprintf("%s %s", b0, argv[1])
+	case b0 == "brew" && len(argv) >= 2 && (argv[1] == "install" || argv[1] == "upgrade" || argv[1] == "update"):
+		return fmt.Sprintf("brew %s", argv[1])
+	case b0 == "pacman" && len(argv) >= 2 && (argv[1] == "-S" || argv[1] == "-Syu" || argv[1] == "--sync"):
+		return "pacman -S"
 	}
 	return ""
 }
@@ -2002,6 +2010,33 @@ func extractPkgSummary(s, label string) (string, bool) {
 		}
 		// bundler: "Bundle complete!"
 		if strings.HasPrefix(tl, "bundle complete") {
+			summaryLines = append(summaryLines, t)
+			continue
+		}
+		// apt/dpkg: "Setting up ...", "Unpacking ...", "Processing triggers ..."
+		if strings.HasPrefix(tl, "setting up ") || strings.HasPrefix(tl, "unpacking ") ||
+			strings.HasPrefix(tl, "processing triggers") {
+			summaryLines = append(summaryLines, t)
+			continue
+		}
+		// apt: "N upgraded, N newly installed, N to remove and N not upgraded."
+		if strings.Contains(tl, "upgraded") && strings.Contains(tl, "newly installed") {
+			summaryLines = append(summaryLines, t)
+			continue
+		}
+		// yum/dnf: "Installed:", "Updated:", "Removed:", "Upgraded:"
+		if strings.HasPrefix(tl, "installed:") || strings.HasPrefix(tl, "updated:") ||
+			strings.HasPrefix(tl, "removed:") || strings.HasPrefix(tl, "upgraded:") {
+			summaryLines = append(summaryLines, t)
+			continue
+		}
+		// brew: "Already installed", "Installed (N dependencies)"
+		if strings.HasPrefix(tl, "already installed") || strings.HasPrefix(tl, "installed ") {
+			summaryLines = append(summaryLines, t)
+			continue
+		}
+		// pacman: "Total Installed Size:", "Packages (N)"
+		if strings.HasPrefix(tl, "total installed size") || strings.HasPrefix(tl, "packages (") {
 			summaryLines = append(summaryLines, t)
 			continue
 		}

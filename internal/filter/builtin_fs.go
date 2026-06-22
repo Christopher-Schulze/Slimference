@@ -1207,12 +1207,12 @@ func TryCompactDu(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[du] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 50 {
+	if len(lines) < 20 {
 		return stdout, false
 	}
 
-	// Cap at 40 lines, preserving the last line (total).
-	const maxLines = 40
+	// Cap at 100 lines, preserving the last line (total).
+	const maxLines = 100
 	var sb strings.Builder
 	sb.Grow(len(stdout))
 	sb.WriteString(fmt.Sprintf("[du] %d entries (showing first %d + total)\n", len(lines), maxLines-1))
@@ -1272,10 +1272,10 @@ func TryCompactDf(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[df] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 20 {
+	if len(lines) < 10 {
 		return stdout, false
 	}
-	const maxRows = 15
+	const maxRows = 40
 	header := lines[0]
 	dataLines := lines[1:]
 	var sb strings.Builder
@@ -1318,10 +1318,10 @@ func TryCompactPs(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[ps] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 30 {
+	if len(lines) < 15 {
 		return stdout, false
 	}
-	const maxRows = 20
+	const maxRows = 50
 	header := lines[0]
 	dataLines := lines[1:]
 	var sb strings.Builder
@@ -1368,11 +1368,11 @@ func TryCompactEnv(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[env] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 20 {
+	if len(lines) < 10 {
 		// Even for small output, redact secrets — security benefit.
 		return []byte(compactEnvRedact(lines)), true
 	}
-	const maxEntries = 30
+	const maxEntries = 50
 	var sb strings.Builder
 	sb.Grow(len(stdout))
 	sb.WriteString(fmt.Sprintf("[env] %d variables (showing first %d, secrets redacted)\n", len(lines), maxEntries))
@@ -1505,10 +1505,10 @@ func TryCompactHexDump(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[hexdump] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 30 {
+	if len(lines) < 15 {
 		return stdout, false
 	}
-	const maxLines = 20
+	const maxLines = 10
 	var sb strings.Builder
 	sb.Grow(len(stdout))
 	sb.WriteString(fmt.Sprintf("[hexdump] %d lines (showing first %d + last 3)\n", len(lines), maxLines))
@@ -1701,10 +1701,10 @@ func TryCompactLsof(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[lsof] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 50 {
+	if len(lines) < 20 {
 		return stdout, false
 	}
-	const maxRows = 30
+	const maxRows = 100
 	header := lines[0]
 	dataLines := lines[1:]
 	var sb strings.Builder
@@ -1747,10 +1747,10 @@ func TryCompactNetstat(argv []string, stdout []byte) ([]byte, bool) {
 		return []byte("[netstat] empty\n"), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) < 40 {
+	if len(lines) < 15 {
 		return stdout, false
 	}
-	const maxRows = 25
+	const maxRows = 60
 	// ss and netstat may have multiple header sections; find the first
 	// non-empty line as header.
 	header := ""
@@ -1776,6 +1776,52 @@ func TryCompactNetstat(argv []string, stdout []byte) ([]byte, bool) {
 	for i, line := range dataLines {
 		if i >= maxRows {
 			sb.WriteString(fmt.Sprintf("  [+%d more entries]\n", len(dataLines)-maxRows))
+			break
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactTextUtility compacts output from text-processing utilities
+// (`sort`, `uniq`, `cut`, `tr`, `column`, `paste`, `join`, `comm`, `tsort`)
+// by capping the number of output lines. These tools can produce thousands
+// of lines on large inputs.
+//
+// Drawdown vector: the model loses individual lines beyond the cap.
+// Fail-open on non-matching argv or small output.
+func TryCompactTextUtility(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	switch b {
+	case "sort", "sort.exe", "uniq", "uniq.exe", "cut", "cut.exe",
+		"tr", "tr.exe", "column", "column.exe", "paste", "paste.exe",
+		"join", "join.exe", "comm", "comm.exe", "tsort", "tsort.exe":
+	default:
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte(fmt.Sprintf("[%s] empty\n", b)), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 50 {
+		return stdout, false
+	}
+	const maxLines = 100
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[%s] %d lines (showing first %d)\n", b, len(lines), maxLines))
+	for i, line := range lines {
+		if i >= maxLines {
+			sb.WriteString(fmt.Sprintf("  [+%d more lines]\n", len(lines)-maxLines))
 			break
 		}
 		sb.WriteString(line)

@@ -199,7 +199,8 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 	}
 
 	exportStatelessChain := meta.DebugFacts["wss.full_history_stateless_followup"] == "true" ||
-		meta.DebugFacts["wss.stateless_history_continuation"] == "true"
+		meta.DebugFacts["wss.stateless_history_continuation"] == "true" ||
+		meta.PreviousResponseID != ""
 	a.mu.Lock()
 	a.pendingChain = cloneWSSRawItems(fullInput)
 	a.pendingOutput = nil
@@ -287,11 +288,14 @@ func (a *wsPhaseFAdapter) rememberWSSResponseState(env *wsmitm.Envelope) {
 			exportResponseID = responseID
 			exportChain = wssResponseChain(cloneWSSRawItems(chain))
 		}
-		if len(a.responseChains) > wssRecoveryMaxChains {
-			for id := range a.responseChains {
-				delete(a.responseChains, id)
-				break
-			}
+		// Track insertion order for LRU eviction.
+		if _, exists := a.responseChains[responseID]; !exists {
+			a.responseChainOrder = append(a.responseChainOrder, responseID)
+		}
+		for len(a.responseChainOrder) > wssRecoveryMaxChains {
+			oldest := a.responseChainOrder[0]
+			a.responseChainOrder = a.responseChainOrder[1:]
+			delete(a.responseChains, oldest)
 		}
 	}
 	a.pendingHistoryRecoveryGuarded = false
