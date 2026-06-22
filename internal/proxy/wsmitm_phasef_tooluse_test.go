@@ -47,3 +47,73 @@ func TestWSPhaseF_ToolUsePersistenceSurvivesReconnect(t *testing.T) {
 		t.Fatalf("different session leaked tool uses: %+v", got)
 	}
 }
+
+// TestWSPhaseF_ToolUseInferenceFallbackForFirstDelta proves that when
+// ResponseOutputItemDone is not emitted for function_call items, the
+// inference fallback (proxyInferCommandLineFromToolResult) still allows
+// toolOutputKnown to become true, enabling delta stateless recovery.
+func TestWSPhaseF_ToolUseInferenceFallbackForFirstDelta(t *testing.T) {
+	// Simulate a tool_result with git status output wrapped in codex exec envelope
+	gitStatusOutput := "Process exited with code 0\nOutput:\n M file1.go\n M file2.go\n?? new_file.go\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			Text:         gitStatusOutput,
+			ToolResultID: "call_1",
+		}},
+	}}
+
+	// No tool_use metadata in the map (simulates missing ResponseOutputItemDone)
+	toolUses := map[string]types.ContentBlock{}
+
+	total, resolved, inferred := wssToolOutputResolutionStatsWithToolUses(messages, toolUses)
+	if total != 1 {
+		t.Fatalf("expected total=1, got %d", total)
+	}
+	if resolved != 0 {
+		t.Fatalf("expected resolved=0 (no metadata), got %d", resolved)
+	}
+	if inferred != 1 {
+		t.Fatalf("expected inferred=1 (git status pattern matched), got %d", inferred)
+	}
+
+	toolOutputKnown := total > 0 && resolved+inferred == total
+	if !toolOutputKnown {
+		t.Fatalf("expected toolOutputKnown=true via inference fallback, got false")
+	}
+}
+
+// TestWSPhaseF_ToolUseInferenceFallbackForSearchOutput proves that search
+// output (rg) is inferred correctly, enabling delta stateless recovery
+// even when tool_use metadata is missing.
+func TestWSPhaseF_ToolUseInferenceFallbackForSearchOutput(t *testing.T) {
+	// Simulate rg search output wrapped in codex exec envelope
+	searchOutput := "Process exited with code 0\nOutput:\ninternal/filter/builtin_system.go:16:func TryCompactHistory\ninternal/filter/builtin_system.go:60:func TryCompactDmesg\ninternal/filter/builtin_system.go:103:func TryCompactMount\n"
+	messages := []types.Message{{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			Text:         searchOutput,
+			ToolResultID: "call_2",
+		}},
+	}}
+
+	toolUses := map[string]types.ContentBlock{} // no metadata
+
+	total, resolved, inferred := wssToolOutputResolutionStatsWithToolUses(messages, toolUses)
+	if total != 1 {
+		t.Fatalf("expected total=1, got %d", total)
+	}
+	if resolved != 0 {
+		t.Fatalf("expected resolved=0, got %d", resolved)
+	}
+	if inferred != 1 {
+		t.Fatalf("expected inferred=1 (path list pattern matched), got %d", inferred)
+	}
+
+	toolOutputKnown := total > 0 && resolved+inferred == total
+	if !toolOutputKnown {
+		t.Fatalf("expected toolOutputKnown=true via path list inference, got false")
+	}
+}

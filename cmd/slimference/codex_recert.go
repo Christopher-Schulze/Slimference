@@ -295,8 +295,10 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 		return codexRecertTriggerResult{}, err
 	}
 	statusCmd := "git -C " + shellQuote(dir) + " status --short"
+	listCmd := "git -C " + shellQuote(dir) + " ls-files --cached"
 	prompts := []string{
 		"Run exactly `" + statusCmd + "`, then reply exactly RECERT_DONE.",
+		"Run exactly `" + listCmd + "`, then reply exactly RECERT_DONE_2.",
 	}
 	for i, prompt := range prompts {
 		args := []string{"codex", "run", "--transport=wss", "--host=" + input.Host, "--port=" + input.Port, "--"}

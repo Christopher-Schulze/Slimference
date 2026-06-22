@@ -704,7 +704,7 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
-	if len(result.PromptSequence) != 1 || len(calls) != 1 {
+	if len(result.PromptSequence) != 2 || len(calls) != 2 {
 		t.Fatalf("result=%+v calls=%v", result, calls)
 	}
 	joined := strings.Join(calls[0], "\x00")
@@ -714,6 +714,13 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 		!strings.Contains(joined, "git -C ") ||
 		!strings.Contains(joined, "status --short") {
 		t.Fatalf("bad scoped WSS calls: %v", calls)
+	}
+	joined2 := strings.Join(calls[1], "\x00")
+	if !strings.Contains(joined2, "--transport=wss") ||
+		!strings.Contains(joined2, "resume") ||
+		!strings.Contains(joined2, "--last") ||
+		!strings.Contains(joined2, "ls-files --cached") {
+		t.Fatalf("bad second prompt calls: %v", calls)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
