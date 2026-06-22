@@ -1,0 +1,1 @@
+{"ts":"2026-06-22T09:54:15Z","command":"[command-output-first:go] go test ./internal/planner/... -v -count=1","input_tokens":423,"output_tokens":54,"saved_tokens":369}

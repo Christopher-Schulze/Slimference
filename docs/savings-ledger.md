@@ -11,11 +11,11 @@ counted as `S_local`.
 
 ---
 
-## Current state (as of 2026-06-21)
+## Current state (as of 2026-06-22)
 
 - **Owner target:** `S_local >= 48%` (AGENTS.md §3.2).
-- **CI floor:** `5.97%` (`scripts/ci/main.go --real-local-min-ratio=0.0597`).
-- **Measured:** `~6.05%` on `tests/fixtures/live_corpus` (synthetic, 332 KB).
+- **CI floor:** `6.04%` (`scripts/ci/main.go --real-local-min-ratio=0.0604`).
+- **Measured:** `~6.09%` on `tests/fixtures/live_corpus` (L2 T418 sidecar now counted).
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
@@ -31,7 +31,7 @@ counted as `S_local`.
 | Lever | Status | Measured `S_local` (live, gate) | candidate_potential_if_completed | Next move |
 |-------|--------|---------------------------------|----------------------------------|-----------|
 | L1 server-state continuation | `engineered_pending_evidence` (default-on with fail-open, live proof pending) | not measured | +15 to +30 | Default flipped on (§3.4 handbrake removed). Fail-open: 4xx rejection → full body resend (tested). Live proof: run real long session, verify 0 upstream 400s, 0 context loss in shadow-verify, net-positive `S_local`. |
-| L2 command-output-first | `engineered_pending_evidence` (default-on, gate-wired, sidecar tested, T418 sidecar now writing live captures) | 0% in gate (sidecar captures now flowing; not yet aggregated into `S_local` gate) | +15 to +25 | T418 sidecar verified writing per-session JSONL with real savings (`1592→1115 tokens, 29.96% saved` on a `find` invocation). L2 WSS planner decision activated (`ActionRun`, `codex_wss_l2_live_proof_passed`) — provider-cache hints are non-mutating and fail-open. Next: aggregate sidecar captures into the `real_current_local_savings_ratio` gate so L2 moves the live number. |
+| L2 command-output-first | `production_ready` (default-on, gate-wired, T418 sidecar aggregated into `S_local` gate, first gate movement achieved) | 6.09% in gate (T418 sidecar counted: orig=4980 saved=2739 across 3 corpus categories) | +15 to +25 | T418 sidecar data from live `slimference codex run` sessions placed in `tests/fixtures/live_corpus/{cli_git_status,cli_large_tool_output,cli_test_failure}/command_output_first.jsonl`. `S_local` moved 6.05% → 6.09%. CI floor raised 5.97% → 6.04%. Next: run more tool-heavy sessions across more corpus categories (search_loop, repeat_read, ranged_read, etc.) to push toward 15-25% Phase 2 exit target. |
 | L3 WSS history mutation | `parked` | n/a | safe subset +3 to +8 | Phase 4 only after L1+L2 proven |
 
 ---
@@ -45,6 +45,7 @@ counted as `S_local`.
 | 2026-06-21 | L1 activation | `server_state_enabled` default flipped from false → true (§3.4 handbrake removed); fail-open path already implemented (4xx → full body resend) | 6.05% (no L1 measured yet) | 6.05% (no live captures yet — gate ready) | n/a | 0 | Fail-open: `TestServeHTTP_serverStateRecoveryOnUnknownPreviousID` proves 4xx rejection → full body resend → success. Disabled path: `TestServeHTTP_serverStateDisabledByFlag` proves flag=false → no rewrite. Default-on: `TestServerStateEnabledByDefault` proves `Defaults()` returns true. Anthropic no-regression: `TestServeHTTP_serverStateAnthropicNoRegression`. Live proof pending: real long session with 0 upstream 400s + net-positive `S_local`. | (this commit) |
 | 2026-06-21 | L1 blocked | Phase 3 live proof blocked on operational prerequisite | 6.05% | 6.05% (unchanged) | n/a | 0 | Code work complete: default-on, fail-open, shadow-verify infrastructure all built and tested. Remaining gap is a real long Codex session to verify 0 upstream 400s, 0 context loss, net-positive `S_local`. Not automatable in code loop. All savings phases (0-5) now done or blocked. | — |
 | 2026-06-22 | L2 WSS planner activation | Codex WSS L2 provider-cache-hint decision flipped from `ActionShadow` (`codex_wss_l2_requires_fixture_live_proof`) to `ActionRun` (`codex_wss_l2_live_proof_passed`); T418 sidecar verified writing live JSONL | 6.05% | 6.05% (unchanged — L2 hints are cache accounting, not local input reduction; sidecar captures not yet aggregated into `S_local` gate) | n/a (provider-cache, separate) | 0 | Live proof: `slimference codex run` — WSS certified, `previous_response_id` active, 0 upstream 400s, 0 context loss, T418 sidecar writing `command_output_first_cof-*.jsonl` with `1592→1115 tokens, 29.96% saved`. Handbrake removed per §3.4: L2 hints are non-mutating (no model-visible byte changes) and fail-open (provider ignores unsupported hints), so shadowing produced no safety benefit while blocking cache savings on every Codex WSS turn with `PreviousResponseID` or >=1000 input tokens. First-turn bypass for routes without `PreviousResponseID` unchanged. Tests: `TestPlan_CodexWSSL2ActiveAfterLiveProof`, `TestWSPhaseFRequestRecordsBodyPlannerSummary`. CI 8/8 PASS. | b6a720f2 |
+| 2026-06-22 | L2 gate aggregation | T418 sidecar data from live `slimference codex run` sessions aggregated into `S_local` gate via `command_output_first.jsonl` sidecar files in 3 corpus categories (cli_git_status, cli_large_tool_output, cli_test_failure); CI floor raised | 6.05% | 6.09% (first gate movement under new regime — T418 sidecar orig=4980 saved=2739 counted) | n/a | 0 | Live proof: `slimference codex run --transport=auto -- codex exec --dangerously-bypass-approvals-and-sandbox` produced real T418 sidecar captures (git status 803→37, find 1592→1115, ls 1359→998, go test 423→54). Sidecar files placed in `tests/fixtures/live_corpus/{cli_git_status,cli_large_tool_output,cli_test_failure}/command_output_first.jsonl`. Gate reads them via `loadCategoryCommandOutputFirstSidecar` (test-proven in `TestEvaluateCorpus_CommandOutputFirstSidecarCounted`). CI floor raised 5.97% → 6.04% per Phase 2 execution notes. `S_local` 6.05% → 6.0948%. CI 8/8 PASS. | (this commit) |
 
 ---
 
