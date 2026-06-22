@@ -1,1 +1,5 @@
 {"ts":"2026-06-22T10:00:10Z","command":"[command-output-first:git] git diff HEAD~5 --stat","input_tokens":155,"output_tokens":142,"saved_tokens":13}
+{"ts": "2026-06-22T08:00:03.221236Z", "command": "[command-output-first:ls] ls -la /Users/christopher/.slimference/analytics/", "input_tokens": 601, "output_tokens": 448, "saved_tokens": 153}
+{"ts": "2026-06-22T07:53:39.718265Z", "command": "[command-output-first:find] find internal/proxy -maxdepth 1 -type f -name *.go -print", "input_tokens": 1592, "output_tokens": 1115, "saved_tokens": 477}
+{"ts": "2026-06-22T07:54:05.102667Z", "command": "[command-output-first:ls] ls -la scripts/utils/", "input_tokens": 1359, "output_tokens": 998, "saved_tokens": 361}
+{"ts": "2026-06-22T00:16:16.847126Z", "command": "[command-output-first:find] find internal/proxy -maxdepth 1 -type f -name *.go -print", "input_tokens": 1592, "output_tokens": 1115, "saved_tokens": 477}

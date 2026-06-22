@@ -1,3 +1,0 @@
-{"ts":"2026-06-22T16:42:51.028059Z","command":"[command-output-first:rg] rg --json func internal/filter/","input_tokens":164420,"output_tokens":4664,"saved_tokens":159756}
-{"ts":"2026-06-22T16:42:54.224986Z","command":"[command-output-first:rg] rg --json type internal/proxy/","input_tokens":208743,"output_tokens":5736,"saved_tokens":203007}
-{"ts":"2026-06-22T16:43:03.921947Z","command":"[command-output-first:go] go test ./internal/filter/ -count=1 -v","input_tokens":113349,"output_tokens":458,"saved_tokens":112891}
