@@ -650,7 +650,17 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int, wssRequestMeta, outputreduce.Stats) {
 	out := body
 	statelessHistoryContinuation := false
+	// preExpansionMessages holds the original delta messages before the
+	// stateless history continuation expands them to full-history. When
+	// set, these are used as the token-accounting baseline so that savings
+	// are measured against what the client actually sent (the delta), not
+	// the expanded full-history size. Without this, the gate over-counts
+	// savings because it uses the expanded size as the baseline.
+	preExpansionMessages := []types.Message(nil)
 	if rewritten, ok := a.wssStatelessHistoryContinuationBody(out); ok {
+		if origMsgs, _, origErr := extractMessagesFn(types.CodexChatGPT, body); origErr == nil && len(origMsgs) > 0 {
+			preExpansionMessages = origMsgs
+		}
 		out = rewritten
 		statelessHistoryContinuation = true
 	}
@@ -666,7 +676,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta = wssRequestMetaFromRaw(raw)
 		a.applyBridgeClientFamilyFallback(&meta)
 		meta.SocketSeq = a.socketSeq.Load()
-		meta.OriginalMessages = messages
+		if statelessHistoryContinuation && len(preExpansionMessages) > 0 {
+			meta.OriginalMessages = preExpansionMessages
+		} else {
+			meta.OriginalMessages = messages
+		}
 		if statelessHistoryContinuation {
 			a.markWSSHistoryStatelessMode()
 			if meta.DebugFacts == nil {
@@ -675,6 +689,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.stateless_history_continuation"] = "true"
 			meta.DebugFacts["wss.stateless_history_continuation_detached_previous_response"] = "true"
 			meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
+			if preExpansionMessages != nil {
+				meta.DebugFacts["wss.pre_expansion_baseline"] = "true"
+			}
 		}
 	} else {
 		var raw map[string]json.RawMessage
