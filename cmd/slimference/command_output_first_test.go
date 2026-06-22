@@ -5825,6 +5825,12 @@ func TestCommandOutputFirstDirectBuildEdges(t *testing.T) {
 		{command: "gradlew", args: []string{"build", "--parallel"}},
 		{command: "moon", args: []string{"run", "build"}},
 		{command: "moon", args: []string{"run", "web:build"}},
+		{command: "gcc", args: []string{"-w", "-o", "bin", "src.c"}},
+		{command: "gcc", args: []string{"-Wall", "-Wextra", "-o", "bin", "src.c"}},
+		{command: "clang", args: []string{"-w", "-c", "src.c"}},
+		{command: "g++", args: []string{"-std=c++17", "-o", "bin", "src.cpp"}},
+		{command: "cc", args: []string{"-o", "bin", "src.c"}},
+		{command: "javac", args: []string{"-d", "out", "src.java"}},
 	}
 	for _, tc := range allowed {
 		if !commandOutputFirstDirectBuildAllowed(tc.command, tc.args) {
@@ -5861,6 +5867,8 @@ func TestCommandOutputFirstDirectBuildEdges(t *testing.T) {
 		{command: "meson", args: []string{"setup", "build"}},
 		{command: "moon", args: []string{"run"}},
 		{command: "moon", args: []string{"run", "web:test"}},
+		{command: "gcc", args: []string{"--watch", "src.c"}},
+		{command: "clang", args: []string{"--continuous", "src.c"}},
 		{command: "unknown", args: []string{"build"}},
 	}
 	for _, tc := range denied {
@@ -6050,4 +6058,112 @@ func commandOutputFirstArchiveURI(output string) string {
 		return strings.TrimSpace(rest)
 	}
 	return strings.TrimSpace(rest[:end])
+}
+
+func TestCommandOutputFirstSystemCompactorsAllowCaptureAndCompact(t *testing.T) {
+	// Verify allow-capture returns true for all new system commands.
+	allowedCommands := []struct {
+		command string
+		args    []string
+	}{
+		{"history", nil},
+		{"fc", []string{"-l"}},
+		{"dmesg", nil},
+		{"mount", nil},
+		{"base64", []string{"file.bin"}},
+		{"base32", []string{"file.bin"}},
+		{"md5sum", []string{"file.txt"}},
+		{"sha256sum", []string{"file.txt"}},
+		{"shasum", []string{"file.txt"}},
+		{"objdump", []string{"-d", "binary"}},
+		{"readelf", []string{"-a", "binary"}},
+		{"nm", []string{"binary"}},
+		{"strings", []string{"binary"}},
+		{"strace", []string{"ls"}},
+		{"ltrace", []string{"ls"}},
+		{"vmstat", []string{"1", "5"}},
+		{"iostat", []string{"1", "5"}},
+		{"mpstat", []string{"1", "5"}},
+		{"sar", []string{"-u", "1"}},
+		{"ip", []string{"addr"}},
+		{"ifconfig", nil},
+		{"cloc", []string{"src/"}},
+		{"scc", []string{"src/"}},
+		{"tokei", []string{"src/"}},
+		{"loc", []string{"src/"}},
+	}
+	for _, tc := range allowedCommands {
+		if !commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("commandOutputFirstAllowCapture returned false for %s %v", tc.command, tc.args)
+		}
+	}
+
+	// Verify compaction works for representative commands.
+	deniedCommands := []struct {
+		command string
+		args    []string
+	}{
+		{"unknown-cmd", nil},
+	}
+	for _, tc := range deniedCommands {
+		if commandOutputFirstAllowCapture(tc.command, tc.args) {
+			t.Fatalf("commandOutputFirstAllowCapture returned true for %s", tc.command)
+		}
+	}
+
+	// Test actual compaction through the dispatch for a few representative commands.
+	var histOut strings.Builder
+	for i := 1; i <= 200; i++ {
+		fmt.Fprintf(&histOut, "%5d  cmd_%d\n", i, i)
+	}
+	if out, ok := compactCommandOutputFirst("history", "/usr/bin/history", nil, []byte(histOut.String()), nil, 0); !ok {
+		t.Fatalf("history did not compact")
+	} else if !strings.Contains(string(out), "[history]") {
+		t.Fatalf("history compaction missing [history] marker: %q", out)
+	}
+
+	var dmesgOut strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&dmesgOut, "[   %d.0] msg %d\n", i, i)
+	}
+	if out, ok := compactCommandOutputFirst("dmesg", "/usr/bin/dmesg", nil, []byte(dmesgOut.String()), nil, 0); !ok {
+		t.Fatalf("dmesg did not compact")
+	} else if !strings.Contains(string(out), "[dmesg]") {
+		t.Fatalf("dmesg compaction missing [dmesg] marker: %q", out)
+	}
+
+	var mountOut strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&mountOut, "/dev/sda%d on /mnt/d%d type ext4 (rw)\n", i, i)
+	}
+	if out, ok := compactCommandOutputFirst("mount", "/usr/bin/mount", nil, []byte(mountOut.String()), nil, 0); !ok {
+		t.Fatalf("mount did not compact")
+	} else if !strings.Contains(string(out), "[mount]") {
+		t.Fatalf("mount compaction missing [mount] marker: %q", out)
+	}
+
+	var hashOut strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&hashOut, "abcdef0123456789  file_%d.txt\n", i)
+	}
+	if out, ok := compactCommandOutputFirst("sha256sum", "/usr/bin/sha256sum", nil, []byte(hashOut.String()), nil, 0); !ok {
+		t.Fatalf("sha256sum did not compact")
+	} else if !strings.Contains(string(out), "[sha256sum]") {
+		t.Fatalf("sha256sum compaction missing [sha256sum] marker: %q", out)
+	}
+
+	var straceOut strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&straceOut, "read(3, \"data\", 1024) = %d\n", i)
+	}
+	if out, ok := compactCommandOutputFirst("strace", "/usr/bin/strace", nil, []byte(straceOut.String()), nil, 0); !ok {
+		t.Fatalf("strace did not compact")
+	} else if !strings.Contains(string(out), "[strace]") {
+		t.Fatalf("strace compaction missing [strace] marker: %q", out)
+	}
+
+	// Small output should not compact (fail-open).
+	if _, ok := compactCommandOutputFirst("history", "/usr/bin/history", nil, []byte("  1  ls\n  2  cd\n"), nil, 0); ok {
+		t.Fatalf("small history output should not compact")
+	}
 }

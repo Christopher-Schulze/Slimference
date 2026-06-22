@@ -362,6 +362,15 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		return commandOutputFirstNetworkResponseAllowed(command, args)
 	case "psql", "mysql", "mariadb", "sqlite", "sqlite3", "duckdb":
 		return commandOutputFirstSQLShellAllowed(command, args)
+	case "history", "fc", "dmesg", "mount",
+		"base64", "base32",
+		"md5sum", "sha256sum", "sha1sum", "sha512sum", "shasum", "b2sum", "cksum",
+		"objdump", "readelf", "nm", "strings",
+		"strace", "ltrace",
+		"vmstat", "iostat", "mpstat", "sar",
+		"ip", "ifconfig",
+		"cloc", "scc", "tokei", "loc":
+		return true
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
 			commandOutputFirstDirectTestAllowed(command, args) ||
@@ -438,7 +447,7 @@ func commandOutputFirstDirectBuildAllowed(command string, args []string) bool {
 	case "moon":
 		return commandOutputFirstMoonBuildAllowed(args)
 	case "gcc", "g++", "clang", "clang++", "cc", "c++":
-		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
+		return !commandOutputFirstCompilerArgsUnsafeLongRunning(args)
 	case "javac":
 		return !commandOutputFirstBuildArgsUnsafeLongRunning(args)
 	default:
@@ -730,6 +739,14 @@ func commandOutputFirstTurboTestAllowed(args []string) bool {
 
 func commandOutputFirstBuildArgsUnsafeLongRunning(args []string) bool {
 	return commandOutputFirstArgsContain(args, "--watch", "-w", "--continuous", "watch", "dev", "serve", "start")
+}
+
+// commandOutputFirstCompilerArgsUnsafeLongRunning checks for flags that make
+// C/C++ compilers (gcc, clang, etc.) unsafe for command-output-first compaction.
+// Unlike the generic build helper, this does NOT match "-w" (which means
+// "suppress warnings" for C/C++ compilers, not "watch mode").
+func commandOutputFirstCompilerArgsUnsafeLongRunning(args []string) bool {
+	return commandOutputFirstArgsContain(args, "--watch", "--continuous", "watch", "dev", "serve", "start")
 }
 
 func commandOutputFirstEsbuildBundleAllowed(args []string) bool {
@@ -1562,6 +1579,36 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "ss", "netstat":
 		compacted, ok := filter.TryCompactNetstat(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "history", "fc":
+		compacted, ok := filter.TryCompactHistory(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "dmesg":
+		compacted, ok := filter.TryCompactDmesg(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "mount":
+		compacted, ok := filter.TryCompactMount(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "base64", "base32":
+		compacted, ok := filter.TryCompactBase64(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "md5sum", "sha256sum", "sha1sum", "sha512sum", "shasum", "b2sum", "cksum":
+		compacted, ok := filter.TryCompactHashSum(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "objdump", "readelf", "nm", "strings":
+		compacted, ok := filter.TryCompactObjdump(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "strace", "ltrace":
+		compacted, ok := filter.TryCompactStrace(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "vmstat", "iostat", "mpstat", "sar":
+		compacted, ok := filter.TryCompactVmstat(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "ip", "ifconfig":
+		compacted, ok := filter.TryCompactIpAddr(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "cloc", "scc", "tokei", "loc":
+		compacted, ok := filter.TryCompactCloc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		// go test -json produces verbose NDJSON events. Try the JSON
