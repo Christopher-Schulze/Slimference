@@ -442,17 +442,52 @@ func TestWSSCacheBustRequestShape(t *testing.T) {
 
 func TestCollapsedKeysDir(t *testing.T) {
 	t.Parallel()
-	// nil adapter with proxyUserHomeDir error -> empty.
+	// success path (real home dir).
 	a := &wsPhaseFAdapter{}
-	// This depends on proxyUserHomeDir; just verify it doesn't panic.
 	_ = a.collapsedKeysDir()
+
+	// error path.
+	origFn := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return "", os.ErrNotExist }
+	defer func() { proxyUserHomeDir = origFn }()
+	if got := a.collapsedKeysDir(); got != "" {
+		t.Fatalf("error path should return empty, got %q", got)
+	}
 }
 
 func TestToolUseCacheDir(t *testing.T) {
 	t.Parallel()
-	// nil adapter -> doesn't panic.
+	// success path.
 	a := &wsPhaseFAdapter{}
 	_ = a.toolUseCacheDir()
+
+	// error path.
+	origFn := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return "", os.ErrNotExist }
+	defer func() { proxyUserHomeDir = origFn }()
+	if got := a.toolUseCacheDir(); got != "" {
+		t.Fatalf("error path should return empty, got %q", got)
+	}
+}
+
+func TestDaemonStateBytes(t *testing.T) {
+	t.Parallel()
+	// nil proxy -> error path (proxyUserHomeDir still called).
+	var nilProxy *Proxy
+	_, _ = nilProxy.daemonStateBytes()
+
+	// error path with mocked proxyUserHomeDir.
+	origFn := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return "", os.ErrNotExist }
+	defer func() { proxyUserHomeDir = origFn }()
+	p := &Proxy{}
+	size, ok := p.daemonStateBytes()
+	if ok {
+		t.Fatal("error path should return ok=false")
+	}
+	if size != 0 {
+		t.Fatalf("error path should return size=0, got %d", size)
+	}
 }
 
 func TestExtractAnthropicOutputTokens(t *testing.T) {
