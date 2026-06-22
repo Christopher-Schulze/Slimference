@@ -657,9 +657,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	// the expanded full-history size. Without this, the gate over-counts
 	// savings because it uses the expanded size as the baseline.
 	preExpansionMessages := []types.Message(nil)
+	preExpansionPreviousResponseID := ""
 	if rewritten, ok := a.wssStatelessHistoryContinuationBody(out); ok {
 		if origMsgs, _, origErr := extractMessagesFn(types.CodexChatGPT, body); origErr == nil && len(origMsgs) > 0 {
 			preExpansionMessages = origMsgs
+		}
+		if origRaw := wssRawJSON(body); origRaw != nil {
+			preExpansionPreviousResponseID = wssPreviousResponseIDFromRaw(origRaw)
 		}
 		out = rewritten
 		statelessHistoryContinuation = true
@@ -670,6 +674,8 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	outputReduceStats := outputreduce.Stats{Profile: "wss_phasef", Reason: "disabled"}
 	requestContainsToolOutput := false
 	toolPruneAppliedInMessagePath := false
+	deltaStatelessRecoveryReady := false
+	recoveryPreviousResponseID := ""
 	toolPruneRecoveryBody := []byte(nil)
 	messages, raw, err := extractMessagesFn(types.CodexChatGPT, out)
 	if err == nil {
@@ -680,6 +686,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.OriginalMessages = preExpansionMessages
 		} else {
 			meta.OriginalMessages = messages
+		}
+		// The stateless continuation expansion drops previous_response_id
+		// from the body. We do NOT restore it in meta (that would trigger
+		// wssPreviousResponseUnknownToolOutputFullPass and overwrite debug
+		// facts). Instead, we pass it separately to the recovery check.
+		recoveryPreviousResponseID = meta.PreviousResponseID
+		if statelessHistoryContinuation && preExpansionPreviousResponseID != "" && recoveryPreviousResponseID == "" {
+			recoveryPreviousResponseID = preExpansionPreviousResponseID
 		}
 		if statelessHistoryContinuation {
 			a.markWSSHistoryStatelessMode()
@@ -754,7 +768,22 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		reconnectFullHistorySearchOnlyStatelessSafe := reconnectFullHistoryToolOutputMutationBlocked &&
 			!reconnectFullHistorySearchOutputStatelessSafe &&
 			wssFullHistorySearchOutputPartialStatelessSafeWithToolUses(messages, mergedToolUses, searchCompactOptions)
-		deltaStatelessRecoveryReady := a.wssDeltaStatelessRecoveryReady(meta.PreviousResponseID, messages, toolOutputKnown)
+		// Use pre-expansion messages for the delta-shape check so that
+		// stateless continuation expansion doesn't mask the original delta
+		// shape. The guard needs to know if the CLIENT sent a delta, not
+		// whether we expanded it internally.
+		recoveryCheckMessages := messages
+		if statelessHistoryContinuation && len(preExpansionMessages) > 0 {
+			recoveryCheckMessages = preExpansionMessages
+		}
+		deltaStatelessRecoveryReady = a.wssDeltaStatelessRecoveryReady(recoveryPreviousResponseID, recoveryCheckMessages, toolOutputKnown)
+		if meta.DebugFacts == nil {
+			meta.DebugFacts = make(map[string]string)
+		}
+		meta.DebugFacts["wss.delta_stateless_recovery_ready"] = strconv.FormatBool(deltaStatelessRecoveryReady)
+		meta.DebugFacts["wss.delta_stateless_recovery_prev_id"] = recoveryPreviousResponseID
+		meta.DebugFacts["wss.delta_stateless_recovery_tool_output_known"] = strconv.FormatBool(toolOutputKnown)
+		meta.DebugFacts["wss.delta_stateless_recovery_delta_shape"] = strconv.FormatBool(deltaShape)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
@@ -5551,6 +5580,15 @@ func wssPlannerModelFromRaw(raw map[string]json.RawMessage) string {
 
 func wssPreviousResponseIDFromRaw(raw map[string]json.RawMessage) string {
 	return rawJSONString(raw["previous_response_id"])
+}
+
+// wssRawJSON parses a WSS request body into a raw map for field extraction.
+func wssRawJSON(body []byte) map[string]json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil
+	}
+	return raw
 }
 
 func detachCodexPreviousResponseID(body []byte) ([]byte, bool) {
