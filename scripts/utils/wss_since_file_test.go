@@ -59,11 +59,11 @@ func TestWSSSinceFileFlagParsers(t *testing.T) {
 		t.Fatalf("bad distribution flags: %+v", distributionFlags)
 	}
 
-	inventoryFlags, err := parseWSSLocalGapInventoryFlags([]string{"captures", "--since-file=" + path})
+	proofPackFlags, err := parseWSSProofPackFlags([]string{"captures", "--since-file=" + path})
 	if err != nil {
-		t.Fatalf("parseWSSLocalGapInventoryFlags() error = %v", err)
+		t.Fatalf("parseWSSProofPackFlags() error = %v", err)
 	}
-	if inventoryFlags.path != "captures" || !inventoryFlags.since.Equal(want) {
-		t.Fatalf("bad inventory flags: %+v", inventoryFlags)
+	if proofPackFlags.path != "captures" || !proofPackFlags.since.Equal(want) {
+		t.Fatalf("bad proof-pack flags: %+v", proofPackFlags)
 	}
 }

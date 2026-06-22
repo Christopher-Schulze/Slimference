@@ -456,7 +456,7 @@ func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistribu
 	if flags.framesPath != "" {
 		return loadWSSClassDistributionFrames(flags)
 	}
-	paths, err := wssLocalGapInventoryPaths(flags.path)
+	paths, err := wssInventoryPaths(flags.path)
 	if err != nil {
 		return wssClassDistributionReport{}, err
 	}
@@ -482,7 +482,7 @@ func loadWSSClassDistribution(flags wssClassDistributionFlags) (wssClassDistribu
 		if err != nil {
 			return wssClassDistributionReport{}, fmt.Errorf("read decisions %s: %w", path, err)
 		}
-		logRow := wssClassDistributionLogRow{Name: wssLocalGapInventoryName(path), Path: path}
+		logRow := wssClassDistributionLogRow{Name: wssInventoryName(path), Path: path}
 		logged := false
 		for _, summary := range summaries {
 			if !flags.since.IsZero() {

@@ -400,11 +400,11 @@ func parseWSST354ShapeProofFlags(args []string) (wssT354ShapeProofFlags, error) 
 }
 
 func loadWSST354ShapeProofReport(flags wssT354ShapeProofFlags) (wssT354ShapeProofReport, error) {
-	files, singleFile, err := wssSavingsBaselineFiles(flags.path)
+	files, singleFile, err := wssReplayFiles(flags.path)
 	if err != nil {
 		return wssT354ShapeProofReport{}, err
 	}
-	restoreLogger := silenceWSSSavingsBaselineReplayLogs()
+	restoreLogger := silenceReplayLogs()
 	defer restoreLogger()
 	report := wssT354ShapeProofReport{Path: flags.path, T420HandoffPath: flags.t420HandoffPath, T408OpenSlicePath: flags.t408OpenSlicePath, SocketSeq: flags.socketSeq, GatePassed: true}
 	for _, path := range files {
