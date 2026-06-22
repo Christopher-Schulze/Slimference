@@ -243,3 +243,74 @@ func TestSchemaOf_manyKeys(t *testing.T) {
 		t.Errorf("want '[+5 more keys]' truncation marker, got: %q", s[:min(len(s), 300)])
 	}
 }
+
+func TestTryCompactGoListJSON_BasicNDJSON(t *testing.T) {
+	t.Parallel()
+	input := []byte(`{
+	"ImportPath": "github.com/Christopher-Schulze/Slimference/internal/filter",
+	"Name": "filter",
+	"Deps": ["fmt", "strings"]
+}
+{
+	"ImportPath": "github.com/Christopher-Schulze/Slimference/internal/config",
+	"Name": "config",
+	"Deps": ["os", "fmt"]
+}
+`)
+	compacted, ok := TryCompactGoListJSON([]string{"go", "list", "-json", "./..."}, input)
+	if !ok {
+		t.Fatalf("TryCompactGoListJSON returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, `"ImportPath":"github.com/Christopher-Schulze/Slimference/internal/filter"`) {
+		t.Fatalf("compacted missing ImportPath: %s", s)
+	}
+	if !strings.Contains(s, `"Name":"config"`) {
+		t.Fatalf("compacted missing Name=config: %s", s)
+	}
+}
+
+func TestTryCompactGoListJSON_NotGoList(t *testing.T) {
+	t.Parallel()
+	input := []byte(`{"foo": "bar"}`)
+	_, ok := TryCompactGoListJSON([]string{"rg", "--json", "foo"}, input)
+	if ok {
+		t.Fatalf("TryCompactGoListJSON should return false for non-go-list argv")
+	}
+}
+
+func TestTryCompactGoListJSON_NoJSONFlag(t *testing.T) {
+	t.Parallel()
+	input := []byte("github.com/foo/bar\n")
+	_, ok := TryCompactGoListJSON([]string{"go", "list", "./..."}, input)
+	if ok {
+		t.Fatalf("TryCompactGoListJSON should return false without -json flag")
+	}
+}
+
+func TestTryCompactGoListJSON_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	_, ok := TryCompactGoListJSON([]string{"go", "list", "-json"}, []byte(""))
+	if ok {
+		t.Fatalf("TryCompactGoListJSON should return false for empty output")
+	}
+}
+
+func TestTryCompactGoListJSON_SingleObject(t *testing.T) {
+	t.Parallel()
+	input := []byte(`{
+	"ImportPath": "github.com/foo/bar",
+	"Name": "bar"
+}`)
+	compacted, ok := TryCompactGoListJSON([]string{"go", "list", "-json", "./..."}, input)
+	if !ok {
+		t.Fatalf("TryCompactGoListJSON returned ok=false for single object")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, `"ImportPath":"github.com/foo/bar"`) {
+		t.Fatalf("compacted missing ImportPath: %s", s)
+	}
+}

@@ -1542,6 +1542,13 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		if compacted, ok := filter.TryCompactGoTestJSON(argv, stdout); ok {
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
+		// go list -json produces NDJSON module objects that
+		// TryCompactKnownCLIJSONExact cannot handle (it expects a single
+		// JSON document). Try the NDJSON compactor before the generic
+		// JSON path.
+		if compacted, ok := filter.TryCompactGoListJSON(argv, stdout); ok {
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)

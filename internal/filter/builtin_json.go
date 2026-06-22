@@ -222,3 +222,131 @@ func jsonTypeName(v any) string {
 	}
 	return "unknown"
 }
+
+// TryCompactGoListJSON compacts `go list -json` NDJSON output by minifying
+// each JSON object on each line. go list -json produces multiple JSON objects
+// separated by newlines (NDJSON), not a JSON array, so TryCompactJSONMinify
+// (which expects a single valid JSON document) cannot handle it.
+//
+// This function minifies each JSON object independently and concatenates the
+// results. For large outputs with many modules, this can produce significant
+// savings by removing pretty-printing whitespace.
+//
+// Drawdown vector: the model loses whitespace formatting only. All data
+// (module path, imports, dependencies, etc.) is preserved. Fail-open on
+// malformed JSON lines.
+func TryCompactGoListJSON(argv []string, stdout []byte) ([]byte, bool) {
+	if !isGoListJSONArgv(argv) {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 2 {
+		// Single object — try TryCompactJSONMinify instead
+		return TryCompactJSONMinify(stdout)
+	}
+
+	// go list -json outputs one JSON object per module, but each object
+	// spans multiple lines. We need to find object boundaries by tracking
+	// brace depth.
+	var result bytes.Buffer
+	result.Grow(len(stdout))
+	changed := false
+	var currentObj bytes.Buffer
+	depth := 0
+	inString := false
+	escaped := false
+
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if currentObj.Len() > 0 {
+			currentObj.WriteByte('\n')
+		}
+		currentObj.WriteString(line)
+
+		for _, r := range line {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if r == '{' {
+				depth++
+			} else if r == '}' {
+				depth--
+				if depth == 0 {
+					// Complete object — minify it
+					obj := currentObj.Bytes()
+					var compacted bytes.Buffer
+					compacted.Grow(len(obj))
+					if err := json.Compact(&compacted, bytes.TrimSpace(obj)); err == nil {
+						if compacted.Len() < currentObj.Len() {
+							result.Write(compacted.Bytes())
+							result.WriteByte('\n')
+							changed = true
+						} else {
+							result.Write(obj)
+							result.WriteByte('\n')
+						}
+					} else {
+						// Fail-open: write original
+						result.Write(obj)
+						result.WriteByte('\n')
+					}
+					currentObj.Reset()
+				}
+			}
+		}
+	}
+
+	// Write any remaining content
+	if currentObj.Len() > 0 {
+		result.Write(currentObj.Bytes())
+		result.WriteByte('\n')
+	}
+
+	if !changed {
+		return stdout, false
+	}
+
+	out := bytes.TrimRight(result.Bytes(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return out, true
+}
+
+func isGoListJSONArgv(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	b = strings.TrimSuffix(b, ".exe")
+	if b != "go" {
+		return false
+	}
+	hasList := false
+	hasJSON := false
+	for _, arg := range argv[1:] {
+		if arg == "list" {
+			hasList = true
+		}
+		if arg == "-json" || strings.HasPrefix(arg, "-json=") {
+			hasJSON = true
+		}
+	}
+	return hasList && hasJSON
+}
