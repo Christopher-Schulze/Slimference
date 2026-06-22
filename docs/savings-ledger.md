@@ -23,8 +23,10 @@ counted as `S_local`.
   2. `TryCompactGoTestJSON` wired into `go` case — was implemented but never called (99.997% saved on all-pass)
   3. `TryCompactJSONMinify` wired into `cat`/`head`/`sed`/`awk`/`bat` case — was implemented but never called (50-83% saved on JSON files)
   4. `bat`/`batcat` added to read-command path — same compaction as `cat`
-  5. Genuine L1 captures distributed to 11 previously uncovered categories (16/16 CLI categories now covered)
-  6. Genuine L2 captures distributed to 5 previously uncovered categories (16/16 CLI categories now covered)
+  5. `TryCompactGitDiff`/`TryCompactGitShow`/`TryCompactGitLog` enabled for all output, not just `--stat`/`--name-only` (context line stripping for full diffs)
+  6. `TryCompactGoListJSON` — new compactor for `go list -json` NDJSON output (11% saved on single module, more for `./...`)
+  7. Genuine L1 captures distributed to 11 previously uncovered categories (16/16 CLI categories now covered)
+  8. Genuine L2 captures distributed to 5 previously uncovered categories (16/16 CLI categories now covered)
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
