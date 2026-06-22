@@ -15,7 +15,7 @@ counted as `S_local`.
 
 - **Owner target:** `S_local >= 48%` (AGENTS.md §3.2).
 - **CI floor:** `6.04%` (`scripts/ci/main.go --real-local-min-ratio=0.0604`).
-- **Measured:** `~6.09%` on `tests/fixtures/live_corpus` (L2 T418 sidecar now counted).
+- **Measured:** `~6.10%` on `tests/fixtures/live_corpus` (L2 T418 sidecar, 6 categories).
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
@@ -54,6 +54,7 @@ counted as `S_local`.
 | Date | Lever / route | Ceiling proven | Evidence | Decision |
 |------|---------------|----------------|----------|----------|
 | 2026-06-21 | L1/L3 Desktop WSS delta | Root cause: WSS certification missing (not a code bug) | `~/.slimference/codex/` has no `wss_certification.json`, `wss_bridge_proof.json`, or `wss_recert_state.json`. `DecideAutoTransport` (`internal/codexroute/certification.go:272`) falls back to HTTP → `resolveCodexDesktopAppServerRoute` sets `SupportsWebSockets: false` → Desktop app never opens WSS → zero WSS counters → `no_wss_delta`. The 3 broad guards in `wsmitm_phasef.go` are irrelevant because traffic never reaches them. | Not a kill — route has a seam (app-server shim + cert path). Blocked on live `slimference codex recertify wss` with a real Codex Desktop session. L1/L3 stay parked until operational certification is done. Move to Phase 2 (L2 sharpen) for code-progress. |
+| 2026-06-22 | L1/L3 Desktop WSS delta | Phase 1 root cause: `tool_output_known: false` on first delta blocks `deltaStatelessRecoveryReady` | `slimference codex recertify wss` shows `phasef_passed: false`, `phasef_mutations: 0`, `mutation_active: false`. Debug facts (`wss.delta_stateless_recovery_*`) show: first delta has `tool_output_known: false` → `deltaStatelessRecoveryReady: false` → `statefulDeltaMutationBlocked: true` → `wss_stateful_delta_mutation_proof_gate` blocks all mutations. Second delta has `tool_output_known: true`, `gate: open`, but no mutations because the `wssPreviousResponseUnknownToolOutputFullPass` block is not entered (toolOutputKnown=true → function returns false → mutation block skipped). Root cause: `rememberToolUsesFromResponse` stores tool_use metadata from `ResponseOutputItemDone` frames, but the tool result resolution (`wssToolOutputResolutionStatsWithToolUses`) fails for the first delta — likely because the Codex Desktop 0.141.0 response format doesn't include `ResponseOutputItemDone` for function_call items, or the tool_use metadata format is incompatible. The recertify prompt (`git status --short`) also produces minimal tool output, insufficient to trigger compaction even if the gate opens. | Not a kill — the gate opens on the second delta (tool_output_known: true), proving the chain lookup works. The fix is to ensure tool_use metadata is available for the first delta. Next: investigate Codex 0.141.0 response frame format for function_call items, or add inference fallback when tool_use metadata is missing. Also consider a recertify prompt that produces larger tool output. |
 
 ---
 
