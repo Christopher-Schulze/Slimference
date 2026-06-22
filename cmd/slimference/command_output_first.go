@@ -1478,7 +1478,15 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			return nil, false
 		}
 	case "rg":
-		compacted, ok := filter.TryCompactPathListOutput(argv, stdout)
+		// rg --json produces NDJSON events that are not handled by the
+		// plain-text search compaction path. Try the JSON archived compactor
+		// first — it strips the JSON envelope and produces the same archived
+		// summary format as the plain-text path, with archive recovery.
+		compacted, ok := filter.TryCompactRipgrepJSONArchived(argv, stdout)
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		compacted, ok = filter.TryCompactPathListOutput(argv, stdout)
 		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
 			return out, true
 		}

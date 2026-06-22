@@ -2032,3 +2032,153 @@ func TestIsSearchEmptyResultTool(t *testing.T) {
 		})
 	}
 }
+
+func TestTryCompactRipgrepJSONArchived_BasicMatch(t *testing.T) {
+	t.Parallel()
+	// Simulate rg --json output with 2 match events in 1 file.
+	input := []byte(`{"type":"begin","data":{"path":{"text":"internal/filter/builtin_search.go"}}}
+{"type":"match","data":{"path":{"text":"internal/filter/builtin_search.go"},"lines":{"text":"func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {\n"},"line_number":993,"absolute_offset":28492,"submatches":[{"match":{"text":"func"},"start":0,"end":4}]}}
+{"type":"match","data":{"path":{"text":"internal/filter/builtin_search.go"},"lines":{"text":"func TryCompactSearchOutputWithOptions(argv []string, stdout []byte, options SearchCompactOptions) ([]byte, SearchCompactStats, bool) {\n"},"line_number":997,"absolute_offset":28600,"submatches":[{"match":{"text":"func"},"start":0,"end":4}]}}
+{"type":"end","data":{"path":{"text":"internal/filter/builtin_search.go"}}}
+`)
+	compacted, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func", "internal/filter/"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted output (%d bytes) >= input (%d bytes)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "2 match(es) in 1 file(s)") {
+		t.Fatalf("compacted output missing match count: %s", s)
+	}
+	if !strings.Contains(s, "builtin_search.go") {
+		t.Fatalf("compacted output missing file path: %s", s)
+	}
+	if !strings.Contains(s, "993:") {
+		t.Fatalf("compacted output missing line number 993: %s", s)
+	}
+	if !strings.Contains(s, "997:") {
+		t.Fatalf("compacted output missing line number 997: %s", s)
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_MultipleFiles(t *testing.T) {
+	t.Parallel()
+	input := []byte(`{"type":"begin","data":{"path":{"text":"file_a.go"}}}
+{"type":"match","data":{"path":{"text":"file_a.go"},"lines":{"text":"func foo() {}\n"},"line_number":10,"absolute_offset":200,"submatches":[{"match":{"text":"func"},"start":0,"end":4}]}}
+{"type":"end","data":{"path":{"text":"file_a.go"}}}
+{"type":"begin","data":{"path":{"text":"file_b.go"}}}
+{"type":"match","data":{"path":{"text":"file_b.go"},"lines":{"text":"func bar() {}\n"},"line_number":20,"absolute_offset":400,"submatches":[{"match":{"text":"func"},"start":0,"end":4}]}}
+{"type":"end","data":{"path":{"text":"file_b.go"}}}
+`)
+	compacted, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived returned ok=false")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "2 match(es) in 2 file(s)") {
+		t.Fatalf("compacted output missing match/file count: %s", s)
+	}
+	if !strings.Contains(s, "file_a.go") {
+		t.Fatalf("compacted output missing file_a.go: %s", s)
+	}
+	if !strings.Contains(s, "file_b.go") {
+		t.Fatalf("compacted output missing file_b.go: %s", s)
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_NotJSONFlag(t *testing.T) {
+	t.Parallel()
+	// Without --json flag, should return false.
+	input := []byte("internal/filter/builtin_search.go:993:func TryCompactSearchOutput\n")
+	_, ok := TryCompactRipgrepJSONArchived([]string{"rg", "func", "internal/filter/"}, input)
+	if ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should return false without --json flag")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_NotRipgrep(t *testing.T) {
+	t.Parallel()
+	// grep with --json should not trigger the rg-specific compactor.
+	input := []byte(`{"type":"match","data":{"path":{"text":"file.go"},"lines":{"text":"func foo\n"},"line_number":1}}`)
+	_, ok := TryCompactRipgrepJSONArchived([]string{"grep", "--json", "func"}, input)
+	if ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should return false for non-rg tools")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	_, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, []byte(""))
+	if ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should return false for empty output")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_TooFewLines(t *testing.T) {
+	t.Parallel()
+	// Only 1 line — below minLinesForGrouped threshold.
+	input := []byte(`{"type":"match","data":{"path":{"text":"file.go"},"lines":{"text":"func foo\n"},"line_number":1}}`)
+	_, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, input)
+	if ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should return false for <minLinesForGrouped lines")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_MalformedJSON(t *testing.T) {
+	t.Parallel()
+	// Malformed JSON lines should be skipped (fail-open per line).
+	input := []byte(`not json at all
+also not json
+{"type":"match","data":{"path":{"text":"file.go"},"lines":{"text":"func foo\n"},"line_number":1}}
+more garbage
+`)
+	_, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should succeed with some valid matches despite malformed lines")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_NoMatches(t *testing.T) {
+	t.Parallel()
+	// Only begin/end events, no match events.
+	input := []byte(`{"type":"begin","data":{"path":{"text":"file.go"}}}
+{"type":"end","data":{"path":{"text":"file.go"}}}
+{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1000},"stats":{"data_len":0}}}
+`)
+	_, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, input)
+	if ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived should return false when no match events are present")
+	}
+}
+
+func TestTryCompactRipgrepJSONArchived_CapsApplied(t *testing.T) {
+	t.Parallel()
+	// Generate output with >maxArchivedMatchesPerFile matches in >maxArchivedFilesShown files.
+	var sb strings.Builder
+	for f := 0; f < maxArchivedFilesShown+5; f++ {
+		file := fmt.Sprintf("file_%d.go", f)
+		sb.WriteString(fmt.Sprintf(`{"type":"begin","data":{"path":{"text":"%s"}}}`+"\n", file))
+		for m := 0; m < maxArchivedMatchesPerFile+5; m++ {
+			sb.WriteString(fmt.Sprintf(`{"type":"match","data":{"path":{"text":"%s"},"lines":{"text":"func foo() {}\n"},"line_number":%d,"absolute_offset":%d,"submatches":[{"match":{"text":"func"},"start":0,"end":4}]}}`+"\n", file, m+1, m*100))
+		}
+		sb.WriteString(fmt.Sprintf(`{"type":"end","data":{"path":{"text":"%s"}}}`+"\n", file))
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactRipgrepJSONArchived([]string{"rg", "--json", "func"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRipgrepJSONArchived returned ok=false for large output")
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[+5 more files]") {
+		t.Fatalf("compacted output should contain [+5 more files]: %s ...", s[:200])
+	}
+	if !strings.Contains(s, "[+5 more matches]") {
+		t.Fatalf("compacted output should contain [+5 more matches]: %s ...", s[:200])
+	}
+	// Verify significant compaction
+	if len(compacted) >= len(input)/10 {
+		t.Fatalf("compacted output (%d bytes) should be <10%% of input (%d bytes)", len(compacted), len(input))
+	}
+}

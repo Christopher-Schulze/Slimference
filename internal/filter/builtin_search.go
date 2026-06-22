@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -1849,4 +1850,186 @@ func quoteSearchArg(arg string) string {
 		return arg
 	}
 	return strconv.Quote(arg)
+}
+
+// ---- rg --json archived compaction ----
+
+// ripgrepJSONEvent is a minimal envelope for parsing rg --json lines.
+type ripgrepJSONEvent struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+// ripgrepJSONMatchData is the data payload of a match event.
+type ripgrepJSONMatchData struct {
+	Path struct {
+		Text string `json:"text"`
+	} `json:"path"`
+	Lines struct {
+		Text string `json:"text"`
+	} `json:"lines"`
+	LineNumber int `json:"line_number"`
+}
+
+// ripgrepJSONBeginData is the data payload of a begin event.
+type ripgrepJSONBeginData struct {
+	Path struct {
+		Text string `json:"text"`
+	} `json:"path"`
+}
+
+// hasRipgrepJSONFlag returns true if argv contains --json (with or without
+// =value). This flags the rg --json output mode which emits NDJSON events.
+func hasRipgrepJSONFlag(argv []string) bool {
+	args := searchOutputModeArgs(argv)
+	for _, arg := range args {
+		if arg == "--json" || strings.HasPrefix(arg, "--json=") {
+			return true
+		}
+	}
+	return false
+}
+
+// isRipgrepJSONTool returns true if argv is an rg invocation with --json flag.
+func isRipgrepJSONTool(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	b = strings.TrimSuffix(b, ".exe")
+	if b != "rg" {
+		return false
+	}
+	return hasRipgrepJSONFlag(argv)
+}
+
+// TryCompactRipgrepJSONArchived compacts rg --json NDJSON output into the same
+// archived summary format as compactSearchOutputArchived (file: line: content
+// with caps). The omitted JSON envelope, submatches, and absolute_offset bytes
+// are recoverable via the command-output-first archive marker.
+//
+// Drawdown vector analysis:
+//   - The model loses: JSON envelope structure (type/data fields), submatch
+//     byte offsets, absolute_offset. These are machine-parse metadata, not
+//     model-relevant facts.
+//   - The model keeps: file path, line number, match content (truncated to
+//     maxArchivedMatchContentRunes, same as the plain-text archived path).
+//   - Recovery: full JSON is in the archive, recoverable on demand.
+//   - Fail-open: if JSON parsing fails on any line, the function returns false
+//     and the full output is sent unchanged.
+//
+// This is safe by construction: same salience boundaries as the existing
+// archived search compaction (maxArchivedMatchesPerFile, maxArchivedFilesShown,
+// maxArchivedMatchContentRunes), with the only new dimension being JSON
+// envelope stripping which is pure metadata removal.
+func TryCompactRipgrepJSONArchived(argv []string, stdout []byte) ([]byte, bool) {
+	if !isRipgrepJSONTool(argv) {
+		return stdout, false
+	}
+	summary := compactRipgrepJSONArchived(argv, stdout, "")
+	if len(summary) > 0 && len(summary) < len(stdout) {
+		return summary, true
+	}
+	return stdout, false
+}
+
+// compactRipgrepJSONArchived parses rg --json NDJSON and produces an archived
+// summary in the same format as compactSearchOutputArchived.
+func compactRipgrepJSONArchived(argv []string, stdout []byte, _ string) []byte {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < minLinesForGrouped {
+		return nil
+	}
+
+	fileOrder := []string{}
+	fileMatches := map[string][]searchMatchLine{}
+	parsedCount := 0
+
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" {
+			continue
+		}
+		var event ripgrepJSONEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		switch event.Type {
+		case "begin":
+			var data ripgrepJSONBeginData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				continue
+			}
+			// begins are informational; we don't need to track them
+			// since match events include the path.
+		case "match":
+			var data ripgrepJSONMatchData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				continue
+			}
+			path := data.Path.Text
+			if path == "" {
+				continue
+			}
+			content := strings.TrimRight(data.Lines.Text, "\n")
+			lineNum := strconv.Itoa(data.LineNumber)
+			if _, seen := fileMatches[path]; !seen {
+				fileOrder = append(fileOrder, path)
+			}
+			fileMatches[path] = append(fileMatches[path], searchMatchLine{
+				lineNum: lineNum,
+				content: content,
+			})
+			parsedCount++
+		case "end", "summary":
+			// end and summary events are metadata; skip.
+		default:
+			// Unknown event type; skip (fail-open for individual lines).
+		}
+	}
+
+	if parsedCount == 0 {
+		return nil
+	}
+
+	totalMatches := 0
+	for _, ms := range fileMatches {
+		totalMatches += len(ms)
+	}
+	if totalMatches == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[rg --json] %d match(es) in %d file(s)\n", totalMatches, len(fileOrder)))
+
+	shownFiles := min(len(fileOrder), maxArchivedFilesShown)
+	for fi, file := range fileOrder {
+		if fi >= shownFiles {
+			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(fileOrder)-shownFiles))
+			break
+		}
+		ms := fileMatches[file]
+		sb.WriteString(fmt.Sprintf("  %s (%d match(es))\n", file, len(ms)))
+		shown := 0
+		for _, m := range ms {
+			if shown >= maxArchivedMatchesPerFile {
+				sb.WriteString(fmt.Sprintf("    [+%d more matches]\n", len(ms)-shown))
+				break
+			}
+			content := truncateRunes(m.content, maxArchivedMatchContentRunes)
+			if m.lineNum != "" {
+				sb.WriteString(fmt.Sprintf("    %s: %s\n", m.lineNum, strings.TrimSpace(content)))
+			} else {
+				sb.WriteString(fmt.Sprintf("    %s\n", strings.TrimSpace(content)))
+			}
+			shown++
+		}
+	}
+
+	return []byte(sb.String())
 }
