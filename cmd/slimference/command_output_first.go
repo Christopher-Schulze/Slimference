@@ -1436,6 +1436,12 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	}
 	switch command {
 	case "cat", "head", "sed", "awk":
+		// Try JSON minification first — cat of JSON files (package.json,
+		// tsconfig.json, etc.) is common and minification + schema
+		// extraction can produce large savings on pretty-printed JSON.
+		if compacted, ok := filter.TryCompactJSONMinify(stdout); ok {
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		compacted, ok := compactCommandOutputFirstReadDelta(command, args, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "git":
