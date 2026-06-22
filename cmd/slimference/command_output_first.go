@@ -1529,6 +1529,12 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		compacted, ok := filter.TryCompactTree(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
+		// go test -json produces verbose NDJSON events. Try the JSON
+		// compactor first — it replaces all-pass output with one line
+		// and extracts only failed test events + summary on failure.
+		if compacted, ok := filter.TryCompactGoTestJSON(argv, stdout); ok {
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
 			compacted, ok := filter.TryCompactKnownCLIJSONExact(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
