@@ -1,2 +1,1 @@
-{"ts":"2026-06-22T09:54:12Z","command":"[command-output-first:find] find internal/proxy -maxdepth 1 -type f -name *.go -print","input_tokens":1592,"output_tokens":1115,"saved_tokens":477}
-{"ts":"2026-06-22T09:54:18Z","command":"[command-output-first:ls] ls -la scripts/utils/","input_tokens":1359,"output_tokens":998,"saved_tokens":361}
+{"ts":"2026-06-22T10:30:40.060092Z","command":"[command-output-first:rg] rg -n func Test internal/proxy/wsmitm_phasef_test.go","input_tokens":3167,"output_tokens":446,"saved_tokens":2721}
