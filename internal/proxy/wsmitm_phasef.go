@@ -777,29 +777,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			recoveryCheckMessages = preExpansionMessages
 		}
 		deltaStatelessRecoveryReady = a.wssDeltaStatelessRecoveryReady(recoveryPreviousResponseID, recoveryCheckMessages, toolOutputKnown)
-		if meta.DebugFacts == nil {
-			meta.DebugFacts = make(map[string]string)
-		}
-		meta.DebugFacts["wss.delta_stateless_recovery_ready"] = strconv.FormatBool(deltaStatelessRecoveryReady)
-		meta.DebugFacts["wss.delta_stateless_recovery_prev_id"] = recoveryPreviousResponseID
-		meta.DebugFacts["wss.delta_stateless_recovery_tool_output_known"] = strconv.FormatBool(toolOutputKnown)
-		meta.DebugFacts["wss.delta_stateless_recovery_delta_shape"] = strconv.FormatBool(deltaShape)
+		attachWSSDeltaStatelessRecoveryDebugFacts(&meta, deltaStatelessRecoveryReady, recoveryPreviousResponseID, toolOutputKnown, deltaShape)
 		structuredMutationRecoverable := wssStructuredMutationRecoverable(requestContainsToolOutput, toolOutputKnown, deltaShape) || deltaStatelessRecoveryReady
 		structuredMutationAllowed := true
 		structuredMutationGuardReason := ""
 		cacheBustDemoted := a.wssCacheBustDemotedMechanismsForMeta(sessionID, meta, requestShape)
 		cacheBustDemotedClassKeys := a.wssCacheBustDemotedClassKeysForMeta(sessionID, meta, requestShape)
-		if cacheBustDemoted != 0 {
-			if meta.DebugFacts == nil {
-				meta.DebugFacts = make(map[string]string)
-			}
-			meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
-			meta.DebugFacts["wss.cache_bust_demoted_request_shape"] = requestShape
-			meta.DebugFacts["wss.cache_bust_demoted_scope"] = wssCacheBustScope(requestShape, meta.PromptCacheKeyHash)
-			if classKeys := proxyLayer0CacheBustClassKeysString(cacheBustDemotedClassKeys); classKeys != "" {
-				meta.DebugFacts["wss.cache_bust_demoted_class_keys"] = classKeys
-			}
-		}
+		attachWSSCacheBustDemotedDebugFacts(&meta, cacheBustDemoted, cacheBustDemotedClassKeys, requestShape)
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
 			historyMutationGuardReason := ""
 			if meta.PreviousResponseID != "" && deltaShape {
@@ -862,6 +846,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 			meta.DebugFacts = wssRequestDebugFacts(body, out, messages, l0Stats, changed, meta.BypassReason, meta, outputReduceStats)
+			// Re-attach facts that wssRequestDebugFacts (which builds a fresh
+			// map) wiped. The delta stateless recovery and cache-bust-demoted
+			// facts were set earlier in the pipeline and must survive into the
+			// recorded summary for live debugging of the no_wss_delta blocker.
+			attachWSSDeltaStatelessRecoveryDebugFacts(&meta, deltaStatelessRecoveryReady, recoveryPreviousResponseID, toolOutputKnown, deltaShape)
+			attachWSSCacheBustDemotedDebugFacts(&meta, cacheBustDemoted, cacheBustDemotedClassKeys, requestShape)
 			if detachedPreviousResponseID {
 				meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
 			}
@@ -5589,6 +5579,42 @@ func wssRawJSON(body []byte) map[string]json.RawMessage {
 		return nil
 	}
 	return raw
+}
+
+// attachWSSDeltaStatelessRecoveryDebugFacts sets the delta stateless recovery
+// debug facts on meta. It is safe to call multiple times (e.g. before and after
+// a wssRequestDebugFacts reassignment that builds a fresh map) so the facts
+// survive into the recorded summary for live debugging of the no_wss_delta
+// blocker.
+func attachWSSDeltaStatelessRecoveryDebugFacts(meta *wssRequestMeta, ready bool, previousResponseID string, toolOutputKnown bool, deltaShape bool) {
+	if meta == nil {
+		return
+	}
+	if meta.DebugFacts == nil {
+		meta.DebugFacts = make(map[string]string)
+	}
+	meta.DebugFacts["wss.delta_stateless_recovery_ready"] = strconv.FormatBool(ready)
+	meta.DebugFacts["wss.delta_stateless_recovery_prev_id"] = previousResponseID
+	meta.DebugFacts["wss.delta_stateless_recovery_tool_output_known"] = strconv.FormatBool(toolOutputKnown)
+	meta.DebugFacts["wss.delta_stateless_recovery_delta_shape"] = strconv.FormatBool(deltaShape)
+}
+
+// attachWSSCacheBustDemotedDebugFacts sets the cache-bust-demoted debug facts
+// on meta. Like attachWSSDeltaStatelessRecoveryDebugFacts, it is safe to call
+// after a wssRequestDebugFacts reassignment that wipes prior facts.
+func attachWSSCacheBustDemotedDebugFacts(meta *wssRequestMeta, cacheBustDemoted proxyLayer0MechanismMask, cacheBustDemotedClassKeys map[string]struct{}, requestShape string) {
+	if meta == nil || cacheBustDemoted == 0 {
+		return
+	}
+	if meta.DebugFacts == nil {
+		meta.DebugFacts = make(map[string]string)
+	}
+	meta.DebugFacts["wss.cache_bust_demoted_mechanisms"] = cacheBustDemoted.String()
+	meta.DebugFacts["wss.cache_bust_demoted_request_shape"] = requestShape
+	meta.DebugFacts["wss.cache_bust_demoted_scope"] = wssCacheBustScope(requestShape, meta.PromptCacheKeyHash)
+	if classKeys := proxyLayer0CacheBustClassKeysString(cacheBustDemotedClassKeys); classKeys != "" {
+		meta.DebugFacts["wss.cache_bust_demoted_class_keys"] = classKeys
+	}
 }
 
 func detachCodexPreviousResponseID(body []byte) ([]byte, bool) {
