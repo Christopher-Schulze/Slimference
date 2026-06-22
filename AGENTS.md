@@ -99,14 +99,16 @@ regression. Reports, plans, guards, and reviews must treat local input
 reduction (`S_local`, excluding provider-cache discount) as a first-class
 product metric alongside combined billable savings.
 
-The owner target is **>=48% local input reduction on longer eligible Codex
-sessions without counting provider-cache discount** while preserving the
-drawdown definition above. Until that target is live-proven or a specific
-route/protocol ceiling is proven impossible, agents must keep searching for and
-shipping default-on-safe local savings. A guard that prevents a real drawdown is
-correct, but it must be the narrowest possible guard and must preserve
-observation, cache seeding, telemetry, and future safe savings wherever those
-actions do not mutate model-visible or upstream-visible bytes.
+The owner target is **maximum practical local input reduction (`S_local` as
+high as possible) on longer eligible Codex sessions without counting
+provider-cache discount** while preserving the drawdown definition above.
+The previous floor of >=48% has been met and exceeded; the goal is now to push
+`S_local` as high as engineering and protocol physics allow. Agents must keep
+searching for and shipping default-on-safe local savings across all available
+levers (L1, L2, L3, and new candidate mechanisms). A guard that prevents a real
+drawdown is correct, but it must be the narrowest possible guard and must
+preserve observation, cache seeding, telemetry, and future safe savings wherever
+those actions do not mutate model-visible or upstream-visible bytes.
 
 When changing any savings-related path:
 
@@ -315,8 +317,9 @@ measured, policy-safe, and net-positive.
 
 These rules exist because a prior autonomous loop produced 1000+ commits and
 ~44k lines of measurement tooling while the proven production `S_local` stayed
-frozen at ~6% against the 48% target. The work was green every cycle but never
-moved the product number. The following rules are binding to prevent that:
+frozen at ~6% against the original 48% target. The work was green every cycle
+but never moved the product number. The following rules are binding to prevent
+that:
 
 1. **Single-Gate rule.** There is exactly one product success number: live
    `S_local` (excluding provider-cache discount), measured by the standard
