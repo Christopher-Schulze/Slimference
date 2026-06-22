@@ -547,3 +547,315 @@ func TestTryCompactCloc_EmptyOutput(t *testing.T) {
 		t.Fatalf("compacted should contain empty marker")
 	}
 }
+
+// --- TryCompactDocker tests ---
+
+func TestTryCompactDocker_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "container_%d  image_%d  status_%d\n", i, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactDocker([]string{"docker"}, input)
+	if !ok {
+		t.Fatalf("TryCompactDocker returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if !strings.Contains(s, "[docker] 100 lines") {
+		t.Fatalf("compacted missing summary: %s", s[:200])
+	}
+	if !strings.Contains(s, "container_1") {
+		t.Fatalf("compacted missing first entry")
+	}
+	if !strings.Contains(s, "container_100") {
+		t.Fatalf("compacted missing last entry")
+	}
+}
+
+func TestTryCompactDocker_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("container_1  image_1  Up\ncontainer_2  image_2  Up\n")
+	_, ok := TryCompactDocker([]string{"docker"}, input)
+	if ok {
+		t.Fatalf("TryCompactDocker should return ok=false for small output")
+	}
+}
+
+func TestTryCompactDocker_Empty(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactDocker([]string{"docker"}, []byte(""))
+	if !ok {
+		t.Fatalf("TryCompactDocker should return true for empty output")
+	}
+	if !strings.Contains(string(compacted), "[docker] empty") {
+		t.Fatalf("compacted should contain empty marker")
+	}
+}
+
+func TestTryCompactDocker_WrongCommand(t *testing.T) {
+	t.Parallel()
+	input := []byte("some output\n")
+	_, ok := TryCompactDocker([]string{"ls"}, input)
+	if ok {
+		t.Fatalf("TryCompactDocker should return ok=false for wrong command")
+	}
+}
+
+// --- TryCompactKubectl tests ---
+
+func TestTryCompactKubectl_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "pod-%d  Running  10.0.0.%d  node-%d\n", i, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactKubectl([]string{"kubectl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactKubectl returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	if !strings.Contains(string(compacted), "[kubectl] 100 lines") {
+		t.Fatalf("compacted missing summary")
+	}
+}
+
+func TestTryCompactKubectl_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("pod-1  Running  10.0.0.1\n")
+	_, ok := TryCompactKubectl([]string{"kubectl"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+func TestTryCompactKubectl_WrongCommand(t *testing.T) {
+	t.Parallel()
+	_, ok := TryCompactKubectl([]string{"docker"}, []byte("output\n"))
+	if ok {
+		t.Fatalf("should return ok=false for wrong command")
+	}
+}
+
+// --- TryCompactHelm tests ---
+
+func TestTryCompactHelm_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 50; i++ {
+		fmt.Fprintf(&sb, "release-%d  chart-%d  deployed  namespace-%d\n", i, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactHelm([]string{"helm"}, input)
+	if !ok {
+		t.Fatalf("TryCompactHelm returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	if !strings.Contains(string(compacted), "[helm] 50 lines") {
+		t.Fatalf("compacted missing summary")
+	}
+}
+
+func TestTryCompactHelm_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("release-1  chart-1  deployed\n")
+	_, ok := TryCompactHelm([]string{"helm"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+// --- TryCompactSystemctl tests ---
+
+func TestTryCompactSystemctl_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "service-%d.service  loaded  active  running\n", i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactSystemctl([]string{"systemctl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactSystemctl returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+}
+
+func TestTryCompactSystemctl_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("service-1.service  loaded  active  running\n")
+	_, ok := TryCompactSystemctl([]string{"systemctl"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+func TestTryCompactSystemctl_WrongCommand(t *testing.T) {
+	t.Parallel()
+	_, ok := TryCompactSystemctl([]string{"ls"}, []byte("output\n"))
+	if ok {
+		t.Fatalf("should return ok=false for wrong command")
+	}
+}
+
+// --- TryCompactJournalctl tests ---
+
+func TestTryCompactJournalctl_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 200; i++ {
+		fmt.Fprintf(&sb, "Jun 22 10:00:%d host service[%d]: log message %d\n", i%60, i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactJournalctl([]string{"journalctl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactJournalctl returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	if !strings.Contains(string(compacted), "[journalctl] 200 lines") {
+		t.Fatalf("compacted missing summary")
+	}
+}
+
+func TestTryCompactJournalctl_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("Jun 22 10:00:00 host service[1]: log\n")
+	_, ok := TryCompactJournalctl([]string{"journalctl"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+func TestTryCompactJournalctl_Empty(t *testing.T) {
+	t.Parallel()
+	compacted, ok := TryCompactJournalctl([]string{"journalctl"}, []byte(""))
+	if !ok {
+		t.Fatalf("should return true for empty output")
+	}
+	if !strings.Contains(string(compacted), "[journalctl] empty") {
+		t.Fatalf("compacted should contain empty marker")
+	}
+}
+
+// --- TryCompactCargo tests ---
+
+func TestTryCompactCargo_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "Compiling crate-%d v0.1.%d\n", i, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactCargo([]string{"cargo"}, input)
+	if !ok {
+		t.Fatalf("TryCompactCargo returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	if !strings.Contains(string(compacted), "[cargo] 100 lines") {
+		t.Fatalf("compacted missing summary")
+	}
+}
+
+func TestTryCompactCargo_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("Compiling crate-1 v0.1.0\n")
+	_, ok := TryCompactCargo([]string{"cargo"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+// --- TryCompactRustc tests ---
+
+func TestTryCompactRustc_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "warning: unused variable `x` at line %d\n", i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactRustc([]string{"rustc"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRustc returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+}
+
+func TestTryCompactRustc_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("warning: unused variable\n")
+	_, ok := TryCompactRustc([]string{"rustc"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+// --- TryCompactTcpdump tests ---
+
+func TestTryCompactTcpdump_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "10:00:00.%06d IP 10.0.0.%d > 10.0.0.%d: packet %d\n", i, i, i+1, i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactTcpdump([]string{"tcpdump"}, input)
+	if !ok {
+		t.Fatalf("TryCompactTcpdump returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+}
+
+func TestTryCompactTcpdump_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("10:00:00 IP 10.0.0.1 > 10.0.0.2: packet\n")
+	_, ok := TryCompactTcpdump([]string{"tcpdump"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}
+
+// --- TryCompactPerf tests ---
+
+func TestTryCompactPerf_BasicCap(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "%8.2f%%  function_%d  /usr/lib/lib.so\n", float64(i), i)
+	}
+	input := []byte(sb.String())
+	compacted, ok := TryCompactPerf([]string{"perf"}, input)
+	if !ok {
+		t.Fatalf("TryCompactPerf returned ok=false")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+}
+
+func TestTryCompactPerf_BelowThreshold(t *testing.T) {
+	t.Parallel()
+	input := []byte("  1.23%  function_1\n")
+	_, ok := TryCompactPerf([]string{"perf"}, input)
+	if ok {
+		t.Fatalf("should return ok=false for small output")
+	}
+}

@@ -369,7 +369,11 @@ func commandOutputFirstAllowCapture(command string, args []string) bool {
 		"strace", "ltrace",
 		"vmstat", "iostat", "mpstat", "sar",
 		"ip", "ifconfig",
-		"cloc", "scc", "tokei", "loc":
+		"cloc", "scc", "tokei", "loc",
+		"systemctl",
+		"rustc",
+		"tcpdump", "tshark",
+		"perf":
 		return true
 	default:
 		return commandOutputFirstDirectBuildAllowed(command, args) ||
@@ -1610,6 +1614,18 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 	case "cloc", "scc", "tokei", "loc":
 		compacted, ok := filter.TryCompactCloc(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "systemctl":
+		compacted, ok := filter.TryCompactSystemctl(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "rustc":
+		compacted, ok := filter.TryCompactRustc(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "tcpdump", "tshark":
+		compacted, ok := filter.TryCompactTcpdump(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+	case "perf":
+		compacted, ok := filter.TryCompactPerf(argv, stdout)
+		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "go":
 		// go test -json produces verbose NDJSON events. Try the JSON
 		// compactor first — it replaces all-pass output with one line
@@ -1717,7 +1733,8 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			compacted, ok := filter.TryCompactPackageOutput(argv, stdout)
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		default:
-			return nil, false
+			compacted, ok := filter.TryCompactCargo(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
 	case "pytest", "py.test", "python", "python3", "uv", "poetry":
 		if commandOutputFirstPackageOutputAllowed(command, args) {
@@ -1759,6 +1776,18 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 		}
 		compacted, ok := filter.TryCompactContainerOutput(argv, stdout)
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		// Fallback: generic line-capping compactor
+		switch command {
+		case "kubectl", "oc":
+			compacted, ok = filter.TryCompactKubectl(argv, stdout)
+		case "helm":
+			compacted, ok = filter.TryCompactHelm(argv, stdout)
+		default:
+			compacted, ok = filter.TryCompactDocker(argv, stdout)
+		}
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "terraform", "tofu", "tf":
 		if commandOutputFirstKnownJSONOutputAllowed(command, args) {
@@ -1813,7 +1842,14 @@ func compactCommandOutputFirstStdout(command, realBin string, args []string, std
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
 	case "journalctl", "tail":
 		compacted, ok := filter.TryCompactLogDuplicateRuns(argv, stdout)
-		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		if out, accepted := commandOutputFirstPositiveCompaction(compacted, ok, stdout); accepted {
+			return out, true
+		}
+		if command == "journalctl" {
+			compacted, ok = filter.TryCompactJournalctl(argv, stdout)
+			return commandOutputFirstPositiveCompaction(compacted, ok, stdout)
+		}
+		return nil, false
 	case "sort", "uniq", "cut", "tr", "column", "paste", "join", "comm", "tsort":
 		compacted, ok := filter.TryCompactTextUtility(argv, stdout)
 		return commandOutputFirstPositiveCompaction(compacted, ok, stdout)

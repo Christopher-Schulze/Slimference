@@ -544,3 +544,167 @@ func TryCompactCloc(argv []string, stdout []byte) ([]byte, bool) {
 	}
 	return []byte(out + "\n"), true
 }
+
+// TryCompactDocker compacts docker/podman output by capping lines.
+func TryCompactDocker(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if !strings.HasPrefix(b, "docker") && b != "podman" && b != "nerdctl" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactKubectl compacts kubectl/oc output by capping lines.
+func TryCompactKubectl(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "kubectl" && b != "oc" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactHelm compacts helm output by capping lines.
+func TryCompactHelm(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "helm" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 30, 3)
+}
+
+// TryCompactSystemctl compacts systemctl output by capping lines.
+func TryCompactSystemctl(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "systemctl" && b != "systemctl.exe" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactJournalctl compacts journalctl output by capping to most-recent lines.
+func TryCompactJournalctl(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "journalctl" && b != "journalctl.exe" {
+		return stdout, false
+	}
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte("[journalctl] empty\n"), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 30 {
+		return stdout, false
+	}
+	const maxLines = 50
+	start := len(lines) - maxLines
+	if start < 0 {
+		start = 0
+	}
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[journalctl] %d lines (showing last %d)\n", len(lines), len(lines)-start))
+	for _, line := range lines[start:] {
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
+
+// TryCompactCargo compacts cargo output by capping lines.
+func TryCompactCargo(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "cargo" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactRustc compacts rustc output by capping lines.
+func TryCompactRustc(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "rustc" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactTcpdump compacts tcpdump/tshark output by capping lines.
+func TryCompactTcpdump(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "tcpdump" && b != "tshark" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// TryCompactPerf compacts perf output by capping lines.
+func TryCompactPerf(argv []string, stdout []byte) ([]byte, bool) {
+	if len(argv) < 1 {
+		return stdout, false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "perf" {
+		return stdout, false
+	}
+	return capWithLastN(argv, stdout, b, 50, 3)
+}
+
+// capWithLastN is the shared helper for first-N + last-N + omission marker compaction.
+// Returns the compacted output and true if compaction happened, stdout and false otherwise.
+func capWithLastN(argv []string, stdout []byte, name string, cap, lastN int) ([]byte, bool) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return []byte(fmt.Sprintf("[%s] empty\n", name)), true
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= cap {
+		return stdout, false
+	}
+	var sb strings.Builder
+	sb.Grow(len(stdout))
+	sb.WriteString(fmt.Sprintf("[%s] %d lines (showing first %d + last %d)\n", name, len(lines), cap, lastN))
+	for i := 0; i < cap && i < len(lines); i++ {
+		sb.WriteString(lines[i])
+		sb.WriteByte('\n')
+	}
+	sb.WriteString(fmt.Sprintf("  [...%d lines omitted...]\n", len(lines)-cap-lastN))
+	for i := len(lines) - lastN; i < len(lines); i++ {
+		if i >= 0 {
+			sb.WriteString(lines[i])
+			sb.WriteByte('\n')
+		}
+	}
+	out := strings.TrimRight(sb.String(), "\n")
+	if len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out + "\n"), true
+}
