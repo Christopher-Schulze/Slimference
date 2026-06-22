@@ -17,6 +17,7 @@ func TestWSPhaseFStatelessContinuationReconnectFullHistorySearchCompacts(t *test
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -107,6 +108,7 @@ func TestWSPhaseFStatelessContinuationSurvivesSocketReconnect(t *testing.T) {
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false

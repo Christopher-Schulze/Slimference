@@ -66,20 +66,22 @@ type wsPhaseFAdapter struct {
 	historyStatelessMode              bool
 	// lastDecisionRequestID correlates the turn's response usage frame with
 	// the decision record written at request time (T352-A attribution).
-	lastDecisionRequestID      string
-	lastUsageSessionID         string
-	lastUsageMutatedMechanisms proxyLayer0MechanismMask
-	lastUsagePrefixElision     bool
-	lastUsageRequestShape      string
-	lastUsageCacheBustScope    string
-	lastUsageCacheBustClasses  map[string]struct{}
-	cacheBustSessions          map[string]*wssProviderCacheBustSession
-	statefulPrefixElision      wssStatefulPrefixElisionState
-	sessionTurnSeq             map[string]int
-	searchCapStatefulDeltaSeq  map[string]int
-	counters                   wsPhaseFCounters
-	socketSeq                  atomic.Uint64
-	socketDecisionRequestID    string
+	lastDecisionRequestID       string
+	lastUsageSessionID          string
+	lastUsageMutatedMechanisms  proxyLayer0MechanismMask
+	lastUsagePrefixElision      bool
+	lastUsageRequestShape       string
+	lastUsageCacheBustScope     string
+	lastUsageCacheBustClasses   map[string]struct{}
+	lastUsageBodyTokens         int
+	lastUsagePreviousResponseID string
+	cacheBustSessions           map[string]*wssProviderCacheBustSession
+	statefulPrefixElision       wssStatefulPrefixElisionState
+	sessionTurnSeq              map[string]int
+	searchCapStatefulDeltaSeq   map[string]int
+	counters                    wsPhaseFCounters
+	socketSeq                   atomic.Uint64
+	socketDecisionRequestID     string
 }
 
 const (
@@ -658,15 +660,23 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 	// savings because it uses the expanded size as the baseline.
 	preExpansionMessages := []types.Message(nil)
 	preExpansionPreviousResponseID := ""
-	if rewritten, ok := a.wssStatelessHistoryContinuationBody(out); ok {
-		if origMsgs, _, origErr := extractMessagesFn(types.CodexChatGPT, body); origErr == nil && len(origMsgs) > 0 {
-			preExpansionMessages = origMsgs
+	// When server-state continuation is enabled (L1), skip the stateless
+	// expansion. The delta with previous_response_id goes to the server
+	// as-is, leveraging server-side state for L1 input savings. The mutation
+	// pipeline's detachCodexPreviousResponseID calls still guard against
+	// poisoned server state on mutated turns.
+	serverStateEnabled := a.p != nil && a.p.config != nil && a.p.config.Proxy.ServerStateEnabled
+	if !serverStateEnabled {
+		if rewritten, ok := a.wssStatelessHistoryContinuationBody(out); ok {
+			if origMsgs, _, origErr := extractMessagesFn(types.CodexChatGPT, body); origErr == nil && len(origMsgs) > 0 {
+				preExpansionMessages = origMsgs
+			}
+			if origRaw := wssRawJSON(body); origRaw != nil {
+				preExpansionPreviousResponseID = wssPreviousResponseIDFromRaw(origRaw)
+			}
+			out = rewritten
+			statelessHistoryContinuation = true
 		}
-		if origRaw := wssRawJSON(body); origRaw != nil {
-			preExpansionPreviousResponseID = wssPreviousResponseIDFromRaw(origRaw)
-		}
-		out = rewritten
-		statelessHistoryContinuation = true
 	}
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
@@ -1986,6 +1996,8 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	a.lastUsageRequestShape = requestShape
 	a.lastUsageCacheBustScope = wssCacheBustScope(requestShape, meta.PromptCacheKeyHash)
 	a.lastUsageCacheBustClasses = cloneProxyLayer0CacheBustClassKeys(cacheBustClassKeys)
+	a.lastUsageBodyTokens = wssPlannerTokenCount(mutated, messages)
+	a.lastUsagePreviousResponseID = meta.PreviousResponseID
 	if a.socketDecisionRequestID == "" && meta.SocketSeq > 0 {
 		a.socketDecisionRequestID = requestID
 	}
@@ -5103,6 +5115,8 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	requestShape := a.lastUsageRequestShape
 	cacheBustScope := a.lastUsageCacheBustScope
 	cacheBustClassKeys := cloneProxyLayer0CacheBustClassKeys(a.lastUsageCacheBustClasses)
+	bodyTokens := a.lastUsageBodyTokens
+	prevID := a.lastUsagePreviousResponseID
 	a.mu.Unlock()
 	if a.p.debugRecorder != nil {
 		if requestID != "" {
@@ -5113,14 +5127,29 @@ func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
 	if event.Fired && a.p.debugRecorder != nil && requestID != "" {
 		a.p.debugRecorder.AttachDebugFacts(requestID, wssCacheBustEventDebugFacts(event))
 	}
+	// L1 server-state continuation savings: when previous_response_id is
+	// used (delta shape), the client sends only the new turn, not the full
+	// history. usage.InputTokens reflects the full server-side context
+	// (what the client would have sent without previous_response_id).
+	// The actual client-sent tokens are bodyTokens. The difference is the
+	// L1 local input savings.
+	inputOrig := usage.InputTokens
+	inputComp := usage.InputTokens
+	if prevID != "" && requestShape == "delta" && bodyTokens > 0 && bodyTokens < usage.InputTokens {
+		inputComp = bodyTokens
+	}
+	compressionRatio := 1.0
+	if inputOrig > 0 {
+		compressionRatio = float64(inputComp) / float64(inputOrig)
+	}
 	a.p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
 		Provider:          types.CodexChatGPT,
-		InputTokensOrig:   usage.InputTokens,
-		InputTokensComp:   usage.InputTokens,
+		InputTokensOrig:   inputOrig,
+		InputTokensComp:   inputComp,
 		OutputTokens:      usage.OutputTokens,
-		CompressionRatio:  1,
+		CompressionRatio:  compressionRatio,
 		CacheHit:          usage.ReadTokens > 0,
 		CacheReadTokens:   usage.ReadTokens,
 		CacheCreateTokens: usage.CreateTokens,

@@ -1747,6 +1747,7 @@ func TestWSPhaseFRecordsUpstreamInvalidRequestError(t *testing.T) {
 
 func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -3547,6 +3548,7 @@ func TestWSPhaseFToolPruneDefaultSafeSlicePrunesNoUserPromptFullHistory(t *testi
 
 func TestWSPhaseFToolPruneFullHistoryMakesFollowingDeltaStateless(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -4149,6 +4151,7 @@ func TestWSPhaseFFullHistoryChunkDedupMakesFollowingDeltaStateless(t *testing.T)
 	const promptCacheKey = "chunk-wss-full-history-stateless"
 	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -5554,6 +5557,7 @@ func TestWSPhaseFRecoveryGuardScopesToResponseLineage(t *testing.T) {
 
 func TestWSPhaseFHistoryDetachMakesFollowingDeltaStatelessFullHistory(t *testing.T) {
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
@@ -5668,6 +5672,7 @@ func TestWSPhaseFFullHistoryMutationWithoutPreviousResponseMakesFollowingDeltaSt
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -8410,5 +8415,130 @@ func codexToolDefinition(name, description string) map[string]any {
 				"properties": map[string]any{"input": map[string]any{"type": "string"}},
 			},
 		},
+	}
+}
+
+func TestRecordWSSProviderUsageL1Savings(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	// Simulate a delta request with previous_response_id.
+	// The body sent upstream was small (delta), but usage.InputTokens
+	// from the API reflects the full server-side context.
+	adapter.mu.Lock()
+	adapter.lastUsageRequestShape = "delta"
+	adapter.lastUsagePreviousResponseID = "resp-abc123"
+	adapter.lastUsageBodyTokens = 50 // small delta body
+	adapter.lastDecisionRequestID = "test-req-1"
+	adapter.mu.Unlock()
+
+	// Build a response completed envelope with usage showing full context.
+	responseBody := []byte(`{
+		"usage": {
+			"input_tokens": 5000,
+			"output_tokens": 100,
+			"cached_tokens": 0
+		}
+	}`)
+	env := &wsmitm.Envelope{
+		Kind:     wsmitm.FrameKindResponseCompleted,
+		Response: responseBody,
+	}
+	adapter.recordWSSProviderUsage(env)
+
+	// Read the analytics event.
+	select {
+	case ev := <-p.analyticsQueue:
+		if ev.Type != types.EventRequestProcessed {
+			t.Fatalf("expected EventRequestProcessed, got %v", ev.Type)
+		}
+		if ev.InputTokensOrig != 5000 {
+			t.Fatalf("InputTokensOrig = %d, want 5000 (full server-side context)", ev.InputTokensOrig)
+		}
+		if ev.InputTokensComp != 50 {
+			t.Fatalf("InputTokensComp = %d, want 50 (actual delta body tokens)", ev.InputTokensComp)
+		}
+		if ev.InputTokensOrig <= ev.InputTokensComp {
+			t.Fatalf("L1 savings not measured: orig=%d comp=%d (must be orig > comp for delta with previous_response_id)", ev.InputTokensOrig, ev.InputTokensComp)
+		}
+		saved := ev.InputTokensOrig - ev.InputTokensComp
+		if saved != 4950 {
+			t.Fatalf("L1 saved = %d, want 4950", saved)
+		}
+	default:
+		t.Fatal("no analytics event received")
+	}
+}
+
+func TestRecordWSSProviderUsageNoL1SavingsForFullHistory(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	// Full history request — no L1 savings expected.
+	adapter.mu.Lock()
+	adapter.lastUsageRequestShape = "full_history"
+	adapter.lastUsagePreviousResponseID = ""
+	adapter.lastUsageBodyTokens = 5000
+	adapter.lastDecisionRequestID = "test-req-2"
+	adapter.mu.Unlock()
+
+	responseBody := []byte(`{
+		"usage": {
+			"input_tokens": 5000,
+			"output_tokens": 100,
+			"cached_tokens": 0
+		}
+	}`)
+	env := &wsmitm.Envelope{
+		Kind:     wsmitm.FrameKindResponseCompleted,
+		Response: responseBody,
+	}
+	adapter.recordWSSProviderUsage(env)
+
+	select {
+	case ev := <-p.analyticsQueue:
+		if ev.InputTokensOrig != ev.InputTokensComp {
+			t.Fatalf("full_history should have no L1 savings: orig=%d comp=%d (must be equal)", ev.InputTokensOrig, ev.InputTokensComp)
+		}
+	default:
+		t.Fatal("no analytics event received")
+	}
+}
+
+func TestRecordWSSProviderUsageNoL1SavingsWithoutPrevID(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	// Delta shape but no previous_response_id — no L1 savings.
+	adapter.mu.Lock()
+	adapter.lastUsageRequestShape = "delta"
+	adapter.lastUsagePreviousResponseID = ""
+	adapter.lastUsageBodyTokens = 50
+	adapter.lastDecisionRequestID = "test-req-3"
+	adapter.mu.Unlock()
+
+	responseBody := []byte(`{
+		"usage": {
+			"input_tokens": 5000,
+			"output_tokens": 100,
+			"cached_tokens": 0
+		}
+	}`)
+	env := &wsmitm.Envelope{
+		Kind:     wsmitm.FrameKindResponseCompleted,
+		Response: responseBody,
+	}
+	adapter.recordWSSProviderUsage(env)
+
+	select {
+	case ev := <-p.analyticsQueue:
+		if ev.InputTokensOrig != ev.InputTokensComp {
+			t.Fatalf("delta without previous_response_id should have no L1 savings: orig=%d comp=%d (must be equal)", ev.InputTokensOrig, ev.InputTokensComp)
+		}
+	default:
+		t.Fatal("no analytics event received")
 	}
 }

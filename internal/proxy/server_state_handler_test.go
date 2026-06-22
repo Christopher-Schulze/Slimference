@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Christopher-Schulze/Slimference/internal/config"
+	"github.com/Christopher-Schulze/Slimference/internal/types"
 )
 
 // TestServeHTTP_serverStateCaptureAndReuse exercises the full T78 happy
@@ -251,5 +252,69 @@ func TestServerStateEnabledByDefault(t *testing.T) {
 	cfg := config.Defaults()
 	if !cfg.Proxy.ServerStateEnabled {
 		t.Fatal("ServerStateEnabled must default to true (AGENTS.md §3.4: no default-off without a proven drawdown vector)")
+	}
+}
+
+func TestServeHTTP_serverStateL1SavingsMeasured(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_l1","choices":[{"message":{"role":"assistant","content":"ok"}}],"model":"gpt-4","usage":{"prompt_tokens":1000,"completion_tokens":50}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.OpenAI.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Secrets.Mode = "off"
+	cfg.Proxy.ServerStateEnabled = true
+
+	p := New(cfg)
+
+	// First request: stores response ID.
+	body1 := `{"model":"gpt-4","metadata":{"conversation_id":"conv-L1-test"},"messages":[{"role":"user","content":"first turn with enough text to be meaningful"}]}`
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body1))
+	rec1 := httptest.NewRecorder()
+	p.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first request status %d", rec1.Code)
+	}
+
+	// Drain first analytics event.
+	<-p.analyticsQueue
+
+	// Second request: full history, should be rewritten with previous_response_id.
+	body2 := `{"model":"gpt-4","metadata":{"conversation_id":"conv-L1-test"},"messages":[{"role":"user","content":"first turn with enough text to be meaningful"},{"role":"assistant","content":"ok"},{"role":"user","content":"second turn also with enough text to be meaningful for testing"}]}`
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body2))
+	rec2 := httptest.NewRecorder()
+	p.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second request status %d", rec2.Code)
+	}
+
+	// Read the analytics event for the second request.
+	select {
+	case ev := <-p.analyticsQueue:
+		if ev.Type != types.EventRequestProcessed {
+			t.Fatalf("expected EventRequestProcessed, got %v", ev.Type)
+		}
+		if ev.InputTokensOrig <= 0 {
+			t.Fatalf("InputTokensOrig = %d, must be > 0", ev.InputTokensOrig)
+		}
+		// L1 savings: InputTokensComp should be much smaller than InputTokensOrig
+		// because the history was replaced with previous_response_id.
+		if ev.InputTokensComp >= ev.InputTokensOrig {
+			t.Fatalf("L1 savings not measured: orig=%d comp=%d (comp must be < orig when server-state continuation is used)", ev.InputTokensOrig, ev.InputTokensComp)
+		}
+		saved := ev.InputTokensOrig - ev.InputTokensComp
+		if saved <= 0 {
+			t.Fatalf("L1 saved = %d, must be > 0", saved)
+		}
+	default:
+		t.Fatal("no analytics event received for second request")
 	}
 }

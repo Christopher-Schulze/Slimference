@@ -825,6 +825,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	upstreamBody := newBody
 	serverStateKey := ""
 	serverStateUsed := false
+	serverStateRecovered := false
 	if p.config.Proxy.ServerStateEnabled && p.serverState != nil {
 		caps := types.CapabilitiesFor(provider)
 		if caps.SupportsResponseID {
@@ -923,6 +924,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			p.serverState.MarkRecover()
 			upstreamResp.Body.Close()
 			upstreamResp, err = p.doUpstreamRequest(r, provider, newBody)
+			serverStateRecovered = true
 		}
 	}
 	if err != nil {
@@ -1046,6 +1048,25 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
 	p.pipelineHist.Total.Record(time.Since(start))
+
+	// --- 9.5 L1 server-state continuation savings measurement ---
+	// When server-state continuation is used (previous_response_id), the
+	// upstream body is much smaller than the compressed messages (history
+	// is eliminated). Adjust compressedTokens to reflect the actual upstream
+	// token count so L1 savings are visible in analytics and the S_local gate.
+	// Skip when the fail-open recovery path was triggered (full body resent).
+	if serverStateUsed && !serverStateRecovered {
+		if rewrittenMsgs, _, err := extractMessages(provider, upstreamBody); err == nil {
+			rewrittenTokens := tokens.CountMessages(rewrittenMsgs)
+			if rewrittenTokens < compressedTokens {
+				compressedTokens = rewrittenTokens
+				totalSaved = origTokens - compressedTokens
+				if origTokens > 0 {
+					compressionRatio = float64(compressedTokens) / float64(origTokens)
+				}
+			}
+		}
+	}
 
 	// --- 10. Cache successful response (Layer 2) ---
 	if requestCacheSafe && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {

@@ -20,6 +20,7 @@ func TestWSPhaseFPreExpansionPreviousResponseIDRecovery(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -134,6 +135,7 @@ func TestWSPhaseFPreExpansionDebugFactsSurviveFullPassBranch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
@@ -346,6 +348,7 @@ func TestWSPhaseFPreExpansionBaselineFact(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := config.Defaults()
+	cfg.Proxy.ServerStateEnabled = false // test the stateless continuation path
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
