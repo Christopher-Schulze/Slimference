@@ -685,7 +685,9 @@ func capWithLastN(argv []string, stdout []byte, name string, cap, lastN int) ([]
 		return []byte(fmt.Sprintf("[%s] empty\n", name)), true
 	}
 	lines := strings.Split(s, "\n")
-	if len(lines) <= cap {
+	// Need strictly more lines than cap+lastN to avoid duplicating the tail
+	// (first-N and last-N would overlap) and to produce a positive omission count.
+	if len(lines) <= cap+lastN {
 		return stdout, false
 	}
 	var sb strings.Builder
@@ -695,7 +697,10 @@ func capWithLastN(argv []string, stdout []byte, name string, cap, lastN int) ([]
 		sb.WriteString(lines[i])
 		sb.WriteByte('\n')
 	}
-	sb.WriteString(fmt.Sprintf("  [...%d lines omitted...]\n", len(lines)-cap-lastN))
+	omitted := len(lines) - cap - lastN
+	if omitted > 0 {
+		sb.WriteString(fmt.Sprintf("  [...%d lines omitted...]\n", omitted))
+	}
 	for i := len(lines) - lastN; i < len(lines); i++ {
 		if i >= 0 {
 			sb.WriteString(lines[i])

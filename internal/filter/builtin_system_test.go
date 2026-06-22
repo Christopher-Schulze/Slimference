@@ -859,3 +859,275 @@ func TestTryCompactPerf_BelowThreshold(t *testing.T) {
 		t.Fatalf("should return ok=false for small output")
 	}
 }
+
+// --- Edge-case tests: exact threshold (cap+lastN lines → unchanged)
+// and threshold+1 (cap+lastN+1 lines → compacted) ---
+//
+// These verify the boundary behavior required by AGENTS.md §3.5:
+// at exactly the threshold the compactor must NOT fire (no data loss),
+// and at threshold+1 it must fire (savings begin). Long lines are used
+// to ensure the fail-open size guard does not mask the boundary.
+
+func makeLongLines(n int, prefix string) []byte {
+	var sb strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&sb, "%s_line_%04d_%s\n", prefix, i, strings.Repeat("x", 80))
+	}
+	return []byte(sb.String())
+}
+
+func TestTryCompactDocker_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	// cap=50, lastN=3 → threshold=53
+	input := makeLongLines(53, "docker")
+	_, ok := TryCompactDocker([]string{"docker"}, input)
+	if ok {
+		t.Fatalf("TryCompactDocker should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactDocker_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	// cap=50, lastN=3 → threshold=53, threshold+1=54
+	input := makeLongLines(54, "docker")
+	compacted, ok := TryCompactDocker([]string{"docker"}, input)
+	if !ok {
+		t.Fatalf("TryCompactDocker should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted (%d) >= input (%d)", len(compacted), len(input))
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("compacted contains negative omission count: %s", s[:200])
+	}
+	// Verify no duplicated lines (first-N and last-N must not overlap)
+	if strings.Count(s, "docker_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated (first-N/last-N overlap)")
+	}
+	if strings.Count(s, "docker_line_0051") > 1 {
+		t.Fatalf("line 51 duplicated (first-N/last-N overlap)")
+	}
+}
+
+func TestTryCompactKubectl_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "kubectl")
+	_, ok := TryCompactKubectl([]string{"kubectl"}, input)
+	if ok {
+		t.Fatalf("TryCompactKubectl should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactKubectl_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "kubectl")
+	compacted, ok := TryCompactKubectl([]string{"kubectl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactKubectl should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "kubectl_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
+
+func TestTryCompactHelm_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	// cap=30, lastN=3 → threshold=33
+	input := makeLongLines(33, "helm")
+	_, ok := TryCompactHelm([]string{"helm"}, input)
+	if ok {
+		t.Fatalf("TryCompactHelm should return ok=false at exact threshold (33 lines)")
+	}
+}
+
+func TestTryCompactHelm_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(34, "helm")
+	compacted, ok := TryCompactHelm([]string{"helm"}, input)
+	if !ok {
+		t.Fatalf("TryCompactHelm should return ok=true at threshold+1 (34 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "helm_line_0030") > 1 {
+		t.Fatalf("line 30 duplicated")
+	}
+}
+
+func TestTryCompactSystemctl_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "systemctl")
+	_, ok := TryCompactSystemctl([]string{"systemctl"}, input)
+	if ok {
+		t.Fatalf("TryCompactSystemctl should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactSystemctl_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "systemctl")
+	compacted, ok := TryCompactSystemctl([]string{"systemctl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactSystemctl should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "systemctl_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
+
+func TestTryCompactJournalctl_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	// Journalctl uses its own implementation (not capWithLastN), cap=50, no lastN
+	// threshold is 50 lines (len(lines) <= 50 → unchanged via `if len(lines) < 30` + maxLines=50)
+	// Actually journalctl: `if len(lines) < 30 { return false }` then caps at 50.
+	// At exactly 50 lines: start=0, shows all 50, out >= stdout → fail-open → unchanged.
+	input := makeLongLines(50, "journalctl")
+	_, ok := TryCompactJournalctl([]string{"journalctl"}, input)
+	if ok {
+		t.Fatalf("TryCompactJournalctl should return ok=false at exact threshold (50 lines)")
+	}
+}
+
+func TestTryCompactJournalctl_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(51, "journalctl")
+	compacted, ok := TryCompactJournalctl([]string{"journalctl"}, input)
+	if !ok {
+		t.Fatalf("TryCompactJournalctl should return ok=true at threshold+1 (51 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+}
+
+func TestTryCompactCargo_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "cargo")
+	_, ok := TryCompactCargo([]string{"cargo"}, input)
+	if ok {
+		t.Fatalf("TryCompactCargo should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactCargo_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "cargo")
+	compacted, ok := TryCompactCargo([]string{"cargo"}, input)
+	if !ok {
+		t.Fatalf("TryCompactCargo should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "cargo_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
+
+func TestTryCompactRustc_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "rustc")
+	_, ok := TryCompactRustc([]string{"rustc"}, input)
+	if ok {
+		t.Fatalf("TryCompactRustc should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactRustc_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "rustc")
+	compacted, ok := TryCompactRustc([]string{"rustc"}, input)
+	if !ok {
+		t.Fatalf("TryCompactRustc should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "rustc_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
+
+func TestTryCompactTcpdump_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "tcpdump")
+	_, ok := TryCompactTcpdump([]string{"tcpdump"}, input)
+	if ok {
+		t.Fatalf("TryCompactTcpdump should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactTcpdump_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "tcpdump")
+	compacted, ok := TryCompactTcpdump([]string{"tcpdump"}, input)
+	if !ok {
+		t.Fatalf("TryCompactTcpdump should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "tcpdump_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
+
+func TestTryCompactPerf_ExactThreshold(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(53, "perf")
+	_, ok := TryCompactPerf([]string{"perf"}, input)
+	if ok {
+		t.Fatalf("TryCompactPerf should return ok=false at exact threshold (53 lines)")
+	}
+}
+
+func TestTryCompactPerf_ThresholdPlusOne(t *testing.T) {
+	t.Parallel()
+	input := makeLongLines(54, "perf")
+	compacted, ok := TryCompactPerf([]string{"perf"}, input)
+	if !ok {
+		t.Fatalf("TryCompactPerf should return ok=true at threshold+1 (54 lines)")
+	}
+	if len(compacted) >= len(input) {
+		t.Fatalf("compacted >= input")
+	}
+	s := string(compacted)
+	if strings.Contains(s, "[-") {
+		t.Fatalf("negative omission count")
+	}
+	if strings.Count(s, "perf_line_0050") > 1 {
+		t.Fatalf("line 50 duplicated")
+	}
+}
