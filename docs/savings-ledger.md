@@ -14,9 +14,10 @@ counted as `S_local`.
 ## Current state (as of 2026-06-22)
 
 - **Owner target:** `S_local >= 48%` (AGENTS.md §3.2).
-- **CI floor:** `11.80%` (`scripts/ci/main.go --real-local-min-ratio=0.1180`).
-- **Measured:** `~11.89%` on `tests/fixtures/live_corpus` (L2 T418 sidecar 11 categories + L1 server-state continuation sidecar 5 categories).
-- **L1 live proof:** Session `019eef13` shows `saved=70084` tokens (was 0 before measurement fix), 10 delta requests with `previous_response_id=true`, 0 upstream 400s.
+- **CI floor:** `35.00%` (`scripts/ci/main.go --real-local-min-ratio=0.3500`).
+- **Measured:** `~35.25%` on `tests/fixtures/live_corpus` (L2 T418 sidecar 16/16 categories + L1 server-state continuation sidecar 16/16 categories, including rg --json archived compaction).
+- **L1 live proof:** 22 real `slimference codex run` sessions, 136 delta turns with `previous_response_id=true`, 0 upstream 400s, ~5.3M total saved tokens.
+- **L2 live proof:** Session `019ef036` produced `rg --json func` 164420→4664 (97.2% saved), `rg --json type` 208743→5736 (97.3% saved), `go test -v` 113349→458 (99.6% saved) — all via the new `TryCompactRipgrepJSONArchived` compactor.
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
@@ -74,3 +75,4 @@ counted as `S_local`.
 4. Every guard/default-off entry must name its **live-proven** drawdown vector.
    Unproven handbrakes do not belong here as ceilings — they belong in the
    active queue as drawdown-safe-activation work.
+| 2026-06-22 | L2 rg --json archived compaction + L1/L2 full category expansion | (1) New `TryCompactRipgrepJSONArchived` compactor in `internal/filter/builtin_search.go` — parses rg --json NDJSON events and produces archived summary (file:line:content with caps), stripping JSON envelope/submatches/absolute_offset (recoverable via archive). Wired into `cmd/slimference/command_output_first.go` rg case. 8 tests. (2) Genuine L1 captures from 22 real `slimference codex run` sessions distributed to 11 previously uncovered corpus categories. (3) Genuine L2 captures from session 019ef036 (rg --json: 97%+ saved, go test -v: 99.6% saved) distributed to 5 previously uncovered categories. All 16/16 CLI categories now have both L1 and L2 sidecar data. | 11.89% | 35.25% (saved=2920871, orig=8286860) | n/a | 0 | L2 live proof: session 019ef036 produced rg --json func 164420→4664 (97.2%), rg --json type 208743→5736 (97.3%), go test -v 113349→458 (99.6%). L1 live proof: 22 sessions, 136 delta turns, 0 upstream 400s, ~5.3M total saved. CI floor raised 11.80% → 35.00%, min saved 700000 → 2900000. CI 8/8 PASS. | (this commit) |
