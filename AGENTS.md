@@ -110,6 +110,20 @@ drawdown is correct, but it must be the narrowest possible guard and must
 preserve observation, cache seeding, telemetry, and future safe savings wherever
 those actions do not mutate model-visible or upstream-visible bytes.
 
+**Cache reporting mandate (binding):** Caching must hit as often and as
+efficiently as possible — cache hit rates are a first-class optimization target.
+However, every savings report, gate output, analytics event, and planning
+document must **always report both numbers**: `S_local` (without
+provider-cache discount) AND combined billable savings (with provider-cache
+discount). The two numbers are complementary, not alternatives. A change that
+improves cache hit rates but regresses `S_local` is a partial regression, not a
+win. A change that improves `S_local` but hurts cache hit rates is a partial
+win, not a full win. Both directions must be quantified in every savings report.
+The standard CI gate and analytics output must include:
+(1) `real_current_local_savings_ratio` (S_local, no cache),
+(2) `provider_cache_read_tokens` / `provider_cached_tokens` (cache hit metrics),
+(3) `net_billable_equivalent_estimate` (combined, with cache discount at 0.9x).
+
 When changing any savings-related path:
 
 - Separate `S_local`, provider-cache discount, output savings, and combined
