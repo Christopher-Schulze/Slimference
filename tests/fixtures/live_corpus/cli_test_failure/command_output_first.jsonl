@@ -13,3 +13,5 @@
 {"ts": "2026-06-22T22:51:31.580497Z", "command": "[command-output-first:go] go test -json ./internal/config/", "input_tokens": 63633, "output_tokens": 27, "saved_tokens": 63606}
 {"ts": "2026-06-22T22:51:32.499394Z", "command": "[command-output-first:go] go test -json ./scripts/ci/", "input_tokens": 3427, "output_tokens": 27, "saved_tokens": 3400}
 {"ts": "2026-06-22T22:57:45.613843Z", "command": "[command-output-first:go] go test -json ./internal/filter/", "input_tokens": 886222, "output_tokens": 27, "saved_tokens": 886195}
+{"ts": "2026-06-22T22:59:28.792344Z", "command": "[command-output-first:go] go test -json ./internal/proxy/", "input_tokens": 821262, "output_tokens": 27, "saved_tokens": 821235}
+{"ts": "2026-06-22T22:59:29.147587Z", "command": "[command-output-first:go] go test -json ./internal/config/", "input_tokens": 63635, "output_tokens": 27, "saved_tokens": 63608}
