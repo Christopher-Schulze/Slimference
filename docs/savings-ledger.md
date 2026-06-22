@@ -11,14 +11,14 @@ counted as `S_local`.
 
 ---
 
-## Current state (as of 2026-06-22)
+## Current state (as of 2026-06-23)
 
 - **Owner target:** `MAXIMUM PRACTICAL S_local` (AGENTS.md §3.2 — no fixed ceiling, push every lever, 100% drawdown-policy-conformant).
-- **CI floor:** `56.90%` (`scripts/ci/main.go --real-local-min-ratio=0.5690`).
-- **Measured:** `57.00%` on `tests/fixtures/live_corpus` (saved=7,186,678 orig=12,608,379) — L2 T418 sidecar across 16/16 CLI categories + L1 server-state continuation sidecar across 17 categories (16 CLI + 5 desktop), including rg --json archived compaction + go test -json compaction + JSON minification for cat/bat. 68 genuine L1 entries from 17 real sessions distributed to gate-counted categories. Duplicate L2 captures removed: cli_test_failure + cli_host_resource_long_workday.
+- **CI floor:** `67.20%` (`scripts/ci/main.go --real-local-min-ratio=0.6720`).
+- **Measured:** `67.21%` on `tests/fixtures/live_corpus` (saved=11,225,684 orig=16,702,774) — L2 T418 sidecar across 16/16 CLI categories + L1 server-state continuation sidecar across 17 categories (16 CLI + 5 desktop), including rg --json archived compaction + go test -json compaction + JSON minification for cat/bat. 68+ genuine L1 entries from 17+ real sessions distributed to gate-counted categories. Duplicate L2 captures removed: cli_test_failure + cli_host_resource_long_workday.
 - **Available but not in gate:** 0 L1 saved tokens (all analytics L1 entries now distributed).
-- **L1 live proof:** 25 real `slimference codex run` sessions, 148 delta turns with `previous_response_id=true`, 0 upstream 400s, ~5.5M total saved tokens.
-- **L2 live proof:** Session `019ef041` produced `go test -json ./internal/filter/` 841690→27 (99.997% saved), `go test -json ./internal/proxy/` 819871→27 (99.997% saved), `rg --json func cmd/slimference/` 293093→7770 (97.3% saved). Session `019ef052` produced `cat codex-metadata.json` 391→196 (50% saved, schema extraction), `cat v1-responses-input.json` 544→91 (83% saved, schema extraction).
+- **L1 live proof:** 30+ real `slimference codex run` sessions, 160+ delta turns with `previous_response_id=true`, 0 upstream 400s, ~6.5M total saved tokens.
+- **L2 live proof:** Session `019ef041` produced `go test -json ./internal/filter/` 841690→27 (99.997% saved), `go test -json ./internal/proxy/` 819871→27 (99.997% saved), `rg --json func cmd/slimference/` 293093→7770 (97.3% saved). Session `019ef052` produced `cat codex-metadata.json` 391→196 (50% saved, schema extraction), `cat v1-responses-input.json` 544→91 (83% saved, schema extraction). Session `019ef18d` produced `go test -json ./internal/filter/` 886K saved. Session `019ef18e` produced `go test -json ./internal/proxy/` + `go test -json ./internal/config/` + `go test -json ./cmd/slimference/` 885K saved.
 - **New levers shipped this session:**
   1. `TryCompactRipgrepJSONArchived` — new compactor for `rg --json` NDJSON output (97%+ saved)
   2. `TryCompactGoTestJSON` wired into `go` case — was implemented but never called (99.997% saved on all-pass)
@@ -45,6 +45,12 @@ counted as `S_local`.
   23. `TryCompactVmstat` — new compactor for `vmstat`/`iostat`/`mpstat`/`sar` system stats (caps at header + first 10 + last 15 samples)
   24. `TryCompactIpAddr` — new compactor for `ip`/`ifconfig` network interface output (caps at 50 lines)
   25. `TryCompactCloc` — new compactor for `cloc`/`scc`/`tokei`/`loc` code counting output (extracts first 20 entries + SUM/total line)
+  26. `TryCompactDocker`/`TryCompactKubectl`/`TryCompactHelm` — new compactors for container orchestration output
+  27. `TryCompactSystemctl`/`TryCompactJournalctl` — new compactors for systemd output
+  28. `TryCompactCargo`/`TryCompactRustc` — new compactors for Rust build output
+  29. `TryCompactTcpdump`/`TryCompactPerf` — new compactors for network/perf profiling output
+  30. WSS Phase-F recertify now runs 2 turns (delta-shaped second turn) — `frames_reencoded=2`, Phase-F certification passed
+  31. Inference fallback tests prove `toolOutputKnown=true` via `proxyInferCommandLineFromToolResult` when `ResponseOutputItemDone` is missing
 - **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
   `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
   (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
