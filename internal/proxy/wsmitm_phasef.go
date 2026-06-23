@@ -901,7 +901,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		} else if customToolCallHistoryMutationBlocked {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_custom_tool_call_history_mutation_guard"
-		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !reconnectFullHistorySearchOutputStatelessSafe && !reconnectFullHistorySearchOnlyStatelessSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled {
+		} else if requestContainsToolOutput && reconnectFullHistoryToolOutputMutationBlocked && !reconnectFullHistorySearchOutputStatelessSafe && !reconnectFullHistorySearchOnlyStatelessSafe && !a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled && !wssAllToolOutputsAlreadyCompactedOrEmpty(messages) {
 			structuredMutationAllowed = false
 			structuredMutationGuardReason = "wss_full_history_downstream_delta_proof_gate"
 		} else if wssToolOutputStructuredMutationBlocked(meta, requestContainsToolOutput, a.p.config.Compression.OutputReduce.CodexWSSToolOutputMutationEnabled, statefulToolOutputMutationSafe, structuredMutationRecoverable) {
@@ -3853,6 +3853,32 @@ func wssSourceToolResultBytes(messages []types.Message) (totalBytes int, maxByte
 		}
 	}
 	return totalBytes, maxBytes
+}
+
+// wssAllToolOutputsAlreadyCompactedOrEmpty checks if all non-empty tool
+// results in the messages already contain L2/L3 compaction markers
+// ([context-archive or [context-elided). If so, the server already saw
+// the compacted form, and further mutation (dedup, pruning) is safe —
+// it can't poison server state because the compacted form IS what the
+// server has stored.
+func wssAllToolOutputsAlreadyCompactedOrEmpty(messages []types.Message) bool {
+	hasNonEmptyToolResult := false
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			text := strings.TrimSpace(block.Text)
+			if text == "" {
+				continue
+			}
+			hasNonEmptyToolResult = true
+			if !strings.Contains(block.Text, "[context-archive") && !strings.Contains(block.Text, "[context-elided") {
+				return false
+			}
+		}
+	}
+	return hasNonEmptyToolResult
 }
 
 func wssToolResultPayloadStats(messages []types.Message) (blocks int, totalBytes int) {
