@@ -12,3 +12,5 @@
 {"ts":"2026-06-23T09:31:38.979292Z","command":"[command-output-first:go] go test -json ./internal/config/...","input_tokens":63635,"output_tokens":27,"saved_tokens":63608}
 {"ts":"2026-06-23T09:31:43.755521Z","command":"[command-output-first:go] go test -json ./internal/contentarchive/...","input_tokens":12758,"output_tokens":27,"saved_tokens":12731}
 {"ts":"2026-06-23T09:33:04.680615Z","command":"[command-output-first:go] go test -json ./internal/install/...","input_tokens":21257,"output_tokens":27,"saved_tokens":21230}
+{"ts":"2026-06-23T09:34:28.342269Z","command":"[command-output-first:go] go test -json ./internal/readcache/...","input_tokens":25868,"output_tokens":27,"saved_tokens":25841}
+{"ts":"2026-06-23T09:34:32.616036Z","command":"[command-output-first:go] go test -json ./internal/codexroute/...","input_tokens":19357,"output_tokens":27,"saved_tokens":19330}
