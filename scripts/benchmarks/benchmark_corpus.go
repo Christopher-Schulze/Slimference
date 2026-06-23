@@ -123,14 +123,13 @@ type CorpusReport struct {
 	RealCurrentLocalOrigTokens   int64            `json:"real_current_local_orig_tokens"`
 	RealCurrentLocalSavedTokens  int64            `json:"real_current_local_saved_tokens"`
 	RealCurrentLocalSavingsRatio float64          `json:"real_current_local_savings_ratio"`
-	// S_local decomposition (integrity transparency). The aggregate
-	// real_current_local_savings_ratio is the sum of three distinct sources
-	// with very different provenance and attribution strength. They MUST be
-	// reported separately so a reviewer can see how much of the headline
-	// number is in-band request compaction (caused by Slimference), L2
-	// command-output-first compaction (caused by Slimference), versus L1
-	// server-state continuation (observed Codex-native previous_response_id
-	// behavior, NOT incremental Slimference savings — see l1_sidecar.go).
+	// S_local decomposition (integrity transparency). The trusted
+	// real_current_local_savings_ratio counts only Slimference-INCREMENTAL
+	// sources: in-band request compaction + L2 command-output-first. The
+	// SLocalL1* fields hold L1 server-state continuation, which is observed
+	// Codex-native previous_response_id behavior and is EXCLUDED from the
+	// trusted totals (reported separately) per AGENTS.md §3.7.7 until a live
+	// A/B proves real incrementality.
 	SLocalInBandOrigTokens        int64                `json:"slocal_inband_orig_tokens"`
 	SLocalInBandSavedTokens       int64                `json:"slocal_inband_saved_tokens"`
 	SLocalL2OrigTokens            int64                `json:"slocal_l2_cmd_output_orig_tokens"`
@@ -873,6 +872,15 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 			totalSaved += res.SavedTokens
 		}
 		if categoryCountsTowardRealCurrentLocalRatio(res) {
+			// Trusted, Slimference-INCREMENTAL S_local = in-band request
+			// compaction + L2 command-output-first. Both are caused by
+			// Slimference. L1 server-state continuation is Codex-native
+			// previous_response_id behavior (the WSS path passes the request
+			// "as-is" and only observes meta.PreviousResponseID; it does not
+			// inject it). Its "saving" is measured against a full-history
+			// baseline that Slimference itself would synthesize, which is
+			// circular. Per AGENTS.md §3.7.7 it is EXCLUDED from S_local and
+			// reported separately until a live A/B proves real incrementality.
 			report.RealCurrentLocalOrigTokens += res.OrigTokens
 			report.RealCurrentLocalSavedTokens += res.SavedTokens
 			report.SLocalInBandOrigTokens += res.OrigTokens
@@ -884,8 +892,8 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 				report.SLocalL2SavedTokens += res.CommandOutputFirstSavedTokens
 			}
 			if res.L1ServerStateSavedTokens > 0 {
-				report.RealCurrentLocalOrigTokens += res.L1ServerStateOrigTokens
-				report.RealCurrentLocalSavedTokens += res.L1ServerStateSavedTokens
+				// Observed only — deliberately NOT added to the trusted
+				// S_local totals (§3.7.7).
 				report.SLocalL1OrigTokens += res.L1ServerStateOrigTokens
 				report.SLocalL1SavedTokens += res.L1ServerStateSavedTokens
 			}
@@ -1047,13 +1055,12 @@ func FormatCorpusReport(report CorpusReport) string {
 	sb.WriteString(fmt.Sprintf("Total requests: %d\n", report.TotalRequests))
 	sb.WriteString(fmt.Sprintf("Overall ratio:  %.2f%% (known denominators only)\n", report.OverallRatio*100))
 	if report.RealCurrentLocalOrigTokens > 0 {
-		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (current product, provider-cache excluded, known denominators only)\n",
+		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (Slimference-incremental: in-band + L2; provider-cache excluded; known denominators only)\n",
 			report.RealCurrentLocalSavingsRatio*100))
-		// S_local decomposition (integrity transparency). The headline number
-		// blends three sources with very different attribution strength. L1
-		// server-state continuation is observed Codex-native
-		// previous_response_id behavior (it happens with or without
-		// Slimference), so it must not be read as incremental product savings.
+		// S_local decomposition (integrity transparency, AGENTS.md §3.7.7).
+		// Only Slimference-caused sources count toward S_local. L1 server-state
+		// continuation is Codex-native previous_response_id behavior and is
+		// reported below as observed-only, excluded from the trusted number.
 		writeRatio := func(label string, saved, orig int64) {
 			pct := 0.0
 			if orig > 0 {
@@ -1068,10 +1075,15 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		writeRatio("in-band (Slimference)", report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens)
 		writeRatio("L2 cmd-output (Slimference)", report.SLocalL2SavedTokens, report.SLocalL2OrigTokens)
-		writeRatio("L1 server-state (Codex-native)", report.SLocalL1SavedTokens, report.SLocalL1OrigTokens)
 		if report.SLocalL1SavedTokens > 0 {
-			sb.WriteString("  NOTE: L1 server-state is Codex-native previous_response_id continuation,\n" +
-				"        observed not caused by Slimference; it is NOT incremental product savings.\n")
+			l1pct := 0.0
+			if report.SLocalL1OrigTokens > 0 {
+				l1pct = float64(report.SLocalL1SavedTokens) / float64(report.SLocalL1OrigTokens) * 100
+			}
+			sb.WriteString(fmt.Sprintf("Observed (NOT in S_local): L1 server-state (Codex-native) saved=%d orig=%d ratio=%.2f%%\n",
+				report.SLocalL1SavedTokens, report.SLocalL1OrigTokens, l1pct))
+			sb.WriteString("  EXCLUDED §3.7.7: Codex-native previous_response_id continuation, not\n" +
+				"  Slimference-incremental. Re-include only after a live A/B proves it.\n")
 		}
 	}
 	// Cache metrics (AGENTS.md §3.2 mandate: always report both S_local and cache)

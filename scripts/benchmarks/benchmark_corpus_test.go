@@ -764,7 +764,7 @@ func writeL1ServerStateSidecar(t *testing.T, dir string, rows ...string) {
 	}
 }
 
-func TestEvaluateCorpus_L1ServerStateSidecarCounted(t *testing.T) {
+func TestEvaluateCorpus_L1ServerStateSidecarExcludedFromSLocal(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := writeCategory(t, root, "real_local", CategoryMetadata{
@@ -773,7 +773,9 @@ func TestEvaluateCorpus_L1ServerStateSidecarCounted(t *testing.T) {
 		ClientFamily:  "codex_cli",
 		WorkloadClass: "search_loop",
 	}, []string{sampleHighSavingsRecord})
-	// L1 sidecar with 2000 orig, 1500 saved — should be added to the gate.
+	// L1 sidecar with 2000 orig, 1500 saved. Per AGENTS.md §3.7.7 this is
+	// Codex-native previous_response_id continuation and must NOT be added to
+	// the trusted S_local totals; it is reported separately as observed-only.
 	writeL1ServerStateSidecar(t, dir,
 		`{"ts":"2026-06-22T12:00:00Z","input_tokens":2000,"output_tokens":500,"saved_tokens":1500}`)
 
@@ -781,17 +783,19 @@ func TestEvaluateCorpus_L1ServerStateSidecarCounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate corpus: %v", err)
 	}
-	// Expect orig = 1000 (session) + 2000 (L1 sidecar) = 3000
-	// Expect saved = 400 (session) + 1500 (L1 sidecar) = 1900
-	if report.RealCurrentLocalOrigTokens != 3000 {
-		t.Fatalf("expected orig 3000, got %d", report.RealCurrentLocalOrigTokens)
+	// S_local stays at the session-only numbers (L1 excluded).
+	if report.RealCurrentLocalOrigTokens != 1000 || report.RealCurrentLocalSavedTokens != 400 {
+		t.Fatalf("expected S_local orig=1000 saved=400 (L1 excluded), got orig=%d saved=%d",
+			report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
 	}
-	if report.RealCurrentLocalSavedTokens != 1900 {
-		t.Fatalf("expected saved 1900, got %d", report.RealCurrentLocalSavedTokens)
+	// L1 is recorded in the separate observed-only fields.
+	if report.SLocalL1OrigTokens != 2000 || report.SLocalL1SavedTokens != 1500 {
+		t.Fatalf("expected observed L1 orig=2000 saved=1500, got orig=%d saved=%d",
+			report.SLocalL1OrigTokens, report.SLocalL1SavedTokens)
 	}
 }
 
-func TestEvaluateCorpus_L1AndCOFSidecarBothCounted(t *testing.T) {
+func TestEvaluateCorpus_L2CountedL1ExcludedFromSLocal(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := writeCategory(t, root, "real_local", CategoryMetadata{
@@ -800,7 +804,8 @@ func TestEvaluateCorpus_L1AndCOFSidecarBothCounted(t *testing.T) {
 		ClientFamily:  "codex_cli",
 		WorkloadClass: "search_loop",
 	}, []string{sampleHighSavingsRecord})
-	// Both L1 and L2 sidecars present — both should be counted.
+	// L2 (command-output-first) is Slimference-incremental and counts; L1 is
+	// Codex-native and is excluded from S_local (§3.7.7).
 	writeCommandOutputFirstSidecar(t, dir,
 		`{"ts":"2026-06-22T12:00:00Z","command":"rg","input_tokens":500,"output_tokens":300,"saved_tokens":200}`)
 	writeL1ServerStateSidecar(t, dir,
@@ -810,13 +815,16 @@ func TestEvaluateCorpus_L1AndCOFSidecarBothCounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate corpus: %v", err)
 	}
-	// Expect orig = 1000 (session) + 500 (COF) + 2000 (L1) = 3500
-	// Expect saved = 400 (session) + 200 (COF) + 1500 (L1) = 2100
-	if report.RealCurrentLocalOrigTokens != 3500 {
-		t.Fatalf("expected orig 3500, got %d", report.RealCurrentLocalOrigTokens)
+	// S_local = session(1000/400) + L2(500/200); L1 excluded.
+	if report.RealCurrentLocalOrigTokens != 1500 || report.RealCurrentLocalSavedTokens != 600 {
+		t.Fatalf("expected S_local orig=1500 saved=600 (L2 counted, L1 excluded), got orig=%d saved=%d",
+			report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
 	}
-	if report.RealCurrentLocalSavedTokens != 2100 {
-		t.Fatalf("expected saved 2100, got %d", report.RealCurrentLocalSavedTokens)
+	if report.SLocalL2SavedTokens != 200 {
+		t.Fatalf("expected L2 saved=200, got %d", report.SLocalL2SavedTokens)
+	}
+	if report.SLocalL1SavedTokens != 1500 {
+		t.Fatalf("expected observed L1 saved=1500, got %d", report.SLocalL1SavedTokens)
 	}
 }
 
