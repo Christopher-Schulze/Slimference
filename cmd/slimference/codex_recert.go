@@ -294,7 +294,7 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 	if err := seedCodexRecertRepo(dir); err != nil {
 		return codexRecertTriggerResult{}, err
 	}
-	statusCmd := "git -C " + shellQuote(dir) + " status --short"
+	statusCmd := "git -C " + shellQuote(dir) + " ls-files --cached"
 	listCmd := "git -C " + shellQuote(dir) + " ls-files --cached"
 	prompts := []string{
 		"Run exactly `" + statusCmd + "`, then reply exactly RECERT_DONE.",
@@ -326,6 +326,12 @@ func seedCodexRecertRepo(dir string) error {
 		}
 	}
 	if err := exec.Command("git", "-C", dir, "init", "-q").Run(); err != nil {
+		return err
+	}
+	// Stage files so git ls-files --cached produces 160 lines of output.
+	// Without this, the recert trigger's second prompt has no compressible
+	// tool output, and the WSS proxy can't demonstrate frame mutation.
+	if err := exec.Command("git", "-C", dir, "add", ".").Run(); err != nil {
 		return err
 	}
 	return nil

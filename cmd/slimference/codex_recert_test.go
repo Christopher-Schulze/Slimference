@@ -712,7 +712,7 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 		!strings.Contains(joined, "--ignore-user-config") ||
 		!strings.Contains(joined, "--ephemeral") ||
 		!strings.Contains(joined, "git -C ") ||
-		!strings.Contains(joined, "status --short") {
+		!strings.Contains(joined, "ls-files --cached") {
 		t.Fatalf("bad scoped WSS calls: %v", calls)
 	}
 	joined2 := strings.Join(calls[1], "\x00")
@@ -746,13 +746,14 @@ func TestSeedCodexRecertRepoCreatesLongStatusTrigger(t *testing.T) {
 	if err := seedCodexRecertRepo(dir); err != nil {
 		t.Fatalf("seed recert repo: %v", err)
 	}
-	out, err := exec.Command("git", "-C", dir, "status", "--short").Output()
+	// Files are staged (git add) so git ls-files --cached produces output.
+	out, err := exec.Command("git", "-C", dir, "ls-files", "--cached").Output()
 	if err != nil {
-		t.Fatalf("git status: %v", err)
+		t.Fatalf("git ls-files: %v", err)
 	}
 	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
-	if lines < 120 || !strings.Contains(string(out), "?? synthetic_159.go") {
-		t.Fatalf("status trigger too small: lines=%d out=%s", lines, out)
+	if lines < 120 || !strings.Contains(string(out), "synthetic_159.go") {
+		t.Fatalf("ls-files trigger too small: lines=%d out=%s", lines, out)
 	}
 }
 

@@ -2309,6 +2309,15 @@ func wssFullHistorySearchOutputStatelessSafeWithToolUses(messages []types.Messag
 			if block.Type != "tool_result" {
 				continue
 			}
+			// Empty tool results can't be poisoned by mutation (there's
+			// nothing to mutate) and don't need search compaction. Skip
+			// them so they don't block the safety check for other tool
+			// results that ARE search-eligible. This matters for codex
+			// 0.142.0+ where exec resume sends full_history including
+			// commands with no output (e.g., git status on a clean repo).
+			if strings.TrimSpace(block.Text) == "" {
+				continue
+			}
 			use, resolved := proxyResolveToolUseDetailed(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
 			if !resolved || commandLine == "" {
@@ -4012,18 +4021,44 @@ func wssMessagesContainCodexCustomToolCall(messages []types.Message) bool {
 				continue
 			}
 			itemType := rawJSONString(raw.Fields["type"])
+			toolName := ""
 			if itemType == "response_item" {
 				var nested map[string]json.RawMessage
 				if err := json.Unmarshal(raw.Fields["payload"], &nested); err == nil {
 					itemType = rawJSONString(nested["type"])
+					toolName = rawJSONString(nested["name"])
 				}
+			} else {
+				toolName = rawJSONString(raw.Fields["name"])
 			}
 			if itemType == "custom_tool_call" || itemType == "custom_tool_call_output" {
-				return true
+				// Codex 0.142.0+ uses custom_tool_call for ALL tool calls,
+				// including stateless shell commands (exec_command). Only
+				// block mutation for stateful operations that modify files
+				// or external state (apply_patch, write_stdin, etc.).
+				// Shell commands and read-only tools are safe to mutate
+				// because stale-read aging and obsolete-read pruning
+				// preserve the most recent read.
+				if isStatefulCustomToolCall(toolName) {
+					return true
+				}
 			}
 		}
 	}
 	return false
+}
+
+// isStatefulCustomToolCall returns true for custom tool calls that modify
+// files or external state and therefore should guard history mutation.
+// Stateless tools (exec_command, web_search, tool_search, etc.) are safe.
+func isStatefulCustomToolCall(toolName string) bool {
+	switch toolName {
+	case "apply_patch", "write_stdin", "request_plugin_install",
+		"request_user_input", "image_generation":
+		return true
+	default:
+		return false
+	}
 }
 
 func wssRequestShapeSource(meta wssRequestMeta, messages []types.Message) string {
