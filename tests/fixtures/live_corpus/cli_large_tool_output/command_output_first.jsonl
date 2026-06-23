@@ -3,3 +3,8 @@
 {"ts":"2026-06-22T16:55:29.350431Z","command":"[command-output-first:go] go test -json ./internal/proxy/ -count=1","input_tokens":819871,"output_tokens":27,"saved_tokens":819844}
 {"ts":"2026-06-22T16:55:33.971899Z","command":"[command-output-first:rg] rg --json func cmd/slimference/","input_tokens":293093,"output_tokens":7770,"saved_tokens":285323}
 {"ts":"2026-06-22T17:40:00.241577Z","command":"[command-output-first:go] go list -json ./internal/filter/","input_tokens":3292,"output_tokens":2929,"saved_tokens":363}
+{"ts":"2026-06-23T09:14:35.768576Z","command":"[command-output-first:go] go test ./internal/filter/... -count=1 -v","input_tokens":119057,"output_tokens":471,"saved_tokens":118586}
+{"ts":"2026-06-23T09:19:16.842196Z","command":"[command-output-first:rg] rg --json func  internal/proxy/","input_tokens":211651,"output_tokens":4216,"saved_tokens":207435}
+{"ts":"2026-06-23T09:19:20.62877Z","command":"[command-output-first:go] go test -json ./internal/config/...","input_tokens":63635,"output_tokens":27,"saved_tokens":63608}
+{"ts":"2026-06-23T09:25:13.939775Z","command":"[command-output-first:go] go test -json ./internal/proxy/...","input_tokens":870090,"output_tokens":27,"saved_tokens":870063}
+{"ts":"2026-06-23T09:28:38.267795Z","command":"[command-output-first:go] go test -json ./scripts/...","input_tokens":221222,"output_tokens":27,"saved_tokens":221195}
