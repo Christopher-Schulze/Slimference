@@ -123,6 +123,9 @@ type CorpusReport struct {
 	RealCurrentLocalOrigTokens   int64                `json:"real_current_local_orig_tokens"`
 	RealCurrentLocalSavedTokens  int64                `json:"real_current_local_saved_tokens"`
 	RealCurrentLocalSavingsRatio float64              `json:"real_current_local_savings_ratio"`
+	ProviderCacheReadTokens      int64                `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens    int64                `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens         int64                `json:"provider_cached_tokens"`
 	HasSynthetic                 bool                 `json:"has_synthetic"`
 	HasReal                      bool                 `json:"has_real"`
 	PromotionGate                *PromotionGateReport `json:"promotion_gate,omitempty"`
@@ -866,6 +869,10 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 				report.RealCurrentLocalSavedTokens += res.L1ServerStateSavedTokens
 			}
 		}
+		// Aggregate cache metrics (AGENTS.md §3.2 mandate)
+		report.ProviderCacheReadTokens += res.ProviderCacheReadTokens
+		report.ProviderCacheCreateTokens += res.ProviderCacheCreateTokens
+		report.ProviderCachedTokens += res.ProviderCachedTokens
 		if res.Synthetic {
 			report.HasSynthetic = true
 		} else {
@@ -1009,6 +1016,20 @@ func FormatCorpusReport(report CorpusReport) string {
 	if report.RealCurrentLocalOrigTokens > 0 {
 		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (current product, provider-cache excluded, known denominators only)\n",
 			report.RealCurrentLocalSavingsRatio*100))
+	}
+	// Cache metrics (AGENTS.md §3.2 mandate: always report both S_local and cache)
+	if report.ProviderCacheReadTokens > 0 || report.ProviderCachedTokens > 0 {
+		sb.WriteString(fmt.Sprintf("Provider cache: read=%d create=%d cached=%d\n",
+			report.ProviderCacheReadTokens, report.ProviderCacheCreateTokens, report.ProviderCachedTokens))
+		// Net billable equivalent estimate: S_local savings + cache discount (0.9x)
+		// Cache discount = cached_tokens * 0.9 (provider charges 10% for cache reads)
+		cacheDiscount := int64(float64(report.ProviderCachedTokens) * 0.9)
+		netBillableSaved := report.RealCurrentLocalSavedTokens + cacheDiscount
+		netBillableOrig := report.RealCurrentLocalOrigTokens + report.ProviderCachedTokens
+		if netBillableOrig > 0 {
+			sb.WriteString(fmt.Sprintf("Net billable:    %.2f%% (S_local + cache discount 0.9x, saved=%d orig=%d)\n",
+				float64(netBillableSaved)/float64(netBillableOrig)*100, netBillableSaved, netBillableOrig))
+		}
 	}
 	if report.PromotionGate != nil {
 		sb.WriteString("\nPromotion gate\n")
