@@ -1005,6 +1005,38 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 			}
 		}
+		// Superseded command-output pruning: when the same deterministic
+		// command (e.g., git status, go test) was run multiple times,
+		// replace earlier outputs with compact markers. The most recent
+		// output is always preserved. Safe: only deterministic commands,
+		// only tool_result blocks, never touches reasoning or user messages.
+		if a.p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
+			pruned, stats := staleread.PruneSupersededCommandOutputs(stagedMessages, staleread.ObsoleteOptions{})
+			if stats.BlocksReplaced > 0 {
+				beforeTokens := wssPlannerTokenCount(out, stagedMessages)
+				afterTokens := wssPlannerTokenCount(out, pruned)
+				cacheBustKeys := wssHistoryMutationCacheBustClassKeys(proxyLayer0MechanismObsoletePrune, stagedMessages, pruned, mergedToolUses)
+				supersededGuardReason := ""
+				if historyMutationGuardReason != "" {
+					supersededGuardReason = historyMutationGuardReason
+				} else if wssHistoryMutationCacheBustDemoted(cacheBustDemoted, cacheBustDemotedClassKeys, cacheBustKeys, proxyLayer0MechanismObsoletePrune) {
+					supersededGuardReason = "cache_bust_guard"
+				}
+				if supersededGuardReason != "" {
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionFullPass, supersededGuardReason, proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+				} else {
+					stagedMessages = pruned
+					messageMutationPending = true
+					obsoleteBlocksPruned += stats.BlocksReplaced
+					obsoleteBytesPruned += stats.BytesReplaced
+					historyStats.ObsoletePruneBlocks += stats.BlocksReplaced
+					historyStats.ObsoletePruneBytesSaved += stats.BytesReplaced
+					historyStats.ObsoletePruneTokensSaved += beforeTokens - afterTokens
+					historyStats.CacheBustClassKeys = mergeProxyLayer0CacheBustClassKeys(historyStats.CacheBustClassKeys, cacheBustKeys)
+					historyStats.EvidenceDecisions = append(historyStats.EvidenceDecisions, proxyHistoryMutationEvidenceDecision(proxyLayer0MechanismObsoletePrune, evidence.ActionApplied, "positive_net_savings", proxyHistoryMutationEvidenceClassFromKeys(cacheBustKeys), beforeTokens, afterTokens, meta.TurnSeq, a.p.config.Savings.CachedPriceRatio))
+				}
+			}
+		}
 		searchCapProofed := a.p.config.Compression.OutputReduce.CodexSearchCapDeltaMutationEnabled
 		searchCapStatefulFollowupProofed := a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupEnabled ||
 			a.p.config.Compression.OutputReduce.CodexSearchCapStatefulFollowupLabEnabled
