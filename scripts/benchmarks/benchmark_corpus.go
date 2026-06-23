@@ -116,13 +116,27 @@ type CategoryResult struct {
 
 // CorpusReport is the aggregate of all categories.
 type CorpusReport struct {
-	Root                          string               `json:"root"`
-	Categories                    []CategoryResult     `json:"categories"`
-	TotalRequests                 int                  `json:"total_requests"`
-	OverallRatio                  float64              `json:"overall_savings_ratio"`
-	RealCurrentLocalOrigTokens    int64                `json:"real_current_local_orig_tokens"`
-	RealCurrentLocalSavedTokens   int64                `json:"real_current_local_saved_tokens"`
-	RealCurrentLocalSavingsRatio  float64              `json:"real_current_local_savings_ratio"`
+	Root                         string           `json:"root"`
+	Categories                   []CategoryResult `json:"categories"`
+	TotalRequests                int              `json:"total_requests"`
+	OverallRatio                 float64          `json:"overall_savings_ratio"`
+	RealCurrentLocalOrigTokens   int64            `json:"real_current_local_orig_tokens"`
+	RealCurrentLocalSavedTokens  int64            `json:"real_current_local_saved_tokens"`
+	RealCurrentLocalSavingsRatio float64          `json:"real_current_local_savings_ratio"`
+	// S_local decomposition (integrity transparency). The aggregate
+	// real_current_local_savings_ratio is the sum of three distinct sources
+	// with very different provenance and attribution strength. They MUST be
+	// reported separately so a reviewer can see how much of the headline
+	// number is in-band request compaction (caused by Slimference), L2
+	// command-output-first compaction (caused by Slimference), versus L1
+	// server-state continuation (observed Codex-native previous_response_id
+	// behavior, NOT incremental Slimference savings — see l1_sidecar.go).
+	SLocalInBandOrigTokens        int64                `json:"slocal_inband_orig_tokens"`
+	SLocalInBandSavedTokens       int64                `json:"slocal_inband_saved_tokens"`
+	SLocalL2OrigTokens            int64                `json:"slocal_l2_cmd_output_orig_tokens"`
+	SLocalL2SavedTokens           int64                `json:"slocal_l2_cmd_output_saved_tokens"`
+	SLocalL1OrigTokens            int64                `json:"slocal_l1_server_state_orig_tokens"`
+	SLocalL1SavedTokens           int64                `json:"slocal_l1_server_state_saved_tokens"`
 	ProviderCacheReadTokens       int64                `json:"provider_cache_read_tokens"`
 	ProviderCacheCreateTokens     int64                `json:"provider_cache_create_tokens"`
 	ProviderCachedTokens          int64                `json:"provider_cached_tokens"`
@@ -861,13 +875,19 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		if categoryCountsTowardRealCurrentLocalRatio(res) {
 			report.RealCurrentLocalOrigTokens += res.OrigTokens
 			report.RealCurrentLocalSavedTokens += res.SavedTokens
+			report.SLocalInBandOrigTokens += res.OrigTokens
+			report.SLocalInBandSavedTokens += res.SavedTokens
 			if res.CommandOutputFirstSavedTokens > 0 {
 				report.RealCurrentLocalOrigTokens += res.CommandOutputFirstOrigTokens
 				report.RealCurrentLocalSavedTokens += res.CommandOutputFirstSavedTokens
+				report.SLocalL2OrigTokens += res.CommandOutputFirstOrigTokens
+				report.SLocalL2SavedTokens += res.CommandOutputFirstSavedTokens
 			}
 			if res.L1ServerStateSavedTokens > 0 {
 				report.RealCurrentLocalOrigTokens += res.L1ServerStateOrigTokens
 				report.RealCurrentLocalSavedTokens += res.L1ServerStateSavedTokens
+				report.SLocalL1OrigTokens += res.L1ServerStateOrigTokens
+				report.SLocalL1SavedTokens += res.L1ServerStateSavedTokens
 			}
 		}
 		// Aggregate cache metrics (AGENTS.md §3.2 mandate)
@@ -1029,6 +1049,30 @@ func FormatCorpusReport(report CorpusReport) string {
 	if report.RealCurrentLocalOrigTokens > 0 {
 		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (current product, provider-cache excluded, known denominators only)\n",
 			report.RealCurrentLocalSavingsRatio*100))
+		// S_local decomposition (integrity transparency). The headline number
+		// blends three sources with very different attribution strength. L1
+		// server-state continuation is observed Codex-native
+		// previous_response_id behavior (it happens with or without
+		// Slimference), so it must not be read as incremental product savings.
+		writeRatio := func(label string, saved, orig int64) {
+			pct := 0.0
+			if orig > 0 {
+				pct = float64(saved) / float64(orig) * 100
+			}
+			share := 0.0
+			if report.RealCurrentLocalSavedTokens > 0 {
+				share = float64(saved) / float64(report.RealCurrentLocalSavedTokens) * 100
+			}
+			sb.WriteString(fmt.Sprintf("  %-28s saved=%d orig=%d ratio=%.2f%% share_of_slocal=%.1f%%\n",
+				label, saved, orig, pct, share))
+		}
+		writeRatio("in-band (Slimference)", report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens)
+		writeRatio("L2 cmd-output (Slimference)", report.SLocalL2SavedTokens, report.SLocalL2OrigTokens)
+		writeRatio("L1 server-state (Codex-native)", report.SLocalL1SavedTokens, report.SLocalL1OrigTokens)
+		if report.SLocalL1SavedTokens > 0 {
+			sb.WriteString("  NOTE: L1 server-state is Codex-native previous_response_id continuation,\n" +
+				"        observed not caused by Slimference; it is NOT incremental product savings.\n")
+		}
 	}
 	// Cache metrics (AGENTS.md §3.2 mandate: always report both S_local and cache)
 	if report.ProviderCacheReadTokens > 0 || report.ProviderCachedTokens > 0 {

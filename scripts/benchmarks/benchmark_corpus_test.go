@@ -1659,3 +1659,69 @@ func TestCountSessionFiles_BadDir(t *testing.T) {
 		t.Fatalf("expected error reading missing dir")
 	}
 }
+
+// TestLiveCorpusSidecarIntegrity is an anti-fixture-inflation guard
+// (AGENTS.md §3.7.6). The corpus gate trusts the input_tokens / saved_tokens
+// recorded in the L2 (command_output_first.jsonl) and L1
+// (server_state_continuation.jsonl) sidecars without recomputing the
+// compaction. This meta-test enforces the only invariants that can be checked
+// statically so an independently-inflated saved_tokens value (saved that does
+// not equal input-output, or saved outside [0, input]) is caught by CI rather
+// than silently raising S_local. It does not — and cannot — prove the captures
+// trace to a real session; that remains an operator/provenance obligation.
+func TestLiveCorpusSidecarIntegrity(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("..", "..", "tests", "fixtures", "live_corpus")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Skipf("live_corpus not found: %v", err)
+	}
+	type row struct {
+		Input  int64 `json:"input_tokens"`
+		Output int64 `json:"output_tokens"`
+		Saved  int64 `json:"saved_tokens"`
+	}
+	checked := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		for _, name := range []string{commandOutputFirstSidecarFilename, l1SidecarFilenameForTest} {
+			path := filepath.Join(root, e.Name(), name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			for i, line := range bytes.Split(data, []byte("\n")) {
+				line = bytes.TrimSpace(line)
+				if len(line) == 0 {
+					continue
+				}
+				var r row
+				if err := json.Unmarshal(line, &r); err != nil {
+					t.Fatalf("%s line %d: parse: %v", path, i+1, err)
+				}
+				if r.Input <= 0 {
+					t.Errorf("%s line %d: input_tokens=%d must be > 0", path, i+1, r.Input)
+				}
+				if r.Saved < 0 || r.Saved > r.Input {
+					t.Errorf("%s line %d: saved_tokens=%d out of bounds [0,%d]", path, i+1, r.Saved, r.Input)
+				}
+				if r.Saved != r.Input-r.Output {
+					t.Errorf("%s line %d: saved_tokens=%d != input-output (%d-%d=%d); inconsistent sidecar",
+						path, i+1, r.Saved, r.Input, r.Output, r.Input-r.Output)
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Skip("no sidecar rows found")
+	}
+	t.Logf("validated %d sidecar rows", checked)
+}
+
+// l1SidecarFilenameForTest mirrors internal/proxy l1SidecarFilename, which is
+// unexported in another package; kept here so the meta-test has no cross-module
+// dependency.
+const l1SidecarFilenameForTest = "server_state_continuation.jsonl"
