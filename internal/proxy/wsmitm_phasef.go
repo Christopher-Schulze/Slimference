@@ -83,7 +83,19 @@ type wsPhaseFAdapter struct {
 	counters                    wsPhaseFCounters
 	socketSeq                   atomic.Uint64
 	socketDecisionRequestID     string
+	// crossTurnToolResults is a bounded cache of tool_result texts from
+	// previous turns, used to extend the repdet index for cross-turn
+	// exact-byte dedup of model outputs that echo previous tool results.
+	// Bounded to wssCrossTurnToolResultMax entries via FIFO eviction.
+	crossTurnToolResults []crossTurnToolResultEntry
 }
+
+type crossTurnToolResultEntry struct {
+	callID string
+	text   string
+}
+
+const wssCrossTurnToolResultMax = 32
 
 const (
 	wssProviderCacheBustRingSize      = 8
@@ -738,6 +750,13 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		currentToolUses, requestRepdetIndex := wssRequestIndexes(messages, a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled)
 		mergedToolUses := mergedProxyToolUseIndex(currentToolUses, rememberedToolUses)
 		meta.ToolUseIndex = mergedToolUses
+		// Enrich the repdet index with cached tool results from previous
+		// turns. This extends the exact-byte dedup surface cross-turn.
+		// Note: cross-turn tool results are observed AFTER compaction
+		// (at the end of request processing) so only texts that survive
+		// compaction are cached — this avoids false matches on content
+		// that was already replaced with markers in the model's context.
+		a.enrichRepdetIndexWithCrossTurn(requestRepdetIndex)
 		meta.RepdetIndex = requestRepdetIndex
 		if !meta.HasUserPromptInput {
 			a.observeWSSToolPruneUsageWithToolUses(sessionID, messages, mergedToolUses)
@@ -750,6 +769,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.BypassReason = "wss_session_degraded_full_pass"
 			meta.DebugFacts = wssRequestDebugFacts(body, body, messages, l0Stats, false, meta.BypassReason, meta, outputReduceStats)
 			meta.DebugFacts["wss.degraded_reason"] = reason
+			a.observeCrossTurnToolResults(messages) // no compaction in degraded mode
 			return body, messages, false, l0Stats, reReadCount, meta, outputReduceStats
 		}
 		toolOutputResults, toolOutputResolved, toolOutputInferred := wssToolOutputResolutionStatsWithToolUses(messages, mergedToolUses)
@@ -876,6 +896,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_resolved"] = strconv.Itoa(toolOutputResolved)
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
+			a.observeCrossTurnToolResults(messages) // post-compaction
 			return out, messages, changed, l0Stats, reReadCount, meta, outputReduceStats
 		} else if customToolCallHistoryMutationBlocked {
 			structuredMutationAllowed = false
@@ -1089,6 +1110,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 				}
 				if a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled {
 					meta.RepdetIndex = buildRepdetIndex(stagedMessages)
+					a.enrichRepdetIndexWithCrossTurn(meta.RepdetIndex)
 				}
 				if staleBlocksReplaced > 0 {
 					a.p.outputReduceCounters.RecordStaleReadAging(staleBlocksReplaced, staleBytesReplaced)
@@ -1279,6 +1301,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 		}
 	}
+	a.observeCrossTurnToolResults(messages) // post-compaction
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta, outputReduceStats
 }
 
@@ -1633,6 +1656,91 @@ func wssRequestIndexes(messages []types.Message, includeRepdet bool) (map[string
 		}
 	}
 	return toolUses, repdetIndex
+}
+
+// observeCrossTurnToolResults extracts tool_result texts from the current
+// request messages and adds them to the bounded cross-turn cache. This
+// enables the repdet index to catch model outputs that echo tool results
+// from previous turns (cross-turn exact-byte dedup). Bounded via FIFO
+// eviction to wssCrossTurnToolResultMax entries.
+func (a *wsPhaseFAdapter) observeCrossTurnToolResults(messages []types.Message) {
+	if a == nil {
+		return
+	}
+	var newEntries []crossTurnToolResultEntry
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type != "tool_result" || block.Text == "" {
+				continue
+			}
+			// Only cache tool results that are large enough to be
+			// meaningful repdet candidates (>= repdet.MinMatch bytes).
+			if len(block.Text) < repdet.MinMatch {
+				continue
+			}
+			callID := block.ToolResultID
+			if callID == "" {
+				callID = block.ToolUseID
+			}
+			newEntries = append(newEntries, crossTurnToolResultEntry{
+				callID: callID,
+				text:   block.Text,
+			})
+		}
+	}
+	if len(newEntries) == 0 {
+		return
+	}
+	a.mu.Lock()
+	// Dedup by callID: replace existing entries, append new ones.
+	existing := make(map[string]int, len(a.crossTurnToolResults))
+	for i, e := range a.crossTurnToolResults {
+		existing[e.callID] = i
+	}
+	for _, ne := range newEntries {
+		if idx, ok := existing[ne.callID]; ok {
+			a.crossTurnToolResults[idx] = ne // overwrite
+		} else {
+			a.crossTurnToolResults = append(a.crossTurnToolResults, ne)
+			existing[ne.callID] = len(a.crossTurnToolResults) - 1
+		}
+	}
+	// FIFO eviction: drop oldest entries if over limit.
+	for len(a.crossTurnToolResults) > wssCrossTurnToolResultMax {
+		a.crossTurnToolResults = a.crossTurnToolResults[1:]
+	}
+	a.mu.Unlock()
+}
+
+// loadCrossTurnRepdetBlocks returns the cached tool_result texts from
+// previous turns. These are added to the repdet index alongside the
+// current request's tool results to catch cross-turn exact-byte echoes.
+func (a *wsPhaseFAdapter) loadCrossTurnRepdetBlocks() []crossTurnToolResultEntry {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.crossTurnToolResults) == 0 {
+		return nil
+	}
+	out := make([]crossTurnToolResultEntry, len(a.crossTurnToolResults))
+	copy(out, a.crossTurnToolResults)
+	return out
+}
+
+// enrichRepdetIndexWithCrossTurn adds cached tool_result texts from
+// previous turns to the current repdet index. This extends the exact-byte
+// dedup surface to cover cross-turn model output echoes. Fail-open: if
+// the cache is empty or the index is nil, no changes are made.
+func (a *wsPhaseFAdapter) enrichRepdetIndexWithCrossTurn(idx *repdet.Index) {
+	if idx == nil {
+		return
+	}
+	entries := a.loadCrossTurnRepdetBlocks()
+	for _, e := range entries {
+		idx.AddBlock("cross-turn:"+e.callID, 0, 0, e.text)
+	}
 }
 
 func wssToolOutputStructuredMutationBlocked(meta wssRequestMeta, containsToolOutput bool, mutationEnabled bool, statefulMutationSafe bool, recoverable bool) bool {
