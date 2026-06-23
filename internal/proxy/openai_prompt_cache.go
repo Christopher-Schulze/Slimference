@@ -191,7 +191,15 @@ func resolveOpenAIPromptCacheRetention(retention string, model string) string {
 
 func openAIModelSupportsExtendedPromptCache(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(m, "gpt-5.1") ||
+	// Extended prompt cache retention (24h) is available for:
+	// gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.2, gpt-5.1-codex-max,
+	// gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.1-chat-latest,
+	// gpt-5, gpt-5-codex, gpt-4.1
+	// See: https://developers.openai.com/api/docs/guides/prompt-caching
+	return strings.HasPrefix(m, "gpt-5.5") ||
+		strings.HasPrefix(m, "gpt-5.4") ||
+		strings.HasPrefix(m, "gpt-5.2") ||
+		strings.HasPrefix(m, "gpt-5.1") ||
 		strings.HasPrefix(m, "gpt-5") ||
 		strings.HasPrefix(m, "gpt-4.1")
 }

@@ -410,6 +410,33 @@ func TestResolveOpenAIPromptCacheRetention(t *testing.T) {
 	}
 }
 
+func TestOpenAIModelSupportsExtendedPromptCache_AllModels(t *testing.T) {
+	supported := []string{
+		"gpt-5.5", "gpt-5.5-pro",
+		"gpt-5.4",
+		"gpt-5.2",
+		"gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5.1-chat-latest",
+		"gpt-5", "gpt-5-codex",
+		"gpt-4.1",
+	}
+	for _, model := range supported {
+		if !openAIModelSupportsExtendedPromptCache(model) {
+			t.Fatalf("model %q should support extended prompt cache (24h retention)", model)
+		}
+	}
+	unsupported := []string{
+		"gpt-4o", "gpt-4o-mini",
+		"o3", "o4-mini",
+		"o3-mini",
+		"unknown-model",
+	}
+	for _, model := range unsupported {
+		if openAIModelSupportsExtendedPromptCache(model) {
+			t.Fatalf("model %q should NOT support extended prompt cache", model)
+		}
+	}
+}
+
 func TestExtractOpenAICacheUsageFromBodyEmpty(t *testing.T) {
 	if got := extractOpenAICacheUsageFromBody(nil); got != (cacheUsage{}) {
 		t.Fatalf("empty body usage=%+v", got)
