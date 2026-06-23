@@ -547,6 +547,15 @@ Any other Codex usage (direct `codex` in terminal without `slimference codex run
 ChatGPT app, ChatGPT website) must run **direct** with zero Slimference
 interference.
 
+**Final product binding rule:** In the final product, Codex CLI and Codex
+Desktop App are used through Slimference **only** when explicitly invoked via
+`slimference codex run` or the TUI/Launch Center path. A user running `codex`
+directly in the terminal (without `slimference codex run`) must get plain
+Codex with zero Slimference interference. ChatGPT app and browser ChatGPT
+must always run normally without Slimference. Agents may use `slimference
+codex run -- codex exec` for testing and live-proof — this is the equivalent
+of the production path and produces genuine evidence.
+
 ### 10.1 Transport (Binding)
 
 **WSS is the production transport.** All savings mechanisms (L1, L2, L3,
@@ -564,7 +573,52 @@ not certified for the current Codex version, the priority is to recertify
 WSS, not to optimize HTTP as a permanent substitute. Savings measured on the
 HTTP path are valid evidence but are not the production target.
 
-### 10.2 Signal and Traffic Wiring
+### 10.2 Savings Architecture (Binding)
+
+Slimference savings operate on **two layers**, both on the WSS path:
+
+1. **L2 Shim (Command-Output-First):** Compacts shell/tool output *before*
+   it enters the WSS frame. Runs as a PATH/`BASH_ENV` shim in the Codex
+   process. This is the **primary local savings surface** today (~70% of
+   `S_local`). It is safe by construction: archive recovery, byte-equal
+   fail-open, never mutates stored history. All savings mechanisms must
+   fire here for every `slimference codex run` session.
+
+2. **WSS Proxy MITM (Phase-F):** Mutates WSS frames in transit. This is the
+   **secondary savings surface** (~2% of non-control token volume today).
+   It adds savings on top of L2 by deduplicating repeated tool outputs,
+   aging stale reads, pruning obsolete reads, and compacting search output.
+   All guards must be engineered toward the loosest safe predicate (§3.4).
+
+**Both layers must be active and measured.** A regression in either layer is
+a product regression. The WSS Proxy MITM is where the largest *untapped*
+savings potential remains — the two main guards
+(`wss_stateful_delta_mutation_proof_gate` and
+`wss_full_history_downstream_delta_proof_gate`) currently block ~485K tokens
+that could be saved. Narrowing these guards is the highest-leverage work.
+
+### 10.3 Savings Priority Order (Binding)
+
+1. **Max local savings without caching (`S_local`)** — the primary product
+   metric. Push every lever: L2 shim expansion, WSS proxy guard narrowing,
+   L3 safe subset, output-wire, multi-turn pruning, innovative levers.
+2. **Then optimize caching to be better than normal** — cache hit rates are
+   a first-class target. Cache-prefix optimization, 24h retention, cache-bust
+   guards. Caching must be ultra-optimized so combined billable savings exceed
+   what a normal Codex user gets. But cache wins never mask `S_local`
+   regressions (§3.2).
+3. **All levers super-engineered** — every savings mechanism must be
+   default-on-safe, measured, recoverable/fail-open, and exact to the
+   route/request class where it runs. No handbrakes without proven vectors.
+4. **Innovative levers** — agents must actively search for new savings
+   surfaces: command-output-first expansion, cross-turn repdet, superseded
+   command pruning, stateful-safe parser classes, archive-backed mutation,
+   state mirrors, capability mirrors, and other novel approaches (§3.3).
+5. **Everything stable** — no upstream 400s, no invalid requests, no
+   cache-bust regression, no model-quality regression, no tool/workflow
+   degradation. Stability is not optional.
+
+### 10.4 Signal and Traffic Wiring
 
 Slimference may touch the user stack by default only in ways that leave
 ChatGPT.app and browser ChatGPT normal:
