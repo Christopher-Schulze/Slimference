@@ -18,3 +18,5 @@
 {"ts": "2026-06-22T22:44:05.054909Z", "command": "[command-output-first:rg] rg --json func TryCompact internal/filter/builtin_system.go", "input_tokens": 1488, "output_tokens": 415, "saved_tokens": 1073}
 {"ts":"2026-06-23T09:22:44.891437Z","command":"[command-output-first:rg] rg --json type.*struct internal/staleread/","input_tokens":779,"output_tokens":146,"saved_tokens":633}
 {"ts":"2026-06-23T09:22:47.918195Z","command":"[command-output-first:grep] grep -rn func.*Prune internal/staleread/","input_tokens":651,"output_tokens":546,"saved_tokens":105}
+{"ts":"2026-06-23T09:32:57.879161Z","command":"[command-output-first:rg] rg --json func.*Cache internal/proxy/","input_tokens":18888,"output_tokens":3985,"saved_tokens":14903}
+{"ts":"2026-06-23T09:33:00.892524Z","command":"[command-output-first:rg] rg --json type.*struct internal/proxy/","input_tokens":18782,"output_tokens":1233,"saved_tokens":17549}
