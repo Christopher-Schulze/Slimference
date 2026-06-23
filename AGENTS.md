@@ -6,6 +6,114 @@ require explicit project approval.
 
 ---
 
+## 0. Product Vision and Operating Doctrine (Binding, Non-Negotiable)
+
+This section is the single source of product intent. Every agent and every
+human reads it **first** and may not drift from it. If any other section, task
+file, plan, prior commit, or convenience shortcut conflicts with it, this
+section wins. It exists so that no agent ever forgets the vision again.
+
+### 0.1 What Slimference is
+
+Slimference makes **Codex** cheaper by reducing input/context tokens
+("savings") while the model's product behavior stays **identical**. Codex is
+the **sole focus** (Codex CLI + Codex Desktop App). Claude Code and other-agent
+code may stay in the tree but are **not** worked on and are never the target
+(see §10.0). The whole thing must run **perfectly** and be **autonomously,
+perfectly developed**.
+
+### 0.2 The one hard constraint — the Drawdown Policy
+
+Savings exist **only** inside the drawdown policy (§3). A finished savings
+mechanism must be **zero, near-zero, or controlled-near-zero drawdown**.
+Concretely, no optimization may, in normal operation, cause the model to:
+
+- become less intelligent, less reliable, or worse at its actual work;
+- produce avoidable errors — target is **zero errors / zero upstream 400s**;
+- degenerate, regress, or behave abnormally;
+- lose or corrupt context, memory, recency, salience, or file/tool reality;
+- hallucinate or reconstruct content incorrectly;
+- lose any other capability.
+
+A mechanism that risks any of these in normal operation is **not** a product
+feature until the risk is engineered away and **proven** gone. Development
+effort, captures, benchmarks, proofs, and longer engineering are **never**
+drawdowns (§3).
+
+### 0.3 The goal — maximum savings under that constraint, RTK-class and beyond
+
+Within the drawdown policy we want savings **as high and as broad as possible**
+— there is **no fixed ceiling**. The explicit benchmark is **RTK**: whatever RTK
+achieves with its command/tool-output compaction, Slimference must **match and
+exceed** — **better and broader** command/workload coverage. The primary metric
+is the strongest practical **local** savings `S_local` (provider-cache
+excluded; §3.2). The layered architecture (L1 server-state, L2 command-output,
+L3 WSS history subset, provider cache, output-wire, and future levers) is the
+means to get there.
+
+### 0.4 Where it runs — product scope (hard boundary)
+
+- **Codex Desktop App** must work; this requires the **WSS / WebSocket** path
+  (WSS is the production transport, §10.1).
+- **Codex CLI** must work.
+- In the **final product**, Slimference is active **only** for sessions started
+  via the **TUI / Launch Center**, which launch the Codex App or CLI through
+  Slimference. In development/testing the equivalent is the explicit
+  `slimference codex run` / scoped commands.
+- A Codex session started **normally** (plain `codex`, or the App/CLI not
+  launched via the TUI/command path) runs **direct and untouched**.
+- **ChatGPT in the browser and the ChatGPT app are ALWAYS untouched** — no
+  proxy, no hosts patch, no interception, no base-URL rewrite, ever (§10.0,
+  §10.4). How the savings are achieved internally is open; this boundary is not.
+
+### 0.5 Autonomous development, zero blockers
+
+Development is **fully autonomous** and follows every rule here. "I need a new
+capture / live data / a TTY" is **never** a blocker: capture genuine live
+evidence autonomously via `slimference codex run -- codex exec ...` (§N). Prove
+levers on real sessions; never stall waiting for input the agent can generate
+itself. Autonomy never overrides the honesty rules (§0.8, §3.7.6).
+
+### 0.6 Innovation doctrine — never discard a high-savings idea on first contact
+
+A raw idea that looks lossy or drawdown-violating is a **starting point, not a
+verdict**. The agent must actively **research and invent** levers, think out of
+the box, and for risky ideas **design the additional mechanism, mitigation,
+module, guard, recovery, or proof** that brings the complete design back inside
+the drawdown policy — **no matter how expensive the engineering**. If the fully
+engineered design is **proven** drawdown-policy-conformant on the exact
+route/workload where it runs, it is a valid lever — potentially a dramatic one.
+This reframing is **mandatory** in every analysis, research pass, and savings
+evaluation (§3.3). The expectation is that this discipline yields
+unconventional, innovative, new savings that naive analysis would have thrown
+away.
+
+### 0.7 Productive-first, no rabbit holes
+
+Drive the high-leverage levers to **live proof first** (lever priority §3.6,
+§3.7). Do **not** get lost in micro-optimizations or rabbit holes during
+build-out. Micro-optimization is a **later phase**, only once the main levers
+stand and are live-proven.
+
+### 0.8 Honesty and fresh-eyes reality checks (binding)
+
+Every savings claim must be **real, measured, attribution-correct, and
+representative**. It may never be inflated by curated fixtures, self-reported
+numbers, a gamed denominator, or by counting **Codex-native behavior** (e.g.
+native `previous_response_id` continuation) as Slimference savings (§3.2,
+§3.7.6, §3.7.7). Phasewise the agent must run **hardcore, self-critical reality
+checks with fresh eyes**: re-derive the real product number from scratch,
+distrust prior green cycles, and straighten out any BS before continuing.
+
+### 0.9 Everything is planned and continuously evolved
+
+All work is tracked as tasks/plans (`docs/todo/`, `docs/savings-ledger.md`).
+The agent continuously **finds, documents, evaluates, and matures** new lever
+ideas and keeps improving the product — without violating the No-New-Tooling
+discipline (§3.7.2).
+
+---
+
 ## 1. Normative Documents
 
 | Source | Role |
@@ -384,6 +492,27 @@ moved the product number. The following rules are binding to prevent that:
    declare a savings increase. Violating this rule is the most severe savings
    violation — it produces zero real savings while making CI pass on fake data,
    masking real regressions.
+
+7. **No-Misattribution rule (binding, post-2026-06-23 integrity review).**
+   Only **incremental Slimference-caused** byte reduction may be counted as
+   `S_local`. Behavior that Codex/the provider would exhibit **without**
+   Slimference is not a Slimference saving and must be reported separately.
+   The concrete proven case: **L1 server-state continuation.** On the WSS path
+   `recordWSSProviderUsage` reads `previous_response_id` from the incoming Codex
+   request and counts `provider_input_tokens − body_tokens`. Slimference does
+   **not** inject that id on the WSS path; Codex uses Responses-API server-state
+   natively. Until an A/B (identical prompt through Slimference vs direct
+   `codex`, comparing client-sent request bytes) proves Codex resends full
+   history without Slimference, L1 is `engineered_pending_evidence` and is
+   **excluded from the trusted product number**. The corpus gate prints the
+   `S_local` decomposition (in-band / L2 / L1) for exactly this reason.
+   Additionally: the gate currently **sums self-reported sidecar token counts
+   without recomputation**, so a number is not trusted merely because the gate
+   is green. Raising the CI floor on appended captures is forbidden until the
+   gate recomputes savings from recoverable raw bytes (see
+   `docs/todo/integrity-slocal-attribution-and-recompute.md`). Reporting a
+   blended headline `S_local` as one product figure, without its decomposition
+   and attribution, is a No-Misattribution violation.
 
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
