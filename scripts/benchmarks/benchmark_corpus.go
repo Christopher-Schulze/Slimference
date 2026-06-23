@@ -116,23 +116,24 @@ type CategoryResult struct {
 
 // CorpusReport is the aggregate of all categories.
 type CorpusReport struct {
-	Root                         string               `json:"root"`
-	Categories                   []CategoryResult     `json:"categories"`
-	TotalRequests                int                  `json:"total_requests"`
-	OverallRatio                 float64              `json:"overall_savings_ratio"`
-	RealCurrentLocalOrigTokens   int64                `json:"real_current_local_orig_tokens"`
-	RealCurrentLocalSavedTokens  int64                `json:"real_current_local_saved_tokens"`
-	RealCurrentLocalSavingsRatio float64              `json:"real_current_local_savings_ratio"`
-	ProviderCacheReadTokens      int64                `json:"provider_cache_read_tokens"`
-	ProviderCacheCreateTokens    int64                `json:"provider_cache_create_tokens"`
-	ProviderCachedTokens         int64                `json:"provider_cached_tokens"`
-	HasSynthetic                 bool                 `json:"has_synthetic"`
-	HasReal                      bool                 `json:"has_real"`
-	PromotionGate                *PromotionGateReport `json:"promotion_gate,omitempty"`
-	MaxxGate                     *MaxxGateReport      `json:"maxx_gate,omitempty"`
-	RealLocalGate                *RealLocalGateReport `json:"real_local_gate,omitempty"`
-	SessionsByClient             map[string]int       `json:"sessions_by_client,omitempty"`
-	SessionsByWorkload           map[string]int       `json:"sessions_by_workload,omitempty"`
+	Root                          string               `json:"root"`
+	Categories                    []CategoryResult     `json:"categories"`
+	TotalRequests                 int                  `json:"total_requests"`
+	OverallRatio                  float64              `json:"overall_savings_ratio"`
+	RealCurrentLocalOrigTokens    int64                `json:"real_current_local_orig_tokens"`
+	RealCurrentLocalSavedTokens   int64                `json:"real_current_local_saved_tokens"`
+	RealCurrentLocalSavingsRatio  float64              `json:"real_current_local_savings_ratio"`
+	ProviderCacheReadTokens       int64                `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens     int64                `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens          int64                `json:"provider_cached_tokens"`
+	NetBillableEquivalentEstimate int64                `json:"net_billable_equivalent_estimate"`
+	HasSynthetic                  bool                 `json:"has_synthetic"`
+	HasReal                       bool                 `json:"has_real"`
+	PromotionGate                 *PromotionGateReport `json:"promotion_gate,omitempty"`
+	MaxxGate                      *MaxxGateReport      `json:"maxx_gate,omitempty"`
+	RealLocalGate                 *RealLocalGateReport `json:"real_local_gate,omitempty"`
+	SessionsByClient              map[string]int       `json:"sessions_by_client,omitempty"`
+	SessionsByWorkload            map[string]int       `json:"sessions_by_workload,omitempty"`
 }
 
 // PromotionGateReport is the release/default-promotion verdict. It is separate
@@ -891,6 +892,18 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 	if report.RealCurrentLocalOrigTokens > 0 {
 		report.RealCurrentLocalSavingsRatio = float64(report.RealCurrentLocalSavedTokens) / float64(report.RealCurrentLocalOrigTokens)
 	}
+	// Net billable equivalent estimate (AGENTS.md §3.2 mandate): S_local
+	// savings + cache read discount. The discount is 0.9x on the NET cache
+	// tokens (read - create), only when net is positive — matching the SSOT
+	// formula in internal/analytics/proxy_gain.go (cacheReadDiscountEquivalent).
+	// Creates are charged at a premium, so they must be subtracted; applying the
+	// discount when creates exceed reads would overstate savings.
+	cacheNet := report.ProviderCacheReadTokens - report.ProviderCacheCreateTokens
+	if cacheNet > 0 {
+		report.NetBillableEquivalentEstimate = report.RealCurrentLocalSavedTokens + int64(float64(cacheNet)*0.9)
+	} else {
+		report.NetBillableEquivalentEstimate = report.RealCurrentLocalSavedTokens
+	}
 	return report, nil
 }
 
@@ -1021,14 +1034,16 @@ func FormatCorpusReport(report CorpusReport) string {
 	if report.ProviderCacheReadTokens > 0 || report.ProviderCachedTokens > 0 {
 		sb.WriteString(fmt.Sprintf("Provider cache: read=%d create=%d cached=%d\n",
 			report.ProviderCacheReadTokens, report.ProviderCacheCreateTokens, report.ProviderCachedTokens))
-		// Net billable equivalent estimate: S_local savings + cache discount (0.9x)
-		// Cache discount = cached_tokens * 0.9 (provider charges 10% for cache reads)
-		cacheDiscount := int64(float64(report.ProviderCachedTokens) * 0.9)
-		netBillableSaved := report.RealCurrentLocalSavedTokens + cacheDiscount
-		netBillableOrig := report.RealCurrentLocalOrigTokens + report.ProviderCachedTokens
-		if netBillableOrig > 0 {
+		// Net billable equivalent estimate: S_local savings + cache read
+		// discount (0.9x on net read-create, matching the SSOT in
+		// internal/analytics/proxy_gain.go). The denominator is the local
+		// original token count; cached tokens are already part of the input
+		// stream and must not be added again (that would double-count and
+		// depress the ratio).
+		if report.RealCurrentLocalOrigTokens > 0 {
 			sb.WriteString(fmt.Sprintf("Net billable:    %.2f%% (S_local + cache discount 0.9x, saved=%d orig=%d)\n",
-				float64(netBillableSaved)/float64(netBillableOrig)*100, netBillableSaved, netBillableOrig))
+				float64(report.NetBillableEquivalentEstimate)/float64(report.RealCurrentLocalOrigTokens)*100,
+				report.NetBillableEquivalentEstimate, report.RealCurrentLocalOrigTokens))
 		}
 	}
 	if report.PromotionGate != nil {

@@ -593,6 +593,75 @@ func TestEvaluateCorpus_RealLocalSavingsExcludesProviderCacheAndDiagnostics(t *t
 	}
 }
 
+// TestEvaluateCorpus_NetBillableEquivalentMatchesSSOT verifies the net billable
+// equivalent estimate uses the SSOT formula from internal/analytics/proxy_gain.go
+// (cacheReadDiscountEquivalent): 0.9x on NET cache tokens (read - create), only
+// when net > 0. The denominator must be the local original token count, not
+// inflated by adding cached tokens (which are already part of the input stream).
+func TestEvaluateCorpus_NetBillableEquivalentMatchesSSOT(t *testing.T) {
+	t.Parallel()
+	// record: orig=1000, saved=200, cache_read=120, cache_create=40, cached=120
+	// net cache = 120-40 = 80; discount = 80*0.9 = 72; net billable = 200+72 = 272
+	root := t.TempDir()
+	writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:           "real_local",
+		EvidenceLevel:      "live_operator",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.10,
+	}, []string{sampleEvidenceRecord})
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.RealCurrentLocalOrigTokens != 1000 || report.RealCurrentLocalSavedTokens != 200 {
+		t.Fatalf("local baseline: orig=%d saved=%d", report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
+	}
+	if report.ProviderCacheReadTokens != 120 || report.ProviderCacheCreateTokens != 40 {
+		t.Fatalf("cache metrics: read=%d create=%d", report.ProviderCacheReadTokens, report.ProviderCacheCreateTokens)
+	}
+	// SSOT: 200 + int((120-40)*0.9) = 200 + 72 = 272
+	if report.NetBillableEquivalentEstimate != 272 {
+		t.Fatalf("net billable estimate: got %d, want 272 (SSOT: saved + (read-create)*0.9)",
+			report.NetBillableEquivalentEstimate)
+	}
+	// Formatted output must use the local orig denominator (1000), not
+	// orig+cached (1120), and must reflect the SSOT discount (27.2%, not the
+	// buggy 27.5% from cached*0.9 over orig+cached).
+	out := FormatCorpusReport(report)
+	if !strings.Contains(out, "Net billable:    27.20% (S_local + cache discount 0.9x, saved=272 orig=1000)") {
+		t.Fatalf("formatted net billable line mismatch:\n%s", out)
+	}
+}
+
+// TestEvaluateCorpus_NetBillableNoDiscountWhenCreatesExceedReads verifies the
+// net > 0 guard: when cache create tokens exceed read tokens, no cache discount
+// is applied (caching cost more than it saved).
+func TestEvaluateCorpus_NetBillableNoDiscountWhenCreatesExceedReads(t *testing.T) {
+	t.Parallel()
+	// record: orig=1000, saved=200, cache_read=30, cache_create=120, cached=30
+	// net cache = 30-120 = -90 <= 0; no discount; net billable = 200
+	record := `{"req_id":"req_negcache","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"cache_read_tokens":30,"cache_create_tokens":120,"provider_cached_tokens":30,"output_tokens":50}` + "\n"
+	root := t.TempDir()
+	writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:           "real_local",
+		EvidenceLevel:      "live_operator",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.10,
+	}, []string{record})
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.NetBillableEquivalentEstimate != 200 {
+		t.Fatalf("net billable estimate with negative cache net: got %d, want 200 (no discount)",
+			report.NetBillableEquivalentEstimate)
+	}
+}
+
 // writeCommandOutputFirstSidecar writes a command_output_first.jsonl sidecar
 // file into dir with the given rows.
 func writeCommandOutputFirstSidecar(t *testing.T, dir string, rows ...string) {
