@@ -103,7 +103,9 @@ numbers, a gamed denominator, or by counting **Codex-native behavior** (e.g.
 native `previous_response_id` continuation) as Slimference savings (§3.2,
 §3.7.6, §3.7.7). Phasewise the agent must run **hardcore, self-critical reality
 checks with fresh eyes**: re-derive the real product number from scratch,
-distrust prior green cycles, and straighten out any BS before continuing.
+distrust prior green cycles, and straighten out any BS before continuing. The
+mandatory anti-masking / test-honesty check that makes this concrete is **§3.8**
+— it is not optional.
 
 ### 0.9 Everything is planned and continuously evolved
 
@@ -513,6 +515,71 @@ moved the product number. The following rules are binding to prevent that:
    `docs/todo/integrity-slocal-attribution-and-recompute.md`). Reporting a
    blended headline `S_local` as one product figure, without its decomposition
    and attribution, is a No-Misattribution violation.
+
+### 3.8 Anti-Masking and Test-Honesty Protocol (Binding, Mandatory Critical Check)
+
+A green gate, a passing test, and a rising number are **claims, not proof**.
+Before an agent reports any savings, marks any task done, raises any floor, or
+commits any test change, it MUST run the critical check below **with fresh eyes**
+and assume the current state is lying until proven otherwise. These rules name
+the exact failure modes already found in this repository (2026-06-23 review) so
+they can never recur silently.
+
+**3.8.1 Forbidden patterns (each is a hard reject, not a style nit):**
+
+1. **Trust-without-recompute.** Counting a saving from a self-reported number
+   (e.g. summing `saved_tokens`/`input_tokens` from a sidecar jsonl) when the
+   gate could recompute it from recoverable raw bytes. A metric the agent cannot
+   independently re-derive is unverified and may not be reported as proven.
+2. **Misattribution.** Counting Codex-native or provider-native behavior (native
+   `previous_response_id` continuation, provider-cache discount, anything that
+   happens without Slimference) as Slimference `S_local` (§3.7.7).
+3. **Denominator gaming.** Reporting a high ratio whose denominator is a curated
+   set of high-compaction captures rather than a real session's full input. A
+   98%-style ratio on hand-picked huge outputs is not a product number; the
+   representative figure (e.g. in-band per-request) must be reported alongside.
+4. **Blended headline.** Presenting one combined `S_local` percentage without its
+   per-source decomposition and attribution labels.
+5. **Circular floor raise.** Appending captures/fixtures and then raising the CI
+   floor to match, with no production code change that genuinely produces the
+   saving (§3.7.6).
+6. **Test-to-mask.** Changing a test's expected values, loosening an assertion,
+   skipping, deleting, or `t.Skip`-ing a test so a regression "passes" instead of
+   fixing the regression. Editing a golden/expected value is only allowed when
+   the new value is independently proven correct and the reason is recorded in
+   the commit message.
+7. **Tautological / always-green tests.** Tests that assert a value the code just
+   wrote back to itself, mock away the behavior under test, never exercise the
+   failure branch, or would still pass if the production logic were deleted.
+   Every behavior test must be able to **fail** when the behavior breaks.
+8. **Coverage theater.** Adding tests purely to move the coverage number without
+   exercising real product paths, safety branches, or failure modes (§7).
+
+**3.8.2 Mandatory critical check (run every cycle before claiming done):**
+
+- **Re-derive the number.** Independently recompute the headline metric from
+  source; if you cannot, label it `unverified` and do not raise any floor on it.
+- **Attribution audit.** For every counted saving, name the exact code path that
+  *causes* it and confirm it would NOT happen without Slimference. If it is
+  observe-only of native behavior, move it out of the trusted number.
+- **Denominator audit.** State what the denominator is and whether it represents
+  a real session. If curated, report the representative number too.
+- **Negative-control the tests.** For any new/changed test, mentally (or
+  literally) break the production code and confirm the test would fail. If it
+  would still pass, the test is worthless — fix it.
+- **Regression honesty.** If a test now fails, the default is that the code
+  regressed. Investigate the regression first; only adjust the test after the
+  new expected value is independently proven correct.
+- **Diff-shape sanity.** A commit that changes only docs, fixtures, and CI
+  thresholds (no `internal/`/`cmd/` production code) may NOT claim a savings or
+  correctness improvement (§3.7.6c).
+
+**3.8.3 Reporting rule.** Every savings/quality report must explicitly state, in
+plain language, which numbers are **independently verified**, which are
+**self-reported/unverified**, which are **Slimference-incremental** vs
+**native**, and what the **representative** (not curated-best) figure is. Hiding
+any of these is itself a masking violation. When in doubt, distrust the green
+state and say so.
 
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
