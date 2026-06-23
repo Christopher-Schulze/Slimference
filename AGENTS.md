@@ -531,6 +531,41 @@ The requirements for **high meaningful Go coverage** and **tests under
 
 ## 10. Wiring Doctrine (Scoped Codex, Phase I, 2026-05-17)
 
+### 10.0 Scope (Binding)
+
+Slimference affects **only Codex CLI and Codex Desktop app**. ChatGPT app and
+ChatGPT website must remain **completely untouched** — no proxying, no hosts
+patching, no traffic interception, no base URL rewriting. This is a hard
+product boundary, not a configuration preference.
+
+Sessions run through Slimference **only** when started via:
+- `slimference codex run -- <prompt>` (CLI, including `codex exec` headless)
+- TUI / Launch Center start path
+- `slimference codex enable` (advanced shared route, explicitly opt-in)
+
+Any other Codex usage (direct `codex` in terminal without `slimference codex run`,
+ChatGPT app, ChatGPT website) must run **direct** with zero Slimference
+interference.
+
+### 10.1 Transport (Binding)
+
+**WSS is the production transport.** All savings mechanisms (L1, L2, L3,
+repdet, pruning, output-wire) must be wired into the WSS Phase-F path and
+must fire there during normal `slimference codex run` sessions. WSS is where
+production savings come from.
+
+**HTTP is test/research only.** The HTTP proxy path exists for:
+- Initial bring-up and protocol research
+- Fallback when WSS Phase-F certification is not green (bridge mode)
+- Isolated component testing
+
+HTTP must not be the primary savings path in production. If WSS Phase-F is
+not certified for the current Codex version, the priority is to recertify
+WSS, not to optimize HTTP as a permanent substitute. Savings measured on the
+HTTP path are valid evidence but are not the production target.
+
+### 10.2 Signal and Traffic Wiring
+
 Slimference may touch the user stack by default only in ways that leave
 ChatGPT.app and browser ChatGPT normal:
 
