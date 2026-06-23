@@ -231,11 +231,16 @@ func TestL3SafeSubset_FailOpenOnUnknownToolOutput(t *testing.T) {
 	}
 
 	// With unknown tool output, the safe subset must fail open:
-	// either no replacement, or replacement with byte-equal output
-	if replace && !bytes.Equal(delta.Raw, original) {
-		// If it did replace, the output must not have lost any content
-		// (fail-open means full output is sent)
-		t.Fatalf("fail-open violated: unknown tool output was compacted (content loss): original=%s mutated=%s", original, delta.Raw)
+	// the tool output text must NOT be compacted (no content loss).
+	// Delta expansion (stateless continuation) is a separate safe mechanism
+	// and may fire — it restructures the request but does not compact output.
+	if replace {
+		mutatedRaw := string(delta.Raw)
+		// The full tool output must still be present (not compacted).
+		// Check for a substring that survives JSON encoding (no newlines).
+		if !strings.Contains(mutatedRaw, "line1") || !strings.Contains(mutatedRaw, "line2") || !strings.Contains(mutatedRaw, "line3") {
+			t.Fatalf("fail-open violated: unknown tool output was compacted (content loss): original=%s mutated=%s", original, delta.Raw)
+		}
 	}
 }
 

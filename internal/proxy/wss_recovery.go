@@ -198,9 +198,13 @@ func (a *wsPhaseFAdapter) prepareWSSRecoveryCandidate(env *wsmitm.Envelope, body
 		}
 	}
 
-	exportStatelessChain := meta.DebugFacts["wss.full_history_stateless_followup"] == "true" ||
-		meta.DebugFacts["wss.stateless_history_continuation"] == "true" ||
-		meta.PreviousResponseID != ""
+	// Always export the chain to the persistent store. The chain is needed
+	// for delta recovery on the NEXT turn: if a new WebSocket connection
+	// (new adapter) handles the next turn, the in-memory store is empty and
+	// only the persistent store has the chain. Without this, the first turn
+	// of any session never exports its chain, so the second turn (delta with
+	// previous_response_id) can never find it — blocking all delta mutation.
+	exportStatelessChain := true
 	a.mu.Lock()
 	a.pendingChain = cloneWSSRawItems(fullInput)
 	a.pendingOutput = nil

@@ -1811,8 +1811,14 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 			"stream": true,
 		},
 	})
-	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &second); err != nil || replace {
-		t.Fatalf("second request replace=%v err=%v", replace, err)
+	// The second request may be replaced by the stateless continuation
+	// (delta expansion) when the response chain is available. This is a
+	// safe mechanism that expands the delta to full history.
+	secondReplace := false
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &second); err != nil {
+		t.Fatalf("second request err=%v", err)
+	} else {
+		secondReplace = replace
 	}
 	upstreamErr := parseWSJSON(t, map[string]any{
 		"type":   string(wsmitm.FrameKindError),
@@ -1823,6 +1829,19 @@ func TestWSPhaseFRecoveryRetriesInvalidRequestWithFullContext(t *testing.T) {
 		},
 	})
 	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &upstreamErr)
+	if secondReplace {
+		// Stateless continuation fired: the request was already expanded to
+		// full history (no previous_response_id). A 400 means the server
+		// rejected the full history itself — recovery retry cannot help.
+		// The 400 should be passed through, not consumed for recovery.
+		if errors.Is(err, wsmitm.ErrFrameConsumed) {
+			t.Fatalf("stateless continuation: 400 should not be consumed for recovery (request already full history)")
+		}
+		// Test passes — 400 was passed through as expected.
+		return
+	}
+	// Stateless continuation did NOT fire: the delta was sent as-is. The 400
+	// should be consumed for recovery (retry with full context).
 	if !errors.Is(err, wsmitm.ErrFrameConsumed) || replace {
 		t.Fatalf("invalid request should be consumed for recovery, replace=%v err=%v", replace, err)
 	}
