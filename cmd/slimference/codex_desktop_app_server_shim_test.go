@@ -582,6 +582,33 @@ func TestHandleCodexDesktopAppServerShimUsesExitFn(t *testing.T) {
 	}
 }
 
+// TestSanitizeCodexDesktopAppServerShimEnvPreservesCommandOutputFirstKeys is the
+// design-critical guard for the Desktop L2 wiring: runCodexDesktopAppServerShim
+// injects the command-output-first shim env AFTER buildCodexDesktopAppServerShimExec
+// sanitizes the env, so the sanitizer must NOT strip the COF keys. If a future
+// change adds PATH/BASH_ENV/SLIMFERENCE_COMMAND_OUTPUT_FIRST* to the sanitizer's
+// drop list, Desktop output compaction would silently break — this test fails first.
+func TestSanitizeCodexDesktopAppServerShimEnvPreservesCommandOutputFirstKeys(t *testing.T) {
+	env := []string{
+		"PATH=/shimdir:/usr/bin",
+		"BASH_ENV=/shimdir/bash_env",
+		commandOutputFirstActiveEnv + "=1",
+		commandOutputFirstSessionEnv + "=cof-xyz",
+		"CODEX_CLI_PATH=/slimference",
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+	}
+	got := sanitizeCodexDesktopAppServerShimEnv(env)
+	for _, key := range []string{"PATH", "BASH_ENV", commandOutputFirstActiveEnv, commandOutputFirstSessionEnv} {
+		if envValue(got, key) == "" {
+			t.Fatalf("sanitizer stripped command-output-first key %q: %#v", key, got)
+		}
+	}
+	// The Desktop-only keys are still dropped (unchanged contract).
+	if envValue(got, "CODEX_CLI_PATH") != "" || envValue(got, "SLIMFERENCE_CODEX_DESKTOP_ACTIVE") != "" {
+		t.Fatalf("sanitizer no longer drops Desktop-scoped keys: %#v", got)
+	}
+}
+
 func TestCodexDesktopAppServerActiveUsesCount(t *testing.T) {
 	oldCount := codexDesktopAppServerCountFn
 	t.Cleanup(func() { codexDesktopAppServerCountFn = oldCount })

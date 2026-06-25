@@ -45,6 +45,16 @@ func runCodexDesktopAppServerShim(args []string, p installPrinter) int {
 		fmt.Fprintf(p.Err, "slimference app-server shim: %v\n", err)
 		return 1
 	}
+	// L2 command-output-first on the Desktop transport (§10.2). The mediated
+	// app-server spawns bash -lc tool children that inherit the shim via the
+	// prepended PATH and BASH_ENV, so Desktop sessions get the same
+	// archive-backed, byte-equal-fail-open output compaction the CLI gets.
+	// Injected AFTER buildCodexDesktopAppServerShimExec's env sanitation (the
+	// COF keys are not SLIMFERENCE_CODEX_DESKTOP_*/CODEX_CLI_PATH, so they
+	// survive). Cleanup runs after the app-server exits — this call blocks in
+	// runCodexDesktopAppServerMediated until cmd.Wait returns.
+	env, cofCleanup := applyCommandOutputFirstEnvToList(env)
+	defer cofCleanup()
 	return runCodexDesktopAppServerMediated(argv0, argv, env, os.Stdin, p)
 }
 

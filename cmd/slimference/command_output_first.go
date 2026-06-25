@@ -44,6 +44,56 @@ func maybeApplyCommandOutputFirstEnv(mode string, command []string) ([]string, f
 	return insertEnvAssignmentsBeforeUtility(command, env...), cleanup
 }
 
+// applyCommandOutputFirstEnvToList merges the command-output-first shim
+// environment into an existing env list for the long-running Codex Desktop
+// app-server mediated path (codex_desktop_app_server_shim.go). The CLI helper
+// maybeApplyCommandOutputFirstEnv wraps a single synchronous command; the
+// Desktop app-server instead spawns its own `bash -lc` tool children, which
+// inherit the shim transparently via the prepended PATH and BASH_ENV — the same
+// archive-backed, byte-equal-fail-open output compaction (§10.2), now on the
+// Desktop transport. The returned cleanup func removes the temp shim dir and
+// must run only after the app-server process exits. Honors the same disable
+// escape hatch as the CLI path. Fail-open: on any setup failure the env is
+// returned unchanged with a no-op cleanup.
+func applyCommandOutputFirstEnvToList(env []string) ([]string, func()) {
+	if os.Getenv(commandOutputFirstDisableEnv) == "1" {
+		return env, func() {}
+	}
+	cofEnv, cleanup, ok := prepareCommandOutputFirstEnv()
+	if !ok {
+		return env, cleanup
+	}
+	return upsertEnvAssignments(env, cofEnv), cleanup
+}
+
+// upsertEnvAssignments overrides any existing KEY=value entries in env with the
+// matching entries from overrides, appending keys not already present. Existing
+// duplicate keys keep exec's last-wins semantics (the last matching index is
+// overridden). The input slice is not mutated.
+func upsertEnvAssignments(env []string, overrides []string) []string {
+	out := append([]string(nil), env...)
+	idx := make(map[string]int, len(out))
+	for i, kv := range out {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			idx[k] = i
+		}
+	}
+	for _, kv := range overrides {
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			out = append(out, kv)
+			continue
+		}
+		if i, hit := idx[k]; hit {
+			out[i] = kv
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, kv)
+	}
+	return out
+}
+
 func commandOutputFirstModeEnabled(mode string) bool {
 	switch mode {
 	case "proxied", "proxied-wss", "proxied-wss-bridge", "transparent-proxied":

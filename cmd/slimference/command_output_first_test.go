@@ -4724,6 +4724,123 @@ func TestPrepareCommandOutputFirstEnvFailOpenBoundaries(t *testing.T) {
 	}
 }
 
+func TestApplyCommandOutputFirstEnvToListInjectsShimEnv(t *testing.T) {
+	oldExecutable := osExecutable
+	t.Cleanup(func() { osExecutable = oldExecutable })
+	binDir := t.TempDir()
+	self := filepath.Join(binDir, "slimference")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	gitBin := filepath.Join(binDir, "git")
+	if err := os.WriteFile(gitBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	osExecutable = func() (string, error) { return self, nil }
+	t.Setenv("PATH", binDir)
+	t.Setenv(commandOutputFirstDisableEnv, "")
+
+	base := []string{"PATH=/sentinel/old", "UNRELATED=keep", "CODEX_HOME=/x"}
+	got, cleanup := applyCommandOutputFirstEnvToList(base)
+	defer cleanup()
+
+	if envValue(got, commandOutputFirstActiveEnv) != "1" {
+		t.Fatalf("active env missing: %#v", got)
+	}
+	if sess := envValue(got, commandOutputFirstSessionEnv); !strings.HasPrefix(sess, "cof-") {
+		t.Fatalf("session env missing/invalid: %q", sess)
+	}
+	bashEnv := envValue(got, "BASH_ENV")
+	if bashEnv == "" {
+		t.Fatalf("BASH_ENV missing: %#v", got)
+	}
+	if _, err := os.Stat(bashEnv); err != nil {
+		t.Fatalf("BASH_ENV script not written: %v", err)
+	}
+	if envValue(got, "UNRELATED") != "keep" {
+		t.Fatalf("unrelated key not preserved: %#v", got)
+	}
+	// PATH overridden (not duplicated) with the shim dir first and the real
+	// PATH preserved as a suffix; the old /sentinel/old value is replaced by
+	// the command-output-first PATH (built from the process PATH).
+	pathCount := 0
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "PATH=") {
+			pathCount++
+		}
+	}
+	if pathCount != 1 {
+		t.Fatalf("expected exactly one PATH entry, got %d in %#v", pathCount, got)
+	}
+	pathValue := envValue(got, "PATH")
+	shimDir := strings.Split(pathValue, string(os.PathListSeparator))[0]
+	if _, err := os.Stat(filepath.Join(shimDir, "git")); err != nil {
+		t.Fatalf("git shim not first on PATH: %v (path=%q)", err, pathValue)
+	}
+	if !strings.Contains(pathValue, string(os.PathListSeparator)+binDir) {
+		t.Fatalf("real PATH not preserved as suffix: %q", pathValue)
+	}
+	if strings.Contains(pathValue, "/sentinel/old") {
+		t.Fatalf("stale base PATH leaked into shim PATH: %q", pathValue)
+	}
+
+	cleanup()
+	if _, err := os.Stat(bashEnv); !os.IsNotExist(err) {
+		t.Fatalf("cleanup did not remove shim dir, stat err=%v", err)
+	}
+}
+
+func TestApplyCommandOutputFirstEnvToListDisableEscapeHatch(t *testing.T) {
+	oldExecutable := osExecutable
+	t.Cleanup(func() { osExecutable = oldExecutable })
+	osExecutable = func() (string, error) {
+		t.Fatal("prepareCommandOutputFirstEnv must not run when disabled")
+		return "", nil
+	}
+	t.Setenv(commandOutputFirstDisableEnv, "1")
+
+	base := []string{"PATH=/usr/bin", "FOO=bar"}
+	got, cleanup := applyCommandOutputFirstEnvToList(base)
+	defer cleanup()
+	if strings.Join(got, "\x00") != strings.Join(base, "\x00") {
+		t.Fatalf("disabled escape hatch must return env unchanged: %#v", got)
+	}
+	if envValue(got, "BASH_ENV") != "" {
+		t.Fatalf("disabled path injected BASH_ENV: %#v", got)
+	}
+}
+
+func TestUpsertEnvAssignments(t *testing.T) {
+	base := []string{"A=1", "B=2", "C=3"}
+	got := upsertEnvAssignments(base, []string{"B=20", "D=4", "noequals"})
+	if envValue(got, "A") != "1" || envValue(got, "C") != "3" {
+		t.Fatalf("untouched keys changed: %#v", got)
+	}
+	if envValue(got, "B") != "20" {
+		t.Fatalf("existing key not overridden: %#v", got)
+	}
+	if envValue(got, "D") != "4" {
+		t.Fatalf("new key not appended: %#v", got)
+	}
+	if got[len(got)-1] != "noequals" {
+		t.Fatalf("malformed assignment not appended verbatim: %#v", got)
+	}
+	// Exactly one B entry (override in place, not appended).
+	bCount := 0
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "B=") {
+			bCount++
+		}
+	}
+	if bCount != 1 {
+		t.Fatalf("override duplicated key B: %#v", got)
+	}
+	// Input slice not mutated.
+	if base[1] != "B=2" {
+		t.Fatalf("input slice mutated: %#v", base)
+	}
+}
+
 func TestRecordCommandOutputFirstRunFailOpenAndMissingCWD(t *testing.T) {
 	oldPath := resolveFilterDBPathFn
 	oldMkdirAll := osMkdirAll
