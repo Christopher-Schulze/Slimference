@@ -31,6 +31,11 @@ const (
 	commandOutputFirstObservationMinTokens   = 50
 	commandOutputFirstObservationFullPass    = "full_pass"
 	commandOutputFirstObservationArchiveFail = "archive_unavailable"
+	// commandOutputFirstObservationAdaptiveFullPass marks a compaction that was
+	// computed but deliberately suppressed because the adaptive per-class budget
+	// proved this class net-negative (measured re-fetch rate >= break-even). The
+	// full output is emitted (strictly safer). See internal/filter/adaptive_budget.go.
+	commandOutputFirstObservationAdaptiveFullPass = "adaptive_full_pass"
 )
 
 func maybeApplyCommandOutputFirstEnv(mode string, command []string) ([]string, func()) {
@@ -262,6 +267,17 @@ func runCommandOutputFirstShim(args []string, stdin io.Reader, stdout, stderr io
 	rawErr := errBuf.Bytes()
 	compacted, ok := compactCommandOutputFirstStreams(cfg.command, cfg.realBin, childArgs, rawOut, rawErr, code)
 	if ok {
+		// Adaptive per-class budget (internal/filter/adaptive_budget.go): suppress
+		// compaction on a class the measured re-fetch rate has proven net-negative
+		// (full-pass = emit the full output, strictly safer for comprehension).
+		// Below the per-class sample floor this is exactly the fixed L2 behavior,
+		// so the mechanism can only hold or improve net savings.
+		if commandOutputFirstAdaptiveFullPass(cfg.command, childArgs, commandOutputFirstCompactionRatio(compacted.raw, compacted.compacted)) {
+			recordCommandOutputFirstObservation(cfg.command, childArgs, rawOut, rawErr, commandOutputFirstObservationAdaptiveFullPass)
+			_, _ = stdout.Write(rawOut)
+			_, _ = stderr.Write(rawErr)
+			return code
+		}
 		recoverable, ok := archiveCommandOutputFirstCompaction(cfg.command, childArgs, compacted.stream, compacted.raw, compacted.compacted)
 		if !ok {
 			recordCommandOutputFirstObservation(cfg.command, childArgs, rawOut, rawErr, commandOutputFirstObservationArchiveFail)
