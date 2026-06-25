@@ -439,6 +439,11 @@ func TestHandleSubcommand_gain_byCommandShowsNegativeRecoveryCost(t *testing.T) 
 	if !strings.Contains(out, "Estimated tokens saved: 50") {
 		t.Fatalf("summary did not subtract recovery cost: %q", out)
 	}
+	// §3.2 / §3.8.1.4: the Layer-0 headline must point to the full breakdown so
+	// it is never mistaken for the product number (no blended headline).
+	if !strings.Contains(out, "slimference gain --proxy") {
+		t.Fatalf("Layer-0 headline must point to the §3.2 breakdown: %q", out)
+	}
 	if !strings.Contains(out, "[archive-recovery:contentarchive]") || !strings.Contains(out, "saved ~-20") {
 		t.Fatalf("negative recovery row hidden: %q", out)
 	}

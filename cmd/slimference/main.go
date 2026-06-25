@@ -2594,6 +2594,10 @@ func handleGainCmd(args []string) {
 	if s.USDPerMillionTokens > 0 {
 		fmt.Printf("Est. value saved (at $%.2f/M est. tokens): ~$%.4f\n", s.USDPerMillionTokens, s.SavingsUsdEst)
 	}
+	// Honesty (AGENTS.md §3.2 / §3.8.1.4 no blended headline): this block is
+	// Layer-0 filter savings only. Point to the full decomposition so the
+	// headline is never mistaken for the product number.
+	fmt.Println("  ^ Layer-0 filter savings only — for the §3.2 breakdown (S_local / provider-cache / net-billable) run: slimference gain --proxy")
 	fmt.Println(strings.Repeat("-", 50))
 	if flags.byCommand && len(rep.ByCommand) > 0 {
 		fmt.Println("By command (sorted by est. saved):")
