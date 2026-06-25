@@ -815,6 +815,11 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		cacheBustDemoted := a.wssCacheBustDemotedMechanismsForMeta(sessionID, meta, requestShape)
 		cacheBustDemotedClassKeys := a.wssCacheBustDemotedClassKeysForMeta(sessionID, meta, requestShape)
 		attachWSSCacheBustDemotedDebugFacts(&meta, cacheBustDemoted, cacheBustDemotedClassKeys, requestShape)
+		// Observe-only unified keystone verdict (internal/proxy/keystone.go):
+		// per turn, would the §0.6 cross-turn keystone be safe to apply? Emits
+		// telemetry only; mutates nothing. Sizes the cross-turn opportunity
+		// (proof-gate-step-2) before any apply path is flipped on.
+		attachWSSKeystoneVerdictDebugFacts(&meta, deltaStatelessRecoveryReady, structuredMutationRecoverable, cacheBustDemoted != 0)
 		if wssPreviousResponseUnknownToolOutputFullPass(meta, requestContainsToolOutput, statefulToolOutputMutationSafe, toolOutputKnown) {
 			historyMutationGuardReason := ""
 			if meta.PreviousResponseID != "" && deltaShape {
@@ -883,6 +888,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			// recorded summary for live debugging of the no_wss_delta blocker.
 			attachWSSDeltaStatelessRecoveryDebugFacts(&meta, deltaStatelessRecoveryReady, recoveryPreviousResponseID, toolOutputKnown, deltaShape)
 			attachWSSCacheBustDemotedDebugFacts(&meta, cacheBustDemoted, cacheBustDemotedClassKeys, requestShape)
+			attachWSSKeystoneVerdictDebugFacts(&meta, deltaStatelessRecoveryReady, structuredMutationRecoverable, cacheBustDemoted != 0)
 			if detachedPreviousResponseID {
 				meta.DebugFacts["wss.full_history_detached_previous_response"] = "true"
 			}
