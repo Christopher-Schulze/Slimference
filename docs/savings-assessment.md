@@ -1,5 +1,16 @@
 # Slimference - Savings Assessment
 
+> **SUPERSEDED on the numbers (2026-06-25).** This 2026-06-14 assessment predates
+> the recompute-bound gate and the integrity findings. Its per-workload ranges
+> (25-70%) and the `1,048,433`-token release-proof figure were measured by the
+> old trust-without-recompute gate and must NOT be read as the current proven
+> product number. The honest, recompute-verified, representative
+> Slimference-incremental number today is **~6.05% in-band** (`docs/savings-ledger.md`,
+> AGENTS.md §3.7/§3.8). L1 server-state continuation is Codex-native and excluded.
+> The mechanism descriptions below remain accurate; only the magnitudes are stale.
+> Also note: the "Layer 0-3" naming here differs from AGENTS.md (`L1`=server-state,
+> `L2`=command-output, `L3`=WSS history) — AGENTS.md is canonical.
+
 Date: 2026-06-14
 Scope: v0.6.0 product architecture after Layer 2 removal
 Method: repository evidence, checked-in fixtures, current local release proof,

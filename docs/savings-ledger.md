@@ -11,63 +11,56 @@ counted as `S_local`.
 
 ---
 
-## Current state (as of 2026-06-23)
+## Current state (as of 2026-06-25 — recompute-bound honest gate, commit 9646f046)
 
-- **Owner target:** `MAXIMUM PRACTICAL S_local` (AGENTS.md §3.2 — no fixed ceiling, push every lever, 100% drawdown-policy-conformant).
-- **CI floor:** `67.90%` (`scripts/ci/main.go --real-local-min-ratio=0.6790`).
-- **Measured:** `67.9018%` on `tests/fixtures/live_corpus` (saved=11,586,899 orig=17,064,196) — L2 T418 sidecar across 16/16 CLI categories + L1 server-state continuation sidecar across 17 categories (16 CLI + 5 desktop), including rg --json archived compaction + go test -json compaction + JSON minification for cat/bat. 68+ genuine L1 entries from 17+ real sessions distributed to gate-counted categories. Duplicate L2 captures removed: cli_test_failure + cli_host_resource_long_workday.
-- **Available but not in gate:** 0 L1 saved tokens (all analytics L1 entries now distributed).
-- **L1 live proof:** 30+ real `slimference codex run` sessions, 160+ delta turns with `previous_response_id=true`, 0 upstream 400s, ~6.5M total saved tokens.
-- **L2 live proof:** Session `019ef041` produced `go test -json ./internal/filter/` 841690→27 (99.997% saved), `go test -json ./internal/proxy/` 819871→27 (99.997% saved), `rg --json func cmd/slimference/` 293093→7770 (97.3% saved). Session `019ef052` produced `cat codex-metadata.json` 391→196 (50% saved, schema extraction), `cat v1-responses-input.json` 544→91 (83% saved, schema extraction). Session `019ef18d` produced `go test -json ./internal/filter/` 886K saved. Session `019ef18e` produced `go test -json ./internal/proxy/` + `go test -json ./internal/config/` + `go test -json ./cmd/slimference/` 885K saved.
-- **New levers shipped this session:**
-  1. `TryCompactRipgrepJSONArchived` — new compactor for `rg --json` NDJSON output (97%+ saved)
-  2. `TryCompactGoTestJSON` wired into `go` case — was implemented but never called (99.997% saved on all-pass)
-  3. `TryCompactJSONMinify` wired into `cat`/`head`/`sed`/`awk`/`bat` case — was implemented but never called (50-83% saved on JSON files)
-  4. `bat`/`batcat` added to read-command path — same compaction as `cat`
-  5. `TryCompactGitDiff`/`TryCompactGitShow`/`TryCompactGitLog` enabled for all output, not just `--stat`/`--name-only` (context line stripping for full diffs)
-  6. `TryCompactGoListJSON` — new compactor for `go list -json` NDJSON output (11% saved on single module, more for `./...`)
-  7. Genuine L1 captures distributed to 11 previously uncovered categories (16/16 CLI categories now covered)
-  8. Genuine L2 captures distributed to 5 previously uncovered categories (16/16 CLI categories now covered)
-  9. `TryCompactDf` — new compactor for `df` output (caps at 40 filesystem rows + header)
-  10. `TryCompactPs` — new compactor for `ps` output (caps at 50 process rows + header)
-  11. `TryCompactEnv` — new compactor for `env`/`printenv` with **secret redaction** (security win: redacts API keys, tokens, passwords, JWTs, AWS keys, GitHub tokens, Slack tokens before they enter model context; caps at 50 variables)
-  12. `TryCompactHexDump` — new compactor for `xxd`/`hexdump`/`od` output (caps at 10 lines + last 3, preserves file signature + end marker)
-  13. `TryCompactDiff` — new compactor for `diff`/`diff3` unified diff output (strips context lines, keeps +/- lines and hunk headers — same logic as `compactGitDiff` but for plain `diff -u`)
-  14. `TryCompactLsof` — new compactor for `lsof` output (caps at 100 rows + header)
-  15. `TryCompactNetstat` — new compactor for `ss`/`netstat` output (caps at 60 rows + header)
-  16. `TryCompactHistory` — new compactor for `history`/`fc -l` output (caps at 50 most-recent entries)
-  17. `TryCompactDmesg` — new compactor for `dmesg` kernel log output (caps at 50 most-recent lines)
-  18. `TryCompactMount` — new compactor for `mount` output (caps at 40 entries)
-  19. `TryCompactBase64` — new compactor for `base64`/`base32` output (caps at 10 lines + last 3, preserves first + end marker)
-  20. `TryCompactHashSum` — new compactor for `md5sum`/`sha256sum`/`sha1sum`/`sha512sum`/`shasum`/`b2sum`/`cksum` output (caps at 50 entries)
-  21. `TryCompactObjdump` — new compactor for `objdump`/`readelf`/`nm`/`strings` binary analysis output (caps at 50 lines + last 3)
-  22. `TryCompactStrace` — new compactor for `strace`/`ltrace` syscall trace output (caps at 50 lines + last 3)
-  23. `TryCompactVmstat` — new compactor for `vmstat`/`iostat`/`mpstat`/`sar` system stats (caps at header + first 10 + last 15 samples)
-  24. `TryCompactIpAddr` — new compactor for `ip`/`ifconfig` network interface output (caps at 50 lines)
-  25. `TryCompactCloc` — new compactor for `cloc`/`scc`/`tokei`/`loc` code counting output (extracts first 20 entries + SUM/total line)
-  26. `TryCompactDocker`/`TryCompactKubectl`/`TryCompactHelm` — new compactors for container orchestration output
-  27. `TryCompactSystemctl`/`TryCompactJournalctl` — new compactors for systemd output
-  28. `TryCompactCargo`/`TryCompactRustc` — new compactors for Rust build output
-  29. `TryCompactTcpdump`/`TryCompactPerf` — new compactors for network/perf profiling output
-  30. WSS Phase-F recertify now runs 2 turns (delta-shaped second turn) — `frames_reencoded=2`, Phase-F certification passed
-  31. Inference fallback tests prove `toolOutputKnown=true` via `proxyInferCommandLineFromToolResult` when `ResponseOutputItemDone` is missing
-- **Historical real-session peak:** `46.1%` on a 48M-token day (2026-06-08),
-  `75.9%` (2026-06-02), from `~/.slimference/analytics/*.jsonl`
-  (`saved_input_tokens`). Collapsed to ~0% from ~2026-06-13 when broad WSS
-  guards landed.
-- **Command-output-first (L2) all-time:** `~87%` on touched output
-  (`slimference gain` all-time = 1.4M saved / 1.6M input) — but **not counted by
-  the production gate yet**.
+The earlier "67.90% / 70.84%" headline was **not a real product number**: it
+summed self-reported sidecar `saved_tokens` with no recomputation (the §3.7.6
+inflation vector), blended a Codex-native L1 (§3.7.7), and used a curated
+`go test -json` denominator (§3.8 Finding C). The gate now **recomputes every L2
+line from embedded raw bytes** and only counts what it can independently verify.
+
+- **Owner target:** `MAXIMUM PRACTICAL S_local` (AGENTS.md §3.2/§0.3 — no fixed
+  ceiling; `>=48%` is the **minimum floor**, not the goal).
+- **CI floor:** `6.0%` (`scripts/ci/main.go --real-local-min-ratio=0.06
+  --real-local-min-saved=340000`).
+- **Measured (honest, recompute-verified):** `6.05%` on
+  `tests/fixtures/live_corpus` (in-band saved=340,775 orig=5,631,223). This is
+  the representative per-request Slimference-incremental number, matching the
+  historically frozen ~6% (AGENTS.md §3.7).
+- **Observed, NOT in S_local:**
+  - **L2 unverified** saved=7,140,757 orig=7,255,323 — self-reported legacy
+    fixtures with no recomputable bytes. EXCLUDED until re-captured with
+    provenance (`input_sha256` + `raw_gzip_b64` + `compacted_gzip_b64`).
+  - **L1 server-state** saved=5,855,185 — Codex-native `previous_response_id`
+    continuation. EXCLUDED (§3.7.7).
+- **L1 attribution — settled by live evidence (2026-06-25):** a real
+  `slimference codex run -- codex exec` session showed delta turns with
+  client-sent **body = 34 / 125 / 286 tokens** against a provider-reported
+  ~37,000-token server-side context. Codex sends tiny deltas with
+  `previous_response_id` **natively**; Slimference does not inject it on the WSS
+  path (it detaches it). L1 is therefore Codex-native, not Slimference-
+  incremental — permanently excluded from S_local.
+- **L2 provenance — proven live end-to-end (2026-06-25):** the same session's
+  cof sidecar lines now carry `input_sha256` + gzip bytes; dropped into a corpus
+  category, the gate recomputes and counts them as VERIFIED L2 (e.g.
+  `ls -la scripts/` 153→132, 21 saved, verified).
+- **Rebuild path (open):** the honest gate counts 0 verified L2 today because
+  the committed fixtures predate provenance. Growing S_local back up requires
+  re-capturing representative tool-heavy sessions with the provenance writer —
+  NOT re-appending the old `go test -json` monsters (>256KB → unverifiable by
+  design, and non-representative).
 
 ---
 
-## Lever status
+## Lever status (honest, post-recompute)
 
-| Lever | Status | Measured `S_local` (live, gate) | candidate_potential_if_completed | Next move |
-|-------|--------|---------------------------------|----------------------------------|-----------|
-| L1 server-state continuation | `production_ready` (default-on, fail-open, measurement fixed, live proof passed, gate-aggregated) | combined L1+L2 = 67.90% in gate (L1 sidecar counted across 17 corpus categories; 99.8% L1 continuation ratio on live sessions) | +15 to +30 | L1 sidecar (`server_state_continuation.jsonl`) now wired into `S_local` gate via `loadCategoryL1ServerStateSidecar`. L1 sidecar writer added to both WSS and HTTP proxy paths. 68+ genuine L1 entries from 17+ real sessions distributed to gate-counted categories. Next: run more tool-heavy sessions to grow L1 mass. |
-| L2 command-output-first | `production_ready` (default-on, gate-wired, T418 sidecar aggregated into `S_local` gate, 16/16 CLI categories covered) | combined L1+L2 = 67.90% in gate (T418 sidecar counted across 16/16 CLI categories; refreshed captures with higher per-command savings from tool-heavy `rg`/`go test` commands) | +15 to +25 | T418 sidecar data from live `slimference codex run` sessions across all 16/16 CLI categories. 28 new compactors shipped (df/ps/env/hexdump/diff/lsof/netstat/history/dmesg/mount/base64/hashsum/objdump/strace/vmstat/ip/cloc/docker/kubectl/helm/systemctl/journalctl/cargo/rustc/tcpdump/perf; TryCompactMake already existed). Next: run live sessions exercising new compactors to generate sidecar captures. |
-| L3 WSS history mutation | `engineered_pending_evidence` (FIFO eviction fix shipped, guard improvements shipped, inference fallback tests shipped; needs safety proof + live proof) | n/a | safe subset +3 to +8 | FIFO eviction fix in `wss_recovery.go` (was broken — existence check ran after map insertion, causing unbounded memory growth). Inference fallback tests prove `toolOutputKnown=true` via `proxyInferCommandLineFromToolResult` when `ResponseOutputItemDone` is missing. Remaining: safety proof (0 400s, 0 cache-bust, byte-equal history) + live proof (real long session). |
+| Lever | Status | Verified `S_local` (recompute gate) | candidate_potential_if_completed | Next move |
+|-------|--------|-------------------------------------|----------------------------------|-----------|
+| in-band request compaction | `production_ready` | **6.05%** (the trusted number) | — | The representative per-request floor; real and recompute-independent (session JSONL). |
+| L2 command-output-first | `production_ready` mechanism; gate-counted mass `engineered_pending_evidence` | 0 verified yet (legacy fixtures provenance-free); live capture proven to verify | +5 to +20 on tool-heavy sessions (representative, recompute-bound) | Re-capture representative sessions with the provenance writer to rebuild verified mass. Extend the shim to the **Desktop** app-server path (currently CLI-only, single call site `proxy_cmd.go`). |
+| L1 server-state continuation | `excluded` (Codex-native, live-confirmed 2026-06-25) | 0 (not a Slimference saving) | 0 — re-include only if a future A/B proves Slimference causes the byte reduction | Closed lane. Do not count `previous_response_id` continuation as S_local. |
+| L3 / in-transit WSS frame mutation | `engineered_pending_evidence`; delivers ~0 today | 0 (delta guards block every delta turn; Desktop never opens WSS) | safe subset +3 to +8 on cross-turn history L2 cannot reach | Atomic guard-narrowing on the stable transport; only counts where L2 has not already compacted (Desktop / cross-turn). |
+| caching (prompt_cache_key + retention) | `engineered_pending_evidence`, separate from S_local (§0.10) | n/a (reported as combined billable + cache-hit) | beat plain Codex-vs-server caching | A/B cache_read_tokens with vs without Slimference on identical sessions. |
 
 ---
 
@@ -129,3 +122,5 @@ counted as `S_local`.
 | 2026-06-23 | 5 codex exec live capture sessions | Ran 5 `slimference codex run -- codex exec` sessions with varied tool patterns (git status, rg --json, go test -json, grep, find, wc, go vet, cat). Distributed genuine L1 + L2 captures to cli_git_status, cli_large_tool_output, cli_search_loop categories. Key captures: go test -json ./internal/proxy/... 870K→27 (99.997% saved), rg --json 'func ' 211K→4K (98% saved), go test -json ./internal/config/... 63K→27 (99.96% saved). | 67.90% | 70.57% (saved=12,xxx,xxx orig=17,xxx,xxx) | n/a | 0 | All captures genuine from real sessions. 0 upstream 400s. ts dedup verified. CI floor raised 67.90% → 70.50%. CI 8/8 PASS. | ad0419eb |
 | 2026-06-23 | 3 more codex exec sessions — build/vet/test patterns | Distributed genuine L2 captures: go test -json ./internal/types/... (8K→27), go test -json ./internal/config/... (63K→27), go test -json ./internal/contentarchive/... (12K→27), rg --json 'func.*Cache' (18K→4K), rg --json 'type.*struct' (18K→1K), go test -json ./internal/install/... (21K→27), go test -json ./internal/readcache/... (25K→27), go test -json ./internal/codexroute/... (19K→27). | 70.57% | 70.84% | n/a | 0 | All captures genuine. 0 upstream 400s. ts dedup verified. CI floor raised 70.70% → 70.80%. CI 8/8 PASS. | aa0f9fb7 |
 | 2026-06-23 | **Integrity correction — L1 excluded from S_local (§3.7.7)** | L1 server-state continuation (`previous_response_id`) is Codex-native behavior, not Slimference-incremental. Empirical check of live captures showed frames *with* `previous_response_id` were not significantly smaller than those without — Codex already sends small deltas natively. L1 was previously counted in `S_local` via `loadCategoryL1ServerStateSidecar`, inflating the headline from 58.06% to 70.84%. Fix: (1) `benchmark_corpus.go` excludes L1 from `RealCurrentLocalSavedTokens`/`RealCurrentLocalOrigTokens`, reports it separately as `SLocalL1*` observed-only fields. (2) Two tests updated to assert L1 exclusion. (3) CI floor lowered from 0.7080/13.3M (inflated) to 0.50/7.0M (honest). Gate output now prints "Observed (NOT in S_local): L1 server-state (Codex-native)". | 70.84% (inflated) | 58.06% (honest: in-band 6.05% + L2 98.42%, L1 excluded) | n/a | 0 | Full CI 8/8 PASS. L1 re-inclusion requires live A/B proof per `docs/todo/integrity-slocal-attribution-and-recompute.md` Finding A. | (this commit) |
+| 2026-06-25 | **Recompute-bound gate (Finding B closed for L2)** | The gate summed self-reported sidecar `saved_tokens` with no recomputation. Now each L2 line carries provenance (`input_sha256` + gzip raw/compacted bytes, capped 256KB); the gate independently re-derives input/output/saved token counts from the embedded bytes and only counts VERIFIED lines. Unverified (no bytes) → observed-only, excluded. Tamper (provenance mismatch) → fail-closed via `errSidecarIntegrity`. Tests: verified-counted, unverified-excluded, tamper-rejected, writer emits provenance. | 58.06% (trusted unverifiable L2) | **6.05%** (honest: in-band only; legacy L2 fixtures are provenance-free → 0 verified, 7.14M observed-only) | n/a | 0 | Full CI 8/8 PASS. CI floor lowered 0.50/7.0M → 0.06/340000. Residual: gate recomputes token counts but does not yet re-run the compactor on the raw (next hardening). | 9646f046 |
+| 2026-06-25 | **L1 A/B settled — Codex-native, lane closed** | Live `slimference codex run -- codex exec` session: delta turns sent client body = **34 / 125 / 286 tokens** against a provider-reported ~37,000-token server-side context. Codex sends tiny deltas with `previous_response_id` natively; Slimference does not inject it on the WSS path (detaches it). L1 "saving" (provider_input − body) is Codex-native, not Slimference-incremental. | n/a | n/a (L1 stays excluded) | n/a | 0 | L1 permanently excluded from S_local. Re-include only if a future A/B proves Slimference causes the byte reduction. Same session proved the L2 provenance writer end-to-end (cof line verified by the gate). | (this commit) |
