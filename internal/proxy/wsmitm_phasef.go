@@ -387,6 +387,17 @@ func (a *wsPhaseFAdapter) applyBridgeClientFamilyFallback(meta *wssRequestMeta) 
 	}
 }
 
+func (a *wsPhaseFAdapter) applySocketSessionFallback(meta *wssRequestMeta) {
+	if meta == nil || meta.SessionID != "" || meta.SocketSeq == 0 {
+		return
+	}
+	meta.SessionID = fmt.Sprintf("wss_socket:%d", meta.SocketSeq)
+	if meta.DebugFacts == nil {
+		meta.DebugFacts = make(map[string]string)
+	}
+	meta.DebugFacts["wss.session_id_source"] = "socket_fallback"
+}
+
 func (a *wsPhaseFAdapter) observeWSSRequestTurnSeq(sessionID string) int {
 	if a == nil || sessionID == "" {
 		return 0
@@ -705,6 +716,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		meta = wssRequestMetaFromRaw(raw)
 		a.applyBridgeClientFamilyFallback(&meta)
 		meta.SocketSeq = a.socketSeq.Load()
+		a.applySocketSessionFallback(&meta)
 		if statelessHistoryContinuation && len(preExpansionMessages) > 0 {
 			meta.OriginalMessages = preExpansionMessages
 		} else {
@@ -736,6 +748,7 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta = wssRequestMetaFromRaw(raw)
 			a.applyBridgeClientFamilyFallback(&meta)
 			meta.SocketSeq = a.socketSeq.Load()
+			a.applySocketSessionFallback(&meta)
 		}
 		requestContainsToolOutput = wssBodyContainsFunctionCallOutput(out)
 	}
@@ -1075,11 +1088,15 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			}
 			meta.DebugFacts["wss.search_cap_stateful_followup_guard"] = "stateful_delta_depth_limit"
 		}
+		cacheSessionID := sessionID
+		if strings.HasPrefix(cacheSessionID, "codex-wss:") && meta.SocketSeq != 0 {
+			cacheSessionID = fmt.Sprintf("wss_socket:%d", meta.SocketSeq)
+		}
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                   codexLayer0RouteWSSPhaseF,
 			Messages:                stagedMessages,
 			ToolUseIndex:            mergedToolUses,
-			SessionID:               sessionID,
+			SessionID:               cacheSessionID,
 			TurnID:                  turnID,
 			SuppressedToolKey:       suppressedKeys,
 			RecentFullPassTurns:     a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,

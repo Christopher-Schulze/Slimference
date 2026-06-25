@@ -297,15 +297,15 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 	statusCmd := "git -C " + shellQuote(dir) + " ls-files --cached"
 	listCmd := "git -C " + shellQuote(dir) + " ls-files --cached"
 	prompts := []string{
-		"Run exactly `" + statusCmd + "`, then reply exactly RECERT_DONE.",
+		"Run exactly `" + statusCmd + "` twice as two separate shell commands, then reply exactly RECERT_DONE.",
 		"Run exactly `" + listCmd + "`, then reply exactly RECERT_DONE_2.",
 	}
 	for i, prompt := range prompts {
 		args := []string{"codex", "run", "--transport=wss", "--host=" + input.Host, "--port=" + input.Port, "--"}
 		if i == 0 {
-			args = append(args, "exec", "--ignore-user-config", "--ephemeral", "--cd", dir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
+			args = append(args, "exec", "--ignore-user-config", "--cd", dir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
 		} else {
-			args = append(args, "exec", "resume", "--last", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
+			args = append(args, "exec", "--ignore-user-config", "--cd", dir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "resume", "--last", prompt)
 		}
 		if err := recertRunCommandFn(input.Timeout, args...); err != nil {
 			return codexRecertTriggerResult{PromptSequence: prompts}, err

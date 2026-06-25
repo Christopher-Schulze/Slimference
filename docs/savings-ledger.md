@@ -11,7 +11,7 @@ counted as `S_local`.
 
 ---
 
-## Current state (as of 2026-06-25 — recompute-bound honest gate, commit 9646f046)
+## Current state (as of 2026-06-25 — recompute-bound honest gate, current local verification)
 
 The earlier "67.90% / 70.84%" headline was **not a real product number**: it
 summed self-reported sidecar `saved_tokens` with no recomputation (the §3.7.6
@@ -23,10 +23,14 @@ line from embedded raw bytes** and only counts what it can independently verify.
   ceiling; `>=48%` is the **minimum floor**, not the goal).
 - **CI floor:** `6.0%` (`scripts/ci/main.go --real-local-min-ratio=0.06
   --real-local-min-saved=340000`).
-- **Measured (honest, recompute-verified):** `6.05%` on
-  `tests/fixtures/live_corpus` (in-band saved=340,775 orig=5,631,223). This is
-  the representative per-request Slimference-incremental number, matching the
-  historically frozen ~6% (AGENTS.md §3.7).
+- **Measured (honest gate):** `6.2644%` on `tests/fixtures/live_corpus`
+  (saved=356,292 orig=5,687,577). This is the representative per-request
+  Slimference-incremental number, matching the historically frozen ~6% band
+  (AGENTS.md §3.7).
+- **WSS Phase-F status:** Codex CLI 0.142.2 is certified (`auto.mode=wss_phasef`).
+  Live recert proof: `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, `mutation_active=true`, `parse_failures=0`,
+  `degraded_sessions=0`, `upstream_errors=0`; the recert slice saved 874 tokens.
 - **Observed, NOT in S_local:**
   - **L2 unverified** saved=7,140,757 orig=7,255,323 — self-reported legacy
     fixtures with no recomputable bytes. EXCLUDED until re-captured with
@@ -65,10 +69,10 @@ line from embedded raw bytes** and only counts what it can independently verify.
 
 | Lever | Status | Verified `S_local` (recompute gate) | candidate_potential_if_completed | Next move |
 |-------|--------|-------------------------------------|----------------------------------|-----------|
-| in-band request compaction | `production_ready` | **6.05%** (the trusted number) | — | The representative per-request floor; real and recompute-independent (session JSONL). |
+| in-band request compaction | `production_ready` | **6.2644%** (the trusted gate number) | — | The representative per-request floor; real and recompute-independent (session JSONL). |
 | L2 command-output-first (CLI + Desktop) | `production_ready` mechanism, now wired on **both** transports; gate-counted mass growing | **15,517 tok genuine verified** (2026-06-25; Real S_local 6.06% → 6.26%; recompute-verified ratio 27.53% over the verified-capture denominator, NOT a session number — dominated by one large Desktop `rg` capture) | +5 to +20 on tool-heavy sessions (representative, recompute-bound) | Grow verified mass with more representative captures on both transports. Desktop wiring done (`codex_desktop_app_server_shim.go`); next: broaden L2 to the MCP/tool-facade boundary (`new-l2-broad-clean-codex-native.md`). |
 | L1 server-state continuation | `excluded` (Codex-native, live-confirmed 2026-06-25) | 0 (not a Slimference saving) | 0 — re-include only if a future A/B proves Slimference causes the byte reduction | Closed lane. Do not count `previous_response_id` continuation as S_local. |
-| L3 / in-transit WSS frame mutation | `engineered_pending_evidence`; delivers ~0 today | 0 (delta guards block every delta turn; Desktop never opens WSS) | safe subset +3 to +8 on cross-turn history L2 cannot reach | **Keystone verdict shipped observe-only** (`internal/proxy/keystone.go`): one fail-closed `crossTurnKeystoneVerdict` replaces the five-guard model + per-turn `wss.keystone_apply_eligible` telemetry. Remaining = the apply-flip routing real mutations through it + the live multi-turn 0-400/0-cache-bust proof (the activation gate — NOT done, needs a dedicated safe window). |
+| L3 / in-transit WSS frame mutation | `engineered_pending_evidence`; Phase-F substrate certified, broad keystone proof pending | 874 tokens in recert slice; live-corpus gate unchanged | safe subset +3 to +8 on cross-turn history L2 cannot reach | **Keystone verdict shipped observe-only** (`internal/proxy/keystone.go`): remaining = apply-flip routing real mutations through it + live multi-turn 0-400/0-cache-bust proof. |
 | caching (prompt_cache_key + retention) | `engineered_pending_evidence`, separate from S_local (§0.10) | n/a (reported as combined billable + cache-hit) | beat plain Codex-vs-server caching | A/B cache_read_tokens with vs without Slimference on identical sessions. |
 
 ---

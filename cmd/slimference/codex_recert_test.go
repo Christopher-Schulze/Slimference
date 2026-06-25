@@ -710,13 +710,16 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 	joined := strings.Join(calls[0], "\x00")
 	if !strings.Contains(joined, "--transport=wss") ||
 		!strings.Contains(joined, "--ignore-user-config") ||
-		!strings.Contains(joined, "--ephemeral") ||
 		!strings.Contains(joined, "git -C ") ||
 		!strings.Contains(joined, "ls-files --cached") {
 		t.Fatalf("bad scoped WSS calls: %v", calls)
 	}
+	if strings.Contains(joined, "--ephemeral") {
+		t.Fatalf("recert trigger must be resumable, got ephemeral call: %v", calls[0])
+	}
 	joined2 := strings.Join(calls[1], "\x00")
 	if !strings.Contains(joined2, "--transport=wss") ||
+		!strings.Contains(joined2, "--cd") ||
 		!strings.Contains(joined2, "resume") ||
 		!strings.Contains(joined2, "--last") ||
 		!strings.Contains(joined2, "ls-files --cached") {
@@ -738,6 +741,16 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 	}
 	if !strings.Contains(gotCD, "slimference-codex-recert") {
 		t.Fatalf("recert trigger must --cd into the disposable proof repo: %q", gotCD)
+	}
+	gotResumeCD := ""
+	for i := 0; i+1 < len(calls[1]); i++ {
+		if calls[1][i] == "--cd" {
+			gotResumeCD = calls[1][i+1]
+			break
+		}
+	}
+	if gotResumeCD != gotCD {
+		t.Fatalf("recert resume must stay in the disposable proof repo, first --cd=%q resume --cd=%q", gotCD, gotResumeCD)
 	}
 }
 
