@@ -44,11 +44,20 @@ line from embedded raw bytes** and only counts what it can independently verify.
   cof sidecar lines now carry `input_sha256` + gzip bytes; dropped into a corpus
   category, the gate recomputes and counts them as VERIFIED L2 (e.g.
   `ls -la scripts/` 153→132, 21 saved, verified).
-- **Rebuild path (open):** the honest gate counts 0 verified L2 today because
-  the committed fixtures predate provenance. Growing S_local back up requires
-  re-capturing representative tool-heavy sessions with the provenance writer —
-  NOT re-appending the old `go test -json` monsters (>256KB → unverifiable by
-  design, and non-representative).
+- **Rebuild path (first step executed, 2026-06-25):** genuine provenance
+  captures from two `slimference codex run -- codex exec` sessions were
+  distributed into the matching counting categories (`rg`→`cli_search_loop`,
+  `ls`→`cli_git_status`). The gate now byte-recomputes them: **recompute-verified
+  rose 0 → 289 saved tok** (`[independently proven, unfabricatable]`). Honest
+  framing (§3.8.3): the printed `28.59%` is the **curated per-capture** ratio
+  (denominator 1011 = only the 3 verified captures), **not** a session number;
+  the representative **Real S_local stays 6.06%** (289 tok is a rounding blip on
+  the 5.6M denominator). No CI floor raised (§3.7.6c: ci/main.go untouched). The
+  value here is **pipeline proof end-to-end on live data**, not magnitude.
+  Growing the verified mass further requires more representative tool-heavy
+  capture sessions with the provenance writer — NOT re-appending the old
+  `go test -json` monsters (>256KB → unverifiable by design, and
+  non-representative).
 
 ---
 
@@ -57,7 +66,7 @@ line from embedded raw bytes** and only counts what it can independently verify.
 | Lever | Status | Verified `S_local` (recompute gate) | candidate_potential_if_completed | Next move |
 |-------|--------|-------------------------------------|----------------------------------|-----------|
 | in-band request compaction | `production_ready` | **6.05%** (the trusted number) | — | The representative per-request floor; real and recompute-independent (session JSONL). |
-| L2 command-output-first | `production_ready` mechanism; gate-counted mass `engineered_pending_evidence` | 0 verified yet (legacy fixtures provenance-free); live capture proven to verify | +5 to +20 on tool-heavy sessions (representative, recompute-bound) | Re-capture representative sessions with the provenance writer to rebuild verified mass. Extend the shim to the **Desktop** app-server path (currently CLI-only, single call site `proxy_cmd.go`). |
+| L2 command-output-first | `production_ready` mechanism; gate-counted mass `engineered_pending_evidence` | **289 tok genuine verified** (2026-06-25 first rebuild step; per-capture 28.59%, session-level still 6.06%) | +5 to +20 on tool-heavy sessions (representative, recompute-bound) | Re-capture more representative sessions with the provenance writer to grow verified mass. Extend the shim to the **Desktop** app-server path (currently CLI-only, single call site `proxy_cmd.go`). |
 | L1 server-state continuation | `excluded` (Codex-native, live-confirmed 2026-06-25) | 0 (not a Slimference saving) | 0 — re-include only if a future A/B proves Slimference causes the byte reduction | Closed lane. Do not count `previous_response_id` continuation as S_local. |
 | L3 / in-transit WSS frame mutation | `engineered_pending_evidence`; delivers ~0 today | 0 (delta guards block every delta turn; Desktop never opens WSS) | safe subset +3 to +8 on cross-turn history L2 cannot reach | Atomic guard-narrowing on the stable transport; only counts where L2 has not already compacted (Desktop / cross-turn). |
 | caching (prompt_cache_key + retention) | `engineered_pending_evidence`, separate from S_local (§0.10) | n/a (reported as combined billable + cache-hit) | beat plain Codex-vs-server caching | A/B cache_read_tokens with vs without Slimference on identical sessions. |
@@ -88,6 +97,8 @@ line from embedded raw bytes** and only counts what it can independently verify.
 | 2026-06-22 | L1 analytics-to-gate distribution | Distributed 68 genuine L1 sidecar entries from 17 real sessions to 17 gate-counted corpus categories (12 CLI + 5 desktop). All entries from `~/.slimference/analytics/server_state_continuation_*.jsonl` — no fabricated, duplicated, or synthetic data. | 47.51% | 57.00% (saved=7,186,678 orig=12,608,379 — +9.49 pp) | n/a | 0 | All 68 entries are genuine captures from real `slimference codex run` sessions with `previous_response_id=true`, 0 upstream 400s, 99.8% continuation ratio. ts-based dedup verified: 165 unique ts across all gate L1 files, 0 cross-category duplicates. CI floor raised 47.00% → 56.90%, min saved 4,800,000 → 7,180,000. CI 8/8 PASS. | (this commit) |
 
 ---
+
+| 2026-06-25 | L2 provenance re-capture | Distributed 3 genuine provenance captures (`rg`, `ls`) from 2 live `slimference codex run -- codex exec` sessions into `cli_search_loop` + `cli_git_status`. First genuine verified L2 mass under the recompute-bound regime. | 6.06% (recompute-verified L2 = 0) | 6.06% (recompute-verified L2 = **289 tok**; session ratio unchanged) | n/a | 0 | Gate byte-recomputes every line (sha256 match + `EstimateTokensFromBytes` token-recompute match + compacted<raw); all 3 `GATE_PASS=True`; recompute-verified printed `saved=289 orig=1011 [independently proven, unfabricatable]`. Honest labels (§3.8.3): `28.59%` is the curated per-capture ratio (denom 1011), NOT a session number; Real S_local unchanged at 6.06%. No CI floor raised (§3.7.6c: ci/main.go untouched, no fabricated increase). Tests `go test ./scripts/benchmarks/` PASS. | (this commit) |
 
 ## Proven ceilings / closed lanes (append when a lane is killed with evidence)
 
