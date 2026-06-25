@@ -8,6 +8,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +22,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 const (
@@ -68,50 +74,54 @@ type CategoryMetadata struct {
 
 // CategoryResult is the per-category outcome of one gate evaluation.
 type CategoryResult struct {
-	Category                      string                               `json:"category"`
-	Path                          string                               `json:"path"`
-	Sessions                      int                                  `json:"sessions"`
-	Requests                      int                                  `json:"requests"`
-	OrigTokens                    int64                                `json:"orig_tokens"`
-	SavedTokens                   int64                                `json:"saved_tokens"`
-	SavingsRatio                  float64                              `json:"savings_ratio"`
-	Layer0Saved                   int64                                `json:"layer0_saved"`
-	Layer1Saved                   int64                                `json:"layer1_saved"`
-	Layer2Saved                   int64                                `json:"layer2_saved"`
-	OutputTokens                  int64                                `json:"output_tokens"`
-	ProviderCacheReadTokens       int64                                `json:"provider_cache_read_tokens"`
-	ProviderCacheCreateTokens     int64                                `json:"provider_cache_create_tokens"`
-	ProviderCachedTokens          int64                                `json:"provider_cached_tokens"`
-	OutputReduceApplied           int                                  `json:"output_reduce_applied"`
-	OutputReduceInputOverhead     int64                                `json:"output_reduce_input_overhead_tokens"`
-	OutputReduceNetObserved       int64                                `json:"output_reduce_net_observed_tokens"`
-	OutputReduceABPairs           int                                  `json:"output_reduce_ab_pairs"`
-	OutputReduceABPassedPairs     int                                  `json:"output_reduce_ab_passed_pairs"`
-	OutputReduceABOutputSaved     int64                                `json:"output_reduce_ab_output_tokens_saved"`
-	OutputReduceABNetSaved        int64                                `json:"output_reduce_ab_net_tokens_saved"`
-	OutputReduceABSavingsPctMin   float64                              `json:"output_reduce_ab_savings_pct_min,omitempty"`
-	OutputReduceABFailures        []string                             `json:"output_reduce_ab_failures,omitempty"`
-	ToolPruneApplied              int                                  `json:"tool_prune_applied"`
-	ToolPruneSavedTokens          int64                                `json:"tool_prune_saved_tokens"`
-	CommandOutputFirstOrigTokens  int64                                `json:"command_output_first_orig_tokens,omitempty"`
-	CommandOutputFirstSavedTokens int64                                `json:"command_output_first_saved_tokens,omitempty"`
-	L1ServerStateOrigTokens       int64                                `json:"l1_server_state_orig_tokens,omitempty"`
-	L1ServerStateSavedTokens      int64                                `json:"l1_server_state_saved_tokens,omitempty"`
-	ErrorCount                    int                                  `json:"error_count"`
-	ReReadCount                   int                                  `json:"reread_count"`
-	HostBudgetOKRows              int                                  `json:"host_budget_ok_rows"`
-	HostBudgetIssueRows           int                                  `json:"host_budget_issue_rows"`
-	LatencyP95Ms                  float64                              `json:"latency_p95_ms"`
-	PlanReplay                    planReplayAggregate                  `json:"plan_replay"`
-	LayerCombinations             map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
-	EvidenceLevel                 string                               `json:"evidence_level"`
-	Synthetic                     bool                                 `json:"synthetic"`
-	CurrentProductPath            bool                                 `json:"current_product_path"`
-	ClientFamily                  string                               `json:"client_family,omitempty"`
-	WorkloadClass                 string                               `json:"workload_class,omitempty"`
-	Failures                      []string                             `json:"failures,omitempty"`
-	GateConfigured                bool                                 `json:"gate_configured"`
-	Metadata                      *CategoryMetadata                    `json:"metadata,omitempty"`
+	Category                      string   `json:"category"`
+	Path                          string   `json:"path"`
+	Sessions                      int      `json:"sessions"`
+	Requests                      int      `json:"requests"`
+	OrigTokens                    int64    `json:"orig_tokens"`
+	SavedTokens                   int64    `json:"saved_tokens"`
+	SavingsRatio                  float64  `json:"savings_ratio"`
+	Layer0Saved                   int64    `json:"layer0_saved"`
+	Layer1Saved                   int64    `json:"layer1_saved"`
+	Layer2Saved                   int64    `json:"layer2_saved"`
+	OutputTokens                  int64    `json:"output_tokens"`
+	ProviderCacheReadTokens       int64    `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens     int64    `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens          int64    `json:"provider_cached_tokens"`
+	OutputReduceApplied           int      `json:"output_reduce_applied"`
+	OutputReduceInputOverhead     int64    `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceNetObserved       int64    `json:"output_reduce_net_observed_tokens"`
+	OutputReduceABPairs           int      `json:"output_reduce_ab_pairs"`
+	OutputReduceABPassedPairs     int      `json:"output_reduce_ab_passed_pairs"`
+	OutputReduceABOutputSaved     int64    `json:"output_reduce_ab_output_tokens_saved"`
+	OutputReduceABNetSaved        int64    `json:"output_reduce_ab_net_tokens_saved"`
+	OutputReduceABSavingsPctMin   float64  `json:"output_reduce_ab_savings_pct_min,omitempty"`
+	OutputReduceABFailures        []string `json:"output_reduce_ab_failures,omitempty"`
+	ToolPruneApplied              int      `json:"tool_prune_applied"`
+	ToolPruneSavedTokens          int64    `json:"tool_prune_saved_tokens"`
+	CommandOutputFirstOrigTokens  int64    `json:"command_output_first_orig_tokens,omitempty"`
+	CommandOutputFirstSavedTokens int64    `json:"command_output_first_saved_tokens,omitempty"`
+	// Unverified L2 lines (no embedded raw bytes to recompute) are reported
+	// separately and NOT counted toward the trusted S_local number (§3.8.1).
+	CommandOutputFirstUnverifiedOrigTokens  int64                                `json:"command_output_first_unverified_orig_tokens,omitempty"`
+	CommandOutputFirstUnverifiedSavedTokens int64                                `json:"command_output_first_unverified_saved_tokens,omitempty"`
+	L1ServerStateOrigTokens                 int64                                `json:"l1_server_state_orig_tokens,omitempty"`
+	L1ServerStateSavedTokens                int64                                `json:"l1_server_state_saved_tokens,omitempty"`
+	ErrorCount                              int                                  `json:"error_count"`
+	ReReadCount                             int                                  `json:"reread_count"`
+	HostBudgetOKRows                        int                                  `json:"host_budget_ok_rows"`
+	HostBudgetIssueRows                     int                                  `json:"host_budget_issue_rows"`
+	LatencyP95Ms                            float64                              `json:"latency_p95_ms"`
+	PlanReplay                              planReplayAggregate                  `json:"plan_replay"`
+	LayerCombinations                       map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
+	EvidenceLevel                           string                               `json:"evidence_level"`
+	Synthetic                               bool                                 `json:"synthetic"`
+	CurrentProductPath                      bool                                 `json:"current_product_path"`
+	ClientFamily                            string                               `json:"client_family,omitempty"`
+	WorkloadClass                           string                               `json:"workload_class,omitempty"`
+	Failures                                []string                             `json:"failures,omitempty"`
+	GateConfigured                          bool                                 `json:"gate_configured"`
+	Metadata                                *CategoryMetadata                    `json:"metadata,omitempty"`
 }
 
 // CorpusReport is the aggregate of all categories.
@@ -130,10 +140,14 @@ type CorpusReport struct {
 	// Codex-native previous_response_id behavior and is EXCLUDED from the
 	// trusted totals (reported separately) per AGENTS.md §3.7.7 until a live
 	// A/B proves real incrementality.
-	SLocalInBandOrigTokens        int64                `json:"slocal_inband_orig_tokens"`
-	SLocalInBandSavedTokens       int64                `json:"slocal_inband_saved_tokens"`
-	SLocalL2OrigTokens            int64                `json:"slocal_l2_cmd_output_orig_tokens"`
-	SLocalL2SavedTokens           int64                `json:"slocal_l2_cmd_output_saved_tokens"`
+	SLocalInBandOrigTokens  int64 `json:"slocal_inband_orig_tokens"`
+	SLocalInBandSavedTokens int64 `json:"slocal_inband_saved_tokens"`
+	SLocalL2OrigTokens      int64 `json:"slocal_l2_cmd_output_orig_tokens"`
+	SLocalL2SavedTokens     int64 `json:"slocal_l2_cmd_output_saved_tokens"`
+	// Unverified L2 (self-reported, no recomputable bytes) — observed only,
+	// EXCLUDED from the trusted S_local number (AGENTS.md §3.8.1).
+	SLocalL2UnverifiedOrigTokens  int64                `json:"slocal_l2_unverified_orig_tokens"`
+	SLocalL2UnverifiedSavedTokens int64                `json:"slocal_l2_unverified_saved_tokens"`
 	SLocalL1OrigTokens            int64                `json:"slocal_l1_server_state_orig_tokens"`
 	SLocalL1SavedTokens           int64                `json:"slocal_l1_server_state_saved_tokens"`
 	ProviderCacheReadTokens       int64                `json:"provider_cache_read_tokens"`
@@ -243,7 +257,7 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 	if err != nil {
 		return CategoryResult{}, err
 	}
-	cofOrig, cofSaved, err := loadCategoryCommandOutputFirstSidecar(dir)
+	cofTotals, err := loadCategoryCommandOutputFirstSidecar(dir)
 	if err != nil {
 		return CategoryResult{}, err
 	}
@@ -267,47 +281,49 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		ratio = float64(agg.savedTokens) / float64(agg.origTokens)
 	}
 	res := CategoryResult{
-		Category:                      meta.Category,
-		Path:                          dir,
-		Sessions:                      sessions,
-		Requests:                      agg.requests,
-		OrigTokens:                    agg.origTokens,
-		SavedTokens:                   agg.savedTokens,
-		SavingsRatio:                  ratio,
-		Layer0Saved:                   agg.layer0Saved,
-		Layer1Saved:                   agg.layer1Saved,
-		Layer2Saved:                   agg.layer2Saved,
-		OutputTokens:                  agg.outputTokenSum,
-		ProviderCacheReadTokens:       agg.cacheReadSum,
-		ProviderCacheCreateTokens:     agg.cacheCreateSum,
-		ProviderCachedTokens:          agg.providerCachedSum,
-		OutputReduceApplied:           agg.outputReduceApplied,
-		OutputReduceInputOverhead:     agg.outputReduceInputOverhead,
-		OutputReduceNetObserved:       agg.outputTokenSum - agg.outputReduceInputOverhead,
-		OutputReduceABPairs:           abSummary.Pairs,
-		OutputReduceABPassedPairs:     abSummary.PassedPairs,
-		OutputReduceABOutputSaved:     abSummary.OutputSaved,
-		OutputReduceABNetSaved:        abSummary.NetSaved,
-		OutputReduceABSavingsPctMin:   abSummary.SavingsPctMin,
-		OutputReduceABFailures:        append([]string(nil), abSummary.Failures...),
-		ToolPruneApplied:              agg.toolPruneApplied,
-		ToolPruneSavedTokens:          agg.toolPruneSaved,
-		CommandOutputFirstOrigTokens:  cofOrig,
-		CommandOutputFirstSavedTokens: cofSaved,
-		L1ServerStateOrigTokens:       l1Orig,
-		L1ServerStateSavedTokens:      l1Saved,
-		ErrorCount:                    agg.errorCount,
-		ReReadCount:                   agg.reReadCount,
-		HostBudgetOKRows:              agg.hostBudgetOK,
-		HostBudgetIssueRows:           agg.hostBudgetIssues,
-		LatencyP95Ms:                  percentileFloat64(agg.latenciesMs, 0.95),
-		PlanReplay:                    clonePlanReplayAggregate(agg.planReplay),
-		LayerCombinations:             cloneLayerCombinations(agg.layerCombinations),
-		EvidenceLevel:                 normalizeEvidenceLevel(meta),
-		Synthetic:                     meta.Synthetic,
-		CurrentProductPath:            isCurrentProductPath(meta),
-		ClientFamily:                  strings.TrimSpace(meta.ClientFamily),
-		WorkloadClass:                 strings.TrimSpace(meta.WorkloadClass),
+		Category:                                meta.Category,
+		Path:                                    dir,
+		Sessions:                                sessions,
+		Requests:                                agg.requests,
+		OrigTokens:                              agg.origTokens,
+		SavedTokens:                             agg.savedTokens,
+		SavingsRatio:                            ratio,
+		Layer0Saved:                             agg.layer0Saved,
+		Layer1Saved:                             agg.layer1Saved,
+		Layer2Saved:                             agg.layer2Saved,
+		OutputTokens:                            agg.outputTokenSum,
+		ProviderCacheReadTokens:                 agg.cacheReadSum,
+		ProviderCacheCreateTokens:               agg.cacheCreateSum,
+		ProviderCachedTokens:                    agg.providerCachedSum,
+		OutputReduceApplied:                     agg.outputReduceApplied,
+		OutputReduceInputOverhead:               agg.outputReduceInputOverhead,
+		OutputReduceNetObserved:                 agg.outputTokenSum - agg.outputReduceInputOverhead,
+		OutputReduceABPairs:                     abSummary.Pairs,
+		OutputReduceABPassedPairs:               abSummary.PassedPairs,
+		OutputReduceABOutputSaved:               abSummary.OutputSaved,
+		OutputReduceABNetSaved:                  abSummary.NetSaved,
+		OutputReduceABSavingsPctMin:             abSummary.SavingsPctMin,
+		OutputReduceABFailures:                  append([]string(nil), abSummary.Failures...),
+		ToolPruneApplied:                        agg.toolPruneApplied,
+		ToolPruneSavedTokens:                    agg.toolPruneSaved,
+		CommandOutputFirstOrigTokens:            cofTotals.verifiedOrig,
+		CommandOutputFirstSavedTokens:           cofTotals.verifiedSaved,
+		CommandOutputFirstUnverifiedOrigTokens:  cofTotals.unverifiedOrig,
+		CommandOutputFirstUnverifiedSavedTokens: cofTotals.unverifiedSaved,
+		L1ServerStateOrigTokens:                 l1Orig,
+		L1ServerStateSavedTokens:                l1Saved,
+		ErrorCount:                              agg.errorCount,
+		ReReadCount:                             agg.reReadCount,
+		HostBudgetOKRows:                        agg.hostBudgetOK,
+		HostBudgetIssueRows:                     agg.hostBudgetIssues,
+		LatencyP95Ms:                            percentileFloat64(agg.latenciesMs, 0.95),
+		PlanReplay:                              clonePlanReplayAggregate(agg.planReplay),
+		LayerCombinations:                       cloneLayerCombinations(agg.layerCombinations),
+		EvidenceLevel:                           normalizeEvidenceLevel(meta),
+		Synthetic:                               meta.Synthetic,
+		CurrentProductPath:                      isCurrentProductPath(meta),
+		ClientFamily:                            strings.TrimSpace(meta.ClientFamily),
+		WorkloadClass:                           strings.TrimSpace(meta.WorkloadClass),
 		GateConfigured: meta.ExpectedSavingsMin > 0 ||
 			meta.ExpectedRequestCount > 0 ||
 			meta.ExpectedLatencyP95MaxMs > 0 ||
@@ -418,33 +434,118 @@ type commandOutputFirstSidecarRow struct {
 	InputTokens  int64  `json:"input_tokens"`
 	OutputTokens int64  `json:"output_tokens"`
 	SavedTokens  int64  `json:"saved_tokens"`
+	// Provenance for independent gate recompute (AGENTS.md §3.8.1
+	// no-trust-without-recompute). InputSHA256 is the hash of the raw input;
+	// RawGzipB64 / CompactedGzipB64 carry the actual bytes (gzip+base64) so the
+	// gate can re-derive input/output/saved token counts. Lines without these
+	// fields are UNVERIFIED and excluded from the trusted S_local number.
+	InputSHA256      string `json:"input_sha256,omitempty"`
+	RawGzipB64       string `json:"raw_gzip_b64,omitempty"`
+	CompactedGzipB64 string `json:"compacted_gzip_b64,omitempty"`
+}
+
+// errSidecarIntegrity marks a tampered or internally-inconsistent sidecar line.
+// The corpus gate treats it as a fatal, fail-closed error (AGENTS.md §3.8.1),
+// never a skippable category.
+var errSidecarIntegrity = errors.New("sidecar integrity violation")
+
+// cofSidecarTotals separates VERIFIED L2 command-output-first savings (each line
+// independently recomputed from embedded raw bytes) from UNVERIFIED self-reported
+// lines. Only verified savings count toward the trusted S_local number.
+type cofSidecarTotals struct {
+	verifiedOrig, verifiedSaved     int64
+	unverifiedOrig, unverifiedSaved int64
+}
+
+// cofMaxDecompressedBytes bounds gunzip output to defend against decompression
+// bombs in fixture data.
+const cofMaxDecompressedBytes = 16 * 1024 * 1024
+
+func gunzipBase64(s string) ([]byte, error) {
+	gz, err := base64.StdEncoding.DecodeString(strings.TrimSpace(s))
+	if err != nil {
+		return nil, err
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	out, err := io.ReadAll(io.LimitReader(zr, cofMaxDecompressedBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(out)) > cofMaxDecompressedBytes {
+		return nil, fmt.Errorf("decompressed payload exceeds %d bytes", cofMaxDecompressedBytes)
+	}
+	return out, nil
 }
 
 // loadCategoryCommandOutputFirstSidecar reads the optional
 // command_output_first.jsonl sidecar from a corpus category directory.
 // Returns zero values when the file is absent (backward compatible).
-func loadCategoryCommandOutputFirstSidecar(dir string) (origTokens, savedTokens int64, err error) {
+func loadCategoryCommandOutputFirstSidecar(dir string) (cofSidecarTotals, error) {
+	var totals cofSidecarTotals
 	path := filepath.Join(dir, commandOutputFirstSidecarFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return 0, 0, nil
+			return totals, nil
 		}
-		return 0, 0, err
+		return totals, err
 	}
-	for _, line := range bytes.Split(data, []byte("\n")) {
+	for i, line := range bytes.Split(data, []byte("\n")) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
 		var row commandOutputFirstSidecarRow
 		if err := json.Unmarshal(line, &row); err != nil {
-			return 0, 0, fmt.Errorf("parse %s: %w", path, err)
+			return cofSidecarTotals{}, fmt.Errorf("parse %s: %w: %w", path, err, errSidecarIntegrity)
 		}
-		origTokens += row.InputTokens
-		savedTokens += row.SavedTokens
+		// Arithmetic consistency is required of every line (catches the §3.7.6
+		// independent-saved inflation vector).
+		if row.InputTokens <= 0 || row.SavedTokens < 0 || row.SavedTokens > row.InputTokens ||
+			row.SavedTokens != row.InputTokens-row.OutputTokens {
+			return cofSidecarTotals{}, fmt.Errorf("%s line %d: inconsistent sidecar row (input=%d output=%d saved=%d): %w",
+				path, i+1, row.InputTokens, row.OutputTokens, row.SavedTokens, errSidecarIntegrity)
+		}
+		// A line is VERIFIED only when it carries the raw + compacted bytes and
+		// the gate independently re-derives the recorded token counts from them.
+		if row.RawGzipB64 == "" || row.CompactedGzipB64 == "" {
+			totals.unverifiedOrig += row.InputTokens
+			totals.unverifiedSaved += row.SavedTokens
+			continue
+		}
+		raw, err := gunzipBase64(row.RawGzipB64)
+		if err != nil {
+			return cofSidecarTotals{}, fmt.Errorf("%s line %d: raw_gzip_b64: %w: %w", path, i+1, err, errSidecarIntegrity)
+		}
+		comp, err := gunzipBase64(row.CompactedGzipB64)
+		if err != nil {
+			return cofSidecarTotals{}, fmt.Errorf("%s line %d: compacted_gzip_b64: %w: %w", path, i+1, err, errSidecarIntegrity)
+		}
+		// Tampering checks: present provenance MUST match the recorded numbers.
+		if row.InputSHA256 != "" {
+			sum := sha256.Sum256(raw)
+			if hex.EncodeToString(sum[:]) != strings.TrimSpace(row.InputSHA256) {
+				return cofSidecarTotals{}, fmt.Errorf("%s line %d: input_sha256 mismatch (raw bytes do not hash to recorded digest): %w", path, i+1, errSidecarIntegrity)
+			}
+		}
+		recIn := int64(filter.EstimateTokensFromBytes(len(raw)))
+		recOut := int64(filter.EstimateTokensFromBytes(len(comp)))
+		if recIn != row.InputTokens || recOut != row.OutputTokens {
+			return cofSidecarTotals{}, fmt.Errorf("%s line %d: recompute mismatch (recorded input=%d output=%d, recomputed input=%d output=%d): %w",
+				path, i+1, row.InputTokens, row.OutputTokens, recIn, recOut, errSidecarIntegrity)
+		}
+		if len(comp) >= len(raw) {
+			return cofSidecarTotals{}, fmt.Errorf("%s line %d: compacted (%d bytes) not smaller than raw (%d bytes); not a real compaction: %w",
+				path, i+1, len(comp), len(raw), errSidecarIntegrity)
+		}
+		totals.verifiedOrig += row.InputTokens
+		totals.verifiedSaved += row.SavedTokens
 	}
-	return origTokens, savedTokens, nil
+	return totals, nil
 }
 
 // l1ServerStateSidecarRow is one JSON line in the L1 server-state
@@ -860,6 +961,12 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		}
 		res, err := EvaluateCategory(dir, errOut)
 		if err != nil {
+			// A sidecar integrity violation (tampered/inconsistent provenance)
+			// is fraud, not a skippable malformed category: fail the gate closed
+			// (AGENTS.md §3.8.1) instead of silently dropping the category.
+			if errors.Is(err, errSidecarIntegrity) {
+				return CorpusReport{}, err
+			}
 			if errOut != nil {
 				fmt.Fprintf(errOut, "warn: %v\n", err)
 			}
@@ -886,10 +993,18 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 			report.SLocalInBandOrigTokens += res.OrigTokens
 			report.SLocalInBandSavedTokens += res.SavedTokens
 			if res.CommandOutputFirstSavedTokens > 0 {
+				// VERIFIED L2 only (recomputed from embedded raw bytes) counts
+				// toward the trusted S_local number (AGENTS.md §3.8.1).
 				report.RealCurrentLocalOrigTokens += res.CommandOutputFirstOrigTokens
 				report.RealCurrentLocalSavedTokens += res.CommandOutputFirstSavedTokens
 				report.SLocalL2OrigTokens += res.CommandOutputFirstOrigTokens
 				report.SLocalL2SavedTokens += res.CommandOutputFirstSavedTokens
+			}
+			if res.CommandOutputFirstUnverifiedSavedTokens > 0 {
+				// Observed only — self-reported L2 lines with no recomputable
+				// bytes are NOT added to the trusted S_local totals (§3.8.1).
+				report.SLocalL2UnverifiedOrigTokens += res.CommandOutputFirstUnverifiedOrigTokens
+				report.SLocalL2UnverifiedSavedTokens += res.CommandOutputFirstUnverifiedSavedTokens
 			}
 			if res.L1ServerStateSavedTokens > 0 {
 				// Observed only — deliberately NOT added to the trusted
@@ -1075,6 +1190,16 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		writeRatio("in-band (Slimference)", report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens)
 		writeRatio("L2 cmd-output (Slimference)", report.SLocalL2SavedTokens, report.SLocalL2OrigTokens)
+		if report.SLocalL2UnverifiedSavedTokens > 0 {
+			upct := 0.0
+			if report.SLocalL2UnverifiedOrigTokens > 0 {
+				upct = float64(report.SLocalL2UnverifiedSavedTokens) / float64(report.SLocalL2UnverifiedOrigTokens) * 100
+			}
+			sb.WriteString(fmt.Sprintf("Observed (NOT in S_local): L2 unverified (self-reported, no recomputable bytes) saved=%d orig=%d ratio=%.2f%%\n",
+				report.SLocalL2UnverifiedSavedTokens, report.SLocalL2UnverifiedOrigTokens, upct))
+			sb.WriteString("  EXCLUDED §3.8.1: not recomputable from raw bytes. Re-capture with provenance\n" +
+				"  (input_sha256 + raw_gzip_b64 + compacted_gzip_b64) to count toward S_local.\n")
+		}
 		if report.SLocalL1SavedTokens > 0 {
 			l1pct := 0.0
 			if report.SLocalL1OrigTokens > 0 {

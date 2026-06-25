@@ -2,11 +2,17 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 func writeCategory(t *testing.T, root, name string, meta CategoryMetadata, sessions []string) string {
@@ -678,6 +684,42 @@ func writeCommandOutputFirstSidecar(t *testing.T, dir string, rows ...string) {
 	}
 }
 
+func gzB64(b []byte) string {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(b)
+	_ = zw.Close()
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+// cofVerifiedRow builds a provenance-carrying command_output_first sidecar line
+// (sha256 + gzip+base64 of raw/compacted bytes) whose recorded token counts are
+// recomputed deterministically from the embedded bytes, so the gate trusts it.
+func cofVerifiedRow(t *testing.T, command string, raw, compacted []byte) string {
+	t.Helper()
+	if len(compacted) >= len(raw) {
+		t.Fatalf("cofVerifiedRow: compacted (%d) must be smaller than raw (%d)", len(compacted), len(raw))
+	}
+	in := int64(filter.EstimateTokensFromBytes(len(raw)))
+	out := int64(filter.EstimateTokensFromBytes(len(compacted)))
+	sum := sha256.Sum256(raw)
+	row := map[string]any{
+		"ts":                 "2026-06-25T00:00:00Z",
+		"command":            command,
+		"input_tokens":       in,
+		"output_tokens":      out,
+		"saved_tokens":       in - out,
+		"input_sha256":       hex.EncodeToString(sum[:]),
+		"raw_gzip_b64":       gzB64(raw),
+		"compacted_gzip_b64": gzB64(compacted),
+	}
+	b, err := json.Marshal(row)
+	if err != nil {
+		t.Fatalf("marshal cof row: %v", err)
+	}
+	return string(b)
+}
+
 func TestEvaluateCorpus_CommandOutputFirstSidecarCounted(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -687,9 +729,10 @@ func TestEvaluateCorpus_CommandOutputFirstSidecarCounted(t *testing.T) {
 		ClientFamily:  "codex_cli",
 		WorkloadClass: "search_loop",
 	}, []string{sampleHighSavingsRecord})
-	// Sidecar with 500 orig, 200 saved — should be added to the gate.
+	// VERIFIED sidecar line (provenance recomputes to input=500, output=300,
+	// saved=200) — should be added to the trusted gate number.
 	writeCommandOutputFirstSidecar(t, dir,
-		`{"ts":"2026-06-21T12:00:00Z","command":"rg","input_tokens":500,"output_tokens":300,"saved_tokens":200}`)
+		cofVerifiedRow(t, "rg", bytes.Repeat([]byte("x"), 2000), bytes.Repeat([]byte("y"), 1200)))
 
 	report, err := EvaluateCorpus(root, &bytes.Buffer{})
 	if err != nil {
@@ -702,6 +745,57 @@ func TestEvaluateCorpus_CommandOutputFirstSidecarCounted(t *testing.T) {
 	}
 	if report.RealCurrentLocalSavedTokens != 600 {
 		t.Fatalf("expected saved 600, got %d", report.RealCurrentLocalSavedTokens)
+	}
+	if report.SLocalL2SavedTokens != 200 {
+		t.Fatalf("expected verified L2 saved=200, got %d", report.SLocalL2SavedTokens)
+	}
+}
+
+func TestEvaluateCorpus_CommandOutputFirstUnverifiedExcluded(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// Self-reported line WITHOUT recomputable bytes — must NOT count toward the
+	// trusted S_local number; only reported as observed-only (§3.8.1).
+	writeCommandOutputFirstSidecar(t, dir,
+		`{"ts":"2026-06-21T12:00:00Z","command":"go test -json","input_tokens":900000,"output_tokens":27,"saved_tokens":899973}`)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate corpus: %v", err)
+	}
+	if report.RealCurrentLocalOrigTokens != 1000 || report.RealCurrentLocalSavedTokens != 400 {
+		t.Fatalf("unverified L2 must be excluded from trusted; got orig=%d saved=%d",
+			report.RealCurrentLocalOrigTokens, report.RealCurrentLocalSavedTokens)
+	}
+	if report.SLocalL2UnverifiedSavedTokens != 899973 {
+		t.Fatalf("expected observed unverified L2 saved=899973, got %d", report.SLocalL2UnverifiedSavedTokens)
+	}
+}
+
+func TestEvaluateCorpus_CommandOutputFirstTamperRejected(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "real_local", CategoryMetadata{
+		Category:      "real_local",
+		EvidenceLevel: "live_operator",
+		ClientFamily:  "codex_cli",
+		WorkloadClass: "search_loop",
+	}, []string{sampleHighSavingsRecord})
+	// Provenance present but the recorded token counts do not match the embedded
+	// bytes — the gate must hard-fail (tamper), not silently trust it.
+	tampered := cofVerifiedRow(t, "rg", bytes.Repeat([]byte("x"), 2000), bytes.Repeat([]byte("y"), 1200))
+	tampered = strings.Replace(tampered, `"input_tokens":500`, `"input_tokens":50000`, 1)
+	tampered = strings.Replace(tampered, `"saved_tokens":200`, `"saved_tokens":49700`, 1)
+	writeCommandOutputFirstSidecar(t, dir, tampered)
+
+	if _, err := EvaluateCorpus(root, &bytes.Buffer{}); err == nil {
+		t.Fatal("expected EvaluateCorpus to reject a tampered provenance line, got nil error")
 	}
 }
 
@@ -804,10 +898,11 @@ func TestEvaluateCorpus_L2CountedL1ExcludedFromSLocal(t *testing.T) {
 		ClientFamily:  "codex_cli",
 		WorkloadClass: "search_loop",
 	}, []string{sampleHighSavingsRecord})
-	// L2 (command-output-first) is Slimference-incremental and counts; L1 is
+	// L2 (command-output-first) is Slimference-incremental and counts when it is
+	// verified (provenance recomputes to input=500, output=300, saved=200); L1 is
 	// Codex-native and is excluded from S_local (§3.7.7).
 	writeCommandOutputFirstSidecar(t, dir,
-		`{"ts":"2026-06-22T12:00:00Z","command":"rg","input_tokens":500,"output_tokens":300,"saved_tokens":200}`)
+		cofVerifiedRow(t, "rg", bytes.Repeat([]byte("x"), 2000), bytes.Repeat([]byte("y"), 1200)))
 	writeL1ServerStateSidecar(t, dir,
 		`{"ts":"2026-06-22T12:00:00Z","input_tokens":2000,"output_tokens":500,"saved_tokens":1500}`)
 

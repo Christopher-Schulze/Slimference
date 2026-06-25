@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -4813,17 +4815,32 @@ func TestRecordCommandOutputFirstSidecarWritten(t *testing.T) {
 		t.Fatalf("sidecar path=%q", sidecarPath)
 	}
 	var row struct {
-		Timestamp    string `json:"ts"`
-		Command      string `json:"command"`
-		InputTokens  int64  `json:"input_tokens"`
-		OutputTokens int64  `json:"output_tokens"`
-		SavedTokens  int64  `json:"saved_tokens"`
+		Timestamp        string `json:"ts"`
+		Command          string `json:"command"`
+		InputTokens      int64  `json:"input_tokens"`
+		OutputTokens     int64  `json:"output_tokens"`
+		SavedTokens      int64  `json:"saved_tokens"`
+		InputSHA256      string `json:"input_sha256"`
+		RawGzipB64       string `json:"raw_gzip_b64"`
+		CompactedGzipB64 string `json:"compacted_gzip_b64"`
 	}
 	if err := json.Unmarshal(sidecarData[:len(sidecarData)-1], &row); err != nil { // strip trailing \n
 		t.Fatalf("parse sidecar row: %v", err)
 	}
 	if row.Command == "" || row.InputTokens <= 0 || row.SavedTokens <= 0 {
 		t.Fatalf("bad sidecar row: %+v", row)
+	}
+	// Provenance must be emitted for a small (<256KB) payload so the gate can
+	// independently recompute the saving from real bytes (AGENTS.md §3.8.1).
+	if len(row.InputSHA256) != 64 {
+		t.Fatalf("input_sha256 must be a 64-char hex digest, got %q", row.InputSHA256)
+	}
+	if row.RawGzipB64 == "" || row.CompactedGzipB64 == "" {
+		t.Fatalf("provenance gzip fields must be present for a small payload: raw=%d comp=%d", len(row.RawGzipB64), len(row.CompactedGzipB64))
+	}
+	wantSHA := sha256.Sum256(raw)
+	if row.InputSHA256 != hex.EncodeToString(wantSHA[:]) {
+		t.Fatalf("input_sha256 mismatch: got %s want %s", row.InputSHA256, hex.EncodeToString(wantSHA[:]))
 	}
 }
 
@@ -4838,7 +4855,7 @@ func TestRecordCommandOutputFirstSidecarNoSessionEnv(t *testing.T) {
 	}
 
 	t.Setenv(commandOutputFirstSessionEnv, "")
-	recordCommandOutputFirstSidecar("rg", nil, 100, 50, 50)
+	recordCommandOutputFirstSidecar("rg", nil, 100, 50, 50, []byte("raw"), []byte("c"))
 	if called {
 		t.Fatal("sidecar must not write when session env is unset")
 	}

@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2262,14 +2266,52 @@ func recordCommandOutputFirstRun(command string, args []string, rawOut, compacte
 	savedTokens := inputTokens - outputTokens
 	savingsPct := float64(savedTokens) * 100 / float64(inputTokens)
 	_ = filter.RecordFilterRun(db, commandOutputFirstLabel(command, args), wd, inputTokens, outputTokens, savingsPct, time.Now())
-	recordCommandOutputFirstSidecar(command, args, int64(inputTokens), int64(outputTokens), int64(savedTokens))
+	recordCommandOutputFirstSidecar(command, args, int64(inputTokens), int64(outputTokens), int64(savedTokens), rawOut, compacted)
+}
+
+// commandOutputFirstProvenanceMaxRawBytes caps how large a raw payload may be
+// before its bytes are embedded in the sidecar for independent gate
+// recompute. Larger payloads (e.g. huge `go test -json` dumps) only carry the
+// content hash and therefore stay UNVERIFIED in the gate — they are not counted
+// toward the trusted S_local number (AGENTS.md §3.8.1: no trust-without-recompute).
+const commandOutputFirstProvenanceMaxRawBytes = 256 * 1024
+
+// commandOutputFirstProvenance returns the sha256 of the raw input plus
+// gzip+base64 of the raw input and compacted output, so the corpus gate can
+// independently re-derive input/output/saved token counts from real bytes.
+// The gzip fields are omitted when the raw payload exceeds the cap.
+func commandOutputFirstProvenance(raw, compacted []byte) (sha256hex, rawGzipB64, compGzipB64 string) {
+	sum := sha256.Sum256(raw)
+	sha256hex = hex.EncodeToString(sum[:])
+	if len(raw) == 0 || len(raw) > commandOutputFirstProvenanceMaxRawBytes {
+		return sha256hex, "", ""
+	}
+	rawGzipB64 = gzipBase64(raw)
+	compGzipB64 = gzipBase64(compacted)
+	if rawGzipB64 == "" || compGzipB64 == "" {
+		return sha256hex, "", ""
+	}
+	return sha256hex, rawGzipB64, compGzipB64
+}
+
+func gzipBase64(b []byte) string {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(b); err != nil {
+		_ = zw.Close()
+		return ""
+	}
+	if err := zw.Close(); err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
 // recordCommandOutputFirstSidecar appends one JSON line to a per-session
 // command_output_first_<session>.jsonl file in ~/.slimference/analytics/.
 // This sidecar is read by the corpus evaluator to count T418 savings in
 // the real_current_local_savings_ratio gate. Failures are silent (fail-open).
-func recordCommandOutputFirstSidecar(command string, args []string, inputTokens, outputTokens, savedTokens int64) {
+func recordCommandOutputFirstSidecar(command string, args []string, inputTokens, outputTokens, savedTokens int64, rawBytes, compactedBytes []byte) {
 	sessionID := strings.TrimSpace(os.Getenv(commandOutputFirstSessionEnv))
 	if sessionID == "" {
 		return
@@ -2283,18 +2325,25 @@ func recordCommandOutputFirstSidecar(command string, args []string, inputTokens,
 		return
 	}
 	path := filepath.Join(dir, "command_output_first_"+sessionID+".jsonl")
+	sha256hex, rawGzipB64, compGzipB64 := commandOutputFirstProvenance(rawBytes, compactedBytes)
 	row := struct {
-		Timestamp    string `json:"ts"`
-		Command      string `json:"command"`
-		InputTokens  int64  `json:"input_tokens"`
-		OutputTokens int64  `json:"output_tokens"`
-		SavedTokens  int64  `json:"saved_tokens"`
+		Timestamp        string `json:"ts"`
+		Command          string `json:"command"`
+		InputTokens      int64  `json:"input_tokens"`
+		OutputTokens     int64  `json:"output_tokens"`
+		SavedTokens      int64  `json:"saved_tokens"`
+		InputSHA256      string `json:"input_sha256,omitempty"`
+		RawGzipB64       string `json:"raw_gzip_b64,omitempty"`
+		CompactedGzipB64 string `json:"compacted_gzip_b64,omitempty"`
 	}{
-		Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
-		Command:      commandOutputFirstLabel(command, args),
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		SavedTokens:  savedTokens,
+		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
+		Command:          commandOutputFirstLabel(command, args),
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		SavedTokens:      savedTokens,
+		InputSHA256:      sha256hex,
+		RawGzipB64:       rawGzipB64,
+		CompactedGzipB64: compGzipB64,
 	}
 	data, err := json.Marshal(row)
 	if err != nil {
