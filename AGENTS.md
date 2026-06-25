@@ -53,8 +53,12 @@ means to get there.
 
 ### 0.4 Where it runs — product scope (hard boundary)
 
-- **Codex Desktop App** must work; this requires the **WSS / WebSocket** path
-  (WSS is the production transport, §10.1).
+- **Codex Desktop App** must work. Its entry is the scoped **app-server launch**
+  (provider `base_url` override into the local Slimference daemon), **not** a
+  global MITM. The in-transit lane then runs over the **intended high-fidelity
+  WSS transport** when certified, with the **HTTP Responses path as a working
+  fallback** carrying the same body (§10.1, §10.2). WSS is the strategic target,
+  not a hard connectivity requirement.
 - **Codex CLI** must work.
 - In the **final product**, Slimference is active **only** for sessions started
   via the **TUI / Launch Center**, which launch the Codex App or CLI through
@@ -65,28 +69,70 @@ means to get there.
 - **ChatGPT in the browser and the ChatGPT app are ALWAYS untouched** — no
   proxy, no hosts patch, no interception, no base-URL rewrite, ever (§10.0,
   §10.4). How the savings are achieved internally is open; this boundary is not.
+- **Only token/context-heavy text request traffic is in scope.** In **both** the
+  Codex CLI and the Codex Desktop App, all other modalities — **voice, audio,
+  transcription, computer-use, image/vision, and any non-text traffic** — pass
+  through **byte-untouched**. They cost effectively nothing and intercepting them
+  would only add complexity and drawdown risk for no savings. This is a hard
+  boundary (full rule §10.0).
 
 ### 0.5 Autonomous development, zero blockers
 
 Development is **fully autonomous** and follows every rule here. "I need a new
-capture / live data / a TTY" is **never** a blocker: capture genuine live
-evidence autonomously via `slimference codex run -- codex exec ...` (§N). Prove
-levers on real sessions; never stall waiting for input the agent can generate
-itself. Autonomy never overrides the honesty rules (§0.8, §3.7.6).
+capture / live data / a TTY / a real session / the Desktop app" is **never** a
+blocker. It is **explicitly desired** that the agent **autonomously launches,
+promotes, and drives the Codex App or the Codex CLI through Slimference** to
+generate genuine live evidence — via `slimference codex run -- codex exec ...`
+and the equivalent scoped launch paths (§N). The agent does not wait for the
+owner to run sessions; it produces them itself. Prove levers on real sessions;
+never stall waiting for input the agent can generate itself. (Driving Codex
+through Slimference for evidence is always allowed; arming a **persistent global
+route** is not — §10.4.) Autonomy never overrides the honesty rules (§0.8,
+§3.7.6, §3.8).
 
-### 0.6 Innovation doctrine — never discard a high-savings idea on first contact
+### 0.6 Innovation doctrine — never discard a high-savings idea on first contact (binding, top-priority mindset)
 
-A raw idea that looks lossy or drawdown-violating is a **starting point, not a
-verdict**. The agent must actively **research and invent** levers, think out of
-the box, and for risky ideas **design the additional mechanism, mitigation,
-module, guard, recovery, or proof** that brings the complete design back inside
-the drawdown policy — **no matter how expensive the engineering**. If the fully
-engineered design is **proven** drawdown-policy-conformant on the exact
-route/workload where it runs, it is a valid lever — potentially a dramatic one.
-This reframing is **mandatory** in every analysis, research pass, and savings
-evaluation (§3.3). The expectation is that this discipline yields
-unconventional, innovative, new savings that naive analysis would have thrown
-away.
+This is one of the **most important** rules in this document and must be applied
+on **every** analysis, research pass, savings evaluation, and design — sharply,
+explicitly, and free from misinterpretation. It is a **mandatory additional
+layer of thinking**, never a replacement: all ordinary, conventional savings
+solutions are **exactly as relevant** and must be pursued just as hard. This
+layer is added on top so the product becomes genuinely **outstanding**.
+
+The goal is **as many savings as possible**. The agent must **always consider
+the full space of possibilities** — including unconventional, novel, and
+brand-new ones — and must **especially** chase the ideas that promise large
+savings.
+
+**The core discipline — do not discard, engineer instead.** A raw idea that on
+first glance has strong savings potential but **would normally be rejected
+because it is not drawdown-policy-conformant** must **not** be thrown away. That
+first-glance "lossy / drawdown-violating" verdict is a **starting point, not a
+conclusion**. Instead, the agent must **innovatively search for and design** the
+mechanism, implementation, code, logic, module, guard, recovery, mirror, replay,
+proof, or **any other engineering construct of any kind** that **fixes,
+mitigates, switches off, practically eliminates, or makes negligible** the exact
+degenerating properties named in the drawdown policy (§0.2, §3). **The
+engineering effort is irrelevant** — arbitrarily expensive, deep, multi-module
+work is welcome.
+
+**The acceptance shape.** If, taken as a **whole**, the fully engineered
+mechanism plus its mitigations forms a **total feature** that is **again
+drawdown-policy-conformant** — i.e. **zero drawdown, near-zero drawdown, or
+controlled-near-zero drawdown** (§0.2) — **and** it saves tokens, then it is a
+**valid, encouraged lever**, potentially a dramatic one. The proof that the
+complete design is policy-conformant on the exact route/workload where it runs
+is the production-activation gate (§3.3) — not a reason to reject the idea early.
+
+**Think new.** Long, deep thought processes, novel concepts, and unconventional
+"what if we engineered X to make Y safe" designs are **explicitly wanted and
+explicitly encouraged**, alongside conventional engineering solutions that
+simply fit. Reason from first principles, invent, and spin ideas forward; the
+point is genuinely new, innovative, outstanding mechanisms. **Many individual
+savings sum up — that compounding is how we win.** Throwing away a high-savings
+idea on first contact instead of engineering it into policy-conformance is a
+doctrine violation. This reframing is **mandatory** in every analysis, research
+pass, and savings evaluation (see the mechanism-level rules in §3.3).
 
 ### 0.7 Productive-first, no rabbit holes
 
@@ -95,17 +141,29 @@ Drive the high-leverage levers to **live proof first** (lever priority §3.6,
 build-out. Micro-optimization is a **later phase**, only once the main levers
 stand and are live-proven.
 
-### 0.8 Honesty and fresh-eyes reality checks (binding)
+### 0.8 Honesty and fresh-eyes reality checks (binding, highest priority)
 
 Every savings claim must be **real, measured, attribution-correct, and
 representative**. It may never be inflated by curated fixtures, self-reported
 numbers, a gamed denominator, or by counting **Codex-native behavior** (e.g.
 native `previous_response_id` continuation) as Slimference savings (§3.2,
-§3.7.6, §3.7.7). Phasewise the agent must run **hardcore, self-critical reality
-checks with fresh eyes**: re-derive the real product number from scratch,
-distrust prior green cycles, and straighten out any BS before continuing. The
-mandatory anti-masking / test-honesty check that makes this concrete is **§3.8**
-— it is not optional.
+§3.7.6, §3.7.7).
+
+**Exact measurability has the highest priority — above shipping the next
+lever.** A savings number that cannot be **independently re-derived from
+recoverable raw bytes** is not a product number; getting the measurement exact
+and trustworthy always comes first. A green gate on an unverifiable number is
+worth nothing.
+
+**Reality checks are a regular, built-in cadence, not an afterthought.** The
+agent must run **hardcore, self-critical reality checks and honesty reviews with
+fresh eyes on a regular basis** — at minimum at the start of every work phase,
+before raising any floor, before marking any task done, and before any savings
+report. Each time: re-derive the real product number from scratch, distrust
+prior green cycles, assume the current state is lying until proven otherwise, and
+straighten out any BS before continuing. The mandatory anti-masking /
+test-honesty check that makes this concrete is **§3.8** — it is **not optional**
+and must be executed every cycle.
 
 ### 0.9 Everything is planned and continuously evolved
 
@@ -113,6 +171,24 @@ All work is tracked as tasks/plans (`docs/todo/`, `docs/savings-ledger.md`).
 The agent continuously **finds, documents, evaluates, and matures** new lever
 ideas and keeps improving the product — without violating the No-New-Tooling
 discipline (§3.7.2).
+
+### 0.10 Caching must be excellent — strictly better than plain Codex-against-the-servers caching
+
+Provider/prompt caching is a **first-class product goal in its own right**,
+pursued just as hard as `S_local` (but always tracked and reported **separately**
+from it — §3.2; caching never masks a local regression and a local win never
+excuses a caching regression). The **explicit ambition** is binding: Slimference's
+caching layer must be **excellent and strictly better than what Codex achieves
+caching straight against the servers without Slimference**. A normal Codex
+session already benefits from the provider's automatic prompt caching;
+**matching that baseline is not enough — Slimference must beat it**: higher cache
+hit rate, more reliable stable-prefix reuse, longer useful retention, and fewer
+cache-busting mutations (via stable model-bound `prompt_cache_key`, prefix-
+stability optimization, extended `prompt_cache_retention`, and cache-bust
+avoidance — see §10.3 step 2 for the mechanism and §3.2 for the reporting
+mandate). This is measured as combined billable savings plus cache-hit metrics
+and is **never** counted as `S_local`. Like savings, there is **no fixed ceiling**
+— push the cache advantage as far as the drawdown policy permits.
 
 ---
 
@@ -211,17 +287,24 @@ regression. Reports, plans, guards, and reviews must treat local input
 reduction (`S_local`, excluding provider-cache discount) as a first-class
 product metric alongside combined billable savings.
 
-The owner target is **>=48% local input reduction on longer eligible Codex
-sessions without counting provider-cache discount** while preserving the
-drawdown definition above. Until that target is live-proven or a specific
-route/protocol ceiling is proven impossible, agents must keep searching for and
-shipping default-on-safe local savings. A guard that prevents a real drawdown is
+The owner figure **>=48% local input reduction on longer eligible Codex
+sessions without counting provider-cache discount** is a **MINIMUM / floor, not
+the goal**. It is the lowest acceptable bar, not a target to stop at. The actual
+goal is the **maximum achievable `S_local` under the drawdown policy — there is
+no fixed ceiling** (§0.3). 48% is "not yet good enough"; every point above it is
+wanted. Reaching 48% never ends the work. Until this floor is honestly
+live-proven (per §3.8) or a specific route/protocol ceiling is proven
+impossible, agents must keep searching for and shipping default-on-safe local
+savings, and must keep pushing well past 48% wherever the drawdown policy
+permits. A guard that prevents a real drawdown is
 correct, but it must be the narrowest possible guard and must preserve
 observation, cache seeding, telemetry, and future safe savings wherever those
 actions do not mutate model-visible or upstream-visible bytes.
 
 **Cache reporting mandate (binding):** Caching must hit as often and as
-efficiently as possible — cache hit rates are a first-class optimization target.
+efficiently as possible — cache hit rates are a first-class optimization target,
+and the binding ambition is to be **strictly better than plain
+Codex-against-the-servers caching** (§0.10), not merely to match it.
 However, every savings report, gate output, analytics event, and planning
 document must **always report both numbers**: `S_local` (without
 provider-cache discount) AND combined billable savings (with provider-cache
@@ -255,6 +338,11 @@ When changing any savings-related path:
   evidence and must not count provider-cache discount as local savings.
 
 ### 3.3 Aggressive Savings Mitigation Doctrine (Binding)
+
+This section is the **mechanism-level implementation of the §0.6 innovation
+doctrine** — read both together. §0.6 sets the mindset (never discard a
+high-savings idea; engineer it into policy-conformance at any cost); this section
+defines the concrete engineering patterns and the status/accounting discipline.
 
 Agents must not reject a high-savings idea merely because its first naive form
 has drawdown risk. First identify the exact drawdown vector, then evaluate
@@ -344,6 +432,14 @@ observation, cache seeding, telemetry, candidate scoring, shadow evidence, or
 future-proof state capture can remain active without changing model-visible
 bytes, upstream-visible bytes, routing, cache-prefix bytes, or normal product
 latency. Disabling those safe side effects is itself a local-savings regression.
+
+**Guards must fit like a skin-tight latex suit.** A guard wraps the proven
+failure/error vector with **atomic precision**: it seals **exactly** that vector
+and **nothing** beyond it, leaving every savings byte the evidence does not
+forbid fully exposed and active. A guard that covers one byte more than the
+proven vector requires is too loose a fit and is a local-savings regression. The
+job is maximum savings AND zero errors/problems simultaneously — never trade one
+broadly for the other.
 
 Guards are not static handbrakes. Agents must continuously engineer guards
 toward the loosest safe predicate that still prevents the proven drawdown or
@@ -441,8 +537,10 @@ measured, policy-safe, and net-positive.
 
 These rules exist because a prior autonomous loop produced 1000+ commits and
 ~44k lines of measurement tooling while the proven production `S_local` stayed
-frozen at ~6% against the 48% target. The work was green every cycle but never
-moved the product number. The following rules are binding to prevent that:
+frozen at ~6% against the 48% **minimum floor** (§3.2 — the floor is the lowest
+acceptable bar, not the goal; the goal is the maximum achievable `S_local`). The
+work was green every cycle but never moved the product number. The following
+rules are binding to prevent that:
 
 1. **Single-Gate rule.** There is exactly one product success number: live
    `S_local` (excluding provider-cache discount), measured by the standard
@@ -734,6 +832,19 @@ ChatGPT website must remain **completely untouched** — no proxying, no hosts
 patching, no traffic interception, no base URL rewriting. This is a hard
 product boundary, not a configuration preference.
 
+**In-scope traffic boundary (binding).** Even inside Codex CLI and Codex Desktop
+app, Slimference only ever touches **token/context-heavy text request traffic**
+(prompts, instructions, tool/command output, conversation history — the bytes
+that actually cost input tokens). **All other modalities pass through
+byte-untouched, in both the CLI and the Desktop app:** **voice, audio,
+transcription/speech, computer-use, image/vision uploads, and any other non-text
+traffic.** Rationale: these cost effectively nothing in input tokens, so there is
+no savings to win, while intercepting them would only add complexity, fragility,
+and drawdown risk. Mechanisms must detect and **fail-open / pass through** any
+non-text or multimodal request shape; never parse, mutate, compact, re-encode,
+or block it. Touching a non-text modality is a scope violation regardless of
+whether it would "work".
+
 Sessions run through Slimference **only** when started via:
 - `slimference codex run -- <prompt>` (CLI, including `codex exec` headless)
 - TUI / Launch Center start path
@@ -754,55 +865,85 @@ of the production path and produces genuine evidence.
 
 ### 10.1 Transport (Binding)
 
-**WSS is the production transport.** All savings mechanisms (L1, L2, L3,
-repdet, pruning, output-wire) must be wired into the WSS Phase-F path and
-must fire there during normal `slimference codex run` sessions. WSS is where
-production savings come from.
+**Precise layering — do not conflate (verified 2026-06-25).** "Transport" is only
+how the conversation is carried between Codex and the backend. It governs the
+**in-transit frame-mutation lane** (history aging/pruning, repdet, tool-def
+dedup, output-wire — the L3 class). It does **not** govern the
+**command-output-first lane (L2)**, which is a **process-local shim that runs
+before any wire** and is **transport-independent**. Claims like "all savings
+mechanisms must be wired into WSS" are wrong: L2 is not a WSS mechanism.
 
-**HTTP is test/research only.** The HTTP proxy path exists for:
-- Initial bring-up and protocol research
-- Fallback when WSS Phase-F certification is not green (bridge mode)
-- Isolated component testing
+**WSS is the intended production transport** for the in-transit lane and the
+owner's strategic target (it must become outstanding; do not drift to
+HTTP-first). The HTTP Responses path carries the **same request body** and can
+run the **same in-transit mutations**; it is the certified-not-green fallback,
+not the production goal. If WSS Phase-F is not certified for the current Codex
+version, the priority is to recertify WSS.
 
-HTTP must not be the primary savings path in production. If WSS Phase-F is
-not certified for the current Codex version, the priority is to recertify
-WSS, not to optimize HTTP as a permanent substitute. Savings measured on the
-HTTP path are valid evidence but are not the production target.
+**Honest current reality (must not be masked, §3.8, §3.7.7):** today the
+in-transit WSS frame-mutation lane delivers **~0 incremental `S_local`** in
+normal operation — the two delta guards block mutation on every delta turn and
+Desktop is not WSS-certified, so no frames are mutated. The actual current
+savings come from the **L2 CLI shim** (process-local, not WSS) plus small in-band
+HTTP reductions. Native `previous_response_id` continuation is **Codex-native,
+not a Slimference saving** (§3.7.7). Any statement that "WSS is where production
+savings come from" is aspirational, not measured. The highest-leverage real work
+is therefore (a) narrowing the WSS delta guards to unlock genuine in-transit
+savings and (b) extending L2 to Desktop (§10.2). Savings measured on the HTTP
+path are valid evidence.
 
 ### 10.2 Savings Architecture (Binding)
 
-Slimference savings operate on **two layers**, both on the WSS path:
+Slimference savings operate on **two distinct layers at different points in the
+pipeline** (they are NOT both "on the WSS path"):
 
-1. **L2 Shim (Command-Output-First):** Compacts shell/tool output *before*
-   it enters the WSS frame. Runs as a PATH/`BASH_ENV` shim in the Codex
-   process. This is the **primary local savings surface** today (~70% of
-   `S_local`). It is safe by construction: archive recovery, byte-equal
-   fail-open, never mutates stored history. All savings mechanisms must
-   fire here for every `slimference codex run` session.
+1. **L2 Shim (Command-Output-First) — process-local, pre-wire,
+   transport-independent.** Compacts shell/tool stdout/stderr *before* it ever
+   enters the conversation/history, via a PATH/`BASH_ENV` shim in the launched
+   Codex process. It is the **only lever delivering real `S_local` today**. Safe
+   by construction: archive recovery (`slimference expand <uri>` is model-
+   invokable), byte-equal fail-open, never mutates stored history.
+   **Verified wiring gap (2026-06-25):** the shim is currently injected **only on
+   the CLI run path** (`maybeApplyCommandOutputFirstEnv`, single call site
+   `cmd/slimference/proxy_cmd.go:454`). It does **not** run on the **Desktop
+   app-server path** at all. Extending L2 to Desktop (seeding the COF env into
+   `buildCodexDesktopAppServerEnv` / the app-server shim, if Desktop executes
+   tool commands as local subprocesses) is a concrete high-value candidate lever
+   (§0.6, §3.3) and must be evaluated.
 
-2. **WSS Proxy MITM (Phase-F):** Mutates WSS frames in transit. This is the
-   **secondary savings surface** (~2% of non-control token volume today).
-   It adds savings on top of L2 by deduplicating repeated tool outputs,
-   aging stale reads, pruning obsolete reads, and compacting search output.
-   All guards must be engineered toward the loosest safe predicate (§3.4).
+2. **In-transit frame mutation (L3 class) — on the active transport (WSS
+   Phase-F, or the HTTP Responses fallback carrying the same body).** Mutates the
+   already-serialized conversation: dedup of repeated tool outputs, stale-read
+   aging, obsolete/superseded read+command-output pruning, tool-definition dedup,
+   search-output compaction. This is the **only** lane that can reach
+   already-accumulated history (the shim cannot). All guards must be engineered
+   toward the loosest safe predicate (§3.4).
 
-**Both layers must be active and measured.** A regression in either layer is
-a product regression. The WSS Proxy MITM is where the largest *untapped*
-savings potential remains — the two main guards
-(`wss_stateful_delta_mutation_proof_gate` and
-`wss_full_history_downstream_delta_proof_gate`) currently block ~485K tokens
-that could be saved. Narrowing these guards is the highest-leverage work.
+**Both layers must be active and measured by the single live gate (§3.7
+Single-Gate rule).** Do
+**not** assert a fixed contribution percentage for either layer unless it is
+independently re-derived from recoverable raw bytes (§3.8 — earlier "~70% / ~2% /
+~485K tokens" figures were self-reported and are not trusted). The largest
+*untapped* savings sit behind the two delta guards
+(`wss_stateful_delta_mutation_proof_gate`,
+`wss_full_history_downstream_delta_proof_gate`), which today block in-transit
+mutation on essentially every delta turn; narrowing them to the atomically exact
+proven-vector predicate (§3.4 latex-suit principle) is the highest-leverage
+in-transit work, second only to closing the gate-recompute integrity gap (§3.7.7,
+Finding B).
 
 ### 10.3 Savings Priority Order (Binding)
 
 1. **Max local savings without caching (`S_local`)** — the primary product
    metric. Push every lever: L2 shim expansion, WSS proxy guard narrowing,
    L3 safe subset, output-wire, multi-turn pruning, innovative levers.
-2. **Then optimize caching to be better than normal** — cache hit rates are
-   a first-class target. Cache-prefix optimization, 24h retention, cache-bust
+2. **Then optimize caching to be strictly better than plain
+   Codex-against-the-servers caching** (§0.10) — cache hit rates are a
+   first-class target. Cache-prefix optimization, stable model-bound
+   `prompt_cache_key`, extended `prompt_cache_retention` (e.g. 24h), cache-bust
    guards. Caching must be ultra-optimized so combined billable savings exceed
-   what a normal Codex user gets. But cache wins never mask `S_local`
-   regressions (§3.2).
+   what a Codex user gets running directly against the servers without
+   Slimference. But cache wins never mask `S_local` regressions (§3.2).
 3. **All levers super-engineered** — every savings mechanism must be
    default-on-safe, measured, recoverable/fail-open, and exact to the
    route/request class where it runs. No handbrakes without proven vectors.

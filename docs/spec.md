@@ -23,10 +23,13 @@ enablement. New permanently default-off, manually promoted, or experimental
 mechanisms are out of scope unless an explicit project override classifies them
 as isolated legacy/lab/proof/operator work.
 
-The owner local-savings target is `S_local >= 48%` on longer eligible Codex
-sessions without counting provider-cache discount. Provider-cache economics,
-output-wire savings, and combined billable savings remain valuable but cannot
-substitute for local input reduction.
+The owner local-savings figure `S_local >= 48%` on longer eligible Codex
+sessions without counting provider-cache discount is a **minimum floor, not the
+goal**: it is the lowest acceptable bar, and the actual goal is the **maximum
+achievable `S_local` under the drawdown policy with no fixed ceiling** (AGENTS.md
+§0.3, §3.2). Reaching 48% does not end the work; every point above it is wanted.
+Provider-cache economics, output-wire savings, and combined billable savings
+remain valuable but cannot substitute for local input reduction.
 
 Missing production-readiness evidence does not mean a candidate has zero
 savings. Every candidate must be estimated before implementation with affected
