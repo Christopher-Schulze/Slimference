@@ -1266,6 +1266,27 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			meta.DebugFacts["wss.tool_results_inferred"] = strconv.Itoa(toolOutputInferred)
 			meta.DebugFacts["wss.tool_results_total"] = strconv.Itoa(toolOutputResults)
 		}
+		// Keystone apply-decision observability (symmetric to the shadow-mirror
+		// slog above): makes the stateless-detach keystone's per-turn outcome
+		// provable in the daemon log for the live 0-400 proof gate. Logging only,
+		// scoped to keystone-relevant continuation turns to keep the log focused.
+		// (On a Codex version whose WSS Phase-F mutation is byte-bridge-only this
+		// code path is bypassed entirely, so the absence of these lines itself
+		// signals the byte-bridge substrate.)
+		if meta.PreviousResponseID != "" || requestShape == "full_history" {
+			slog.Info("wss keystone apply decision",
+				"session", sessionID,
+				"shape", requestShape,
+				"prev_response_present", meta.PreviousResponseID != "",
+				"delta_recovery_ready", deltaStatelessRecoveryReady,
+				"stateful_delta_blocked", statefulDeltaMutationBlocked,
+				"history_mutation_guard", historyMutationGuardReason,
+				"keystone_apply_eligible", meta.DebugFacts["wss.keystone_apply_eligible"],
+				"stateless_followup", meta.DebugFacts["wss.stateful_mutation_stateless_followup"] != "",
+				"full_history_detached", meta.DebugFacts["wss.full_history_detached_previous_response"] != "",
+				"stale_blocks", staleBlocksReplaced,
+				"obsolete_blocks", obsoleteBlocksPruned)
+		}
 	}
 	if !toolPruneAppliedInMessagePath {
 		if pruned, changed, toolPrune := a.applyWSSToolPrune(out, messages, meta); toolPrune.GuardReason != "" {
