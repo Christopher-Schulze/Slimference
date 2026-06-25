@@ -742,6 +742,10 @@ func hasLayerCombination(combos map[string]layerCombinationAggregate, label stri
 	return false
 }
 
+// normalizeEvidenceLevel fails CLOSED (AGENTS.md §3.8 honesty): a category that
+// does not explicitly attest its evidence level is "unattested" — it must NOT be
+// silently promoted to the strongest "live_operator" tier. Omitting a metadata
+// field can never upgrade a category's trust.
 func normalizeEvidenceLevel(meta *CategoryMetadata) string {
 	level := strings.TrimSpace(meta.EvidenceLevel)
 	if level != "" {
@@ -750,12 +754,15 @@ func normalizeEvidenceLevel(meta *CategoryMetadata) string {
 	if meta.Synthetic {
 		return "synthetic"
 	}
-	return "live_operator"
+	return "unattested"
 }
 
+// isCurrentProductPath fails CLOSED: a category that does not explicitly set
+// current_product_path is NOT treated as the current product path. Omitting the
+// field can never grant product-path status.
 func isCurrentProductPath(meta *CategoryMetadata) bool {
 	if meta == nil || meta.CurrentProductPath == nil {
-		return true
+		return false
 	}
 	return *meta.CurrentProductPath
 }
@@ -1172,10 +1179,26 @@ func FormatCorpusReport(report CorpusReport) string {
 	if report.RealCurrentLocalOrigTokens > 0 {
 		sb.WriteString(fmt.Sprintf("Real S_local:   %.2f%% (Slimference-incremental: in-band + L2; provider-cache excluded; known denominators only)\n",
 			report.RealCurrentLocalSavingsRatio*100))
-		// S_local decomposition (integrity transparency, AGENTS.md §3.7.7).
-		// Only Slimference-caused sources count toward S_local. L1 server-state
-		// continuation is Codex-native previous_response_id behavior and is
-		// reported below as observed-only, excluded from the trusted number.
+		// ATTESTATION LEVELS (AGENTS.md §3.8 honesty): the headline blends two
+		// trust tiers. Only the recompute-verified tier (L2 lines re-derived from
+		// embedded raw bytes) is independently proven. The in-band tier is
+		// operator-attested self-reported session counts (the live corpus is
+		// content-free by design — see docs/live-corpus-policy.md) and is NOT
+		// byte-recomputed; it is only as trustworthy as the operator attestation
+		// plus the per-line arithmetic guard. Do not present it as "proven".
+		verifiedRatio := 0.0
+		if report.SLocalL2OrigTokens > 0 {
+			verifiedRatio = float64(report.SLocalL2SavedTokens) / float64(report.SLocalL2OrigTokens) * 100
+		}
+		attestedRatio := 0.0
+		if report.SLocalInBandOrigTokens > 0 {
+			attestedRatio = float64(report.SLocalInBandSavedTokens) / float64(report.SLocalInBandOrigTokens) * 100
+		}
+		sb.WriteString(fmt.Sprintf("  recompute-verified (L2, byte-recomputed)   saved=%d orig=%d ratio=%.2f%%  [independently proven]\n",
+			report.SLocalL2SavedTokens, report.SLocalL2OrigTokens, verifiedRatio))
+		sb.WriteString(fmt.Sprintf("  operator-attested (in-band, self-reported) saved=%d orig=%d ratio=%.2f%%  [NOT byte-recomputed]\n",
+			report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens, attestedRatio))
+		// Per-source decomposition (shares of the blended headline).
 		writeRatio := func(label string, saved, orig int64) {
 			pct := 0.0
 			if orig > 0 {
@@ -1188,8 +1211,8 @@ func FormatCorpusReport(report CorpusReport) string {
 			sb.WriteString(fmt.Sprintf("  %-28s saved=%d orig=%d ratio=%.2f%% share_of_slocal=%.1f%%\n",
 				label, saved, orig, pct, share))
 		}
-		writeRatio("in-band (Slimference)", report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens)
-		writeRatio("L2 cmd-output (Slimference)", report.SLocalL2SavedTokens, report.SLocalL2OrigTokens)
+		writeRatio("in-band (operator-attested)", report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens)
+		writeRatio("L2 cmd-output (verified)", report.SLocalL2SavedTokens, report.SLocalL2OrigTokens)
 		if report.SLocalL2UnverifiedSavedTokens > 0 {
 			upct := 0.0
 			if report.SLocalL2UnverifiedOrigTokens > 0 {

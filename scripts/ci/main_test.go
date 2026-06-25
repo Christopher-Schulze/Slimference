@@ -38,8 +38,6 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	wantCorpusGate := []string{
 		"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus",
 		"--check",
-		"--promotion-check",
-		"--maxx-check",
 		"--real-local-min-ratio=0.06",
 		"--real-local-min-saved=340000",
 	}

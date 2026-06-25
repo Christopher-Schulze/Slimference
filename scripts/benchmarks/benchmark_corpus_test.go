@@ -17,6 +17,16 @@ import (
 
 func writeCategory(t *testing.T, root, name string, meta CategoryMetadata, sessions []string) string {
 	t.Helper()
+	// Test convenience: a genuinely operator-attested (live_operator) category is
+	// a real product-path category, so declare current_product_path explicitly
+	// (production isCurrentProductPath fails closed on nil — proven separately in
+	// TestIsCurrentProductPath_FailsClosed). Tests that need a non-product or
+	// unattested category set EvidenceLevel != "live_operator" or the pointer
+	// explicitly.
+	if meta.CurrentProductPath == nil && strings.TrimSpace(meta.EvidenceLevel) == "live_operator" {
+		v := true
+		meta.CurrentProductPath = &v
+	}
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -684,6 +694,33 @@ func writeCommandOutputFirstSidecar(t *testing.T, dir string, rows ...string) {
 	}
 }
 
+func TestIsCurrentProductPath_FailsClosed(t *testing.T) {
+	t.Parallel()
+	if isCurrentProductPath(nil) {
+		t.Fatal("nil metadata must NOT be treated as current product path")
+	}
+	if isCurrentProductPath(&CategoryMetadata{}) {
+		t.Fatal("absent current_product_path must fail closed (false), not default true")
+	}
+	v := true
+	if !isCurrentProductPath(&CategoryMetadata{CurrentProductPath: &v}) {
+		t.Fatal("explicit current_product_path=true must be honored")
+	}
+}
+
+func TestNormalizeEvidenceLevel_FailsClosed(t *testing.T) {
+	t.Parallel()
+	if got := normalizeEvidenceLevel(&CategoryMetadata{}); got != "unattested" {
+		t.Fatalf("absent evidence_level must be 'unattested' (not silently 'live_operator'), got %q", got)
+	}
+	if got := normalizeEvidenceLevel(&CategoryMetadata{Synthetic: true}); got != "synthetic" {
+		t.Fatalf("synthetic absent evidence_level must be 'synthetic', got %q", got)
+	}
+	if got := normalizeEvidenceLevel(&CategoryMetadata{EvidenceLevel: "live_operator"}); got != "live_operator" {
+		t.Fatalf("explicit live_operator must be honored, got %q", got)
+	}
+}
+
 func gzB64(b []byte) string {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -1100,9 +1137,14 @@ func TestEvaluatePromotionGate_FailsSyntheticOnly(t *testing.T) {
 func TestEvaluatePromotionGate_FailsIncompleteRealMetadata(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	// An attested, product-path category that is missing the required
+	// expected_* completeness thresholds must still fail the promotion gate on
+	// exactly those fields (incomplete metadata is not promotable).
+	cpp := true
 	writeCategory(t, root, "real_incomplete", CategoryMetadata{
 		Category:           "real_incomplete",
-		EvidenceLevel:      "manual_note",
+		EvidenceLevel:      "live_operator",
+		CurrentProductPath: &cpp,
 		ClientFamily:       "codex_cli",
 		WorkloadClass:      "repeat_read",
 		ExpectedSavingsMin: 0.10,
@@ -1113,7 +1155,7 @@ func TestEvaluatePromotionGate_FailsIncompleteRealMetadata(t *testing.T) {
 	}
 	gate := EvaluatePromotionGate(report)
 	got := strings.Join(gate.Failures, "\n")
-	for _, want := range []string{"evidence_level", "expected_max_errors", "expected_reread_count_max", "expected_latency_p95_max_ms"} {
+	for _, want := range []string{"expected_max_errors", "expected_reread_count_max", "expected_latency_p95_max_ms"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures: %+v", want, gate)
 		}
