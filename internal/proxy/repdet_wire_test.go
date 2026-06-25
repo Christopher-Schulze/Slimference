@@ -193,9 +193,14 @@ func TestRewriteAnthropicResponseBodyEchoRewritten(t *testing.T) {
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("decode rewritten body: %v", err)
 	}
-	wantSaved := len("intro "+block+" outro") - len(parsed.Content[0].Text)
-	if saved != wantSaved {
-		t.Errorf("saved=%d want net %d", saved, wantSaved)
+	// Independent bound (not derived from the function's own output, AGENTS.md
+	// §3.9.5): the echoed block is replaced by a short marker, so the saving must
+	// be positive, never exceed the block size, and be close to it.
+	if saved <= 0 || saved > len(block) {
+		t.Errorf("saved=%d must be in (0, len(block)=%d]", saved, len(block))
+	}
+	if saved < len(block)-300 {
+		t.Errorf("saved=%d too small; a %d-byte echoed block should compact to a short marker", saved, len(block))
 	}
 }
 
@@ -309,9 +314,13 @@ func TestRewriteOpenAIChatCompletionsRewritten(t *testing.T) {
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("decode rewritten body: %v", err)
 	}
-	wantSaved := len("intro "+block+" outro") - len(parsed.Choices[0].Message.Content)
-	if saved != wantSaved {
-		t.Errorf("saved=%d want net %d", saved, wantSaved)
+	// Independent bound (not derived from the function's own output, AGENTS.md
+	// §3.9.5).
+	if saved <= 0 || saved > len(block) {
+		t.Errorf("saved=%d must be in (0, len(block)=%d]", saved, len(block))
+	}
+	if saved < len(block)-300 {
+		t.Errorf("saved=%d too small; a %d-byte echoed block should compact to a short marker", saved, len(block))
 	}
 }
 
