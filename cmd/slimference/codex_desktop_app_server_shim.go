@@ -167,10 +167,11 @@ type codexDesktopProviderConfig struct {
 }
 
 type codexDesktopAppServerMediator struct {
-	provider       codexDesktopProviderConfig
-	logger         codexDesktopShimLogger
-	requestMethods map[string]string
-	requestMu      sync.Mutex
+	provider             codexDesktopProviderConfig
+	logger               codexDesktopShimLogger
+	requestMethods       map[string]string
+	serverRequestMethods map[string]string
+	requestMu            sync.Mutex
 }
 
 func newCodexDesktopAppServerMediator(provider codexDesktopProviderConfig) *codexDesktopAppServerMediator {
@@ -179,9 +180,10 @@ func newCodexDesktopAppServerMediator(provider codexDesktopProviderConfig) *code
 
 func newCodexDesktopAppServerMediatorWithLogger(provider codexDesktopProviderConfig, logger codexDesktopShimLogger) *codexDesktopAppServerMediator {
 	return &codexDesktopAppServerMediator{
-		provider:       provider,
-		logger:         logger,
-		requestMethods: make(map[string]string),
+		provider:             provider,
+		logger:               logger,
+		requestMethods:       make(map[string]string),
+		serverRequestMethods: make(map[string]string),
 	}
 }
 
@@ -257,6 +259,13 @@ func (m *codexDesktopAppServerMediator) maybeRewriteStdinLine(line []byte) ([]by
 		content = line[:len(line)-1]
 	}
 	m.rememberRequestMethod(content)
+	if method := m.takeServerResponseMethod(content); method == "item/tool/call" {
+		m.log(codexDesktopShimLogRecord{
+			Event:       "tool_facade_response_observed",
+			Method:      method,
+			RewriteKind: "server_request_response_passthrough",
+		})
+	}
 	rewritten, changed := rewriteCodexDesktopThreadStart(content)
 	if !changed {
 		return line, false
@@ -272,6 +281,14 @@ func (m *codexDesktopAppServerMediator) maybeRewriteResponseLine(line []byte) ([
 	content := line
 	if hasNL {
 		content = line[:len(line)-1]
+	}
+	if id, method := codexJSONRPCIDAndMethod(content); id != "" && method == "item/tool/call" {
+		m.rememberServerRequestMethod(id, method)
+		m.log(codexDesktopShimLogRecord{
+			Event:       "tool_facade_request_observed",
+			Method:      method,
+			RewriteKind: "server_request_passthrough",
+		})
 	}
 	method := m.takeResponseMethod(content)
 	rewritten, kind := m.rewriteResponseContent(content, method)
@@ -313,6 +330,27 @@ func (m *codexDesktopAppServerMediator) takeResponseMethod(content []byte) strin
 	m.requestMu.Lock()
 	method := m.requestMethods[id]
 	delete(m.requestMethods, id)
+	m.requestMu.Unlock()
+	return method
+}
+
+func (m *codexDesktopAppServerMediator) rememberServerRequestMethod(id, method string) {
+	if id == "" || method == "" {
+		return
+	}
+	m.requestMu.Lock()
+	m.serverRequestMethods[id] = method
+	m.requestMu.Unlock()
+}
+
+func (m *codexDesktopAppServerMediator) takeServerResponseMethod(content []byte) string {
+	id := codexJSONRPCID(content)
+	if id == "" {
+		return ""
+	}
+	m.requestMu.Lock()
+	method := m.serverRequestMethods[id]
+	delete(m.serverRequestMethods, id)
 	m.requestMu.Unlock()
 	return method
 }
@@ -544,6 +582,7 @@ type codexDesktopShimLogRecord struct {
 	Time           string `json:"time"`
 	Event          string `json:"event"`
 	Method         string `json:"method,omitempty"`
+	RewriteKind    string `json:"rewrite_kind,omitempty"`
 	Provider       string `json:"provider,omitempty"`
 	BaseURLPresent bool   `json:"base_url_present,omitempty"`
 	ExitCode       int    `json:"exit_code,omitempty"`

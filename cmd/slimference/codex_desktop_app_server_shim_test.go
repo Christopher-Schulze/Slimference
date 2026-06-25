@@ -622,6 +622,40 @@ func TestCodexDesktopAppServerActiveUsesCount(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopMediatorObservesToolFacadeResponseWithoutMutation(t *testing.T) {
+	logger := &codexDesktopShimMemoryLogger{}
+	mediator := newCodexDesktopAppServerMediator(codexDesktopProviderConfig{})
+	mediator.logger = logger
+	request := []byte(`{"jsonrpc":"2.0","id":42,"method":"item/tool/call","params":{"name":"read","arguments":{"path":"README.md"}}}` + "\n")
+	response := []byte(`{"jsonrpc":"2.0","id":42,"result":{"output":"large tool output"}}` + "\n")
+
+	gotRequest, method, rewriteKind := mediator.maybeRewriteResponseLine(request)
+	if method != "" || rewriteKind != "" || !bytes.Equal(gotRequest, request) {
+		t.Fatalf("tool facade request must pass through byte-identically, method=%q kind=%q got=%q", method, rewriteKind, gotRequest)
+	}
+	gotResponse, responseChanged := mediator.maybeRewriteStdinLine(response)
+	if responseChanged || !bytes.Equal(gotResponse, response) {
+		t.Fatalf("tool facade response must pass through byte-identically, changed=%v got=%q", responseChanged, gotResponse)
+	}
+	if len(logger.records) != 2 {
+		t.Fatalf("expected request and response observations, got %#v", logger.records)
+	}
+	if logger.records[0].Event != "tool_facade_request_observed" || logger.records[0].Method != "item/tool/call" {
+		t.Fatalf("bad request observation: %#v", logger.records[0])
+	}
+	if logger.records[1].Event != "tool_facade_response_observed" || logger.records[1].Method != "item/tool/call" {
+		t.Fatalf("bad response observation: %#v", logger.records[1])
+	}
+}
+
+type codexDesktopShimMemoryLogger struct {
+	records []codexDesktopShimLogRecord
+}
+
+func (l *codexDesktopShimMemoryLogger) Log(record codexDesktopShimLogRecord) {
+	l.records = append(l.records, record)
+}
+
 func writeFakeExecutable(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
