@@ -11,6 +11,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,14 +23,23 @@ import (
 	"strings"
 
 	dbg "github.com/Christopher-Schulze/Slimference/internal/debug"
+	"github.com/Christopher-Schulze/Slimference/internal/filter"
 )
 
 // sessionReportAggregate holds the running totals we care about.
 type sessionReportAggregate struct {
-	requests                  int
-	origTokens                int64
-	finalTokens               int64
-	savedTokens               int64
+	requests    int
+	origTokens  int64
+	finalTokens int64
+	savedTokens int64
+	// In-band recompute split (AGENTS.md §3.9): a session row is
+	// recompute-VERIFIED only when it carries orig+final gzipped request bytes
+	// that the gate re-derives; otherwise its self-reported tokens.saved is
+	// operator-ATTESTED (fabricatable) and never counts as proven.
+	inBandVerifiedOrig        int64
+	inBandVerifiedSaved       int64
+	inBandAttestedOrig        int64
+	inBandAttestedSaved       int64
 	layer0Saved               int64
 	layer1Saved               int64
 	layer2Saved               int64
@@ -87,6 +98,52 @@ type layerCombinationAggregate struct {
 	Errors       int   `json:"errors"`
 }
 
+type inBandRecompute struct{ orig, saved int64 }
+
+func jsonRawStringField(raw map[string]json.RawMessage, key string) string {
+	v, ok := raw[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+// recomputeInBandProvenance re-derives a session row's in-band saving from the
+// embedded original+final request bytes (AGENTS.md §3.9). Returns nil when the
+// row carries no provenance (attested only), a value when it verifies, or an
+// errSidecarIntegrity error when provenance is present but inconsistent (tamper).
+func recomputeInBandProvenance(raw map[string]json.RawMessage) (*inBandRecompute, error) {
+	origB64 := jsonRawStringField(raw, "orig_gzip_b64")
+	finalB64 := jsonRawStringField(raw, "final_gzip_b64")
+	if origB64 == "" || finalB64 == "" {
+		return nil, nil
+	}
+	orig, err := gunzipBase64(origB64)
+	if err != nil {
+		return nil, fmt.Errorf("orig_gzip_b64: %w: %w", err, errSidecarIntegrity)
+	}
+	final, err := gunzipBase64(finalB64)
+	if err != nil {
+		return nil, fmt.Errorf("final_gzip_b64: %w: %w", err, errSidecarIntegrity)
+	}
+	if sha := jsonRawStringField(raw, "orig_sha256"); sha != "" {
+		sum := sha256.Sum256(orig)
+		if hex.EncodeToString(sum[:]) != sha {
+			return nil, fmt.Errorf("orig_sha256 mismatch (bytes do not hash to recorded digest): %w", errSidecarIntegrity)
+		}
+	}
+	if len(final) > len(orig) {
+		return nil, fmt.Errorf("final (%d bytes) larger than orig (%d bytes); not a real in-band reduction: %w", len(final), len(orig), errSidecarIntegrity)
+	}
+	origT := int64(filter.EstimateTokensFromBytes(len(orig)))
+	finalT := int64(filter.EstimateTokensFromBytes(len(final)))
+	return &inBandRecompute{orig: origT, saved: origT - finalT}, nil
+}
+
 // AggregateSessions reads rd line-by-line and accumulates
 // RequestSummary statistics. A malformed line is skipped with a warning
 // written to errOut.
@@ -109,9 +166,23 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		var raw map[string]json.RawMessage
 		_ = json.Unmarshal(line, &raw)
 		agg.requests++
-		agg.origTokens += int64(rec.Tokens.Original)
+		origT := int64(rec.Tokens.Original)
+		savedT := int64(rec.Tokens.Saved)
+		agg.origTokens += origT
 		agg.finalTokens += int64(rec.Tokens.Final)
-		agg.savedTokens += int64(rec.Tokens.Saved)
+		agg.savedTokens += savedT
+		// Recompute-verified vs operator-attested split (§3.9): a tampered
+		// provenance row fails the gate closed; a row with valid provenance is
+		// re-derived from bytes; a row without provenance is attested only.
+		if v, err := recomputeInBandProvenance(raw); err != nil {
+			return nil, err
+		} else if v != nil {
+			agg.inBandVerifiedOrig += v.orig
+			agg.inBandVerifiedSaved += v.saved
+		} else {
+			agg.inBandAttestedOrig += origT
+			agg.inBandAttestedSaved += savedT
+		}
 		agg.layer0Saved += positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0)
 		agg.layer1Saved += positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1)
 		cacheReadTokens := requestProviderCacheReadTotal(rec)
@@ -270,6 +341,10 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.origTokens += src.origTokens
 	dst.finalTokens += src.finalTokens
 	dst.savedTokens += src.savedTokens
+	dst.inBandVerifiedOrig += src.inBandVerifiedOrig
+	dst.inBandVerifiedSaved += src.inBandVerifiedSaved
+	dst.inBandAttestedOrig += src.inBandAttestedOrig
+	dst.inBandAttestedSaved += src.inBandAttestedSaved
 	dst.layer0Saved += src.layer0Saved
 	dst.layer1Saved += src.layer1Saved
 	dst.layer2Saved += src.layer2Saved

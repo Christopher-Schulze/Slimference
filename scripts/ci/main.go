@@ -67,6 +67,11 @@ func defaultSteps() []step {
 				"--check",
 				"--real-local-min-ratio=0.06",
 				"--real-local-min-saved=340000",
+				// The recompute-verified floor gates the only UNFABRICATABLE number
+				// (in-band + L2 re-derived from embedded bytes). 0 today because the
+				// committed corpus is content-free; raise it only with real
+				// provenance-carrying captures (AGENTS.md §3.9.3).
+				"--recompute-verified-min=0",
 			},
 		},
 		{

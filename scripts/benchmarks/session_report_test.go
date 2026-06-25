@@ -2,11 +2,78 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func jsonStr(s string) json.RawMessage { b, _ := json.Marshal(s); return b }
+
+func TestRecomputeInBandProvenance(t *testing.T) {
+	t.Parallel()
+	// No provenance fields -> attested (nil, nil).
+	if v, err := recomputeInBandProvenance(map[string]json.RawMessage{}); err != nil || v != nil {
+		t.Fatalf("no provenance must be (nil,nil), got v=%v err=%v", v, err)
+	}
+	// Valid: orig 2000 bytes -> 500 tok, final 1200 bytes -> 300 tok, saved 200.
+	raw := bytes.Repeat([]byte("x"), 2000)
+	fin := bytes.Repeat([]byte("y"), 1200)
+	sum := sha256.Sum256(raw)
+	m := map[string]json.RawMessage{
+		"orig_sha256":    jsonStr(hex.EncodeToString(sum[:])),
+		"orig_gzip_b64":  jsonStr(gzB64(raw)),
+		"final_gzip_b64": jsonStr(gzB64(fin)),
+	}
+	v, err := recomputeInBandProvenance(m)
+	if err != nil || v == nil {
+		t.Fatalf("valid provenance must verify, got v=%v err=%v", v, err)
+	}
+	if v.orig != 500 || v.saved != 200 {
+		t.Fatalf("recompute mismatch: orig=%d saved=%d want 500/200", v.orig, v.saved)
+	}
+	// Tamper: wrong sha -> fail closed.
+	m["orig_sha256"] = jsonStr("deadbeef")
+	if _, err := recomputeInBandProvenance(m); !errors.Is(err, errSidecarIntegrity) {
+		t.Fatalf("sha mismatch must be errSidecarIntegrity, got %v", err)
+	}
+	// final larger than orig -> fail closed.
+	m2 := map[string]json.RawMessage{"orig_gzip_b64": jsonStr(gzB64(fin)), "final_gzip_b64": jsonStr(gzB64(raw))}
+	if _, err := recomputeInBandProvenance(m2); !errors.Is(err, errSidecarIntegrity) {
+		t.Fatalf("final>orig must be errSidecarIntegrity, got %v", err)
+	}
+}
+
+func TestAggregateSessions_InBandProvenanceVerified(t *testing.T) {
+	t.Parallel()
+	raw := bytes.Repeat([]byte("x"), 2000)
+	fin := bytes.Repeat([]byte("y"), 1200)
+	sum := sha256.Sum256(raw)
+	line := `{"tokens":{"original":500,"final":300,"saved":200},` +
+		`"orig_sha256":"` + hex.EncodeToString(sum[:]) + `",` +
+		`"orig_gzip_b64":"` + gzB64(raw) + `","final_gzip_b64":"` + gzB64(fin) + `"}`
+	agg, err := AggregateSessions(strings.NewReader(line+"\n"), &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	if agg.inBandVerifiedSaved != 200 || agg.inBandVerifiedOrig != 500 {
+		t.Fatalf("verified in-band: got orig=%d saved=%d want 500/200", agg.inBandVerifiedOrig, agg.inBandVerifiedSaved)
+	}
+	if agg.inBandAttestedSaved != 0 {
+		t.Fatalf("a verified row must not also count as attested, got %d", agg.inBandAttestedSaved)
+	}
+	agg2, err := AggregateSessions(strings.NewReader(`{"tokens":{"original":100,"final":60,"saved":40}}`+"\n"), &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("aggregate2: %v", err)
+	}
+	if agg2.inBandVerifiedSaved != 0 || agg2.inBandAttestedSaved != 40 {
+		t.Fatalf("no-provenance row must be attested-only, got verified=%d attested=%d", agg2.inBandVerifiedSaved, agg2.inBandAttestedSaved)
+	}
+}
 
 const sampleJSONL = `{"req_id":"r1","ts":"2026-04-18T12:00:00Z","provider":"anthropic","model":"claude","total_messages":10,"messages_in_window":5,"layers_applied":[1],"tokens":{"original":1000,"after_layer0":1000,"after_layer1":700,"final":500,"saved":500,"ratio":0.5},"layer1_breakdown":{"dedup":{"blocks":2,"saved":150},"json_compact":{"blocks":1,"saved":100}},"cache_hit":false,"proxy_latency_ms":50}
 {"req_id":"r2","ts":"2026-04-18T12:00:05Z","provider":"openai","model":"gpt-4o","total_messages":6,"messages_in_window":4,"layers_applied":[3],"tokens":{"original":600,"after_layer0":600,"after_layer1":600,"final":600,"saved":0,"ratio":1.0},"layer1_breakdown":{},"cache_hit":true,"proxy_latency_ms":2}

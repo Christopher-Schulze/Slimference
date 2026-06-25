@@ -74,12 +74,18 @@ type CategoryMetadata struct {
 
 // CategoryResult is the per-category outcome of one gate evaluation.
 type CategoryResult struct {
-	Category                      string   `json:"category"`
-	Path                          string   `json:"path"`
-	Sessions                      int      `json:"sessions"`
-	Requests                      int      `json:"requests"`
-	OrigTokens                    int64    `json:"orig_tokens"`
-	SavedTokens                   int64    `json:"saved_tokens"`
+	Category    string `json:"category"`
+	Path        string `json:"path"`
+	Sessions    int    `json:"sessions"`
+	Requests    int    `json:"requests"`
+	OrigTokens  int64  `json:"orig_tokens"`
+	SavedTokens int64  `json:"saved_tokens"`
+	// In-band recompute split (§3.9): verified = re-derived from embedded
+	// request bytes; attested = self-reported tokens.saved (fabricatable).
+	InBandVerifiedOrigTokens      int64    `json:"in_band_verified_orig_tokens,omitempty"`
+	InBandVerifiedSavedTokens     int64    `json:"in_band_verified_saved_tokens,omitempty"`
+	InBandAttestedOrigTokens      int64    `json:"in_band_attested_orig_tokens,omitempty"`
+	InBandAttestedSavedTokens     int64    `json:"in_band_attested_saved_tokens,omitempty"`
 	SavingsRatio                  float64  `json:"savings_ratio"`
 	Layer0Saved                   int64    `json:"layer0_saved"`
 	Layer1Saved                   int64    `json:"layer1_saved"`
@@ -142,8 +148,19 @@ type CorpusReport struct {
 	// A/B proves real incrementality.
 	SLocalInBandOrigTokens  int64 `json:"slocal_inband_orig_tokens"`
 	SLocalInBandSavedTokens int64 `json:"slocal_inband_saved_tokens"`
-	SLocalL2OrigTokens      int64 `json:"slocal_l2_cmd_output_orig_tokens"`
-	SLocalL2SavedTokens     int64 `json:"slocal_l2_cmd_output_saved_tokens"`
+	// In-band recompute split (§3.9): verified is byte-recomputed and counts
+	// toward the unfabricatable recompute-verified floor; attested is
+	// self-reported and is NOT proven.
+	SLocalInBandVerifiedOrigTokens  int64 `json:"slocal_inband_verified_orig_tokens"`
+	SLocalInBandVerifiedSavedTokens int64 `json:"slocal_inband_verified_saved_tokens"`
+	SLocalInBandAttestedOrigTokens  int64 `json:"slocal_inband_attested_orig_tokens"`
+	SLocalInBandAttestedSavedTokens int64 `json:"slocal_inband_attested_saved_tokens"`
+	// RecomputeVerified* = the only unfabricatable number: in-band verified +
+	// L2 verified, both re-derived from embedded bytes.
+	RecomputeVerifiedOrigTokens  int64 `json:"recompute_verified_orig_tokens"`
+	RecomputeVerifiedSavedTokens int64 `json:"recompute_verified_saved_tokens"`
+	SLocalL2OrigTokens           int64 `json:"slocal_l2_cmd_output_orig_tokens"`
+	SLocalL2SavedTokens          int64 `json:"slocal_l2_cmd_output_saved_tokens"`
 	// Unverified L2 (self-reported, no recomputable bytes) — observed only,
 	// EXCLUDED from the trusted S_local number (AGENTS.md §3.8.1).
 	SLocalL2UnverifiedOrigTokens  int64                `json:"slocal_l2_unverified_orig_tokens"`
@@ -287,6 +304,10 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		Requests:                                agg.requests,
 		OrigTokens:                              agg.origTokens,
 		SavedTokens:                             agg.savedTokens,
+		InBandVerifiedOrigTokens:                agg.inBandVerifiedOrig,
+		InBandVerifiedSavedTokens:               agg.inBandVerifiedSaved,
+		InBandAttestedOrigTokens:                agg.inBandAttestedOrig,
+		InBandAttestedSavedTokens:               agg.inBandAttestedSaved,
 		SavingsRatio:                            ratio,
 		Layer0Saved:                             agg.layer0Saved,
 		Layer1Saved:                             agg.layer1Saved,
@@ -999,6 +1020,14 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 			report.RealCurrentLocalSavedTokens += res.SavedTokens
 			report.SLocalInBandOrigTokens += res.OrigTokens
 			report.SLocalInBandSavedTokens += res.SavedTokens
+			// In-band recompute split (§3.9): verified bytes-recomputed vs
+			// operator-attested self-reported.
+			report.SLocalInBandVerifiedOrigTokens += res.InBandVerifiedOrigTokens
+			report.SLocalInBandVerifiedSavedTokens += res.InBandVerifiedSavedTokens
+			report.SLocalInBandAttestedOrigTokens += res.InBandAttestedOrigTokens
+			report.SLocalInBandAttestedSavedTokens += res.InBandAttestedSavedTokens
+			report.RecomputeVerifiedOrigTokens += res.InBandVerifiedOrigTokens
+			report.RecomputeVerifiedSavedTokens += res.InBandVerifiedSavedTokens
 			if res.CommandOutputFirstSavedTokens > 0 {
 				// VERIFIED L2 only (recomputed from embedded raw bytes) counts
 				// toward the trusted S_local number (AGENTS.md §3.8.1).
@@ -1006,6 +1035,8 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 				report.RealCurrentLocalSavedTokens += res.CommandOutputFirstSavedTokens
 				report.SLocalL2OrigTokens += res.CommandOutputFirstOrigTokens
 				report.SLocalL2SavedTokens += res.CommandOutputFirstSavedTokens
+				report.RecomputeVerifiedOrigTokens += res.CommandOutputFirstOrigTokens
+				report.RecomputeVerifiedSavedTokens += res.CommandOutputFirstSavedTokens
 			}
 			if res.CommandOutputFirstUnverifiedSavedTokens > 0 {
 				// Observed only — self-reported L2 lines with no recomputable
@@ -1187,17 +1218,17 @@ func FormatCorpusReport(report CorpusReport) string {
 		// byte-recomputed; it is only as trustworthy as the operator attestation
 		// plus the per-line arithmetic guard. Do not present it as "proven".
 		verifiedRatio := 0.0
-		if report.SLocalL2OrigTokens > 0 {
-			verifiedRatio = float64(report.SLocalL2SavedTokens) / float64(report.SLocalL2OrigTokens) * 100
+		if report.RecomputeVerifiedOrigTokens > 0 {
+			verifiedRatio = float64(report.RecomputeVerifiedSavedTokens) / float64(report.RecomputeVerifiedOrigTokens) * 100
 		}
 		attestedRatio := 0.0
-		if report.SLocalInBandOrigTokens > 0 {
-			attestedRatio = float64(report.SLocalInBandSavedTokens) / float64(report.SLocalInBandOrigTokens) * 100
+		if report.SLocalInBandAttestedOrigTokens > 0 {
+			attestedRatio = float64(report.SLocalInBandAttestedSavedTokens) / float64(report.SLocalInBandAttestedOrigTokens) * 100
 		}
-		sb.WriteString(fmt.Sprintf("  recompute-verified (L2, byte-recomputed)   saved=%d orig=%d ratio=%.2f%%  [independently proven]\n",
-			report.SLocalL2SavedTokens, report.SLocalL2OrigTokens, verifiedRatio))
-		sb.WriteString(fmt.Sprintf("  operator-attested (in-band, self-reported) saved=%d orig=%d ratio=%.2f%%  [NOT byte-recomputed]\n",
-			report.SLocalInBandSavedTokens, report.SLocalInBandOrigTokens, attestedRatio))
+		sb.WriteString(fmt.Sprintf("  recompute-verified (in-band + L2, byte-recomputed) saved=%d orig=%d ratio=%.2f%%  [independently proven, unfabricatable]\n",
+			report.RecomputeVerifiedSavedTokens, report.RecomputeVerifiedOrigTokens, verifiedRatio))
+		sb.WriteString(fmt.Sprintf("  operator-attested (in-band, self-reported)         saved=%d orig=%d ratio=%.2f%%  [NOT byte-recomputed]\n",
+			report.SLocalInBandAttestedSavedTokens, report.SLocalInBandAttestedOrigTokens, attestedRatio))
 		// Per-source decomposition (shares of the blended headline).
 		writeRatio := func(label string, saved, orig int64) {
 			pct := 0.0
@@ -1381,6 +1412,7 @@ func runBenchmarkCorpus(args []string) int {
 	maxxCheck := false
 	realLocalMinRatio := 0.0
 	var realLocalMinSaved int64
+	var recomputeVerifiedMinSaved int64
 	var root string
 	for _, a := range args {
 		switch a {
@@ -1409,6 +1441,15 @@ func runBenchmarkCorpus(args []string) int {
 					return 2
 				}
 				realLocalMinSaved = value
+				continue
+			}
+			if strings.HasPrefix(a, "--recompute-verified-min=") {
+				value, err := parseInt64Flag(a, "--recompute-verified-min=")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "benchmark-corpus: %v\n", err)
+					return 2
+				}
+				recomputeVerifiedMinSaved = value
 				continue
 			}
 			if strings.HasPrefix(a, "--") {
@@ -1447,6 +1488,11 @@ func runBenchmarkCorpus(args []string) int {
 		gate := EvaluateRealLocalGate(report, realLocalMinRatio, realLocalMinSaved)
 		report.RealLocalGate = &gate
 	}
+	// Recompute-verified floor (§3.9): gates the only UNFABRICATABLE number —
+	// in-band + L2 savings re-derived from embedded bytes. 0 today (the committed
+	// corpus is content-free, no provenance); it rises only with real
+	// provenance-carrying captures, never by editing a fixture.
+	recomputeVerifiedFail := recomputeVerifiedMinSaved > 0 && report.RecomputeVerifiedSavedTokens < recomputeVerifiedMinSaved
 	if jsonOut {
 		s, err := CorpusReportJSON(report)
 		if err != nil {
@@ -1461,6 +1507,9 @@ func runBenchmarkCorpus(args []string) int {
 			return 1
 		}
 		if realLocalGateConfigured && !report.RealLocalGate.Passed {
+			return 1
+		}
+		if recomputeVerifiedFail {
 			return 1
 		}
 		if check {
@@ -1479,6 +1528,11 @@ func runBenchmarkCorpus(args []string) int {
 	}
 	if realLocalGateConfigured && !report.RealLocalGate.Passed {
 		fmt.Fprintf(os.Stdout, "benchmark-corpus real-local: FAIL on %s\n", root)
+		return 1
+	}
+	if recomputeVerifiedFail {
+		fmt.Fprintf(os.Stdout, "benchmark-corpus recompute-verified: FAIL on %s (verified saved=%d < min=%d)\n",
+			root, report.RecomputeVerifiedSavedTokens, recomputeVerifiedMinSaved)
 		return 1
 	}
 	if check {
