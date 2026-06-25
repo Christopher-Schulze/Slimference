@@ -364,7 +364,7 @@ func TestCompressWithSession_PropagatesSessionID(t *testing.T) {
 	c.cfg.SlidingWindow = 1
 	res := c.CompressWithSession("sess-PROP", msgs)
 	if res.TokensSaved == 0 && res.PreviewSaved == 0 {
-		t.Skip("no mutation; cannot verify session propagation")
+		t.Fatal("compressor produced no savings on a fixture designed to compress — a no-op regression must FAIL here, not skip (AGENTS.md §3.9.5)")
 	}
 	if c.activeSessionID != "" {
 		t.Fatalf("activeSessionID must be cleared after call, got %q", c.activeSessionID)
@@ -402,7 +402,7 @@ func TestPreviewPass_StampsArchiveIDWhenRecorderActive(t *testing.T) {
 	}}
 	saved := c.structurePreviewPass(msgs, 1)
 	if saved == 0 {
-		t.Skip("preview did not fire on fixture; archive stamping not exercised")
+		t.Fatal("structurePreviewPass produced no savings on a fixture designed to compress — archive-stamping regression must FAIL, not skip (AGENTS.md §3.9.5)")
 	}
 	if msgs[0].Content[0].ArchiveID == "" {
 		t.Fatal("expected ArchiveID to be stamped after preview mutation")
@@ -429,7 +429,7 @@ func TestCompressMessage_StampsArchiveIDOnLossyMutation(t *testing.T) {
 	c.cfg.SlidingWindow = 1
 	res := c.Compress(msgs)
 	if res.TokensSaved == 0 {
-		t.Skip("no compression on fixture; archive stamping branch not exercised")
+		t.Fatal("Compress produced no savings on a fixture designed to compress — archive-stamping regression must FAIL, not skip (AGENTS.md §3.9.5)")
 	}
 	stamped := false
 	for _, m := range res.Messages {

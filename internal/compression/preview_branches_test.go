@@ -32,7 +32,7 @@ func TestDetectOutputShape_jsonSampleTruncation(t *testing.T) {
 	sb.WriteString("]")
 	in := sb.String()
 	if len(in) <= 100_000 {
-		t.Skip("fixture too small to exercise truncation branch")
+		t.Fatalf("fixture must exceed 100k to exercise the truncation branch, got %d (AGENTS.md §3.9.5)", len(in))
 	}
 	// Even if the 100k slice is not a balanced JSON document, the
 	// function's fallthrough lands on the shapeUnknown path; the goal
@@ -70,7 +70,7 @@ func TestPreviewJSON_sampleTruncation(t *testing.T) {
 	sb.WriteString("]")
 	in := sb.String()
 	if len(in) <= 500_000 {
-		t.Skip("fixture too small to exercise truncation branch")
+		t.Fatalf("fixture must exceed 500k to exercise the truncation branch, got %d (AGENTS.md §3.9.5)", len(in))
 	}
 	_, _ = previewJSON(in)
 }

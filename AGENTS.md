@@ -679,6 +679,69 @@ plain language, which numbers are **independently verified**, which are
 any of these is itself a masking violation. When in doubt, distrust the green
 state and say so.
 
+### 3.9 Measurement Instrument Honesty — Enforced (Binding)
+
+Every measurement instrument (gate, report, analytics counter, status field,
+CLI number) is itself a place a lie can hide. The 2026-06-25 deep audit found
+that **nearly every savings instrument was self-reported and fabricatable** —
+only the coverage gate was recompute-clean. These rules make measurement honesty
+**structural and enforced**, not a matter of operator goodwill.
+
+**3.9.1 Three attestation tiers (mandatory classification).** Every reported
+number is exactly one of:
+- **recompute-verified** — independently re-derived by the instrument from
+  recoverable raw bytes (e.g. the L2 corpus gate recomputes input/output/saved
+  from embedded `input_sha256` + gzip raw/compacted). Only this tier may be
+  called **proven / trusted**.
+- **operator-attested** — self-reported counts the instrument cannot recompute
+  (e.g. in-band session `tokens.saved`, the L1 sidecar, `slimference gain`,
+  `status` counters). Must be **labeled** as self-reported and never presented as
+  proven. The live corpus is content-free by design (`docs/live-corpus-policy.md`),
+  so most corpus numbers are this tier.
+- **observed-only / excluded** — native or non-incremental behavior (provider
+  cache, Codex-native `previous_response_id`, unverifiable legacy fixtures).
+  Reported separately, never in the trusted number.
+
+An instrument that emits a savings/quality number MUST make its tier explicit in
+its own output. Presenting an operator-attested or observed number as proven is a
+§3.8 masking violation.
+
+**3.9.2 Fail-closed metadata (no upgrade by omission).** Omitting a field must
+never raise a category's trust. Absent `evidence_level` → `unattested` (not
+`live_operator`); absent `current_product_path` → `false`; missing provenance →
+`unverified`/excluded. Any "absent → strongest tier" default is a fabrication
+vector and is forbidden. Proven by negative-control tests
+(`TestIsCurrentProductPath_FailsClosed`, `TestNormalizeEvidenceLevel_FailsClosed`).
+
+**3.9.3 No fabricatable CI gate.** The single CI S_local gate (§3.7 rule 1) must
+gate on numbers that cannot be raised by editing a fixture, a metadata field, or
+a user-writable DB. Its floor may be raised **only** on recompute-verified mass.
+The recompute-verified subtotal (currently 0 on the committed content-free
+corpus) is the only floor that is unfabricatable; grow it with real
+provenance-carrying captures, never by appending self-reported numbers. Gates
+whose pass condition is satisfiable by metadata defaulting (the removed
+promotion/maxx "real sessions" count) must not gate CI until they are
+provenance-bound.
+
+**3.9.4 No mislabeling.** Never label bytes as tokens, observed as saved, a
+compaction-positive-only denominator as representative, or native economics as
+`S_local`. `slimference gain` / `status` / `aggregate-savings` numbers are
+operator-attested estimates and must be labeled as such wherever shown.
+
+**3.9.5 Every instrument ships its own negative control.** A new or changed
+measurement instrument is not done until it has a test that **fails when the
+measured behavior breaks** (and a tamper test where provenance exists, e.g.
+`TestEvaluateCorpus_CommandOutputFirstTamperRejected`). A test that `t.Skip`s on
+the very condition a regression would trigger (e.g. "skip if savings == 0") is a
+§3.8.1 masking pattern and is forbidden — guarantee the fixture exercises the
+path, or `t.Fatal`.
+
+**3.9.6 Periodic enforced reality check.** At the start of every phase and before
+any savings claim, re-derive the headline from source and restate its tier. A
+green gate on an operator-attested or unverifiable number is worth nothing
+(§0.8). When an instrument cannot be made recompute-bound yet, say so explicitly
+and keep its number out of the trusted product figure.
+
 ## 4. New Product Features: Always-On-Safe or Do Not Build
 
 New savings/product mechanisms are built only when they are **default-on** for
