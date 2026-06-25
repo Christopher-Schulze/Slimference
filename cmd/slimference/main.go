@@ -2783,6 +2783,8 @@ func handleGainProxy(period string, flags gainCLIFlags) {
 	}
 	fmt.Printf("Proxy flight gain (%s)\n", period)
 	fmt.Println(strings.Repeat("-", 50))
+	fmt.Println("Self-reported estimates (not recompute-verified). Provider-cache and")
+	fmt.Println("native server-state are native economics, not Slimference-incremental (§3.9.4).")
 	fmt.Printf("Requests:                       %d\n", report.Requests)
 	fmt.Printf("Provider-reported requests:      %d\n", report.ProviderReportedRequests)
 	fmt.Printf("Provider input tokens:           %s\n", formatTokensPlain(report.ProviderInputTokens))

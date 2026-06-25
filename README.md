@@ -191,26 +191,45 @@ output, JSON/log compaction, archive-backed tool references, and provider cache
 alignment. Actual savings depend on workflow shape and should be measured with
 the built-in reports.
 
-## Expected Savings
+> Note: this "Layer 0-3" table is the internal request-pipeline taxonomy and
+> does **not** map 1:1 to the savings-architecture taxonomy in `AGENTS.md` §10.2
+> (`L1` = native server-state, excluded; `L2` = command-output-first shim; `L3` =
+> WSS history mutation). "Layer 2 = provider-cache leverage" here is **native
+> economics**, not a Slimference-incremental saving. AGENTS.md is canonical.
 
-Savings are reported per routed Codex session and split by source: local input
-reduction, provider-cache effects, output-wire accounting, and tool-surface
-pruning. Route matters; one global savings band would be misleading.
+## Expected Savings (honest, recompute-verified posture)
 
-| Route / session shape | Current measured posture | What to expect |
-|---|---:|---|
-| Scoped HTTP Codex CLI fallback | Strong local reducer path; latest real-shaped CLI corpus: 22.22% local input reduction and 72.93% combined saved with provider-cache discount | Best current local-reduction fallback for CLI workloads that tolerate HTTP transport |
-| Scoped WSS Codex CLI | Standard target route; latest real-shaped CLI corpus: 6.10% local input reduction and 75.63% combined saved, mostly provider-cache dominated | Delta turns stay byte-preserved unless state-safe; full-history/non-delta rows can still save sharply |
-| Scoped Codex Desktop app-server | Route proven on 2026-06-12 with 9 Phase-F requests, 0 parser/degrade/compression/upstream errors, 0 full-history reconnects, and 0 local mutation in that prompt | Desktop route is real; Desktop savings require workload shapes that trigger safe reducers |
-| Hook / non-WSS deterministic tool output | Historically strongest local reducer surface on repeated tool output | High savings when hooks see repeated reads/search/test/git/log bytes |
-| Short one-off prompt | Low local savings | Little repeated context means little deterministic waste |
+We report what is independently provable, not what looks best. Two numbers must
+never be conflated:
 
-Layer contributions overlap and are not additive. Local input reduction,
-provider-cache discount, and output/tool-surface savings are shown separately in
-`slimference savings`; `S_combined` is the session-level number that includes
-provider-cache economics and negative retry costs. The broad 25-70% figures are
-targets for route/workload classes that actually exercise the reducers, not a
-promise for every WSS/Desktop prompt.
+- **`S_local` — Slimference-incremental local input reduction.** This is the
+  only number that measures what Slimference itself removes. The honest,
+  recompute-verified figure today is **modest: ~6% in-band per request**
+  (operator-attested on the checked-in corpus; the corpus is content-free, so
+  most of it is self-reported, not yet byte-recomputed). The real lever behind
+  this — command-output compaction (the L2 shim) — is genuine and archive-backed,
+  but its gate-counted mass is being rebuilt under a recompute-bound gate, so the
+  trusted number is deliberately conservative.
+- **`S_combined` — billable economics including provider cache.** The large
+  numbers you may have seen (70-76% "combined") are **dominated by provider-cache
+  discount and by Codex's own native `previous_response_id` server-state
+  continuation** — i.e. economics Codex gives you with or without Slimference.
+  These are **not** Slimference savings and are reported strictly separately.
+
+What this means per route:
+
+| Route / surface | Honest status |
+|---|---|
+| Scoped Codex CLI (WSS, production transport) | L2 command-output shim runs and compacts shell/tool output (archive-recoverable). In-transit WSS frame mutation currently delivers ~0 (guards block delta turns). |
+| Scoped Codex CLI (HTTP) | Research/bridge transport only, not the production target; its numbers are not the product figure. |
+| Scoped Codex Desktop app | Routing works, but the L2 command-output shim does **not** run on Desktop yet, so Desktop `S_local` is ~0 today. |
+| Native `previous_response_id` continuation (L1) | **Codex-native, excluded** from `S_local` — not a Slimference saving. |
+| Provider prompt cache | Native economics, reported as `S_combined`, never as `S_local`. |
+
+Earlier "22-76%" / "25-70%" figures were produced by a measurement gate that
+trusted self-reported counts, counted native provider-cache/server-state as
+savings, and used curated high-compaction denominators. They have been retired.
+See `docs/savings-ledger.md` for the honest current state and the rebuild path.
 
 ## Design Boundaries
 

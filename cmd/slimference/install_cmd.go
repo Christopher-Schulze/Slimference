@@ -397,7 +397,9 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		fmt.Fprintf(p.Out, "      %-20s enabled=%v detected=%v routed=%d bypassed=%d\n",
 			a.ID, a.Enabled, a.Detected, a.Routed, a.Bypassed)
 	}
-	fmt.Fprintf(p.Out, "  Savings  output_tokens_saved=%d streamcut_fires=%d repdet=%d\n",
+	// output_tokens_saved is a self-reported byte-derived estimate (not a
+	// recompute-verified product figure, AGENTS.md §3.9.4).
+	fmt.Fprintf(p.Out, "  Savings  output_tokens_saved=%d streamcut_fires=%d repdet=%d (self-reported est.)\n",
 		s.Savings.OutputTokensSaved, s.Savings.StreamcutFires, s.Savings.RepdetRewrites)
 	if len(s.Preflight.DoH) > 0 {
 		fmt.Fprintln(p.Out, "  Preflight")

@@ -1,5 +1,10 @@
 # Slimference - Architecture Map
 
+> Note (2026-06-25): the "Layer 0-3" / "Layer 2 = provider-cache" framing below is
+> the internal pipeline taxonomy. Provider cache is **native economics**, not a
+> Slimference-incremental saving; the canonical savings taxonomy is AGENTS.md
+> §10.2 (`L1/L2/L3`). For honest savings numbers see `docs/savings-ledger.md`.
+
 Last updated: 2026-06-05
 
 ## Module

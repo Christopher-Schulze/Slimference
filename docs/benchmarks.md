@@ -1,5 +1,15 @@
 # Benchmarks
 
+> **SUPERSEDED ON NUMBERS (2026-06-25).** The savings figures here (42.07%,
+> 57.14%, `local_billable_input_tokens_saved=1,048,433`, per-workload saved-token
+> rows, "51 real sessions") are self-reported counts from the old
+> trust-without-recompute gate; the gate summed sidecar `saved_tokens` and
+> defaulted unattested categories to "real". They are not recompute-verified. The
+> honest recompute-verified S_local from the committed corpus is **0**; the
+> representative operator-attested in-band figure is **~6.05%** (AGENTS.md §3.9,
+> `docs/savings-ledger.md`). Promotion/Maxx "real session" counts were inflated by
+> metadata defaulting and were removed from CI.
+
 Date: 2026-06-14
 Release target: v0.6.0
 

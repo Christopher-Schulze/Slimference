@@ -1,5 +1,16 @@
 # Live corpus policy
 
+> **HONESTY UPDATE (2026-06-25).** This corpus is **operator-attested, not
+> recompute-verified** — it is content-free by design, so its `tokens.saved`
+> counts cannot be independently re-derived and are fabricatable (the §3.7.6
+> fixture-inflation incident happened here). A corpus row counts toward the
+> **trusted** S_local number only when it carries recomputable provenance
+> (`input_sha256` + `raw_gzip_b64` + `compacted_gzip_b64`); otherwise it is
+> operator-attested or excluded (AGENTS.md §3.9). The `expected_savings`
+> 0.30-0.80 bands below were calibrated to the old inflated numbers and do **not**
+> reflect the honest ~6% in-band reality; treat them as legacy until recalibrated
+> against recompute-verified mass.
+
 This file governs what may and may not enter `tests/fixtures/live_corpus/`. The corpus is the only ground truth Slimference's savings claims rest on, so the privacy and provenance rules are strict.
 
 ## What the corpus is for

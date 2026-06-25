@@ -1,5 +1,19 @@
 # Slimference - Technical Documentation
 
+> **SUPERSEDED ON SAVINGS NUMBERS (2026-06-25).** Every savings percentage and
+> absolute "saved tokens" figure in this 2026-06-14 document (e.g. 22.22% /
+> 72.93% / 75.63%, 36,533 / 1,048,433 saved tokens, "proven product bulk",
+> Desktop "proven") was produced by the old trust-without-recompute gate and
+> includes native provider-cache + native `previous_response_id` (L1) economics.
+> They are **not** recompute-verified Slimference-incremental savings. The honest,
+> recompute-verified figure is **~6.05% in-band** (itself operator-attested);
+> recompute-verified from the committed corpus is **0** (AGENTS.md §3.7.7/§3.8/§3.9,
+> `docs/savings-ledger.md`). L1 server-state continuation is Codex-native and
+> excluded. Desktop *routing* works but the L2 command-output shim is CLI-only, so
+> Desktop *savings* are ~0. The mechanism/architecture descriptions remain valid;
+> only the magnitudes are stale. The "Layer 0-3" naming differs from the canonical
+> AGENTS.md §10.2 `L1/L2/L3` taxonomy.
+
 Version: 0.6.0
 Last updated: 2026-06-14
 
