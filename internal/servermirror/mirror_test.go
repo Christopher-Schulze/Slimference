@@ -130,6 +130,63 @@ func TestMirror_NormalizedCodexExecPayloadPredictsThroughVolatileHeader(t *testi
 	}
 }
 
+// TestMirror_FullHistoryResendSizing is the proof-gate-step-1 sizing for the
+// server-state mutation lever (new-servermirror-mutation-ultra.md): on a
+// FULL-HISTORY resend (the lever's only real surface — delta turns resend
+// ~nothing via native previous_response_id continuation), how much of the
+// resent history is normalized-referenceable, i.e. the validated upper bound the
+// mutation step could substitute? It also confirms WHY whole-block mirroring
+// predicts ~0 (volatile per-call exec envelopes), so the normalized-segment path
+// is the only viable one. No mutation here (that is hard-blocked on the
+// stateless-detach keystone apply); this sizes the opportunity.
+func TestMirror_FullHistoryResendSizing(t *testing.T) {
+	t.Parallel()
+	m := New()
+	const k = 8
+	body := func(i int) string {
+		return strings.Repeat("stable tool output line for command "+string(rune('A'+i))+"\n", 30)
+	}
+	envelope := func(chunkID, b string) string {
+		// Volatile per-call exec header (changes every turn) + stable body.
+		return "Chunk ID: " + chunkID + "\nWall time: 0.1234 seconds\nProcess exited with code 0\nOutput:\n" + b
+	}
+	// K prior tool outputs were each forwarded to the server on earlier turns.
+	var stableBytes int
+	for i := 0; i < k; i++ {
+		m.Observe("s", msg(envelope("obs-"+string(rune('A'+i)), body(i))))
+		stableBytes += len(body(i))
+	}
+	// Full-history resend turn: all K prior outputs reappear with NEW volatile
+	// headers (so whole-block hashing cannot match them) plus one genuinely new
+	// output the server has never seen.
+	resent := make([]string, 0, k+1)
+	for i := 0; i < k; i++ {
+		resent = append(resent, envelope("resend-"+string(rune('A'+i)), body(i)))
+	}
+	newBody := strings.Repeat("brand new never-forwarded output\n", 30)
+	resent = append(resent, envelope("resend-NEW", newBody))
+
+	rep := m.Predict("s", msg(resent...))
+
+	// Whole-block predicts ~0: the volatile envelopes make every block non-identical.
+	if rep.PotentialSavedBytes != 0 {
+		t.Fatalf("whole-block mirroring must predict 0 through volatile envelopes, got %d", rep.PotentialSavedBytes)
+	}
+	// Normalized predicts exactly the K stable bodies (the new one is not referenceable).
+	if rep.NormalizedReferenceableSegments != k {
+		t.Fatalf("normalized must reference exactly the %d resent stable bodies, got %d", k, rep.NormalizedReferenceableSegments)
+	}
+	if rep.NormalizedPotentialSavedBytes != stableBytes {
+		t.Fatalf("normalized referenceable bytes = %d, want %d (sum of K stable bodies)", rep.NormalizedPotentialSavedBytes, stableBytes)
+	}
+	if rep.NormalizedPotentialSavedBytes <= rep.PotentialSavedBytes {
+		t.Fatalf("normalized path must beat whole-block on a full-history resend")
+	}
+	ratio := float64(rep.NormalizedPotentialSavedBytes) / float64(rep.NormalizedBytes)
+	t.Logf("full-history resend sizing: normalized referenceable %d / %d bytes (%.1f%%) across %d/%d segments; whole-block %d",
+		rep.NormalizedPotentialSavedBytes, rep.NormalizedBytes, ratio*100, rep.NormalizedReferenceableSegments, rep.NormalizedSegments, rep.PotentialSavedBytes)
+}
+
 func TestMirror_NormalizedCodexExecPayloadClassifiesCommandFamily(t *testing.T) {
 	t.Parallel()
 	m := New()
